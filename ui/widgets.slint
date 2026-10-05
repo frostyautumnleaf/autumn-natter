@@ -1,0 +1,248 @@
+// Small reusable widgets. They use the autumn palette from Theme.
+import { Theme } from "theme.slint";
+
+// A short help text that opens when the pointer rests on the question mark.
+export component Tip inherits Rectangle {
+    in property <string> text;
+
+    width: 16px;
+    height: 16px;
+
+    Image {
+        source: @image-url("../assets/icons/tooltip.svg");
+        colorize: area.has-hover ? Theme.accent : Theme.text-dim;
+        width: 15px;
+        height: 15px;
+        x: 0;
+        y: 0;
+    }
+
+    area := TouchArea {
+        width: 16px;
+        height: 16px;
+        changed has-hover => {
+            if (self.has-hover && root.text != "") {
+                help.show();
+            }
+        }
+    }
+
+    help := PopupWindow {
+        x: parent.width + 6px;
+        y: -6px;
+        width: 270px;
+        height: note.preferred-height + 18px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            width: 100%;
+            height: 100%;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Theme.line;
+            background: Theme.surface-alt;
+
+            note := Text {
+                x: 9px;
+                y: 9px;
+                width: parent.width - 18px;
+                text: root.text;
+                wrap: word-wrap;
+                color: Theme.text;
+                font-size: 12px;
+            }
+        }
+    }
+}
+
+// A square button with one icon.
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> tip: "";
+    in property <color> glyph: Theme.text-dim;
+    in property <color> base: transparent;
+    in property <bool> enabled: true;
+    in property <bool> selected: false;
+    in property <length> glyph-size: 17px;
+
+    callback clicked();
+
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: selected ? Theme.tint : (area.has-hover ? Theme.hover : base);
+
+    Image {
+        source: icon;
+        colorize: enabled ? (selected ? Theme.accent-strong : glyph) : Theme.text-dim;
+        width: glyph-size;
+        height: glyph-size;
+        image-fit: contain;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+
+    Tip {
+        text: tip;
+        visible: tip != "";
+        x: parent.width - 14px;
+        y: -4px;
+    }
+}
+
+// A small rounded label, for example "GGUF" or "Safetensors".
+export component Pill inherits Rectangle {
+    in property <string> text;
+    in property <bool> has-icon: false;
+    in property <image> icon;
+    in property <color> fg: Theme.accent-strong;
+    in property <color> bg: Theme.tint;
+    in property <bool> strong: false;
+
+    callback clicked();
+
+    border-radius: 7px;
+    background: bg;
+    horizontal-stretch: 0;
+
+    HorizontalLayout {
+        padding-left: 7px;
+        padding-right: 7px;
+        padding-top: 3px;
+        padding-bottom: 3px;
+        spacing: 5px;
+
+        Image {
+            source: icon;
+            colorize: fg;
+            width: 13px;
+            height: 13px;
+            visible: root.has-icon;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.text;
+            color: fg;
+            font-size: 11px;
+            font-weight: strong ? 600 : 400;
+            vertical-alignment: center;
+        }
+    }
+
+    TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A toggle badge inside the composer. It shows an icon and a word.
+export component Badge inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> active: false;
+    in property <string> tip: "";
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    height: 26px;
+    border-radius: 13px;
+    border-width: 1px;
+    border-color: active ? Theme.accent : Theme.line;
+    background: active ? Theme.tint : transparent;
+
+    HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 10px;
+        spacing: 6px;
+
+        Image {
+            source: icon;
+            colorize: !enabled ? Theme.text-dim : (active ? Theme.accent-strong : Theme.text-dim);
+            width: 14px;
+            height: 14px;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.text;
+            color: !enabled ? Theme.text-dim : (active ? Theme.accent-strong : Theme.text-dim);
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+
+    Tip {
+        text: tip;
+        visible: tip != "";
+        x: 0;
+        y: -20px;
+    }
+}
+
+// A caption with a help icon. It sits above a control.
+export component FieldLabel inherits Rectangle {
+    in property <string> text;
+    in property <string> tip: "";
+
+    height: 20px;
+
+    HorizontalLayout {
+        spacing: 6px;
+
+        Text {
+            text: root.text;
+            color: Theme.text;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+        Tip {
+            text: tip;
+            visible: tip != "";
+        }
+    }
+}
+
+// A caption with a rule. It splits a form into blocks.
+export component Section inherits Rectangle {
+    in property <string> text;
+
+    height: 24px;
+    width: 100%;
+
+    HorizontalLayout {
+        spacing: 8px;
+        cross-axis-alignment: center;
+
+        Text {
+            text: root.text;
+            color: Theme.accent-strong;
+            font-size: 12px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            height: 1px;
+            background: Theme.line;
+        }
+    }
+}

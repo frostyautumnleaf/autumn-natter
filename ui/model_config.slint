@@ -1,0 +1,344 @@
+// Configuration window for one model.
+// Every setting maps to a command line argument of llama-server.
+import { Theme } from "theme.slint";
+import { GpuRow } from "types.slint";
+import { FieldLabel, Section, Tip } from "widgets.slint";
+import { ComboBox, SpinBox, Switch, Slider, LineEdit, TextEdit, ScrollView } from "std-widgets.slint";
+
+export component ModelConfigWindow inherits Window {
+    title: "Model configuration";
+    width: 600px;
+    height: 720px;
+    background: Theme.bg;
+    default-font-size: 13px;
+
+    in property <string> model-name: "";
+    in property <string> model-kind: "";
+    in property <string> model-path: "";
+    in property <string> server-text: "";
+
+    in property <[string]> kv-options;
+    in property <[string]> spec-options;
+    in property <[string]> load-options;
+
+    in-out property <int> ctx-size: 8192;
+    in-out property <int> kv-index: 1;
+    in-out property <int> spec-index: 0;
+    in-out property <string> draft-model: "";
+    in-out property <int> draft-tokens: 4;
+    in-out property <int> parallel: 1;
+    in-out property <int> batch-size: 512;
+    in-out property <int> ubatch-size: 128;
+    in-out property <bool> tensor-parallel: false;
+    in-out property <bool> vision: false;
+    in-out property <int> reasoning-budget: -1;
+    in-out property <string> reasoning-message: "";
+    in-out property <int> load-index: 0;
+    in-out property <string> extra-args: "";
+
+    in property <[GpuRow]> gpus;
+    in property <float> vram-total: 0;
+    in-out property <float> vram-budget: 0;
+
+    callback apply();
+    callback close-window();
+    callback toggle-gpu(id: int, enabled: bool);
+
+    VerticalLayout {
+        spacing: 0;
+
+        // Header with the model name and its file type.
+        Rectangle {
+            height: 54px;
+            background: Theme.surface;
+
+            // Hairline below the header.
+            Rectangle {
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 10px;
+
+                Text {
+                    text: model-name;
+                    color: Theme.text;
+                    font-size: 15px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: model-kind;
+                    color: Theme.accent-strong;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        ScrollView {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                Section { text: "Context and batching"; }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Context length"; tip: "Total number of tokens the server keeps in memory for all messages of all chats. A larger value needs more memory."; width: 190px; }
+                    SpinBox { minimum: 256; maximum: 2097152; step-size: 256; value <=> root.ctx-size; horizontal-stretch: 1; }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "KV cache type"; tip: "Data type of the key and value cache. A smaller type uses less memory and can lower accuracy."; width: 190px; }
+                    ComboBox { model <=> root.kv-options; current-index <=> root.kv-index; horizontal-stretch: 1; }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Batch size"; tip: "Number of prompt tokens the server gives to the GPU at one time."; width: 190px; }
+                    SpinBox { minimum: 16; maximum: 65536; step-size: 32; value <=> root.batch-size; horizontal-stretch: 1; }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Micro batch size (ubatch)"; tip: "Number of tokens the GPU computes in one step. A smaller value uses less memory."; width: 190px; }
+                    SpinBox { minimum: 8; maximum: 65536; step-size: 16; value <=> root.ubatch-size; horizontal-stretch: 1; }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Parallel slots"; tip: "Number of chats the server answers at the same time. Each slot takes a part of the context."; width: 190px; }
+                    SpinBox { minimum: 1; maximum: 32; value <=> root.parallel; horizontal-stretch: 1; }
+                }
+
+                Section { text: "Acceleration"; }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Tensor parallelism"; tip: "Split the model weights and the cache over several GPUs. Turn this off to keep the model on one device."; width: 190px; }
+                    Switch { checked <=> root.tensor-parallel; horizontal-stretch: 1; }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Vision (vision projector)"; tip: "Load the multimodal projector file so the model can read images. The server only does this when a projector file exists next to the model."; width: 190px; }
+                    Switch { checked <=> root.vision; horizontal-stretch: 1; }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Load mode"; tip: "How the server reads the model file: none, mmap, mlock, mmap+mlock, or directio."; width: 190px; }
+                    ComboBox { model <=> root.load-options; current-index <=> root.load-index; horizontal-stretch: 1; }
+                }
+
+                Section { text: "Speculative decoding"; }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Method"; tip: "Generate several tokens ahead and then check them with the main model. This can answer faster. None turns it off."; width: 190px; }
+                    ComboBox { model <=> root.spec-options; current-index <=> root.spec-index; horizontal-stretch: 1; }
+                }
+
+                if spec-index > 0: HorizontalLayout {
+                    spacing: 10px;
+                    FieldLabel { text: "Draft model"; tip: "Path of the draft model file. Leave it empty to use the built in ngram method."; width: 190px; }
+                    LineEdit { text <=> root.draft-model; placeholder-text: "/path/to/draft-model.gguf"; horizontal-stretch: 1; }
+                }
+
+                if spec-index > 0: HorizontalLayout {
+                    spacing: 10px;
+                    FieldLabel { text: "Draft tokens"; tip: "How many tokens the draft model suggests before the main model checks them."; width: 190px; }
+                    SpinBox { minimum: 1; maximum: 32; value <=> root.draft-tokens; horizontal-stretch: 1; }
+                }
+
+                Section { text: "Reasoning"; }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Reasoning budget"; tip: "Largest number of thinking tokens for one answer. -1 means no limit. 0 stops thinking."; width: 190px; }
+                    SpinBox { minimum: -1; maximum: 2097152; step-size: 64; value <=> root.reasoning-budget; horizontal-stretch: 1; }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Reasoning budget message"; tip: "Text the server adds when the thinking budget runs out. Leave it empty for no text."; width: 190px; }
+                    LineEdit { text <=> root.reasoning-message; placeholder-text: "optional"; horizontal-stretch: 1; }
+                }
+
+                Section { text: "Devices"; }
+
+                if gpus.length == 0: Text {
+                    text: "No GPU was found. The model runs on the CPU.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                }
+
+                for g in gpus: HorizontalLayout {
+                    spacing: 10px;
+                    Image {
+                        source: @image-url("../assets/icons/gpu.svg");
+                        colorize: g.enabled ? Theme.accent : Theme.text-dim;
+                        width: 16px;
+                        height: 16px;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: g.name;
+                        color: Theme.text;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: g.memory;
+                        color: Theme.text-dim;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                    Switch {
+                        checked: g.enabled;
+                        toggled => { root.toggle-gpu(g.id, !g.enabled); }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+
+                cross-axis-alignment: center;
+                    FieldLabel { text: "Total VRAM budget"; tip: "Video memory the model may use. Autumn Natter keeps the rest free for other programs."; width: 190px; }
+                    Slider {
+                        minimum: 0;
+                        maximum: vram-total > 0 ? vram-total : 1;
+                        step: 128;
+                        value <=> root.vram-budget;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: vram-budget <= 0 ? "auto" : Math.round(vram-budget) + " MiB";
+                        color: Theme.text;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        width: 74px;
+                    }
+                }
+
+                Section { text: "Advanced"; }
+
+                FieldLabel { text: "Extra arguments for llama.cpp"; tip: "More command line arguments for llama-server. Separate them with a space. They go last, so they win over the settings above."; }
+                TextEdit {
+                    height: 74px;
+                    wrap: word-wrap;
+                    font-family: "monospace";
+                    font-size: 12px;
+                    placeholder-text: "--flash-attn on --no-warmup";
+                    text <=> root.extra-args;
+                }
+
+                Text {
+                    text: server-text;
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        // Buttons.
+        Rectangle {
+            height: 56px;
+            background: Theme.surface;
+
+            // Hairline above the buttons.
+            Rectangle {
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            HorizontalLayout {
+                    cross-axis-alignment: center;
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 10px;
+
+                Text {
+                    text: "Save restarts the server on the next message.";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Rectangle {
+                    height: 32px;
+                    width: close-lbl.preferred-width + 28px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    background: close-area.has-hover ? Theme.hover : Theme.surface;
+
+                    close-lbl := Text {
+                        text: "Close";
+                        color: Theme.text;
+                        font-size: 13px;
+                        x: 14px;
+                        vertical-alignment: center;
+                    }
+                    close-area := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.close-window(); }
+                    }
+                }
+                Rectangle {
+                    height: 32px;
+                    width: apply-lbl.preferred-width + 28px;
+                    border-radius: 8px;
+                    background: apply-area.has-hover ? Theme.accent-warm : Theme.accent;
+
+                    apply-lbl := Text {
+                        text: "Save and apply";
+                        color: Theme.on-accent;
+                        font-size: 13px;
+                        x: 14px;
+                        vertical-alignment: center;
+                    }
+                    apply-area := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.apply(); }
+                    }
+                }
+            }
+        }
+    }
+}

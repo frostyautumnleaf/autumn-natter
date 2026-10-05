@@ -1,0 +1,44 @@
+// Row structures that the Rust code passes to the UI.
+
+// One entry of the model selector.
+export struct ModelRow {
+    id: string,
+    name: string,
+    kind: string,
+    active: bool,
+}
+
+// One entry of the repository selector.
+export struct RepoRow {
+    id: string,
+    name: string,
+    path: string,
+}
+
+// One entry of the chat list.
+export struct ChatRow {
+    id: string,
+    title: string,
+    repo: string,
+    when: string,
+    active: bool,
+}
+
+// One message between the user and the model, or one tool result.
+export struct MessageRow {
+    id: string,
+    role: string,
+    body: string,
+    tool: string,
+    mono: bool,
+    failed: bool,
+    when: string,
+}
+
+// One graphics device of the system.
+export struct GpuRow {
+    id: int,
+    name: string,
+    memory: string,
+    enabled: bool,
+}

@@ -1,0 +1,38 @@
+// Colour palette for Autumn Natter.
+// Light mode is the default. Settings can switch the window to dark mode.
+export global Theme {
+    // True selects the dark palette.
+    in property <bool> dark: false;
+
+    // Main window and chat background.
+    out property <color> bg: dark ? #141414 : #faf2e6;
+    // Raised surfaces: cards, popups, the composer box.
+    out property <color> surface: dark ? #1b1b1b : #fff9f0;
+    // Secondary surface: hover, selected rows, code blocks.
+    out property <color> surface-alt: dark ? #242424 : #f3e7d5;
+    // Hairlines and borders.
+    out property <color> line: dark ? #342f2a : #e2d2b9;
+    // Main text colour.
+    out property <color> text: dark ? #f2ebe2 : #231a11;
+    // Secondary text colour.
+    out property <color> text-dim: dark ? #a4998c : #7b6a57;
+    // Soft autumn tint for selected items.
+    out property <color> tint: dark ? #2c1d10 : #fbe6d1;
+    // Text drawn on top of an accent colour.
+    out property <color> on-accent: #faf2e6;
+    // Hover colour for buttons and rows.
+    out property <color> hover: dark ? #2a2a2a : #f8ecd9;
+
+    // Autumn accents.
+    out property <color> accent: #ED7401;
+    out property <color> accent-warm: #DF6101;
+    out property <color> accent-strong: #C53C01;
+    out property <color> accent-leaf: #AC4422;
+    out property <color> accent-deep: #AF2600;
+
+    // Bubble for the user message and for the assistant message.
+    out property <color> bubble-user: dark ? #2b1c10 : #fbe6d1;
+    out property <color> bubble-assistant: dark ? #1f1f1f : #ffffff;
+    // Colour for a failed tool run.
+    out property <color> danger: #AF2600;
+}

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Autumn Natter icon. Monochrome shape, transparent background.
+     The application tints it with the Slint Image colorize property. -->
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <path d="M3 6.8 A1.6 1.6 0 0 1 4.6 5.2 H9 L11 7.6 H19.4 A1.6 1.6 0 0 1 21 9.2 V17.6 A1.6 1.6 0 0 1 19.4 19.2 H4.6 A1.6 1.6 0 0 1 3 17.6 Z" stroke="#000" stroke-width="1.9" stroke-linejoin="round"/>
+</svg>

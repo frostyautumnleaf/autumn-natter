@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autumn Natter</title>
+<style>
+:root {
+  --bg: #faf2e6; --surface: #fffbf4; --line: #e6d9c7; --text: #2a2118; --dim: #7b6a5a;
+  --accent: #ED7401; --strong: #C53C01; --ink: #AC4422; --warm: #DF6101; --deep: #AF2600;
+  --tint: #fbe6d2;
+}
+body.dark {
+  --bg: #141414; --surface: #1c1917; --line: #342c24; --text: #f1e7d9; --dim: #a3927f;
+  --tint: #2b1d12;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, "Segoe UI", sans-serif;
+  display: flex; flex-direction: column;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+select, input, textarea {
+  font: inherit; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+}
+:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.grow { flex: 1 1 auto; }
+
+/* Top bar: model, repository, chat name and the context meter. */
+.top {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 12px; background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.logo { width: 22px; height: 22px; }
+.name { font-weight: 600; color: var(--strong); }
+.ctl { display: flex; align-items: center; gap: 5px; }
+.tag {
+  font-size: 11px; color: var(--dim); border: 1px solid var(--line);
+  border-radius: 999px; padding: 1px 7px;
+}
+.title { color: var(--text); font-size: 13px; max-width: 30ch; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.ctx { min-width: 140px; font-size: 12px; color: var(--dim); }
+.bar { display: block; height: 4px; margin-top: 3px; border-radius: 2px;
+  background: var(--line); overflow: hidden; }
+.fill { display: block; height: 100%; background: var(--accent); }
+
+/* Chat list and messages. */
+.main { flex: 1 1 auto; display: flex; min-height: 0; }
+.side { width: 232px; padding: 10px; border-right: 1px solid var(--line);
+  overflow-y: auto; background: var(--surface); }
+.newchat, .chat { display: block; width: 100%; text-align: left; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--bg); padding: 7px 9px; margin-bottom: 7px; }
+.newchat { color: var(--strong); font-size: 13px; }
+.chat .ct { display: block; font-size: 13px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.chat .cw { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
+.chat.on { border-color: var(--accent); background: var(--tint); }
+.chat.on .ct { color: var(--ink); }
+
+.area { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+#msgs { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
+.msg { margin: 0 0 12px; padding: 9px 11px; border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--line); }
+.msg.you { border-left: 3px solid var(--warm); }
+.msg.assistant { border-left: 3px solid var(--accent); }
+.msg.tool { border-left: 3px solid var(--ink); }
+.msg.note { border-left: 3px solid var(--dim); color: var(--dim); }
+.msg.bad { border-left-color: var(--deep); }
+.head { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 4px; }
+.body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mono, pre { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 13px; }
+pre { margin: 8px 0 0; padding: 8px; border-radius: 8px; background: var(--bg);
+  border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.bad pre { color: var(--deep); }
+
+/* Composer with the two badges. */
+.composer { border-top: 1px solid var(--line); background: var(--surface); padding: 9px 11px 11px; }
+.badges { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+.badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); color: var(--dim); background: var(--bg); }
+.badge.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.badge.off { color: var(--deep); border-color: var(--deep); }
+.status { font-size: 12px; color: var(--dim); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+textarea { width: 100%; resize: vertical; min-height: 58px; }
+.row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.act { border-radius: 8px; border: 1px solid var(--line); padding: 6px 12px;
+  background: var(--bg); font-size: 13px; }
+.act.send { color: #fff8f0; background: var(--accent); border-color: var(--accent); }
+.act.stop { color: var(--deep); border-color: var(--deep); }
+.hint { font-size: 12px; color: var(--dim); }
+
+/* Small settings panel of the page. */
+.panel { border-top: 1px solid var(--line); background: var(--surface); padding: 10px 12px; }
+.panel.hidden { display: none; }
+.panel label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.panel p { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
+
+@media (max-width: 760px) {
+  .main { flex-direction: column; }
+  .side { width: 100%; max-height: 34vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  .title { max-width: 18ch; }
+}
+</style>
+</head>
+<body>
+<div class="top">
+  <img class="logo" src="/autumn-natter.svg" alt="">
+  <span class="name">Autumn Natter</span>
+  <span class="ctl"><select id="model" title="Model"></select><span class="tag" id="kind"></span></span>
+  <span class="ctl"><select id="repo" title="Repository"></select>
+    <button class="act" id="newrepo" title="New repository">+</button></span>
+  <span class="title" id="title"></span>
+  <span class="grow"></span>
+  <span class="ctx"><span id="ctxtext"></span><span class="bar"><span class="fill" id="ctxfill"></span></span></span>
+</div>
+
+<div class="main">
+  <aside class="side">
+    <button class="newchat" id="newchat">New chat</button>
+    <div id="chats"></div>
+  </aside>
+
+  <section class="area">
+    <div id="msgs"></div>
+    <div class="composer">
+      <div class="badges">
+        <span class="badge" id="code" title="Let the model run a terminal command">Code</span>
+        <span class="badge" id="sandbox" title="Run every command inside a bubblewrap sandbox">Sandbox</span>
+        <span class="grow"></span>
+        <span class="status" id="status"></span>
+      </div>
+      <textarea id="draft" rows="2" placeholder="Ask something"></textarea>
+      <div class="row">
+        <button class="act" id="settingsbtn">Settings</button>
+        <span class="hint" id="hint">Enter sends. Shift Enter adds a line.</span>
+        <span class="grow"></span>
+        <button class="act stop" id="stop">Stop</button>
+        <button class="act send" id="send">Send</button>
+      </div>
+    </div>
+    <div class="panel hidden" id="panel">
+      <label><input type="checkbox" id="dark"> Dark mode</label>
+      <p id="note"></p>
+      <p>The full settings live on the computer that runs Autumn Natter.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+'use strict';
+
+// The parts of the page that stay in place. Their content is written again on
+// every draw.
+var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctxtext', 'ctxfill', 'newchat',
+  'chats', 'msgs', 'code', 'sandbox', 'status', 'draft', 'settingsbtn', 'panel',
+  'dark', 'note', 'send', 'stop', 'hint'];
+var el = {};
+for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
+
+// A touch screen gets a send button. Other screens send with the Enter key.
+var touch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+  || ('ontouchstart' in window);
+
+var rev = -1;          // what the page has seen last
+var timer = null;       // the next poll
+var pending = false;    // only one poll at a time
+var cur = null;         // the last state
+
+function post(path, body) {
+  fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body || {})
+  }).then(function () { poll(); }).catch(function () { poll(); });
+}
+
+function poll() {
+  if (pending) { return; }
+  pending = true;
+  fetch('/api/state?since=' + rev)
+    .then(function (r) { return r.json(); })
+    .then(function (s) {
+      rev = s.rev;
+      if (!s.unchanged) { draw(s); }
+      schedule(!!s.generating);
+    })
+    .catch(function () { schedule(false); })
+    .then(function () { pending = false; });
+}
+
+// A fast poll while an answer comes in, a slow one when nothing happens.
+function schedule(fast) {
+  clearTimeout(timer);
+  timer = setTimeout(poll, fast ? 150 : 600);
+}
+
+function draw(s) {
+  cur = s;
+  document.body.classList.toggle('dark', !!s.dark);
+  fillSelect(el.model, s.models, s.model.id, function (m) { return m.name + ' (' + m.kind + ')'; });
+  fillRepos(s);
+  el.kind.textContent = s.model.kind;
+  el.title.textContent = s.chat.title;
+  el.ctxtext.textContent = s.context.used + ' / ' + s.context.total + ' tokens';
+  el.ctxfill.style.width = Math.round(Math.min(1, s.context.ratio) * 100) + '%';
+  el.code.classList.toggle('on', !!s.code);
+  el.sandbox.classList.toggle('on', !!s.sandbox);
+  el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
+  el.status.textContent = s.status;
+  el.note.textContent = s.sandbox_note;
+  el.dark.checked = !!s.dark;
+  drawChats(s);
+  drawMessages(s);
+  // The send button is only for a touch screen. The stop button is there while
+  // an answer comes in, on every screen.
+  el.send.style.display = (touch && !s.generating) ? '' : 'none';
+  el.stop.style.display = s.generating ? '' : 'none';
+  el.hint.style.display = touch ? 'none' : '';
+}
+
+// A list is built again only when its content changed. This keeps an open
+// choice list of the browser from closing on every poll.
+function fillSelect(sel, items, active, label) {
+  var key = items.map(function (m) { return m.id; }).join('|') + '#' + active;
+  if (sel.dataset.key === key) { return; }
+  sel.dataset.key = key;
+  sel.innerHTML = '';
+  for (var n = 0; n < items.length; n++) {
+    var option = document.createElement('option');
+    option.value = items[n].id;
+    option.textContent = label(items[n]);
+    if (items[n].id === active) { option.selected = true; }
+    sel.appendChild(option);
+  }
+}
+
+function fillRepos(s) {
+  var items = [{ id: '', name: 'No repository' }].concat(s.repositories);
+  var key = items.map(function (r) { return r.id; }).join('|') + '#' + s.repository.id;
+  if (el.repo.dataset.key === key) { return; }
+  el.repo.dataset.key = key;
+  el.repo.innerHTML = '';
+  for (var n = 0; n < items.length; n++) {
+    var option = document.createElement('option');
+    option.value = items[n].id;
+    option.textContent = items[n].name;
+    if (items[n].id === s.repository.id) { option.selected = true; }
+    el.repo.appendChild(option);
+  }
+  // The full list of repositories is not built yet, so this choice only shows
+  // that it exists.
+  var all = document.createElement('option');
+  all.textContent = 'View all repositories';
+  all.disabled = true;
+  el.repo.appendChild(all);
+}
+
+function drawChats(s) {
+  var key = s.chats.map(function (c) {
+    return c.id + c.title + c.when + (c.active ? 1 : 0);
+  }).join('|');
+  if (el.chats.dataset.key === key) { return; }
+  el.chats.dataset.key = key;
+  el.chats.innerHTML = '';
+  for (var n = 0; n < s.chats.length; n++) {
+    var c = s.chats[n];
+    var row = document.createElement('button');
+    row.className = 'chat' + (c.active ? ' on' : '');
+    var title = document.createElement('span');
+    title.className = 'ct';
+    title.textContent = c.title;
+    var when = document.createElement('span');
+    when.className = 'cw';
+    when.textContent = c.repo ? c.repo + ' - ' + c.when : c.when;
+    row.appendChild(title);
+    row.appendChild(when);
+    row.addEventListener('click', openChat.bind(null, c.id));
+    el.chats.appendChild(row);
+  }
+}
+
+function openChat(id) {
+  post('/api/open_chat', { id: id });
+}
+
+function drawMessages(s) {
+  var box = el.msgs;
+  // Keep the newest message in view while an answer comes in.
+  var near = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
+  box.innerHTML = '';
+  var items = s.messages.slice();
+  if (s.generating) {
+    items.push({ role: 'Assistant', body: s.live, tool: '', mono: false, failed: false, when: '' });
+  }
+  for (var n = 0; n < items.length; n++) { box.appendChild(node(items[n])); }
+  if (near || s.generating) { box.scrollTop = box.scrollHeight; }
+}
+
+// One message. The text is set as text, so a model cannot put HTML in the page.
+function node(m) {
+  var wrap = document.createElement('div');
+  wrap.className = 'msg ' + m.role.toLowerCase() + (m.failed ? ' bad' : '');
+  var head = document.createElement('div');
+  head.className = 'head';
+  head.textContent = (m.role === 'Assistant' ? 'Model' : m.role) + (m.when ? ' - ' + m.when : '');
+  var body = document.createElement('div');
+  body.className = 'body' + (m.mono ? ' mono' : '');
+  body.textContent = m.body;
+  wrap.appendChild(head);
+  wrap.appendChild(body);
+  if (m.tool) {
+    var out = document.createElement('pre');
+    out.textContent = m.tool;
+    wrap.appendChild(out);
+  }
+  return wrap;
+}
+
+function send() {
+  var text = el.draft.value.trim();
+  if (!text) { return; }
+  el.draft.value = '';
+  post('/api/send', { text: text });
+}
+
+el.send.addEventListener('click', send);
+el.stop.addEventListener('click', function () { post('/api/cancel'); });
+el.newchat.addEventListener('click', function () { post('/api/new_chat'); });
+el.model.addEventListener('change', function (e) { post('/api/select_model', { id: e.target.value }); });
+el.repo.addEventListener('change', function (e) { post('/api/select_repository', { id: e.target.value }); });
+el.newrepo.addEventListener('click', function () {
+  var name = window.prompt('Name of the new repository');
+  if (name && name.trim()) { post('/api/create_repository', { name: name.trim() }); }
+});
+el.code.addEventListener('click', function () { if (cur) { post('/api/code', { on: !cur.code }); } });
+el.sandbox.addEventListener('click', function () { if (cur) { post('/api/sandbox', { on: !cur.sandbox }); } });
+el.dark.addEventListener('change', function (e) { post('/api/dark', { on: e.target.checked }); });
+el.settingsbtn.addEventListener('click', function () { el.panel.classList.toggle('hidden'); });
+
+el.draft.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && !e.shiftKey && !touch) {
+    e.preventDefault();
+    send();
+  } else if (e.key === 'Escape') {
+    post('/api/cancel');
+  }
+});
+
+poll();
+</script>
+</body>
+</html>

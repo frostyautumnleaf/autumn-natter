@@ -1,0 +1,280 @@
+// Settings window. It writes the values to settings.json through Rust.
+import { Theme } from "theme.slint";
+import { RepoRow } from "types.slint";
+import { FieldLabel } from "widgets.slint";
+import { LineEdit, ListView, SpinBox, Switch } from "std-widgets.slint";
+
+export component SettingsWindow inherits Window {
+    title: "Settings";
+    width: 560px;
+    // The window is as tall as its content, but never smaller than the top of
+    // the list of fields.
+    height: Math.max(520px, 46px + 56px + body.preferred-height);
+    background: Theme.bg;
+    default-font-size: 13px;
+
+    in-out property <string> llama-dir: "";
+    in-out property <string> models-dir: "";
+    in-out property <string> repositories-dir: "";
+    in-out property <bool> dark-mode: false;
+    in-out property <int> remote-port: 8723;
+    in-out property <bool> upnp-enabled: false;
+
+    in property <string> data-dir: "";
+    in property <string> bwrap-text: "";
+    in property <string> mode-text: "";
+
+    // Name typed for a new repository.
+    in-out property <string> new-repository: "";
+    // Every repository on disk, most recently used first.
+    in property <[RepoRow]> repositories;
+    // Repository the window works in right now.
+    in property <string> active-repository: "";
+
+    callback save();
+    callback close-window();
+    callback create-repository(name: string);
+    callback use-repository(id: string);
+
+    VerticalLayout {
+        spacing: 0;
+
+        Rectangle {
+            height: 46px;
+            background: Theme.surface;
+
+            // Hairline below the header.
+            Rectangle {
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            Text {
+                text: "Settings";
+                color: Theme.text;
+                font-size: 15px;
+                font-weight: 600;
+                x: 16px;
+                
+            }
+        }
+
+        body := VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            HorizontalLayout {
+                spacing: 10px;
+                FieldLabel { text: "Data directory"; tip: "Where Autumn Natter keeps settings, chats and repository data."; width: 190px; }
+                Text { text: data-dir; color: Theme.text-dim; font-size: 12px;  overflow: elide; horizontal-stretch: 1; }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                FieldLabel { text: "llama.cpp directory"; tip: "Folder with the llama and llama-server programs. Leave it empty to use the program from your PATH."; width: 190px; }
+                LineEdit { text <=> root.llama-dir; placeholder-text: "/usr/local/bin"; horizontal-stretch: 1; }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                FieldLabel { text: "Models directory"; tip: "Folder that Autumn Natter searches for GGUF and Safetensors models."; width: 190px; }
+                LineEdit { text <=> root.models-dir; placeholder-text: "models"; horizontal-stretch: 1; }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                FieldLabel { text: "Repositories directory"; tip: "Folder that holds the repositories. Leave it empty to use the repositories folder inside the data directory."; width: 190px; }
+                LineEdit { text <=> root.repositories-dir; placeholder-text: "empty = data directory/repositories"; horizontal-stretch: 1; }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                FieldLabel { text: "Dark mode"; tip: "Use the dark colour palette. Light mode is the default."; width: 190px; }
+                Switch { checked <=> root.dark-mode; horizontal-stretch: 1; }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                FieldLabel { text: "Remote port"; tip: "Port of the built in web server for --remote mode. Other computers on your local network open this port in a browser."; width: 190px; }
+                SpinBox { minimum: 1024; maximum: 65535; value <=> root.remote-port; horizontal-stretch: 1; }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                FieldLabel { text: "UPnP port mapping"; tip: "Ask the router to open the remote port. This is only for --remote mode. Only use it on a trusted network."; width: 190px; }
+                Switch { checked <=> root.upnp-enabled; horizontal-stretch: 1; }
+            }
+
+            // ---- repositories ----
+            HorizontalLayout {
+                spacing: 10px;
+                FieldLabel { text: "New repository"; tip: "Make a folder for one project. A chat inside a repository runs its terminal commands in that folder."; width: 190px; }
+                LineEdit { text <=> root.new-repository; placeholder-text: "name of the repository"; horizontal-stretch: 1; }
+                Rectangle {
+                    height: 30px;
+                    width: create-lbl.preferred-width + 26px;
+                    border-radius: 8px;
+                    background: create-area.has-hover ? Theme.accent-warm : Theme.accent;
+
+                    create-lbl := Text {
+                        text: "Create";
+                        color: Theme.on-accent;
+                        font-size: 13px;
+                        x: 13px;
+                        vertical-alignment: center;
+                    }
+                    create-area := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.create-repository(root.new-repository); }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                FieldLabel { text: "Repositories"; tip: "Pick the repository the chats of this window belong to. The folder on disk is named name_id."; width: 190px; }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 26px + min(26px * repositories.length + 6px, 106px);
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    background: Theme.surface;
+
+                    VerticalLayout {
+                        padding-top: 3px;
+                        padding-bottom: 3px;
+                        spacing: 0;
+
+                        // A chat may also belong to no repository at all.
+                        Rectangle {
+                            height: 26px;
+                            background: no-area.has-hover ? Theme.hover : transparent;
+
+                            Text {
+                                text: "No repository";
+                                color: Theme.text-dim;
+                                font-size: 12px;
+                                x: 10px;
+                                vertical-alignment: center;
+                            }
+                            no-area := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => { root.use-repository(""); }
+                            }
+                        }
+
+                        // Many repositories make the list move inside its own
+                        // scroll area.
+                        Rectangle {
+                            vertical-stretch: 1;
+
+                            ListView {
+                                x: 0;
+                                y: 0;
+                                width: parent.width;
+                                height: parent.height;
+
+                                for r in repositories: Rectangle {
+                                    height: 26px;
+                                    background: row-area.has-hover
+                                        || r.id == active-repository ? Theme.hover : transparent;
+
+                                    Text {
+                                        text: r.name;
+                                        color: r.id == active-repository
+                                            ? Theme.accent-strong : Theme.text;
+                                        font-size: 12px;
+                                        x: 10px;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                    row-area := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.use-repository(r.id); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: bwrap-text;
+                color: Theme.text-dim;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            Text {
+                text: mode-text;
+                color: Theme.text-dim;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+
+        Rectangle {
+            height: 56px;
+            background: Theme.surface;
+
+            // Hairline above the buttons.
+            Rectangle {
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 10px;
+                alignment: end;
+
+                Rectangle {
+                    height: 32px;
+                    width: close-lbl.preferred-width + 28px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    background: close-area.has-hover ? Theme.hover : Theme.surface;
+                    
+
+                    close-lbl := Text {
+                        text: "Close";
+                        color: Theme.text;
+                        font-size: 13px;
+                        x: 14px;
+                        
+                    }
+                    close-area := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.close-window(); }
+                    }
+                }
+
+                Rectangle {
+                    height: 32px;
+                    width: save-lbl.preferred-width + 28px;
+                    border-radius: 8px;
+                    background: save-area.has-hover ? Theme.accent-warm : Theme.accent;
+                    
+
+                    save-lbl := Text {
+                        text: "Save";
+                        color: Theme.on-accent;
+                        font-size: 13px;
+                        x: 14px;
+                        
+                    }
+                    save-area := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.save(); }
+                    }
+                }
+            }
+        }
+    }
+}
