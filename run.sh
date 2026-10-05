@@ -111,7 +111,20 @@ step "Checking the basics"
 OS="$(uname -s)"
 case "$OS" in
   Linux|Darwin) ;;
-  *) die "unsupported operating system: $OS. On Windows use run.ps1." ;;
+  *)
+    cat >&2 <<EOF
+
+This script covers Linux and macOS. On Windows ($OS) do it by hand:
+
+  1. Install Rust for Windows from https://rustup.rs and open a new shell.
+  2. cargo build --release
+  3. target\\release\\autumn-natter.exe
+
+The program itself works on Windows 10 and 11. The sandbox for the terminal
+tool does not: there is no bubblewrap, so commands run with cmd.exe instead.
+
+EOF
+    die "unsupported operating system: $OS" ;;
 esac
 
 ARCH="$(uname -m)"
@@ -165,7 +178,10 @@ elif [ -x "$LOCAL/cargo/bin/cargo" ] && [ "$FORCE_TC" = 0 ]; then
   export PATH="$LOCAL/cargo/bin:$PATH"
   ok "using the local toolchain: $(cargo --version)"
 else
-  [ "$FORCE_TC" = 1 ] && rm -rf "$LOCAL/rustup" "$LOCAL/cargo"
+  if [ "$FORCE_TC" = 1 ]; then
+    say "    dropping the old local toolchain"
+    rm -rf "$LOCAL/rustup" "$LOCAL/cargo"
+  fi
 
   FREE_KB="$(df -Pk "$ROOT" | awk 'NR==2 {print $4}' || true)"
   if [ -n "${FREE_KB:-}" ] && [ "$FREE_KB" -lt 2000000 ]; then
