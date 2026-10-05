@@ -61,8 +61,9 @@ Runtime flags (passed on to the program)
 Any unrecognised argument is passed straight to the program.
 
 The first run downloads a Rust toolchain and every crate, so it needs a network
-connection and roughly 2 GB of free space. Later runs work offline and take
-seconds.
+connection. Expect ./.local to reach about 4 GB once built (roughly 600 MB
+toolchain, 550 MB crate cache, the rest build output). Later runs work offline
+and take seconds.
 HELP
 }
 
@@ -184,8 +185,9 @@ else
   fi
 
   FREE_KB="$(df -Pk "$ROOT" | awk 'NR==2 {print $4}' || true)"
-  if [ -n "${FREE_KB:-}" ] && [ "$FREE_KB" -lt 2000000 ]; then
-    warn "only $((FREE_KB / 1024)) MB free here. Toolchain plus build needs about 2 GB."
+  # Measured on a real run: about 4 GB in ./.local after a build.
+  if [ -n "${FREE_KB:-}" ] && [ "$FREE_KB" -lt 4000000 ]; then
+    warn "only $((FREE_KB / 1024)) MB free here. Toolchain plus build needs about 4 GB."
   fi
 
   say "    installing a private toolchain into $LOCAL"
