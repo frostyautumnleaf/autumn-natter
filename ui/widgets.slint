@@ -1,36 +1,78 @@
-// Small reusable widgets. They use the autumn palette from Theme.
+// Small reusable widgets. They all use the autumn palette from Theme.
+//
+// The program draws every control itself. The widget set that ships with Slint
+// follows the colour scheme of the desktop, so its text can turn white on the
+// light background of this program. Owning the drawing keeps the palette of the
+// window the same in light mode and in dark mode.
 import { Theme } from "theme.slint";
+// The list inside a drop-down box comes from the widget set of Slint.
+import { ListView } from "std-widgets.slint";
 
-// A short help text that opens when the pointer rests on the question mark.
+// Small number helpers. Slint wants a function inside a component or a global,
+// so the helpers live here and are used as Calc.one-of-them.
+export global Calc {
+    // Reads a number out of a text. A text with no number in it gives false for
+    // is-float, so the caller can keep the value it had before.
+    public function text-to-int(text: string) -> int {
+        return text.is-float() ? Math.round(text.to-float()) : 0;
+    }
+
+    // Keeps a number inside its limits.
+    public function clamp-int(value: int, lowest: int, highest: int) -> int {
+        if (value < lowest) { return lowest; }
+        if (value > highest) { return highest; }
+        return value;
+    }
+}
+
+// A help bubble. The host decides when the question mark shows and when the
+// bubble is open, so the bubble never sits on top of the window at rest.
 export component Tip inherits Rectangle {
     in property <string> text;
+    // True draws the question mark.
+    in property <bool> shown: true;
+    // True opens the bubble. The host sets it while its own area is hovered.
+    in property <bool> open: false;
+    // True puts the bubble to the left, for a control near the right edge.
+    in property <bool> place-left: false;
+    // True lets the question mark itself open the bubble. Only then does the
+    // tip take mouse input, so it cannot steal a click from a neighbour.
+    in property <bool> hoverable: false;
 
     width: 16px;
     height: 16px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
 
     Image {
         source: @image-url("../assets/icons/tooltip.svg");
-        colorize: area.has-hover ? Theme.accent : Theme.text-dim;
+        colorize: Theme.accent-strong;
         width: 15px;
         height: 15px;
+        image-fit: contain;
+        visible: root.shown;
         x: 0;
         y: 0;
     }
 
     area := TouchArea {
+        enabled: root.hoverable;
         width: 16px;
         height: 16px;
+        mouse-cursor: MouseCursor.pointer;
         changed has-hover => {
-            if (self.has-hover && root.text != "") {
+            if (area.has-hover && root.text != "") {
                 help.show();
+            } else {
+                help.close();
             }
         }
     }
 
     help := PopupWindow {
-        x: parent.width + 6px;
+        x: root.place-left ? -(274px) : (parent.width + 6px);
         y: -6px;
-        width: 270px;
+        width: 268px;
         height: note.preferred-height + 18px;
         close-policy: close-on-click-outside;
 
@@ -53,6 +95,14 @@ export component Tip inherits Rectangle {
             }
         }
     }
+
+    changed open => {
+        if (root.open && root.text != "") {
+            help.show();
+        } else {
+            help.close();
+        }
+    }
 }
 
 // A square button with one icon.
@@ -64,11 +114,15 @@ export component IconButton inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> selected: false;
     in property <length> glyph-size: 17px;
+    // Where the help bubble of this button opens.
+    in property <bool> tip-left: false;
 
     callback clicked();
 
     width: 30px;
     height: 30px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
     border-radius: 8px;
     background: selected ? Theme.tint : (area.has-hover ? Theme.hover : base);
 
@@ -95,8 +149,54 @@ export component IconButton inherits Rectangle {
     Tip {
         text: tip;
         visible: tip != "";
+        shown: area.has-hover;
+        open: area.has-hover;
+        place-left: root.tip-left;
+        hoverable: false;
         x: parent.width - 14px;
-        y: -4px;
+        y: -8px;
+    }
+}
+
+// A text button. It is the plain shape for Create, Save and Close.
+export component TextButton inherits Rectangle {
+    in property <string> text;
+    // A strong button is filled with the accent colour.
+    in property <bool> strong: false;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    width: label.preferred-width + 28px;
+    height: 32px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    border-radius: 8px;
+    border-width: strong ? 0px : 1px;
+    border-color: Theme.line;
+    background: strong
+        ? (area.has-hover ? Theme.accent-warm : Theme.accent)
+        : (area.has-hover ? Theme.hover : Theme.surface);
+    opacity: enabled ? 1 : 0.5;
+
+    label := Text {
+        text: root.text;
+        color: strong ? Theme.on-accent : Theme.text;
+        font-size: 13px;
+        x: 14px;
+        width: parent.width - 28px;
+        horizontal-alignment: left;
+        vertical-alignment: center;
+    }
+
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
     }
 }
 
@@ -111,11 +211,13 @@ export component Pill inherits Rectangle {
 
     callback clicked();
 
+    width: row.preferred-width;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
     border-radius: 7px;
     background: bg;
-    horizontal-stretch: 0;
 
-    HorizontalLayout {
+    row := HorizontalLayout {
         padding-left: 7px;
         padding-right: 7px;
         padding-top: 3px;
@@ -127,6 +229,7 @@ export component Pill inherits Rectangle {
             colorize: fg;
             width: 13px;
             height: 13px;
+            image-fit: contain;
             visible: root.has-icon;
             vertical-alignment: center;
         }
@@ -145,7 +248,8 @@ export component Pill inherits Rectangle {
     }
 }
 
-// A toggle badge inside the composer. It shows an icon and a word.
+// A badge in the composer. It shows an icon and a word, and it is as wide as
+// its text.
 export component Badge inherits Rectangle {
     in property <string> text;
     in property <image> icon;
@@ -155,22 +259,28 @@ export component Badge inherits Rectangle {
 
     callback clicked();
 
+    width: row.preferred-width;
     height: 26px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
     border-radius: 13px;
     border-width: 1px;
     border-color: active ? Theme.accent : Theme.line;
-    background: active ? Theme.tint : transparent;
+    background: active ? Theme.tint : Theme.surface;
+    opacity: enabled ? 1 : 0.55;
 
-    HorizontalLayout {
+    row := HorizontalLayout {
         padding-left: 9px;
         padding-right: 10px;
         spacing: 6px;
+        cross-axis-alignment: center;
 
         Image {
             source: icon;
             colorize: !enabled ? Theme.text-dim : (active ? Theme.accent-strong : Theme.text-dim);
             width: 14px;
             height: 14px;
+            image-fit: contain;
             vertical-alignment: center;
         }
         Text {
@@ -191,33 +301,439 @@ export component Badge inherits Rectangle {
         }
     }
 
+    // The help bubble opens to the right of the badge, on the same line, so it
+    // never covers the text the user types.
     Tip {
         text: tip;
         visible: tip != "";
-        x: 0;
-        y: -20px;
+        shown: area.has-hover;
+        open: area.has-hover;
+        hoverable: false;
+        x: parent.width + 5px;
+        y: 5px;
     }
 }
 
-// A caption with a help icon. It sits above a control.
+// A field with one line of text.
+export component Field inherits Rectangle {
+    in-out property <string> text: "";
+    in property <string> placeholder: "";
+    in property <bool> enabled: true;
+    out property <bool> focused: input.has-focus;
+
+    height: 30px;
+    vertical-stretch: 0;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.line;
+    background: Theme.surface;
+
+    input := TextInput {
+        x: 10px;
+        y: 0;
+        width: parent.width - 20px;
+        height: parent.height;
+        font-size: 13px;
+        color: Theme.text;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.on-accent;
+        single-line: true;
+        vertical-alignment: center;
+        enabled: root.enabled;
+        text <=> root.text;
+    }
+
+    // The hint. A text input has no hint of its own.
+    Text {
+        x: 10px;
+        y: 0;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.placeholder;
+        color: Theme.text-dim;
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+        visible: root.text == "" && root.enabled;
+    }
+}
+
+// A field for one number, with two step buttons.
+export component NumberField inherits Rectangle {
+    in-out property <int> value: 0;
+    in property <int> minimum: 0;
+    in property <int> maximum: 1000000;
+    in property <int> step-size: 1;
+    in property <bool> enabled: true;
+    // The text inside the field. It follows the value, unless the user is
+    // writing in the field right now.
+    property <string> raw: "";
+
+    function show-value() {
+        root.raw = "\{root.value}";
+    }
+    function nudge(amount: int) {
+        root.value = Calc.clamp-int(root.value + amount, root.minimum, root.maximum);
+        root.raw = "\{root.value}";
+    }
+
+    height: 30px;
+    vertical-stretch: 0;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.line;
+    background: Theme.surface;
+
+    changed value => {
+        if (!input.has-focus) {
+            root.show-value();
+        }
+    }
+
+    input := TextInput {
+        x: 10px;
+        y: 0;
+        width: parent.width - 54px;
+        height: parent.height;
+        font-size: 13px;
+        color: Theme.text;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.on-accent;
+        single-line: true;
+        vertical-alignment: center;
+        enabled: root.enabled;
+        text <=> root.raw;
+        // The value follows what the user writes. A text with no number in it
+        // leaves the value alone, so clearing the field does not jump to zero.
+        changed text => {
+            if (self.has-focus && self.text.is-float()) {
+                root.value = Calc.clamp-int(Calc.text-to-int(self.text), root.minimum, root.maximum);
+            }
+        }
+    }
+
+    // The two step buttons. They sit at the right end of the field.
+    HorizontalLayout {
+        x: parent.width - 46px;
+        y: 1px;
+        width: 44px;
+        height: parent.height - 2px;
+        spacing: 0;
+
+        Rectangle {
+            width: 22px;
+            border-radius: 7px;
+            background: up-area.has-hover ? Theme.tint : transparent;
+
+            Image {
+                source: @image-url("../assets/icons/up.svg");
+                colorize: root.enabled ? Theme.text-dim : Theme.line;
+                width: 13px;
+                height: 13px;
+                image-fit: contain;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+            up-area := TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.nudge(root.step-size); }
+            }
+        }
+        Rectangle {
+            width: 22px;
+            border-radius: 7px;
+            background: down-area.has-hover ? Theme.tint : transparent;
+
+            Image {
+                source: @image-url("../assets/icons/down.svg");
+                colorize: root.enabled ? Theme.text-dim : Theme.line;
+                width: 13px;
+                height: 13px;
+                image-fit: contain;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+            down-area := TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.nudge(-root.step-size); }
+            }
+        }
+    }
+}
+
+// A drop-down list of texts.
+export component Choice inherits Rectangle {
+    in property <[string]> model;
+    in-out property <int> current-index: 0;
+    in property <bool> enabled: true;
+
+    height: 30px;
+    vertical-stretch: 0;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: pop.is-open ? Theme.accent : Theme.line;
+    background: pop.is-open || area.has-hover ? Theme.hover : Theme.surface;
+    opacity: enabled ? 1 : 0.55;
+
+    Text {
+        x: 10px;
+        y: 0;
+        width: parent.width - 34px;
+        height: parent.height;
+        text: current-index >= 0 && current-index < model.length ? model[current-index] : "";
+        color: Theme.text;
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Image {
+        source: @image-url("../assets/icons/chevron-down.svg");
+        colorize: Theme.text-dim;
+        width: 14px;
+        height: 14px;
+        image-fit: contain;
+        x: parent.width - 26px;
+        y: (parent.height - self.height) / 2;
+    }
+
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { pop.show(); }
+    }
+
+    pop := PopupWindow {
+        x: 0;
+        y: 34px;
+        width: root.width;
+        height: 30px * model.length + 12px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.line;
+            background: Theme.surface;
+
+            ListView {
+                x: 6px;
+                y: 6px;
+                width: parent.width - 12px;
+                height: parent.height - 12px;
+
+                for option[index] in model: Rectangle {
+                    height: 30px;
+                    border-radius: 6px;
+                    background: row-area.has-hover || index == root.current-index
+                        ? Theme.hover : transparent;
+
+                    Text {
+                        text: option;
+                        color: index == root.current-index ? Theme.accent-strong : Theme.text;
+                        font-size: 13px;
+                        x: 10px;
+                        width: parent.width - 20px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    row-area := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => {
+                            root.current-index = index;
+                            pop.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A switch. It takes the place of the switch of the widget set.
+export component Toggle inherits Rectangle {
+    in-out property <bool> checked: false;
+    in property <bool> enabled: true;
+
+    callback toggled();
+
+    width: 40px;
+    height: 22px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    border-radius: 11px;
+    border-width: 1px;
+    border-color: checked ? Theme.accent : Theme.line;
+    background: checked ? Theme.accent : Theme.surface-alt;
+    opacity: enabled ? 1 : 0.55;
+
+    Rectangle {
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        x: root.checked ? 22px : 3px;
+        y: 2px;
+        background: Theme.surface;
+        animate x { duration: 100ms; }
+    }
+
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            if (root.enabled) {
+                root.checked = !root.checked;
+                root.toggled();
+            }
+        }
+    }
+}
+
+// A slider with a value between two limits.
+export component Range inherits Rectangle {
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 1;
+    in-out property <float> value: 0;
+    in property <bool> enabled: true;
+
+    // Part of the track that is filled, as a share of the whole track.
+    property <float> share: maximum > minimum
+        ? (value - minimum) / (maximum - minimum) : 0;
+
+    height: 30px;
+    vertical-stretch: 0;
+
+    // The track.
+    Rectangle {
+        x: 0;
+        y: (parent.height - 4px) / 2;
+        width: parent.width;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.surface-alt;
+
+        Rectangle {
+            width: parent.width * Math.min(1, Math.max(0, root.share));
+            height: 100%;
+            border-radius: 2px;
+            background: Theme.accent;
+        }
+    }
+
+    // The knob.
+    Rectangle {
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        border-width: 2px;
+        border-color: Theme.accent;
+        background: Theme.surface;
+        x: (parent.width - self.width) * Math.min(1, Math.max(0, root.share));
+        y: (parent.height - self.height) / 2;
+    }
+
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+
+        // The pointer position sets the value. The length of the free track is
+        // worked out first, so no division of two lengths is needed.
+        moved => {
+            // The value follows the knob while the button is held down.
+            if (area.pressed) {
+                root.set-value-at(area.mouse-x);
+            }
+        }
+        clicked => { root.set-value-at(area.mouse-x); }
+    }
+
+    function set-value-at(pointer-x: length) {
+        let room = root.width - 16px;
+        let spot = pointer-x - 8px;
+        // One step is the width of the whole track divided by the number of
+        // steps. The share is then the position on the track.
+        let share = room > 0px ? Math.min(1, Math.max(0, spot / room)) : 0;
+        let span = root.maximum - root.minimum;
+        let raw = root.minimum + span * share;
+        // Round to the nearest step.
+        let steps = root.step > 0 ? Math.round(raw / root.step) : Math.round(raw);
+        let snapped = root.step > 0 ? steps * root.step : raw;
+        root.value = Math.min(root.maximum, Math.max(root.minimum, snapped));
+    }
+}
+
+// A box for several lines of text, written in a monospace font.
+export component Area inherits Rectangle {
+    in-out property <string> text: "";
+    in property <string> placeholder: "";
+    in property <bool> enabled: true;
+
+    height: 74px;
+    vertical-stretch: 0;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.line;
+    background: Theme.surface;
+
+    input := TextInput {
+        x: 10px;
+        y: 8px;
+        width: parent.width - 20px;
+        height: parent.height - 16px;
+        font-family: "monospace";
+        font-size: 12px;
+        color: Theme.text;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.on-accent;
+        single-line: false;
+        wrap: word-wrap;
+        vertical-alignment: top;
+        enabled: root.enabled;
+        text <=> root.text;
+    }
+
+    Text {
+        x: 10px;
+        y: 8px;
+        width: parent.width - 20px;
+        text: root.placeholder;
+        color: Theme.text-dim;
+        font-family: "monospace";
+        font-size: 12px;
+        wrap: word-wrap;
+        visible: root.text == "";
+    }
+}
+
+// A caption with a help icon. It sits above or beside a control.
 export component FieldLabel inherits Rectangle {
     in property <string> text;
     in property <string> tip: "";
 
     height: 20px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
 
     HorizontalLayout {
         spacing: 6px;
+        cross-axis-alignment: center;
 
         Text {
             text: root.text;
             color: Theme.text;
             font-size: 13px;
             vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
         }
         Tip {
             text: tip;
             visible: tip != "";
+            hoverable: true;
         }
     }
 }
@@ -228,6 +744,7 @@ export component Section inherits Rectangle {
 
     height: 24px;
     width: 100%;
+    vertical-stretch: 0;
 
     HorizontalLayout {
         spacing: 8px;

@@ -158,6 +158,16 @@ fn action(engine: &Engine, path: &str, body: &str) -> serde_json::Value {
             engine.new_chat();
             web::done()
         }
+        // Turn the carousel of chats. Minus one shows the chat at the left.
+        "/api/roll" => {
+            let step = value
+                .get("step")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0)
+                .clamp(-50, 50) as i32;
+            engine.roll(step);
+            web::done()
+        }
         "/api/open_chat" => {
             engine.open_chat(text_field(&value, "id"));
             web::done()

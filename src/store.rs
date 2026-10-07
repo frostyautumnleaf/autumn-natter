@@ -229,6 +229,33 @@ pub struct Chat {
     pub meta: ChatMeta,
     #[serde(default)]
     pub messages: Vec<Message>,
+    // True while a chat is only in the memory. The carousel shows such a chat
+    // as a blank one, and drops it when the user turns away without writing.
+    // It is never written to disk, so the files hold only real chats.
+    #[serde(default, skip_serializing)]
+    pub transient: bool,
+}
+
+// The first line of the newest message, in a short form. The carousel uses it
+// for the soft picture of a chat at the side of the window.
+pub fn preview(messages: &[Message]) -> String {
+    let last = match messages.last() {
+        Some(message) => message,
+        None => return String::from("Nothing written yet"),
+    };
+    let line = last.body.lines().next().unwrap_or("").trim();
+    if line.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    for ch in line.chars() {
+        out.push(ch);
+        if out.chars().count() >= 140 {
+            out.push('\u{2026}');
+            break;
+        }
+    }
+    out
 }
 
 impl Chat {
@@ -245,7 +272,17 @@ impl Chat {
                 ..Default::default()
             },
             messages: Vec::new(),
+            transient: false,
         }
+    }
+
+    // A blank chat for the front of the carousel. It is not on disk, and it
+    // goes away again when the user turns the carousel away from it without
+    // writing anything.
+    pub fn blank(repo_id: &str, model_id: &str) -> Chat {
+        let mut chat = Chat::new(repo_id, model_id);
+        chat.transient = true;
+        chat
     }
 
     // Short title from the first message of the user.
@@ -418,7 +455,13 @@ impl Store {
     }
 
     // Write a chat. Parent directories are created when needed.
+    //
+    // A blank chat of the carousel lives only in the memory. Writing one would
+    // make it a real chat, and it would come back after the next start.
     pub fn save_chat(&self, chat: &Chat) {
+        if chat.transient {
+            return;
+        }
         let dir = match self.chats_dir(&chat.meta.repo_id) {
             Some(d) => d,
             None => return,
@@ -428,6 +471,19 @@ impl Store {
         if let Ok(text) = serde_json::to_string(&chat) {
             let _ = fs::write(path, text);
         }
+    }
+
+    // Take one chat away for good. The carousel calls this when it drops a
+    // blank chat, so a file of an older run cannot bring that chat back.
+    pub fn delete_chat(&self, repo_id: &str, id: &str) {
+        if id.is_empty() {
+            return;
+        }
+        let dir = match self.chats_dir(repo_id) {
+            Some(d) => d,
+            None => return,
+        };
+        let _ = fs::remove_file(dir.join(format!("{id}.json")));
     }
 }
 

@@ -65,18 +65,23 @@ pub fn run(cfg: Config) -> Result<(), String> {
     app.set_models(ModelRc::from(ui.models.clone()));
     app.set_repositories(ModelRc::from(ui.repositories.clone()));
     app.set_chats(ModelRc::from(ui.chats.clone()));
-    // The desktop build always shows the send button. The browser build shows
-    // it only on a touch screen.
-    app.set_send_visible(true);
-    app.set_chat_open(true);
+    // The desktop build has no send button, because Enter sends the message.
+    // The browser build shows the button on a touch screen only.
+    app.set_send_visible(false);
 
     // ---- user actions ----
     let handle = engine.clone();
+    let weak_for_send = app.as_weak();
     app.on_send_message(move |text: SharedString| {
         let text = text.to_string();
-        if !text.trim().is_empty() {
-            handle.prompt(text);
+        if text.trim().is_empty() {
+            return;
         }
+        // The box is empty again, so the user can write the next question.
+        if let Some(app) = weak_for_send.upgrade() {
+            app.set_draft_text(SharedString::default());
+        }
+        handle.prompt(text);
     });
 
     let handle = engine.clone();
@@ -97,8 +102,10 @@ pub fn run(cfg: Config) -> Result<(), String> {
     let handle = engine.clone();
     app.on_new_chat(move || handle.new_chat());
 
+    // The two sides of the window turn the carousel.
     let handle = engine.clone();
-    app.on_open_chat(move |id: SharedString| handle.open_chat(id.to_string()));
+    app.on_roll_chat(move |step: i32| handle.roll(step));
+
 
     // The full repository list is not built yet, so this does nothing.
     app.on_view_all_repositories(|| {});
@@ -133,6 +140,7 @@ pub fn run(cfg: Config) -> Result<(), String> {
     });
 
     render(&app, &engine, &ui);
+
     app.run().map_err(text_of)?;
     // The window can also be closed by the platform, so make sure the model is
     // unloaded here too.
@@ -167,6 +175,10 @@ fn render(app: &App, engine: &Engine, ui: &Rc<Ui>) {
     app.set_sandbox_available(snap.sandbox_available);
     app.set_status_text(text(snap.status.as_str()));
 
+    // The carousel turns to the open chat, and says when that chat is blank.
+    app.set_chat_index(snap.chat_index as i32);
+    app.set_blank_chat(snap.blank_chat);
+
     if snap.structure_rev != ui.last_structure.get() {
         ui.last_structure.set(snap.structure_rev);
         ui.models.set_vec(
@@ -200,6 +212,7 @@ fn render(app: &App, engine: &Engine, ui: &Rc<Ui>) {
                     repo: text(&repo_label(&snap, &c.meta.repo_id)),
                     when: text(&store::format_when(c.meta.updated)),
                     active: c.meta.id == snap.chat_id,
+                    preview: text(&store::preview(&c.messages)),
                 })
                 .collect::<Vec<ChatRow>>(),
         );

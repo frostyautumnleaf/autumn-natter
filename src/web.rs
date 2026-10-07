@@ -40,6 +40,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "repo": repo_name(snap, &c.meta.repo_id),
                 "when": store::format_when(c.meta.updated),
                 "active": c.meta.id == snap.chat_id,
+                "preview": store::preview(&c.messages),
             })
         })
         .collect();
@@ -70,6 +71,12 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "repositories": repositories,
         "chat": { "id": snap.chat_id, "title": snap.chat_title },
         "chats": chats,
+        // Where the carousel stands, and whether the open chat is blank.
+        "carousel": {
+            "index": snap.chat_index,
+            "count": snap.chat_count,
+            "blank": snap.blank_chat,
+        },
         "messages": messages,
         // Text the model wrote since the last message was stored.
         "live": snap.live_text,

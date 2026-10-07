@@ -8,11 +8,11 @@
 :root {
   --bg: #faf2e6; --surface: #fffbf4; --line: #e6d9c7; --text: #2a2118; --dim: #7b6a5a;
   --accent: #ED7401; --strong: #C53C01; --ink: #AC4422; --warm: #DF6101; --deep: #AF2600;
-  --tint: #fbe6d2;
+  --tint: #fbe6d2; --fade: rgba(250, 242, 230, 1);
 }
 body.dark {
   --bg: #141414; --surface: #1c1917; --line: #342c24; --text: #f1e7d9; --dim: #a3927f;
-  --tint: #2b1d12;
+  --tint: #2b1d12; --fade: rgba(20, 20, 20, 1);
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -43,28 +43,62 @@ select, input, textarea {
 }
 .title { color: var(--text); font-size: 13px; max-width: 30ch; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
+/* Where the user stands in the carousel, for example 3 of 9. */
+.where { font-size: 12px; color: var(--dim); white-space: nowrap; }
 .ctx { min-width: 140px; font-size: 12px; color: var(--dim); }
 .bar { display: block; height: 4px; margin-top: 3px; border-radius: 2px;
   background: var(--line); overflow: hidden; }
 .fill { display: block; height: 100%; background: var(--accent); }
 
-/* Chat list and messages. */
-.main { flex: 1 1 auto; display: flex; min-height: 0; }
-.side { width: 232px; padding: 10px; border-right: 1px solid var(--line);
-  overflow-y: auto; background: var(--surface); }
-.newchat, .chat { display: block; width: 100%; text-align: left; border-radius: 8px;
-  border: 1px solid var(--line); background: var(--bg); padding: 7px 9px; margin-bottom: 7px; }
-.newchat { color: var(--strong); font-size: 13px; }
-.chat .ct { display: block; font-size: 13px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.chat .cw { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
-.chat.on { border-color: var(--accent); background: var(--tint); }
-.chat.on .ct { color: var(--ink); }
-
+/* The carousel of chats. The card in the middle is the chat in use, and the
+   next chats of this place show a little of themselves at each side. Every
+   repository has a carousel of its own. */
 .area { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
-#msgs { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
+.stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.card { position: absolute; top: 10px; bottom: 10px; left: 50%;
+  width: var(--card, 620px); margin-left: calc(var(--card, 620px) / -2);
+  border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+  overflow: hidden; transition: transform 260ms ease, opacity 260ms ease; }
+.card.on { border-color: var(--accent); }
+/* A neighbour chat stays soft and small, so it does not fight for attention. */
+.card.ghost { opacity: .4; filter: blur(1.5px); cursor: pointer; }
+/* The soft picture lives in every card, and only the middle card uses its
+   message box. A card keeps its parts, so a turn stays smooth. */
+.soft { position: absolute; inset: 0; }
+.card.on .soft { display: none; }
+.card.ghost .msgs { display: none; }
+.gt { font-size: 13px; font-weight: 600; margin: 12px 14px 0; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; }
+.gp { font-size: 12px; color: var(--dim); margin: 8px 14px 0; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+.gb { position: absolute; border-radius: 10px; }
+.gb.a { left: 14px; bottom: 78px; width: 60%; height: 44px; background: var(--tint); }
+.gb.b { right: 12%; bottom: 40px; width: 55%; height: 34px; background: var(--line); }
+.gb.c { left: 14px; bottom: 14px; width: 72%; height: 22px; background: var(--tint); }
+
+/* A wash of the page colour over each side, so a neighbour barely shows. */
+.wash { position: absolute; top: 0; bottom: 0; width: var(--peek, 46px);
+  pointer-events: none; z-index: 2; }
+.wash.l { left: 0; background: linear-gradient(90deg, var(--fade), rgba(0, 0, 0, 0)); }
+.wash.r { right: 0; background: linear-gradient(270deg, var(--fade), rgba(0, 0, 0, 0)); }
+
+/* The two sides that turn the carousel. */
+.zone { position: absolute; top: 0; bottom: 0; width: var(--peek, 46px); z-index: 3;
+  cursor: pointer; }
+.zone.l { left: 0; }
+.zone.r { right: 0; }
+.turn { position: absolute; top: 50%; margin-top: -15px; width: 30px; height: 30px;
+  border-radius: 15px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--dim); font-size: 17px; line-height: 1; z-index: 4; }
+.turn:hover { color: var(--strong); border-color: var(--accent); background: var(--tint); }
+.turn.l { left: 8px; }
+.turn.r { right: 8px; }
+.hidden { display: none; }
+
+.msgs { position: absolute; inset: 0; overflow-y: auto; padding: 14px; }
+.blank { color: var(--dim); font-size: 13px; padding: 6px 4px; }
 .msg { margin: 0 0 12px; padding: 9px 11px; border-radius: 10px;
-  background: var(--surface); border: 1px solid var(--line); }
+  background: var(--bg); border: 1px solid var(--line); }
 .msg.you { border-left: 3px solid var(--warm); }
 .msg.assistant { border-left: 3px solid var(--accent); }
 .msg.tool { border-left: 3px solid var(--ink); }
@@ -79,6 +113,12 @@ pre { margin: 8px 0 0; padding: 8px; border-radius: 8px; background: var(--bg);
 .msg.bad pre { color: var(--deep); }
 
 /* Composer with the two badges. */
+/* The line under the carousel: a fresh chat, and what the program is doing. */
+.under { display: flex; align-items: center; gap: 10px; padding: 6px 12px; }
+.newchat { color: var(--strong); font-size: 12px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
+.newchat:hover { background: var(--tint); border-color: var(--accent); }
+
 .composer { border-top: 1px solid var(--line); background: var(--surface); padding: 9px 11px 11px; }
 .badges { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
 .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
@@ -102,9 +142,9 @@ textarea { width: 100%; resize: vertical; min-height: 58px; }
 .panel p { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
 
 @media (max-width: 760px) {
-  .main { flex-direction: column; }
-  .side { width: 100%; max-height: 34vh; border-right: 0; border-bottom: 1px solid var(--line); }
   .title { max-width: 18ch; }
+  .turn.l { left: 4px; }
+  .turn.r { right: 4px; }
 }
 </style>
 </head>
@@ -117,39 +157,49 @@ textarea { width: 100%; resize: vertical; min-height: 58px; }
     <button class="act" id="newrepo" title="New repository">+</button></span>
   <span class="title" id="title"></span>
   <span class="grow"></span>
+  <span class="where" id="where"></span>
   <span class="ctx"><span id="ctxtext"></span><span class="bar"><span class="fill" id="ctxfill"></span></span></span>
 </div>
 
-<div class="main">
-  <aside class="side">
-    <button class="newchat" id="newchat">New chat</button>
-    <div id="chats"></div>
-  </aside>
+<!-- The carousel. The card in the middle is the chat in use. -->
+<div class="area">
+  <div class="stage" id="stage">
+    <div id="cards"></div>
+    <span class="wash l" id="washL"></span>
+    <span class="wash r" id="washR"></span>
+    <div class="zone l" id="zoneL" title="Show the chat on the left"></div>
+    <div class="zone r" id="zoneR" title="Show the chat on the right"></div>
+    <button class="turn l" id="turnL" title="Show the chat on the left">&#8249;</button>
+    <button class="turn r" id="turnR" title="Show the chat on the right">&#8250;</button>
+  </div>
 
-  <section class="area">
-    <div id="msgs"></div>
-    <div class="composer">
-      <div class="badges">
-        <span class="badge" id="code" title="Let the model run a terminal command">Code</span>
-        <span class="badge" id="sandbox" title="Run every command inside a bubblewrap sandbox">Sandbox</span>
-        <span class="grow"></span>
-        <span class="status" id="status"></span>
-      </div>
-      <textarea id="draft" rows="2" placeholder="Ask something"></textarea>
-      <div class="row">
-        <button class="act" id="settingsbtn">Settings</button>
-        <span class="hint" id="hint">Enter sends. Shift Enter adds a line.</span>
-        <span class="grow"></span>
-        <button class="act stop" id="stop">Stop</button>
-        <button class="act send" id="send">Send</button>
-      </div>
+  <div class="under">
+    <button class="newchat" id="newchat">+ New chat</button>
+    <span class="grow"></span>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div class="composer">
+    <div class="badges">
+      <span class="badge" id="code" title="Let the model run a terminal command">Code</span>
+      <span class="badge" id="sandbox" title="Run every command inside a bubblewrap sandbox">Sandbox</span>
+      <span class="grow"></span>
     </div>
-    <div class="panel hidden" id="panel">
-      <label><input type="checkbox" id="dark"> Dark mode</label>
-      <p id="note"></p>
-      <p>The full settings live on the computer that runs Autumn Natter.</p>
+    <textarea id="draft" rows="2" placeholder="Ask something"></textarea>
+    <div class="row">
+      <button class="act" id="settingsbtn">Settings</button>
+      <span class="hint" id="hint">Enter sends. Shift Enter adds a line.</span>
+      <span class="grow"></span>
+      <button class="act stop" id="stop">Stop</button>
+      <button class="act send" id="send">Send</button>
     </div>
-  </section>
+  </div>
+
+  <div class="panel hidden" id="panel">
+    <label><input type="checkbox" id="dark"> Dark mode</label>
+    <p id="note"></p>
+    <p>The full settings live on the computer that runs Autumn Natter.</p>
+  </div>
 </div>
 
 <script>
@@ -157,11 +207,16 @@ textarea { width: 100%; resize: vertical; min-height: 58px; }
 
 // The parts of the page that stay in place. Their content is written again on
 // every draw.
-var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctxtext', 'ctxfill', 'newchat',
-  'chats', 'msgs', 'code', 'sandbox', 'status', 'draft', 'settingsbtn', 'panel',
+var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctxtext', 'ctxfill', 'where',
+  'stage', 'cards', 'washL', 'washR', 'zoneL', 'zoneR', 'turnL', 'turnR',
+  'newchat', 'code', 'sandbox', 'status', 'draft', 'settingsbtn', 'panel',
   'dark', 'note', 'send', 'stop', 'hint'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
+
+// The message box lives inside the open card, so it is taken again each time
+// the cards are built.
+var msgs = null;
 
 // A touch screen gets a send button. Other screens send with the Enter key.
 var touch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
@@ -261,28 +316,117 @@ function fillRepos(s) {
   el.repo.appendChild(all);
 }
 
+// Space between two cards of the carousel.
+var CARD_GAP = 14;
+
+// Work out how wide a card is, and hand the numbers to the style. The two
+// neighbours take a fixed strip at each side of the window.
+function cardStep() {
+  var width = el.stage.clientWidth || 640;
+  var peek = width < 620 ? 26 : 46;
+  var card = Math.max(280, width - 2 * peek);
+  el.stage.style.setProperty('--card', card + 'px');
+  el.stage.style.setProperty('--peek', peek + 'px');
+  return card + CARD_GAP;
+}
+
+// Stand the cards up. The open chat sits in the middle, and its neighbours
+// show a strip of themselves at each side.
 function drawChats(s) {
-  var key = s.chats.map(function (c) {
-    return c.id + c.title + c.when + (c.active ? 1 : 0);
-  }).join('|');
-  if (el.chats.dataset.key === key) { return; }
-  el.chats.dataset.key = key;
-  el.chats.innerHTML = '';
-  for (var n = 0; n < s.chats.length; n++) {
-    var c = s.chats[n];
-    var row = document.createElement('button');
-    row.className = 'chat' + (c.active ? ' on' : '');
-    var title = document.createElement('span');
-    title.className = 'ct';
-    title.textContent = c.title;
-    var when = document.createElement('span');
-    when.className = 'cw';
-    when.textContent = c.repo ? c.repo + ' - ' + c.when : c.when;
-    row.appendChild(title);
-    row.appendChild(when);
-    row.addEventListener('click', openChat.bind(null, c.id));
-    el.chats.appendChild(row);
+  var step = cardStep();
+  var index = s.carousel ? s.carousel.index : 0;
+  // The list is built again only when a chat came or went away.
+  var key = s.chats.map(function (c) { return c.id; }).join('|');
+  if (el.cards.dataset.key !== key) {
+    el.cards.dataset.key = key;
+    buildCards(s, index, step);
   }
+  var cards = el.cards.children;
+  for (var n = 0; n < cards.length; n++) {
+    var on = n === index;
+    cards[n].classList.toggle('on', on);
+    cards[n].classList.toggle('ghost', !on);
+    if (!on) { paintSoft(cards[n], s.chats[n]); }
+    cards[n].style.transform = 'translateX(' + ((n - index) * step) + 'px)';
+  }
+  // The message box of the middle card is the one the page writes into.
+  msgs = index < cards.length ? cards[index].querySelector('.msgs') : null;
+  // A side is there only when a chat sits that way.
+  var left = index > 0;
+  var right = index < s.chats.length - 1;
+  el.zoneL.classList.toggle('hidden', !left);
+  el.turnL.classList.toggle('hidden', !left);
+  el.washL.classList.toggle('hidden', !left);
+  el.zoneR.classList.toggle('hidden', !right);
+  el.turnR.classList.toggle('hidden', !right);
+  el.where.textContent = s.chats.length > 1
+    ? (index + 1) + ' of ' + s.chats.length : '';
+}
+
+// One card per chat. A card holds a message box and a soft picture, and shows
+// one of them. The soft picture tells the user that the chat holds a talk.
+// A card is made once and then only moved, so a turn of the carousel is
+// smooth. The list is built again when a chat arrives or goes away.
+function buildCards(s, index, step) {
+  el.cards.innerHTML = '';
+  var made = [];
+  for (var n = 0; n < s.chats.length; n++) {
+    var card = document.createElement('div');
+    card.className = 'card ghost';
+    card.dataset.id = s.chats[n].id;
+    // No slide for the first stand, because the place is not known yet.
+    card.style.transition = 'none';
+    card.style.transform = 'translateX(' + ((n - index) * step) + 'px)';
+
+    var soft = document.createElement('div');
+    soft.className = 'soft';
+    var title = document.createElement('div');
+    title.className = 'gt';
+    var preview = document.createElement('div');
+    preview.className = 'gp';
+    soft.appendChild(title);
+    soft.appendChild(preview);
+    // Shapes that stand for the message bubbles of that chat.
+    var names = ['a', 'b', 'c'];
+    for (var b = 0; b < names.length; b++) {
+      var bar = document.createElement('div');
+      bar.className = 'gb ' + names[b];
+      soft.appendChild(bar);
+    }
+    var box = document.createElement('div');
+    box.className = 'msgs';
+
+    card.appendChild(soft);
+    card.appendChild(box);
+    el.cards.appendChild(card);
+    made.push(card);
+  }
+  // The place is now set without an animation, so the next change can slide.
+  void el.cards.offsetWidth;
+  for (var m = 0; m < made.length; m++) { made[m].style.transition = ''; }
+}
+
+// The soft picture of a neighbour chat: its name and the start of its newest
+// message. The work is skipped when nothing changed.
+function paintSoft(card, c) {
+  var soft = card.querySelector('.soft');
+  var key = c.title + '|' + c.preview;
+  if (soft.dataset.key === key) { return; }
+  soft.dataset.key = key;
+  soft.querySelector('.gt').textContent = c.title;
+  soft.querySelector('.gp').textContent = c.preview;
+}
+
+// A click on a neighbour chat turns the carousel to it.
+el.cards.addEventListener('click', function (event) {
+  var card = event.target.closest ? event.target.closest('.card') : null;
+  if (!card || card.classList.contains('on')) { return; }
+  if (card.dataset.id) { openChat(card.dataset.id); }
+});
+
+// Turn the carousel. Minus one shows the chat at the left.
+function roll(step) {
+  post('/api/roll', { step: step });
 }
 
 function openChat(id) {
@@ -290,13 +434,23 @@ function openChat(id) {
 }
 
 function drawMessages(s) {
-  var box = el.msgs;
+  var box = msgs;
+  if (!box) { return; }
   // Keep the newest message in view while an answer comes in.
   var near = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
   box.innerHTML = '';
   var items = s.messages.slice();
   if (s.generating) {
     items.push({ role: 'Assistant', body: s.live, tool: '', mono: false, failed: false, when: '' });
+  }
+  if (items.length === 0) {
+    // A chat with nothing in it says what to do next.
+    var blank = document.createElement('div');
+    blank.className = 'blank';
+    blank.textContent = 'Nothing written yet. Write below and press Enter. '
+      + 'A chat with nothing in it goes away when you turn the carousel.';
+    box.appendChild(blank);
+    return;
   }
   for (var n = 0; n < items.length; n++) { box.appendChild(node(items[n])); }
   if (near || s.generating) { box.scrollTop = box.scrollHeight; }
@@ -332,6 +486,13 @@ function send() {
 el.send.addEventListener('click', send);
 el.stop.addEventListener('click', function () { post('/api/cancel'); });
 el.newchat.addEventListener('click', function () { post('/api/new_chat'); });
+// The two sides of the window turn the carousel.
+el.zoneL.addEventListener('click', function () { roll(-1); });
+el.zoneR.addEventListener('click', function () { roll(1); });
+el.turnL.addEventListener('click', function () { roll(-1); });
+el.turnR.addEventListener('click', function () { roll(1); });
+// A new window size changes the width of the cards.
+window.addEventListener('resize', function () { if (cur) { drawChats(cur); } });
 el.model.addEventListener('change', function (e) { post('/api/select_model', { id: e.target.value }); });
 el.repo.addEventListener('change', function (e) { post('/api/select_repository', { id: e.target.value }); });
 el.newrepo.addEventListener('click', function () {

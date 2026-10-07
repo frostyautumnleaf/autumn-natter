@@ -15,13 +15,15 @@ export struct RepoRow {
     path: string,
 }
 
-// One entry of the chat list.
+// One chat of the carousel.
 export struct ChatRow {
     id: string,
     title: string,
     repo: string,
     when: string,
     active: bool,
+    // Start of the newest message, for the soft picture at the side.
+    preview: string,
 }
 
 // One message between the user and the model, or one tool result.

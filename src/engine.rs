@@ -63,6 +63,13 @@ pub struct Snap {
     pub repositories: Vec<Repo>,
     pub chats: Vec<Chat>,
     pub chat_id: String,
+    // Where the open chat sits in the carousel. The window moves the carousel
+    // to this place when the number changes.
+    pub chat_index: usize,
+    // How many chats this place has, the blank one counted too.
+    pub chat_count: usize,
+    // True when the open chat holds no message yet.
+    pub blank_chat: bool,
     pub messages: Vec<Message>,
     // Text the model is writing right now, while an answer comes in.
     pub live_text: String,
@@ -83,6 +90,10 @@ pub struct State {
     pub scope_repo: String,
     pub chats: Vec<Chat>,
     pub current: Option<String>,
+    // A blank chat that the user turned away from. It is dropped once the
+    // carousel has finished moving, so the move is still smooth. The text is
+    // the id of that chat.
+    pub pending_blank: Option<(String, Instant)>,
     // Text the model is writing right now.
     pub live_text: String,
     pub generating: bool,
@@ -126,7 +137,16 @@ impl State {
     }
 
     // Write the open chat to disk. Cloning first keeps the borrow short.
+    // A chat that holds something is a real chat from then on, even when the
+    // carousel made it as a blank one.
     fn persist(&mut self) {
+        if let Some(id) = self.current.clone() {
+            if let Some(chat) = self.chats.iter_mut().find(|c| c.meta.id == id) {
+                if !chat.messages.is_empty() {
+                    chat.transient = false;
+                }
+            }
+        }
         if let Some(chat) = self.chat() {
             let snapshot = chat.clone();
             self.store.save_chat(&snapshot);
@@ -256,7 +276,96 @@ impl State {
                 self.current = None;
             }
         }
+        self.pending_blank = None;
+        // A place with no chat at all still gets a blank one, so the carousel
+        // is never empty. When the place has chats, the newest one is opened.
+        if self.chats.is_empty() {
+            self.open_blank_chat();
+        } else if self.current.is_none() {
+            self.current = Some(self.chats[0].meta.id.clone());
+            self.ctx_used = self.chats[0].meta.context_used;
+        }
         self.touch_structure();
+    }
+
+    // Put a blank chat at the front of the carousel and open it. The blank
+    // chat lives only in the memory. When one is there already, it is used
+    // again, so asking for a new chat twice does not make two of them.
+    fn open_blank_chat(&mut self) {
+        if let Some(place) = self
+            .chats
+            .iter()
+            .position(|c| c.transient && c.messages.is_empty())
+        {
+            // A new chat belongs at the front, so move the blank one there.
+            if place != 0 {
+                let chat = self.chats.remove(place);
+                self.chats.insert(0, chat);
+            }
+            self.use_blank_front();
+            return;
+        }
+        let model_id = self.current_model_id();
+        let mut chat = Chat::blank(&self.scope_repo, &model_id);
+        // A blank chat keeps the sandbox choice of the chat that was at the
+        // front. The terminal tool always starts off.
+        if let Some(previous) = self.chats.first() {
+            chat.meta.sandbox_enabled = previous.meta.sandbox_enabled;
+        }
+        self.chats.insert(0, chat);
+        self.use_blank_front();
+    }
+
+    // Open the chat that sits at the front of the carousel, and say what a
+    // blank chat is.
+    fn use_blank_front(&mut self) {
+        let front = self.chats.first().map(|c| c.meta.id.clone());
+        self.current = front;
+        self.ctx_used = 0;
+        self.pending_blank = None;
+        self.set_status("a blank chat. Write in it, or turn the carousel and it goes away");
+        self.touch_structure();
+    }
+
+    // Forget the blank chat with this id, when it is still blank and it is not
+    // the chat that is open.
+    fn drop_blank(&mut self, id: &str) {
+        if self.current.as_deref() == Some(id) {
+            return;
+        }
+        let place = self.chats.iter().position(|c| c.meta.id == id);
+        let Some(place) = place else { return };
+        if !(self.chats[place].transient && self.chats[place].messages.is_empty()) {
+            return;
+        }
+        let dropped = self.chats.remove(place);
+        // A blank chat never reaches the disk. The delete covers a file that an
+        // older run may have left, so the chat cannot come back by itself.
+        self.store.delete_chat(&dropped.meta.repo_id, &dropped.meta.id);
+        self.touch_structure();
+    }
+
+    // Take away a blank chat that the user turned away from. This waits until
+    // the carousel had the time to move, so the move stays smooth.
+    fn prune_blank(&mut self) {
+        let Some((id, deadline)) = self.pending_blank.clone() else { return };
+        if Instant::now() < deadline {
+            return;
+        }
+        self.pending_blank = None;
+        self.drop_blank(&id);
+    }
+
+    // Note that the open chat is a blank one, in case the user leaves it now.
+    fn leave_blank(&mut self) {
+        let Some(id) = self.current.clone() else { return };
+        let blank = self
+            .chats
+            .iter()
+            .any(|c| c.meta.id == id && c.transient && c.messages.is_empty());
+        if blank {
+            self.pending_blank = Some((id, Instant::now() + Duration::from_millis(320)));
+        }
     }
 
     // Refresh the model list, the device list and the repositories.
@@ -356,6 +465,13 @@ impl State {
             repositories: self.repositories.iter().take(5).cloned().collect(),
             chats: self.chats.clone(),
             chat_id: self.current.clone().unwrap_or_default(),
+            chat_index: self
+                .chats
+                .iter()
+                .position(|c| Some(&c.meta.id) == self.current.as_ref())
+                .unwrap_or(0),
+            chat_count: self.chats.len(),
+            blank_chat: chat.map(|c| c.messages.is_empty()).unwrap_or(true),
             messages: chat.map(|c| c.messages.clone()).unwrap_or_default(),
             live_text: self.live_text.clone(),
             rev: self.rev,
@@ -399,9 +515,13 @@ impl Engine {
             sandbox_note,
             rev: 0,
             structure_rev: 0,
+            pending_blank: None,
         };
         state.refresh_lists();
         state.reload_chats();
+        // The first thing the user sees is a blank chat at the front of the
+        // carousel. It goes away again when it is not used.
+        state.open_blank_chat();
         let state = Arc::new(Mutex::new(state));
 
         let (sender, receiver) = channel::<Job>();
@@ -425,10 +545,15 @@ impl Engine {
         }
     }
 
-    // Read the state without changing it.
+    // Read the state without changing it. A blank chat that the user turned
+    // away from is taken away here, because every window reads the state
+    // several times a second.
     pub fn snapshot(&self) -> Snap {
         match self.state.lock() {
-            Ok(state) => state.snap(),
+            Ok(mut state) => {
+                state.prune_blank();
+                state.snap()
+            }
             Err(_) => Snap::empty(),
         }
     }
@@ -564,7 +689,8 @@ impl Engine {
         }
     }
 
-    // Start a chat in the current scope.
+    // Start a chat in the place that is open now. The chat is blank, so it
+    // goes away again when the user turns the carousel away without writing.
     pub fn new_chat(&self) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -573,21 +699,51 @@ impl Engine {
             state.set_status("wait for the answer to finish");
             return;
         }
-        let mut chat = Chat::new(&state.scope_repo, &state.current_model_id());
-        // A new chat keeps the sandbox choice of the newest chat. The terminal
-        // tool always starts off.
-        if let Some(previous) = state.chats.first() {
-            chat.meta.sandbox_enabled = previous.meta.sandbox_enabled;
+        state.open_blank_chat();
+    }
+
+    // Turn the carousel by one chat. Minus one shows the chat at the left, and
+    // plus one shows the chat at the right. A blank chat that is left behind
+    // goes away after the move.
+    pub fn roll(&self, step: i32) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.generating {
+            state.set_status("wait for the answer to finish");
+            return;
         }
-        state.store.save_chat(&chat);
-        state.chats.insert(0, chat.clone());
-        state.current = Some(chat.meta.id.clone());
-        state.ctx_used = 0;
-        state.set_status("new chat");
+        if state.chats.is_empty() {
+            state.open_blank_chat();
+            return;
+        }
+        let here = state
+            .chats
+            .iter()
+            .position(|c| Some(&c.meta.id) == state.current.as_ref())
+            .unwrap_or(0);
+        let target = if step < 0 {
+            here.saturating_sub((-step) as usize)
+        } else {
+            (here + step as usize).min(state.chats.len() - 1)
+        };
+        if target == here {
+            state.set_status(if step < 0 {
+                "this is the first chat of this place"
+            } else {
+                "this is the last chat of this place"
+            });
+            return;
+        }
+        // A blank chat is dropped, but only after the carousel moved.
+        state.leave_blank();
+        state.current = Some(state.chats[target].meta.id.clone());
+        state.ctx_used = state.chats[target].meta.context_used;
+        state.set_status("ready");
         state.touch_structure();
     }
 
-    // Open a chat from the list.
+    // Open one chat of the carousel.
     pub fn open_chat(&self, id: String) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -599,6 +755,7 @@ impl Engine {
         if !state.chats.iter().any(|c| c.meta.id == id) {
             return;
         }
+        state.leave_blank();
         state.current = Some(id.clone());
         state.ctx_used = state
             .chats
@@ -718,6 +875,9 @@ impl Snap {
             repositories: Vec::new(),
             chats: Vec::new(),
             chat_id: String::new(),
+            chat_index: 0,
+            chat_count: 0,
+            blank_chat: true,
             messages: Vec::new(),
             live_text: String::new(),
             rev: 0,
@@ -1050,4 +1210,134 @@ fn first_line(text: &str) -> String {
         return format!("{}...", short);
     }
     line.to_string()
+}
+
+// Tests for the carousel of chats. They drive the engine the way a window
+// does, and look at the snapshot that a window draws.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The program keeps its paths in one place for the whole run, so the tests
+    // share one data folder. They take turns, and each one empties the chats
+    // folder first.
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn setup() {
+        config::set_data_dir(PathBuf::from("uidata/engine-tests"));
+        let _ = config::ensure_dirs();
+        let chats = config::paths().chats;
+        let _ = std::fs::create_dir_all(&chats);
+        if let Ok(entries) = std::fs::read_dir(&chats) {
+            for entry in entries.flatten() {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    // A chat with one message, written on disk.
+    fn write_chat(id: &str, updated: i64) {
+        let store = store::Store::new(config::repositories_dir(&Config::default()));
+        let mut chat = Chat::new("", "");
+        chat.meta.id = id.to_string();
+        chat.meta.title = id.to_string();
+        chat.meta.updated = updated;
+        let mut message = Message::default();
+        message.role = String::from("You");
+        message.body = String::from("A written question");
+        message.when = updated;
+        chat.messages.push(message);
+        store.save_chat(&chat);
+    }
+
+    // A blank chat lives only in the memory, so it never reaches the disk. A
+    // chat that was written in is stored at once.
+    #[test]
+    fn blank_chats_stay_off_disk() {
+        let _guard = TURN.lock().unwrap();
+        setup();
+        let engine = Engine::start(Config::default());
+        let chats = config::paths().chats;
+        let stored = || std::fs::read_dir(&chats).map(|entries| entries.count()).unwrap_or(0);
+
+        // The blank chat at the front is not a file.
+        assert_eq!(engine.snapshot().chat_count, 1);
+        assert_eq!(stored(), 0);
+
+        // Even the badges may not write a blank chat to disk.
+        engine.new_chat();
+        engine.set_code(true);
+        engine.set_sandbox(false);
+        assert_eq!(stored(), 0);
+
+        // The first message makes it a real chat.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.push_message("You", "A real question", false);
+        }
+        assert_eq!(stored(), 1);
+
+        // A fresh blank chat goes away when it is turned away from, and the
+        // chat that was written in stays on the disk and in the carousel.
+        engine.new_chat();
+        assert_eq!(engine.snapshot().chat_count, 2);
+        engine.roll(1);
+        std::thread::sleep(Duration::from_millis(500));
+        let after = engine.snapshot();
+        assert_eq!(after.chat_count, 1);
+        assert!(!after.blank_chat);
+        assert_eq!(stored(), 1);
+    }
+
+    #[test]
+    fn carousel_rules() {
+        let _guard = TURN.lock().unwrap();
+        setup();
+        write_chat("aaaabbbb01", 100);
+        write_chat("aaaabbbb02", 200);
+
+        // The first thing the user sees is a blank chat at the front.
+        let engine = Engine::start(Config::default());
+        let snap = engine.snapshot();
+        assert_eq!(snap.chat_count, 3);
+        assert_eq!(snap.chat_index, 0);
+        assert!(snap.blank_chat);
+        assert!(snap.chats[0].transient);
+
+        // Asking for a new chat twice still gives one blank chat.
+        engine.new_chat();
+        engine.new_chat();
+        assert_eq!(engine.snapshot().chat_count, 3);
+
+        // A blank chat that is turned away from goes away after the move.
+        engine.roll(1);
+        assert_eq!(engine.snapshot().chat_count, 3);
+        std::thread::sleep(Duration::from_millis(500));
+        let after = engine.snapshot();
+        assert_eq!(after.chat_count, 2);
+        assert_eq!(after.chat_index, 0);
+        assert_eq!(after.chat_id, "aaaabbbb02");
+        assert!(!after.blank_chat);
+
+        // A blank chat that was used stays, like any other chat.
+        engine.new_chat();
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.push_message("You", "Hello there", false);
+        }
+        engine.roll(1);
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(engine.snapshot().chat_count, 3);
+
+        // Every repository has its own carousel.
+        engine.create_repository(String::from("Test Repo"));
+        let repo = engine.snapshot();
+        assert!(repo.in_repository);
+        assert_eq!(repo.chat_count, 1);
+        assert!(repo.blank_chat);
+        engine.select_repository(String::new());
+        let back = engine.snapshot();
+        assert!(!back.in_repository);
+        assert_eq!(back.chat_count, 3);
+    }
 }

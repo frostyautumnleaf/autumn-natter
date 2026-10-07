@@ -23,6 +23,9 @@ rustc-ice-*.txt
 # Local handover notes. Kept on disk, never committed.
 PROJECT.md
 
+# Scratch folder the engine tests write to.
+uidata/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

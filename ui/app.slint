@@ -1,14 +1,221 @@
 // Main window of Autumn Natter.
 // The Rust code in src/ui_app.rs owns the state and drives these properties.
+//
+// The chats sit in a carousel. The chat in the middle of the window is the one
+// the user works in. The next chats of the same place show a little of
+// themselves at each side, soft and small. A click at one side turns the
+// carousel that way. Every repository has its own carousel, and the chats with
+// no repository have one of their own.
 import { Theme } from "theme.slint";
 import { ModelRow, RepoRow, ChatRow, MessageRow } from "types.slint";
+// The message list and the wait mark come from the widget set of Slint.
+import { ListView, Spinner } from "std-widgets.slint";
 import { Badge, IconButton, Pill } from "widgets.slint";
 // The two dialogs live in their own files.
 export { ModelConfigWindow } from "model_config.slint";
 export { SettingsWindow } from "settings.slint";
 // The Rust code sets the palette through this global.
 export { Theme } from "theme.slint";
-import { ListView, Spinner, TextEdit } from "std-widgets.slint";
+
+// The soft picture of a chat that is not in the middle of the carousel. It
+// shows where the bubbles of that chat are, so the user sees that the chat
+// holds a talk and not a blank page.
+//
+// Slint has no blur for the software renderer. The soft look is made by
+// drawing every shape twice, one hair apart, and by keeping the whole card
+// pale. A wash of the window colour then fades the outer edge.
+component GhostChat inherits Rectangle {
+    in property <ChatRow> chat;
+
+    // The first line of the newest message, for a hint of what it is about.
+    soft := Rectangle {
+        x: 14px;
+        y: 12px;
+        width: parent.width - 28px;
+        height: 16px;
+
+        title := Text {
+            text: chat.title;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            overflow: elide;
+            x: 0;
+            y: 0;
+        }
+        // The same text a hair to the right and down, which softens the edges.
+        Text {
+            text: chat.title;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            overflow: elide;
+            x: 1px;
+            y: 1px;
+            opacity: 0.45;
+        }
+    }
+
+    // The lines of the preview, kept short on purpose. Only the far end of
+    // this card is ever seen.
+    lines := Rectangle {
+        x: 14px;
+        y: 36px;
+        width: parent.width - 28px;
+        height: parent.height - 50px;
+
+        preview := Text {
+            text: chat.preview;
+            color: Theme.text-dim;
+            font-size: 12px;
+            wrap: word-wrap;
+            overflow: elide;
+            x: 0;
+            y: 0;
+            width: parent.width;
+        }
+        Text {
+            text: chat.preview;
+            color: Theme.text-dim;
+            font-size: 12px;
+            wrap: word-wrap;
+            overflow: elide;
+            x: 1px;
+            y: 1px;
+            width: parent.width;
+            opacity: 0.45;
+        }
+    }
+
+    // Shapes that stand for the message bubbles of that chat.
+    bar-a := Rectangle {
+        y: parent.height - 132px;
+        x: 14px;
+        width: parent.width * 0.62;
+        height: 44px;
+        border-radius: 10px;
+        background: Theme.bubble-assistant;
+    }
+    bar-b := Rectangle {
+        y: parent.height - 78px;
+        x: parent.width * 0.3;
+        width: parent.width * 0.55;
+        height: 34px;
+        border-radius: 10px;
+        background: Theme.bubble-user;
+    }
+    bar-c := Rectangle {
+        y: parent.height - 34px;
+        x: 14px;
+        width: parent.width * 0.74;
+        height: 22px;
+        border-radius: 10px;
+        background: Theme.bubble-assistant;
+    }
+}
+
+// The chat in the middle of the carousel: the messages, and the newest one at
+// the bottom.
+component MiddleChat inherits Rectangle {
+    in property <[MessageRow]> messages;
+    in property <bool> blank: false;
+    // The Rust code raises this number when a message is added, so the newest
+    // message is kept in view.
+    in property <int> message-rev: 0;
+
+    // Keep the newest message in view. The list has no scroll-to function.
+    changed message-rev => {
+        list.content-y = Math.min(0px, list.height - list.content-height);
+    }
+
+    list := ListView {
+        x: 6px;
+        y: 6px;
+        width: parent.width - 12px;
+        height: parent.height - 12px;
+
+        for msg in messages: Rectangle {
+            width: list.width;
+            // The height follows the text, so nothing is ever cut or drawn on
+            // top of the next message.
+            height: bubble.preferred-height + 8px;
+
+            bubble := Rectangle {
+                x: 2px;
+                y: 4px;
+                width: parent.width - 4px;
+                height: parent.height - 8px;
+                border-radius: 12px;
+                border-width: msg.failed ? 1px : 0px;
+                border-color: Theme.danger;
+                background: msg.role == "You" ? Theme.bubble-user : Theme.bubble-assistant;
+
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 6px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        height: 16px;
+
+                        Text {
+                            text: msg.role;
+                            color: msg.role == "You" ? Theme.accent-strong : Theme.accent-leaf;
+                            font-size: 12px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: msg.when;
+                            color: Theme.text-dim;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: msg.body;
+                        color: msg.failed ? Theme.danger : Theme.text;
+                        font-size: 13.5px;
+                        wrap: word-wrap;
+                        width: parent.width;
+                    }
+
+                    Rectangle {
+                        visible: msg.tool != "";
+                        width: parent.width;
+                        height: msg.tool != "" ? tool-text.preferred-height + 16px : 0px;
+                        border-radius: 8px;
+                        background: Theme.surface-alt;
+
+                        tool-text := Text {
+                            x: 8px;
+                            y: 8px;
+                            width: parent.width - 16px;
+                            text: msg.tool;
+                            color: msg.failed ? Theme.danger : Theme.text-dim;
+                            font-size: 12px;
+                            font-family: "monospace";
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // A chat with nothing in it says what to do next.
+    Text {
+        visible: blank;
+        x: 24px;
+        y: 20px;
+        width: parent.width - 48px;
+        text: "Nothing written yet. Write below and press Enter. A chat with nothing in it goes away when you turn the carousel.";
+        color: Theme.text-dim;
+        font-size: 13px;
+        wrap: word-wrap;
+    }
+}
 
 export component App inherits Window {
     title: "Autumn Natter";
@@ -30,22 +237,25 @@ export component App inherits Window {
     in property <bool> code-enabled: false;
     in property <bool> sandbox-enabled: true;
     in property <bool> sandbox-available: true;
-    // The Rust code hides the chat list when it sets this to false.
-    in property <bool> chat-open: true;
-
-    // The Rust code raises this number when a message is added, so the newest
-    // message is scrolled into view.
-    in property <int> message-rev: 0;
     in property <bool> server-busy: false;
     in property <string> status-text: "";
+    // True when the chat in the middle has no message yet.
+    in property <bool> blank-chat: false;
+
     in property <[ModelRow]> models;
     in property <[RepoRow]> repositories;
+    // The chats of this place, newest first. The list is the carousel.
     in property <[ChatRow]> chats;
+    // Which chat of the carousel sits in the middle.
+    in property <int> chat-index: 0;
     in property <[MessageRow]> messages;
+    // The Rust code raises this number when a message is added, so the list of
+    // the chat in the middle moves to the newest message.
+    in property <int> message-rev: 0;
 
-    // The native build always shows the send button. The browser build shows it
-    // only on a touch screen.
-    in property <bool> send-visible: true;
+    // The native build has no send button, because Enter sends the message.
+    // The browser build shows the button on a touch screen only.
+    in property <bool> send-visible: false;
 
     // Text inside the composer.
     in-out property <string> draft-text;
@@ -61,19 +271,27 @@ export component App inherits Window {
     callback select-repository(id: string);
     callback view-all-repositories();
     callback new-chat();
-    callback open-chat(id: string);
+    // Turn the carousel. Minus one shows the chat on the left, plus one the
+    // chat on the right.
+    callback roll-chat(step: int);
 
-    // Keep the newest message in view. The Rust code raises the number when a
-    // message is added or when the model writes more text.
-    changed message-rev => {
-        chat-list.content-y = Math.min(0px, chat-list.height - chat-list.content-height);
-    }
+    // ---- shape of the carousel ----
+    // How much of a neighbour chat shows at each side.
+    out property <length> peek: 62px;
+    // Space between two cards.
+    out property <length> card-gap: 14px;
+    out property <length> card-width: Math.max(280px, stage.width - 2 * peek);
+    // True when a chat exists to the left and to the right of the middle one.
+    out property <bool> can-roll-left: chat-index > 0;
+    out property <bool> can-roll-right: chat-index < chats.length - 1;
 
     VerticalLayout {
         spacing: 0;
 
         // ------------------------------------------------------------------
         // Top bar. It has the same colour as the chat window background.
+        // Nothing in this bar may push another part out of the window, so the
+        // wide parts have a limit and the chat name takes what is left.
         Rectangle {
             height: 48px;
             background: Theme.bg;
@@ -82,11 +300,13 @@ export component App inherits Window {
                 padding-left: 12px;
                 padding-right: 12px;
                 spacing: 10px;
+                cross-axis-alignment: center;
 
                 // Program icon and program name.
                 HorizontalLayout {
                     spacing: 8px;
                     cross-axis-alignment: center;
+                    vertical-stretch: 0;
 
                     Image {
                         source: @image-url("../assets/icons/autumn-natter.svg");
@@ -107,7 +327,10 @@ export component App inherits Window {
                 // Model selector.
                 model-btn := Rectangle {
                     height: 32px;
-                    width: model-label.preferred-width + kind-pill.preferred-width + 44px;
+                    // The name of a model can be long, so the box has a top
+                    // limit and the name is cut short instead.
+                    width: Math.min(300px, model-label.preferred-width + kind-pill.preferred-width + 46px);
+                    horizontal-stretch: 0;
                     border-radius: 8px;
                     border-width: 1px;
                     border-color: model-pop.is-open ? Theme.accent : Theme.line;
@@ -132,6 +355,7 @@ export component App inherits Window {
                             font-size: 13px;
                             vertical-alignment: center;
                             overflow: elide;
+                            horizontal-stretch: 1;
                         }
                         kind-pill := Pill {
                             text: model-kind;
@@ -154,8 +378,10 @@ export component App inherits Window {
                     model-pop := PopupWindow {
                         x: 0;
                         y: 36px;
-                        width: 380px;
-                        height: 40px * models.length + 16px;
+                        width: Math.min(380px, model-btn.width);
+                        // A long model list must not run past the window, so
+                        // the list gets a top and scrolls inside.
+                        height: Math.min(40px * models.length + 16px, root.height - 64px);
                         close-policy: close-on-click-outside;
 
                         Rectangle {
@@ -213,6 +439,7 @@ export component App inherits Window {
                                         y: 5px;
                                         icon: @image-url("../assets/icons/settings.svg");
                                         tip: "Configure this model";
+                                        tip-left: true;
                                         selected: m.active;
                                         clicked => {
                                             root.configure-model(m.id);
@@ -228,8 +455,9 @@ export component App inherits Window {
                 // Repository selector. It is only there for a chat inside a repository.
                 repo-btn := Rectangle {
                     height: 32px;
-                    width: repo-label.preferred-width + 58px;
                     visible: in-repository;
+                    width: Math.min(230px, repo-label.preferred-width + 58px);
+                    horizontal-stretch: 0;
                     border-radius: 8px;
                     border-width: 1px;
                     border-color: repo-pop.is-open ? Theme.accent : Theme.line;
@@ -239,6 +467,7 @@ export component App inherits Window {
                         padding-left: 9px;
                         padding-right: 8px;
                         spacing: 7px;
+                        cross-axis-alignment: center;
 
                         Image {
                             source: @image-url("../assets/icons/folder.svg");
@@ -253,6 +482,7 @@ export component App inherits Window {
                             font-size: 13px;
                             vertical-alignment: center;
                             overflow: elide;
+                            horizontal-stretch: 1;
                         }
                         Image {
                             source: @image-url("../assets/icons/chevron-down.svg");
@@ -272,7 +502,9 @@ export component App inherits Window {
                         x: 0;
                         y: 36px;
                         width: 300px;
-                        height: 38px * (repositories.length + 1) + 54px;
+                        // Five repositories and two fixed lines fit always, but
+                        // a short window still gets a list that fits.
+                        height: Math.min(38px * (repositories.length + 1) + 54px, root.height - 64px);
                         close-policy: close-on-click-outside;
 
                         Rectangle {
@@ -368,7 +600,8 @@ export component App inherits Window {
                     }
                 }
 
-                // Chat name. It comes from the first prompt of the user.
+                // Chat name. It comes from the first prompt of the user. It
+                // takes the room that is left, and gives way first.
                 Text {
                     text: chat-title;
                     color: Theme.text-dim;
@@ -376,12 +609,23 @@ export component App inherits Window {
                     vertical-alignment: center;
                     overflow: elide;
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                }
+
+                // Where the user is in the carousel, for example 3 of 9.
+                Text {
+                    text: chats.length > 1 ? "\{chat-index + 1} of \{chats.length}" : "";
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 0;
                 }
 
                 // Context display: used tokens over the token limit.
                 Rectangle {
                     width: ctx.preferred-width + 12px;
                     height: 32px;
+                    horizontal-stretch: 0;
 
                     HorizontalLayout {
                         spacing: 6px;
@@ -399,7 +643,7 @@ export component App inherits Window {
                         x: 6px;
                         width: parent.width - 12px;
                         height: 2px;
-                            border-radius: 1px;
+                        border-radius: 1px;
                         background: Theme.line;
 
                         Rectangle {
@@ -413,329 +657,356 @@ export component App inherits Window {
         }
 
         // ------------------------------------------------------------------
-        HorizontalLayout {
-            spacing: 0;
+        // The carousel. The middle card is the chat in use.
+        stage := Rectangle {
+            vertical-stretch: 1;
+            clip: true;
 
-            // Chat list.
-            Rectangle {
-                width: 210px;
-                visible: chat-open;
+            // Only the middle card and the two next to it are made. A place
+            // with many chats is then as light to draw as a place with three.
+            for c[index] in chats: Rectangle {
+                // A chat is drawn when it sits in the middle or next to it.
+                out property <bool> near: Math.abs(index - chat-index) <= 1;
+                visible: near;
+                width: root.card-width;
+                height: stage.height - 16px;
+                y: 8px;
+                x: (stage.width - root.card-width) / 2
+                    + (index - chat-index) * (root.card-width + card-gap);
+                animate x { duration: 260ms; }
+
+                clip: true;
+                border-radius: 14px;
+                border-width: 1px;
+                border-color: c.active ? Theme.accent : Theme.line;
                 background: Theme.surface;
+                // A neighbour chat is pale, so it stays out of the way.
+                opacity: c.active ? 1 : 0.45;
 
-                // Hairline between the chat list and the chat column.
-                Rectangle {
-                    x: parent.width - 1px;
-                    width: 1px;
-                    height: 100%;
-                    background: Theme.line;
+                if c.active: MiddleChat {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    messages: root.messages;
+                    blank: root.blank-chat;
+                    message-rev: root.message-rev;
                 }
 
-                VerticalLayout {
-                    padding: 10px;
-                    spacing: 8px;
-
-                    Rectangle {
-                        height: 34px;
-                        border-radius: 8px;
-                        background: new-area.has-hover ? Theme.tint : Theme.surface-alt;
-
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            spacing: 8px;
-
-                            Image {
-                                source: @image-url("../assets/icons/plus.svg");
-                                colorize: Theme.accent-strong;
-                                width: 15px;
-                                height: 15px;
-                                vertical-alignment: center;
-                            }
-                            Text {
-                                text: "New chat";
-                                color: Theme.accent-strong;
-                                font-size: 13px;
-                                font-weight: 600;
-                                vertical-alignment: center;
-                            }
-                        }
-
-                        new-area := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => { root.new-chat(); }
-                        }
-                    }
-
-                    chats-list := ListView {
-
-                        for c in chats: Rectangle {
-                            width: chats-list.width;
-                            height: 46px;
-                            border-radius: 8px;
-                            background: c.active ? Theme.tint : (row.has-hover ? Theme.hover : transparent);
-
-                            VerticalLayout {
-                                padding-left: 10px;
-                                padding-right: 8px;
-                                padding-top: 6px;
-                                padding-bottom: 6px;
-                                spacing: 2px;
-
-                                Text {
-                                    text: c.title;
-                                    color: c.active ? Theme.accent-strong : Theme.text;
-                                    font-size: 13px;
-                                    overflow: elide;
-                                }
-                                HorizontalLayout {
-                                    spacing: 6px;
-
-                                    Text {
-                                        text: c.repo != "" ? c.repo : "no repository";
-                                        color: Theme.text-dim;
-                                        font-size: 11px;
-                                        vertical-alignment: center;
-                                        overflow: elide;
-                                        horizontal-stretch: 1;
-                                    }
-                                    Text {
-                                        text: c.when;
-                                        color: Theme.text-dim;
-                                        font-size: 11px;
-                                        vertical-alignment: center;
-                                    }
-                                }
-                            }
-
-                            row := TouchArea {
-                                mouse-cursor: MouseCursor.pointer;
-                                clicked => { root.open-chat(c.id); }
-                            }
-                        }
-                    }
+                if !c.active && near: GhostChat {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    chat: c;
                 }
             }
 
-        // Chat column: messages, status line, composer.
-            VerticalLayout {
-                spacing: 0;
+            // ---- the two sides that turn the carousel ----
+            // A wash of the window colour over the left chat, so it barely
+            // shows. The same on the right.
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: peek - card-gap;
+                height: parent.height;
+                visible: can-roll-left;
+                background: @linear-gradient(90deg, Theme.bg, #00000000);
+            }
+            Rectangle {
+                x: parent.width - (peek - card-gap);
+                y: 0;
+                width: peek - card-gap;
+                height: parent.height;
+                visible: can-roll-right;
+                background: @linear-gradient(270deg, Theme.bg, #00000000);
+            }
 
-                chat-list := ListView {
+            // The mark that says: click here for the chat on the left.
+            Rectangle {
+                x: 10px;
+                width: 28px;
+                height: 28px;
+                y: (parent.height - 28px) / 2;
+                visible: can-roll-left;
+                border-radius: 14px;
+                border-width: 1px;
+                border-color: left-area.has-hover ? Theme.accent : Theme.line;
+                background: left-area.has-hover ? Theme.tint : Theme.surface;
+                opacity: left-area.has-hover ? 1 : 0.75;
 
-                    for msg in messages: Rectangle {
-                        width: chat-list.width;
-                        height: 34px + head.preferred-height + body.preferred-height
-                            + tool-box.height + (msg.tool != "" ? 10px : 0px);
-
-                        Rectangle {
-                            x: 8px;
-                            y: 4px;
-                            width: parent.width - 16px;
-                            height: parent.height - 8px;
-                            border-radius: 12px;
-                            border-width: msg.failed ? 1px : 0px;
-                            border-color: Theme.danger;
-                            background: msg.role == "You" ? Theme.bubble-user : Theme.bubble-assistant;
-
-                            VerticalLayout {
-                                padding: 12px;
-                                spacing: 6px;
-
-                                head := HorizontalLayout {
-                                    spacing: 8px;
-                                    height: 16px;
-
-                                    Text {
-                                        text: msg.role;
-                                        color: msg.role == "You" ? Theme.accent-strong : Theme.accent-leaf;
-                                        font-size: 12px;
-                                        font-weight: 600;
-                                        vertical-alignment: center;
-                                    }
-                                    Text {
-                                        text: msg.when;
-                                        color: Theme.text-dim;
-                                        font-size: 11px;
-                                        vertical-alignment: center;
-                                    }
-                                }
-
-                                body := Text {
-                                    text: msg.body;
-                                    color: msg.failed ? Theme.danger : Theme.text;
-                                    font-size: 13.5px;
-                                    wrap: word-wrap;
-                                    width: parent.width;
-                                }
-
-                                tool-box := Rectangle {
-                                    visible: msg.tool != "";
-                                    width: parent.width;
-                                    height: msg.tool != "" ? tool-text.preferred-height + 16px : 0px;
-                                    border-radius: 8px;
-                                    background: Theme.surface-alt;
-
-                                    tool-text := Text {
-                                        x: 8px;
-                                        y: 8px;
-                                        width: parent.width - 16px;
-                                        text: msg.tool;
-                                        color: msg.failed ? Theme.danger : Theme.text-dim;
-                                        font-size: 12px;
-                                        font-family: "monospace";
-                                        wrap: word-wrap;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                Image {
+                    source: @image-url("../assets/icons/left.svg");
+                    colorize: left-area.has-hover ? Theme.accent-strong : Theme.text-dim;
+                    width: 16px;
+                    height: 16px;
+                    x: 6px;
+                    y: 6px;
                 }
+            }
+            left-area := TouchArea {
+                x: 0;
+                y: 0;
+                width: peek - card-gap;
+                height: stage.height;
+                enabled: can-roll-left;
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.roll-chat(-1); }
+            }
 
-                // Status line.
+            // The same mark on the right.
+            Rectangle {
+                x: parent.width - 38px;
+                width: 28px;
+                height: 28px;
+                y: (parent.height - 28px) / 2;
+                visible: can-roll-right;
+                border-radius: 14px;
+                border-width: 1px;
+                border-color: right-area.has-hover ? Theme.accent : Theme.line;
+                background: right-area.has-hover ? Theme.tint : Theme.surface;
+                opacity: right-area.has-hover ? 1 : 0.75;
+
+                Image {
+                    source: @image-url("../assets/icons/right.svg");
+                    colorize: right-area.has-hover ? Theme.accent-strong : Theme.text-dim;
+                    width: 16px;
+                    height: 16px;
+                    x: 6px;
+                    y: 6px;
+                }
+            }
+            right-area := TouchArea {
+                x: stage.width - (peek - card-gap);
+                y: 0;
+                width: peek - card-gap;
+                height: stage.height;
+                enabled: can-roll-right;
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.roll-chat(1); }
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Status line, with the way to start a fresh chat.
+        Rectangle {
+            height: 28px;
+
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                spacing: 8px;
+                cross-axis-alignment: center;
+
+                Spinner {
+                    width: 14px;
+                    height: 14px;
+                    visible: server-busy;
+                    horizontal-stretch: 0;
+                }
+                Text {
+                    text: status-text;
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                // The send button is only for a touch screen, so this says
+                // what the keys do.
+                Text {
+                    text: generating ? "Escape stops the answer" : "Enter sends the message";
+                    color: Theme.text-dim;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                    horizontal-stretch: 0;
+                    opacity: 0.8;
+                }
                 Rectangle {
                     height: 24px;
+                    width: new-lbl.preferred-width + 30px;
+                    horizontal-stretch: 0;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    background: new-area.has-hover ? Theme.tint : Theme.surface;
 
-                    HorizontalLayout {
-                        padding-left: 20px;
-                        padding-right: 20px;
-                        spacing: 8px;
-                        cross-axis-alignment: center;
-
-                        Spinner {
-                            width: 14px;
-                            height: 14px;
-                            visible: server-busy;
-                        }
-                        Text {
-                            text: status-text;
-                            color: Theme.text-dim;
-                            font-size: 12px;
-                            vertical-alignment: center;
-                            overflow: elide;
-                            horizontal-stretch: 1;
-                        }
+                    Image {
+                        source: @image-url("../assets/icons/plus.svg");
+                        colorize: Theme.accent-strong;
+                        width: 13px;
+                        height: 13px;
+                        x: 9px;
+                        y: 6px;
                     }
-                }
-
-                // Composer. The box keeps a fixed distance from both window sides.
-                Rectangle {
-                    height: 116px;
-
-                    HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 16px;
-                        padding-bottom: 14px;
-                        spacing: 8px;
-                        // The composer box and the settings button sit on the bottom line.
-                        cross-axis-alignment: end;
-
-                        Rectangle {
-                            horizontal-stretch: 1;
-                            height: 94px;
-                            border-radius: 12px;
-                            border-width: 1px;
-                            border-color: draft.has-focus ? Theme.accent : Theme.line;
-                            background: Theme.surface;
-
-                            draft := TextEdit {
-                                x: 12px;
-                                y: 10px;
-                                width: parent.width - 24px;
-                                height: parent.height - 48px;
-                                font-size: 13.5px;
-                                wrap: word-wrap;
-                                placeholder-text: "Write a message. Enter sends the message.";
-                                text <=> root.draft-text;
-                                key-pressed(event) => {
-                                    if (event.text == Key.Return) {
-                                        if (event.modifiers.shift) {
-                                            return EventResult.reject;
-                                        }
-                                        if (root.generating) {
-                                            root.cancel-generation();
-                                        } else if (root.draft-text != "") {
-                                            root.send-message(root.draft-text);
-                                        }
-                                        return EventResult.accept;
-                                    }
-                                    return EventResult.reject;
-                                }
-                            }
-
-                            // Badges in the lower left corner of the box.
-                            HorizontalLayout {
-                                x: 8px;
-                                y: parent.height - 34px;
-                                spacing: 8px;
-
-                                Badge {
-                                    text: "Code";
-                                    icon: @image-url("../assets/icons/code.svg");
-                                    active: code-enabled;
-                                    tip: "Let the model run one terminal command per step. Every command runs in the sandbox when the sandbox is on.";
-                                    clicked => { root.toggle-code(!code-enabled); }
-                                }
-                                Badge {
-                                    text: "Sandbox";
-                                    icon: @image-url("../assets/icons/shield.svg");
-                                    active: sandbox-enabled;
-                                    enabled: sandbox-available;
-                                    tip: sandbox-available
-                                        ? "Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory."
-                                        : "bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.";
-                                    clicked => { root.toggle-sandbox(!sandbox-enabled); }
-                                }
-                            }
-
-                            // Send button in the lower right corner of the box.
-                            Rectangle {
-                                width: 32px;
-                                height: 32px;
-                                x: parent.width - 40px;
-                                y: parent.height - 40px;
-                                visible: send-visible;
-                                border-radius: 16px;
-                                background: send-area.has-hover
-                                    ? (generating ? Theme.accent-deep : Theme.accent-warm)
-                                    : (generating ? Theme.accent-strong : Theme.accent);
-
-                                Image {
-                                    source: generating
-                                        ? @image-url("../assets/icons/stop.svg")
-                                        : @image-url("../assets/icons/send.svg");
-                                    colorize: Theme.on-accent;
-                                    width: 16px;
-                                    height: 16px;
-                                    x: 8px;
-                                    y: 8px;
-                                }
-
-                                send-area := TouchArea {
-                                    mouse-cursor: MouseCursor.pointer;
-                                    clicked => {
-                                        if (generating) {
-                                            root.cancel-generation();
-                                        } else if (root.draft-text != "") {
-                                            root.send-message(root.draft-text);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Settings button, next to the chat box.
-                        IconButton {
-                            icon: @image-url("../assets/icons/settings.svg");
-                            tip: "Settings";
-                            glyph: Theme.text;
-                            base: Theme.surface;
-                            width: 32px;
-                            height: 32px;
-                            clicked => { root.open-settings(); }
-                        }
+                    new-lbl := Text {
+                        text: "New chat";
+                        color: Theme.accent-strong;
+                        font-size: 12px;
+                        x: 26px;
+                        vertical-alignment: center;
+                    }
+                    new-area := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.new-chat(); }
                     }
                 }
             }
         }
-    }
 
+        // ------------------------------------------------------------------
+        // Composer. The box keeps a fixed distance from both window sides.
+        Rectangle {
+            height: 116px;
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-bottom: 14px;
+                spacing: 8px;
+                // The composer box and the settings button sit on the bottom line.
+                cross-axis-alignment: end;
+
+                box := Rectangle {
+                    horizontal-stretch: 1;
+                    height: 94px;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: draft.has-focus ? Theme.accent : Theme.line;
+                    background: Theme.surface;
+
+                    // The keys live here. Enter sends the message, Shift and
+                    // Enter start a new line, and Escape stops an answer.
+                    keys := FocusScope {
+                        x: 12px;
+                        y: 10px;
+                        width: parent.width - 24px;
+                        height: parent.height - 48px;
+                        forward-focus: draft;
+
+                        key-pressed(event) => {
+                            if (event.text == Key.Return) {
+                                // Shift and Enter is left to the text box, so
+                                // it can add a line.
+                                if (event.modifiers.shift) {
+                                    return reject;
+                                }
+                                if (root.generating) {
+                                    root.cancel-generation();
+                                } else if (root.draft-text != "") {
+                                    root.send-message(root.draft-text);
+                                }
+                                return accept;
+                            }
+                            if (event.text == Key.Escape && root.generating) {
+                                root.cancel-generation();
+                                return accept;
+                            }
+                            return reject;
+                        }
+
+                        draft := TextInput {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: parent.height;
+                            font-size: 13.5px;
+                            color: Theme.text;
+                            selection-background-color: Theme.accent;
+                            selection-foreground-color: Theme.on-accent;
+                            single-line: false;
+                            wrap: word-wrap;
+                            vertical-alignment: top;
+                            text <=> root.draft-text;
+                        }
+                    }
+
+                    // The hint. A text box has no hint of its own.
+                    Text {
+                        x: 12px;
+                        y: 10px;
+                        width: parent.width - 24px;
+                        text: "Write a message.";
+                        color: Theme.text-dim;
+                        font-size: 13.5px;
+                        wrap: word-wrap;
+                        visible: root.draft-text == "" && !draft.has-focus;
+                    }
+
+                    // Badges in the lower left corner of the box.
+                    HorizontalLayout {
+                        x: 8px;
+                        y: parent.height - 34px;
+                        spacing: 8px;
+
+                        Badge {
+                            text: "Code";
+                            icon: @image-url("../assets/icons/code.svg");
+                            active: code-enabled;
+                            tip: "Let the model run one terminal command per step. Every command runs in the sandbox when the sandbox is on.";
+                            clicked => { root.toggle-code(!code-enabled); }
+                        }
+                        Badge {
+                            text: "Sandbox";
+                            icon: @image-url("../assets/icons/shield.svg");
+                            active: sandbox-enabled;
+                            enabled: sandbox-available;
+                            tip: sandbox-available
+                                ? "Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory."
+                                : "bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.";
+                            clicked => { root.toggle-sandbox(!sandbox-enabled); }
+                        }
+                    }
+
+                    // Send button in the lower right corner of the box. It is
+                    // for a touch screen only, where no Enter key is near.
+                    Rectangle {
+                        width: 32px;
+                        height: 32px;
+                        x: parent.width - 40px;
+                        y: parent.height - 40px;
+                        visible: send-visible;
+                        border-radius: 16px;
+                        background: send-area.has-hover
+                            ? (generating ? Theme.accent-deep : Theme.accent-warm)
+                            : (generating ? Theme.accent-strong : Theme.accent);
+
+                        Image {
+                            source: generating
+                                ? @image-url("../assets/icons/stop.svg")
+                                : @image-url("../assets/icons/send.svg");
+                            colorize: Theme.on-accent;
+                            width: 16px;
+                            height: 16px;
+                            x: 8px;
+                            y: 8px;
+                        }
+
+                        send-area := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => {
+                                if (generating) {
+                                    root.cancel-generation();
+                                } else if (root.draft-text != "") {
+                                    root.send-message(root.draft-text);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Settings button, next to the chat box.
+                IconButton {
+                    icon: @image-url("../assets/icons/settings.svg");
+                    tip: "Settings";
+                    tip-left: true;
+                    glyph: Theme.text;
+                    base: Theme.surface;
+                    width: 32px;
+                    height: 32px;
+                    clicked => { root.open-settings(); }
+                }
+            }
+        }
+    }
 }
