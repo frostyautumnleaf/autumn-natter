@@ -8,6 +8,7 @@
 mod config;
 mod engine;
 mod greet;
+mod markdown;
 mod remote;
 mod gpu;
 mod llama;

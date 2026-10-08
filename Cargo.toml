@@ -30,6 +30,7 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 # Small blocking HTTP server for the remote (browser) mode.
 tiny_http = "0.12"
 urlencoding = "2"
+pulldown-cmark = "0.13"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

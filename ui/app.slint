@@ -201,29 +201,53 @@ component MiddleChat inherits Rectangle {
                     Rectangle {
                         visible: msg.role == "You";
                         width: parent.width;
-                        height: msg-text.preferred-height + 8px;
+                        height: user-content.preferred-height + 8px;
                         border-radius: 8px;
                         background: Theme.bubble-user;
 
-                        msg-text := Text {
+                        user-content := VerticalLayout {
                             x: 8px;
                             y: 4px;
                             width: parent.width - 16px;
-                            text: msg.body;
-                            color: msg.failed ? Theme.danger : Theme.text;
-                            font-size: 13.5px;
-                            wrap: word-wrap;
+                            spacing: 4px;
+
+                            for block in msg.blocks: Rectangle {
+                                width: parent.width;
+                                height: user-block-text.preferred-height;
+
+                                user-block-text := Text {
+                                    width: parent.width;
+                                    text: block.content;
+                                    color: msg.failed ? Theme.danger : Theme.text;
+                                    font-size: block.kind == "heading" ? 15px : 13.5px;
+                                    font-weight: block.kind == "heading" ? 700 : 400;
+                                    font-family: block.kind == "code" ? "monospace" : "";
+                                    wrap: word-wrap;
+                                }
+                            }
                         }
                     }
 
-                    // The assistant's text has no tint of its own.
-                    Text {
+                    // The assistant's blocks have no tint of their own.
+                    VerticalLayout {
                         visible: msg.role != "You";
-                        text: msg.body;
-                        color: msg.failed ? Theme.danger : Theme.text;
-                        font-size: 13.5px;
-                        wrap: word-wrap;
                         width: parent.width;
+                        spacing: 4px;
+
+                        for block in msg.blocks: Rectangle {
+                            width: parent.width;
+                            height: ai-block-text.preferred-height;
+
+                            ai-block-text := Text {
+                                width: parent.width;
+                                text: block.content;
+                                color: msg.failed ? Theme.danger : Theme.text;
+                                font-size: block.kind == "heading" ? 15px : (block.kind == "code" ? 12.5px : 13.5px);
+                                font-weight: block.kind == "heading" ? 700 : 400;
+                                font-family: block.kind == "code" ? "monospace" : "";
+                                wrap: word-wrap;
+                            }
+                        }
                     }
 
                     Rectangle {

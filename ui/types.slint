@@ -26,6 +26,13 @@ export struct ChatRow {
     preview: string,
 }
 
+// One block of rendered markdown inside a message.
+export struct MarkdownBlock {
+    kind: string,
+    level: int,
+    content: string,
+}
+
 // One message between the user and the model, or one tool result.
 export struct MessageRow {
     id: string,
@@ -35,6 +42,7 @@ export struct MessageRow {
     mono: bool,
     failed: bool,
     when: string,
+    blocks: [MarkdownBlock],
 }
 
 // One graphics device of the system.

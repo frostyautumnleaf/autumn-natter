@@ -295,6 +295,7 @@ fn draw_messages(ui: &Rc<Ui>, snap: &Snap) {
             mono: false,
             failed: false,
             when: text(&store::format_clock(store::now_secs())),
+            blocks: blocks_model(&snap.live_text),
         });
     }
     let same_count = rows.len() == ui.messages.row_count();
@@ -313,6 +314,19 @@ fn draw_messages(ui: &Rc<Ui>, snap: &Snap) {
     }
 }
 
+// Convert parsed markdown blocks into the Slint model type.
+fn blocks_model(body: &str) -> ModelRc<MarkdownBlock> {
+    let vec: Vec<MarkdownBlock> = crate::markdown::parse(body)
+        .into_iter()
+        .map(|b| MarkdownBlock {
+            kind: text(&b.kind),
+            level: b.level,
+            content: text(&b.content),
+        })
+        .collect();
+    ModelRc::from(Rc::new(VecModel::from(vec)))
+}
+
 // One message as the window shows it.
 fn row_for(message: &store::Message, previous_tool: bool) -> MessageRow {
     let _ = previous_tool;
@@ -324,6 +338,7 @@ fn row_for(message: &store::Message, previous_tool: bool) -> MessageRow {
         mono: message.mono,
         failed: message.failed,
         when: text(&store::format_clock(message.when)),
+        blocks: blocks_model(&message.body),
     }
 }
 
