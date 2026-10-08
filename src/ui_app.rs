@@ -544,6 +544,7 @@ fn show_model_config(engine: &Rc<Engine>, ui: &Rc<Ui>, id: String) {
     window.set_reasoning_budget(settings.reasoning_budget as i32);
     window.set_reasoning_message(text(&settings.reasoning_message));
     window.set_extra_args(text(&settings.extra_args));
+    window.set_chat_template(text(&settings.chat_template));
 
     // A device switch only changes the list in this dialog. Apply writes it.
     let state = ui.gpu_state.clone();
@@ -587,6 +588,7 @@ fn show_model_config(engine: &Rc<Engine>, ui: &Rc<Ui>, id: String) {
             reasoning_message: window.get_reasoning_message().to_string(),
             load_index: window.get_load_index().max(0) as usize,
             extra_args: window.get_extra_args().to_string(),
+            chat_template: window.get_chat_template().to_string(),
             vram_budget: window.get_vram_budget().max(0.0) as f64,
             gpu_enabled: state.borrow().clone(),
         };

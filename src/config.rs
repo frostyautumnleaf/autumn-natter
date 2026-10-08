@@ -37,6 +37,9 @@ pub struct ModelSettings {
     // -1 means no limit. 0 stops thinking at once.
     pub reasoning_budget: i64,
     pub reasoning_message: String,
+    // Custom jinja chat template. Empty uses the model's own embedded template.
+    #[serde(default)]
+    pub chat_template: String,
     // Index inside the model load mode list in llama.rs.
     pub load_index: usize,
     pub extra_args: String,
@@ -61,6 +64,7 @@ impl Default for ModelSettings {
             vision: false,
             reasoning_budget: -1,
             reasoning_message: String::new(),
+            chat_template: String::new(),
             // mmap keeps the model in the file cache.
             load_index: 1,
             extra_args: String::new(),

@@ -452,6 +452,13 @@ pub fn build_args(
         args.push("--jinja".into());
     }
 
+    // A custom chat template replaces the one embedded in the model.
+    if !settings.chat_template.trim().is_empty() {
+        args.push("--jinja".into());
+        args.push("--chat-template".into());
+        args.push(settings.chat_template.trim().to_string());
+    }
+
     // Free form arguments of the user come last, so they win.
     for part in util::split_args(&settings.extra_args) {
         args.push(part);

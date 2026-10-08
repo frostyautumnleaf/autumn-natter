@@ -35,6 +35,7 @@ export component ModelConfigWindow inherits Window {
     in-out property <string> reasoning-message: "";
     in-out property <int> load-index: 0;
     in-out property <string> extra-args: "";
+    in-out property <string> chat-template: "";
 
     in property <[GpuRow]> gpus;
     in property <float> vram-total: 0;
@@ -264,6 +265,27 @@ export component ModelConfigWindow inherits Window {
                     font-size: 12px;
                     placeholder-text: "--flash-attn on --no-warmup";
                     text <=> root.extra-args;
+                }
+
+                Text {
+                    text: "Chat template";
+                    color: Theme.text;
+                    font-size: 13px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: "Paste a custom jinja chat template here. Leave empty to use the one embedded in the model. Max 64000 characters.";
+                    color: Theme.text-dim;
+                    font-size: 11px;
+                    wrap: word-wrap;
+                }
+                TextEdit {
+                    height: 120px;
+                    wrap: word-wrap;
+                    font-family: "monospace";
+                    font-size: 11px;
+                    placeholder-text: "# leave empty for the model's own template";
+                    text <=> root.chat-template;
                 }
 
                 Text {
