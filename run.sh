@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Autumn Natter - one command bootstrap.
+# Autumn Natter - build and run in one command.
 #
-# Installs the Rust toolchain into this checkout, builds the program, and runs
-# it. Nothing is written outside this directory, and nothing needs sudo.
+# Calls build.sh to set up the toolchain and build the program, then runs it.
+# Nothing is written outside this directory, and nothing needs sudo.
 #
 #   git clone https://github.com/frostyautumnleaf/autumn-natter
 #   cd autumn-natter
@@ -30,33 +30,34 @@ die()  { printf '\n\033[1;31mx\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'HELP'
-Autumn Natter bootstrap. Installs the toolchain locally, builds, runs.
+Autumn Natter. Builds (if needed) and runs.
 
     ./run.sh                 build the release binary and open the window
     ./run.sh --remote        build and serve the page to the local network
     ./run.sh --with-llama    also build llama.cpp here, so you can chat
 
 Build flags
-    --check                 run cargo check instead of a full build
-    --debug                 build the debug profile (compiles much faster)
-    --build-only            stop after building
-    --offline               build with no network, from a vendored copy
-    --force-build           rebuild even if the binary already exists
+    --fast                   build without LTO (much faster, larger binary)
+    --debug                  build the debug profile (compiles much faster)
+    --check                  run cargo check instead of a full build
+    --build-only             stop after building
+    --offline                build with no network, from a vendored copy
+    --force-build            rebuild even if the binary already exists
 
 Toolchain flags
-    --use-system-toolchain  reuse a cargo already on PATH. Saves a few hundred
-                            MB, but the crate cache then lives in your user
-                            folder instead of in this checkout.
-    --force-toolchain       re-download the local toolchain
+    --use-system-toolchain   reuse a cargo already on PATH. Saves a few hundred
+                             MB, but the crate cache then lives in your user
+                             folder instead of in this checkout.
+    --force-toolchain        re-download the local toolchain
 
 Runtime flags (passed on to the program)
-    -r, --remote            no window, serve a page for the LAN
-    -p, --port PORT         port for the remote page
-    --data-dir DIR          keep the program data somewhere else
-    --with-llama            clone and build llama.cpp into ./.local/llama.cpp
-    --llama-dir DIR         use an existing llama-server build
+    -r, --remote             no window, serve a page for the LAN
+    -p, --port PORT          port for the remote page
+    --data-dir DIR           keep the program data somewhere else
+    --with-llama             clone and build llama.cpp into ./.local/llama.cpp
+    --llama-dir DIR          use an existing llama-server build
 
-    -h, --help              this text
+    -h, --help               this text
 
 Any unrecognised argument is passed straight to the program.
 
@@ -68,26 +69,18 @@ HELP
 }
 
 # ---------------------------------------------------------------- args
-MODE="build"            # build | check
-PROFILE="release"
+BUILD_ARGS=()
 RUN=1
 EXTRA=()                # arguments for autumn-natter
-USE_SYSTEM_TC=0
-FORCE_TC=0
-OFFLINE=0
 LLAMA_DIR=""
 WITH_LLAMA=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help)          usage; exit 0 ;;
-    --check)            MODE="check" ;;
-    --debug)            PROFILE="debug" ;;
+    --fast|--debug|--check|--offline|--force-build|--use-system-toolchain|--force-toolchain)
+                        BUILD_ARGS+=("$1") ;;
     --build-only|--no-run) RUN=0 ;;
-    --offline)          OFFLINE=1 ;;
-    --force-build)      rm -f "$LOCAL/target/$PROFILE/autumn-natter" 2>/dev/null || true ;;
-    --use-system-toolchain) USE_SYSTEM_TC=1 ;;
-    --force-toolchain)  FORCE_TC=1 ;;
     --with-llama)       WITH_LLAMA=1 ;;
     --llama-dir)        [ $# -ge 2 ] || die "--llama-dir needs a folder"
                         LLAMA_DIR="$(cd -- "$2" && pwd)"; shift ;;
@@ -103,119 +96,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-printf '\033[1mAutumn Natter bootstrap\033[0m\n'
+printf '\033[1mAutumn Natter\033[0m\n'
 say "  checkout: $ROOT"
-
-# ---------------------------------------------------------------- preflight
-step "Checking the basics"
-
-OS="$(uname -s)"
-case "$OS" in
-  Linux|Darwin) ;;
-  *)
-    cat >&2 <<EOF
-
-This script covers Linux and macOS. On Windows ($OS) do it by hand:
-
-  1. Install Rust for Windows from https://rustup.rs and open a new shell.
-  2. cargo build --release
-  3. target\\release\\autumn-natter.exe
-
-The program itself works on Windows 10 and 11. The sandbox for the terminal
-tool does not: there is no bubblewrap, so commands run with cmd.exe instead.
-
-EOF
-    die "unsupported operating system: $OS" ;;
-esac
-
-ARCH="$(uname -m)"
-case "$ARCH" in
-  x86_64|amd64)  HOST="x86_64-unknown-linux-gnu" ;;
-  aarch64|arm64)
-    if [ "$OS" = Darwin ]; then HOST="aarch64-apple-darwin"; else HOST="aarch64-unknown-linux-gnu"; fi ;;
-  *) HOST="" ;;
-esac
-
-# Crates build native code, so a C compiler is unavoidable. It comes from the
-# system; only the Rust side is installed into the checkout.
-if command -v cc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1; then
-  ok "C compiler: $(command -v cc 2>/dev/null || command -v clang)"
-else
-  cat >&2 <<EOF
-
-A C compiler is required, and it cannot be installed into the checkout.
-
-    Debian/Ubuntu:  sudo apt install build-essential
-    Fedora:         sudo dnf groupinstall 'Development Tools'
-    Arch:           sudo pacman -S base-devel
-    macOS:          xcode-select --install
-
-EOF
-  die "no C compiler found"
-fi
-
-command -v git >/dev/null 2>&1 || die "git is required"
-if command -v curl >/dev/null 2>&1; then
-  ok "git and curl: present"
-elif command -v wget >/dev/null 2>&1; then
-  ok "git and wget: present"
-else
-  die "curl or wget is required to download the Rust toolchain"
-fi
-
-[ -f Cargo.toml ] && [ -f src/main.rs ] || die "run.sh must sit next to Cargo.toml"
-ok "checkout looks right"
-
-# ---------------------------------------------------------------- toolchain
-step "Rust toolchain"
-
-if [ "$USE_SYSTEM_TC" = 1 ]; then
-  command -v cargo >/dev/null 2>&1 \
-    || die "--use-system-toolchain was given but no cargo is on PATH"
-  ok "using the cargo on PATH: $(cargo --version)"
-  say "    the crate cache stays in your user folder, not in this checkout"
-elif [ -x "$LOCAL/cargo/bin/cargo" ] && [ "$FORCE_TC" = 0 ]; then
-  export RUSTUP_HOME="$LOCAL/rustup" CARGO_HOME="$LOCAL/cargo"
-  export PATH="$LOCAL/cargo/bin:$PATH"
-  ok "using the local toolchain: $(cargo --version)"
-else
-  if [ "$FORCE_TC" = 1 ]; then
-    say "    dropping the old local toolchain"
-    rm -rf "$LOCAL/rustup" "$LOCAL/cargo"
-  fi
-
-  FREE_KB="$(df -Pk "$ROOT" | awk 'NR==2 {print $4}' || true)"
-  # Measured on a real run: about 4 GB in ./.local after a build.
-  if [ -n "${FREE_KB:-}" ] && [ "$FREE_KB" -lt 4000000 ]; then
-    warn "only $((FREE_KB / 1024)) MB free here. Toolchain plus build needs about 4 GB."
-  fi
-
-  say "    installing a private toolchain into $LOCAL"
-  say "    a few hundred MB, once. Nothing system wide is touched."
-  mkdir -p "$LOCAL"
-  export RUSTUP_HOME="$LOCAL/rustup" CARGO_HOME="$LOCAL/cargo"
-
-  TMP_INIT="$LOCAL/rustup-init"
-  URL="https://static.rust-lang.org/rustup/dist"
-  if command -v curl >/dev/null 2>&1; then
-    curl --proto '=https' --tlsv1.2 -fL -o "$TMP_INIT" "$URL/$HOST/rustup-init" \
-      || die "could not download rustup-init. Check the network."
-  else
-    wget -O "$TMP_INIT" "$URL/$HOST/rustup-init" \
-      || die "could not download rustup-init. Check the network."
-  fi
-  chmod +x "$TMP_INIT"
-
-  # minimal profile: rustc, cargo and the standard library, no docs.
-  "$TMP_INIT" -y --no-modify-path --profile minimal \
-    ${HOST:+--default-toolchain "stable-$HOST"} >/dev/null 2>&1 \
-    || die "rustup-init failed. See https://rustup.rs for a manual install."
-  rm -f "$TMP_INIT"
-
-  export PATH="$LOCAL/cargo/bin:$PATH"
-  [ -x "$LOCAL/cargo/bin/cargo" ] || die "rustup finished but cargo is missing"
-  ok "installed: $(cargo --version)"
-fi
 
 # ---------------------------------------------------------------- llama.cpp
 if [ "$WITH_LLAMA" = 1 ]; then
@@ -253,36 +135,12 @@ if [ -z "$LLAMA_DIR" ]; then
 fi
 
 # ---------------------------------------------------------------- build
-if [ "$MODE" = "check" ]; then
-  step "cargo check"
-  if [ "$OFFLINE" = 1 ]; then cargo check --offline; else cargo check; fi
-  ok "no errors"
-  exit 0
-fi
-
-step "Building the $PROFILE profile"
-# The build output stays in the checkout too, so nothing lands in a shared cache.
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$LOCAL/target}"
-BIN="$CARGO_TARGET_DIR/$PROFILE/autumn-natter"
-
-if [ -x "$BIN" ]; then
-  ok "$BIN already exists, skipping the build (use --force-build to redo it)"
-else
-  say "    the release profile uses LTO and one codegen unit, so it is slow on purpose"
-  if [ "$PROFILE" = release ]; then
-    if [ "$OFFLINE" = 1 ]; then cargo build --offline --release; else cargo build --release; fi
-  else
-    if [ "$OFFLINE" = 1 ]; then cargo build --offline; else cargo build; fi
-  fi
-  ok "built: $BIN"
-fi
-
 if [ "$RUN" = 0 ]; then
-  say ""
-  say "Built. Start it later with:  ./run.sh"
-  say "Or run the binary direct:    $BIN"
+  ./build.sh "${BUILD_ARGS[@]}"
   exit 0
 fi
+
+./build.sh "${BUILD_ARGS[@]}"
 
 # ---------------------------------------------------------------- run
 step "Starting"
@@ -309,5 +167,14 @@ fi
 say ""
 say "  Ctrl-C quits. Headless alternative: ./run.sh --remote"
 say ""
+
+# Find the binary (build.sh may have used --fast or --debug)
+if [ "${BUILD_ARGS[*]}" = *"--debug"* ]; then
+  BIN="$LOCAL/target/debug/autumn-natter"
+elif [ "${BUILD_ARGS[*]}" = *"--check"* ]; then
+  die "--check only checks, it does not produce a binary"
+else
+  BIN="$LOCAL/target/release/autumn-natter"
+fi
 
 exec "$BIN" ${EXTRA[@]+"${EXTRA[@]}"}
