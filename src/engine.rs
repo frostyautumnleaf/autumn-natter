@@ -1150,7 +1150,10 @@ fn run_turn(
         state.persist();
         state.generating = true;
         state.busy = true;
+        // Both live buffers start empty, so a new turn never shows the
+        // words of an older one, not even from another chat.
         state.live_text = String::new();
+        state.live_reasoning = String::new();
         state.set_status("the model is getting ready");
         let settings = state.settings_for(&model);
         (model, settings, workdir, sandbox_on)
