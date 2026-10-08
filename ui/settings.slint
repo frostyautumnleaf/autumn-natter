@@ -1,8 +1,12 @@
 // Settings window. It writes the values to settings.json through Rust.
 import { Theme } from "theme.slint";
 import { RepoRow } from "types.slint";
-import { FieldLabel } from "widgets.slint";
-import { LineEdit, ListView, SpinBox, Switch } from "std-widgets.slint";
+import { FieldLabel, Field, NumberField, Toggle, ToolTipLayer } from "widgets.slint";
+import { ListView } from "std-widgets.slint";
+// The list of repositories moves inside its own scroll area, so the scroll area
+// comes from the widget set of Slint. Every control with words of its own is
+// drawn by this program, because a control of the widget set takes the colours
+// of the desktop and can then write white text on the light background.
 
 export component SettingsWindow inherits Window {
     title: "Settings";
@@ -74,44 +78,44 @@ export component SettingsWindow inherits Window {
             HorizontalLayout {
                 spacing: 10px;
                 FieldLabel { text: "llama.cpp directory"; tip: "Folder with the llama and llama-server programs. Leave it empty to use the program from your PATH."; width: 190px; }
-                LineEdit { text <=> root.llama-dir; placeholder-text: "/usr/local/bin"; horizontal-stretch: 1; }
+                Field { text <=> root.llama-dir; placeholder: "/usr/local/bin"; horizontal-stretch: 1; }
             }
 
             HorizontalLayout {
                 spacing: 10px;
                 FieldLabel { text: "Models directory"; tip: "Folder that Autumn Natter searches for GGUF and Safetensors models."; width: 190px; }
-                LineEdit { text <=> root.models-dir; placeholder-text: "models"; horizontal-stretch: 1; }
+                Field { text <=> root.models-dir; placeholder: "models"; horizontal-stretch: 1; }
             }
 
             HorizontalLayout {
                 spacing: 10px;
                 FieldLabel { text: "Repositories directory"; tip: "Folder that holds the repositories. Leave it empty to use the repositories folder inside the data directory."; width: 190px; }
-                LineEdit { text <=> root.repositories-dir; placeholder-text: "empty = data directory/repositories"; horizontal-stretch: 1; }
+                Field { text <=> root.repositories-dir; placeholder: "empty = data directory/repositories"; horizontal-stretch: 1; }
             }
 
             HorizontalLayout {
                 spacing: 10px;
                 FieldLabel { text: "Dark mode"; tip: "Use the dark colour palette. Light mode is the default."; width: 190px; }
-                Switch { checked <=> root.dark-mode; horizontal-stretch: 1; }
+                Toggle { checked <=> root.dark-mode; }
             }
 
             HorizontalLayout {
                 spacing: 10px;
                 FieldLabel { text: "Remote port"; tip: "Port of the built in web server for --remote mode. Other computers on your local network open this port in a browser."; width: 190px; }
-                SpinBox { minimum: 1024; maximum: 65535; value <=> root.remote-port; horizontal-stretch: 1; }
+                NumberField { minimum: 1024; maximum: 65535; value <=> root.remote-port; horizontal-stretch: 1; }
             }
 
             HorizontalLayout {
                 spacing: 10px;
                 FieldLabel { text: "UPnP port mapping"; tip: "Ask the router to open the remote port. This is only for --remote mode. Only use it on a trusted network."; width: 190px; }
-                Switch { checked <=> root.upnp-enabled; horizontal-stretch: 1; }
+                Toggle { checked <=> root.upnp-enabled; }
             }
 
             // ---- repositories ----
             HorizontalLayout {
                 spacing: 10px;
                 FieldLabel { text: "New repository"; tip: "Make a folder for one project. A chat inside a repository runs its terminal commands in that folder."; width: 190px; }
-                LineEdit { text <=> root.new-repository; placeholder-text: "name of the repository"; horizontal-stretch: 1; }
+                Field { text <=> root.new-repository; placeholder: "name of the repository"; horizontal-stretch: 1; }
                 Rectangle {
                     height: 30px;
                     width: create-lbl.preferred-width + 26px;
@@ -276,5 +280,11 @@ export component SettingsWindow inherits Window {
                 }
             }
         }
+    }
+
+    // The help bubbles of this window sit on top of everything else.
+    ToolTipLayer {
+        room-width: root.width;
+        room-height: root.height;
     }
 }

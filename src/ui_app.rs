@@ -34,6 +34,12 @@ struct Ui {
     // Last seen counters, so the window only rebuilds what changed.
     last_structure: Cell<u64>,
     last_rev: Cell<u64>,
+    // Last seen list of chat ids. The cards of the carousel are moved and never
+    // built again, so the list is only set up anew when a chat came or went
+    // away. A turn of the carousel writes the rows in place.
+    last_chat_key: RefCell<String>,
+    // Last greeting line, so the window is not redrawn for the same words.
+    last_greeting: RefCell<String>,
     // The two dialogs are made once and then shown again.
     settings_window: RefCell<Option<Rc<SettingsWindow>>>,
     config_window: RefCell<Option<Rc<ModelConfigWindow>>>,
@@ -48,6 +54,12 @@ pub fn run(cfg: Config) -> Result<(), String> {
     let engine = Rc::new(Engine::start(cfg));
     let app = App::new().map_err(text_of)?;
 
+    // The Slint file gives the window a smallest size only. A window with a set
+    // size cannot be made bigger or smaller by hand, so the start size lives
+    // here instead.
+    app.window()
+        .set_size(slint::LogicalSize::new(1020.0, 720.0));
+
     let ui = Rc::new(Ui {
         messages: Rc::new(VecModel::default()),
         models: Rc::new(VecModel::default()),
@@ -55,6 +67,8 @@ pub fn run(cfg: Config) -> Result<(), String> {
         chats: Rc::new(VecModel::default()),
         last_structure: Cell::new(0),
         last_rev: Cell::new(0),
+        last_chat_key: RefCell::new(String::new()),
+        last_greeting: RefCell::new(String::new()),
         settings_window: RefCell::new(None),
         config_window: RefCell::new(None),
         config_model: Rc::new(RefCell::new(String::new())),
@@ -102,13 +116,29 @@ pub fn run(cfg: Config) -> Result<(), String> {
     let handle = engine.clone();
     app.on_new_chat(move || handle.new_chat());
 
-    // The two sides of the window turn the carousel.
+    // The two round marks turn the carousel.
     let handle = engine.clone();
     app.on_roll_chat(move |step: i32| handle.roll(step));
 
+    // The row of small previews. The engine only remembers whether the row is
+    // up, and the window drives the motion of the row itself.
+    let handle = engine.clone();
+    app.on_show_overview(move || handle.set_overview(true));
 
-    // The full repository list is not built yet, so this does nothing.
-    app.on_view_all_repositories(|| {});
+    let handle = engine.clone();
+    app.on_hide_overview(move || handle.set_overview(false));
+
+    // A click on a preview opens that chat, and closes the row.
+    let handle = engine.clone();
+    app.on_pick_chat(move |id: SharedString| handle.open_chat(id.to_string()));
+
+    // A full list of repositories is not built yet. The settings window holds
+    // every repository on disk, so this opens that window.
+    let handle = engine.clone();
+    let ui_for_repositories = ui.clone();
+    app.on_view_all_repositories(move || {
+        show_settings(&handle, &ui_for_repositories);
+    });
 
     let handle = engine.clone();
     let ui_for_settings = ui.clone();
@@ -154,6 +184,19 @@ fn render(app: &App, engine: &Engine, ui: &Rc<Ui>) {
 
     // Palette. Light mode is the default.
     app.global::<Theme>().set_dark(snap.dark_mode);
+
+    // The two flags that move the whole screen go first. A chat grows from the
+    // top down when it opens, and that growth starts at nothing, so the window
+    // must learn about the change before the chat list arrives.
+    app.set_home(snap.home);
+    app.set_overview(snap.overview);
+
+    // The line above the chat box on the first screen. It follows the clock, so
+    // it is written again only when the words really changed.
+    if snap.greeting != *ui.last_greeting.borrow() {
+        *ui.last_greeting.borrow_mut() = snap.greeting.clone();
+        app.set_greeting(text(snap.greeting.as_str()));
+    }
 
     app.set_model_name(text(snap.model_name.as_str()));
     app.set_model_kind(text(snap.model_kind.as_str()));
@@ -202,20 +245,27 @@ fn render(app: &App, engine: &Engine, ui: &Rc<Ui>) {
                 })
                 .collect::<Vec<RepoRow>>(),
         );
-        // The chat list shows the name of a repository, never its id.
-        ui.chats.set_vec(
-            snap.chats
-                .iter()
-                .map(|c| ChatRow {
-                    id: text(&c.meta.id),
-                    title: text(&c.meta.title),
-                    repo: text(&repo_label(&snap, &c.meta.repo_id)),
-                    when: text(&store::format_when(c.meta.updated)),
-                    active: c.meta.id == snap.chat_id,
-                    preview: text(&store::preview(&c.messages)),
-                })
-                .collect::<Vec<ChatRow>>(),
-        );
+        // The two boxes in the top bar take the width of the widest name of
+        // their list, so a name is never cut down to a few letters.
+        app.set_longest_model(text(&longest_model(&snap)));
+        app.set_longest_repository(text(&longest_repository(&snap)));
+    }
+
+    // The chat list is set up again only when a chat came or went away. A turn
+    // of the carousel marks another chat as the open one, and those rows are
+    // written in place, so the window slides the cards instead of building them
+    // again. A card that is built again has no earlier place to slide from.
+    let key = chat_key(&snap);
+    if key != *ui.last_chat_key.borrow() {
+        *ui.last_chat_key.borrow_mut() = key;
+        ui.chats.set_vec(chat_rows(&snap));
+    } else {
+        for (index, row) in chat_rows(&snap).into_iter().enumerate() {
+            let same = ui.chats.row_data(index).is_some_and(|current| current == row);
+            if !same {
+                ui.chats.set_row_data(index, row);
+            }
+        }
     }
 
     if snap.rev != ui.last_rev.get() || ui.messages.row_count() == 0 {
@@ -275,6 +325,56 @@ fn row_for(message: &store::Message, previous_tool: bool) -> MessageRow {
         failed: message.failed,
         when: text(&store::format_clock(message.when)),
     }
+}
+
+// The chat rows as the window and the previews show them. The name of a
+// repository is written out, never the id of one.
+fn chat_rows(snap: &Snap) -> Vec<ChatRow> {
+    snap.chats
+        .iter()
+        .map(|c| ChatRow {
+            id: text(&c.meta.id),
+            title: text(&c.meta.title),
+            repo: text(&repo_label(snap, &c.meta.repo_id)),
+            when: text(&store::format_when(c.meta.updated)),
+            active: c.meta.id == snap.chat_id,
+            preview: text(&store::preview(&c.messages)),
+        })
+        .collect()
+}
+
+// One text that says which chats a place holds, and in which order. The window
+// sets the chat list up again only when this text changes.
+fn chat_key(snap: &Snap) -> String {
+    snap.chats
+        .iter()
+        .map(|c| c.meta.id.as_str())
+        .collect::<Vec<&str>>()
+        .join("|")
+}
+
+// The widest model name of the list, with the kind of the model after it, as
+// the top bar shows it. The model box takes this width.
+fn longest_model(snap: &Snap) -> String {
+    let mut best = String::new();
+    for model in &snap.models {
+        let line = format!("{} ({})", model.name, model.kind);
+        if line.chars().count() > best.chars().count() {
+            best = line;
+        }
+    }
+    best
+}
+
+// The widest repository name of the list. The repository box takes this width.
+fn longest_repository(snap: &Snap) -> String {
+    let mut best = String::new();
+    for repo in &snap.repositories {
+        if repo.name.chars().count() > best.chars().count() {
+            best = repo.name.clone();
+        }
+    }
+    best
 }
 
 // The settings dialog. It writes settings.json through the engine.

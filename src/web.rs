@@ -71,6 +71,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "repositories": repositories,
         "chat": { "id": snap.chat_id, "title": snap.chat_title },
         "chats": chats,
+        // The first screen: the chat box on its own, with a line for this hour.
+        "home": snap.home,
+        "greeting": snap.greeting,
+        "overview": snap.overview,
         // Where the carousel stands, and whether the open chat is blank.
         "carousel": {
             "index": snap.chat_index,

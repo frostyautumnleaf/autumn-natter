@@ -95,6 +95,56 @@ select, input, textarea {
 .turn.r { right: 8px; }
 .hidden { display: none; }
 
+/* The row of small previews. The Alt key or the "Show chats" button brings it
+   up. One card stands per chat, and only the place of a card changes. A click
+   opens a preview, a drag and a flick move along the row. */
+.previews { position: absolute; inset: 0; z-index: 5; display: none; }
+.previews.on { display: block; }
+/* The soft backdrop, so the row stands out of the page. */
+.previews::before { content: ""; position: absolute; inset: 0; background: var(--bg);
+  opacity: .66; }
+.prev { position: absolute; top: 24px; left: 0; width: 190px; height: 218px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+  overflow: hidden; cursor: pointer; will-change: transform, opacity; }
+.prev.mid { border: 2px solid var(--accent); }
+.pt { font-size: 13px; font-weight: 600; margin: 12px 12px 0; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; }
+.pp { font-size: 12px; color: var(--dim); margin: 8px 12px 0; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
+.pw { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--dim); }
+
+/* The first screen. The mark and a line for this hour stand above the chat box,
+   and the box sits in the middle of the page. The parts of the page take a fixed
+   place, so the box can move below the line that tells what the program does. */
+.stage { order: 1; }
+.under { order: 2; }
+.composer { order: 3; }
+.panel { order: 4; }
+.hello { order: 0; display: flex; flex-direction: column; align-items: center;
+  gap: 10px; height: 126px; overflow: hidden; text-align: center;
+  transition: opacity 340ms ease, height 340ms ease; }
+.hello .logo { width: 54px; height: 54px; }
+.greet { font-size: 15px; color: var(--dim); max-width: 46ch; }
+/* Away from the first screen the mark and the line fade away and take no room,
+   so the chat box can sit at the bottom again. */
+body:not(.home) .hello { height: 0; opacity: 0; }
+body.home .area { justify-content: center; }
+body.home .stage { flex: 0 0 auto; min-height: 0; }
+body.home .under { order: 4; }
+body.home .previews { display: none; }
+body.home .composer { width: calc(100% - 24px); max-width: 720px; margin: 0 auto;
+  border: 1px solid var(--line); border-radius: 12px; }
+/* The chat grows from the top down when its first message comes. */
+.card.grow { animation: grow-down 520ms cubic-bezier(.2, .7, .3, 1); }
+@keyframes grow-down {
+  from { clip-path: inset(0 0 100% 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+/* A page that is asked for few moves leaves the row and the box still. */
+@media (prefers-reduced-motion: reduce) {
+  .card, .prev, .composer { transition: none; animation: none; }
+}
+
 .msgs { position: absolute; inset: 0; overflow-y: auto; padding: 14px; }
 .blank { color: var(--dim); font-size: 13px; padding: 6px 4px; }
 .msg { margin: 0 0 12px; padding: 9px 11px; border-radius: 10px;
@@ -161,8 +211,14 @@ textarea { width: 100%; resize: vertical; min-height: 58px; }
   <span class="ctx"><span id="ctxtext"></span><span class="bar"><span class="fill" id="ctxfill"></span></span></span>
 </div>
 
-<!-- The carousel. The card in the middle is the chat in use. -->
+<!-- The first screen: the mark and a line for this hour, above the chat box. -->
 <div class="area">
+  <div class="hello" id="hello">
+    <img class="logo" src="/autumn-natter.svg" alt="">
+    <span class="greet" id="greet"></span>
+  </div>
+
+  <!-- The carousel. The card in the middle is the chat in use. -->
   <div class="stage" id="stage">
     <div id="cards"></div>
     <span class="wash l" id="washL"></span>
@@ -171,10 +227,12 @@ textarea { width: 100%; resize: vertical; min-height: 58px; }
     <div class="zone r" id="zoneR" title="Show the chat on the right"></div>
     <button class="turn l" id="turnL" title="Show the chat on the left">&#8249;</button>
     <button class="turn r" id="turnR" title="Show the chat on the right">&#8250;</button>
+    <div class="previews" id="previews"></div>
   </div>
 
   <div class="under">
     <button class="newchat" id="newchat">+ New chat</button>
+    <button class="newchat" id="chatsbtn" title="Show the chats as small previews">Show chats</button>
     <span class="grow"></span>
     <span class="status" id="status"></span>
   </div>
@@ -208,9 +266,12 @@ textarea { width: 100%; resize: vertical; min-height: 58px; }
 // The parts of the page that stay in place. Their content is written again on
 // every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctxtext', 'ctxfill', 'where',
-  'stage', 'cards', 'washL', 'washR', 'zoneL', 'zoneR', 'turnL', 'turnR',
-  'newchat', 'code', 'sandbox', 'status', 'draft', 'settingsbtn', 'panel',
-  'dark', 'note', 'send', 'stop', 'hint'];
+  'stage', 'cards', 'washL', 'washR', 'zoneL', 'zoneR', 'turnL', 'turnR', 'previews',
+  'hello', 'greet', 'newchat', 'chatsbtn', 'code', 'sandbox', 'status', 'draft',
+  'settingsbtn', 'panel', 'dark', 'note', 'send', 'stop', 'hint'];
+// The chat box moves between the middle of the page and the bottom, so it is
+// taken by name too.
+var composer = document.querySelector('.composer');
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
 
@@ -257,6 +318,7 @@ function schedule(fast) {
 
 function draw(s) {
   cur = s;
+  drawHome(s);
   document.body.classList.toggle('dark', !!s.dark);
   fillSelect(el.model, s.models, s.model.id, function (m) { return m.name + ' (' + m.kind + ')'; });
   fillRepos(s);
@@ -277,6 +339,8 @@ function draw(s) {
   el.send.style.display = (touch && !s.generating) ? '' : 'none';
   el.stop.style.display = s.generating ? '' : 'none';
   el.hint.style.display = touch ? 'none' : '';
+  // A chat that came or went away changes the row, so it is made again.
+  if (ov.on) { buildPreviews(ov.pos); placePreviews(); }
 }
 
 // A list is built again only when its content changed. This keeps an open
@@ -503,8 +567,11 @@ el.code.addEventListener('click', function () { if (cur) { post('/api/code', { o
 el.sandbox.addEventListener('click', function () { if (cur) { post('/api/sandbox', { on: !cur.sandbox }); } });
 el.dark.addEventListener('change', function (e) { post('/api/dark', { on: e.target.checked }); });
 el.settingsbtn.addEventListener('click', function () { el.panel.classList.toggle('hidden'); });
+el.chatsbtn.addEventListener('click', function () { showRow(true); });
 
 el.draft.addEventListener('keydown', function (e) {
+  // While the row of previews is up, the row takes every key.
+  if (ov.on) { return; }
   if (e.key === 'Enter' && !e.shiftKey && !touch) {
     e.preventDefault();
     send();
@@ -512,6 +579,297 @@ el.draft.addEventListener('keydown', function (e) {
     post('/api/cancel');
   }
 });
+
+// --------------------------------------------------------------------
+// The first screen, and the row of small previews.
+//
+// With no chat open, the chat box stands in the middle of the page, under the
+// mark and a line for this hour. The first message opens a chat: the chat grows
+// from the top down, and the box goes back to the bottom. The Alt key or the
+// "Show chats" button turns the chats into a row of small previews. A click on a
+// preview opens that chat. The arrows, A and D, a drag, a flick and the wheel
+// move along the row.
+// --------------------------------------------------------------------
+
+// A page that is asked for few moves keeps the row and the chat box still.
+var reduce = !!(window.matchMedia
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+// The state of the row. The place of every preview is worked out from these
+// numbers on every frame, so nothing is built again while the row moves.
+var ov = {
+  on: false,     // true while the row is up
+  pos: 0,        // where the row stands, counted in previews
+  target: 0,     // where the row wants to rest
+  speed: 0,      // previews for every frame, from a flick
+  open: 1,       // 0 to 1 while the row settles after it came up
+  drag: false,   // true while the pointer holds the row
+  from: 0,       // where the row stood when the pointer went down
+  pointer: 0,    // where the pointer was when it went down
+  last: 0,       // where the pointer stood in the last move
+  flick: 0,      // speed of the last move, in previews for one frame
+  frame: 0,      // the frame that is planned, or 0 for none
+  pressed: -1    // which preview the pointer went down on, or -1
+};
+
+// Space between two previews.
+var PREV_GAP = 18;
+
+// How many chats this place holds.
+function chatCount() { return cur && cur.chats ? cur.chats.length : 0; }
+
+// The chat the carousel stands on.
+function chatIndex() { return cur && cur.carousel ? cur.carousel.index : 0; }
+
+// Keeps a chat number inside the list of this place.
+function keepInside(value) { return Math.max(0, Math.min(chatCount() - 1, value)); }
+
+// Width of one preview, and the step from one preview to the next.
+function prevWidth() {
+  var width = el.stage.clientWidth || 640;
+  return Math.max(150, Math.min(230, (width - 60) / 4));
+}
+function prevStep() { return prevWidth() + PREV_GAP; }
+
+// The previews are made once and only moved after that. Only the fifteen about
+// the chat in use are made, so a place with a hundred chats stays light to draw.
+function buildPreviews(centre) {
+  var start = Math.max(0, Math.min(Math.max(0, chatCount() - 15),
+      Math.round(keepInside(centre)) - 7));
+  var stop = Math.min(chatCount(), start + 15);
+  var key = start + '-' + stop + '-'
+    + cur.chats.slice(start, stop).map(function (c) { return c.id; }).join('|');
+  if (el.previews.dataset.key === key) { return; }
+  el.previews.dataset.key = key;
+  el.previews.innerHTML = '';
+  for (var n = start; n < stop; n++) {
+    var card = document.createElement('div');
+    card.className = 'prev';
+    card.dataset.n = n;
+    card.dataset.id = cur.chats[n].id;
+    var title = document.createElement('div');
+    title.className = 'pt';
+    title.textContent = cur.chats[n].title;
+    var line = document.createElement('div');
+    line.className = 'pp';
+    line.textContent = cur.chats[n].preview;
+    var when = document.createElement('div');
+    when.className = 'pw';
+    when.textContent = cur.chats[n].when;
+    card.appendChild(title);
+    card.appendChild(line);
+    card.appendChild(when);
+    el.previews.appendChild(card);
+  }
+}
+
+// Stand the previews in their place. Only the place, the size and the strength
+// of a card change, which is what keeps the motion smooth.
+function placePreviews() {
+  var step = prevStep();
+  var width = prevWidth();
+  var height = Math.round(width * 1.15);
+  var centre = (el.stage.clientWidth - width) / 2;
+  // The row comes up big and shrinks into place, which is the look of a scale
+  // that goes from 1.6 down to 1.
+  var settle = 1 + (1 - ov.open) * 0.6;
+  var middle = Math.round(ov.pos);
+  var cards = el.previews.children;
+  for (var n = 0; n < cards.length; n++) {
+    var at = Number(cards[n].dataset.n);
+    var x = centre + (at - ov.pos) * step;
+    var on = at === middle;
+    cards[n].style.width = width + 'px';
+    cards[n].style.height = height + 'px';
+    cards[n].style.transform = 'translate(' + x.toFixed(1) + 'px, 0) scale('
+      + settle.toFixed(3) + ')';
+    cards[n].style.opacity = (ov.open * (on ? 1 : 0.62)).toFixed(3);
+    cards[n].classList.toggle('mid', on);
+  }
+}
+
+// One frame of the row. A flick keeps gliding and gives a little speed back on
+// every frame, and the row then settles on the nearest preview.
+function stepRow() {
+  ov.frame = 0;
+  var last = Math.max(0, chatCount() - 1);
+  if (ov.open < 1) { ov.open = Math.min(1, ov.open + 0.07); }
+  if (!ov.drag) {
+    if (Math.abs(ov.speed) > 0.008 && !reduce) {
+      ov.pos += ov.speed;
+      ov.speed *= 0.94;
+      // At an end there is nothing left to see, so the row stops there.
+      if (ov.pos < 0) { ov.pos = 0; ov.speed = 0; }
+      if (ov.pos > last) { ov.pos = last; ov.speed = 0; }
+      ov.target = keepInside(Math.round(ov.pos));
+    } else {
+      ov.speed = 0;
+      var gap = ov.target - ov.pos;
+      if (Math.abs(gap) < 0.004) { ov.pos = ov.target; } else { ov.pos += gap * 0.22; }
+    }
+  }
+  placePreviews();
+  var still = ov.speed === 0 && ov.pos === ov.target && ov.open >= 1;
+  if (ov.on && !still) { runRow(); }
+}
+
+// Ask for the next frame, once.
+function runRow() {
+  if (ov.on && !ov.frame) { ov.frame = requestAnimationFrame(stepRow); }
+}
+
+// Bring the row up, or put it away again.
+function showRow(on) {
+  if (on === ov.on) { return; }
+  ov.on = on;
+  el.previews.classList.toggle('on', on);
+  if (!on) {
+    if (ov.frame) { cancelAnimationFrame(ov.frame); ov.frame = 0; }
+    ov.drag = false;
+    return;
+  }
+  ov.pos = chatIndex();
+  ov.target = chatIndex();
+  ov.speed = 0;
+  ov.open = reduce ? 1 : 0;
+  ov.drag = false;
+  ov.pressed = -1;
+  buildPreviews(ov.pos);
+  placePreviews();
+  runRow();
+}
+
+// One step with the keys. A key always moves the row, so the middle preview
+// changes even when the row stood on a preview edge.
+function rowStep(step) {
+  ov.speed = 0;
+  ov.target = keepInside(Math.round(ov.target) + step);
+  if (reduce) { ov.pos = ov.target; }
+  runRow();
+}
+
+// Open one chat of the row. Without a number, the chat in the middle is opened.
+function pickRow(at) {
+  var n = at === undefined ? Math.round(ov.pos) : keepInside(Math.round(at));
+  if (!cur || !cur.chats[n]) { return; }
+  showRow(false);
+  openChat(cur.chats[n].id);
+}
+
+// The pointer went down on the row.
+el.previews.addEventListener('pointerdown', function (event) {
+  var card = event.target.closest ? event.target.closest('.prev') : null;
+  ov.pressed = card ? Number(card.dataset.n) : -1;
+  ov.drag = true;
+  ov.from = ov.pos;
+  ov.pointer = event.clientX;
+  ov.last = event.clientX;
+  ov.flick = 0;
+  ov.speed = 0;
+  if (el.previews.setPointerCapture) { el.previews.setPointerCapture(event.pointerId); }
+  runRow();
+});
+
+// The pointer moved while the row was held down, so the row follows it and a
+// preview stays under the pointer.
+el.previews.addEventListener('pointermove', function (event) {
+  if (!ov.drag) { return; }
+  var step = prevStep();
+  ov.flick = (event.clientX - ov.last) / step;
+  ov.last = event.clientX;
+  var last = Math.max(0, chatCount() - 1);
+  // A drag to the right brings the chats that came before, so the count of the
+  // row goes the other way.
+  ov.pos = Math.max(-0.6, Math.min(last + 0.6,
+      ov.from - (event.clientX - ov.pointer) / step));
+  ov.target = keepInside(Math.round(ov.pos));
+  runRow();
+});
+
+// The pointer let go. A short press that did not move opens the preview it stood
+// on. A flick keeps gliding until the row settles.
+el.previews.addEventListener('pointerup', function (event) {
+  if (!ov.drag) { return; }
+  ov.drag = false;
+  var moved = Math.abs(event.clientX - ov.pointer);
+  var stood = ov.pressed;
+  ov.pressed = -1;
+  if (moved < 6) {
+    if (stood >= 0) { pickRow(stood); } else { runRow(); }
+    return;
+  }
+  ov.speed = Math.max(-0.6, Math.min(0.6, -ov.flick));
+  runRow();
+});
+
+el.previews.addEventListener('pointercancel', function () {
+  ov.drag = false;
+  runRow();
+});
+
+// The wheel moves along the row.
+el.previews.addEventListener('wheel', function (event) {
+  event.preventDefault();
+  var down = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+  rowStep(down > 0 ? 1 : -1);
+}, { passive: false });
+
+// The keys of the row. Alt brings the row up or takes it away, Escape puts it
+// away, the arrows and A and D move along it, and Enter opens the middle preview.
+document.addEventListener('keydown', function (event) {
+  if (event.key === 'Alt') {
+    event.preventDefault();
+    showRow(!ov.on);
+    return;
+  }
+  if (!ov.on) { return; }
+  if (event.key === 'Escape') { showRow(false); return; }
+  if (event.key === 'ArrowLeft' || event.key === 'a') { rowStep(-1); return; }
+  if (event.key === 'ArrowRight' || event.key === 'd') { rowStep(1); return; }
+  if (event.key === 'Enter') { pickRow(); return; }
+  // Nothing else reaches the chat box while the row is up.
+  if (event.key !== 'Tab') { event.preventDefault(); }
+});
+
+// Move the chat box between the middle of the page and the bottom without a
+// jump. The place before the change is kept, and the box is slid from there to
+// the place it has now.
+function slidePart(part, change) {
+  if (!part) { change(); return; }
+  if (reduce) { change(); return; }
+  var before = part.getBoundingClientRect();
+  change();
+  var after = part.getBoundingClientRect();
+  var dx = before.left - after.left;
+  var dy = before.top - after.top;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) { return; }
+  part.style.transition = 'none';
+  part.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
+  void part.offsetWidth;
+  part.style.transition = 'transform 420ms cubic-bezier(.2, .7, .3, 1)';
+  part.style.transform = '';
+}
+
+// The first screen. The mark and the line for this hour come and go with it.
+function drawHome(s) {
+  var home = !!s.home;
+  var was = document.body.classList.contains('home');
+  el.greet.textContent = s.greeting || '';
+  if (home === was) { return; }
+  // The chat box slides, and the mark and the line fade. A chat that the first
+  // message opens grows from the top down.
+  slidePart(composer, function () { document.body.classList.toggle('home', home); });
+  if (home) {
+    showRow(false);
+    return;
+  }
+  var index = s.carousel ? s.carousel.index : 0;
+  var cards = el.cards.children;
+  if (cards[index]) {
+    cards[index].classList.add('grow');
+    setTimeout(function () { cards[index].classList.remove('grow'); }, 620);
+  }
+}
 
 poll();
 </script>

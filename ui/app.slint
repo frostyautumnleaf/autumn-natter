@@ -1,16 +1,31 @@
 // Main window of Autumn Natter.
 // The Rust code in src/ui_app.rs owns the state and drives these properties.
 //
-// The chats sit in a carousel. The chat in the middle of the window is the one
-// the user works in. The next chats of the same place show a little of
-// themselves at each side, soft and small. A click at one side turns the
-// carousel that way. Every repository has its own carousel, and the chats with
-// no repository have one of their own.
+// The chats sit in a carousel. The card in the middle of the window is the chat
+// the user works in. The next chats of the same place show a strip of
+// themselves at each side, pale and soft. Every repository has a carousel of
+// its own, and the chats with no repository have one of their own.
+//
+// Two more screens sit on top of the same state:
+//
+// * With no chat open, the chat box stands in the middle of the window, with
+//   the program mark and a line for this hour above it. The first message
+//   grows a chat from the top down and slides the box back to the bottom.
+// * The Alt key turns the chats into a row of small previews. One click on a
+//   preview opens that chat. Arrows, WASD, a drag, a flick and the wheel move
+//   along the row, and a flick keeps gliding until it settles on a chat.
+//
+// Two notes on the keys. Slint 1.18 has no accept-return property, and a
+// multi-line text input puts a newline on Enter, so the keys live on the text
+// input itself, where they are read before the text input sees them. Slint has
+// no event for a bare modifier key, but it sends the Alt key as the key text
+// Key.Alt, so that is what brings the row of previews up.
+
 import { Theme } from "theme.slint";
 import { ModelRow, RepoRow, ChatRow, MessageRow } from "types.slint";
 // The message list and the wait mark come from the widget set of Slint.
 import { ListView, Spinner } from "std-widgets.slint";
-import { Badge, IconButton, Pill } from "widgets.slint";
+import { Badge, IconButton, Pill, ToolTipLayer } from "widgets.slint";
 // The two dialogs live in their own files.
 export { ModelConfigWindow } from "model_config.slint";
 export { SettingsWindow } from "settings.slint";
@@ -18,12 +33,12 @@ export { SettingsWindow } from "settings.slint";
 export { Theme } from "theme.slint";
 
 // The soft picture of a chat that is not in the middle of the carousel. It
-// shows where the bubbles of that chat are, so the user sees that the chat
-// holds a talk and not a blank page.
+// shows where the title, the newest message and the bubbles of that chat stand,
+// so the user sees that the chat holds a talk and not a blank page.
 //
-// Slint has no blur for the software renderer. The soft look is made by
-// drawing every shape twice, one hair apart, and by keeping the whole card
-// pale. A wash of the window colour then fades the outer edge.
+// Slint has no blur for the software renderer. The soft look is made by drawing
+// every shape twice, one hair apart, and by keeping the whole card pale. A wash
+// of the window colour then fades the outer edge.
 component GhostChat inherits Rectangle {
     in property <ChatRow> chat;
 
@@ -56,13 +71,13 @@ component GhostChat inherits Rectangle {
         }
     }
 
-    // The lines of the preview, kept short on purpose. Only the far end of
-    // this card is ever seen.
+    // The lines of the preview, kept short on purpose. Only the far end of this
+    // card is ever seen.
     lines := Rectangle {
         x: 14px;
         y: 36px;
         width: parent.width - 28px;
-        height: parent.height - 50px;
+        height: parent.height - 210px;
 
         preview := Text {
             text: chat.preview;
@@ -87,9 +102,9 @@ component GhostChat inherits Rectangle {
         }
     }
 
-    // Shapes that stand for the message bubbles of that chat.
+    // Four pale bars, where the bubbles of that chat stand.
     bar-a := Rectangle {
-        y: parent.height - 132px;
+        y: parent.height - 152px;
         x: 14px;
         width: parent.width * 0.62;
         height: 44px;
@@ -97,7 +112,7 @@ component GhostChat inherits Rectangle {
         background: Theme.bubble-assistant;
     }
     bar-b := Rectangle {
-        y: parent.height - 78px;
+        y: parent.height - 98px;
         x: parent.width * 0.3;
         width: parent.width * 0.55;
         height: 34px;
@@ -105,12 +120,20 @@ component GhostChat inherits Rectangle {
         background: Theme.bubble-user;
     }
     bar-c := Rectangle {
-        y: parent.height - 34px;
+        y: parent.height - 54px;
         x: 14px;
         width: parent.width * 0.74;
         height: 22px;
         border-radius: 10px;
         background: Theme.bubble-assistant;
+    }
+    bar-d := Rectangle {
+        y: parent.height - 22px;
+        x: 14px;
+        width: parent.width * 0.4;
+        height: 12px;
+        border-radius: 6px;
+        background: Theme.surface-alt;
     }
 }
 
@@ -217,16 +240,73 @@ component MiddleChat inherits Rectangle {
     }
 }
 
+// One small preview of the row that the Alt key brings up.
+component ChatPreview inherits Rectangle {
+    in property <ChatRow> chat;
+    // True for the preview in the middle of the row, which is the chat in use.
+    in property <bool> middle: false;
+
+    border-radius: 12px;
+    border-width: middle ? 2px : 1px;
+    border-color: middle ? Theme.accent : Theme.line;
+    background: Theme.surface;
+    // The neighbours stay back a little.
+    opacity: middle ? 1 : 0.6;
+
+    Text {
+        x: 12px;
+        y: 12px;
+        width: parent.width - 24px;
+        text: chat.title;
+        color: Theme.text;
+        font-size: 13px;
+        font-weight: 600;
+        overflow: elide;
+    }
+    Text {
+        x: 12px;
+        y: 34px;
+        width: parent.width - 24px;
+        height: parent.height - 76px;
+        text: chat.preview;
+        color: Theme.text-dim;
+        font-size: 12px;
+        wrap: word-wrap;
+        overflow: elide;
+        vertical-alignment: top;
+    }
+    Text {
+        x: 12px;
+        y: parent.height - 28px;
+        width: parent.width - 24px;
+        text: chat.when;
+        color: Theme.text-dim;
+        font-size: 11px;
+        overflow: elide;
+    }
+}
+
 export component App inherits Window {
     title: "Autumn Natter";
-    width: 1020px;
-    height: 720px;
+    // The Rust code sets the size of the window, so the window can be made
+    // bigger or smaller by hand. Only the smallest size stands here.
+    min-width: 560px;
+    min-height: 440px;
     background: Theme.bg;
     default-font-size: 14px;
+    // The chat box holds the keys as soon as the window is up, so Enter sends
+    // and Alt brings the row of previews up without a click first.
+    forward-focus: draft;
 
-    // ---- state that the Rust code sets ----
+    // ------------------------------------------------------------------
+    // State that the Rust code sets.
     in property <string> model-name: "";
     in property <string> model-kind: "";
+    // The widest model name and the widest repository name of the two lists.
+    // The two boxes in the top bar take this width, so a name is never cut down
+    // and the boxes grow with the list.
+    in property <string> longest-model: "";
+    in property <string> longest-repository: "";
     in property <bool> in-repository: false;
     in property <string> repository-name: "";
     in property <string> chat-title: "";
@@ -241,26 +321,30 @@ export component App inherits Window {
     in property <string> status-text: "";
     // True when the chat in the middle has no message yet.
     in property <bool> blank-chat: false;
+    // True when no chat is open. The chat box then stands in the middle of the
+    // window, with the program mark and a line for this hour above it.
+    in property <bool> home: false;
+    // True while the chats show as a row of small previews.
+    in property <bool> overview: false;
+    // The line above the chat box while no chat is open.
+    in property <string> greeting: "";
 
     in property <[ModelRow]> models;
     in property <[RepoRow]> repositories;
-    // The chats of this place, newest first. The list is the carousel.
+    // The chats of this place, newest first. This list is the carousel.
     in property <[ChatRow]> chats;
     // Which chat of the carousel sits in the middle.
     in property <int> chat-index: 0;
     in property <[MessageRow]> messages;
-    // The Rust code raises this number when a message is added, so the list of
-    // the chat in the middle moves to the newest message.
+    // The Rust code raises this number when a message is added.
     in property <int> message-rev: 0;
-
     // The native build has no send button, because Enter sends the message.
-    // The browser build shows the button on a touch screen only.
     in property <bool> send-visible: false;
-
     // Text inside the composer.
     in-out property <string> draft-text;
 
-    // ---- actions ----
+    // ------------------------------------------------------------------
+    // Actions.
     callback send-message(text: string);
     callback cancel-generation();
     callback toggle-code(enabled: bool);
@@ -274,739 +358,1254 @@ export component App inherits Window {
     // Turn the carousel. Minus one shows the chat on the left, plus one the
     // chat on the right.
     callback roll-chat(step: int);
+    // Put the row of previews up, or take it away again.
+    callback show-overview();
+    callback hide-overview();
+    // Open one chat of the row of previews.
+    callback pick-chat(id: string);
 
-    // ---- shape of the carousel ----
+    // ------------------------------------------------------------------
+    // Shape of the window. The chat card and the chat box use the same x and
+    // the same width, so the two always stand in line.
+    out property <length> inset: 16px;
     // How much of a neighbour chat shows at each side.
     out property <length> peek: 62px;
-    // Space between two cards.
     out property <length> card-gap: 14px;
-    out property <length> card-width: Math.max(280px, stage.width - 2 * peek);
-    // True when a chat exists to the left and to the right of the middle one.
+    out property <length> bar-height: 48px;
+    out property <length> dock-height: 150px;
+    out property <length> card-x: inset + peek;
+    out property <length> card-width: Math.max(280px, root.width - 2 * (inset + peek));
+    out property <length> stage-top: bar-height + 8px;
+    // The chat box stands in the middle of the window at home, and at the
+    // bottom of the window when a chat is open.
+    out property <length> dock-y: home
+        ? (root.height - dock-height) / 2
+        : root.height - dock-height - 10px;
+    out property <length> stage-height: Math.max(0px, dock-y - stage-top - 8px);
     out property <bool> can-roll-left: chat-index > 0;
     out property <bool> can-roll-right: chat-index < chats.length - 1;
 
-    VerticalLayout {
-        spacing: 0;
+    // Shape of the row of previews.
+    out property <length> prev-width: Math.max(150px, Math.min(230px, (root.width - 60px) / 4));
+    out property <length> prev-gap: 18px;
+    out property <length> prev-step: prev-width + prev-gap;
+    out property <length> prev-height: prev-width * 1.15;
+    // Distance from the top of the stage to the row of previews.
+    out property <length> prev-y: 24px;
 
-        // ------------------------------------------------------------------
-        // Top bar. It has the same colour as the chat window background.
-        // Nothing in this bar may push another part out of the window, so the
-        // wide parts have a limit and the chat name takes what is left.
-        Rectangle {
-            height: 48px;
-            background: Theme.bg;
+    // ------------------------------------------------------------------
+    // Motion of the row of previews. All of it runs from one short timer, so a
+    // flick keeps gliding and then settles on a chat.
+    // How far the row is pushed from its resting place.
+    property <length> spin: 0px;
+    // Where the row wants to rest.
+    property <length> spin-target: 0px;
+    // Speed of the row, in pixels for every tick.
+    property <length> spin-speed: 0px;
+    property <bool> dragging: false;
+    // True once the pointer moved far enough to be a drag and not a click.
+    property <bool> drag-moved: false;
+    property <length> drag-from: 0px;
+    property <length> mouse-from: 0px;
+    property <length> mouse-last: 0px;
+    // Speed of the last move of the pointer, which becomes the flick.
+    property <length> flick: 0px;
+    // Which preview the pointer went down on. Minus one for none.
+    property <int> pressed-index: -1;
+    // True while something still moves, so the timer is not left running.
+    property <bool> moving: false;
+    // The step the keys asked for. The row slides by one whole step and the
+    // carousel turns when the slide is over, so the row never jumps. Zero means
+    // that no key step waits.
+    property <int> key-roll: 0;
+    // Wheel turns that are not big enough for a step of their own yet.
+    property <length> wheel-held: 0px;
+    // 0 to 1 while the row settles after it came up.
+    property <float> open-t: 1;
+    // How much bigger a preview still is while the row settles. The row starts
+    // at 1.6 and shrinks into place, which is the look of a scale going to 1.
+    // A Rectangle here is sized by hand instead, because the software renderer
+    // has no transform for a layer.
+    out property <float> prev-scale: 1 + (1 - open-t) * 0.6;
+    // 0 to 1 while a chat grows from the top down.
+    property <float> turn: 1;
+    // True while the program mark and the greeting line are on the screen.
+    property <bool> greet-shown: true;
+    // True for the short wait before the mark and the line fade away.
+    property <bool> fade-pending: false;
 
+    // Where preview number index stands inside the stage.
+    function prev-x(index: int) -> length {
+        return (stage.width - prev-width) / 2 + (index - chat-index) * prev-step - spin;
+    }
+
+    // Keeps a length inside two limits.
+    function clamp-length(value: length, low: length, high: length) -> length {
+        if (value < low) {
+            return low;
+        }
+        if (value > high) {
+            return high;
+        }
+        return value;
+    }
+
+    // The resting places of the row lie a whole number of steps apart. The
+    // division by 1px turns a length into a plain number.
+    function align(value: length) -> length {
+        let step-units = prev-step / 1px;
+        let whole = Math.round((value / 1px) / step-units);
+        return whole * step-units * 1px;
+    }
+
+    // A turn of the carousel keeps the preview the pointer holds in its place.
+    // A card stands at (index - chat-index) * step - spin, so a turn that moves
+    // chat-index also moves spin the other way.
+    function keep-place() {
+        let half = prev-step / 2;
+        if (spin >= half && can-roll-left) {
+            root.roll-chat(-1);
+            spin += prev-step;
+            drag-from += prev-step;
+        } else if (spin <= -half && can-roll-right) {
+            root.roll-chat(1);
+            spin -= prev-step;
+            drag-from -= prev-step;
+        }
+    }
+
+    // One step of the motion.
+    function tick() {
+        if (open-t < 1) {
+            open-t = Math.min(1, open-t + 0.07);
+        }
+        if (dragging) {
+            // The pointer decides where the row stands while it is held down.
+            return;
+        }
+        // A step with the keys is a slide of one whole step. The carousel turns
+        // when the slide is over, which keeps the row smooth.
+        if (key-roll != 0) {
+            let goal = key-roll * prev-step;
+            let left = goal - spin;
+            if (Math.abs(left) < 0.5px) {
+                spin = 0px;
+                let step = key-roll;
+                key-roll = 0;
+                root.roll-chat(step);
+                return;
+            }
+            spin += left * 0.22;
+            return;
+        }
+        let half = prev-step / 2;
+        // A flick keeps gliding, and gives a little speed back each tick.
+        if (Math.abs(spin-speed) > 0.4px) {
+            spin += spin-speed;
+            spin-speed *= 0.94;
+            keep-place();
+            return;
+        }
+        spin-speed = 0px;
+        // At an end there is nothing to turn to, so the row eases back.
+        let blocked = (spin >= half && !can-roll-left)
+            || (spin <= -half && !can-roll-right);
+        let rest = blocked ? 0px : spin-target;
+        let gap = rest - spin;
+        if (Math.abs(gap) < 0.5px) {
+            spin = rest;
+            if (open-t >= 1) {
+                moving = false;
+            }
+            return;
+        }
+        spin += gap * 0.22;
+    }
+
+    // The preview that stands under this x.
+    function preview-at(x: length) -> int {
+        let step-units = prev-step / 1px;
+        let left = (stage.width - prev-width) / 2 - spin;
+        let offset = Math.round(((x - left) / 1px) / step-units);
+        return Math.max(0, Math.min(chats.length - 1, chat-index + offset));
+    }
+
+    // The pointer went down on the row.
+    function grab(x: length) {
+        pressed-index = preview-at(x);
+        drag-from = spin;
+        mouse-from = x;
+        mouse-last = x;
+        flick = 0px;
+        dragging = true;
+        drag-moved = false;
+        spin-speed = 0px;
+        spin-target = spin;
+        moving = true;
+    }
+
+    // The pointer moved while the row was held down.
+    function drag-to(x: length) {
+        if (!dragging) {
+            return;
+        }
+        flick = x - mouse-last;
+        mouse-last = x;
+        if (Math.abs(x - mouse-from) > 4px) {
+            drag-moved = true;
+        }
+        spin = drag-from + (x - mouse-from);
+        spin-target = spin;
+        keep-place();
+    }
+
+    // The pointer let go. A short press that did not move opens a chat.
+    function release(x: length) {
+        dragging = false;
+        moving = true;
+        if (!drag-moved && Math.abs(flick) < 1px) {
+            if (pressed-index >= 0 && pressed-index < chats.length) {
+                root.pick-chat(chats[pressed-index].id);
+            }
+            pressed-index = -1;
+            spin-target = align(spin);
+            return;
+        }
+        pressed-index = -1;
+        // The speed of the last move becomes the speed of the flick.
+        spin-speed = clamp-length(flick, -60px, 60px) * 0.6;
+        spin-target = align(spin);
+    }
+
+    // The wheel moves along the row. The turns are kept until they add up to one
+    // notch, and one notch is one chat. A slide that is still going waits for
+    // the next notch, so a quick wheel cannot run past ten chats.
+    function spin-by(delta: length) {
+        if (key-roll != 0) {
+            return;
+        }
+        wheel-held += delta;
+        if (wheel-held >= 30px) {
+            wheel-held -= 30px;
+            move-one(1);
+        } else if (wheel-held <= -30px) {
+            wheel-held += 30px;
+            move-one(-1);
+        }
+    }
+
+    // One step with the keys. The row slides by one whole step, and the carousel
+    // turns when the slide is over. A step is not made at an end of the row,
+    // because there is nothing to turn to there.
+    function move-one(step: int) {
+        if (step == 0) {
+            return;
+        }
+        if (step < 0 && !can-roll-left) {
+            return;
+        }
+        if (step > 0 && !can-roll-right) {
+            return;
+        }
+        spin-speed = 0px;
+        key-roll = step;
+        moving = true;
+    }
+
+    // Open the chat in the middle of the row.
+    function pick-middle() {
+        if (chat-index >= 0 && chat-index < chats.length) {
+            root.pick-chat(chats[chat-index].id);
+        }
+    }
+
+    // Ask for the row of previews, or put it away again.
+    function ask-overview(on: bool) {
+        if (on == root.overview) {
+            return;
+        }
+        if (on) {
+            root.show-overview();
+        } else {
+            root.hide-overview();
+        }
+    }
+
+    // The row of previews, and the first chat, both start their motion here.
+    changed overview => {
+        if (root.overview) {
+            open-t = 0;
+            spin = 0px;
+            spin-target = 0px;
+            spin-speed = 0px;
+            key-roll = 0;
+            wheel-held = 0px;
+            pressed-index = -1;
+            moving = true;
+            greet-shown = false;
+            stage-keys.focus();
+        } else {
+            // The keys go back to the composer, where they are wanted next.
+            draft.focus();
+        }
+    }
+
+    changed home => {
+        if (root.home) {
+            greet-shown = true;
+            fade-pending = false;
+            turn = 1;
+        } else {
+            // The chat grows from the top down, and the mark and the line fade
+            // after a short wait instead of popping away.
+            turn = 0;
+            fade-pending = true;
+        }
+    }
+
+    // Motion of the row of previews.
+    physics := Timer {
+        interval: 16ms;
+        running: root.overview && root.moving;
+        triggered => { root.tick(); }
+    }
+
+    // The chat card grows from the top down after the first message. The run
+    // rule may not ask whether a turn has begun, because the growth starts at
+    // zero and zero would stop the timer again at once.
+    grow := Timer {
+        interval: 16ms;
+        running: !root.home && root.turn < 1;
+        triggered => { root.turn = Math.min(1, root.turn + 0.07); }
+    }
+
+    // The short wait before the mark and the greeting line fade away.
+    fade := Timer {
+        interval: 360ms;
+        running: root.fade-pending;
+        triggered => {
+            greet-shown = false;
+            fade-pending = false;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Top bar. It keeps the colour of the window background. Nothing in this
+    // bar may push another part out of the window, so the wide parts have a
+    // limit and the chat name takes what is left.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.bar-height;
+        background: Theme.bg;
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 10px;
+            cross-axis-alignment: center;
+
+            // Program mark and program name.
             HorizontalLayout {
-                padding-left: 12px;
-                padding-right: 12px;
-                spacing: 10px;
+                spacing: 8px;
                 cross-axis-alignment: center;
+                vertical-stretch: 0;
 
-                // Program icon and program name.
+                Image {
+                    source: @image-url("../assets/icons/autumn-natter.svg");
+                    width: 24px;
+                    height: 24px;
+                    image-fit: contain;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "Autumn Natter";
+                    color: Theme.text;
+                    font-size: 14px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Model selector. The box is as wide as the longest name in the
+            // list, so it shows a whole name and grows with the list.
+            model-btn := Rectangle {
+                height: 32px;
+                width: Math.min(360px, Math.max(160px, model-measure.preferred-width + 78px));
+                horizontal-stretch: 0;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: model-pop.is-open ? Theme.accent : Theme.line;
+                background: model-btn-area.has-hover ? Theme.hover : Theme.surface;
+
+                // Nobody reads this text. It only gives the width of the
+                // longest model name with its kind behind it.
+                model-measure := Text {
+                    text: longest-model;
+                    font-size: 13px;
+                    x: 0;
+                    y: 0;
+                    opacity: 0;
+                }
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    cross-axis-alignment: center;
+
+                    Image {
+                        source: @image-url("../assets/icons/model.svg");
+                        colorize: Theme.accent-warm;
+                        width: 15px;
+                        height: 15px;
+                        vertical-alignment: center;
+                    }
+                    model-label := Text {
+                        text: model-name != "" ? model-name : "No model";
+                        color: model-name != "" ? Theme.text : Theme.text-dim;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    kind-pill := Pill {
+                        text: model-kind;
+                        visible: model-kind != "";
+                    }
+                    Image {
+                        source: @image-url("../assets/icons/chevron-down.svg");
+                        colorize: Theme.text-dim;
+                        width: 14px;
+                        height: 14px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                model-btn-area := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { model-pop.show(); }
+                }
+
+                model-pop := PopupWindow {
+                    x: 0;
+                    y: 36px;
+                    width: Math.min(400px, root.width - 24px);
+                    // A long model list must not run past the window, so the
+                    // list gets a top and scrolls inside.
+                    height: Math.min(40px * models.length + 16px, root.height - 64px);
+                    close-policy: close-on-click-outside;
+
+                    Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: Theme.line;
+                        background: Theme.surface;
+
+                        ListView {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: parent.height;
+
+                            for m in models: Rectangle {
+                                width: parent.width;
+                                height: 40px;
+                                background: model-row-area.has-hover ? Theme.hover : transparent;
+
+                                HorizontalLayout {
+                                    x: 10px;
+                                    y: 0;
+                                    width: parent.width - 56px;
+                                    height: 100%;
+                                    spacing: 8px;
+
+                                    Text {
+                                        text: m.name;
+                                        color: m.active ? Theme.accent-strong : Theme.text;
+                                        font-size: 13px;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Pill {
+                                        text: m.kind;
+                                    }
+                                }
+
+                                // The row area stops before the gear button.
+                                model-row-area := TouchArea {
+                                    width: parent.width - 46px;
+                                    height: 100%;
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => {
+                                        root.select-model(m.id);
+                                        model-pop.close();
+                                    }
+                                }
+
+                                IconButton {
+                                    x: parent.width - 40px;
+                                    y: 5px;
+                                    icon: @image-url("../assets/icons/settings.svg");
+                                    tip: "Configure this model";
+                                    tip-left: true;
+                                    selected: m.active;
+                                    clicked => {
+                                        root.configure-model(m.id);
+                                        model-pop.close();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Repository selector. It shows which place the carousel belongs
+            // to. The box follows the longest repository name, as the model box
+            // follows the longest model name.
+            repo-btn := Rectangle {
+                height: 32px;
+                visible: in-repository;
+                width: Math.min(280px, Math.max(120px, repo-measure.preferred-width + 62px));
+                horizontal-stretch: 0;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: repo-pop.is-open ? Theme.accent : Theme.line;
+                background: repo-btn-area.has-hover ? Theme.hover : Theme.surface;
+
+                repo-measure := Text {
+                    text: longest-repository;
+                    font-size: 13px;
+                    x: 0;
+                    y: 0;
+                    opacity: 0;
+                }
+
+                HorizontalLayout {
+                    padding-left: 9px;
+                    padding-right: 8px;
+                    spacing: 7px;
+                    cross-axis-alignment: center;
+
+                    Image {
+                        source: @image-url("../assets/icons/folder.svg");
+                        colorize: Theme.accent-warm;
+                        width: 15px;
+                        height: 15px;
+                        vertical-alignment: center;
+                    }
+                    repo-label := Text {
+                        text: repository-name;
+                        color: Theme.text;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    Image {
+                        source: @image-url("../assets/icons/chevron-down.svg");
+                        colorize: Theme.text-dim;
+                        width: 14px;
+                        height: 14px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                repo-btn-area := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { repo-pop.show(); }
+                }
+
+                repo-pop := PopupWindow {
+                    x: 0;
+                    y: 36px;
+                    width: 300px;
+                    // The list of repositories gets a top, so a short window
+                    // still shows a list that fits.
+                    height: Math.min(38px * (repositories.length + 1) + 54px, root.height - 64px);
+                    close-policy: close-on-click-outside;
+
+                    Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: Theme.line;
+                        background: Theme.surface;
+
+                        VerticalLayout {
+                            padding-top: 6px;
+                            padding-bottom: 6px;
+                            spacing: 0;
+
+                            // Leave the repository and go back to the loose
+                            // chats of this machine.
+                            Rectangle {
+                                height: 38px;
+                                background: none-area.has-hover ? Theme.hover : transparent;
+
+                                Text {
+                                    text: "No repository";
+                                    color: Theme.text-dim;
+                                    font-size: 13px;
+                                    x: 12px;
+                                    vertical-alignment: center;
+                                }
+                                none-area := TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => {
+                                        root.select-repository("");
+                                        repo-pop.close();
+                                    }
+                                }
+                            }
+
+                            for r in repositories: Rectangle {
+                                height: 38px;
+
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 8px;
+
+                                    Image {
+                                        source: @image-url("../assets/icons/folder.svg");
+                                        colorize: Theme.text-dim;
+                                        width: 15px;
+                                        height: 15px;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: r.name;
+                                        color: r.name == repository-name ? Theme.accent-strong : Theme.text;
+                                        font-size: 13px;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+
+                                TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => {
+                                        root.select-repository(r.id);
+                                        repo-pop.close();
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                height: 34px;
+                                background: all-area.has-hover ? Theme.hover : transparent;
+
+                                Text {
+                                    text: "View all repositories";
+                                    color: Theme.accent-strong;
+                                    font-size: 13px;
+                                    x: 12px;
+                                    vertical-alignment: center;
+                                }
+                                all-area := TouchArea {
+                                    mouse-cursor: MouseCursor.pointer;
+                                    clicked => {
+                                        root.view-all-repositories();
+                                        repo-pop.close();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // The two round marks. They turn the carousel one chat at a time.
+            IconButton {
+                icon: @image-url("../assets/icons/left.svg");
+                tip: "Show the chat on the left";
+                enabled: can-roll-left;
+                width: 30px;
+                height: 30px;
+                clicked => { root.roll-chat(-1); }
+            }
+            IconButton {
+                icon: @image-url("../assets/icons/right.svg");
+                tip: "Show the chat on the right";
+                enabled: can-roll-right;
+                width: 30px;
+                height: 30px;
+                clicked => { root.roll-chat(1); }
+            }
+
+            // Chat name. It comes from the first prompt of the user. It takes
+            // the room that is left, and gives way first.
+            Text {
+                text: chat-title;
+                color: Theme.text-dim;
+                font-size: 13px;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+                min-width: 0px;
+            }
+
+            // Where the user stands in the carousel, for example 3 of 9.
+            Text {
+                text: chats.length > 1 ? "\{chat-index + 1} of \{chats.length}" : "";
+                color: Theme.text-dim;
+                font-size: 12px;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+            }
+
+            // Context used, and the token bar under it.
+            Rectangle {
+                width: ctx.preferred-width + 12px;
+                height: 32px;
+                horizontal-stretch: 0;
+
+                ctx := Text {
+                    text: context-used + " / " + context-total;
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    x: 6px;
+                    y: 6px;
+                }
+
+                Rectangle {
+                    x: 6px;
+                    y: 30px;
+                    width: parent.width - 12px;
+                    height: 2px;
+                    border-radius: 1px;
+                    background: Theme.line;
+
+                    Rectangle {
+                        width: parent.width * Math.min(1.0, Math.max(0.0, context-ratio));
+                        height: 100%;
+                        background: context-ratio > 0.9 ? Theme.accent-deep : Theme.accent;
+                    }
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The carousel. The middle card is the chat in use. The chat card and the
+    // chat box below use the same x and the same width, so they line up.
+    stage := Rectangle {
+        x: 0;
+        y: root.stage-top;
+        width: root.width;
+        height: root.stage-height;
+        clip: true;
+
+        // A chat is drawn when it sits in the middle or next to it, so a place
+        // with many chats costs the same as a place with three.
+        for c[index] in chats: Rectangle {
+            out property <bool> near: Math.abs(index - chat-index) <= 1;
+            visible: near && !root.overview;
+            z: c.active ? 2 : 1;
+            width: root.card-width;
+            // The chat grows from the top down when the first message comes.
+            height: root.home ? 0px : stage.height * root.turn;
+            y: 0px;
+            x: root.card-x + (index - chat-index) * (root.card-width + root.card-gap);
+            // A turn of the carousel is a move, not a new card, so the slide
+            // has an earlier value to come from.
+            animate x { duration: 300ms; }
+            animate opacity { duration: 300ms; }
+            clip: true;
+            border-radius: 14px;
+            border-width: c.active ? 1.5px : 1px;
+            border-color: c.active ? Theme.accent : Theme.line;
+            background: Theme.surface;
+            // A neighbour chat is pale, so it stays out of the way.
+            opacity: c.active ? 1 : 0.45;
+
+            if c.active: MiddleChat {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                messages: root.messages;
+                blank: root.blank-chat;
+                message-rev: root.message-rev;
+            }
+
+            if !c.active && near: GhostChat {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                chat: c;
+            }
+        }
+
+        // A wash of the window colour over each neighbour, so its outer edge
+        // fades away. A click on the strip turns the carousel that way.
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: root.card-x - root.card-gap;
+            height: stage.height;
+            visible: root.can-roll-left && !root.overview;
+            background: @linear-gradient(90deg, Theme.bg, #00000000);
+        }
+        Rectangle {
+            x: stage.width - (root.card-x - root.card-gap);
+            y: 0px;
+            width: root.card-x - root.card-gap;
+            height: stage.height;
+            visible: root.can-roll-right && !root.overview;
+            background: @linear-gradient(270deg, Theme.bg, #00000000);
+        }
+        left-area := TouchArea {
+            x: 0px;
+            y: 0px;
+            width: root.card-x - root.card-gap;
+            height: stage.height;
+            enabled: root.can-roll-left && !root.overview;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.roll-chat(-1); }
+        }
+        right-area := TouchArea {
+            x: stage.width - (root.card-x - root.card-gap);
+            y: 0px;
+            width: root.card-x - root.card-gap;
+            height: stage.height;
+            enabled: root.can-roll-right && !root.overview;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.roll-chat(1); }
+        }
+
+        // The soft backdrop of the row of previews.
+        Rectangle {
+            visible: root.overview;
+            x: 0px;
+            y: 0px;
+            width: stage.width;
+            height: stage.height;
+            z: 2;
+            opacity: 0.66;
+            background: Theme.bg;
+        }
+
+        // The row of previews. Only nine are drawn, about the chat in use, so a
+        // place with many chats stays light to draw.
+        row := Rectangle {
+            visible: root.overview;
+            x: 0px;
+            y: 0px;
+            width: stage.width;
+            height: stage.height;
+            z: 3;
+
+            // Every preview is made bigger or smaller about its own middle
+            // while the row settles. The width and the height carry the scale,
+            // and x and y move back by half of what was added, so the middle of
+            // the preview stays where it stands.
+            for n in 9: Rectangle {
+                property <int> i: root.chat-index + n - 4;
+                visible: i >= 0 && i < root.chats.length;
+                width: root.prev-width * root.prev-scale;
+                height: root.prev-height * root.prev-scale;
+                x: root.prev-x(i) + root.prev-width * (1 - root.prev-scale) / 2;
+                y: root.prev-y + root.prev-height * (1 - root.prev-scale) / 2;
+                opacity: root.open-t;
+
+                ChatPreview {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    chat: root.chats[i];
+                    middle: i == root.chat-index;
+                }
+            }
+        }
+
+        // The pointer moves along the row here. A press and a release without a
+        // move opens the preview it stood on.
+        row-area := TouchArea {
+            visible: root.overview;
+            z: 4;
+            x: 0px;
+            y: 0px;
+            width: stage.width;
+            height: stage.height;
+            mouse-cursor: MouseCursor.pointer;
+
+            // A TouchArea reports a change of its pressed property. It has no
+            // pressed and released callback of its own.
+            changed pressed => {
+                if (row-area.pressed) {
+                    root.grab(row-area.mouse-x);
+                } else {
+                    root.release(row-area.mouse-x);
+                }
+            }
+            moved => { root.drag-to(row-area.mouse-x); }
+            scroll-event(event) => {
+                if (root.overview) {
+                    root.spin-by(event.delta-y + event.delta-x);
+                    return accept;
+                }
+                return reject;
+            }
+        }
+
+        // The keys of the row. They work while the row is up, because the row
+        // takes the focus from the chat box when it comes up.
+        stage-keys := FocusScope {
+            visible: root.overview;
+            z: 5;
+            focus-on-click: false;
+
+            key-pressed(event) => {
+                if (event.text == Key.Alt) {
+                    root.ask-overview(false);
+                    return accept;
+                }
+                return reject;
+            }
+
+            key-released(event) => {
+                if (!root.overview) {
+                    return reject;
+                }
+                if (event.text == Key.Escape) {
+                    root.ask-overview(false);
+                    return accept;
+                }
+                let key = event.text.to-lowercase();
+                if (key == "a") {
+                    root.move-one(-1);
+                    return accept;
+                }
+                if (key == "d") {
+                    root.move-one(1);
+                    return accept;
+                }
+                if (event.text == Key.LeftArrow) {
+                    root.move-one(-1);
+                    return accept;
+                }
+                if (event.text == Key.RightArrow) {
+                    root.move-one(1);
+                    return accept;
+                }
+                if (event.text == Key.Return) {
+                    root.pick-middle();
+                    return accept;
+                }
+                return reject;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The first screen. The program mark and a line for this hour stand above
+    // the chat box while no chat is open. They fade away when a chat opens or
+    // when the previews come up.
+    Rectangle {
+        x: 0px;
+        y: dock.y - 150px;
+        width: root.width;
+        height: 132px;
+        opacity: root.greet-shown ? 1 : 0;
+        animate opacity { duration: 320ms; }
+
+        Image {
+            source: @image-url("../assets/icons/autumn-natter.svg");
+            width: 56px;
+            height: 56px;
+            image-fit: contain;
+            y: 0px;
+            x: (parent.width - self.width) / 2;
+        }
+        Text {
+            text: root.greeting;
+            color: Theme.text-dim;
+            font-size: 15px;
+            wrap: word-wrap;
+            horizontal-alignment: center;
+            y: 72px;
+            x: 40px;
+            width: parent.width - 80px;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The dock: the status line and the chat box. It sits in the middle of the
+    // window while no chat is open, and slides down when a chat opens. Both
+    // slides are smooth, because x, y and width are animated.
+    dock := Rectangle {
+        x: root.card-x;
+        y: root.dock-y;
+        width: root.card-width;
+        height: root.dock-height;
+        animate x { duration: 300ms; }
+        animate y { duration: 420ms; easing: ease-out; }
+        animate width { duration: 300ms; }
+
+        VerticalLayout {
+            spacing: 8px;
+
+            // The status line. The settings button stands at its right end, so
+            // nothing hangs outside the chat box.
+            Rectangle {
+                height: 24px;
+                vertical-stretch: 0;
+
                 HorizontalLayout {
                     spacing: 8px;
                     cross-axis-alignment: center;
-                    vertical-stretch: 0;
 
-                    Image {
-                        source: @image-url("../assets/icons/autumn-natter.svg");
-                        width: 24px;
-                        height: 24px;
-                        image-fit: contain;
-                        vertical-alignment: center;
+                    Spinner {
+                        width: 14px;
+                        height: 14px;
+                        visible: server-busy;
+                        horizontal-stretch: 0;
                     }
                     Text {
-                        text: "Autumn Natter";
-                        color: Theme.text;
-                        font-size: 14px;
-                        font-weight: 600;
-                        vertical-alignment: center;
-                    }
-                }
-
-                // Model selector.
-                model-btn := Rectangle {
-                    height: 32px;
-                    // The name of a model can be long, so the box has a top
-                    // limit and the name is cut short instead.
-                    width: Math.min(300px, model-label.preferred-width + kind-pill.preferred-width + 46px);
-                    horizontal-stretch: 0;
-                    border-radius: 8px;
-                    border-width: 1px;
-                    border-color: model-pop.is-open ? Theme.accent : Theme.line;
-                    background: model-btn-area.has-hover ? Theme.hover : Theme.surface;
-
-                    HorizontalLayout {
-                        padding-left: 10px;
-                        padding-right: 8px;
-                        spacing: 8px;
-                        cross-axis-alignment: center;
-
-                        Image {
-                            source: @image-url("../assets/icons/model.svg");
-                            colorize: Theme.accent-warm;
-                            width: 15px;
-                            height: 15px;
-                            vertical-alignment: center;
-                        }
-                        model-label := Text {
-                            text: model-name != "" ? model-name : "No model";
-                            color: model-name != "" ? Theme.text : Theme.text-dim;
-                            font-size: 13px;
-                            vertical-alignment: center;
-                            overflow: elide;
-                            horizontal-stretch: 1;
-                        }
-                        kind-pill := Pill {
-                            text: model-kind;
-                            visible: model-kind != "";
-                        }
-                        Image {
-                            source: @image-url("../assets/icons/chevron-down.svg");
-                            colorize: Theme.text-dim;
-                            width: 14px;
-                            height: 14px;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    model-btn-area := TouchArea {
-                        mouse-cursor: MouseCursor.pointer;
-                        clicked => { model-pop.show(); }
-                    }
-
-                    model-pop := PopupWindow {
-                        x: 0;
-                        y: 36px;
-                        width: Math.min(380px, model-btn.width);
-                        // A long model list must not run past the window, so
-                        // the list gets a top and scrolls inside.
-                        height: Math.min(40px * models.length + 16px, root.height - 64px);
-                        close-policy: close-on-click-outside;
-
-                        Rectangle {
-                            width: 100%;
-                            height: 100%;
-                            border-radius: 8px;
-                            border-width: 1px;
-                            border-color: Theme.line;
-                            background: Theme.surface;
-
-                            ListView {
-                                x: 0;
-                                y: 0;
-                                width: parent.width;
-                                height: parent.height;
-
-                                for m in models: Rectangle {
-                                    width: parent.width;
-                                    height: 40px;
-                                    background: row-area.has-hover ? Theme.hover : transparent;
-
-                                    HorizontalLayout {
-                                        x: 10px;
-                                        y: 0;
-                                        width: parent.width - 56px;
-                                        height: 100%;
-                                        spacing: 8px;
-
-                                        Text {
-                                            text: m.name;
-                                            color: m.active ? Theme.accent-strong : Theme.text;
-                                            font-size: 13px;
-                                            vertical-alignment: center;
-                                            overflow: elide;
-                                            horizontal-stretch: 1;
-                                        }
-                                        Pill {
-                                            text: m.kind;
-                                        }
-                                    }
-
-                                    // The row area stops before the gear button.
-                                    row-area := TouchArea {
-                                        width: parent.width - 46px;
-                                        height: 100%;
-                                        mouse-cursor: MouseCursor.pointer;
-                                        clicked => {
-                                            root.select-model(m.id);
-                                            model-pop.close();
-                                        }
-                                    }
-
-                                    IconButton {
-                                        x: parent.width - 40px;
-                                        y: 5px;
-                                        icon: @image-url("../assets/icons/settings.svg");
-                                        tip: "Configure this model";
-                                        tip-left: true;
-                                        selected: m.active;
-                                        clicked => {
-                                            root.configure-model(m.id);
-                                            model-pop.close();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Repository selector. It is only there for a chat inside a repository.
-                repo-btn := Rectangle {
-                    height: 32px;
-                    visible: in-repository;
-                    width: Math.min(230px, repo-label.preferred-width + 58px);
-                    horizontal-stretch: 0;
-                    border-radius: 8px;
-                    border-width: 1px;
-                    border-color: repo-pop.is-open ? Theme.accent : Theme.line;
-                    background: repo-area.has-hover ? Theme.hover : Theme.surface;
-
-                    HorizontalLayout {
-                        padding-left: 9px;
-                        padding-right: 8px;
-                        spacing: 7px;
-                        cross-axis-alignment: center;
-
-                        Image {
-                            source: @image-url("../assets/icons/folder.svg");
-                            colorize: Theme.accent-warm;
-                            width: 15px;
-                            height: 15px;
-                            vertical-alignment: center;
-                        }
-                        repo-label := Text {
-                            text: repository-name;
-                            color: Theme.text;
-                            font-size: 13px;
-                            vertical-alignment: center;
-                            overflow: elide;
-                            horizontal-stretch: 1;
-                        }
-                        Image {
-                            source: @image-url("../assets/icons/chevron-down.svg");
-                            colorize: Theme.text-dim;
-                            width: 14px;
-                            height: 14px;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    repo-area := TouchArea {
-                        mouse-cursor: MouseCursor.pointer;
-                        clicked => { repo-pop.show(); }
-                    }
-
-                    repo-pop := PopupWindow {
-                        x: 0;
-                        y: 36px;
-                        width: 300px;
-                        // Five repositories and two fixed lines fit always, but
-                        // a short window still gets a list that fits.
-                        height: Math.min(38px * (repositories.length + 1) + 54px, root.height - 64px);
-                        close-policy: close-on-click-outside;
-
-                        Rectangle {
-                            width: 100%;
-                            height: 100%;
-                            border-radius: 8px;
-                            border-width: 1px;
-                            border-color: Theme.line;
-                            background: Theme.surface;
-
-                            VerticalLayout {
-                                padding-top: 6px;
-                                padding-bottom: 6px;
-                                spacing: 0;
-
-                                // Leave the repository and go back to the loose
-                                // chats of this machine.
-                                Rectangle {
-                                    height: 38px;
-                                    background: none-area.has-hover ? Theme.hover : transparent;
-
-                                    Text {
-                                        text: "No repository";
-                                        color: Theme.text-dim;
-                                        font-size: 13px;
-                                        x: 12px;
-                                        vertical-alignment: center;
-                                    }
-                                    none-area := TouchArea {
-                                        mouse-cursor: MouseCursor.pointer;
-                                        clicked => {
-                                            root.select-repository("");
-                                            repo-pop.close();
-                                        }
-                                    }
-                                }
-
-                                for r in repositories: Rectangle {
-                                    height: 38px;
-
-                                    HorizontalLayout {
-                                        padding-left: 12px;
-                                        padding-right: 12px;
-                                        spacing: 8px;
-
-                                        Image {
-                                            source: @image-url("../assets/icons/folder.svg");
-                                            colorize: Theme.text-dim;
-                                            width: 15px;
-                                            height: 15px;
-                                            vertical-alignment: center;
-                                        }
-                                        Text {
-                                            text: r.name;
-                                            color: r.name == repository-name ? Theme.accent-strong : Theme.text;
-                                            font-size: 13px;
-                                            vertical-alignment: center;
-                                            overflow: elide;
-                                            horizontal-stretch: 1;
-                                        }
-                                    }
-
-                                    TouchArea {
-                                        mouse-cursor: MouseCursor.pointer;
-                                        clicked => {
-                                            root.select-repository(r.id);
-                                            repo-pop.close();
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    height: 34px;
-                                    background: all-area.has-hover ? Theme.hover : transparent;
-
-                                    Text {
-                                        text: "View all repositories";
-                                        color: Theme.accent-strong;
-                                        font-size: 13px;
-                                        x: 12px;
-                                        vertical-alignment: center;
-                                    }
-                                    all-area := TouchArea {
-                                        mouse-cursor: MouseCursor.pointer;
-                                        clicked => {
-                                            root.view-all-repositories();
-                                            repo-pop.close();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Chat name. It comes from the first prompt of the user. It
-                // takes the room that is left, and gives way first.
-                Text {
-                    text: chat-title;
-                    color: Theme.text-dim;
-                    font-size: 13px;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    horizontal-stretch: 1;
-                    min-width: 0px;
-                }
-
-                // Where the user is in the carousel, for example 3 of 9.
-                Text {
-                    text: chats.length > 1 ? "\{chat-index + 1} of \{chats.length}" : "";
-                    color: Theme.text-dim;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                    horizontal-stretch: 0;
-                }
-
-                // Context display: used tokens over the token limit.
-                Rectangle {
-                    width: ctx.preferred-width + 12px;
-                    height: 32px;
-                    horizontal-stretch: 0;
-
-                    HorizontalLayout {
-                        spacing: 6px;
-
-                        ctx := Text {
-                            text: context-used + " / " + context-total;
-                            color: Theme.text-dim;
-                            font-size: 12px;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    Rectangle {
-                        y: 30px;
-                        x: 6px;
-                        width: parent.width - 12px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: Theme.line;
-
-                        Rectangle {
-                            width: parent.width * Math.min(1.0, Math.max(0.0, context-ratio));
-                            height: 100%;
-                            background: context-ratio > 0.9 ? Theme.accent-deep : Theme.accent;
-                        }
-                    }
-                }
-            }
-        }
-
-        // ------------------------------------------------------------------
-        // The carousel. The middle card is the chat in use.
-        stage := Rectangle {
-            vertical-stretch: 1;
-            clip: true;
-
-            // Only the middle card and the two next to it are made. A place
-            // with many chats is then as light to draw as a place with three.
-            for c[index] in chats: Rectangle {
-                // A chat is drawn when it sits in the middle or next to it.
-                out property <bool> near: Math.abs(index - chat-index) <= 1;
-                visible: near;
-                width: root.card-width;
-                height: stage.height - 16px;
-                y: 8px;
-                x: (stage.width - root.card-width) / 2
-                    + (index - chat-index) * (root.card-width + card-gap);
-                animate x { duration: 260ms; }
-
-                clip: true;
-                border-radius: 14px;
-                border-width: 1px;
-                border-color: c.active ? Theme.accent : Theme.line;
-                background: Theme.surface;
-                // A neighbour chat is pale, so it stays out of the way.
-                opacity: c.active ? 1 : 0.45;
-
-                if c.active: MiddleChat {
-                    x: 0;
-                    y: 0;
-                    width: parent.width;
-                    height: parent.height;
-                    messages: root.messages;
-                    blank: root.blank-chat;
-                    message-rev: root.message-rev;
-                }
-
-                if !c.active && near: GhostChat {
-                    x: 0;
-                    y: 0;
-                    width: parent.width;
-                    height: parent.height;
-                    chat: c;
-                }
-            }
-
-            // ---- the two sides that turn the carousel ----
-            // A wash of the window colour over the left chat, so it barely
-            // shows. The same on the right.
-            Rectangle {
-                x: 0;
-                y: 0;
-                width: peek - card-gap;
-                height: parent.height;
-                visible: can-roll-left;
-                background: @linear-gradient(90deg, Theme.bg, #00000000);
-            }
-            Rectangle {
-                x: parent.width - (peek - card-gap);
-                y: 0;
-                width: peek - card-gap;
-                height: parent.height;
-                visible: can-roll-right;
-                background: @linear-gradient(270deg, Theme.bg, #00000000);
-            }
-
-            // The mark that says: click here for the chat on the left.
-            Rectangle {
-                x: 10px;
-                width: 28px;
-                height: 28px;
-                y: (parent.height - 28px) / 2;
-                visible: can-roll-left;
-                border-radius: 14px;
-                border-width: 1px;
-                border-color: left-area.has-hover ? Theme.accent : Theme.line;
-                background: left-area.has-hover ? Theme.tint : Theme.surface;
-                opacity: left-area.has-hover ? 1 : 0.75;
-
-                Image {
-                    source: @image-url("../assets/icons/left.svg");
-                    colorize: left-area.has-hover ? Theme.accent-strong : Theme.text-dim;
-                    width: 16px;
-                    height: 16px;
-                    x: 6px;
-                    y: 6px;
-                }
-            }
-            left-area := TouchArea {
-                x: 0;
-                y: 0;
-                width: peek - card-gap;
-                height: stage.height;
-                enabled: can-roll-left;
-                mouse-cursor: MouseCursor.pointer;
-                clicked => { root.roll-chat(-1); }
-            }
-
-            // The same mark on the right.
-            Rectangle {
-                x: parent.width - 38px;
-                width: 28px;
-                height: 28px;
-                y: (parent.height - 28px) / 2;
-                visible: can-roll-right;
-                border-radius: 14px;
-                border-width: 1px;
-                border-color: right-area.has-hover ? Theme.accent : Theme.line;
-                background: right-area.has-hover ? Theme.tint : Theme.surface;
-                opacity: right-area.has-hover ? 1 : 0.75;
-
-                Image {
-                    source: @image-url("../assets/icons/right.svg");
-                    colorize: right-area.has-hover ? Theme.accent-strong : Theme.text-dim;
-                    width: 16px;
-                    height: 16px;
-                    x: 6px;
-                    y: 6px;
-                }
-            }
-            right-area := TouchArea {
-                x: stage.width - (peek - card-gap);
-                y: 0;
-                width: peek - card-gap;
-                height: stage.height;
-                enabled: can-roll-right;
-                mouse-cursor: MouseCursor.pointer;
-                clicked => { root.roll-chat(1); }
-            }
-        }
-
-        // ------------------------------------------------------------------
-        // Status line, with the way to start a fresh chat.
-        Rectangle {
-            height: 28px;
-
-            HorizontalLayout {
-                padding-left: 20px;
-                padding-right: 20px;
-                spacing: 8px;
-                cross-axis-alignment: center;
-
-                Spinner {
-                    width: 14px;
-                    height: 14px;
-                    visible: server-busy;
-                    horizontal-stretch: 0;
-                }
-                Text {
-                    text: status-text;
-                    color: Theme.text-dim;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    horizontal-stretch: 1;
-                }
-                // The send button is only for a touch screen, so this says
-                // what the keys do.
-                Text {
-                    text: generating ? "Escape stops the answer" : "Enter sends the message";
-                    color: Theme.text-dim;
-                    font-size: 11px;
-                    vertical-alignment: center;
-                    horizontal-stretch: 0;
-                    opacity: 0.8;
-                }
-                Rectangle {
-                    height: 24px;
-                    width: new-lbl.preferred-width + 30px;
-                    horizontal-stretch: 0;
-                    border-radius: 12px;
-                    border-width: 1px;
-                    border-color: Theme.line;
-                    background: new-area.has-hover ? Theme.tint : Theme.surface;
-
-                    Image {
-                        source: @image-url("../assets/icons/plus.svg");
-                        colorize: Theme.accent-strong;
-                        width: 13px;
-                        height: 13px;
-                        x: 9px;
-                        y: 6px;
-                    }
-                    new-lbl := Text {
-                        text: "New chat";
-                        color: Theme.accent-strong;
+                        text: status-text;
+                        color: Theme.text-dim;
                         font-size: 12px;
-                        x: 26px;
                         vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
                     }
-                    new-area := TouchArea {
-                        mouse-cursor: MouseCursor.pointer;
-                        clicked => { root.new-chat(); }
+                    // The keys that matter are written next to the box.
+                    Text {
+                        visible: !root.generating;
+                        text: "Alt shows the chats";
+                        color: Theme.text-dim;
+                        font-size: 11px;
+                        opacity: 0.8;
+                        vertical-alignment: center;
+                        horizontal-stretch: 0;
+                    }
+                    Text {
+                        visible: root.generating;
+                        text: "Escape stops the answer";
+                        color: Theme.text-dim;
+                        font-size: 11px;
+                        vertical-alignment: center;
+                        horizontal-stretch: 0;
+                    }
+                    // A fresh chat. It is a small pill, so it is not mistaken
+                    // for the chat box.
+                    Rectangle {
+                        visible: !root.generating;
+                        height: 24px;
+                        width: new-lbl.preferred-width + 30px;
+                        horizontal-stretch: 0;
+                        border-radius: 12px;
+                        border-width: 1px;
+                        border-color: Theme.line;
+                        background: new-area.has-hover ? Theme.tint : Theme.surface;
+
+                        Image {
+                            source: @image-url("../assets/icons/plus.svg");
+                            colorize: Theme.accent-strong;
+                            width: 13px;
+                            height: 13px;
+                            x: 9px;
+                            y: 6px;
+                        }
+                        new-lbl := Text {
+                            text: "New chat";
+                            color: Theme.accent-strong;
+                            font-size: 12px;
+                            x: 26px;
+                            y: 0px;
+                            vertical-alignment: center;
+                        }
+                        new-area := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.new-chat(); }
+                        }
+                    }
+                    IconButton {
+                        icon: @image-url("../assets/icons/settings.svg");
+                        tip: "Settings";
+                        tip-left: true;
+                        glyph: Theme.text;
+                        base: Theme.surface;
+                        width: 30px;
+                        height: 30px;
+                        clicked => { root.open-settings(); }
                     }
                 }
             }
-        }
 
-        // ------------------------------------------------------------------
-        // Composer. The box keeps a fixed distance from both window sides.
-        Rectangle {
-            height: 116px;
+            // The chat box.
+            box := Rectangle {
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: draft.has-focus ? Theme.accent : Theme.line;
+                background: Theme.surface;
 
-            HorizontalLayout {
-                padding-left: 16px;
-                padding-right: 16px;
-                padding-bottom: 14px;
-                spacing: 8px;
-                // The composer box and the settings button sit on the bottom line.
-                cross-axis-alignment: end;
+                // Slint has no accept-return property, and a box for several
+                // lines puts a new line when Enter comes. The keys therefore
+                // stand on the text itself, where they are read before the text
+                // handles them.
+                draft := TextInput {
+                    x: 14px;
+                    y: 12px;
+                    width: parent.width - 28px;
+                    height: parent.height - 56px;
+                    font-size: 13.5px;
+                    color: Theme.text;
+                    selection-background-color: Theme.accent;
+                    selection-foreground-color: Theme.on-accent;
+                    single-line: false;
+                    wrap: word-wrap;
+                    vertical-alignment: top;
+                    text <=> root.draft-text;
 
-                box := Rectangle {
-                    horizontal-stretch: 1;
-                    height: 94px;
-                    border-radius: 12px;
-                    border-width: 1px;
-                    border-color: draft.has-focus ? Theme.accent : Theme.line;
-                    background: Theme.surface;
-
-                    // The keys live here. Enter sends the message, Shift and
-                    // Enter start a new line, and Escape stops an answer.
-                    keys := FocusScope {
-                        x: 12px;
-                        y: 10px;
-                        width: parent.width - 24px;
-                        height: parent.height - 48px;
-                        forward-focus: draft;
-
-                        key-pressed(event) => {
-                            if (event.text == Key.Return) {
-                                // Shift and Enter is left to the text box, so
-                                // it can add a line.
-                                if (event.modifiers.shift) {
-                                    return reject;
-                                }
-                                if (root.generating) {
-                                    root.cancel-generation();
-                                } else if (root.draft-text != "") {
-                                    root.send-message(root.draft-text);
-                                }
+                    key-pressed(event) => {
+                        // The row of previews takes every key. The row has a
+                        // scope of its own, and this is the fall back for the
+                        // case where the box kept the keys.
+                        if (root.overview) {
+                            let letter = event.text.to-lowercase();
+                            if (event.text == Key.Escape || event.text == Key.Alt) {
+                                root.ask-overview(false);
                                 return accept;
                             }
-                            if (event.text == Key.Escape && root.generating) {
+                            if (event.text == Key.LeftArrow || letter == "a") {
+                                root.move-one(-1);
+                                return accept;
+                            }
+                            if (event.text == Key.RightArrow || letter == "d") {
+                                root.move-one(1);
+                                return accept;
+                            }
+                            if (event.text == Key.Return) {
+                                root.pick-middle();
+                                return accept;
+                            }
+                            // Nothing else may reach the text of the box while
+                            // the row stands in front.
+                            return accept;
+                        }
+                        // Enter sends, and Shift and Enter is left to the text
+                        // box, so it can add a line.
+                        if (event.text == Key.Return) {
+                            if (event.modifiers.shift) {
+                                return reject;
+                            }
+                            if (root.generating) {
+                                root.cancel-generation();
+                            } else if (root.draft-text != "") {
+                                root.send-message(root.draft-text);
+                            }
+                            return accept;
+                        }
+                        if (event.text == Key.Escape) {
+                            if (root.generating) {
                                 root.cancel-generation();
                                 return accept;
                             }
                             return reject;
                         }
-
-                        draft := TextInput {
-                            x: 0px;
-                            y: 0px;
-                            width: parent.width;
-                            height: parent.height;
-                            font-size: 13.5px;
-                            color: Theme.text;
-                            selection-background-color: Theme.accent;
-                            selection-foreground-color: Theme.on-accent;
-                            single-line: false;
-                            wrap: word-wrap;
-                            vertical-alignment: top;
-                            text <=> root.draft-text;
+                        // Alt brings up the row of previews. The text box would
+                        // otherwise keep the key.
+                        if (event.text == Key.Alt) {
+                            root.ask-overview(true);
+                            return accept;
                         }
+                        return reject;
                     }
+                }
 
-                    // The hint. A text box has no hint of its own.
-                    Text {
-                        x: 12px;
-                        y: 10px;
-                        width: parent.width - 24px;
-                        text: "Write a message.";
-                        color: Theme.text-dim;
-                        font-size: 13.5px;
-                        wrap: word-wrap;
-                        visible: root.draft-text == "" && !draft.has-focus;
+                // The hint. A text box has no hint of its own.
+                Text {
+                    x: 14px;
+                    y: 12px;
+                    width: parent.width - 28px;
+                    text: "Write a message.";
+                    color: Theme.text-dim;
+                    font-size: 13.5px;
+                    wrap: word-wrap;
+                    visible: root.draft-text == "" && !draft.has-focus;
+                }
+
+                // Badges in the lower left corner of the box.
+                HorizontalLayout {
+                    x: 8px;
+                    y: parent.height - 34px;
+                    spacing: 8px;
+
+                    Badge {
+                        text: "Code";
+                        icon: @image-url("../assets/icons/code.svg");
+                        active: code-enabled;
+                        tip: "Let the model run one terminal command per step. Every command runs in the sandbox when the sandbox is on.";
+                        clicked => { root.toggle-code(!code-enabled); }
                     }
+                    Badge {
+                        text: "Sandbox";
+                        icon: @image-url("../assets/icons/shield.svg");
+                        active: sandbox-enabled;
+                        enabled: sandbox-available;
+                        tip: sandbox-available
+                            ? "Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory."
+                            : "bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.";
+                        clicked => { root.toggle-sandbox(!sandbox-enabled); }
+                    }
+                }
 
-                    // Badges in the lower left corner of the box.
-                    HorizontalLayout {
+                // Stop and send, in the lower right corner of the box. The
+                // native build has no send button, so only the stop mark shows
+                // while an answer comes.
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    x: parent.width - 42px;
+                    y: parent.height - 42px;
+                    visible: root.generating || root.send-visible;
+                    border-radius: 16px;
+                    background: send-area.has-hover
+                        ? (generating ? Theme.accent-deep : Theme.accent-warm)
+                        : (generating ? Theme.accent-strong : Theme.accent);
+
+                    Image {
+                        source: generating
+                            ? @image-url("../assets/icons/stop.svg")
+                            : @image-url("../assets/icons/send.svg");
+                        colorize: Theme.on-accent;
+                        width: 16px;
+                        height: 16px;
                         x: 8px;
-                        y: parent.height - 34px;
-                        spacing: 8px;
-
-                        Badge {
-                            text: "Code";
-                            icon: @image-url("../assets/icons/code.svg");
-                            active: code-enabled;
-                            tip: "Let the model run one terminal command per step. Every command runs in the sandbox when the sandbox is on.";
-                            clicked => { root.toggle-code(!code-enabled); }
-                        }
-                        Badge {
-                            text: "Sandbox";
-                            icon: @image-url("../assets/icons/shield.svg");
-                            active: sandbox-enabled;
-                            enabled: sandbox-available;
-                            tip: sandbox-available
-                                ? "Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory."
-                                : "bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.";
-                            clicked => { root.toggle-sandbox(!sandbox-enabled); }
-                        }
+                        y: 8px;
                     }
 
-                    // Send button in the lower right corner of the box. It is
-                    // for a touch screen only, where no Enter key is near.
-                    Rectangle {
-                        width: 32px;
-                        height: 32px;
-                        x: parent.width - 40px;
-                        y: parent.height - 40px;
-                        visible: send-visible;
-                        border-radius: 16px;
-                        background: send-area.has-hover
-                            ? (generating ? Theme.accent-deep : Theme.accent-warm)
-                            : (generating ? Theme.accent-strong : Theme.accent);
-
-                        Image {
-                            source: generating
-                                ? @image-url("../assets/icons/stop.svg")
-                                : @image-url("../assets/icons/send.svg");
-                            colorize: Theme.on-accent;
-                            width: 16px;
-                            height: 16px;
-                            x: 8px;
-                            y: 8px;
-                        }
-
-                        send-area := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => {
-                                if (generating) {
-                                    root.cancel-generation();
-                                } else if (root.draft-text != "") {
-                                    root.send-message(root.draft-text);
-                                }
+                    send-area := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => {
+                            if (generating) {
+                                root.cancel-generation();
+                            } else if (root.draft-text != "") {
+                                root.send-message(root.draft-text);
                             }
                         }
                     }
                 }
-
-                // Settings button, next to the chat box.
-                IconButton {
-                    icon: @image-url("../assets/icons/settings.svg");
-                    tip: "Settings";
-                    tip-left: true;
-                    glyph: Theme.text;
-                    base: Theme.surface;
-                    width: 32px;
-                    height: 32px;
-                    clicked => { root.open-settings(); }
-                }
             }
         }
+    }
+
+    // The help bubble sits on top of everything else in the window.
+    ToolTipLayer {
+        room-width: root.width;
+        room-height: root.height;
     }
 }

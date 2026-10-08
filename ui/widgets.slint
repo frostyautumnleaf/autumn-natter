@@ -25,19 +25,117 @@ export global Calc {
     }
 }
 
-// A help bubble. The host decides when the question mark shows and when the
-// bubble is open, so the bubble never sits on top of the window at rest.
+// One help bubble for the whole window. Every control that has a tip writes
+// into this global, and ToolTipLayer draws the bubble inside the window.
+//
+// A bubble of its own window was tried first. A new window takes the mouse from
+// the button under it, so the button stopped being hovered, the bubble closed,
+// the button was hovered again, and the bubble came back for ever.
+export global TipLayer {
+    // What the bubble says.
+    in-out property <string> text: "";
+    // Where the bubble wants to sit, in window coordinates.
+    in-out property <length> want-x: 0px;
+    in-out property <length> want-y: 0px;
+    // True asks for the bubble, false takes it away.
+    in-out property <bool> wanted: false;
+    // True while the bubble is on the screen. It turns on half a second after
+    // the pointer stays still on a control.
+    in-out property <bool> shown: false;
+    // True asks for the bubble to the left of the point, which a control at the
+    // right window edge needs.
+    in-out property <bool> left: false;
+    // A number for every ask. Only the one that asked last may take the bubble
+    // away, so a control that is left cannot close the bubble of the next one.
+    in-out property <int> token: 0;
+
+    // Ask for a bubble. The number it gives back belongs to this ask. The last
+    // argument says whether the bubble goes to the left of the point.
+    public function ask(text: string, at-x: length, at-y: length, to-left: bool) -> int {
+        if (text == "") {
+            return TipLayer.token;
+        }
+        TipLayer.token += 1;
+        TipLayer.text = text;
+        TipLayer.want-x = at-x;
+        TipLayer.want-y = at-y;
+        TipLayer.left = to-left;
+        TipLayer.wanted = true;
+        return TipLayer.token;
+    }
+
+    // Take the bubble away, but only when this ask is the last one.
+    public function give-up(mine: int) {
+        if (mine == TipLayer.token) {
+            TipLayer.wanted = false;
+            TipLayer.shown = false;
+        }
+    }
+}
+
+// The bubble itself. Draw it last in a window, so it sits above the rest.
+// It has no TouchArea, so it never stops a click.
+export component ToolTipLayer inherits Rectangle {
+    // The size of the window this bubble lives in, so it is never cut off.
+    in property <length> room-width: 800px;
+    in property <length> room-height: 600px;
+
+    width: 268px;
+    height: note.preferred-height + 18px;
+    visible: TipLayer.shown && TipLayer.text != "";
+    // Keep the bubble inside the window. A bubble that stands to the left of
+    // its point gets its right edge at that point.
+    x: TipLayer.left
+        ? Math.max(6px, TipLayer.want-x - self.width - 8px)
+        : Math.max(6px, Math.min(TipLayer.want-x, self.room-width - self.width - 6px));
+    y: Math.max(6px, Math.min(TipLayer.want-y, self.room-height - self.height - 6px));
+    // The wait. The bubble only comes when the pointer stays for half a second.
+    timer := Timer {
+        interval: 500ms;
+        running: TipLayer.wanted && !TipLayer.shown;
+        triggered => {
+            if (TipLayer.wanted) {
+                TipLayer.shown = true;
+            }
+        }
+    }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.line;
+        background: Theme.surface-alt;
+
+        note := Text {
+            x: 9px;
+            y: 9px;
+            width: parent.width - 18px;
+            text: TipLayer.text;
+            wrap: word-wrap;
+            color: Theme.text;
+            font-size: 12px;
+        }
+    }
+}
+
+// A help bubble, asked for through TipLayer. The host decides when the question
+// mark shows and when the bubble is wanted.
 export component Tip inherits Rectangle {
     in property <string> text;
     // True draws the question mark.
     in property <bool> shown: true;
-    // True opens the bubble. The host sets it while its own area is hovered.
+    // True wants the bubble. The host sets it while its own area is hovered.
     in property <bool> open: false;
-    // True puts the bubble to the left, for a control near the right edge.
-    in property <bool> place-left: false;
-    // True lets the question mark itself open the bubble. Only then does the
+    // True lets the question mark itself ask for the bubble. Only then does the
     // tip take mouse input, so it cannot steal a click from a neighbour.
     in property <bool> hoverable: false;
+    // True puts the bubble to the left of this tip, for a control that stands
+    // at the right edge of the window.
+    in property <bool> place-left: false;
+    // The number this tip got when it last asked.
+    property <int> mine: 0;
 
     width: 16px;
     height: 16px;
@@ -61,46 +159,27 @@ export component Tip inherits Rectangle {
         height: 16px;
         mouse-cursor: MouseCursor.pointer;
         changed has-hover => {
-            if (area.has-hover && root.text != "") {
-                help.show();
+            if (!root.hoverable) {
+                // The host asks for the bubble, not the question mark.
+            } else if (area.has-hover) {
+                root.mine = TipLayer.ask(root.text,
+                    root.absolute-position.x,
+                    root.absolute-position.y + root.height + 4px,
+                    root.place-left);
             } else {
-                help.close();
-            }
-        }
-    }
-
-    help := PopupWindow {
-        x: root.place-left ? -(274px) : (parent.width + 6px);
-        y: -6px;
-        width: 268px;
-        height: note.preferred-height + 18px;
-        close-policy: close-on-click-outside;
-
-        Rectangle {
-            width: 100%;
-            height: 100%;
-            border-radius: 6px;
-            border-width: 1px;
-            border-color: Theme.line;
-            background: Theme.surface-alt;
-
-            note := Text {
-                x: 9px;
-                y: 9px;
-                width: parent.width - 18px;
-                text: root.text;
-                wrap: word-wrap;
-                color: Theme.text;
-                font-size: 12px;
+                TipLayer.give-up(root.mine);
             }
         }
     }
 
     changed open => {
-        if (root.open && root.text != "") {
-            help.show();
+        if (root.open) {
+            root.mine = TipLayer.ask(root.text,
+                root.absolute-position.x,
+                root.absolute-position.y + root.height + 4px,
+                root.place-left);
         } else {
-            help.close();
+            TipLayer.give-up(root.mine);
         }
     }
 }

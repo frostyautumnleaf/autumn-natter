@@ -70,6 +70,13 @@ pub struct Snap {
     pub chat_count: usize,
     // True when the open chat holds no message yet.
     pub blank_chat: bool,
+    // True when no chat is open. The window then shows the chat box in the
+    // middle of the screen, with the program mark and a line for this hour.
+    pub home: bool,
+    // True when the chats are shown as small previews.
+    pub overview: bool,
+    // The line above the chat box while no chat is open.
+    pub greeting: String,
     pub messages: Vec<Message>,
     // Text the model is writing right now, while an answer comes in.
     pub live_text: String,
@@ -106,6 +113,12 @@ pub struct State {
     pub sandbox_note: String,
     pub rev: u64,
     pub structure_rev: u64,
+    // True while the chats are shown as small previews.
+    pub overview: bool,
+    // The chat settings a new chat starts with. They matter while no chat is
+    // open, where a badge has no chat to change.
+    pub new_code: bool,
+    pub new_sandbox: bool,
 }
 
 impl State {
@@ -277,10 +290,14 @@ impl State {
             }
         }
         self.pending_blank = None;
-        // A place with no chat at all still gets a blank one, so the carousel
-        // is never empty. When the place has chats, the newest one is opened.
+        // A new place is looked at as one chat, not as a row of previews.
+        self.overview = false;
+        // A place with no chat at all is left empty. The window then shows the
+        // chat box on its own, and the first message starts the first chat.
+        // When the place has chats, the newest one is opened.
         if self.chats.is_empty() {
-            self.open_blank_chat();
+            self.current = None;
+            self.ctx_used = 0;
         } else if self.current.is_none() {
             self.current = Some(self.chats[0].meta.id.clone());
             self.ctx_used = self.chats[0].meta.context_used;
@@ -308,10 +325,14 @@ impl State {
         let model_id = self.current_model_id();
         let mut chat = Chat::blank(&self.scope_repo, &model_id);
         // A blank chat keeps the sandbox choice of the chat that was at the
-        // front. The terminal tool always starts off.
-        if let Some(previous) = self.chats.first() {
-            chat.meta.sandbox_enabled = previous.meta.sandbox_enabled;
+        // front. With nothing at the front, the choice the badges hold for the
+        // next chat is used. The terminal tool starts off unless it was asked
+        // for while no chat was open.
+        match self.chats.first() {
+            Some(previous) => chat.meta.sandbox_enabled = previous.meta.sandbox_enabled,
+            None => chat.meta.sandbox_enabled = self.new_sandbox,
         }
+        chat.meta.code_enabled = self.new_code;
         self.chats.insert(0, chat);
         self.use_blank_front();
     }
@@ -376,7 +397,23 @@ impl State {
             None => gpu::detect(None),
         };
         self.repositories = self.store.scan_repos();
+        self.adopt_default_model();
         self.touch_structure();
+    }
+
+    // Point at a model when nothing sensible is picked yet. A model that was
+    // picked is kept. Without this the top bar shows a model that no chat uses,
+    // and a message then fails with "pick a model in the top bar first".
+    fn adopt_default_model(&mut self) {
+        let wanted = self.cfg.model_id.clone();
+        let known = self.models.iter().any(|m| m.id() == wanted);
+        if wanted.is_empty() || !known {
+            if let Some(first) = self.models.first() {
+                let id = first.id();
+                self.cfg.model_id = id;
+                let _ = config::save(&self.cfg);
+            }
+        }
     }
 
     // Full path of the llama-server binary.
@@ -452,8 +489,12 @@ impl State {
             context_total,
             generating: self.generating,
             busy: self.busy,
-            code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(false),
-            sandbox_enabled: chat.map(|c| c.meta.sandbox_enabled).unwrap_or(true),
+            code_enabled: chat
+                .map(|c| c.meta.code_enabled)
+                .unwrap_or(self.new_code),
+            sandbox_enabled: chat
+                .map(|c| c.meta.sandbox_enabled)
+                .unwrap_or(self.new_sandbox),
             sandbox_available: self.sandbox_available,
             status: self.status.clone(),
             dark_mode: self.cfg.dark_mode,
@@ -472,6 +513,9 @@ impl State {
                 .unwrap_or(0),
             chat_count: self.chats.len(),
             blank_chat: chat.map(|c| c.messages.is_empty()).unwrap_or(true),
+            home: self.current.is_none(),
+            overview: self.overview,
+            greeting: crate::greet::greeting(store::now_secs()),
             messages: chat.map(|c| c.messages.clone()).unwrap_or_default(),
             live_text: self.live_text.clone(),
             rev: self.rev,
@@ -516,12 +560,17 @@ impl Engine {
             rev: 0,
             structure_rev: 0,
             pending_blank: None,
+            overview: false,
+            new_code: false,
+            new_sandbox: true,
         };
         state.refresh_lists();
         state.reload_chats();
-        // The first thing the user sees is a blank chat at the front of the
-        // carousel. It goes away again when it is not used.
-        state.open_blank_chat();
+        // The first screen holds no chat at all, even when this place has
+        // chats. The window shows the chat box on its own, the first message
+        // opens a new chat, and the previews hold the chats that exist.
+        state.current = None;
+        state.ctx_used = 0;
         let state = Arc::new(Mutex::new(state));
 
         let (sender, receiver) = channel::<Job>();
@@ -567,9 +616,10 @@ impl Engine {
             state.set_status("an answer is still coming");
             return;
         }
+        // A message sent from the first screen opens a chat of this place. The
+        // window grows the chat box into a chat at the same time.
         if state.current.is_none() {
-            state.set_status("start a new chat first");
-            return;
+            state.open_blank_chat();
         }
         if state.model().is_none() {
             state.set_status("pick a model in the top bar first");
@@ -596,6 +646,9 @@ impl Engine {
         };
         if let Some(chat) = state.chat_mut() {
             chat.meta.code_enabled = enabled;
+        } else {
+            // No chat is open, so the choice is kept for the next one.
+            state.new_code = enabled;
         }
         state.persist();
         state.set_status(if enabled {
@@ -617,6 +670,8 @@ impl Engine {
         }
         if let Some(chat) = state.chat_mut() {
             chat.meta.sandbox_enabled = enabled;
+        } else {
+            state.new_sandbox = enabled;
         }
         state.persist();
         state.set_status(if enabled {
@@ -699,6 +754,8 @@ impl Engine {
             state.set_status("wait for the answer to finish");
             return;
         }
+        // The new chat is wanted in full, so the previews are put away.
+        state.overview = false;
         state.open_blank_chat();
     }
 
@@ -740,7 +797,31 @@ impl Engine {
         state.current = Some(state.chats[target].meta.id.clone());
         state.ctx_used = state.chats[target].meta.context_used;
         state.set_status("ready");
-        state.touch_structure();
+        // Only the messages changed. The list of chats keeps its shape, so the
+        // window slides the cards instead of building them again.
+        state.touch();
+    }
+
+    // Show the chats of this place as small previews, or put them away again.
+    // While the previews are up, the chat in the middle of them is the chat the
+    // user is pointing at, so it is also the chat that is open.
+    pub fn set_overview(&self, on: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.generating {
+            state.set_status("wait for the answer to finish");
+            return;
+        }
+        if state.overview == on {
+            return;
+        }
+        state.overview = on;
+        if on && state.current.is_none() && !state.chats.is_empty() {
+            state.current = Some(state.chats[0].meta.id.clone());
+            state.ctx_used = state.chats[0].meta.context_used;
+        }
+        state.touch();
     }
 
     // Open one chat of the carousel.
@@ -763,8 +844,9 @@ impl Engine {
             .find(|c| c.meta.id == id)
             .map(|c| c.meta.context_used)
             .unwrap_or(0);
+        state.overview = false;
         state.set_status("ready");
-        state.touch_structure();
+        state.touch();
     }
 
     // Pick another model. The worker stops the running server.
@@ -878,6 +960,9 @@ impl Snap {
             chat_index: 0,
             chat_count: 0,
             blank_chat: true,
+            home: true,
+            overview: false,
+            greeting: String::new(),
             messages: Vec::new(),
             live_text: String::new(),
             rev: 0,
@@ -1260,8 +1345,9 @@ mod tests {
         let chats = config::paths().chats;
         let stored = || std::fs::read_dir(&chats).map(|entries| entries.count()).unwrap_or(0);
 
-        // The blank chat at the front is not a file.
-        assert_eq!(engine.snapshot().chat_count, 1);
+        // A run starts with no chat at all, and nothing on disk.
+        assert_eq!(engine.snapshot().chat_count, 0);
+        assert!(engine.snapshot().home);
         assert_eq!(stored(), 0);
 
         // Even the badges may not write a blank chat to disk.
@@ -1281,6 +1367,7 @@ mod tests {
         // chat that was written in stays on the disk and in the carousel.
         engine.new_chat();
         assert_eq!(engine.snapshot().chat_count, 2);
+        assert!(engine.snapshot().blank_chat);
         engine.roll(1);
         std::thread::sleep(Duration::from_millis(500));
         let after = engine.snapshot();
@@ -1296,13 +1383,13 @@ mod tests {
         write_chat("aaaabbbb01", 100);
         write_chat("aaaabbbb02", 200);
 
-        // The first thing the user sees is a blank chat at the front.
+        // The first thing the user sees is the chat box on its own, with no
+        // chat open. The chats on disk wait in the previews.
         let engine = Engine::start(Config::default());
         let snap = engine.snapshot();
-        assert_eq!(snap.chat_count, 3);
-        assert_eq!(snap.chat_index, 0);
-        assert!(snap.blank_chat);
-        assert!(snap.chats[0].transient);
+        assert_eq!(snap.chat_count, 2);
+        assert!(snap.home);
+        assert!(!snap.generating);
 
         // Asking for a new chat twice still gives one blank chat.
         engine.new_chat();
@@ -1329,15 +1416,57 @@ mod tests {
         std::thread::sleep(Duration::from_millis(500));
         assert_eq!(engine.snapshot().chat_count, 3);
 
-        // Every repository has its own carousel.
+        // Every repository has its own carousel. A new repository is empty, so
+        // the window shows the chat box on its own again.
         engine.create_repository(String::from("Test Repo"));
         let repo = engine.snapshot();
         assert!(repo.in_repository);
-        assert_eq!(repo.chat_count, 1);
-        assert!(repo.blank_chat);
+        assert_eq!(repo.chat_count, 0);
+        assert!(repo.home);
         engine.select_repository(String::new());
         let back = engine.snapshot();
         assert!(!back.in_repository);
         assert_eq!(back.chat_count, 3);
+    }
+
+    // The first screen holds no chat. A message opens one, and the previews are
+    // a window over the carousel that does not change which chat is open.
+    #[test]
+    fn the_first_screen_and_the_previews() {
+        let _guard = TURN.lock().unwrap();
+        setup();
+        write_chat("aaaabbbb03", 300);
+        let engine = Engine::start(Config::default());
+
+        // The chat on disk is there, but no chat is open.
+        let snap = engine.snapshot();
+        assert_eq!(snap.chat_count, 1);
+        assert!(snap.home);
+        assert!(!snap.overview);
+
+        // The previews show that one chat, and it becomes the chat in use.
+        engine.set_overview(true);
+        let previews = engine.snapshot();
+        assert!(previews.overview);
+        assert!(!previews.home);
+        assert_eq!(previews.chat_index, 0);
+
+        // Picking it closes the previews and keeps the chat.
+        engine.open_chat(String::from("aaaabbbb03"));
+        let picked = engine.snapshot();
+        assert!(!picked.overview);
+        assert_eq!(picked.chat_id, "aaaabbbb03");
+
+        // A message from the first screen opens a chat of this place. No model
+        // is picked here, so the message stops before the worker, but the chat
+        // is already there.
+        engine.select_repository(String::new());
+        engine.create_repository(String::from("Second"));
+        assert!(engine.snapshot().home);
+        engine.prompt(String::from("A first question"));
+        let after = engine.snapshot();
+        assert!(!after.home);
+        assert_eq!(after.chat_count, 1);
+        assert!(after.chats[0].transient);
     }
 }
