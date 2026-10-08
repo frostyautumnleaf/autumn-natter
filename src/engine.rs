@@ -1148,6 +1148,15 @@ fn run_turn(
             guard.push_message("Assistant", &stopped, false);
         } else if !answer_text.trim().is_empty() {
             guard.push_message("Assistant", &answer_text, false);
+        } else if answer.error.is_none() {
+            // The model used tokens but gave no visible text. This happens
+            // when the answer is all thinking, or the context ran full.
+            let note = if answer.finish == "length" {
+                String::from("(the context ran full before the model could answer)")
+            } else {
+                String::from("(the model gave no answer)")
+            };
+            guard.push_message("Assistant", &note, false);
         }
 
         // Tokens for the context meter.
