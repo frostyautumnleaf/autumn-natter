@@ -171,7 +171,7 @@ component MiddleChat inherits Rectangle {
             bubble := Rectangle {
                 x: msg.role == "You" ? (parent.width - self.width - 2px) : 2px;
                 y: 4px;
-                width: msg.role == "You" ? (parent.width - 4px) * 0.85 : (parent.width - 4px);
+                width: msg.role == "You" ? (parent.width - 4px) * 0.55 : (parent.width - 4px) * 0.75;
                 height: parent.height - 8px;
                 border-radius: 12px;
                 border-width: msg.failed ? 1px : 0px;
