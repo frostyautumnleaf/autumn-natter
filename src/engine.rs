@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use crate::config::{self, Config, ModelSettings};
 use crate::gpu::{self, Gpu};
 use crate::llama::{self, ModelInfo, Server, ToolCall};
+use crate::markdown;
 use crate::store::{self, Chat, Message, Repo};
 use crate::tools;
 
@@ -33,6 +34,8 @@ enum Job {
     ModelChanged,
     // Settings changed, so a server must not stay with the old values.
     SettingsChanged,
+    // The thinking mode changed, so the server must go with its old flags.
+    ThinkingChanged,
     // Leave the process, after the model is unloaded.
     Shutdown,
 }
@@ -53,6 +56,10 @@ pub struct Snap {
     pub code_enabled: bool,
     pub sandbox_enabled: bool,
     pub sandbox_available: bool,
+    // The thinking mode of the open chat.
+    pub thinking_mode: String,
+    // True when the model's template can switch thinking.
+    pub thinking_available: bool,
     pub status: String,
     pub dark_mode: bool,
     pub data_dir: String,
@@ -115,6 +122,8 @@ pub struct State {
     pub ctx_used: u64,
     pub sandbox_available: bool,
     pub sandbox_note: String,
+    // What the chat template of the current model can do with thinking.
+    pub thinking: markdown::ThinkingOptions,
     pub rev: u64,
     pub structure_rev: u64,
     // True while the chats are shown as small previews.
@@ -123,6 +132,7 @@ pub struct State {
     // open, where a badge has no chat to change.
     pub new_code: bool,
     pub new_sandbox: bool,
+    pub new_thinking: String,
 }
 
 impl State {
@@ -338,6 +348,7 @@ impl State {
             None => chat.meta.sandbox_enabled = self.new_sandbox,
         }
         chat.meta.code_enabled = self.new_code;
+        chat.meta.thinking_mode = self.new_thinking.clone();
         self.chats.insert(0, chat);
         self.use_blank_front();
     }
@@ -451,6 +462,24 @@ impl State {
         settings
     }
 
+    // Read the chat template the model will use, and what it can do with
+    // thinking. A custom template from the settings wins over the one the
+    // model file carries.
+    fn refresh_thinking(&mut self) {
+        let model_id = self.current_model_id();
+        let custom = self.cfg.model(&model_id).chat_template;
+        let template: Option<String> = if !custom.trim().is_empty() {
+            Some(custom)
+        } else {
+            self.model()
+                .and_then(|m| crate::gguf::read_string(&m.path, "tokenizer.chat_template"))
+        };
+        self.thinking = match template {
+            Some(text) => markdown::analyze_template(&text),
+            None => markdown::ThinkingOptions::default(),
+        };
+    }
+
     // Directory a tool run starts in. A repository chat works inside its
     // repository, and a loose chat gets its own folder.
     fn workdir_for(&self, chat: &Chat) -> PathBuf {
@@ -501,6 +530,10 @@ impl State {
                 .map(|c| c.meta.sandbox_enabled)
                 .unwrap_or(self.new_sandbox),
             sandbox_available: self.sandbox_available,
+            thinking_mode: chat
+                .map(|c| c.meta.thinking_mode.clone())
+                .unwrap_or_else(|| self.new_thinking.clone()),
+            thinking_available: self.thinking.has_thinking || self.thinking.has_effort,
             status: self.status.clone(),
             dark_mode: self.cfg.dark_mode,
             data_dir: config::paths().data.display().to_string(),
@@ -564,12 +597,14 @@ impl Engine {
             ctx_used: 0,
             sandbox_available,
             sandbox_note,
+            thinking: markdown::ThinkingOptions::default(),
             rev: 0,
             structure_rev: 0,
             pending_blank: None,
             overview: false,
             new_code: false,
             new_sandbox: true,
+            new_thinking: String::from("auto"),
         };
         state.refresh_lists();
         state.reload_chats();
@@ -578,6 +613,7 @@ impl Engine {
         // opens a new chat, and the previews hold the chats that exist.
         state.current = None;
         state.ctx_used = 0;
+        state.refresh_thinking();
         let state = Arc::new(Mutex::new(state));
 
         let (sender, receiver) = channel::<Job>();
@@ -686,6 +722,42 @@ impl Engine {
         } else {
             "tool runs are not sandboxed"
         });
+    }
+
+    // Turn the thinking mode of the open chat to the next one the model
+    // offers. A model with no thinking mode does not change.
+    pub fn cycle_thinking(&self) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.generating {
+            state.set_status("wait for the answer to finish");
+            return;
+        }
+        let modes = state.thinking.modes();
+        if modes.is_empty() {
+            return;
+        }
+        let current = state
+            .chat()
+            .map(|c| c.meta.thinking_mode.clone())
+            .unwrap_or_else(|| state.new_thinking.clone());
+        let next = match modes.iter().position(|mode| *mode == current) {
+            Some(place) => modes[(place + 1) % modes.len()].to_string(),
+            // The model does not offer the stored mode, so start from the top.
+            None => modes[0].to_string(),
+        };
+        if let Some(chat) = state.chat_mut() {
+            chat.meta.thinking_mode = next.clone();
+        } else {
+            state.new_thinking = next.clone();
+        }
+        state.persist();
+        state.set_status(&format!("thinking mode is {}", next));
+        state.touch();
+        drop(state);
+        // The flags are server level, so the running server goes with them.
+        let _ = self.jobs.send(Job::ThinkingChanged);
     }
 
     // Show another repository, and load its chats.
@@ -955,6 +1027,8 @@ impl Snap {
             code_enabled: false,
             sandbox_enabled: true,
             sandbox_available: false,
+            thinking_mode: String::from("auto"),
+            thinking_available: false,
             status: String::new(),
             dark_mode: false,
             data_dir: String::new(),
@@ -1002,6 +1076,7 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                 stop_server(&mut server);
                 if let Ok(mut state) = state.lock() {
                     state.ctx_total = 0;
+                    state.refresh_thinking();
                     let name = state
                         .model()
                         .map(|m| m.name)
@@ -1009,6 +1084,11 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                     let text = format!("{} loads with the next message", name);
                     state.set_status(&text);
                 }
+            }
+            Job::ThinkingChanged => {
+                // The flags are server level, so the running server goes.
+                // The model and context stay the same, so nothing else changes.
+                stop_server(&mut server);
             }
             Job::Prompt(text) => {
                 run_turn(&state, &mut server, &cancel, text);
@@ -1254,11 +1334,26 @@ fn ensure_server(
     settings: &ModelSettings,
     cancel: &Arc<AtomicBool>,
 ) -> Result<u64, String> {
-    // A server for the same model is kept, so the model loads only once.
+    let (binary, gpus, code_enabled, thinking_mode) = {
+        let Ok(state) = state.lock() else {
+            return Err("the state is gone".to_string());
+        };
+        let binary = state
+            .server_binary()
+            .ok_or("llama-server was not found in the folder from the settings")?;
+        (
+            binary,
+            state.gpus.clone(),
+            state.chat().map(|c| c.meta.code_enabled).unwrap_or(false),
+            state.chat().map(|c| c.meta.thinking_mode.clone()).unwrap_or_else(|| String::from("auto")),
+        )
+    };
+    // A server for the same model and thinking mode is kept, so the model
+    // loads only once. A new thinking mode needs the new flags.
     let reusable = server.as_mut().map(|s| s.alive()).unwrap_or(false)
         && server
             .as_ref()
-            .map(|s| s.model_id == model.id())
+            .map(|s| s.model_id == model.id() && s.thinking_mode == thinking_mode)
             .unwrap_or(false);
     if reusable {
         let total = server
@@ -1271,20 +1366,7 @@ fn ensure_server(
     if cancel.load(Ordering::Relaxed) {
         return Err("stopped before the model loaded".to_string());
     }
-    let (binary, gpus, code_enabled) = {
-        let Ok(state) = state.lock() else {
-            return Err("the state is gone".to_string());
-        };
-        let binary = state
-            .server_binary()
-            .ok_or("llama-server was not found in the folder from the settings")?;
-        (
-            binary,
-            state.gpus.clone(),
-            state.chat().map(|c| c.meta.code_enabled).unwrap_or(false),
-        )
-    };
-    match llama::Server::start(&binary, model, settings, &gpus, code_enabled) {
+    match llama::Server::start(&binary, model, settings, &gpus, code_enabled, &thinking_mode) {
         Ok(started) => {
             let total = started.ctx_total;
             let notes = started.notes.clone();
@@ -1358,10 +1440,12 @@ mod tests {
         chat.meta.id = id.to_string();
         chat.meta.title = id.to_string();
         chat.meta.updated = updated;
-        let mut message = Message::default();
-        message.role = String::from("You");
-        message.body = String::from("A written question");
-        message.when = updated;
+        let message = Message {
+            role: String::from("You"),
+            body: String::from("A written question"),
+            when: updated,
+            ..Default::default()
+        };
         chat.messages.push(message);
         store.save_chat(&chat);
     }
@@ -1499,5 +1583,60 @@ mod tests {
         assert!(!after.home);
         assert_eq!(after.chat_count, 1);
         assert!(after.chats[0].transient);
+    }
+
+    // The badge cycles through the modes the model offers, and a model with
+    // no thinking mode does not change.
+    #[test]
+    fn the_thinking_mode_cycles() {
+        let _guard = TURN.lock().unwrap();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.new_chat();
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.thinking = markdown::ThinkingOptions {
+                has_thinking: true,
+                has_effort: false,
+                efforts: Vec::new(),
+            };
+        }
+        // The switch model walks auto, off, on and back to auto.
+        engine.cycle_thinking();
+        assert_eq!(engine.snapshot().thinking_mode, "off");
+        engine.cycle_thinking();
+        assert_eq!(engine.snapshot().thinking_mode, "on");
+        engine.cycle_thinking();
+        assert_eq!(engine.snapshot().thinking_mode, "auto");
+        // The effort model offers auto, off, low and high. The stored mode
+        // is offered, so the cycle continues from it.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.thinking = markdown::ThinkingOptions {
+                has_thinking: false,
+                has_effort: true,
+                efforts: vec![String::from("low"), String::from("high")],
+            };
+        }
+        engine.cycle_thinking();
+        assert_eq!(engine.snapshot().thinking_mode, "off");
+        engine.cycle_thinking();
+        assert_eq!(engine.snapshot().thinking_mode, "low");
+        // A stored mode the model does not offer starts from the top.
+        {
+            let mut state = engine.state.lock().unwrap();
+            if let Some(chat) = state.chat_mut() {
+                chat.meta.thinking_mode = String::from("on");
+            }
+        }
+        engine.cycle_thinking();
+        assert_eq!(engine.snapshot().thinking_mode, "auto");
+        // A model with no thinking mode keeps its mode.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.thinking = markdown::ThinkingOptions::default();
+        }
+        engine.cycle_thinking();
+        assert_eq!(engine.snapshot().thinking_mode, "auto");
     }
 }

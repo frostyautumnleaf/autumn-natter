@@ -70,7 +70,7 @@ impl ModelInfo {
 pub fn list_models(dir: &Path) -> Vec<ModelInfo> {
     let mut out: Vec<ModelInfo> = Vec::new();
     walk(dir, 0, 3, &mut out);
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|m| m.name.to_lowercase());
     out
 }
 
@@ -150,6 +150,8 @@ pub struct Server {
     // Tokens the current chat can hold.
     pub ctx_total: u64,
     pub model_id: String,
+    // The thinking mode the server was started with. A change needs a restart.
+    pub thinking_mode: String,
     // Notes for the user, for example a missing vision projector.
     pub notes: Vec<String>,
 }
@@ -184,10 +186,11 @@ impl Server {
         settings: &ModelSettings,
         gpus: &[Gpu],
         use_tools: bool,
+        thinking_mode: &str,
     ) -> Result<Server, String> {
         let port = util::free_port().ok_or("no free port on this machine")?;
         let mut notes = Vec::new();
-        let mut args = build_args(binary, model, settings, gpus, port, use_tools, &mut notes);
+        let mut args = build_args(binary, model, settings, gpus, port, use_tools, thinking_mode, &mut notes);
 
         let mut attempt = 0;
         loop {
@@ -223,6 +226,7 @@ impl Server {
                 url: format!("http://127.0.0.1:{}", port),
                 ctx_total: settings.ctx_size as u64,
                 model_id: model.id(),
+                thinking_mode: thinking_mode.to_string(),
                 notes: notes.clone(),
             };
             match server.wait_ready() {
@@ -247,14 +251,14 @@ impl Server {
                             "the model has no usable chat template, so the terminal tool is off"
                                 .to_string(),
                         );
-                        args = build_args(binary, model, settings, gpus, port, false, &mut notes);
+                        args = build_args(binary, model, settings, gpus, port, false, thinking_mode, &mut notes);
                         server.stop_now();
                         continue;
                     }
                     server.stop_now();
                     let mut text = problem.text;
                     if !problem.output.is_empty() {
-                        text.push_str("\n");
+                        text.push('\n');
                         text.push_str(&problem.output);
                     }
                     return Err(text);
@@ -329,7 +333,9 @@ fn read_tail(path: &Path, max_bytes: usize) -> String {
     text[idx..].to_string()
 }
 
-// Build the command line for llama-server.
+// Build the command line for llama-server. The server takes many knobs,
+// so the call is a flat list.
+#[allow(clippy::too_many_arguments)]
 pub fn build_args(
     _binary: &Path,
     model: &ModelInfo,
@@ -337,6 +343,7 @@ pub fn build_args(
     gpus: &[Gpu],
     port: u16,
     use_tools: bool,
+    thinking_mode: &str,
     notes: &mut Vec<String>,
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![
@@ -432,6 +439,25 @@ pub fn build_args(
     if !settings.reasoning_message.trim().is_empty() {
         args.push("--reasoning-budget-message".into());
         args.push(settings.reasoning_message.clone());
+    }
+
+    // Thinking mode from the chat badge.
+    match thinking_mode {
+        "off" => {
+            args.push("--reasoning".into());
+            args.push("off".into());
+        }
+        "on" => {
+            args.push("--reasoning".into());
+            args.push("on".into());
+        }
+        "low" | "medium" | "high" | "xhigh" => {
+            args.push("--reasoning".into());
+            args.push("on".into());
+            args.push("--reasoning-effort".into());
+            args.push(thinking_mode.to_string());
+        }
+        _ => {}
     }
 
     // Speculative decoding.

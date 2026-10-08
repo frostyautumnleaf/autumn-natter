@@ -7,6 +7,7 @@
 
 mod config;
 mod engine;
+mod gguf;
 mod greet;
 mod markdown;
 mod remote;

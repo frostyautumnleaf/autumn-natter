@@ -108,6 +108,9 @@ pub fn run(cfg: Config) -> Result<(), String> {
     app.on_toggle_sandbox(move |enabled: bool| handle.set_sandbox(enabled));
 
     let handle = engine.clone();
+    app.on_cycle_thinking(move || handle.cycle_thinking());
+
+    let handle = engine.clone();
     app.on_select_model(move |id: SharedString| handle.select_model(id.to_string()));
 
     let handle = engine.clone();
@@ -216,6 +219,8 @@ fn render(app: &App, engine: &Engine, ui: &Rc<Ui>) {
     app.set_code_enabled(snap.code_enabled);
     app.set_sandbox_enabled(snap.sandbox_enabled);
     app.set_sandbox_available(snap.sandbox_available);
+    app.set_thinking_mode(text(&snap.thinking_mode));
+    app.set_thinking_available(snap.thinking_available);
     app.set_status_text(text(snap.status.as_str()));
 
     // The carousel turns to the open chat, and says when that chat is blank.
@@ -632,6 +637,7 @@ fn command_preview(
         &devices,
         0,
         snap.code_enabled,
+        snap.thinking_mode.as_str(),
         &mut notes,
     );
     let mut text = String::from("llama-server ");

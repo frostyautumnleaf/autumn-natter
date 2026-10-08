@@ -391,6 +391,10 @@ export component App inherits Window {
     in property <bool> code-enabled: false;
     in property <bool> sandbox-enabled: true;
     in property <bool> sandbox-available: true;
+    // The thinking mode of the open chat.
+    in property <string> thinking-mode: "auto";
+    // True when the model's template can switch thinking.
+    in property <bool> thinking-available: false;
     in property <bool> server-busy: false;
     in property <string> status-text: "";
     // True when the chat in the middle has no message yet.
@@ -423,6 +427,8 @@ export component App inherits Window {
     callback cancel-generation();
     callback toggle-code(enabled: bool);
     callback toggle-sandbox(enabled: bool);
+    // Turn the thinking mode to the next one the model offers.
+    callback cycle-thinking();
     callback open-settings();
     callback select-model(id: string);
     callback configure-model(id: string);
@@ -1659,6 +1665,20 @@ export component App inherits Window {
                             ? "Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory."
                             : "bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.";
                         clicked => { root.toggle-sandbox(!sandbox-enabled); }
+                    }
+                    // The model has no thinking mode, so the badge says so
+                    // and stays grey.
+                    Badge {
+                        text: thinking-available
+                            ? "think: " + thinking-mode
+                            : "No thinking modes";
+                        icon: @image-url("../assets/icons/think.svg");
+                        active: thinking-available && thinking-mode != "auto";
+                        enabled: thinking-available;
+                        tip: thinking-available
+                            ? "The model can show its thinking. Click to change how much it thinks."
+                            : "This model has no thinking mode.";
+                        clicked => { root.cycle-thinking(); }
                     }
                 }
 

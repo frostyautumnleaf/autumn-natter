@@ -95,8 +95,8 @@ pub fn new_id() -> String {
     if getrandom::fill(&mut bytes).is_err() {
         // A machine with no random source still needs an id.
         let t = now_secs() as u64;
-        for i in 0..5 {
-            bytes[i] = ((t >> (i * 8)) ^ (i as u64 * 37)) as u8;
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = ((t >> (i * 8)) ^ (i as u64 * 37)) as u8;
         }
     }
     let mut out = String::with_capacity(10);
@@ -176,6 +176,9 @@ pub struct ChatMeta {
     pub code_enabled: bool,
     // Run the tool inside bubblewrap when this is true.
     pub sandbox_enabled: bool,
+    // Thinking mode: "auto", "off", "on", "low", "medium", "high", "xhigh".
+    #[serde(default)]
+    pub thinking_mode: String,
     // Tokens used by the last answer.
     pub context_used: u64,
 }
@@ -192,6 +195,7 @@ impl Default for ChatMeta {
             code_enabled: false,
             // The sandbox is on unless the user turns it off.
             sandbox_enabled: true,
+            thinking_mode: String::from("auto"),
             context_used: 0,
         }
     }
@@ -395,7 +399,7 @@ impl Store {
             repo.path = path;
             out.push(repo);
         }
-        out.sort_by(|a, b| b.last_used.cmp(&a.last_used));
+        out.sort_by_key(|r| std::cmp::Reverse(r.last_used));
         out
     }
 
@@ -453,7 +457,7 @@ impl Store {
                 }
             }
         }
-        out.sort_by(|a, b| b.meta.updated.cmp(&a.meta.updated));
+        out.sort_by_key(|c| std::cmp::Reverse(c.meta.updated));
         out
     }
 

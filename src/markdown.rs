@@ -175,13 +175,13 @@ pub fn parse(markdown: &str) -> Vec<Block> {
                     }
                 }
             }
-            pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Link) => {
-                if !in_code {
-                    if in_list {
-                        current_item.push_str("</a>");
-                    } else {
-                        current_text.push_str("</a>");
-                    }
+            pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Link)
+                if !in_code =>
+            {
+                if in_list {
+                    current_item.push_str("</a>");
+                } else {
+                    current_text.push_str("</a>");
                 }
             }
             _ => {}
@@ -213,3 +213,122 @@ fn escape_html(text: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
 }
+
+// ---------------------------------------------------------------------------
+// Chat template analysis for thinking capabilities.
+// ---------------------------------------------------------------------------
+
+/// The thinking modes a chat template supports.
+#[derive(Debug, Clone, Default)]
+pub struct ThinkingOptions {
+    /// True if the template can switch thinking on and off.
+    pub has_thinking: bool,
+    /// True if the template takes an effort level.
+    pub has_effort: bool,
+    /// The effort levels the template names, in display order.
+    pub efforts: Vec<String>,
+}
+
+impl ThinkingOptions {
+    /// The modes the badge shows, in the order a click cycles them.
+    /// An empty list means the model has no thinking mode at all.
+    pub fn modes(&self) -> Vec<&'static str> {
+        if self.has_effort {
+            let all: &[&str] = &["low", "medium", "high", "xhigh"];
+            let levels: Vec<&str> = if self.efforts.is_empty() {
+                all.to_vec()
+            } else {
+                all.iter()
+                    .copied()
+                    .filter(|level| self.efforts.iter().any(|named| named == *level))
+                    .collect()
+            };
+            let mut list = vec!["auto", "off"];
+            list.extend(levels);
+            return list;
+        }
+        if self.has_thinking {
+            return vec!["auto", "off", "on"];
+        }
+        Vec::new()
+    }
+}
+
+/// Parse a jinja chat template and detect its thinking capabilities.
+pub fn analyze_template(template: &str) -> ThinkingOptions {
+    let mut options = ThinkingOptions::default();
+    if template.trim().is_empty() {
+        return options;
+    }
+    // The on and off switch is the enable_thinking keyword.
+    options.has_thinking = template.contains("enable_thinking");
+    // The effort level comes in through the reasoning_effort keyword.
+    options.has_effort = template.contains("reasoning_effort");
+    if options.has_effort {
+        // A level counts when the template compares the effort against it.
+        // The comparison quotes the level, so a word like "following" does
+        // not count as "low".
+        for level in ["low", "medium", "high", "xhigh"] {
+            if template.contains(&format!("'{}'", level))
+                || template.contains(&format!("\"{}\"", level))
+            {
+                options.efforts.push(level.to_string());
+            }
+        }
+    }
+    options
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_template_has_no_modes() {
+        let options = analyze_template("");
+        assert!(!options.has_thinking);
+        assert!(!options.has_effort);
+        assert!(options.modes().is_empty());
+    }
+
+    #[test]
+    fn a_template_with_only_the_switch() {
+        let template = "{%- if enable_thinking %}A< /think>{% endif %}B";
+        let options = analyze_template(template);
+        assert!(options.has_thinking);
+        assert!(!options.has_effort);
+        assert_eq!(options.modes(), vec!["auto", "off", "on"]);
+    }
+
+    #[test]
+    fn a_template_with_quoted_effort_levels() {
+        let template =
+            "{%- if reasoning_effort == 'high' %}A{% elif reasoning_effort == 'low' %}B{% endif %}";
+        let options = analyze_template(template);
+        assert!(options.has_effort);
+        assert_eq!(options.efforts, vec!["low".to_string(), "high".to_string()]);
+        assert_eq!(options.modes(), vec!["auto", "off", "low", "high"]);
+    }
+
+    #[test]
+    fn a_template_with_no_quoted_levels_gets_all_levels() {
+        let template = "{{- reasoning_effort }}";
+        let options = analyze_template(template);
+        assert!(options.has_effort);
+        assert!(options.efforts.is_empty());
+        assert_eq!(
+            options.modes(),
+            vec!["auto", "off", "low", "medium", "high", "xhigh"]
+        );
+    }
+
+    #[test]
+    fn a_word_is_not_a_level() {
+        // The word "following" holds "low", but it is not a quoted level.
+        let template = "If you choose to call a function ONLY reply in the following format. {{- reasoning_effort }}";
+        let options = analyze_template(template);
+        assert!(options.has_effort);
+        assert!(options.efforts.is_empty());
+    }
+}
+
