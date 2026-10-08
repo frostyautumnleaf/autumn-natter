@@ -118,7 +118,7 @@ fn describe(location: &str) -> Result<(String, String), String> {
             continue;
         };
         if let Some(path) = tag_value(&text[at..], "controlURL") {
-            return Ok((name.to_string(), join_url(location, &path)));
+            return Ok((name.to_string(), join_url(location, path)));
         }
     }
     Err("the router has no service for port mapping".to_string())

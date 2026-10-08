@@ -202,8 +202,10 @@ fn allowed(request: &Request) -> bool {
         }
         Some(SocketAddr::V6(address)) => {
             let ip = address.ip();
-            // fc00::/7 is the private range of IPv6.
-            ip.is_loopback() || ip.is_unicast_link_local() || (ip.octets()[0] & 0xfe) == 0xfc
+            // fc00::/7 is the private range, fe80::/10 the link-local range.
+            ip.is_loopback()
+                || (ip.octets()[0] == 0xfe && (ip.octets()[1] & 0xc0) == 0x80)
+                || (ip.octets()[0] & 0xfe) == 0xfc
         }
         // The caller is unknown, so it is not trusted.
         None => false,
