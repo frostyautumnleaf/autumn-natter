@@ -25,7 +25,13 @@ import { Theme } from "theme.slint";
 import { ModelRow, RepoRow, ChatRow, MessageRow } from "types.slint";
 // The message list and the wait mark come from the widget set of Slint.
 import { ListView, Spinner } from "std-widgets.slint";
-import { Badge, IconButton, Pill, ToolTipLayer } from "widgets.slint";
+import {
+    Badge,
+    IconButton,
+    Pill,
+    TipLayer,
+    ToolTipLayer,
+} from "widgets.slint";
 // The two dialogs live in their own files.
 export { ModelConfigWindow } from "model_config.slint";
 export { SettingsWindow } from "settings.slint";
@@ -372,7 +378,8 @@ export component App inherits Window {
     out property <length> peek: 62px;
     out property <length> card-gap: 14px;
     out property <length> bar-height: 48px;
-    out property <length> dock-height: 150px;
+    // 30px for the status line, 8px of room, and a chat box of 108px.
+    out property <length> dock-height: 146px;
     out property <length> card-x: inset + peek;
     out property <length> card-width: Math.max(280px, root.width - 2 * (inset + peek));
     out property <length> stage-top: bar-height + 8px;
@@ -380,10 +387,14 @@ export component App inherits Window {
     // bottom of the window when a chat is open.
     out property <length> dock-y: home
         ? (root.height - dock-height) / 2
-        : root.height - dock-height - 10px;
+        : root.height - dock-height - 12px;
     out property <length> stage-height: Math.max(0px, dock-y - stage-top - 8px);
     out property <bool> can-roll-left: chat-index > 0;
     out property <bool> can-roll-right: chat-index < chats.length - 1;
+    // A neighbour chat is put away when the chat in the middle has nothing in
+    // it, or when there is one chat or none. An empty column at the side of the
+    // window only confuses, and there is nothing to look at there.
+    out property <bool> peek-hidden: blank-chat || chats.length < 2;
 
     // Shape of the row of previews.
     out property <length> prev-width: Math.max(150px, Math.min(230px, (root.width - 60px) / 4));
@@ -1055,7 +1066,8 @@ export component App inherits Window {
 
             // Where the user stands in the carousel, for example 3 of 9.
             Text {
-                text: chats.length > 1 ? "\{chat-index + 1} of \{chats.length}" : "";
+                text: (chat-index > 0 || chats.length > 1)
+                    ? "\{chat-index + 1} of \{chats.length}" : "";
                 color: Theme.text-dim;
                 font-size: 12px;
                 vertical-alignment: center;
@@ -1069,9 +1081,12 @@ export component App inherits Window {
                 horizontal-stretch: 0;
 
                 ctx := Text {
-                    text: context-used + " / " + context-total;
+                    text: context-used + " of " + context-total + " tokens";
                     color: Theme.text-dim;
                     font-size: 12px;
+                    // A small window must not push the rest of the bar away.
+                    max-width: 158px;
+                    overflow: elide;
                     x: 6px;
                     y: 6px;
                 }
@@ -1108,7 +1123,7 @@ export component App inherits Window {
         // with many chats costs the same as a place with three.
         for c[index] in chats: Rectangle {
             out property <bool> near: Math.abs(index - chat-index) <= 1;
-            visible: near && !root.overview;
+            visible: near && !root.overview && !root.peek-hidden;
             z: c.active ? 2 : 1;
             width: root.card-width;
             // The chat grows from the top down when the first message comes.
@@ -1153,7 +1168,7 @@ export component App inherits Window {
             y: 0px;
             width: root.card-x - root.card-gap;
             height: stage.height;
-            visible: root.can-roll-left && !root.overview;
+            visible: root.can-roll-left && !root.overview && !root.peek-hidden;
             background: @linear-gradient(90deg, Theme.bg, #00000000);
         }
         Rectangle {
@@ -1161,7 +1176,7 @@ export component App inherits Window {
             y: 0px;
             width: root.card-x - root.card-gap;
             height: stage.height;
-            visible: root.can-roll-right && !root.overview;
+            visible: root.can-roll-right && !root.overview && !root.peek-hidden;
             background: @linear-gradient(270deg, Theme.bg, #00000000);
         }
         left-area := TouchArea {
@@ -1169,7 +1184,7 @@ export component App inherits Window {
             y: 0px;
             width: root.card-x - root.card-gap;
             height: stage.height;
-            enabled: root.can-roll-left && !root.overview;
+            enabled: root.can-roll-left && !root.overview && !root.peek-hidden;
             mouse-cursor: MouseCursor.pointer;
             clicked => { root.roll-chat(-1); }
         }
@@ -1178,7 +1193,7 @@ export component App inherits Window {
             y: 0px;
             width: root.card-x - root.card-gap;
             height: stage.height;
-            enabled: root.can-roll-right && !root.overview;
+            enabled: root.can-roll-right && !root.overview && !root.peek-hidden;
             mouse-cursor: MouseCursor.pointer;
             clicked => { root.roll-chat(1); }
         }
@@ -1353,16 +1368,24 @@ export component App inherits Window {
         animate y { duration: 420ms; easing: ease-out; }
         animate width { duration: 300ms; }
 
+        // The two parts stand at the bottom of the dock. The bottom edge of the
+        // chat box is therefore always 12px from the bottom of the window.
         VerticalLayout {
             spacing: 8px;
+            alignment: end;
 
-            // The status line. The settings button stands at its right end, so
-            // nothing hangs outside the chat box.
+            // The status line. The two controls at its right end stand outside
+            // the layout, pinned to the right edge of the box, so the row can
+            // never hang past the chat box.
             Rectangle {
-                height: 24px;
+                height: 30px;
                 vertical-stretch: 0;
 
                 HorizontalLayout {
+                    x: 0px;
+                    y: 3px;
+                    width: parent.width - 158px;
+                    height: 24px;
                     spacing: 8px;
                     cross-axis-alignment: center;
 
@@ -1381,9 +1404,10 @@ export component App inherits Window {
                         horizontal-stretch: 1;
                         min-width: 0px;
                     }
-                    // The keys that matter are written next to the box.
+                    // The keys that matter are written next to the box. A
+                    // narrow window drops the line, so nothing is crowded.
                     Text {
-                        visible: !root.generating;
+                        visible: !root.generating && root.width > 640px;
                         text: "Alt shows the chats";
                         color: Theme.text-dim;
                         font-size: 11px;
@@ -1399,54 +1423,61 @@ export component App inherits Window {
                         vertical-alignment: center;
                         horizontal-stretch: 0;
                     }
-                    // A fresh chat. It is a small pill, so it is not mistaken
-                    // for the chat box.
-                    Rectangle {
-                        visible: !root.generating;
-                        height: 24px;
-                        width: new-lbl.preferred-width + 30px;
-                        horizontal-stretch: 0;
-                        border-radius: 12px;
-                        border-width: 1px;
-                        border-color: Theme.line;
-                        background: new-area.has-hover ? Theme.tint : Theme.surface;
+                }
 
-                        Image {
-                            source: @image-url("../assets/icons/plus.svg");
-                            colorize: Theme.accent-strong;
-                            width: 13px;
-                            height: 13px;
-                            x: 9px;
-                            y: 6px;
-                        }
-                        new-lbl := Text {
-                            text: "New chat";
-                            color: Theme.accent-strong;
-                            font-size: 12px;
-                            x: 26px;
-                            y: 0px;
-                            vertical-alignment: center;
-                        }
-                        new-area := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => { root.new-chat(); }
-                        }
+                // A fresh chat. It is a small pill, so it is not mistaken for the
+                // chat box. It stands at the right end of the status line.
+                Rectangle {
+                    visible: !root.generating;
+                    x: parent.width - 146px;
+                    y: 3px;
+                    height: 24px;
+                    width: new-lbl.preferred-width + 30px;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    background: new-area.has-hover ? Theme.tint : Theme.surface;
+
+                    Image {
+                        source: @image-url("../assets/icons/plus.svg");
+                        colorize: Theme.accent-strong;
+                        width: 13px;
+                        height: 13px;
+                        x: 9px;
+                        y: 6px;
                     }
-                    IconButton {
-                        icon: @image-url("../assets/icons/settings.svg");
-                        tip: "Settings";
-                        tip-left: true;
-                        glyph: Theme.text;
-                        base: Theme.surface;
-                        width: 30px;
-                        height: 30px;
-                        clicked => { root.open-settings(); }
+                    new-lbl := Text {
+                        text: "New chat";
+                        color: Theme.accent-strong;
+                        font-size: 12px;
+                        x: 26px;
+                        y: 0px;
+                        vertical-alignment: center;
                     }
+                    new-area := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.new-chat(); }
+                    }
+                }
+                IconButton {
+                    x: parent.width - 34px;
+                    y: 0px;
+                    icon: @image-url("../assets/icons/settings.svg");
+                    tip: "Settings";
+                    tip-left: true;
+                    glyph: Theme.text;
+                    base: Theme.surface;
+                    width: 30px;
+                    height: 30px;
+                    clicked => { root.open-settings(); }
                 }
             }
 
-            // The chat box.
+            // The chat box. Its height stands on its own, so the row with the Code
+            // and Sandbox marks always sits well inside it.
             box := Rectangle {
+                height: 108px;
+                vertical-stretch: 0;
                 border-radius: 12px;
                 border-width: 1px;
                 border-color: draft.has-focus ? Theme.accent : Theme.line;
@@ -1598,6 +1629,29 @@ export component App inherits Window {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // This area only watches the pointer. When the pointer leaves the window,
+    // the help bubble must go with it, because no control reports an exit then.
+    // It stands below everything, so it takes no click and no focus.
+    Rectangle {
+        z: -1;
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+
+        TouchArea {
+            // The area covers the whole window, so the loss of the hover means
+            // the pointer left the window. Slint has no exit callback for a
+            // TouchArea, so the hover flag is watched instead.
+            changed has-hover => {
+                if (!self.has-hover) {
+                    TipLayer.wanted = false;
+                    TipLayer.shown = false;
                 }
             }
         }
