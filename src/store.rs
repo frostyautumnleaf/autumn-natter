@@ -203,6 +203,9 @@ pub struct Message {
     pub id: String,
     pub role: String,
     pub body: String,
+    // The model's reasoning, streamed before the answer. Empty for most models.
+    #[serde(default)]
+    pub reasoning: String,
     // Tool name plus arguments, for a tool call. Empty for other messages.
     #[serde(default)]
     pub tool: String,

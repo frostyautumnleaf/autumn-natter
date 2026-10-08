@@ -43,6 +43,8 @@ export struct MessageRow {
     failed: bool,
     when: string,
     blocks: [MarkdownBlock],
+    // The model's reasoning, shown in a collapsible block.
+    reasoning: string,
 }
 
 // One graphics device of the system.

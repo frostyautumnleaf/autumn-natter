@@ -228,6 +228,34 @@ component MiddleChat inherits Rectangle {
                         }
                     }
 
+                    // The assistant's reasoning, shown in a soft block.
+                    Rectangle {
+                        visible: msg.reasoning != "";
+                        width: parent.width;
+                        height: msg.reasoning != "" ? reasoning-text.preferred-height + 24px : 0px;
+                        border-radius: 8px;
+                        background: Theme.surface-alt;
+
+                        Text {
+                            x: 10px;
+                            y: 6px;
+                            text: "thinking";
+                            color: Theme.text-dim;
+                            font-size: 11px;
+                            font-weight: 600;
+                        }
+
+                        reasoning-text := Text {
+                            x: 10px;
+                            y: 22px;
+                            width: parent.width - 20px;
+                            text: msg.reasoning;
+                            color: Theme.text-dim;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                    }
+
                     // The assistant's blocks have no tint of their own.
                     VerticalLayout {
                         visible: msg.role != "You";

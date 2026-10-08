@@ -296,6 +296,7 @@ fn draw_messages(ui: &Rc<Ui>, snap: &Snap) {
             failed: false,
             when: text(&store::format_clock(store::now_secs())),
             blocks: blocks_model(&snap.live_text),
+            reasoning: text(&snap.live_reasoning),
         });
     }
     let same_count = rows.len() == ui.messages.row_count();
@@ -339,6 +340,7 @@ fn row_for(message: &store::Message, previous_tool: bool) -> MessageRow {
         failed: message.failed,
         when: text(&store::format_clock(message.when)),
         blocks: blocks_model(&message.body),
+        reasoning: text(&message.reasoning),
     }
 }
 

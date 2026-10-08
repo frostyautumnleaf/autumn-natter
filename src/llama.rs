@@ -495,6 +495,8 @@ pub struct ToolCall {
 #[derive(Clone, Debug, Default)]
 pub struct Answer {
     pub text: String,
+    // The model's reasoning, streamed separately from the answer.
+    pub reasoning: String,
     pub tool_calls: Vec<ToolCall>,
     pub finish: String,
     pub prompt_tokens: u64,
@@ -512,6 +514,7 @@ pub fn stream_chat(
     body: &Value,
     cancel: &AtomicBool,
     on_text: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
 ) -> Answer {
     let mut answer = Answer::default();
     let agent = ureq::AgentBuilder::new()
@@ -551,7 +554,7 @@ pub fn stream_chat(
                     let text = String::from_utf8_lossy(&line);
                     let text = text.trim_end_matches(['\r', '\n']);
                     if let Some(payload) = text.strip_prefix("data:") {
-                        if !apply_event(payload.trim(), &mut answer, on_text) {
+                        if !apply_event(payload.trim(), &mut answer, on_text, on_reasoning) {
                             // The stream told us it is finished.
                             pending.clear();
                             break;
@@ -571,7 +574,12 @@ pub fn stream_chat(
 }
 
 // Read one SSE payload. False means the stream is over.
-fn apply_event(payload: &str, answer: &mut Answer, on_text: &mut dyn FnMut(&str)) -> bool {
+fn apply_event(
+    payload: &str,
+    answer: &mut Answer,
+    on_text: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
+) -> bool {
     if payload == "[DONE]" {
         return false;
     }
@@ -603,6 +611,13 @@ fn apply_event(payload: &str, answer: &mut Answer, on_text: &mut dyn FnMut(&str)
         if !content.is_empty() {
             answer.text.push_str(content);
             on_text(content);
+        }
+    }
+    // Reasoning models stream their thinking in a separate field.
+    if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
+        if !reasoning.is_empty() {
+            answer.reasoning.push_str(reasoning);
+            on_reasoning(reasoning);
         }
     }
     // Tool calls arrive in pieces. They are joined by their index.

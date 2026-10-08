@@ -80,6 +80,8 @@ pub struct Snap {
     pub messages: Vec<Message>,
     // Text the model is writing right now, while an answer comes in.
     pub live_text: String,
+    // The model's reasoning, streamed while an answer comes in.
+    pub live_reasoning: String,
     // Goes up when a message changes, so the window redraws them.
     pub rev: u64,
     // Goes up when a list changes, so the window rebuilds it.
@@ -103,6 +105,8 @@ pub struct State {
     pub pending_blank: Option<(String, Instant)>,
     // Text the model is writing right now.
     pub live_text: String,
+    // The model's reasoning, streamed while an answer comes in.
+    pub live_reasoning: String,
     pub generating: bool,
     // The model is loading, so the window shows a spinner.
     pub busy: bool,
@@ -167,12 +171,13 @@ impl State {
     }
 
     // Add one message of a normal kind to the open chat.
-    fn push_message(&mut self, role: &str, body: &str, mono: bool) {
+    fn push_message(&mut self, role: &str, body: &str, reasoning: &str, mono: bool) {
         if let Some(chat) = self.chat_mut() {
             chat.messages.push(Message {
                 id: store::new_id(),
                 role: role.to_string(),
                 body: body.to_string(),
+                reasoning: reasoning.to_string(),
                 mono,
                 when: store::now_secs(),
                 ..Default::default()
@@ -518,6 +523,7 @@ impl State {
             greeting: crate::greet::greeting(store::now_secs()),
             messages: chat.map(|c| c.messages.clone()).unwrap_or_default(),
             live_text: self.live_text.clone(),
+            live_reasoning: self.live_reasoning.clone(),
             rev: self.rev,
             structure_rev: self.structure_rev,
         }
@@ -550,6 +556,7 @@ impl Engine {
             chats: Vec::new(),
             current: None,
             live_text: String::new(),
+            live_reasoning: String::new(),
             generating: false,
             busy: false,
             status: String::from("ready"),
@@ -965,6 +972,7 @@ impl Snap {
             greeting: String::new(),
             messages: Vec::new(),
             live_text: String::new(),
+            live_reasoning: String::new(),
             rev: 0,
             structure_rev: 0,
         }
@@ -1114,17 +1122,31 @@ fn run_turn(
         // Every piece of new text goes into the state, so the window can show
         // it while it arrives.
         let stream_state = state.clone();
-        let mut last_update = Instant::now();
-        let answer = llama::stream_chat(&base_url, &body, cancel, &mut |piece: &str| {
-            if let Ok(mut guard) = stream_state.lock() {
-                guard.live_text.push_str(piece);
-                // A redraw every 60 ms is enough for the eye.
-                if last_update.elapsed() > Duration::from_millis(60) {
-                    last_update = Instant::now();
-                    guard.touch();
+        let mut text_update = Instant::now();
+        let mut reason_update = Instant::now();
+        let answer = llama::stream_chat(
+            &base_url,
+            &body,
+            cancel,
+            &mut |piece: &str| {
+                if let Ok(mut guard) = stream_state.lock() {
+                    guard.live_text.push_str(piece);
+                    if text_update.elapsed() > Duration::from_millis(60) {
+                        text_update = Instant::now();
+                        guard.touch();
+                    }
                 }
-            }
-        });
+            },
+            &mut |piece: &str| {
+                if let Ok(mut guard) = stream_state.lock() {
+                    guard.live_reasoning.push_str(piece);
+                    if reason_update.elapsed() > Duration::from_millis(60) {
+                        reason_update = Instant::now();
+                        guard.touch();
+                    }
+                }
+            },
+        );
 
         let Ok(mut guard) = state.lock() else { return };
         let live = std::mem::take(&mut guard.live_text);
@@ -1145,9 +1167,9 @@ fn run_turn(
             } else {
                 format!("{}\n(stopped)", answer_text)
             };
-            guard.push_message("Assistant", &stopped, false);
+            guard.push_message("Assistant", &stopped, &answer.reasoning, false);
         } else if !answer_text.trim().is_empty() {
-            guard.push_message("Assistant", &answer_text, false);
+            guard.push_message("Assistant", &answer_text, &answer.reasoning, false);
         } else if answer.error.is_none() {
             // The model used tokens but gave no visible text. This happens
             // when the answer is all thinking, or the context ran full.
@@ -1156,7 +1178,7 @@ fn run_turn(
             } else {
                 String::from("(the model gave no answer)")
             };
-            guard.push_message("Assistant", &note, false);
+            guard.push_message("Assistant", &note, &answer.reasoning, false);
         }
 
         // Tokens for the context meter.
@@ -1368,7 +1390,7 @@ mod tests {
         // The first message makes it a real chat.
         {
             let mut state = engine.state.lock().unwrap();
-            state.push_message("You", "A real question", false);
+            state.push_message("You", "A real question", "", false);
         }
         assert_eq!(stored(), 1);
 
@@ -1419,7 +1441,7 @@ mod tests {
         engine.new_chat();
         {
             let mut state = engine.state.lock().unwrap();
-            state.push_message("You", "Hello there", false);
+            state.push_message("You", "Hello there", "", false);
         }
         engine.roll(1);
         std::thread::sleep(Duration::from_millis(500));
