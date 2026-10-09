@@ -79,9 +79,9 @@ pub fn run(cfg: Config) -> Result<(), String> {
     app.set_models(ModelRc::from(ui.models.clone()));
     app.set_repositories(ModelRc::from(ui.repositories.clone()));
     app.set_chats(ModelRc::from(ui.chats.clone()));
-    // The desktop build has no send button, because Enter sends the message.
-    // The browser build shows the button on a touch screen only.
-    app.set_send_visible(false);
+    // The send mark stands in the chat box as well, dull while there is
+    // nothing to send. Enter still sends, and the mark is there for the pointer.
+    app.set_send_visible(true);
 
     // ---- user actions ----
     let handle = engine.clone();
@@ -253,6 +253,7 @@ fn render(app: &App, engine: &Engine, ui: &Rc<Ui>) {
         // The two boxes in the top bar take the width of the widest name of
         // their list, so a name is never cut down to a few letters.
         app.set_longest_model(text(&longest_model(&snap)));
+        app.set_longest_kind(text(&longest_kind(&snap)));
         app.set_longest_repository(text(&longest_repository(&snap)));
     }
 
@@ -380,9 +381,20 @@ fn chat_key(snap: &Snap) -> String {
 fn longest_model(snap: &Snap) -> String {
     let mut best = String::new();
     for model in &snap.models {
-        let line = format!("{} ({})", model.name, model.kind);
-        if line.chars().count() > best.chars().count() {
-            best = line;
+        if model.name.chars().count() > best.chars().count() {
+            best = model.name.clone();
+        }
+    }
+    best
+}
+
+// The widest kind of the list, for example "Safetensors". The kind stands in a
+// small pill inside the model box, so the box must make room for it too.
+fn longest_kind(snap: &Snap) -> String {
+    let mut best = String::new();
+    for model in &snap.models {
+        if model.kind.chars().count() > best.chars().count() {
+            best = model.kind.to_string();
         }
     }
     best

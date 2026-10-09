@@ -1,8 +1,5 @@
 // Colour palette for Autumn Natter.
 // Light mode is the default. Settings can switch the window to dark mode.
-//
-// The accents are the five autumn colours. Every other colour is a warm
-// neutral, so the window never needs a colour that is not on this list.
 export global Theme {
     // True selects the dark palette.
     in property <bool> dark: false;
@@ -11,12 +8,10 @@ export global Theme {
     out property <color> bg: dark ? #141414 : #faf2e6;
     // Raised surfaces: cards, popups, the composer box.
     out property <color> surface: dark ? #1b1b1b : #fff9f0;
-    // Secondary surface: hover, selected rows, blocks of words.
+    // Secondary surface: hover, selected rows, code blocks.
     out property <color> surface-alt: dark ? #242424 : #f3e7d5;
     // Hairlines and borders.
-    out property <color> line: dark ? #342f2a : #e6d7c2;
-    // Hairlines that have to be seen against a surface of their own.
-    out property <color> line-strong: dark ? #463f37 : #d6c0a2;
+    out property <color> line: dark ? #342f2a : #e2d2b9;
     // Main text colour.
     out property <color> text: dark ? #f2ebe2 : #231a11;
     // Secondary text colour.
@@ -35,17 +30,9 @@ export global Theme {
     out property <color> accent-leaf: #AC4422;
     out property <color> accent-deep: #AF2600;
 
-    // Bubble for the user message and for the assistant message. Each has a
-    // hairline of its own, so a bubble keeps its shape on a card of its own.
+    // Bubble for the user message and for the assistant message.
     out property <color> bubble-user: dark ? #2b1c10 : #fbe6d1;
-    out property <color> bubble-user-line: dark ? #4a3626 : #f0d2b0;
     out property <color> bubble-assistant: dark ? #1f1f1f : #ffffff;
-    out property <color> bubble-ai: dark ? #1f1f1f : #ffffff;
-    out property <color> bubble-ai-line: dark ? #343434 : #e8d6bd;
-    // Panels for words of a special kind: a command, its output, the thinking.
-    out property <color> code-bg: dark ? #201d1a : #f6ecdc;
-    out property <color> code-head: dark ? #2b2621 : #eeddc4;
-    out property <color> think-bg: dark ? #221e1b : #f5ead9;
     // Colour for a failed tool run.
     out property <color> danger: #AF2600;
 }

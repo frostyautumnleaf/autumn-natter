@@ -6,7 +6,7 @@
 // themselves at each side, pale and soft. Every repository has a carousel of
 // its own, and the chats with no repository have one of their own.
 //
-// Two more screens sit on top of the same state:
+// Three more screens sit on top of the same state:
 //
 // * With no chat open, the chat box stands in the middle of the window, with
 //   the program mark and a line for this hour above it. The first message
@@ -20,11 +20,17 @@
 // input itself, where they are read before the text input sees them. Slint has
 // no event for a bare modifier key, but it sends the Alt key as the key text
 // Key.Alt, so that is what brings the row of previews up.
+//
+// One note on layouts. A Slint layout keeps the room of an element whose
+// visible property is false, which leaves a hole where the element stood. Every
+// part that comes and goes therefore stands behind an if, and never behind a
+// visible flag.
 
 import { Theme } from "theme.slint";
-import { ModelRow, RepoRow, ChatRow, MessageRow } from "types.slint";
-// The message list and the wait mark come from the widget set of Slint.
-import { ListView, Spinner } from "std-widgets.slint";
+import { ModelRow, RepoRow, ChatRow, MessageRow, MarkdownBlock } from "types.slint";
+// The list of messages comes from the widget set of Slint. Its own scroll bar
+// is switched off, because the program draws a thin one in the palette.
+import { ListView } from "std-widgets.slint";
 import {
     Badge,
     IconButton,
@@ -38,310 +44,443 @@ export { SettingsWindow } from "settings.slint";
 // The Rust code sets the palette through this global.
 export { Theme } from "theme.slint";
 
-// The soft picture of a chat that is not in the middle of the carousel. It
-// shows where the title, the newest message and the bubbles of that chat stand,
-// so the user sees that the chat holds a talk and not a blank page.
-//
-// Slint has no blur for the software renderer. The soft look is made by drawing
-// every shape twice, one hair apart, and by keeping the whole card pale. A wash
-// of the window colour then fades the outer edge.
-component GhostChat inherits Rectangle {
-    in property <ChatRow> chat;
+component Dot inherits Rectangle {
+    in property <bool> lit: false;
+    width: 4px;
+    height: 4px;
+    border-radius: 2px;
+    background: Theme.accent-warm;
+    opacity: lit ? 1 : 0.28;
+    animate opacity { duration: 200ms; }
+}
 
-    // The first line of the newest message, for a hint of what it is about.
-    soft := Rectangle {
+// A small mark that says the machine is working. Three dots light up one after
+// the other. The Spinner of the widget set is not used, because its grey does
+// not sit well on the palette of this program.
+component BusyMark inherits Rectangle {
+    in property <bool> running: true;
+    property <int> step: 0;
+
+    width: 20px;
+    height: 8px;
+
+    Dot {
+        x: 0px;
+        y: 2px;
+        lit: running && step == 0;
+    }
+    Dot {
+        x: 7px;
+        y: 2px;
+        lit: running && step == 1;
+    }
+    Dot {
         x: 14px;
-        y: 12px;
-        width: parent.width - 28px;
-        height: 16px;
+        y: 2px;
+        lit: running && step == 2;
+    }
 
-        title := Text {
-            text: chat.title;
-            color: Theme.text;
-            font-size: 13px;
-            font-weight: 600;
-            overflow: elide;
-            x: 0;
-            y: 0;
+    pulse := Timer {
+        interval: 260ms;
+        running: root.running;
+        triggered => {
+            root.step = Math.mod(root.step + 1, 3);
         }
-        // The same text a hair to the right and down, which softens the edges.
-        Text {
-            text: chat.title;
-            color: Theme.text;
-            font-size: 13px;
-            font-weight: 600;
-            overflow: elide;
-            x: 1px;
-            y: 1px;
-            opacity: 0.45;
-        }
-    }
-
-    // The lines of the preview, kept short on purpose. Only the far end of this
-    // card is ever seen.
-    lines := Rectangle {
-        x: 14px;
-        y: 36px;
-        width: parent.width - 28px;
-        height: parent.height - 210px;
-
-        preview := Text {
-            text: chat.preview;
-            color: Theme.text-dim;
-            font-size: 12px;
-            wrap: word-wrap;
-            overflow: elide;
-            x: 0;
-            y: 0;
-            width: parent.width;
-        }
-        Text {
-            text: chat.preview;
-            color: Theme.text-dim;
-            font-size: 12px;
-            wrap: word-wrap;
-            overflow: elide;
-            x: 1px;
-            y: 1px;
-            width: parent.width;
-            opacity: 0.45;
-        }
-    }
-
-    // Four pale bars, where the bubbles of that chat stand.
-    bar-a := Rectangle {
-        y: parent.height - 152px;
-        x: 14px;
-        width: parent.width * 0.62;
-        height: 44px;
-        border-radius: 10px;
-        background: Theme.bubble-assistant;
-    }
-    bar-b := Rectangle {
-        y: parent.height - 98px;
-        x: parent.width * 0.3;
-        width: parent.width * 0.55;
-        height: 34px;
-        border-radius: 10px;
-        background: Theme.bubble-user;
-    }
-    bar-c := Rectangle {
-        y: parent.height - 54px;
-        x: 14px;
-        width: parent.width * 0.74;
-        height: 22px;
-        border-radius: 10px;
-        background: Theme.bubble-assistant;
-    }
-    bar-d := Rectangle {
-        y: parent.height - 22px;
-        x: 14px;
-        width: parent.width * 0.4;
-        height: 12px;
-        border-radius: 6px;
-        background: Theme.surface-alt;
     }
 }
 
-// The chat in the middle of the carousel: the messages, and the newest one at
-// the bottom.
-component MiddleChat inherits Rectangle {
-    in property <[MessageRow]> messages;
-    in property <bool> blank: false;
-    // The Rust code raises this number when a message is added, so the newest
-    // message is kept in view.
-    in property <int> message-rev: 0;
+// One block of rendered markdown. The kind of the block decides the shape.
+//
+// A hidden copy of the words stands behind every kind, so the height of the
+// block is right whether the words are heading, list, code or plain. The block
+// is used inside a layout, and a layout asks for the height of the whole block.
+component MdBlock inherits Rectangle {
+    in property <MarkdownBlock> md;
+    // Colour of the words of this block.
+    in property <color> ink: Theme.text;
+    // A command and its output use a font of fixed width, so a plain block of
+    // such a message keeps that font too.
+    in property <bool> mono: false;
 
-    // Keep the newest message in view. The list has no scroll-to function.
-    changed message-rev => {
-        list.content-y = Math.min(0px, list.height - list.content-height);
+    // The room the words take at each side, which differs per kind. The hidden
+    // text and the words that are drawn must have the same width, or the height
+    // of the block does not match the lines that are shown.
+    property <length> inset: md.kind == "text" ? 0px : 11px;
+    property <length> size: md.kind == "heading"
+        ? 15px
+        : (md.kind == "code" || mono ? 12.5px : 13.5px);
+    // Code sits on a panel, which has room of its own above and below.
+    property <length> extra: md.kind == "code" ? 18px : 0px;
+
+    // The width comes from the layout or the place this stands in.
+    height: measure.preferred-height + extra;
+
+    measure := Text {
+        x: inset;
+        y: 0px;
+        width: parent.width - inset * 2;
+        text: md.content;
+        font-size: size;
+        font-weight: md.kind == "heading" ? 700 : 400;
+        font-family: md.kind == "code" || mono ? "monospace" : "";
+        wrap: word-wrap;
+        opacity: 0;
     }
 
-    list := ListView {
-        x: 6px;
-        y: 6px;
-        width: parent.width - 12px;
-        height: parent.height - 12px;
-
-        for msg in messages: Rectangle {
-            width: list.width;
-            // The height follows the text, with space between each blob.
-            height: bubble.preferred-height + 16px;
-
-            bubble := Rectangle {
-                x: msg.role == "You" ? (parent.width - self.width - 2px) : 2px;
-                y: 4px;
-                width: msg.role == "You" ? (parent.width - 4px) * 0.55 : (parent.width - 4px) * 0.75;
-                height: parent.height - 8px;
-                border-radius: 12px;
-                border-width: msg.failed ? 1px : 0px;
-                border-color: Theme.danger;
-                background: Theme.surface;
-
-                // The time shows only when the pointer is over the blob.
-                hover-area := TouchArea {
-                    width: parent.width;
-                    height: parent.height;
-
-                    hover-time := Text {
-                        visible: hover-area.has-hover;
-                        x: 12px;
-                        y: 4px;
-                        text: msg.when;
-                        color: Theme.text-dim;
-                        font-size: 11px;
-                    }
-                }
-
-                VerticalLayout {
-                    padding: 12px;
-                    spacing: 6px;
-
-                    // The user's text sits in its own tinted area.
-                    Rectangle {
-                        visible: msg.role == "You";
-                        width: parent.width;
-                        height: user-content.preferred-height + 8px;
-                        border-radius: 8px;
-                        background: Theme.bubble-user;
-
-                        user-content := VerticalLayout {
-                            x: 8px;
-                            y: 4px;
-                            width: parent.width - 16px;
-                            spacing: 4px;
-
-                            for block in msg.blocks: Rectangle {
-                                width: parent.width;
-                                height: user-block-text.preferred-height;
-
-                                user-block-text := Text {
-                                    width: parent.width;
-                                    text: block.content;
-                                    color: msg.failed ? Theme.danger : Theme.text;
-                                    font-size: block.kind == "heading" ? 15px : 13.5px;
-                                    font-weight: block.kind == "heading" ? 700 : 400;
-                                    font-family: block.kind == "code" ? "monospace" : "";
-                                    wrap: word-wrap;
-                                }
-                            }
-                        }
-                    }
-
-                    // The assistant's reasoning, shown in a soft block.
-                    Rectangle {
-                        visible: msg.reasoning != "";
-                        width: parent.width;
-                        height: msg.reasoning != "" ? reasoning-text.preferred-height + 24px : 0px;
-                        border-radius: 8px;
-                        background: Theme.surface-alt;
-
-                        Text {
-                            x: 10px;
-                            y: 6px;
-                            text: "thinking";
-                            color: Theme.text-dim;
-                            font-size: 11px;
-                            font-weight: 600;
-                        }
-
-                        reasoning-text := Text {
-                            x: 10px;
-                            y: 22px;
-                            width: parent.width - 20px;
-                            text: msg.reasoning;
-                            color: Theme.text-dim;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-                    }
-
-                    // The assistant's blocks have no tint of their own.
-                    VerticalLayout {
-                        visible: msg.role != "You";
-                        width: parent.width;
-                        spacing: 4px;
-
-                        for block in msg.blocks: Rectangle {
-                            width: parent.width;
-                            height: ai-block-text.preferred-height;
-
-                            ai-block-text := Text {
-                                width: parent.width;
-                                text: block.content;
-                                color: msg.failed ? Theme.danger : Theme.text;
-                                font-size: block.kind == "heading" ? 15px : (block.kind == "code" ? 12.5px : 13.5px);
-                                font-weight: block.kind == "heading" ? 700 : 400;
-                                font-family: block.kind == "code" ? "monospace" : "";
-                                wrap: word-wrap;
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        visible: msg.tool != "";
-                        width: parent.width;
-                        height: msg.tool != "" ? tool-text.preferred-height + 16px : 0px;
-                        border-radius: 8px;
-                        background: Theme.surface-alt;
-
-                        tool-text := Text {
-                            x: 8px;
-                            y: 8px;
-                            width: parent.width - 16px;
-                            text: msg.tool;
-                            color: msg.failed ? Theme.danger : Theme.text-dim;
-                            font-size: 12px;
-                            font-family: "monospace";
-                            wrap: word-wrap;
-                        }
-                    }
-                }
-            }
+    // A heading stands out with a short bar of colour at its left.
+    if md.kind == "heading": Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        bar := Rectangle {
+            x: 0px;
+            y: 3px;
+            width: 3px;
+            height: parent.height - 6px;
+            border-radius: 2px;
+            background: Theme.accent;
+        }
+        Text {
+            x: 11px;
+            y: 0px;
+            width: parent.width - 22px;
+            text: md.content;
+            color: Theme.text;
+            font-size: 15px;
+            font-weight: 700;
+            wrap: word-wrap;
         }
     }
 
-    // A chat with nothing in it says what to do next.
-    Text {
-        visible: blank;
-        x: 24px;
-        y: 20px;
-        width: parent.width - 48px;
-        text: "Nothing written yet. Write below and press Enter. A chat with nothing in it goes away when you turn the carousel.";
-        color: Theme.text-dim;
-        font-size: 13px;
+    // A list keeps its own marks, and stands under a thin rule of colour.
+    if md.kind == "list": Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        rule := Rectangle {
+            x: 0px;
+            y: 2px;
+            width: 2px;
+            height: parent.height - 4px;
+            border-radius: 1px;
+            background: Theme.line-strong;
+        }
+        Text {
+            x: 11px;
+            y: 0px;
+            width: parent.width - 22px;
+            text: md.content;
+            color: ink;
+            font-size: 13.5px;
+            wrap: word-wrap;
+        }
+    }
+
+    // Code stands on a panel of its own, in a font of fixed width.
+    if md.kind == "code": Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.line;
+        background: Theme.code-bg;
+        Text {
+            x: 11px;
+            y: 9px;
+            width: parent.width - 22px;
+            text: md.content;
+            color: Theme.text;
+            font-size: 12.5px;
+            font-family: "monospace";
+            wrap: word-wrap;
+        }
+    }
+
+    // Plain words need nothing around them.
+    if md.kind != "heading" && md.kind != "list" && md.kind != "code": Text {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        text: md.content;
+        color: ink;
+        font-size: size;
+        font-family: mono ? "monospace" : "";
         wrap: word-wrap;
     }
 }
 
-// One small preview of the row that the Alt key brings up.
+// What the model thought before it answered. It is set apart by a rule of
+// colour and by softer words.
+component ThinkingPanel inherits Rectangle {
+    in property <string> body;
+    in property <bool> live: false;
+
+    // The width comes from the layout or the place this stands in.
+    height: body != "" ? thought.preferred-height + (live ? 26px : 22px) : 0px;
+    border-radius: 10px;
+    background: Theme.think-bg;
+
+    rule := Rectangle {
+        x: 0px;
+        y: 8px;
+        width: 3px;
+        height: parent.height - 16px;
+        border-top-left-radius: 3px;
+        border-bottom-left-radius: 3px;
+        background: Theme.accent-leaf;
+    }
+    head := HorizontalLayout {
+        x: 13px;
+        y: 8px;
+        spacing: 6px;
+        cross-axis-alignment: center;
+        Text {
+            text: "Thinking";
+            color: Theme.accent-leaf;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        BusyMark {
+            visible: live;
+            width: 20px;
+            height: 8px;
+        }
+    }
+    thought := Text {
+        x: 13px;
+        y: 26px;
+        width: parent.width - 26px;
+        text: body;
+        color: Theme.text-dim;
+        font-size: 12px;
+        wrap: word-wrap;
+    }
+}
+
+// The output of one run of the terminal tool. The command itself stands in the
+// body of the message, and the output comes in this panel.
+component ToolPanel inherits Rectangle {
+    in property <string> output;
+    in property <bool> running: false;
+    in property <bool> failed: false;
+
+    // The width comes from the layout or the place this stands in.
+    height: out-text.preferred-height + 40px;
+    border-radius: 10px;
+    border-width: failed ? 1px : 0px;
+    border-color: Theme.danger;
+    background: Theme.code-bg;
+
+    head := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 24px;
+        border-top-left-radius: 10px;
+        border-top-right-radius: 10px;
+        background: Theme.code-head;
+
+        Image {
+            source: @image-url("../assets/icons/terminal.svg");
+            colorize: failed ? Theme.danger : Theme.text-dim;
+            width: 13px;
+            height: 13px;
+            x: 11px;
+            y: 6px;
+        }
+        Text {
+            x: 30px;
+            y: 0px;
+            text: "Terminal";
+            color: failed ? Theme.danger : Theme.text-dim;
+            font-size: 11px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        // A run that has not finished says so at the right of the panel.
+        Text {
+            visible: running;
+            x: parent.width - 120px;
+            y: 0px;
+            width: 108px;
+            text: "running ...";
+            color: Theme.text-dim;
+            font-size: 11px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+    }
+    out-text := Text {
+        x: 12px;
+        y: 30px;
+        width: parent.width - 24px;
+        text: output;
+        color: failed ? Theme.danger : Theme.text-dim;
+        font-size: 12px;
+        font-family: "monospace";
+        wrap: word-wrap;
+    }
+}
+
+// The soft picture of a chat that is not in the middle of the carousel. Only a
+// strip of it is ever seen, so what matters stands at the edge that faces the
+// middle of the window.
+//
+// Slint has no blur for the software renderer. The soft look is made by drawing
+// the words twice, one hair apart, and by keeping the whole card pale. A wash of
+// the window colour then fades the outer edge.
+component GhostChat inherits Rectangle {
+    in property <ChatRow> chat;
+    // True when this card stands to the left of the middle, so its right edge
+    // is the part that shows.
+    in property <bool> on-left: false;
+
+    // The title, held against the edge that faces the middle.
+    Rectangle {
+        x: 14px;
+        y: 14px;
+        width: parent.width - 28px;
+        height: 17px;
+
+        Text {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            text: chat.title;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            overflow: elide;
+            horizontal-alignment: on-left ? right : left;
+        }
+        // The same words a hair to the right and down, which softens the edges.
+        Text {
+            x: 1px;
+            y: 1px;
+            width: parent.width;
+            text: chat.title;
+            color: Theme.text;
+            font-size: 13px;
+            font-weight: 600;
+            overflow: elide;
+            horizontal-alignment: on-left ? right : left;
+            opacity: 0.4;
+        }
+    }
+
+    // Two lines of the newest message, kept short on purpose.
+    Rectangle {
+        x: 14px;
+        y: 40px;
+        width: parent.width - 28px;
+        height: 44px;
+
+        Text {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            text: chat.preview;
+            color: Theme.text-dim;
+            font-size: 12px;
+            wrap: word-wrap;
+            overflow: elide;
+            horizontal-alignment: on-left ? right : left;
+            vertical-alignment: top;
+        }
+        Text {
+            x: 1px;
+            y: 1px;
+            width: parent.width;
+            text: chat.preview;
+            color: Theme.text-dim;
+            font-size: 12px;
+            wrap: word-wrap;
+            overflow: elide;
+            horizontal-alignment: on-left ? right : left;
+            vertical-alignment: top;
+            opacity: 0.4;
+        }
+    }
+
+    // Three pale bars, where the bubbles of that chat stand.
+    Rectangle {
+        y: parent.height - 156px;
+        x: 14px;
+        width: parent.width * 0.62;
+        height: 46px;
+        border-radius: 12px;
+        background: Theme.bubble-ai;
+    }
+    Rectangle {
+        y: parent.height - 100px;
+        x: parent.width * 0.32;
+        width: parent.width * 0.54;
+        height: 34px;
+        border-radius: 12px;
+        background: Theme.bubble-user;
+    }
+    Rectangle {
+        y: parent.height - 56px;
+        x: 14px;
+        width: parent.width * 0.72;
+        height: 22px;
+        border-radius: 10px;
+        background: Theme.bubble-ai;
+    }
+    Rectangle {
+        y: parent.height - 24px;
+        x: 14px;
+        width: parent.width * 0.38;
+        height: 12px;
+        border-radius: 6px;
+        background: Theme.line;
+    }
+}
+
+// One small card of the row that the Alt key brings up.
 component ChatPreview inherits Rectangle {
     in property <ChatRow> chat;
-    // True for the preview in the middle of the row, which is the chat in use.
+    // True for the card in the middle of the row, which is the chat in use.
     in property <bool> middle: false;
 
-    border-radius: 12px;
+    border-radius: 14px;
     border-width: middle ? 2px : 1px;
     border-color: middle ? Theme.accent : Theme.line;
     background: Theme.surface;
     // The neighbours stay back a little.
-    opacity: middle ? 1 : 0.6;
+    opacity: middle ? 1 : 0.7;
+
+    // A thin bar across the top of the card in use.
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 3px;
+        visible: middle;
+        border-top-left-radius: 12px;
+        border-top-right-radius: 12px;
+        background: Theme.accent;
+    }
 
     Text {
-        x: 12px;
-        y: 12px;
-        width: parent.width - 24px;
+        x: 14px;
+        y: 18px;
+        width: parent.width - 28px;
         text: chat.title;
         color: Theme.text;
-        font-size: 13px;
+        font-size: 13.5px;
         font-weight: 600;
         overflow: elide;
     }
     Text {
-        x: 12px;
-        y: 34px;
-        width: parent.width - 24px;
-        height: parent.height - 76px;
+        x: 14px;
+        y: 42px;
+        width: parent.width - 28px;
+        height: parent.height - 112px;
         text: chat.preview;
         color: Theme.text-dim;
         font-size: 12px;
@@ -350,16 +489,235 @@ component ChatPreview inherits Rectangle {
         vertical-alignment: top;
     }
     Text {
-        x: 12px;
-        y: parent.height - 28px;
-        width: parent.width - 24px;
+        x: 14px;
+        y: parent.height - 62px;
+        width: parent.width - 28px;
+        text: chat.repo;
+        color: Theme.accent-leaf;
+        font-size: 11px;
+        overflow: elide;
+    }
+    Rectangle {
+        x: 14px;
+        y: parent.height - 44px;
+        width: parent.width - 28px;
+        height: 1px;
+        background: Theme.line;
+    }
+    Text {
+        x: 14px;
+        y: parent.height - 30px;
+        width: parent.width - 28px;
         text: chat.when;
         color: Theme.text-dim;
         font-size: 11px;
+        opacity: 0.9;
         overflow: elide;
     }
 }
 
+// The list of messages of one chat, with a scroll bar of its own.
+component MessageList inherits Rectangle {
+    in property <[MessageRow]> messages;
+    // True when the chat holds no message at all.
+    in property <bool> blank: false;
+    // The Rust code raises this number when a message is added or grows.
+    in property <int> message-rev: 0;
+    // True while an answer comes in.
+    in property <bool> generating: false;
+
+    list := ListView {
+        x: 0px;
+        y: 0px;
+        width: parent.width - 14px;
+        height: parent.height;
+        // The scroll bar of the widget set does not follow the palette, so the
+        // program draws a thin one at the right of the list.
+        vertical-scrollbar-policy: always-off;
+
+        for msg in messages: Rectangle {
+            width: list.width;
+            height: msg.role == "Note"
+                ? note.preferred-height + 22px
+                : talk.height + 18px;
+
+            // A note from the program stands on its own, in the middle, with no
+            // bubble around it.
+            note := Text {
+                visible: msg.role == "Note";
+                x: 34px;
+                y: 8px;
+                width: parent.width - 68px;
+                text: msg.body;
+                color: msg.failed ? Theme.danger : Theme.text-dim;
+                font-size: 12px;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+            }
+
+            talk := Rectangle {
+                visible: msg.role != "Note";
+                x: 0px;
+                y: 6px;
+                width: parent.width;
+                height: bubble.preferred-height;
+
+                bubble := Rectangle {
+                    x: msg.role == "You" ? (parent.width - self.width) : 0px;
+                    width: parent.width * (msg.role == "You" ? 0.55 : 0.75);
+                    height: inner.preferred-height + 24px;
+                    border-width: 1px;
+                    border-color: msg.failed
+                        ? Theme.danger
+                        : (msg.role == "You" ? Theme.bubble-user-line : Theme.bubble-ai-line);
+                    background: msg.role == "You" ? Theme.bubble-user : Theme.bubble-ai;
+                    // The top corner that looks inwards is cut less than the
+                    // others, which shows at a glance who spoke.
+                    border-top-left-radius: msg.role == "You" ? 14px : 4px;
+                    border-top-right-radius: msg.role == "You" ? 4px : 14px;
+                    border-bottom-left-radius: 14px;
+                    border-bottom-right-radius: 14px;
+
+                    inner := VerticalLayout {
+                        x: 14px;
+                        y: 12px;
+                        width: parent.width - 28px;
+                        height: parent.height - 24px;
+                        spacing: 8px;
+
+                        // Who is speaking. The words of the user need no label,
+                        // because their bubble has its own colour and side. A
+                        // tool run is labelled by the head of its own panel.
+                        if msg.role == "Assistant": Text {
+                            text: "Assistant";
+                            color: Theme.accent-leaf;
+                            font-size: 11px;
+                            font-weight: 600;
+                        }
+
+                        // The words of the user.
+                        if msg.role == "You": Rectangle {
+                            width: parent.width;
+                            height: user-blocks.preferred-height;
+                            user-blocks := VerticalLayout {
+                                x: 0px;
+                                y: 0px;
+                                width: parent.width;
+                                spacing: 6px;
+                                for block in msg.blocks: MdBlock {
+                                    md: block;
+                                    ink: msg.failed ? Theme.danger : Theme.text;
+                                }
+                            }
+                        }
+
+                        if msg.reasoning != "": ThinkingPanel {
+                            body: msg.reasoning;
+                            live: root.generating && msg.role == "Assistant";
+                        }
+
+                        // The answer of the model, and the command of a tool
+                        // run, which stands in a font of fixed width.
+                        if msg.role != "You": Rectangle {
+                            width: parent.width;
+                            height: ai-blocks.preferred-height;
+                            ai-blocks := VerticalLayout {
+                                x: 0px;
+                                y: 0px;
+                                width: parent.width;
+                                spacing: 6px;
+                                for block in msg.blocks: MdBlock {
+                                    md: block;
+                                    mono: msg.role == "Tool";
+                                    ink: msg.failed ? Theme.danger : Theme.text;
+                                }
+                            }
+                        }
+
+                        // The output of one run of the terminal tool. A run that
+                        // has no output yet keeps the panel, so the wait shows.
+                        if msg.role == "Tool" && msg.tool != "": ToolPanel {
+                            output: msg.tool;
+                            running: msg.tool == "running ...";
+                            failed: msg.failed;
+                        }
+                    }
+
+                    // The pointer over a bubble brings its time up.
+                    hover-area := TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                    }
+                }
+
+                // The time of the message stands in the open space beside the
+                // bubble, so it never pushes the words about.
+                Text {
+                    x: msg.role == "You"
+                        ? 4px
+                        : bubble.x + bubble.width + 14px;
+                    y: 2px;
+                    width: parent.width - bubble.width - 22px;
+                    text: msg.when;
+                    color: Theme.text-dim;
+                    font-size: 11px;
+                    horizontal-alignment: msg.role == "You" ? right : left;
+                    opacity: hover-area.has-hover ? 1 : 0;
+                    animate opacity { duration: 180ms; }
+                }
+            }
+        }
+    }
+
+    // Keep the newest message in view. The list has no scroll-to function, so
+    // the place of the content is set by hand.
+    changed message-rev => {
+        list.content-y = Math.min(0px, list.height - list.content-height);
+    }
+    // An answer grows while it is written, so the view follows the growth.
+    property <length> follow: list.content-height;
+    changed follow => {
+        if (root.generating) {
+            list.content-y = Math.min(0px, list.height - list.content-height);
+        }
+    }
+
+    // A thin scroll bar, drawn in the palette of the program.
+    track := Rectangle {
+        visible: list.content-height > list.height + 1px;
+        x: parent.width - 6px;
+        y: 8px;
+        width: 4px;
+        height: parent.height - 16px;
+        border-radius: 2px;
+        background: Theme.line;
+
+        Rectangle {
+            width: 4px;
+            height: Math.max(26px, track.height * list.height / list.content-height);
+            y: (track.height - self.height) * (-list.content-y)
+                / Math.max(1px, list.content-height - list.height);
+            border-radius: 2px;
+            background: Theme.text-dim;
+            opacity: 0.5;
+        }
+    }
+
+    // A chat with nothing in it says what to do next.
+    Text {
+        visible: root.blank;
+        x: 26px;
+        y: 26px;
+        width: parent.width - 52px;
+        text: "Nothing written yet. Write below and press Enter. A chat with nothing in it goes away when you turn the carousel.";
+        color: Theme.text-dim;
+        font-size: 13px;
+        wrap: word-wrap;
+    }
+}
+
+// ----------------------------------------------------------------------
+// The window.
 export component App inherits Window {
     title: "Autumn Natter";
     // The Rust code sets the size of the window, so the window can be made
@@ -376,13 +734,13 @@ export component App inherits Window {
     // State that the Rust code sets.
     in property <string> model-name: "";
     in property <string> model-kind: "";
-    // The widest model name and the widest repository name of the two lists.
-    // The two boxes in the top bar take this width, so a name is never cut down
-    // and the boxes grow with the list.
+    // The widest model name and the widest model kind of the list. The box in
+    // the top bar takes this room, so a name is never cut down.
     in property <string> longest-model: "";
-    in property <string> longest-repository: "";
+    in property <string> longest-kind: "";
     in property <bool> in-repository: false;
     in property <string> repository-name: "";
+    in property <string> longest-repository: "";
     in property <string> chat-title: "";
     in property <string> context-used: "0";
     in property <string> context-total: "0";
@@ -414,11 +772,11 @@ export component App inherits Window {
     // Which chat of the carousel sits in the middle.
     in property <int> chat-index: 0;
     in property <[MessageRow]> messages;
-    // The Rust code raises this number when a message is added.
+    // The Rust code raises this number when a message is added or grows.
     in property <int> message-rev: 0;
-    // The native build has no send button, because Enter sends the message.
+    // True when the round send mark shows. Enter sends in any case.
     in property <bool> send-visible: false;
-    // Text inside the composer.
+    // Text inside the chat box.
     in-out property <string> draft-text;
 
     // ------------------------------------------------------------------
@@ -445,38 +803,53 @@ export component App inherits Window {
     callback pick-chat(id: string);
 
     // ------------------------------------------------------------------
-    // Shape of the window. The chat card and the chat box use the same x and
-    // the same width, so the two always stand in line.
-    out property <length> inset: 16px;
+    // Shape of the window. The chat card and the chat box below use the same x
+    // and the same width, so the two always stand in line.
+    out property <length> inset: 18px;
     // How much of a neighbour chat shows at each side.
-    out property <length> peek: 62px;
-    out property <length> card-gap: 14px;
-    out property <length> bar-height: 48px;
-    // 30px for the status line, 8px of room, and a chat box of 108px.
-    out property <length> dock-height: 146px;
+    out property <length> peek: 58px;
+    out property <length> card-gap: 16px;
+    out property <length> bar-height: 52px;
+    out property <length> status-height: 30px;
+    // The chat box keeps a height of its own, so the row of badges always sits
+    // well inside it.
+    out property <length> box-height: 118px;
+    out property <length> dock-height: status-height + 8px + box-height;
+    // True when the window is narrow, so the top bar gives way in good order.
+    out property <bool> tight: root.width < 860px;
     out property <length> card-x: inset + peek;
     out property <length> card-width: Math.max(280px, root.width - 2 * (inset + peek));
-    out property <length> stage-top: bar-height + 8px;
+    out property <length> stage-top: bar-height + 12px;
     // The chat box stands in the middle of the window at home, and at the
     // bottom of the window when a chat is open.
     out property <length> dock-y: home
-        ? (root.height - dock-height) / 2
-        : root.height - dock-height - 12px;
-    out property <length> stage-height: Math.max(0px, dock-y - stage-top - 8px);
+        ? (root.height - dock-height) / 2 + 26px
+        : root.height - dock-height - 14px;
+    out property <length> stage-height: Math.max(0px, dock-y - stage-top - 12px);
     out property <bool> can-roll-left: chat-index > 0;
     out property <bool> can-roll-right: chat-index < chats.length - 1;
     // A neighbour chat is put away when the chat in the middle has nothing in
     // it, or when there is one chat or none. An empty column at the side of the
     // window only confuses, and there is nothing to look at there.
     out property <bool> peek-hidden: blank-chat || chats.length < 2;
+    // True when there is something to send.
+    out property <bool> can-send: draft-text != "";
+
+    // Room that the top bar spends on things other than the two selector boxes.
+    out property <length> bar-fixed: 24px + 50px + (tight ? 72px : 116px)
+        + (tight ? 0px : 168px) + (tight ? 26px : 140px);
+    out property <length> chip-room: Math.max(180px, root.width - bar-fixed);
+    out property <length> model-cap: Math.min(tight ? 190px : 320px, chip-room * 0.56);
+    out property <length> repo-cap: Math.min(tight ? 140px : 230px, chip-room * 0.44);
 
     // Shape of the row of previews.
-    out property <length> prev-width: Math.max(150px, Math.min(230px, (root.width - 60px) / 4));
+    out property <length> prev-width: Math.max(180px, Math.min(300px, (root.width - 40px) / 4.2));
     out property <length> prev-gap: 18px;
     out property <length> prev-step: prev-width + prev-gap;
-    out property <length> prev-height: prev-width * 1.15;
-    // Distance from the top of the stage to the row of previews.
-    out property <length> prev-y: 24px;
+    out property <length> prev-height: Math.min(prev-width * 1.24, stage.height - 78px);
+    // Distance from the top of the stage to the row of previews. The row stands
+    // in the middle of the room that is left for it.
+    out property <length> prev-y: Math.max(8px, (stage.height - prev-height) / 2 - 14px);
 
     // ------------------------------------------------------------------
     // Motion of the row of previews. All of it runs from one short timer, so a
@@ -507,15 +880,14 @@ export component App inherits Window {
     property <length> wheel-held: 0px;
     // 0 to 1 while the row settles after it came up.
     property <float> open-t: 1;
-    // How much bigger a preview still is while the row settles. The row starts
-    // at 1.6 and shrinks into place, which is the look of a scale going to 1.
-    // A Rectangle here is sized by hand instead, because the software renderer
-    // has no transform for a layer.
-    out property <float> prev-scale: 1 + (1 - open-t) * 0.6;
+    // How much bigger a preview still is while the row settles. A Rectangle is
+    // sized by hand here, because the software renderer has no transform for a
+    // layer.
+    out property <float> prev-scale: 1 + (1 - open-t) * 0.5;
     // 0 to 1 while a chat grows from the top down.
     property <float> turn: 1;
     // True while the program mark and the greeting line are on the screen.
-    property <bool> greet-shown: true;
+    property <bool> greet-shown: false;
     // True for the short wait before the mark and the line fade away.
     property <bool> fade-pending: false;
 
@@ -735,6 +1107,13 @@ export component App inherits Window {
         }
     }
 
+    // The mark and the greeting line stand only while no chat is open. The
+    // first screen is asked for at once, so the value does not wait for a
+    // change of the flag: a window that opens on a chat must not show them.
+    init => {
+        greet-shown = root.home;
+    }
+
     changed home => {
         if (root.home) {
             greet-shown = true;
@@ -775,15 +1154,25 @@ export component App inherits Window {
     }
 
     // ------------------------------------------------------------------
-    // Top bar. It keeps the colour of the window background. Nothing in this
-    // bar may push another part out of the window, so the wide parts have a
-    // limit and the chat name takes what is left.
+    // Top bar. It keeps the colour of the window background, and a hairline at
+    // its bottom, so the card below reads as a layer of its own. Nothing in
+    // this bar may push another part out of the window: the wide parts have a
+    // limit that follows the width of the window, and the chat name takes what
+    // is left.
     Rectangle {
-        x: 0;
-        y: 0;
+        x: 0px;
+        y: 0px;
         width: root.width;
         height: root.bar-height;
         background: Theme.bg;
+
+        Rectangle {
+            x: 0px;
+            y: parent.height - 1px;
+            width: parent.width;
+            height: 1px;
+            background: Theme.line;
+        }
 
         HorizontalLayout {
             padding-left: 12px;
@@ -791,52 +1180,57 @@ export component App inherits Window {
             spacing: 10px;
             cross-axis-alignment: center;
 
-            // Program mark and program name.
-            HorizontalLayout {
-                spacing: 8px;
-                cross-axis-alignment: center;
+            // Program mark, and the name of the program while there is room.
+            Rectangle {
+                width: root.tight ? 28px : 44px + mark-name.preferred-width;
+                height: 34px;
                 vertical-stretch: 0;
 
                 Image {
                     source: @image-url("../assets/icons/autumn-natter.svg");
-                    width: 24px;
-                    height: 24px;
+                    width: 28px;
+                    height: 28px;
                     image-fit: contain;
-                    vertical-alignment: center;
+                    x: 0px;
+                    y: 3px;
                 }
-                Text {
+                mark-name := Text {
+                    visible: !root.tight;
+                    x: 38px;
+                    y: 0px;
                     text: "Autumn Natter";
                     color: Theme.text;
-                    font-size: 14px;
+                    font-size: 13.5px;
                     font-weight: 600;
                     vertical-alignment: center;
                 }
             }
 
             // Model selector. The box is as wide as the longest name in the
-            // list, so it shows a whole name and grows with the list.
+            // list with its kind behind it, so it shows a whole name and still
+            // gives way when the window is small.
             model-btn := Rectangle {
-                height: 32px;
-                width: Math.min(360px, Math.max(160px, model-measure.preferred-width + 78px));
+                height: 34px;
+                width: Math.min(root.model-cap, Math.max(118px, model-measure.preferred-width + 86px));
                 horizontal-stretch: 0;
-                border-radius: 8px;
+                border-radius: 9px;
                 border-width: 1px;
                 border-color: model-pop.is-open ? Theme.accent : Theme.line;
                 background: model-btn-area.has-hover ? Theme.hover : Theme.surface;
 
-                // Nobody reads this text. It only gives the width of the
-                // longest model name with its kind behind it.
+                // Nobody reads this text. It only gives the room that the
+                // longest name and the longest kind need together.
                 model-measure := Text {
-                    text: longest-model;
+                    text: longest-model + "  " + longest-kind;
                     font-size: 13px;
-                    x: 0;
-                    y: 0;
+                    x: 0px;
+                    y: 0px;
                     opacity: 0;
                 }
 
                 HorizontalLayout {
                     padding-left: 10px;
-                    padding-right: 8px;
+                    padding-right: 9px;
                     spacing: 8px;
                     cross-axis-alignment: center;
 
@@ -854,16 +1248,17 @@ export component App inherits Window {
                         vertical-alignment: center;
                         overflow: elide;
                         horizontal-stretch: 1;
+                        min-width: 0px;
                     }
-                    kind-pill := Pill {
+                    Pill {
                         text: model-kind;
                         visible: model-kind != "";
                     }
                     Image {
                         source: @image-url("../assets/icons/chevron-down.svg");
                         colorize: Theme.text-dim;
-                        width: 14px;
-                        height: 14px;
+                        width: 13px;
+                        height: 13px;
                         vertical-alignment: center;
                     }
                 }
@@ -874,47 +1269,60 @@ export component App inherits Window {
                 }
 
                 model-pop := PopupWindow {
-                    x: 0;
-                    y: 36px;
-                    width: Math.min(400px, root.width - 24px);
+                    x: 0px;
+                    y: 38px;
+                    width: Math.min(420px, root.width - 24px);
                     // A long model list must not run past the window, so the
                     // list gets a top and scrolls inside.
-                    height: Math.min(40px * models.length + 16px, root.height - 64px);
+                    height: Math.min(42px * models.length + 16px, root.height - 72px);
                     close-policy: close-on-click-outside;
 
                     Rectangle {
                         width: 100%;
                         height: 100%;
-                        border-radius: 8px;
+                        border-radius: 10px;
                         border-width: 1px;
-                        border-color: Theme.line;
+                        border-color: Theme.line-strong;
                         background: Theme.surface;
 
                         ListView {
-                            x: 0;
-                            y: 0;
+                            x: 0px;
+                            y: 0px;
                             width: parent.width;
                             height: parent.height;
+                            vertical-scrollbar-policy: always-off;
 
                             for m in models: Rectangle {
                                 width: parent.width;
-                                height: 40px;
-                                background: model-row-area.has-hover ? Theme.hover : transparent;
+                                height: 42px;
+
+                                Rectangle {
+                                    x: 5px;
+                                    y: 3px;
+                                    width: parent.width - 10px;
+                                    height: parent.height - 6px;
+                                    border-radius: 8px;
+                                    visible: m.active || model-row-area.has-hover;
+                                    background: m.active ? Theme.tint : Theme.hover;
+                                }
 
                                 HorizontalLayout {
-                                    x: 10px;
-                                    y: 0;
-                                    width: parent.width - 56px;
+                                    x: 12px;
+                                    y: 0px;
+                                    width: parent.width - 60px;
                                     height: 100%;
                                     spacing: 8px;
+                                    cross-axis-alignment: center;
 
                                     Text {
                                         text: m.name;
                                         color: m.active ? Theme.accent-strong : Theme.text;
                                         font-size: 13px;
+                                        font-weight: m.active ? 600 : 400;
                                         vertical-alignment: center;
                                         overflow: elide;
                                         horizontal-stretch: 1;
+                                        min-width: 0px;
                                     }
                                     Pill {
                                         text: m.kind;
@@ -934,7 +1342,7 @@ export component App inherits Window {
 
                                 IconButton {
                                     x: parent.width - 40px;
-                                    y: 5px;
+                                    y: 9px;
                                     icon: @image-url("../assets/icons/settings.svg");
                                     tip: "Configure this model";
                                     tip-left: true;
@@ -954,11 +1362,11 @@ export component App inherits Window {
             // to. The box follows the longest repository name, as the model box
             // follows the longest model name.
             repo-btn := Rectangle {
-                height: 32px;
+                height: 34px;
                 visible: in-repository;
-                width: Math.min(280px, Math.max(120px, repo-measure.preferred-width + 62px));
+                width: Math.min(root.repo-cap, Math.max(104px, repo-measure.preferred-width + 66px));
                 horizontal-stretch: 0;
-                border-radius: 8px;
+                border-radius: 9px;
                 border-width: 1px;
                 border-color: repo-pop.is-open ? Theme.accent : Theme.line;
                 background: repo-btn-area.has-hover ? Theme.hover : Theme.surface;
@@ -966,14 +1374,14 @@ export component App inherits Window {
                 repo-measure := Text {
                     text: longest-repository;
                     font-size: 13px;
-                    x: 0;
-                    y: 0;
+                    x: 0px;
+                    y: 0px;
                     opacity: 0;
                 }
 
                 HorizontalLayout {
-                    padding-left: 9px;
-                    padding-right: 8px;
+                    padding-left: 10px;
+                    padding-right: 9px;
                     spacing: 7px;
                     cross-axis-alignment: center;
 
@@ -984,19 +1392,20 @@ export component App inherits Window {
                         height: 15px;
                         vertical-alignment: center;
                     }
-                    repo-label := Text {
+                    Text {
                         text: repository-name;
                         color: Theme.text;
                         font-size: 13px;
                         vertical-alignment: center;
                         overflow: elide;
                         horizontal-stretch: 1;
+                        min-width: 0px;
                     }
                     Image {
                         source: @image-url("../assets/icons/chevron-down.svg");
                         colorize: Theme.text-dim;
-                        width: 14px;
-                        height: 14px;
+                        width: 13px;
+                        height: 13px;
                         vertical-alignment: center;
                     }
                 }
@@ -1007,25 +1416,24 @@ export component App inherits Window {
                 }
 
                 repo-pop := PopupWindow {
-                    x: 0;
-                    y: 36px;
-                    width: 300px;
+                    x: 0px;
+                    y: 38px;
+                    width: Math.min(320px, root.width - 24px);
                     // The list of repositories gets a top, so a short window
                     // still shows a list that fits.
-                    height: Math.min(38px * (repositories.length + 1) + 54px, root.height - 64px);
+                    height: Math.min(38px * (repositories.length + 2) + 16px, root.height - 72px);
                     close-policy: close-on-click-outside;
 
                     Rectangle {
                         width: 100%;
                         height: 100%;
-                        border-radius: 8px;
+                        border-radius: 10px;
                         border-width: 1px;
-                        border-color: Theme.line;
+                        border-color: Theme.line-strong;
                         background: Theme.surface;
 
                         VerticalLayout {
-                            padding-top: 6px;
-                            padding-bottom: 6px;
+                            padding: 6px;
                             spacing: 0;
 
                             // Leave the repository and go back to the loose
@@ -1052,15 +1460,17 @@ export component App inherits Window {
 
                             for r in repositories: Rectangle {
                                 height: 38px;
+                                background: row-area.has-hover ? Theme.hover : transparent;
 
                                 HorizontalLayout {
                                     padding-left: 12px;
                                     padding-right: 12px;
                                     spacing: 8px;
+                                    cross-axis-alignment: center;
 
                                     Image {
                                         source: @image-url("../assets/icons/folder.svg");
-                                        colorize: Theme.text-dim;
+                                        colorize: r.name == repository-name ? Theme.accent-warm : Theme.text-dim;
                                         width: 15px;
                                         height: 15px;
                                         vertical-alignment: center;
@@ -1069,13 +1479,15 @@ export component App inherits Window {
                                         text: r.name;
                                         color: r.name == repository-name ? Theme.accent-strong : Theme.text;
                                         font-size: 13px;
+                                        font-weight: r.name == repository-name ? 600 : 400;
                                         vertical-alignment: center;
                                         overflow: elide;
                                         horizontal-stretch: 1;
+                                        min-width: 0px;
                                     }
                                 }
 
-                                TouchArea {
+                                repo-row-area := TouchArea {
                                     mouse-cursor: MouseCursor.pointer;
                                     clicked => {
                                         root.select-repository(r.id);
@@ -1085,9 +1497,16 @@ export component App inherits Window {
                             }
 
                             Rectangle {
-                                height: 34px;
+                                height: 36px;
                                 background: all-area.has-hover ? Theme.hover : transparent;
 
+                                Rectangle {
+                                    x: 10px;
+                                    y: 0px;
+                                    width: parent.width - 20px;
+                                    height: 1px;
+                                    background: Theme.line;
+                                }
                                 Text {
                                     text: "View all repositories";
                                     color: Theme.accent-strong;
@@ -1108,74 +1527,102 @@ export component App inherits Window {
                 }
             }
 
-            // The two round marks. They turn the carousel one chat at a time.
-            IconButton {
-                icon: @image-url("../assets/icons/left.svg");
-                tip: "Show the chat on the left";
-                enabled: can-roll-left;
-                width: 30px;
-                height: 30px;
-                clicked => { root.roll-chat(-1); }
-            }
-            IconButton {
-                icon: @image-url("../assets/icons/right.svg");
-                tip: "Show the chat on the right";
-                enabled: can-roll-right;
-                width: 30px;
-                height: 30px;
-                clicked => { root.roll-chat(1); }
+            // The two marks that turn the carousel, with the place of this chat
+            // between them. They stand together in one box, so it is clear that
+            // they belong to the carousel and not to the bar.
+            Rectangle {
+                width: root.tight ? 66px : 118px;
+                height: 34px;
+                horizontal-stretch: 0;
+                border-radius: 9px;
+                border-width: 1px;
+                border-color: Theme.line;
+                background: Theme.surface;
+
+                IconButton {
+                    x: 4px;
+                    y: 5px;
+                    width: 24px;
+                    height: 24px;
+                    glyph-size: 14px;
+                    icon: @image-url("../assets/icons/left.svg");
+                    tip: "Show the chat on the left";
+                    enabled: can-roll-left;
+                    clicked => { root.roll-chat(-1); }
+                }
+                Text {
+                    x: 30px;
+                    y: 0px;
+                    width: parent.width - 62px;
+                    text: (chat-index > 0 || chats.length > 1)
+                        ? "\{chat-index + 1} of \{chats.length}" : "";
+                    height: parent.height;
+                    color: Theme.text-dim;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                IconButton {
+                    x: parent.width - 28px;
+                    y: 5px;
+                    width: 24px;
+                    height: 24px;
+                    glyph-size: 14px;
+                    icon: @image-url("../assets/icons/right.svg");
+                    tip: "Show the chat on the right";
+                    enabled: can-roll-right;
+                    clicked => { root.roll-chat(1); }
+                }
             }
 
-            // Chat name. It comes from the first prompt of the user. It takes
-            // the room that is left, and gives way first.
+            // Chat name. It comes from the first prompt of the user. It is the
+            // chief word of this bar, and it takes the room that is left.
             Text {
                 text: chat-title;
-                color: Theme.text-dim;
-                font-size: 13px;
+                color: Theme.text;
+                font-size: 13.5px;
+                font-weight: 600;
                 vertical-alignment: center;
                 overflow: elide;
                 horizontal-stretch: 1;
                 min-width: 0px;
             }
 
-            // Where the user stands in the carousel, for example 3 of 9.
-            Text {
-                text: (chat-index > 0 || chats.length > 1)
-                    ? "\{chat-index + 1} of \{chats.length}" : "";
-                color: Theme.text-dim;
-                font-size: 12px;
-                vertical-alignment: center;
-                horizontal-stretch: 0;
-            }
-
-            // Context used, and the token bar under it.
+            // Context used, with a thin bar under the words. The bar turns dark
+            // red when the window of the model is nearly full.
             Rectangle {
-                width: ctx.preferred-width + 12px;
-                height: 32px;
+                width: Math.min(root.tight ? 150px : 232px, ctx.preferred-width + 18px);
+                height: 34px;
                 horizontal-stretch: 0;
+                border-radius: 9px;
+                border-width: 1px;
+                border-color: context-ratio > 0.9 ? Theme.accent-deep : Theme.line;
+                background: Theme.surface;
 
                 ctx := Text {
-                    text: context-used + " of " + context-total + " tokens";
+                    text: root.tight
+                        ? context-used + " / " + context-total
+                        : context-used + " of " + context-total + " tokens";
                     color: Theme.text-dim;
-                    font-size: 12px;
-                    // A small window must not push the rest of the bar away.
-                    max-width: 158px;
+                    font-size: 11.5px;
                     overflow: elide;
-                    x: 6px;
-                    y: 6px;
+                    x: 9px;
+                    y: 5px;
+                    width: parent.width - 18px;
                 }
 
                 Rectangle {
-                    x: 6px;
-                    y: 30px;
-                    width: parent.width - 12px;
-                    height: 2px;
-                    border-radius: 1px;
+                    x: 9px;
+                    y: 24px;
+                    width: parent.width - 18px;
+                    height: 3px;
+                    border-radius: 2px;
                     background: Theme.line;
 
                     Rectangle {
                         width: parent.width * Math.min(1.0, Math.max(0.0, context-ratio));
                         height: 100%;
+                        border-radius: 2px;
                         background: context-ratio > 0.9 ? Theme.accent-deep : Theme.accent;
                     }
                 }
@@ -1187,7 +1634,7 @@ export component App inherits Window {
     // The carousel. The middle card is the chat in use. The chat card and the
     // chat box below use the same x and the same width, so they line up.
     stage := Rectangle {
-        x: 0;
+        x: 0px;
         y: root.stage-top;
         width: root.width;
         height: root.stage-height;
@@ -1209,34 +1656,37 @@ export component App inherits Window {
             animate x { duration: 300ms; }
             animate opacity { duration: 300ms; }
             clip: true;
-            border-radius: 14px;
-            border-width: c.active ? 1.5px : 1px;
-            border-color: c.active ? Theme.accent : Theme.line;
+            border-radius: 16px;
+            border-width: 1px;
+            border-color: c.active ? Theme.accent-strong : Theme.line;
             background: Theme.surface;
             // A neighbour chat is pale, so it stays out of the way.
-            opacity: c.active ? 1 : 0.45;
+            opacity: c.active ? 1 : 0.4;
 
-            if c.active: MiddleChat {
-                x: 0;
-                y: 0;
-                width: parent.width;
-                height: parent.height;
+            if c.active: MessageList {
+                x: 14px;
+                y: 12px;
+                width: parent.width - 28px;
+                height: parent.height - 24px;
                 messages: root.messages;
                 blank: root.blank-chat;
                 message-rev: root.message-rev;
+                generating: root.generating;
             }
 
             if !c.active && near: GhostChat {
-                x: 0;
-                y: 0;
+                x: 0px;
+                y: 0px;
                 width: parent.width;
                 height: parent.height;
                 chat: c;
+                on-left: index < chat-index;
             }
         }
 
         // A wash of the window colour over each neighbour, so its outer edge
-        // fades away. A click on the strip turns the carousel that way.
+        // fades away, and a mark in the middle of the strip that says which way
+        // the carousel turns.
         Rectangle {
             x: 0px;
             y: 0px;
@@ -1244,6 +1694,17 @@ export component App inherits Window {
             height: stage.height;
             visible: root.can-roll-left && !root.overview && !root.peek-hidden;
             background: @linear-gradient(90deg, Theme.bg, #00000000);
+
+            Image {
+                source: @image-url("../assets/icons/left.svg");
+                colorize: Theme.accent-strong;
+                width: 15px;
+                height: 15px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                opacity: left-area.has-hover ? 0.95 : 0.3;
+                animate opacity { duration: 160ms; }
+            }
         }
         Rectangle {
             x: stage.width - (root.card-x - root.card-gap);
@@ -1252,6 +1713,17 @@ export component App inherits Window {
             height: stage.height;
             visible: root.can-roll-right && !root.overview && !root.peek-hidden;
             background: @linear-gradient(270deg, Theme.bg, #00000000);
+
+            Image {
+                source: @image-url("../assets/icons/right.svg");
+                colorize: Theme.accent-strong;
+                width: 15px;
+                height: 15px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                opacity: right-area.has-hover ? 0.95 : 0.3;
+                animate opacity { duration: 160ms; }
+            }
         }
         left-area := TouchArea {
             x: 0px;
@@ -1280,12 +1752,42 @@ export component App inherits Window {
             width: stage.width;
             height: stage.height;
             z: 2;
-            opacity: 0.66;
+            opacity: 0.94;
             background: Theme.bg;
         }
 
-        // The row of previews. Only nine are drawn, about the chat in use, so a
-        // place with many chats stays light to draw.
+        // How many chats this place holds, above the row.
+        Text {
+            visible: root.overview;
+            z: 3;
+            x: 40px;
+            y: root.prev-y - 32px;
+            width: stage.width - 80px;
+            text: chats.length == 0
+                ? "This place holds no chat yet"
+                : "\{chats.length} \{chats.length == 1 ? "chat" : "chats"} in \{in-repository ? repository-name : "the loose chats of this machine"}";
+            color: Theme.text-dim;
+            font-size: 12px;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+
+        // A line that says what the keys and the pointer do here.
+        Text {
+            visible: root.overview;
+            z: 3;
+            x: 60px;
+            y: root.prev-y + root.prev-height + 22px;
+            width: stage.width - 120px;
+            text: "Click a card to open it. Drag, arrows, WASD or the wheel move along the row. Escape or Alt puts the row away.";
+            color: Theme.text-dim;
+            font-size: 12px;
+            wrap: word-wrap;
+            horizontal-alignment: center;
+        }
+
+        // The row of previews. Only seven are drawn, about the chat in use, so
+        // a place with many chats stays light to draw.
         row := Rectangle {
             visible: root.overview;
             x: 0px;
@@ -1298,8 +1800,8 @@ export component App inherits Window {
             // while the row settles. The width and the height carry the scale,
             // and x and y move back by half of what was added, so the middle of
             // the preview stays where it stands.
-            for n in 9: Rectangle {
-                property <int> i: root.chat-index + n - 4;
+            for n in 7: Rectangle {
+                property <int> i: root.chat-index + n - 3;
                 visible: i >= 0 && i < root.chats.length;
                 width: root.prev-width * root.prev-scale;
                 height: root.prev-height * root.prev-scale;
@@ -1400,19 +1902,20 @@ export component App inherits Window {
     // ------------------------------------------------------------------
     // The first screen. The program mark and a line for this hour stand above
     // the chat box while no chat is open. They fade away when a chat opens or
-    // when the previews come up.
+    // when the previews come up, and they never stand over a chat.
     Rectangle {
         x: 0px;
-        y: dock.y - 150px;
+        y: dock.y - 178px;
         width: root.width;
-        height: 132px;
-        opacity: root.greet-shown ? 1 : 0;
+        height: 156px;
+        visible: root.greet-shown;
+        opacity: root.home && !root.overview ? 1 : 0;
         animate opacity { duration: 320ms; }
 
         Image {
             source: @image-url("../assets/icons/autumn-natter.svg");
-            width: 56px;
-            height: 56px;
+            width: 64px;
+            height: 64px;
             image-fit: contain;
             y: 0px;
             x: (parent.width - self.width) / 2;
@@ -1420,12 +1923,22 @@ export component App inherits Window {
         Text {
             text: root.greeting;
             color: Theme.text-dim;
-            font-size: 15px;
+            font-size: 16px;
             wrap: word-wrap;
             horizontal-alignment: center;
-            y: 72px;
-            x: 40px;
-            width: parent.width - 80px;
+            y: 84px;
+            x: 60px;
+            width: parent.width - 120px;
+        }
+        Text {
+            text: "Every word stays on this machine.";
+            color: Theme.text-dim;
+            font-size: 11.5px;
+            opacity: 0.75;
+            y: 128px;
+            x: 60px;
+            width: parent.width - 120px;
+            horizontal-alignment: center;
         }
     }
 
@@ -1443,35 +1956,42 @@ export component App inherits Window {
         animate width { duration: 300ms; }
 
         // The two parts stand at the bottom of the dock. The bottom edge of the
-        // chat box is therefore always 12px from the bottom of the window.
+        // chat box is therefore always 14px from the bottom of the window.
         VerticalLayout {
             spacing: 8px;
             alignment: end;
 
             // The status line. The two controls at its right end stand outside
-            // the layout, pinned to the right edge of the box, so the row can
+            // the layout, pinned to the right edge of the row, so the row can
             // never hang past the chat box.
             Rectangle {
-                height: 30px;
+                height: root.status-height;
                 vertical-stretch: 0;
 
                 HorizontalLayout {
                     x: 0px;
                     y: 3px;
-                    width: parent.width - 158px;
+                    width: parent.width - 162px;
                     height: 24px;
                     spacing: 8px;
                     cross-axis-alignment: center;
 
-                    Spinner {
-                        width: 14px;
-                        height: 14px;
-                        visible: server-busy;
-                        horizontal-stretch: 0;
+                    // One dot for the state of the machine: bright while the
+                    // model works, soft when all is still.
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        vertical-stretch: 0;
+                        background: root.generating || root.server-busy
+                            ? Theme.accent
+                            : Theme.text-dim;
+                        opacity: root.generating || root.server-busy ? 1 : 0.4;
+                        animate background, opacity { duration: 220ms; }
                     }
                     Text {
                         text: status-text;
-                        color: Theme.text-dim;
+                        color: root.generating ? Theme.accent-strong : Theme.text-dim;
                         font-size: 12px;
                         vertical-alignment: center;
                         overflow: elide;
@@ -1481,7 +2001,7 @@ export component App inherits Window {
                     // The keys that matter are written next to the box. A
                     // narrow window drops the line, so nothing is crowded.
                     Text {
-                        visible: !root.generating && root.width > 640px;
+                        visible: !root.generating && !root.tight;
                         text: "Alt shows the chats";
                         color: Theme.text-dim;
                         font-size: 11px;
@@ -1499,15 +2019,15 @@ export component App inherits Window {
                     }
                 }
 
-                // A fresh chat. It is a small pill, so it is not mistaken for the
-                // chat box. It stands at the right end of the status line.
+                // A fresh chat. It is a small pill, so it is not mistaken for
+                // the chat box. It stands at the right end of the status line.
                 Rectangle {
                     visible: !root.generating;
-                    x: parent.width - 146px;
+                    x: parent.width - 150px;
                     y: 3px;
-                    height: 24px;
-                    width: new-lbl.preferred-width + 30px;
-                    border-radius: 12px;
+                    height: 26px;
+                    width: new-lbl.preferred-width + 32px;
+                    border-radius: 13px;
                     border-width: 1px;
                     border-color: Theme.line;
                     background: new-area.has-hover ? Theme.tint : Theme.surface;
@@ -1517,14 +2037,14 @@ export component App inherits Window {
                         colorize: Theme.accent-strong;
                         width: 13px;
                         height: 13px;
-                        x: 9px;
-                        y: 6px;
+                        x: 10px;
+                        y: 7px;
                     }
                     new-lbl := Text {
                         text: "New chat";
                         color: Theme.accent-strong;
                         font-size: 12px;
-                        x: 26px;
+                        x: 27px;
                         y: 0px;
                         vertical-alignment: center;
                     }
@@ -1547,13 +2067,13 @@ export component App inherits Window {
                 }
             }
 
-            // The chat box. Its height stands on its own, so the row with the Code
-            // and Sandbox marks always sits well inside it.
+            // The chat box. Its height stands on its own, so the row with the
+            // Code and Sandbox marks always sits well inside it.
             box := Rectangle {
-                height: 108px;
+                height: root.box-height;
                 vertical-stretch: 0;
-                border-radius: 12px;
-                border-width: 1px;
+                border-radius: 14px;
+                border-width: draft.has-focus ? 1.5px : 1px;
                 border-color: draft.has-focus ? Theme.accent : Theme.line;
                 background: Theme.surface;
 
@@ -1562,10 +2082,10 @@ export component App inherits Window {
                 // stand on the text itself, where they are read before the text
                 // handles them.
                 draft := TextInput {
-                    x: 14px;
-                    y: 12px;
-                    width: parent.width - 28px;
-                    height: parent.height - 56px;
+                    x: 16px;
+                    y: 14px;
+                    width: parent.width - 32px;
+                    height: parent.height - 58px;
                     font-size: 13.5px;
                     color: Theme.text;
                     selection-background-color: Theme.accent;
@@ -1631,22 +2151,26 @@ export component App inherits Window {
                     }
                 }
 
-                // The hint. A text box has no hint of its own.
+                // The hint. A text box has no hint of its own. It stays while
+                // the box is empty, even when the box holds the keys, so the
+                // box never looks like a blank hole.
                 Text {
-                    x: 14px;
-                    y: 12px;
-                    width: parent.width - 28px;
-                    text: "Write a message.";
+                    x: 16px;
+                    y: 14px;
+                    width: parent.width - 32px;
+                    text: root.generating
+                        ? "Wait for this answer, or press Escape to stop it."
+                        : "Write a message. Enter sends it, and Shift and Enter starts a new line.";
                     color: Theme.text-dim;
                     font-size: 13.5px;
                     wrap: word-wrap;
-                    visible: root.draft-text == "" && !draft.has-focus;
+                    visible: root.draft-text == "";
                 }
 
                 // Badges in the lower left corner of the box.
                 HorizontalLayout {
-                    x: 8px;
-                    y: parent.height - 34px;
+                    x: 10px;
+                    y: parent.height - 38px;
                     spacing: 8px;
 
                     Badge {
@@ -1682,19 +2206,22 @@ export component App inherits Window {
                     }
                 }
 
-                // Stop and send, in the lower right corner of the box. The
-                // native build has no send button, so only the stop mark shows
-                // while an answer comes.
+                // Stop and send, in the lower right corner of the box. The mark
+                // is dull while there is nothing to send, so it never promises
+                // more than it can do.
                 Rectangle {
-                    width: 32px;
-                    height: 32px;
-                    x: parent.width - 42px;
-                    y: parent.height - 42px;
+                    property <bool> live: root.generating || root.draft-text != "";
+                    width: 34px;
+                    height: 34px;
+                    x: parent.width - 46px;
+                    y: parent.height - 46px;
                     visible: root.generating || root.send-visible;
-                    border-radius: 16px;
-                    background: send-area.has-hover
-                        ? (generating ? Theme.accent-deep : Theme.accent-warm)
-                        : (generating ? Theme.accent-strong : Theme.accent);
+                    border-radius: 17px;
+                    background: root.generating
+                        ? (send-area.has-hover ? Theme.accent-deep : Theme.accent-strong)
+                        : (send-area.has-hover ? Theme.accent-warm : Theme.accent);
+                    opacity: live ? 1 : 0.45;
+                    animate opacity { duration: 180ms; }
 
                     Image {
                         source: generating
@@ -1703,8 +2230,8 @@ export component App inherits Window {
                         colorize: Theme.on-accent;
                         width: 16px;
                         height: 16px;
-                        x: 8px;
-                        y: 8px;
+                        x: 9px;
+                        y: 9px;
                     }
 
                     send-area := TouchArea {
