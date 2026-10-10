@@ -451,6 +451,14 @@ export component NumberField inherits Rectangle {
     function show-value() {
         root.raw = "\{root.value}";
     }
+
+    // The words of the number are put in the field when the field is made.
+    // A field that starts with the number it shows would else stand empty,
+    // because a value that does not change does not call changed value.
+    init => {
+        root.show-value();
+    }
+
     function nudge(amount: int) {
         root.value = Calc.clamp-int(root.value + amount, root.minimum, root.maximum);
         root.raw = "\{root.value}";

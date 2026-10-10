@@ -302,8 +302,11 @@ export component ModelConfigWindow inherits Window {
             height: 56px;
             background: Theme.surface;
 
-            // Hairline above the buttons.
+            // Hairline above the buttons. Its place is set by hand. A line
+            // with no y of its own falls in the middle of the box, and the
+            // words then stand on top of it.
             Rectangle {
+                y: 0px;
                 width: parent.width;
                 height: 1px;
                 background: Theme.line;

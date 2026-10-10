@@ -224,8 +224,11 @@ export component SettingsWindow inherits Window {
             height: 56px;
             background: Theme.surface;
 
-            // Hairline above the buttons.
+            // Hairline above the buttons. Its place is set by hand. A line
+            // with no y of its own falls in the middle of the box, and the
+            // buttons and the words then stand on top of it.
             Rectangle {
+                y: 0px;
                 width: parent.width;
                 height: 1px;
                 background: Theme.line;
@@ -236,6 +239,7 @@ export component SettingsWindow inherits Window {
                 padding-right: 16px;
                 spacing: 10px;
                 alignment: end;
+                cross-axis-alignment: center;
 
                 Rectangle {
                     height: 32px;
