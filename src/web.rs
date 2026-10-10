@@ -49,8 +49,13 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         .iter()
         .map(|m| {
             json!({
+                // The id lets the page keep the rows it has and write again
+                // only the words that changed.
+                "id": m.id,
                 "role": m.role,
                 "body": m.body,
+                // The thinking of the model, when the model has any.
+                "reasoning": m.reasoning,
                 "tool": m.tool,
                 "mono": m.mono,
                 "failed": m.failed,
@@ -84,6 +89,13 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "messages": messages,
         // Text the model wrote since the last message was stored.
         "live": snap.live_text,
+        // The thinking that comes with a live answer.
+        "reasoning": snap.live_reasoning,
+        // The thinking mode of the open chat, and whether this model has one.
+        "thinking": {
+            "mode": &snap.thinking_mode,
+            "available": snap.thinking_available,
+        },
         "context": {
             "used": util::count(snap.context_used),
             "total": util::count(snap.context_total),

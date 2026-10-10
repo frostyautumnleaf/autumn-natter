@@ -5,14 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Autumn Natter</title>
 <style>
+/* The colours of the window, in the order theme.slint lists them. Light mode
+   is the default. A body.dark class picks the dark column. The five accents are
+   the same in both modes. */
 :root {
-  --bg: #faf2e6; --surface: #fffbf4; --line: #e6d9c7; --text: #2a2118; --dim: #7b6a5a;
-  --accent: #ED7401; --strong: #C53C01; --ink: #AC4422; --warm: #DF6101; --deep: #AF2600;
-  --tint: #fbe6d2; --fade: rgba(250, 242, 230, 1);
+  --bg: #faf2e6; --surface: #fff9f0; --surface-alt: #f3e7d5;
+  --line: #e6d7c2; --line-strong: #d6c0a2;
+  --text: #231a11; --dim: #7b6a57;
+  --tint: #fbe6d1; --hover: #f8ecd9; --on-accent: #faf2e6;
+  --accent: #ED7401; --warm: #DF6101; --strong: #C53C01; --leaf: #AC4422; --deep: #AF2600;
+  --bubble: #fbe6d1; --bubble-line: #f0d2b0;
+  --code-bg: #f6ecdc; --code-head: #eeddc4; --think-bg: #f5ead9;
+  --fade: rgba(250, 242, 230, 1);
 }
 body.dark {
-  --bg: #141414; --surface: #1c1917; --line: #342c24; --text: #f1e7d9; --dim: #a3927f;
-  --tint: #2b1d12; --fade: rgba(20, 20, 20, 1);
+  --bg: #141414; --surface: #1b1b1b; --surface-alt: #242424;
+  --line: #342f2a; --line-strong: #463f37;
+  --text: #f2ebe2; --dim: #a4998c;
+  --tint: #2c1d10; --hover: #2a2a2a;
+  --bubble: #2b1c10; --bubble-line: #4a3626;
+  --code-bg: #201d1a; --code-head: #2b2621; --think-bg: #221e1b;
+  --fade: rgba(20, 20, 20, 1);
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -21,200 +34,374 @@ body {
   font: 15px/1.45 system-ui, "Segoe UI", sans-serif;
   display: flex; flex-direction: column;
 }
-button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
-select, input, textarea {
-  font: inherit; background: var(--bg); color: var(--text);
-  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+select { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+textarea {
+  font: inherit; background: none; color: var(--text); border: 0; padding: 0; resize: none;
 }
 :focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .grow { flex: 1 1 auto; }
+.hidden { display: none; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; }
 
-/* Top bar: model, repository, chat name and the context meter. */
+/* The top bar: the mark, the two selector chips, the chat name, and the meter
+   of the context. A hairline runs under it, so the bar is kept apart from the
+   stage. */
 .top {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 9px 12px; background: var(--surface); border-bottom: 1px solid var(--line);
+  flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
+  height: 46px; padding: 0 14px; background: var(--surface); position: relative;
 }
-.logo { width: 22px; height: 22px; }
-.name { font-weight: 600; color: var(--strong); }
-.ctl { display: flex; align-items: center; gap: 5px; }
-.tag {
-  font-size: 11px; color: var(--dim); border: 1px solid var(--line);
-  border-radius: 999px; padding: 1px 7px;
+.top::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: var(--line);
 }
-.title { color: var(--text); font-size: 13px; max-width: 30ch; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-/* Where the user stands in the carousel, for example 3 of 9. */
-.where { font-size: 12px; color: var(--dim); white-space: nowrap; }
-.ctx { min-width: 140px; font-size: 12px; color: var(--dim); }
-.bar { display: block; height: 4px; margin-top: 3px; border-radius: 2px;
-  background: var(--line); overflow: hidden; }
-.fill { display: block; height: 100%; background: var(--accent); }
+.mark { width: 22px; height: 22px; display: block; }
+.name { font-weight: 600; white-space: nowrap; }
+/* A chip is a small box with a hairline. The selector chips hold a select, so
+   they keep the look of the window while the browser does the work. */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 10px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--surface);
+  font-size: 13px; white-space: nowrap; min-width: 0;
+}
+.chip:hover { background: var(--hover); }
+.chip.sel { max-width: 250px; }
+.chip.sel select { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+.chip svg { width: 15px; height: 15px; flex: 0 0 auto; fill: none; stroke: var(--warm); stroke-width: 1.7; }
+.chip select { display: block; }
+.kind {
+  font-size: 11px; color: var(--strong); text-transform: uppercase;
+  letter-spacing: 0.04em; flex: 0 0 auto;
+}
+.plus { color: var(--strong); }
+.title { font-size: 13px; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pager { font-size: 12px; color: var(--dim); white-space: nowrap; }
+/* The context chip carries a hairline meter under the words. The meter goes
+   dark red when the window of the model is nearly full. */
+.ctx { flex-direction: column; align-items: flex-start; gap: 0; padding: 4px 9px 5px; }
+.ctx .num { font-size: 11.5px; color: var(--dim); line-height: 1.1; white-space: nowrap; }
+.meter { display: block; width: 100%; height: 3px; margin-top: 3px; border-radius: 2px; background: var(--line); }
+.meter i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.ctx.near { border-color: var(--deep); }
+.ctx.near .meter i { background: var(--deep); }
 
-/* The carousel of chats. The card in the middle is the chat in use, and the
-   next chats of this place show a little of themselves at each side. Every
-   repository has a carousel of its own. */
-.area { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+/* The part below the bar: the stage with the carousel, the line of state, and
+   the chat box. At home the mark, the line and the box stand as one group in
+   the middle of the screen. */
+.area { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.card { position: absolute; top: 10px; bottom: 10px; left: 50%;
-  width: var(--card, 620px); margin-left: calc(var(--card, 620px) / -2);
-  border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
-  overflow: hidden; transition: transform 260ms ease, opacity 260ms ease; }
+
+/* The first screen. */
+.hello {
+  flex: 0 0 auto; display: none; flex-direction: column; align-items: center;
+  gap: 12px; padding: 26px 18px 0;
+}
+body.home .hello { display: flex; }
+body.home .stage, body.home .under { display: none; }
+.hello .mark { width: 54px; height: 54px; }
+.greet { font-size: 15px; color: var(--dim); max-width: 46ch; text-align: center; }
+body.home .area { justify-content: center; }
+body.home .composer { order: 2; }
+
+/* The cards of the carousel. The card in the middle is the chat in use. A
+   neighbour shows only a strip of itself, pale and soft. */
+#cards { position: absolute; inset: 0; }
+.card {
+  position: absolute; top: 10px; bottom: 10px; left: 50%;
+  width: var(--card, 640px); margin-left: calc(var(--card, 640px) / -2);
+  border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
+  overflow: hidden; transition: transform 320ms cubic-bezier(.2, .7, .3, 1);
+}
 .card.on { border-color: var(--accent); }
-/* A neighbour chat stays soft and small, so it does not fight for attention. */
 .card.ghost { opacity: .4; filter: blur(1.5px); cursor: pointer; }
-/* The soft picture lives in every card, and only the middle card uses its
-   message box. A card keeps its parts, so a turn stays smooth. */
 .soft { position: absolute; inset: 0; }
 .card.on .soft { display: none; }
 .card.ghost .msgs { display: none; }
-.gt { font-size: 13px; font-weight: 600; margin: 12px 14px 0; overflow: hidden;
-  white-space: nowrap; text-overflow: ellipsis; }
-.gp { font-size: 12px; color: var(--dim); margin: 8px 14px 0; overflow: hidden;
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+.gt { font-size: 13px; font-weight: 600; margin: 12px 14px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp { font-size: 12px; color: var(--dim); margin: 8px 14px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gb { position: absolute; border-radius: 10px; }
 .gb.a { left: 14px; bottom: 78px; width: 60%; height: 44px; background: var(--tint); }
 .gb.b { right: 12%; bottom: 40px; width: 55%; height: 34px; background: var(--line); }
 .gb.c { left: 14px; bottom: 14px; width: 72%; height: 22px; background: var(--tint); }
-
-/* A wash of the page colour over each side, so a neighbour barely shows. */
-.wash { position: absolute; top: 0; bottom: 0; width: var(--peek, 46px);
-  pointer-events: none; z-index: 2; }
+/* The wash fades the outer edge of a neighbour card. */
+.wash { position: absolute; top: 0; bottom: 0; width: var(--peek, 46px); z-index: 2; pointer-events: none; }
 .wash.l { left: 0; background: linear-gradient(90deg, var(--fade), rgba(0, 0, 0, 0)); }
 .wash.r { right: 0; background: linear-gradient(270deg, var(--fade), rgba(0, 0, 0, 0)); }
-
-/* The two sides that turn the carousel. */
-.zone { position: absolute; top: 0; bottom: 0; width: var(--peek, 46px); z-index: 3;
-  cursor: pointer; }
+.zone { position: absolute; top: 0; bottom: 0; width: var(--peek, 46px); z-index: 3; cursor: pointer; }
 .zone.l { left: 0; }
 .zone.r { right: 0; }
-.turn { position: absolute; top: 50%; margin-top: -15px; width: 30px; height: 30px;
+.turn {
+  position: absolute; top: 50%; margin-top: -15px; width: 30px; height: 30px;
   border-radius: 15px; border: 1px solid var(--line); background: var(--surface);
-  color: var(--dim); font-size: 17px; line-height: 1; z-index: 4; }
+  color: var(--dim); font-size: 18px; line-height: 28px; z-index: 4;
+}
 .turn:hover { color: var(--strong); border-color: var(--accent); background: var(--tint); }
 .turn.l { left: 8px; }
 .turn.r { right: 8px; }
-.hidden { display: none; }
 
-/* The row of small previews. The Alt key or the "Show chats" button brings it
-   up. One card stands per chat, and only the place of a card changes. A click
-   opens a preview, a drag and a flick move along the row. */
+/* The row of small previews. */
 .previews { position: absolute; inset: 0; z-index: 5; display: none; }
 .previews.on { display: block; }
-/* The soft backdrop, so the row stands out of the page. */
-.previews::before { content: ""; position: absolute; inset: 0; background: var(--bg);
-  opacity: .66; }
-.prev { position: absolute; top: 24px; left: 0; width: 190px; height: 218px;
-  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
-  overflow: hidden; cursor: pointer; will-change: transform, opacity; }
+.previews::before { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: .92; }
+.pcount, .pcap {
+  position: absolute; left: 40px; right: 40px; z-index: 6; display: none;
+  color: var(--dim); font-size: 12px; text-align: center;
+}
+.pcount { top: 16px; }
+.pcap { bottom: 14px; }
+.previews.on ~ .pcount, .previews.on ~ .pcap { display: block; }
+.prev {
+  position: absolute; top: 46px; left: 0; width: 190px; height: 218px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--surface);
+  overflow: hidden; cursor: pointer;
+}
 .prev.mid { border: 2px solid var(--accent); }
-.pt { font-size: 13px; font-weight: 600; margin: 12px 12px 0; overflow: hidden;
-  white-space: nowrap; text-overflow: ellipsis; }
-.pp { font-size: 12px; color: var(--dim); margin: 8px 12px 0; overflow: hidden;
-  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
+.pt { font-size: 13px; font-weight: 600; margin: 12px 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp { font-size: 12px; color: var(--dim); margin: 8px 12px 0; overflow: hidden; }
 .pw { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--dim); }
-
-/* The first screen. The mark and a line for this hour stand above the chat box,
-   and the box sits in the middle of the page. The parts of the page take a fixed
-   place, so the box can move below the line that tells what the program does. */
-.stage { order: 1; }
-.under { order: 2; }
-.composer { order: 3; }
-.panel { order: 4; }
-.hello { order: 0; display: flex; flex-direction: column; align-items: center;
-  gap: 10px; height: 126px; overflow: hidden; text-align: center;
-  transition: opacity 340ms ease, height 340ms ease; }
-.hello .logo { width: 54px; height: 54px; }
-.greet { font-size: 15px; color: var(--dim); max-width: 46ch; }
-/* Away from the first screen the mark and the line fade away and take no room,
-   so the chat box can sit at the bottom again. */
-body:not(.home) .hello { height: 0; opacity: 0; }
-body.home .area { justify-content: center; }
-body.home .stage { flex: 0 0 auto; min-height: 0; }
-body.home .under { order: 4; }
-body.home .previews { display: none; }
-body.home .composer { width: calc(100% - 24px); max-width: 720px; margin: 0 auto;
-  border: 1px solid var(--line); border-radius: 12px; }
-/* The chat grows from the top down when its first message comes. */
-.card.grow { animation: grow-down 520ms cubic-bezier(.2, .7, .3, 1); }
-@keyframes grow-down {
-  from { clip-path: inset(0 0 100% 0); }
-  to { clip-path: inset(0 0 0 0); }
+/* The list of messages. The scroll bar of the window is thin and drawn in the
+   palette of the program, so the page asks the browser for the same shape. */
+.msgs {
+  position: absolute; inset: 0; overflow-y: auto; padding: 14px 16px 14px;
+  scrollbar-width: thin; scrollbar-color: var(--dim) transparent;
 }
-/* A page that is asked for few moves leaves the row and the box still. */
-@media (prefers-reduced-motion: reduce) {
-  .card, .prev, .composer { transition: none; animation: none; }
-}
-
-.msgs { position: absolute; inset: 0; overflow-y: auto; padding: 14px; }
+.msgs::-webkit-scrollbar { width: 6px; }
+.msgs::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
+.msgs::-webkit-scrollbar-track { background: transparent; }
 .blank { color: var(--dim); font-size: 13px; padding: 6px 4px; }
-.msg { margin: 0 0 12px; padding: 9px 11px; border-radius: 10px;
-  background: var(--bg); border: 1px solid var(--line); }
-.msg.you { border-left: 3px solid var(--warm); }
-.msg.assistant { border-left: 3px solid var(--accent); }
-.msg.tool { border-left: 3px solid var(--ink); }
-.msg.note { border-left: 3px solid var(--dim); color: var(--dim); }
-.msg.bad { border-left-color: var(--deep); }
-.head { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--dim); margin-bottom: 4px; }
+
+/* One row. A message that came in fades up, so no word pops from nothing. */
+.row { position: relative; margin: 0 0 14px; }
+.row.in { animation: rise 220ms ease-out; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: none; }
+}
+/* A note from the program stands on its own, in the middle, with no bubble. */
+.note {
+  color: var(--dim); font-size: 12px; text-align: center; white-space: pre-wrap;
+  overflow-wrap: anywhere; padding: 2px 26px;
+}
+.note.bad { color: var(--deep); }
+/* The words of the user stand in a bubble of their own colour. The words of
+   the model stand on the card with no bubble and no label, because the bubble
+   of the user is the mark of the user. The corner that looks inwards is cut
+   less than the others, which shows at a glance who spoke. */
+.bubble {
+  width: 55%; max-width: 640px; margin-left: auto;
+  padding: 11px 14px; background: var(--bubble); border: 1px solid var(--bubble-line);
+  border-radius: 14px 4px 14px 14px;
+}
+.plain { width: 75%; max-width: 860px; }
+/* The time of the message stands in the open space beside the bubble, so it
+   never pushes the words about. It comes up when the pointer is over the row. */
+.when {
+  font-size: 11px; color: var(--dim); margin-top: 3px; opacity: 0;
+  transition: opacity 180ms;
+}
+.row.you .when { text-align: right; }
+.row:hover .when { opacity: 1; }
+
+/* Words of one kind, as the window sets them. */
 .body { white-space: pre-wrap; overflow-wrap: anywhere; }
-.mono, pre { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 13px; }
-pre { margin: 8px 0 0; padding: 8px; border-radius: 8px; background: var(--bg);
-  border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg.bad pre { color: var(--deep); }
+.h { font-weight: 600; font-size: 15px; color: var(--strong); margin: 2px 0 0; }
+.h::before {
+  content: ""; display: inline-block; width: 3px; height: 13px; margin: 0 7px 0 0;
+  background: var(--accent); vertical-align: -1px; border-radius: 1px;
+}
+.h.small { font-size: 14px; }
+.list { margin: 0; padding: 0 0 0 12px; border-left: 2px solid var(--line-strong); }
+.list li { margin: 3px 0; }
+pre.code {
+  margin: 0; padding: 10px 12px; background: var(--code-bg);
+  border-radius: 10px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
 
-/* Composer with the two badges. */
-/* The line under the carousel: a fresh chat, and what the program is doing. */
-.under { display: flex; align-items: center; gap: 10px; padding: 6px 12px; }
-.newchat { color: var(--strong); font-size: 12px; background: var(--bg);
-  border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
-.newchat:hover { background: var(--tint); border-color: var(--accent); }
+/* The thinking of the model. A rule of colour runs down its left, and the
+   words are kept small, because they are a look inside the answer. */
+.think {
+  position: relative; margin: 0 0 10px; padding: 9px 12px 9px 20px;
+  background: var(--think-bg); border-radius: 10px;
+}
+.think::before {
+  content: ""; position: absolute; left: 10px; top: 9px; bottom: 9px; width: 2px;
+  border-radius: 1px; background: var(--accent);
+}
+.think .cap {
+  font-size: 11px; color: var(--dim); margin: 0 0 4px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.think .words { font-size: 13px; color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The mark of an answer that is still coming. */
+.caret { color: var(--accent); animation: beat 1.1s ease-in-out infinite; }
+/* A message that went wrong keeps its words in the colour of a failure. */
+.row.bad .body, .row.bad .bubble, .row.bad .plain, .row.bad .h { color: var(--deep); }
 
-.composer { border-top: 1px solid var(--line); background: var(--surface); padding: 9px 11px 11px; }
-.badges { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
-.badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
-  border: 1px solid var(--line); color: var(--dim); background: var(--bg); }
-.badge.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+/* One run of the terminal tool. The head says which command runs, or has run,
+   and the body keeps the command and the output under their own small labels.
+   A run with no output yet keeps the panel, so the wait shows. */
+.tool {
+  margin: 0 0 2px; background: var(--code-bg); border-radius: 10px; overflow: hidden;
+}
+.tool.bad { border: 1px solid var(--deep); }
+.thead {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  height: 30px; padding: 0 10px 0 12px; text-align: left;
+}
+.thead:hover { background: var(--hover); }
+.thead .cmd {
+  font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex: 1 1 auto;
+}
+.tool.bad .cmd, .tool.bad .out { color: var(--deep); }
+.thead svg { width: 13px; height: 13px; flex: 0 0 auto; fill: none; stroke: var(--dim); stroke-width: 1.8; }
+.thead .fold { margin-left: auto; transition: transform 180ms; }
+.tool.closed .fold { transform: rotate(-90deg); }
+/* The running mark: a ring that turns. */
+.busy {
+  width: 12px; height: 12px; flex: 0 0 auto; border-radius: 50%;
+  border: 2px solid var(--line-strong); border-top-color: var(--accent);
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.tbody { display: flex; gap: 0; padding: 7px 12px 12px 11px; }
+.tool.closed .tbody { display: none; }
+.rail { flex: 0 0 2px; align-self: stretch; border-radius: 1px; background: var(--line-strong); }
+.tspace { flex: 1 1 auto; padding-left: 13px; min-width: 0; }
+.lab { font-size: 11px; color: var(--dim); }
+.cmd-text, .out {
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;
+}
+.tspace .gap { height: 6px; }
+.out.live { color: var(--dim); }
+
+/* The line under the card: the state of the program, the keys the box needs,
+   and the small pill that starts a new chat. */
+.under {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px 0;
+}
+.pulse {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: 0 0 auto;
+  opacity: .4;
+}
+.pulse.busy { background: var(--accent); opacity: 1; animation: beat 1.1s ease-in-out infinite; }
+.pulse.busy.stop { background: var(--strong); }
+@keyframes beat { 50% { opacity: .35; } }
+.status { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status.hot { color: var(--strong); }
+.hint { font-size: 11px; color: var(--dim); opacity: .8; white-space: nowrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 11px;
+  border-radius: 13px; border: 1px solid var(--line); background: var(--surface);
+  font-size: 12px; white-space: nowrap;
+}
+.pill:hover { background: var(--tint); border-color: var(--accent); }
+.pill svg { width: 13px; height: 13px; fill: none; stroke: var(--strong); stroke-width: 2; }
+
+/* The chat box. The badges sit in its lower left corner, and the round mark
+   for send or stop sits in the lower right. The mark is dull while there is
+   nothing to send, so it never promises more than it can do. */
+.composer {
+  flex: 0 0 auto; margin: 8px 14px 14px; padding: 12px 12px 50px;
+  border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+  position: relative; min-height: 116px;
+}
+.composer:focus-within { border-color: var(--accent); }
+body.home .composer { width: min(720px, 100%); margin: 0 auto; }
+#draft {
+  display: block; width: 100%; min-height: 44px; max-height: 40vh;
+  font-size: 15px; line-height: 1.45; overflow: hidden;
+}
+#draft::placeholder { color: var(--dim); }
+.badges {
+  position: absolute; left: 12px; bottom: 9px; display: flex; align-items: center; gap: 8px;
+}
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px;
+  border-radius: 13px; border: 1px solid var(--line); background: var(--bg);
+  font-size: 12px; color: var(--dim); white-space: nowrap;
+}
+.badge svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.badge.on { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 .badge.off { color: var(--deep); border-color: var(--deep); }
-.status { font-size: 12px; color: var(--dim); overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-textarea { width: 100%; resize: vertical; min-height: 58px; }
-.row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.act { border-radius: 8px; border: 1px solid var(--line); padding: 6px 12px;
-  background: var(--bg); font-size: 13px; }
-.act.send { color: #fff8f0; background: var(--accent); border-color: var(--accent); }
-.act.stop { color: var(--deep); border-color: var(--deep); }
-.hint { font-size: 12px; color: var(--dim); }
+.badge[disabled] { opacity: .5; cursor: default; }
+.send {
+  position: absolute; right: 11px; bottom: 8px; width: 34px; height: 34px;
+  border-radius: 17px; background: var(--accent); opacity: .45;
+  transition: opacity 180ms, background 180ms;
+}
+.send svg { width: 16px; height: 16px; fill: none; stroke: var(--on-accent); stroke-width: 2; }
+.send .mark-stop { display: none; }
+.send.stop .mark-send { display: none; }
+.send.stop .mark-stop { display: inline; }
+.send.live, .send.stop { opacity: 1; }
+.send.stop { background: var(--strong); }
+.send.stop:hover { background: var(--deep); }
 
-/* Small settings panel of the page. */
-.panel { border-top: 1px solid var(--line); background: var(--surface); padding: 10px 12px; }
-.panel.hidden { display: none; }
+/* The small settings box of the page. The full settings live on the computer
+   that runs Autumn Natter. */
+.panel {
+  flex: 0 0 auto; margin: 0 14px 12px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+}
 .panel label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .panel p { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
 
 @media (max-width: 760px) {
-  .title { max-width: 18ch; }
+  .title, .pager { display: none; }
+  .chip.sel { max-width: 150px; }
+  .chip.sel select { max-width: 100px; }
+  .hint { display: none; }
+  .bubble { width: 78%; }
+  .plain { width: 100%; }
   .turn.l { left: 4px; }
   .turn.r { right: 4px; }
+}
+
+/* A page that is asked for few moves keeps the row and the chat box still. */
+@media (prefers-reduced-motion: reduce) {
+  .card, .prev, .composer, .when, .send { transition: none; }
+  .row.in { animation: none; }
+  .busy { animation-duration: 3s; }
+  .pulse.busy { animation: none; }
 }
 </style>
 </head>
 <body>
-<div class="top">
-  <img class="logo" src="/autumn-natter.svg" alt="">
+<header class="top">
+  <img class="mark" src="/autumn-natter.svg" alt="">
   <span class="name">Autumn Natter</span>
-  <span class="ctl"><select id="model" title="Model"></select><span class="tag" id="kind"></span></span>
-  <span class="ctl"><select id="repo" title="Repository"></select>
-    <button class="act" id="newrepo" title="New repository">+</button></span>
+
+  <label class="chip sel" title="Model">
+    <select id="model"></select>
+    <span class="kind" id="kind"></span>
+  </label>
+
+  <label class="chip sel" title="Repository">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.8 4.4c0-.6.4-1 1-1h3.4l1.4 1.8h5.6c.6 0 1 .4 1 1v5.4c0 .6-.4 1-1 1H2.8c-.6 0-1-.4-1-1z"/></svg>
+    <select id="repo"></select>
+  </label>
+  <button class="chip" id="newrepo" title="New repository">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
+  </button>
+
   <span class="title" id="title"></span>
   <span class="grow"></span>
-  <span class="where" id="where"></span>
-  <span class="ctx"><span id="ctxtext"></span><span class="bar"><span class="fill" id="ctxfill"></span></span></span>
-</div>
+  <span class="pager" id="where"></span>
 
-<!-- The first screen: the mark and a line for this hour, above the chat box. -->
+  <span class="chip ctx" id="ctx" title="Tokens the model keeps in memory">
+    <span class="num" id="ctxtext"></span>
+    <span class="meter"><i id="ctxfill"></i></span>
+  </span>
+</header>
+
 <div class="area">
-  <div class="hello" id="hello">
-    <img class="logo" src="/autumn-natter.svg" alt="">
+  <!-- The first screen: the mark and a line for this hour, above the chat box. -->
+  <div class="hello">
+    <img class="mark" src="/autumn-natter.svg" alt="">
     <span class="greet" id="greet"></span>
   </div>
 
@@ -223,34 +410,53 @@ textarea { width: 100%; resize: vertical; min-height: 58px; }
     <div id="cards"></div>
     <span class="wash l" id="washL"></span>
     <span class="wash r" id="washR"></span>
-    <div class="zone l" id="zoneL" title="Show the chat on the left"></div>
-    <div class="zone r" id="zoneR" title="Show the chat on the right"></div>
-    <button class="turn l" id="turnL" title="Show the chat on the left">&#8249;</button>
-    <button class="turn r" id="turnR" title="Show the chat on the right">&#8250;</button>
+    <div class="zone l hidden" id="zoneL" title="Show the chat on the left"></div>
+    <div class="zone r hidden" id="zoneR" title="Show the chat on the right"></div>
+    <button class="turn l hidden" id="turnL" title="Show the chat on the left">&#8249;</button>
+    <button class="turn r hidden" id="turnR" title="Show the chat on the right">&#8250;</button>
     <div class="previews" id="previews"></div>
+    <div class="pcount" id="pcount"></div>
+    <div class="pcap">Click a card to open it. Drag, arrows, WASD or the wheel move along the row. Escape or Alt puts the row away.</div>
   </div>
 
   <div class="under">
-    <button class="newchat" id="newchat">+ New chat</button>
-    <button class="newchat" id="chatsbtn" title="Show the chats as small previews">Show chats</button>
-    <span class="grow"></span>
+    <span class="pulse" id="dot"></span>
     <span class="status" id="status"></span>
+    <span class="hint" id="hint"></span>
+    <span class="grow"></span>
+    <button class="pill" id="newchat">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
+      New chat
+    </button>
+    <button class="pill" id="chatsbtn" title="Show the chats as small previews">Show chats</button>
+    <button class="pill" id="settingsbtn" title="Settings of this page">Settings</button>
   </div>
 
-  <div class="composer">
+  <div class="composer" id="composer">
+    <textarea id="draft" rows="2"
+      placeholder="Write a message. Enter sends it, and Shift and Enter starts a new line."></textarea>
     <div class="badges">
-      <span class="badge" id="code" title="Let the model run a terminal command">Code</span>
-      <span class="badge" id="sandbox" title="Run every command inside a bubblewrap sandbox">Sandbox</span>
-      <span class="grow"></span>
+      <button class="badge" id="code"
+        title="Let the model run one terminal command per step. Every command runs in the sandbox when the sandbox is on.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
+        <span id="codetext">Code</span>
+      </button>
+      <button class="badge" id="sandbox"
+        title="Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.4 4v4c0 3.2-2.1 5.2-5.4 6.2C4.7 13.2 2.6 11.2 2.6 8V4z"/></svg>
+        <span id="sandboxtext">Sandbox</span>
+      </button>
+      <span class="badge" id="think" title="The model shows its thinking before its answer.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
+        <span id="thinktext">think: auto</span>
+      </span>
     </div>
-    <textarea id="draft" rows="2" placeholder="Ask something"></textarea>
-    <div class="row">
-      <button class="act" id="settingsbtn">Settings</button>
-      <span class="hint" id="hint">Enter sends. Shift Enter adds a line.</span>
-      <span class="grow"></span>
-      <button class="act stop" id="stop">Stop</button>
-      <button class="act send" id="send">Send</button>
-    </div>
+    <button class="send" id="send" title="Send">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path class="mark-send" d="M3.6 12.4 13 4M13 4H7.2M13 4v5.8"/>
+        <path class="mark-stop" d="M5.4 5.4h5.2v5.2H5.4z"/>
+      </svg>
+    </button>
   </div>
 
   <div class="panel hidden" id="panel">
@@ -265,28 +471,35 @@ textarea { width: 100%; resize: vertical; min-height: 58px; }
 
 // The parts of the page that stay in place. Their content is written again on
 // every draw.
-var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctxtext', 'ctxfill', 'where',
-  'stage', 'cards', 'washL', 'washR', 'zoneL', 'zoneR', 'turnL', 'turnR', 'previews',
-  'hello', 'greet', 'newchat', 'chatsbtn', 'code', 'sandbox', 'status', 'draft',
-  'settingsbtn', 'panel', 'dark', 'note', 'send', 'stop', 'hint'];
-// The chat box moves between the middle of the page and the bottom, so it is
-// taken by name too.
-var composer = document.querySelector('.composer');
+var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'where', 'ctx', 'ctxtext', 'ctxfill',
+  'stage', 'cards', 'washL', 'washR', 'zoneL', 'zoneR', 'turnL', 'turnR', 'previews', 'pcount',
+  'greet', 'dot', 'status', 'hint', 'newchat', 'chatsbtn', 'settingsbtn',
+  'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'draft', 'send',
+  'panel', 'dark', 'note'];
+// The send mark holds two paths, and the class of the button says which one
+// shows. Nothing is written into the picture of the mark on a draw.
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
+// The chat box moves between the middle of the page and the bottom, so it is
+// taken by name too.
+var composer = document.getElementById('composer');
 
 // The message box lives inside the open card, so it is taken again each time
 // the cards are built.
 var msgs = null;
 
-// A touch screen gets a send button. Other screens send with the Enter key.
+// A touch screen gets a send mark that it can lean on. Other screens send with
+// the Enter key, and the mark only shows that there is something to send.
 var touch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
   || ('ontouchstart' in window);
+// A page that is asked for few moves keeps the row and the chat box still.
+var reduce = !!(window.matchMedia
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
 var rev = -1;          // what the page has seen last
-var timer = null;       // the next poll
-var pending = false;    // only one poll at a time
-var cur = null;         // the last state
+var timer = null;      // the next poll
+var pending = false;   // only one poll at a time
+var cur = null;        // the last state
 
 function post(path, body) {
   fetch(path, {
@@ -316,31 +529,70 @@ function schedule(fast) {
   timer = setTimeout(poll, fast ? 150 : 600);
 }
 
+// True when the top bar has to give way, as the window does in a narrow box.
+function tight() { return (document.documentElement.clientWidth || 640) < 760; }
+
 function draw(s) {
   cur = s;
   drawHome(s);
   document.body.classList.toggle('dark', !!s.dark);
-  fillSelect(el.model, s.models, s.model.id, function (m) { return m.name + ' (' + m.kind + ')'; });
+  fillSelect(el.model, s.models, s.model.id, function (m) { return m.name; });
   fillRepos(s);
   el.kind.textContent = s.model.kind;
   el.title.textContent = s.chat.title;
-  el.ctxtext.textContent = s.context.used + ' / ' + s.context.total + ' tokens';
-  el.ctxfill.style.width = Math.round(Math.min(1, s.context.ratio) * 100) + '%';
+
+  // The context chip. The bar goes dark red when the window of the model is
+  // nearly full.
+  var ratio = Math.max(0, Math.min(1, s.context.ratio));
+  el.ctxtext.textContent = tight()
+    ? s.context.used + ' / ' + s.context.total
+    : s.context.used + ' of ' + s.context.total + ' tokens';
+  el.ctxfill.style.width = Math.round(ratio * 100) + '%';
+  el.ctx.classList.toggle('near', ratio > 0.9);
+
+  // The badges. The sandbox badge goes red when the sandbox is asked for but
+  // cannot be had, and the thinking badge says what the model can do.
   el.code.classList.toggle('on', !!s.code);
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
+  el.sandbox.title = s.sandbox_available
+    ? 'Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory.'
+    : 'bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.';
+  var thinking = s.thinking || { mode: 'auto', available: false };
+  el.thinktext.textContent = thinking.available ? 'think: ' + thinking.mode : 'No thinking modes';
+  el.think.classList.toggle('on', thinking.available && thinking.mode !== 'auto');
+
+  // The line under the card. The mark beats while the program is at work, and
+  // it goes red while an answer can still be stopped.
+  var busy = !!s.generating || !!s.busy;
+  el.dot.className = 'pulse' + (busy ? ' busy' : '') + (s.generating ? ' stop' : '');
   el.status.textContent = s.status;
-  el.note.textContent = s.sandbox_note;
+  el.status.className = 'status' + (s.generating ? ' hot' : '');
+  el.hint.textContent = hintFor(s);
+  el.newchat.style.display = s.generating ? 'none' : '';
+
+  // The round mark. It is dull while there is nothing to send, and it turns
+  // into the stop mark while an answer comes in.
+  var live = !!s.generating || el.draft.value !== '';
+  el.send.className = 'send' + (s.generating ? ' stop' : '') + (live ? ' live' : '');
+  el.send.title = s.generating ? 'Stop the answer' : 'Send';
+
   el.dark.checked = !!s.dark;
+  el.note.textContent = s.sandbox_note;
   drawChats(s);
   drawMessages(s);
-  // The send button is only for a touch screen. The stop button is there while
-  // an answer comes in, on every screen.
-  el.send.style.display = (touch && !s.generating) ? '' : 'none';
-  el.stop.style.display = s.generating ? '' : 'none';
-  el.hint.style.display = touch ? 'none' : '';
-  // A chat that came or went away changes the row, so it is made again.
-  if (ov.on) { buildPreviews(ov.pos); placePreviews(); }
+  if (ov.on) { rowCount(s); buildPreviews(ov.pos); placePreviews(); }
+}
+
+// One line of keys next to the box. It says what the box needs at this moment:
+// the keys to send while the box is empty and holds the keys, Escape while an
+// answer comes, and Alt the rest of the time.
+function hintFor(s) {
+  if (s.generating) { return 'Escape stops the answer'; }
+  if (document.activeElement === el.draft && el.draft.value === '') {
+    return 'Enter sends. Shift and Enter starts a new line.';
+  }
+  return 'Alt shows the chats';
 }
 
 // A list is built again only when its content changed. This keeps an open
@@ -353,7 +605,7 @@ function fillSelect(sel, items, active, label) {
   for (var n = 0; n < items.length; n++) {
     var option = document.createElement('option');
     option.value = items[n].id;
-    option.textContent = label(items[n]);
+    option.textContent = label(items[n]) + ' (' + items[n].kind + ')';
     if (items[n].id === active) { option.selected = true; }
     sel.appendChild(option);
   }
@@ -372,13 +624,320 @@ function fillRepos(s) {
     if (items[n].id === s.repository.id) { option.selected = true; }
     el.repo.appendChild(option);
   }
-  // The full list of repositories is not built yet, so this choice only shows
-  // that it exists.
-  var all = document.createElement('option');
-  all.textContent = 'View all repositories';
-  all.disabled = true;
-  el.repo.appendChild(all);
 }
+// --------------------------------------------------------------------
+// The words of a message.
+//
+// The stored words keep the marks of markdown. The window puts them in blocks
+// of their own: a heading, a list, a block of code, and plain words. The marks
+// of the words inside a block are taken out, so a bold word reads as a plain
+// word and the address of a link stands after the words of the link. The page
+// does the same, and no mark reaches the reader.
+// --------------------------------------------------------------------
+
+// The words of a line with the marks of markdown taken out.
+function plain(text) {
+  var words = String(text || '');
+  // Two passes, so a bold run with marks of its own inside loses all of them.
+  for (var pass = 0; pass < 2; pass++) { words = stripOnce(words); }
+  return words;
+}
+
+// One run over the words, with the marks taken out.
+function stripOnce(text) {
+  return text
+    // A link gives its words where they fall, and its address follows them.
+    .replace(/!\[([^\]]*)\]\(([^)\s]*)[^)]*\)/g, '$1 ($2)')
+    .replace(/\[([^\]]*)\]\(([^)\s]*)[^)]*\)/g, '$1 ($2)')
+    // An italic or a bold word keeps its words and loses its marks. The marks
+    // go in pairs, so a lone mark in the middle of a file name stays.
+    .replace(/\*\*\*([^*]+?)\*\*\*/g, '$1')
+    .replace(/\*\*([^*]+?)\*\*/g, '$1')
+    .replace(/___([^_]+?)___/g, '$1')
+    .replace(/__([^_]+?)__/g, '$1')
+    .replace(/(^|[^\w*])\*([^*\s][^*]*?)\*(?=[^\w*]|$)/g, '$1$2')
+    .replace(/(^|[^\w])_([^_\s][^_]*?)_(?=[^\w]|$)/g, '$1$2')
+    .replace(/~~([^~]+?)~~/g, '$1')
+    // A piece of inline code keeps its words too.
+    .replace(/`+/g, '')
+    // HTML inside the words is dropped, so no tag can reach the page.
+    .replace(/<[^>]*>/g, '');
+}
+
+// The blocks of one message. Each block has a kind and words of its own.
+function blocks(text) {
+  var lines = String(text || '').split('\n');
+  var out = [];
+  var para = [];
+  var list = null;
+  var fence = null;
+  function flushPara() {
+    var joined = para.join('\n').replace(/^\s+|\s+$/g, '');
+    if (joined) { out.push({ kind: 'text', text: joined }); }
+    para = [];
+  }
+  function flushList() {
+    if (list && list.length) {
+      // A list is shown as a run of numbered lines behind a rule of colour,
+      // which is how the window shows it.
+      out.push({
+        kind: 'list',
+        text: list.map(function (item, n) { return (n + 1) + '. ' + item; }).join('\n')
+      });
+    }
+    list = null;
+  }
+  for (var n = 0; n < lines.length; n++) {
+    var line = lines[n];
+    var cut = line.replace(/^\s*/, '');
+    if (fence !== null) {
+      if (/^```/.test(cut)) {
+        out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, '') });
+        fence = null;
+      } else {
+        fence.push(line);
+      }
+      continue;
+    }
+    if (/^```/.test(cut)) { flushList(); flushPara(); fence = []; continue; }
+    var head = /^(#{1,6})\s+(.*)$/.exec(cut);
+    if (head) {
+      flushList(); flushPara();
+      out.push({ kind: 'heading', text: plain(head[2]), level: head[1].length });
+      continue;
+    }
+    var item = /^[-*+]\s+(.*)$/.exec(cut);
+    if (item) {
+      flushPara();
+      if (!list) { list = []; }
+      list.push(plain(item[1]));
+      continue;
+    }
+    var numbered = /^(\d+)[.)]\s+(.*)$/.exec(cut);
+    if (numbered) {
+      flushPara();
+      if (!list) { list = []; }
+      list.push(plain(numbered[2]));
+      continue;
+    }
+    if (!cut) { flushList(); flushPara(); continue; }
+    flushList();
+    para.push(plain(line));
+  }
+  if (fence !== null) { out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, '') }); }
+  flushList();
+  flushPara();
+  return out;
+}
+
+// The first line of a command, for the head of the tool panel.
+function firstLine(text) {
+  var lines = String(text || '').split('\n');
+  return lines.length ? lines[0] : '';
+}
+
+function make(tag, cls) {
+  var node = document.createElement(tag);
+  if (cls) { node.className = cls; }
+  return node;
+}
+
+// The thinking of the model. A rule of colour runs down its left, and the words
+// are kept small, because they are a look inside the answer.
+function thinkingBox(m, live) {
+  var box = make('div', 'think' + (live ? ' live' : ''));
+  var cap = make('div', 'cap');
+  cap.textContent = 'Thinking';
+  var words = make('div', 'words mono');
+  words.textContent = m.reasoning;
+  box.appendChild(cap);
+  box.appendChild(words);
+  return box;
+}
+
+// One run of the terminal tool. The head says which command runs, or has run,
+// and the body keeps the command and the output under their own small labels.
+// A run with no output yet keeps the panel, so the wait shows.
+function toolBox(m) {
+  var running = m.tool === 'running ...';
+  var panel = make('div', 'tool' + (m.failed ? ' bad' : ''));
+
+  var head = make('button', 'thead');
+  head.type = 'button';
+  if (running) {
+    head.appendChild(make('span', 'busy'));
+  } else {
+    var mark = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    mark.setAttribute('viewBox', '0 0 16 16');
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2');
+    mark.appendChild(path);
+    head.appendChild(mark);
+  }
+  var cmd = make('span', 'cmd');
+  cmd.textContent = (running ? 'Using tool: ' : 'Used tool: ') + firstLine(m.body);
+  head.appendChild(cmd);
+  var fold = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  fold.setAttribute('viewBox', '0 0 16 16');
+  fold.setAttribute('class', 'fold');
+  var foldPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  foldPath.setAttribute('d', 'M4 6.4 8 10.4 12 6.4');
+  fold.appendChild(foldPath);
+  head.appendChild(fold);
+  // The fold is of this panel alone, so it is lost when the row is made again.
+  head.addEventListener('click', function () { panel.classList.toggle('closed'); });
+
+  var body = make('div', 'tbody');
+  body.appendChild(make('span', 'rail'));
+  var space = make('div', 'tspace');
+  var labOne = make('div', 'lab');
+  labOne.textContent = 'command';
+  var commandText = make('pre', 'cmd-text');
+  commandText.textContent = m.body;
+  var gap = make('div', 'gap');
+  var labTwo = make('div', 'lab');
+  labTwo.textContent = 'output';
+  var output = make('pre', 'out' + (running ? ' live' : ''));
+  output.textContent = m.tool;
+  space.appendChild(labOne);
+  space.appendChild(commandText);
+  space.appendChild(gap);
+  space.appendChild(labTwo);
+  space.appendChild(output);
+  body.appendChild(space);
+
+  panel.appendChild(head);
+  panel.appendChild(body);
+  return panel;
+}
+
+// The words of one message, put into a row. The row is made once and its words
+// are put again while an answer grows.
+function fill(row, m, live) {
+  row.className = 'row ' + roleClass(m) + (m.failed ? ' bad' : '');
+  row.innerHTML = '';
+  if (m.role === 'Note') {
+    // A note from the program stands on its own, in the middle, with no bubble
+    // around it.
+    var note = make('div', 'note');
+    note.textContent = m.body;
+    row.appendChild(note);
+    return;
+  }
+  if (m.role === 'Tool' && m.tool !== '') {
+    row.appendChild(toolBox(m));
+  } else {
+    // The words of the user stand in a bubble of their own colour. The words of
+    // the model stand on the card with no bubble and no label.
+    var words = make('div', m.role === 'You' ? 'bubble' : 'plain');
+    if (m.reasoning) { words.appendChild(thinkingBox(m, live)); }
+    var made = blocks(m.body);
+    for (var n = 0; n < made.length; n++) { words.appendChild(blockNode(made[n])); }
+    if (live) {
+      // The mark of an answer that is still coming. It beats while the words
+      // grow, so the page never looks finished too early.
+      var caret = make('span', 'caret');
+      caret.textContent = '\u258c';
+      words.appendChild(caret);
+    }
+    row.appendChild(words);
+  }
+  if (m.when) {
+    var when = make('div', 'when');
+    when.textContent = m.when;
+    row.appendChild(when);
+  }
+}
+
+function roleClass(m) {
+  if (m.role === 'You') { return 'you'; }
+  if (m.role === 'Tool') { return 'tool'; }
+  if (m.role === 'Note') { return 'note'; }
+  return 'ai';
+}
+
+// One block of words, as the window sets it.
+function blockNode(block) {
+  if (block.kind === 'heading') {
+    var head = make('div', 'h' + (block.level >= 3 ? ' small' : ''));
+    head.textContent = block.text;
+    return head;
+  }
+  if (block.kind === 'list') {
+    var list = make('div', 'list');
+    list.textContent = block.text;
+    return list;
+  }
+  if (block.kind === 'code') {
+    var code = make('pre', 'code mono');
+    code.textContent = block.text;
+    return code;
+  }
+  var text = make('div', 'body');
+  text.textContent = block.text;
+  return text;
+}
+
+// The message box holds one row for every message. A row is made once and then
+// only the words of the last row are put again, so a message that came in fades
+// up and an answer that grows does not shake the page.
+function drawMessages(s) {
+  var box = msgs;
+  if (!box) { return; }
+  var items = s.messages.slice();
+  if (s.generating) {
+    items.push({
+      id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
+      tool: '', mono: false, failed: false, when: ''
+    });
+  }
+  if (items.length === 0) {
+    if (box.dataset.key !== 'blank') {
+      box.dataset.key = 'blank';
+      box.innerHTML = '';
+      var blank = make('div', 'blank');
+      blank.textContent = 'Nothing written yet. Write below and press Enter. '
+        + 'A chat with nothing in it goes away when you turn the carousel.';
+      box.appendChild(blank);
+    }
+    return;
+  }
+  // Keep the newest message in view while an answer comes in.
+  var near = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
+  var key = items.map(function (m) { return m.id; }).join('|');
+  if (box.dataset.key !== key) {
+    var had = Number(box.dataset.count || 0);
+    box.dataset.key = key;
+    box.dataset.count = items.length;
+    box.innerHTML = '';
+    for (var n = 0; n < items.length; n++) {
+      var row = make('div', 'row');
+      // Only the row that came in fades up. A chat that was opened is already
+      // there, and its rows do not need to say so again.
+      fill(row, items[n], false);
+      if (n === items.length - 1 && items.length > had && !reduce) { row.classList.add('in'); }
+      box.appendChild(row);
+    }
+  } else {
+    // The last row is the one that can still grow.
+    var last = box.lastChild;
+    var tail = items[items.length - 1];
+    var stamp = [tail.role, tail.body.length, tail.reasoning ? tail.reasoning.length : 0,
+      tail.tool.length, tail.tool === 'running ...' ? 1 : 0].join('#');
+    if (last.dataset.stamp !== stamp) {
+      last.dataset.stamp = stamp;
+      fill(last, tail, !!s.generating && tail.id === 'live');
+    }
+  }
+  if (near || s.generating) { box.scrollTop = box.scrollHeight; }
+}
+// --------------------------------------------------------------------
+// The carousel.
+//
+// The chats of one place stand in a row. The card in the middle of the stage is
+// the chat in use. The next chats show a strip of themselves at each side, pale
+// and soft, and a click on a strip turns the carousel.
+// --------------------------------------------------------------------
 
 // Space between two cards of the carousel.
 var CARD_GAP = 14;
@@ -428,40 +987,30 @@ function drawChats(s) {
 }
 
 // One card per chat. A card holds a message box and a soft picture, and shows
-// one of them. The soft picture tells the user that the chat holds a talk.
-// A card is made once and then only moved, so a turn of the carousel is
-// smooth. The list is built again when a chat arrives or goes away.
+// one of them. The soft picture tells the user that the chat holds a talk. A
+// card is made once and then only moved, so a turn of the carousel is smooth.
 function buildCards(s, index, step) {
   el.cards.innerHTML = '';
   var made = [];
   for (var n = 0; n < s.chats.length; n++) {
-    var card = document.createElement('div');
-    card.className = 'card ghost';
+    var card = make('div', 'card ghost');
     card.dataset.id = s.chats[n].id;
     // No slide for the first stand, because the place is not known yet.
     card.style.transition = 'none';
     card.style.transform = 'translateX(' + ((n - index) * step) + 'px)';
 
-    var soft = document.createElement('div');
-    soft.className = 'soft';
-    var title = document.createElement('div');
-    title.className = 'gt';
-    var preview = document.createElement('div');
-    preview.className = 'gp';
+    var soft = make('div', 'soft');
+    var title = make('div', 'gt');
+    var preview = make('div', 'gp');
     soft.appendChild(title);
     soft.appendChild(preview);
-    // Shapes that stand for the message bubbles of that chat.
+    // Shapes that stand for the bubbles of that chat.
     var names = ['a', 'b', 'c'];
     for (var b = 0; b < names.length; b++) {
-      var bar = document.createElement('div');
-      bar.className = 'gb ' + names[b];
-      soft.appendChild(bar);
+      soft.appendChild(make('div', 'gb ' + names[b]));
     }
-    var box = document.createElement('div');
-    box.className = 'msgs';
-
     card.appendChild(soft);
-    card.appendChild(box);
+    card.appendChild(make('div', 'msgs'));
     el.cards.appendChild(card);
     made.push(card);
   }
@@ -497,103 +1046,14 @@ function openChat(id) {
   post('/api/open_chat', { id: id });
 }
 
-function drawMessages(s) {
-  var box = msgs;
-  if (!box) { return; }
-  // Keep the newest message in view while an answer comes in.
-  var near = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
-  box.innerHTML = '';
-  var items = s.messages.slice();
-  if (s.generating) {
-    items.push({ role: 'Assistant', body: s.live, tool: '', mono: false, failed: false, when: '' });
-  }
-  if (items.length === 0) {
-    // A chat with nothing in it says what to do next.
-    var blank = document.createElement('div');
-    blank.className = 'blank';
-    blank.textContent = 'Nothing written yet. Write below and press Enter. '
-      + 'A chat with nothing in it goes away when you turn the carousel.';
-    box.appendChild(blank);
-    return;
-  }
-  for (var n = 0; n < items.length; n++) { box.appendChild(node(items[n])); }
-  if (near || s.generating) { box.scrollTop = box.scrollHeight; }
-}
-
-// One message. The text is set as text, so a model cannot put HTML in the page.
-function node(m) {
-  var wrap = document.createElement('div');
-  wrap.className = 'msg ' + m.role.toLowerCase() + (m.failed ? ' bad' : '');
-  var head = document.createElement('div');
-  head.className = 'head';
-  head.textContent = (m.role === 'Assistant' ? 'Model' : m.role) + (m.when ? ' - ' + m.when : '');
-  var body = document.createElement('div');
-  body.className = 'body' + (m.mono ? ' mono' : '');
-  body.textContent = m.body;
-  wrap.appendChild(head);
-  wrap.appendChild(body);
-  if (m.tool) {
-    var out = document.createElement('pre');
-    out.textContent = m.tool;
-    wrap.appendChild(out);
-  }
-  return wrap;
-}
-
-function send() {
-  var text = el.draft.value.trim();
-  if (!text) { return; }
-  el.draft.value = '';
-  post('/api/send', { text: text });
-}
-
-el.send.addEventListener('click', send);
-el.stop.addEventListener('click', function () { post('/api/cancel'); });
-el.newchat.addEventListener('click', function () { post('/api/new_chat'); });
-// The two sides of the window turn the carousel.
-el.zoneL.addEventListener('click', function () { roll(-1); });
-el.zoneR.addEventListener('click', function () { roll(1); });
-el.turnL.addEventListener('click', function () { roll(-1); });
-el.turnR.addEventListener('click', function () { roll(1); });
-// A new window size changes the width of the cards.
-window.addEventListener('resize', function () { if (cur) { drawChats(cur); } });
-el.model.addEventListener('change', function (e) { post('/api/select_model', { id: e.target.value }); });
-el.repo.addEventListener('change', function (e) { post('/api/select_repository', { id: e.target.value }); });
-el.newrepo.addEventListener('click', function () {
-  var name = window.prompt('Name of the new repository');
-  if (name && name.trim()) { post('/api/create_repository', { name: name.trim() }); }
-});
-el.code.addEventListener('click', function () { if (cur) { post('/api/code', { on: !cur.code }); } });
-el.sandbox.addEventListener('click', function () { if (cur) { post('/api/sandbox', { on: !cur.sandbox }); } });
-el.dark.addEventListener('change', function (e) { post('/api/dark', { on: e.target.checked }); });
-el.settingsbtn.addEventListener('click', function () { el.panel.classList.toggle('hidden'); });
-el.chatsbtn.addEventListener('click', function () { showRow(true); });
-
-el.draft.addEventListener('keydown', function (e) {
-  // While the row of previews is up, the row takes every key.
-  if (ov.on) { return; }
-  if (e.key === 'Enter' && !e.shiftKey && !touch) {
-    e.preventDefault();
-    send();
-  } else if (e.key === 'Escape') {
-    post('/api/cancel');
-  }
-});
-
 // --------------------------------------------------------------------
-// The first screen, and the row of small previews.
+// The row of small previews.
 //
-// With no chat open, the chat box stands in the middle of the page, under the
-// mark and a line for this hour. The first message opens a chat: the chat grows
-// from the top down, and the box goes back to the bottom. The Alt key or the
-// "Show chats" button turns the chats into a row of small previews. A click on a
-// preview opens that chat. The arrows, A and D, a drag, a flick and the wheel
-// move along the row.
+// The Alt key or the button turns the chats into a row of small previews in the
+// middle of the stage. One click on a preview opens that chat. The arrows, A and
+// D, a drag, a flick and the wheel move along the row. A count of the chats
+// stands above the row, and a line of keys stands under it.
 // --------------------------------------------------------------------
-
-// A page that is asked for few moves keeps the row and the chat box still.
-var reduce = !!(window.matchMedia
-  && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
 // The state of the row. The place of every preview is worked out from these
 // numbers on every frame, so nothing is built again while the row moves.
@@ -624,6 +1084,14 @@ function chatIndex() { return cur && cur.carousel ? cur.carousel.index : 0; }
 // Keeps a chat number inside the list of this place.
 function keepInside(value) { return Math.max(0, Math.min(chatCount() - 1, value)); }
 
+// The line above the row: how many chats this place holds, and where they are.
+function rowCount(s) {
+  el.pcount.textContent = s.chats.length === 0
+    ? 'This place holds no chat yet'
+    : s.chats.length + ' ' + (s.chats.length === 1 ? 'chat' : 'chats') + ' in '
+      + (s.repository.id ? s.repository.name : 'the loose chats of this machine');
+}
+
 // Width of one preview, and the step from one preview to the next.
 function prevWidth() {
   var width = el.stage.clientWidth || 640;
@@ -643,18 +1111,14 @@ function buildPreviews(centre) {
   el.previews.dataset.key = key;
   el.previews.innerHTML = '';
   for (var n = start; n < stop; n++) {
-    var card = document.createElement('div');
-    card.className = 'prev';
+    var card = make('div', 'prev');
     card.dataset.n = n;
     card.dataset.id = cur.chats[n].id;
-    var title = document.createElement('div');
-    title.className = 'pt';
+    var title = make('div', 'pt');
     title.textContent = cur.chats[n].title;
-    var line = document.createElement('div');
-    line.className = 'pp';
+    var line = make('div', 'pp');
     line.textContent = cur.chats[n].preview;
-    var when = document.createElement('div');
-    when.className = 'pw';
+    var when = make('div', 'pw');
     when.textContent = cur.chats[n].when;
     card.appendChild(title);
     card.appendChild(line);
@@ -734,6 +1198,7 @@ function showRow(on) {
   ov.open = reduce ? 1 : 0;
   ov.drag = false;
   ov.pressed = -1;
+  if (cur) { rowCount(cur); }
   buildPreviews(ov.pos);
   placePreviews();
   runRow();
@@ -831,12 +1296,19 @@ document.addEventListener('keydown', function (event) {
   if (event.key !== 'Tab') { event.preventDefault(); }
 });
 
+// --------------------------------------------------------------------
+// The first screen, and the chat box.
+//
+// With no chat open, the chat box stands in the middle of the page, under the
+// mark and a line for this hour. The first message opens a chat, and the box
+// goes back to the bottom of the window.
+// --------------------------------------------------------------------
+
 // Move the chat box between the middle of the page and the bottom without a
 // jump. The place before the change is kept, and the box is slid from there to
 // the place it has now.
 function slidePart(part, change) {
-  if (!part) { change(); return; }
-  if (reduce) { change(); return; }
+  if (!part || reduce) { change(); return; }
   var before = part.getBoundingClientRect();
   change();
   var after = part.getBoundingClientRect();
@@ -856,20 +1328,68 @@ function drawHome(s) {
   var was = document.body.classList.contains('home');
   el.greet.textContent = s.greeting || '';
   if (home === was) { return; }
-  // The chat box slides, and the mark and the line fade. A chat that the first
-  // message opens grows from the top down.
+  // The chat box slides into its new place. The mark and the line come with it.
   slidePart(composer, function () { document.body.classList.toggle('home', home); });
-  if (home) {
-    showRow(false);
-    return;
-  }
-  var index = s.carousel ? s.carousel.index : 0;
-  var cards = el.cards.children;
-  if (cards[index]) {
-    cards[index].classList.add('grow');
-    setTimeout(function () { cards[index].classList.remove('grow'); }, 620);
-  }
+  if (home) { showRow(false); }
 }
+
+// The box grows with the words, up to a height, and the round mark knows
+// whether there is anything to send.
+function grow() {
+  el.draft.style.height = 'auto';
+  el.draft.style.height = Math.min(el.draft.scrollHeight, window.innerHeight * 0.4) + 'px';
+  if (cur) {
+    var live = el.draft.value !== '' || !!cur.generating;
+    el.send.classList.toggle('live', live);
+  }
+  if (cur) { el.hint.textContent = hintFor(cur); }
+}
+
+function send() {
+  var text = el.draft.value.trim();
+  if (!text) { return; }
+  el.draft.value = '';
+  grow();
+  post('/api/send', { text: text });
+}
+
+el.send.addEventListener('click', function () {
+  if (cur && cur.generating) { post('/api/cancel'); return; }
+  send();
+});
+el.newchat.addEventListener('click', function () { post('/api/new_chat'); });
+// The two sides of the window turn the carousel.
+el.zoneL.addEventListener('click', function () { roll(-1); });
+el.zoneR.addEventListener('click', function () { roll(1); });
+el.turnL.addEventListener('click', function () { roll(-1); });
+el.turnR.addEventListener('click', function () { roll(1); });
+// A new window size changes the width of the cards and the shape of the bar.
+window.addEventListener('resize', function () { if (cur) { draw(cur); } });
+el.model.addEventListener('change', function (e) { post('/api/select_model', { id: e.target.value }); });
+el.repo.addEventListener('change', function (e) { post('/api/select_repository', { id: e.target.value }); });
+el.newrepo.addEventListener('click', function () {
+  var name = window.prompt('Name of the new repository');
+  if (name && name.trim()) { post('/api/create_repository', { name: name.trim() }); }
+});
+el.code.addEventListener('click', function () { if (cur) { post('/api/code', { on: !cur.code }); } });
+el.sandbox.addEventListener('click', function () { if (cur) { post('/api/sandbox', { on: !cur.sandbox }); } });
+el.dark.addEventListener('change', function (e) { post('/api/dark', { on: e.target.checked }); });
+el.settingsbtn.addEventListener('click', function () { el.panel.classList.toggle('hidden'); });
+el.chatsbtn.addEventListener('click', function () { showRow(true); });
+el.draft.addEventListener('input', grow);
+el.draft.addEventListener('focus', grow);
+el.draft.addEventListener('blur', function () { if (cur) { el.hint.textContent = hintFor(cur); } });
+
+el.draft.addEventListener('keydown', function (e) {
+  // While the row of previews is up, the row takes every key.
+  if (ov.on) { return; }
+  if (e.key === 'Enter' && !e.shiftKey && !touch) {
+    e.preventDefault();
+    send();
+  } else if (e.key === 'Escape') {
+    post('/api/cancel');
+  }
+});
 
 poll();
 </script>
