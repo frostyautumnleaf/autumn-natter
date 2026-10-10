@@ -297,6 +297,7 @@ fn draw_messages(ui: &Rc<Ui>, snap: &Snap) {
             id: text("live"),
             role: text("Assistant"),
             body: text(&snap.live_text),
+            cmd: SharedString::default(),
             tool: SharedString::default(),
             mono: false,
             failed: false,
@@ -337,10 +338,17 @@ fn blocks_model(body: &str) -> ModelRc<MarkdownBlock> {
 // One message as the window shows it.
 fn row_for(message: &store::Message, previous_tool: bool) -> MessageRow {
     let _ = previous_tool;
+    // The first line of a tool command stands in the head of the tool panel.
+    let cmd = if message.role == "Tool" {
+        message.body.lines().next().unwrap_or("").to_string()
+    } else {
+        String::new()
+    };
     MessageRow {
         id: text(&message.id),
         role: text(&message.role),
         body: text(&message.body),
+        cmd: text(&cmd),
         tool: text(&message.tool),
         mono: message.mono,
         failed: message.failed,

@@ -101,6 +101,35 @@ component MdBlock inherits Rectangle {
     // A command and its output use a font of fixed width, so a plain block of
     // such a message keeps that font too.
     in property <bool> mono: false;
+    // True for the last block of the live answer. Its words grow in over the
+    // words that stood before, so a new word fades in and never pops in.
+    in property <bool> tail: false;
+
+    // The light of the words. It stands at one when the words stand still. New
+    // words drop the light, and the light comes back, so the words that grow
+    // in are seen to grow in.
+    property <float> glow: 1;
+    Timer {
+        interval: 8ms;
+        triggered => {
+            self.running = false;
+            // A block that is born as the tail grows in from the start.
+            if (tail) { glow = 0; }
+        }
+    }
+    Timer {
+        interval: 16ms;
+        running: glow < 1;
+        triggered => { glow = Math.min(1.0, glow + 0.12); }
+    }
+    // The words of the block, read through one property, so the change of
+    // them can be seen. A changed callback names a property of its own, and
+    // not a member of a struct.
+    out property <string> content: md.content;
+    changed content => {
+        if (tail && glow >= 1) { glow = 0.55; }
+    }
+    opacity: glow;
 
     // The room the words take at each side, which differs per kind. The hidden
     // text and the words that are drawn must have the same width, or the height
@@ -113,6 +142,13 @@ component MdBlock inherits Rectangle {
     property <length> extra: md.kind == "code" ? 18px : 0px;
 
     // The width comes from the layout or the place this stands in.
+    //
+    // Slint has no rich text for words that arrive while the program runs. The
+    // markup of Slint (the StyledText part) only works on words that stand in
+    // the .slint file, and the marks of markdown would then show as angle
+    // brackets. The reader in src/markdown.rs therefore takes the marks out and
+    // leaves the words, so a bold word reads as a plain word and never as
+    // <b>word</b>.
     height: measure.preferred-height + extra;
 
     measure := Text {
@@ -219,8 +255,9 @@ component ThinkingPanel inherits Rectangle {
     in property <string> body;
     in property <bool> live: false;
 
-    // The width comes from the layout or the place this stands in.
-    height: body != "" ? thought.preferred-height + (live ? 26px : 22px) : 0px;
+    // The room of the head is a flat 26px, and the words of the thinking stand
+    // under it. The bottom gets 10px.
+    height: body != "" ? 26px + thought.preferred-height + 10px : 0px;
     border-radius: 10px;
     background: Theme.think-bg;
 
@@ -233,22 +270,26 @@ component ThinkingPanel inherits Rectangle {
         border-bottom-left-radius: 3px;
         background: Theme.accent-leaf;
     }
-    head := HorizontalLayout {
+    // The head stands at a place of its own. It is not a layout: a layout in a
+    // box takes the room that is left in the box, and when the box is short the
+    // middle of that room falls on top of the words below.
+    head-word := Text {
         x: 13px;
-        y: 8px;
-        spacing: 6px;
-        cross-axis-alignment: center;
-        Text {
-            text: "Thinking";
-            color: Theme.accent-leaf;
-            font-size: 11px;
-            font-weight: 600;
-        }
-        BusyMark {
-            visible: live;
-            width: 20px;
-            height: 8px;
-        }
+        y: 6px;
+        height: 18px;
+        text: "Thinking";
+        color: Theme.accent-leaf;
+        font-size: 11px;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
+    BusyMark {
+        x: head-word.x + head-word.preferred-width + 6px;
+        y: 11px;
+        width: 20px;
+        height: 8px;
+        running: live;
+        visible: live;
     }
     thought := Text {
         x: 13px;
@@ -261,68 +302,154 @@ component ThinkingPanel inherits Rectangle {
     }
 }
 
-// The output of one run of the terminal tool. The command itself stands in the
-// body of the message, and the output comes in this panel.
+// One run of the terminal tool. The head says which command runs, or has run,
+// and the fold mark at its right folds the body away. The body keeps the
+// command and the output under a thin rule of colour at its left.
 component ToolPanel inherits Rectangle {
+    // The command the model asked for. It may keep a line of its own for the
+    // reason, and that line stands in the body only.
+    in property <string> command;
+    // The first line of the command, for the head of the panel.
+    in property <string> cmd;
+    // The output of the run, or the words that say the run is going.
     in property <string> output;
     in property <bool> running: false;
     in property <bool> failed: false;
+    // The body stands under the head, and the head can fold it away.
+    in-out property <bool> open: true;
 
-    // The width comes from the layout or the place this stands in.
-    height: out-text.preferred-height + 40px;
+    // The width comes from the layout or the place this stands in. The body
+    // keeps 7px above its words and 30px below them. The measured height of
+    // the words holds no room for the descenders of the last line, and the
+    // body of the panel fills to the bottom, so the room below the words must
+    // hold the descenders and the gap to the edge.
+    height: 30px + (open ? 37px + body-space.preferred-height : 0px);
     border-radius: 10px;
     border-width: failed ? 1px : 0px;
     border-color: Theme.danger;
     background: Theme.code-bg;
 
-    head := Rectangle {
-        x: 0px;
+    // The mark of the state: the running mark while the run goes, the terminal
+    // mark when it has run.
+    Image {
+        source: @image-url("../assets/icons/terminal.svg");
+        colorize: failed ? Theme.danger : Theme.text-dim;
+        width: 13px;
+        height: 13px;
+        x: 12px;
+        y: 9px;
+        visible: !running;
+    }
+    BusyMark {
+        x: 12px;
+        y: 11px;
+        width: 20px;
+        height: 8px;
+        running: running;
+        visible: running;
+    }
+    // The command stands in the head, so the run can be read at a glance. The
+    // words that do not fit are left out at the right.
+    head-word := Text {
+        x: 36px;
         y: 0px;
-        width: parent.width;
-        height: 24px;
-        border-top-left-radius: 10px;
-        border-top-right-radius: 10px;
-        background: Theme.code-head;
+        height: 30px;
+        width: parent.width - 36px - 30px;
+        text: (running ? "Using tool: " : "Used tool: ") + cmd;
+        color: failed ? Theme.danger : Theme.text;
+        font-size: 12px;
+        font-weight: 600;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    // The fold mark. It points down while the body stands, and to the right
+    // while the body is folded away.
+    fold-area := Rectangle {
+        x: parent.width - 28px;
+        y: 4px;
+        width: 22px;
+        height: 22px;
 
         Image {
-            source: @image-url("../assets/icons/terminal.svg");
-            colorize: failed ? Theme.danger : Theme.text-dim;
-            width: 13px;
-            height: 13px;
-            x: 11px;
-            y: 6px;
+            source: @image-url("../assets/icons/chevron-down.svg");
+            colorize: Theme.text-dim;
+            width: 12px;
+            height: 12px;
+            x: 5px;
+            y: 5px;
+            visible: open;
         }
-        Text {
-            x: 30px;
-            y: 0px;
-            text: "Terminal";
-            color: failed ? Theme.danger : Theme.text-dim;
-            font-size: 11px;
-            font-weight: 600;
-            vertical-alignment: center;
+        Image {
+            source: @image-url("../assets/icons/right.svg");
+            colorize: Theme.text-dim;
+            width: 12px;
+            height: 12px;
+            x: 5px;
+            y: 5px;
+            visible: !open;
         }
-        // A run that has not finished says so at the right of the panel.
-        Text {
-            visible: running;
-            x: parent.width - 120px;
-            y: 0px;
-            width: 108px;
-            text: "running ...";
-            color: Theme.text-dim;
-            font-size: 11px;
-            horizontal-alignment: right;
-            vertical-alignment: center;
+        TouchArea {
+            width: parent.width;
+            height: parent.height;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.open = !root.open; }
         }
     }
-    out-text := Text {
-        x: 12px;
+
+    // The body. It stands under the head, and a thin rule of colour runs down
+    // its left. The words of the command and the words of the output stand
+    // under their own small labels.
+    body := Rectangle {
+        x: 0px;
         y: 30px;
-        width: parent.width - 24px;
-        text: output;
-        color: failed ? Theme.danger : Theme.text-dim;
-        font-size: 12px;
-        font-family: "monospace";
-        wrap: word-wrap;
+        width: parent.width;
+        height: parent.height - 30px;
+        visible: open;
+        border-bottom-left-radius: 10px;
+        border-bottom-right-radius: 10px;
+
+        rail := Rectangle {
+            x: 11px;
+            y: 9px;
+            width: 2px;
+            height: parent.height - 18px;
+            border-radius: 1px;
+            background: Theme.line-strong;
+        }
+        body-space := VerticalLayout {
+            x: 24px;
+            y: 7px;
+            width: parent.width - 38px;
+            spacing: 2px;
+
+            Text {
+                text: "command";
+                color: Theme.text-dim;
+                font-size: 11px;
+            }
+            Text {
+                text: command;
+                color: Theme.text;
+                font-size: 12px;
+                font-family: "monospace";
+                wrap: word-wrap;
+            }
+            Rectangle {
+                height: 4px;
+            }
+            Text {
+                text: "output";
+                color: Theme.text-dim;
+                font-size: 11px;
+            }
+            Text {
+                text: output;
+                color: running ? Theme.text-dim : (failed ? Theme.danger : Theme.text);
+                font-size: 12px;
+                font-family: "monospace";
+                wrap: word-wrap;
+            }
+        }
     }
 }
 
@@ -339,102 +466,74 @@ component GhostChat inherits Rectangle {
     // is the part that shows.
     in property <bool> on-left: false;
 
-    // The title, held against the edge that faces the middle.
-    Rectangle {
-        x: 14px;
-        y: 14px;
-        width: parent.width - 28px;
-        height: 17px;
+    // Only a strip of this card is ever seen, about 60px of it, and the strip
+    // lies at the edge that faces the middle of the window. Everything that
+    // carries meaning therefore stands at that edge: the time of the chat, and
+    // the pale bars that stand for its bubbles.
+    //
+    // The title and the first words are left out on purpose. The card is placed
+    // mostly outside the window, so a title in the strip shows only the letters
+    // that happen to fall inside it, such as "logue". That reads as a fault of
+    // the program, and it says nothing the top bar does not say already.
 
-        Text {
-            x: 0px;
-            y: 0px;
-            width: parent.width;
-            text: chat.title;
-            color: Theme.text;
-            font-size: 13px;
-            font-weight: 600;
-            overflow: elide;
-            horizontal-alignment: on-left ? right : left;
-        }
-        // The same words a hair to the right and down, which softens the edges.
-        Text {
-            x: 1px;
-            y: 1px;
-            width: parent.width;
-            text: chat.title;
-            color: Theme.text;
-            font-size: 13px;
-            font-weight: 600;
-            overflow: elide;
-            horizontal-alignment: on-left ? right : left;
-            opacity: 0.4;
-        }
+    // Room the words and the bars have at the inner edge.
+    property <length> margin: 14px;
+    property <length> room: 52px;
+    // A function can name neither parent nor a property that reads parent, so
+    // it works from the width of this card, which the caller sets to the width
+    // of the place it stands in.
+    in property <length> card-width: 0px;
+    // The x of a band of this width that stands at the inner edge.
+    function edge(band: length) -> length {
+        return on-left ? card-width - margin - band : margin;
     }
 
-    // Two lines of the newest message, kept short on purpose.
-    Rectangle {
-        x: 14px;
-        y: 40px;
-        width: parent.width - 28px;
-        height: 44px;
-
-        Text {
-            x: 0px;
-            y: 0px;
-            width: parent.width;
-            text: chat.preview;
-            color: Theme.text-dim;
-            font-size: 12px;
-            wrap: word-wrap;
-            overflow: elide;
-            horizontal-alignment: on-left ? right : left;
-            vertical-alignment: top;
-        }
-        Text {
-            x: 1px;
-            y: 1px;
-            width: parent.width;
-            text: chat.preview;
-            color: Theme.text-dim;
-            font-size: 12px;
-            wrap: word-wrap;
-            overflow: elide;
-            horizontal-alignment: on-left ? right : left;
-            vertical-alignment: top;
-            opacity: 0.4;
-        }
+    // The time of the chat, at the inner edge, above the bars.
+    Text {
+        x: edge(room);
+        y: parent.height - 196px;
+        width: room;
+        text: chat.when;
+        color: Theme.text-dim;
+        font-size: 11px;
+        horizontal-alignment: on-left ? right : left;
+        // The words of a time are short, but a long one is cut rather than
+        // broken, since a broken word at the edge looks like a fault.
+        overflow: elide;
+        opacity: 0.9;
     }
 
-    // Three pale bars, where the bubbles of that chat stand.
+    // Three pale bars of the sort a chat is made of: an answer, a question,
+    // an answer. They stand at the inner edge, so the strip shows the part of
+    // a chat that a reader would see first when the carousel turns.
     Rectangle {
+        x: edge(52px);
         y: parent.height - 156px;
-        x: 14px;
-        width: parent.width * 0.62;
+        width: 52px;
         height: 46px;
         border-radius: 12px;
         background: Theme.bubble-ai;
     }
     Rectangle {
+        x: edge(40px);
         y: parent.height - 100px;
-        x: parent.width * 0.32;
-        width: parent.width * 0.54;
+        width: 40px;
         height: 34px;
         border-radius: 12px;
         background: Theme.bubble-user;
     }
     Rectangle {
+        x: edge(58px);
         y: parent.height - 56px;
-        x: 14px;
-        width: parent.width * 0.72;
+        width: 58px;
         height: 22px;
         border-radius: 10px;
         background: Theme.bubble-ai;
     }
     Rectangle {
+        x: edge(34px);
         y: parent.height - 24px;
-        x: 14px;
-        width: parent.width * 0.38;
+        width: 34px;
         height: 12px;
         border-radius: 6px;
         background: Theme.line;
@@ -535,11 +634,30 @@ component MessageList inherits Rectangle {
         // program draws a thin one at the right of the list.
         vertical-scrollbar-policy: always-off;
 
-        for msg in messages: Rectangle {
+        for msg[index] in messages: Rectangle {
             width: list.width;
+            // The height of a row is the height of its bubble. The measure must
+            // not go through bubble.preferred-height: the list measures a row in
+            // a copy of itself that is never laid out, and in that copy the
+            // preferred height of a box is nothing, while the preferred height
+            // of the layout inside it is right. talk below therefore stands at
+            // the height of the bubble, not at its preferred height.
             height: msg.role == "Note"
                 ? note.preferred-height + 22px
                 : talk.height + 18px;
+
+            // A new message grows in, so a word never pops in from nothing.
+            // The row at the end of the list is the row that came in last.
+            property <float> appear: index == messages.length - 1 ? 0 : 1;
+            Timer {
+                interval: 8ms;
+                triggered => {
+                    self.running = false;
+                    if (appear < 1) { appear = 1; }
+                }
+            }
+            opacity: appear;
+            animate opacity { duration: 220ms; }
 
             // A note from the program stands on its own, in the middle, with no
             // bubble around it.
@@ -547,7 +665,7 @@ component MessageList inherits Rectangle {
                 visible: msg.role == "Note";
                 x: 34px;
                 y: 8px;
-                width: parent.width - 68px;
+                width: list.width - 68px;
                 text: msg.body;
                 color: msg.failed ? Theme.danger : Theme.text-dim;
                 font-size: 12px;
@@ -555,22 +673,29 @@ component MessageList inherits Rectangle {
                 horizontal-alignment: center;
             }
 
+            // The widths below stand on list.width, the name of the list, and
+            // not on parent.width. The list measures the height of every row in
+            // a copy of the row that stands on its own, and in that copy the
+            // chain of parents gives no width at all. With parent.width the
+            // words were measured at a width of nothing, so every row came out
+            // as high as its spacing and the rows stood on top of each other.
             talk := Rectangle {
                 visible: msg.role != "Note";
                 x: 0px;
                 y: 6px;
-                width: parent.width;
-                height: bubble.preferred-height;
+                width: list.width;
+                height: bubble.height;
 
+                // The words of the user stand in a bubble of their own colour.
+                // The words of the model stand on the card without a bubble,
+                // because the bubble of the user is the mark of the user.
                 bubble := Rectangle {
-                    x: msg.role == "You" ? (parent.width - self.width) : 0px;
-                    width: parent.width * (msg.role == "You" ? 0.55 : 0.75);
+                    x: msg.role == "You" ? (list.width - self.width) : 0px;
+                    width: list.width * (msg.role == "You" ? 0.55 : 0.75);
                     height: inner.preferred-height + 24px;
-                    border-width: 1px;
-                    border-color: msg.failed
-                        ? Theme.danger
-                        : (msg.role == "You" ? Theme.bubble-user-line : Theme.bubble-ai-line);
-                    background: msg.role == "You" ? Theme.bubble-user : Theme.bubble-ai;
+                    border-width: msg.role == "You" ? 1px : 0px;
+                    border-color: Theme.bubble-user-line;
+                    background: msg.role == "You" ? Theme.bubble-user : transparent;
                     // The top corner that looks inwards is cut less than the
                     // others, which shows at a glance who spoke.
                     border-top-left-radius: msg.role == "You" ? 14px : 4px;
@@ -579,21 +704,11 @@ component MessageList inherits Rectangle {
                     border-bottom-right-radius: 14px;
 
                     inner := VerticalLayout {
-                        x: 14px;
-                        y: 12px;
-                        width: parent.width - 28px;
-                        height: parent.height - 24px;
+                        x: msg.role == "You" ? 14px : 0px;
+                        y: msg.role == "You" ? 12px : 0px;
+                        width: parent.width - (msg.role == "You" ? 28px : 0px);
+                        height: parent.height - (msg.role == "You" ? 24px : 0px);
                         spacing: 8px;
-
-                        // Who is speaking. The words of the user need no label,
-                        // because their bubble has its own colour and side. A
-                        // tool run is labelled by the head of its own panel.
-                        if msg.role == "Assistant": Text {
-                            text: "Assistant";
-                            color: Theme.accent-leaf;
-                            font-size: 11px;
-                            font-weight: 600;
-                        }
 
                         // The words of the user.
                         if msg.role == "You": Rectangle {
@@ -616,9 +731,10 @@ component MessageList inherits Rectangle {
                             live: root.generating && msg.role == "Assistant";
                         }
 
-                        // The answer of the model, and the command of a tool
-                        // run, which stands in a font of fixed width.
-                        if msg.role != "You": Rectangle {
+                        // The answer of the model. The last block of the live
+                        // answer is the tail, and its words grow in over the
+                        // words that stood before.
+                        if msg.role == "Assistant": Rectangle {
                             width: parent.width;
                             height: ai-blocks.preferred-height;
                             ai-blocks := VerticalLayout {
@@ -626,17 +742,22 @@ component MessageList inherits Rectangle {
                                 y: 0px;
                                 width: parent.width;
                                 spacing: 6px;
-                                for block in msg.blocks: MdBlock {
+                                for block[bindex] in msg.blocks: MdBlock {
                                     md: block;
-                                    mono: msg.role == "Tool";
                                     ink: msg.failed ? Theme.danger : Theme.text;
+                                    tail: bindex == msg.blocks.length - 1
+                                        && root.generating;
                                 }
                             }
                         }
 
-                        // The output of one run of the terminal tool. A run that
-                        // has no output yet keeps the panel, so the wait shows.
+                        // One run of the terminal tool. The head of the panel
+                        // says which command runs, or has run, and the body
+                        // keeps the command and the output. A run that has no
+                        // output yet keeps the panel, so the wait shows.
                         if msg.role == "Tool" && msg.tool != "": ToolPanel {
+                            command: msg.body;
+                            cmd: msg.cmd;
                             output: msg.tool;
                             running: msg.tool == "running ...";
                             failed: msg.failed;
@@ -657,7 +778,7 @@ component MessageList inherits Rectangle {
                         ? 4px
                         : bubble.x + bubble.width + 14px;
                     y: 2px;
-                    width: parent.width - bubble.width - 22px;
+                    width: list.width - bubble.width - 22px;
                     text: msg.when;
                     color: Theme.text-dim;
                     font-size: 11px;
@@ -671,14 +792,31 @@ component MessageList inherits Rectangle {
 
     // Keep the newest message in view. The list has no scroll-to function, so
     // the place of the content is set by hand.
-    changed message-rev => {
+    function to-end() {
         list.content-y = Math.min(0px, list.height - list.content-height);
     }
-    // An answer grows while it is written, so the view follows the growth.
+    changed message-rev => {
+        stick = true;
+        root.to-end();
+    }
+    // The place the list wants at the end of the words.
+    property <length> end-y: Math.min(0px, list.height - list.content-height);
+    // True while the view shows the end of the list. A scroll with the wheel
+    // turns it off, so a reader who went back is not pulled forward again.
+    property <bool> stick: true;
+    property <length> seen-y: list.content-y;
+    changed seen-y => {
+        stick = list.content-y > root.end-y - 30px;
+    }
+    // A bubble is measured twice: the first measure stands on a width that is
+    // not the width it ends up with, so the height of the words moves after
+    // the view has been placed. The view follows that move, or the newest
+    // message is left above a gap and the top of the list is cut in the middle
+    // of a bubble.
     property <length> follow: list.content-height;
     changed follow => {
-        if (root.generating) {
-            list.content-y = Math.min(0px, list.height - list.content-height);
+        if (stick || root.generating) {
+            root.to-end();
         }
     }
 
@@ -820,10 +958,12 @@ export component App inherits Window {
     out property <length> card-x: inset + peek;
     out property <length> card-width: Math.max(280px, root.width - 2 * (inset + peek));
     out property <length> stage-top: bar-height + 12px;
-    // The chat box stands in the middle of the window at home, and at the
-    // bottom of the window when a chat is open.
+    // At home the mark, the greeting and the box stand as one group, and the
+    // group sits in the middle of the room below the top bar. The greeting
+    // block keeps 178px above the box. With a chat open the box stands at the
+    // bottom of the window.
     out property <length> dock-y: home
-        ? (root.height - dock-height) / 2 + 26px
+        ? bar-height + 178px + (root.height - bar-height - 178px - dock-height) / 2
         : root.height - dock-height - 14px;
     out property <length> stage-height: Math.max(0px, dock-y - stage-top - 12px);
     out property <bool> can-roll-left: chat-index > 0;
@@ -836,7 +976,7 @@ export component App inherits Window {
     out property <bool> can-send: draft-text != "";
 
     // Room that the top bar spends on things other than the two selector boxes.
-    out property <length> bar-fixed: 24px + 50px + (tight ? 72px : 116px)
+    out property <length> bar-fixed: 24px + 50px + (tight ? 84px : 118px)
         + (tight ? 0px : 168px) + (tight ? 26px : 140px);
     out property <length> chip-room: Math.max(180px, root.width - bar-fixed);
     out property <length> model-cap: Math.min(tight ? 190px : 320px, chip-room * 0.56);
@@ -1250,9 +1390,10 @@ export component App inherits Window {
                         horizontal-stretch: 1;
                         min-width: 0px;
                     }
-                    Pill {
+                    // A model without a kind takes no room: a layout keeps the
+                    // place of an item that is not shown.
+                    if model-kind != "": Pill {
                         text: model-kind;
-                        visible: model-kind != "";
                     }
                     Image {
                         source: @image-url("../assets/icons/chevron-down.svg");
@@ -1361,9 +1502,10 @@ export component App inherits Window {
             // Repository selector. It shows which place the carousel belongs
             // to. The box follows the longest repository name, as the model box
             // follows the longest model name.
-            repo-btn := Rectangle {
+            // The box stands behind an if, because a layout keeps the room of
+            // an item that is not shown, and a loose chat has no place to show.
+            if in-repository: Rectangle {
                 height: 34px;
-                visible: in-repository;
                 width: Math.min(root.repo-cap, Math.max(104px, repo-measure.preferred-width + 66px));
                 horizontal-stretch: 0;
                 border-radius: 9px;
@@ -1531,7 +1673,7 @@ export component App inherits Window {
             // between them. They stand together in one box, so it is clear that
             // they belong to the carousel and not to the bar.
             Rectangle {
-                width: root.tight ? 66px : 118px;
+                width: root.tight ? 84px : 118px;
                 height: 34px;
                 horizontal-stretch: 0;
                 border-radius: 9px;
@@ -1550,12 +1692,17 @@ export component App inherits Window {
                     enabled: can-roll-left;
                     clicked => { root.roll-chat(-1); }
                 }
+                // A narrow window has room for the number alone, since the two
+                // arrows take most of the box.
                 Text {
-                    x: 30px;
+                    x: 28px;
                     y: 0px;
-                    width: parent.width - 62px;
+                    width: parent.width - 56px;
                     text: (chat-index > 0 || chats.length > 1)
-                        ? "\{chat-index + 1} of \{chats.length}" : "";
+                        ? (root.tight
+                            ? "\{chat-index + 1}"
+                            : "\{chat-index + 1} of \{chats.length}")
+                        : "";
                     height: parent.height;
                     color: Theme.text-dim;
                     font-size: 12px;
@@ -1658,7 +1805,10 @@ export component App inherits Window {
             clip: true;
             border-radius: 16px;
             border-width: 1px;
-            border-color: c.active ? Theme.accent-strong : Theme.line;
+            // The card in use stands with a firmer hairline than its
+            // neighbours, which are pale as well. The colour of the accent is
+            // left to the words and the marks, so the card stays quiet.
+            border-color: c.active ? Theme.line-strong : Theme.line;
             background: Theme.surface;
             // A neighbour chat is pale, so it stays out of the way.
             opacity: c.active ? 1 : 0.4;
@@ -1681,6 +1831,9 @@ export component App inherits Window {
                 height: parent.height;
                 chat: c;
                 on-left: index < chat-index;
+                // The card gives its width to the part that works out where the
+                // inner edge is.
+                card-width: self.width;
             }
         }
 
@@ -1998,22 +2151,22 @@ export component App inherits Window {
                         horizontal-stretch: 1;
                         min-width: 0px;
                     }
-                    // The keys that matter are written next to the box. A
-                    // narrow window drops the line, so nothing is crowded.
-                    Text {
-                        visible: !root.generating && !root.tight;
-                        text: "Alt shows the chats";
+                    // One line of keys next to the box. It says what the box
+                    // needs at this moment: the keys to send while the box is
+                    // empty and holds the keys, Escape while an answer comes,
+                    // and Alt the rest of the time. A narrow window drops the
+                    // line. It stands behind an if, because a layout keeps the
+                    // room of an item that is not shown, and that room was the
+                    // whole width of this row.
+                    if !root.tight: Text {
+                        text: root.generating
+                            ? "Escape stops the answer"
+                            : (draft.has-focus && root.draft-text == "")
+                                ? "Enter sends. Shift and Enter starts a new line."
+                                : "Alt shows the chats";
                         color: Theme.text-dim;
                         font-size: 11px;
                         opacity: 0.8;
-                        vertical-alignment: center;
-                        horizontal-stretch: 0;
-                    }
-                    Text {
-                        visible: root.generating;
-                        text: "Escape stops the answer";
-                        color: Theme.text-dim;
-                        font-size: 11px;
                         vertical-alignment: center;
                         horizontal-stretch: 0;
                     }
@@ -2026,7 +2179,10 @@ export component App inherits Window {
                     x: parent.width - 150px;
                     y: 3px;
                     height: 26px;
-                    width: new-lbl.preferred-width + 32px;
+                    // The mark stands 10px from the left edge, the words stand
+                    // 4px behind the mark, and 10px of room keeps the words
+                    // away from the right edge.
+                    width: new-lbl.preferred-width + 37px;
                     border-radius: 13px;
                     border-width: 1px;
                     border-color: Theme.line;
@@ -2045,7 +2201,7 @@ export component App inherits Window {
                         color: Theme.accent-strong;
                         font-size: 12px;
                         x: 27px;
-                        y: 0px;
+                        y: (parent.height - self.preferred-height) / 2;
                         vertical-alignment: center;
                     }
                     new-area := TouchArea {
@@ -2151,9 +2307,11 @@ export component App inherits Window {
                     }
                 }
 
-                // The hint. A text box has no hint of its own. It stays while
-                // the box is empty, even when the box holds the keys, so the
-                // box never looks like a blank hole.
+                // The hint. A text box has no hint of its own. It shows while
+                // the box is empty and has not got the keys. Once the box holds
+                // the keys, the caret stands on the first letter of the hint,
+                // which reads as a broken letter, so the hint goes away and the
+                // line above the box takes its words instead.
                 Text {
                     x: 16px;
                     y: 14px;
@@ -2164,7 +2322,7 @@ export component App inherits Window {
                     color: Theme.text-dim;
                     font-size: 13.5px;
                     wrap: word-wrap;
-                    visible: root.draft-text == "";
+                    visible: root.draft-text == "" && !draft.has-focus;
                 }
 
                 // Badges in the lower left corner of the box.

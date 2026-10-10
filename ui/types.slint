@@ -38,6 +38,9 @@ export struct MessageRow {
     id: string,
     role: string,
     body: string,
+    // The first line of the command, for the head of the tool panel. It is
+    // empty for a message that is not a tool run.
+    cmd: string,
     tool: string,
     mono: bool,
     failed: bool,
