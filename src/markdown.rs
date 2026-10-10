@@ -1,6 +1,12 @@
 // Convert markdown text into blocks that the Slint UI can render.
-// Slint's Text element supports inline HTML: <b>, <i>, <u>, <s>, <font>, <a>.
-// Block-level elements (code, headings, lists) become separate blocks.
+// Block-level parts (code, headings, lists) become separate blocks.
+//
+// The words inside a block stay plain. Slint has no rich text for words that
+// arrive while the program runs, because its own markup works only on words that
+// stand in a .slint file. The marks are therefore taken out here and only the
+// words are kept, so a bold word reads as a plain word and never as <b> and
+// </b> around it. The address of a link stands after the words of the link,
+// which is how plain text shows an address.
 
 /// One block of rendered markdown.
 #[derive(Debug, Clone, Default)]
@@ -24,6 +30,8 @@ pub fn parse(markdown: &str) -> Vec<Block> {
     let mut in_list = false;
     let mut list_items: Vec<String> = Vec::new();
     let mut current_item = String::new();
+    // The address of the link that is being read.
+    let mut link_url = String::new();
 
     fn flush_text(blocks: &mut Vec<Block>, text: &mut String) {
         let trimmed = text.trim();
@@ -111,12 +119,14 @@ pub fn parse(markdown: &str) -> Vec<Block> {
                 }
             }
             pulldown_cmark::Event::Code(text) => {
+                // An inline piece of code keeps its words and loses the marks
+                // around them.
                 if in_code {
                     code_content.push_str(&text);
+                } else if in_list {
+                    current_item.push_str(&text);
                 } else {
-                    current_text.push_str("<b>");
-                    current_text.push_str(&escape_html(&text));
-                    current_text.push_str("</b>");
+                    current_text.push_str(&text);
                 }
             }
             pulldown_cmark::Event::SoftBreak | pulldown_cmark::Event::HardBreak => {
@@ -128,61 +138,34 @@ pub fn parse(markdown: &str) -> Vec<Block> {
                     current_text.push('\n');
                 }
             }
-            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Emphasis) => {
-                if !in_code {
-                    if in_list {
-                        current_item.push_str("<i>");
-                    } else {
-                        current_text.push_str("<i>");
-                    }
-                }
-            }
-            pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Emphasis) => {
-                if !in_code {
-                    if in_list {
-                        current_item.push_str("</i>");
-                    } else {
-                        current_text.push_str("</i>");
-                    }
-                }
-            }
-            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Strong) => {
-                if !in_code {
-                    if in_list {
-                        current_item.push_str("<b>");
-                    } else {
-                        current_text.push_str("<b>");
-                    }
-                }
-            }
-            pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Strong) => {
-                if !in_code {
-                    if in_list {
-                        current_item.push_str("</b>");
-                    } else {
-                        current_text.push_str("</b>");
-                    }
-                }
-            }
+            // An italic word or a bold word keeps its words and loses its marks.
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Emphasis)
+            | pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Emphasis)
+            | pulldown_cmark::Event::Start(pulldown_cmark::Tag::Strong)
+            | pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Strong) => {}
+            // HTML inside the words is dropped, so no tag can reach the window.
+            pulldown_cmark::Event::Html(_) | pulldown_cmark::Event::InlineHtml(_) => {}
+            // A link gives its words where they fall. Its address follows them,
+            // so the address can be read and typed in.
             pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link { dest_url, .. }) => {
-                if !in_code {
-                    let url = dest_url.to_string();
-                    let tag = format!("<a href=\"{}\">", escape_html(&url));
+                link_url = dest_url.to_string();
+            }
+            pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Link) => {
+                let url = link_url.trim().to_string();
+                if !url.is_empty() {
                     if in_list {
-                        current_item.push_str(&tag);
-                    } else {
-                        current_text.push_str(&tag);
+                        if !current_item.ends_with(&url) {
+                            current_item.push_str(" (");
+                            current_item.push_str(&url);
+                            current_item.push(')');
+                        }
+                    } else if !current_text.ends_with(&url) {
+                        current_text.push_str(" (");
+                        current_text.push_str(&url);
+                        current_text.push(')');
                     }
                 }
-            }
-            pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Link)
-                if !in_code =>
-            {
-                if in_list {
-                    current_item.push_str("</a>");
-                } else {
-                    current_text.push_str("</a>");
-                }
+                link_url.clear();
             }
             _ => {}
         }
@@ -204,14 +187,6 @@ pub fn parse(markdown: &str) -> Vec<Block> {
     }
 
     blocks
-}
-
-/// Escape HTML special characters for safe inclusion in Slint markup.
-fn escape_html(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +257,56 @@ pub fn analyze_template(template: &str) -> ThinkingOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The words of the first text block of a one-block answer.
+    fn words(markdown: &str) -> String {
+        let blocks = parse(markdown);
+        assert_eq!(blocks.len(), 1, "one block was expected for: {markdown}");
+        blocks[0].content.clone()
+    }
+
+    #[test]
+    fn bold_and_italic_words_keep_their_words() {
+        assert_eq!(
+            words("Take the **Wellington boots** and a *bag* for the litter."),
+            "Take the Wellington boots and a bag for the litter."
+        );
+    }
+
+    #[test]
+    fn code_in_a_sentence_keeps_its_words() {
+        assert_eq!(words("Run `ls -l west-beds` first."), "Run ls -l west-beds first.");
+    }
+
+    #[test]
+    fn a_link_shows_its_address_after_the_words() {
+        assert_eq!(
+            words("Read [the field manual](https://example.com/manual) today."),
+            "Read the field manual (https://example.com/manual) today."
+        );
+    }
+
+    #[test]
+    fn a_link_of_only_an_address_shows_the_address_once() {
+        assert_eq!(words("See https://example.com/log for the run."), "See https://example.com/log for the run.");
+    }
+
+    #[test]
+    fn no_tag_reaches_the_window() {
+        let mixed = "# Head\n\nA **bold** word, a [link](https://example.com/a), and `code`.\n\n- one\n- two\n\n<b>raw</b> text\n";
+        for block in parse(mixed) {
+            assert!(
+                !block.content.contains('<') && !block.content.contains('>'),
+                "a tag reached the words: {}",
+                block.content
+            );
+            assert!(
+                !block.content.contains("**"),
+                "marks reached the words: {}",
+                block.content
+            );
+        }
+    }
 
     #[test]
     fn an_empty_template_has_no_modes() {
