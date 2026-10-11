@@ -15,6 +15,7 @@ mod gpu;
 mod llama;
 mod store;
 mod tools;
+mod ui;
 mod ui_app;
 mod upnp;
 mod util;

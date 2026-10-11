@@ -1,6 +1,6 @@
 // The engine. It owns the settings, the chats, the model list and the
-// llama-server process. The Slint window and the browser page both drive this
-// one engine, so both show the same thing.
+// llama-server process. The window and the browser page both drive this one
+// engine, so both show the same thing.
 //
 // One worker thread does all slow work: it starts the server, asks the model
 // and runs the terminal tool. A window only reads a snapshot of the state, so

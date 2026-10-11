@@ -201,7 +201,7 @@ fi
 if [ -x "$BIN" ] && [ "$FORCE_BUILD" = 0 ]; then
   # Check if any source file is newer than the binary.
   NEED_BUILD=0
-  if find src ui Cargo.toml build.rs -newer "$BIN" -print -quit 2>/dev/null | grep -q .; then
+  if find src Cargo.toml build.rs -newer "$BIN" -print -quit 2>/dev/null | grep -q .; then
     NEED_BUILD=1
   fi
   if [ "$NEED_BUILD" = 0 ]; then

@@ -1,2 +1,2 @@
 # autumn-natter
-The millionth LLM natter software. Powered by Rust and Slint.
+The millionth LLM natter software. Powered by Rust and Iced.

@@ -1,732 +1,1150 @@
-// The desktop window. It shows a snapshot of the engine and sends the actions
-// of the user back to the engine.
+// The desktop window. It shows a snapshot of the engine and sends the actions of
+// the user back to it.
 //
 // The window never waits for the model. A timer reads the state about twenty
-// times a second, so the answer appears while it is written.
+// times a second, so an answer appears while it is written. The window draws
+// nothing by itself: the files under `ui` do that from the snapshot.
+//
+// Three windows exist. The main window holds the chats. The other two hold a
+// form each: one for the program, and one for a model.
 
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use slint::{
-    CloseRequestResponse, ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel,
-};
+use iced::widget::text_editor::{self, Action as Edit};
+use iced::{window, Element, Subscription, Task, Theme};
 
-use crate::config::{self, Config, ModelSettings};
+use crate::config::{Config, ModelSettings};
 use crate::engine::{Engine, Snap};
+use crate::gpu::Gpu;
 use crate::llama;
 use crate::store;
-use crate::util;
-
-// The generated Rust code for ui/app.slint. It brings App, the two dialogs, the
-// row structs and the Theme global.
-slint::include_modules!();
+use crate::ui::message_view;
+use crate::ui::palette::Pal;
+use crate::ui::parts;
+use crate::ui::shape::Shape;
+use crate::ui::{dialog_view, main_view};
 
 // How often the window looks at the engine.
 const TICK: Duration = Duration::from_millis(50);
 
-// Handles the window keeps between ticks.
-struct Ui {
-    messages: Rc<VecModel<MessageRow>>,
-    models: Rc<VecModel<ModelRow>>,
-    repositories: Rc<VecModel<RepoRow>>,
-    chats: Rc<VecModel<ChatRow>>,
-    // Last seen counters, so the window only rebuilds what changed.
-    last_structure: Cell<u64>,
-    last_rev: Cell<u64>,
-    // Last seen list of chat ids. The cards of the carousel are moved and never
-    // built again, so the list is only set up anew when a chat came or went
-    // away. A turn of the carousel writes the rows in place.
-    last_chat_key: RefCell<String>,
-    // Last greeting line, so the window is not redrawn for the same words.
-    last_greeting: RefCell<String>,
-    // The two dialogs are made once and then shown again.
-    settings_window: RefCell<Option<Rc<SettingsWindow>>>,
-    config_window: RefCell<Option<Rc<ModelConfigWindow>>>,
-    // The model the config window is about.
-    config_model: Rc<RefCell<String>>,
-    // Device switches of the open config window.
-    gpu_state: Rc<RefCell<Vec<bool>>>,
+// How long the row of previews takes to settle on a chat.
+const SETTLE: Duration = Duration::from_millis(260);
+
+// How long the pointer must stay on the mark of a control before its help
+// bubble comes. A bubble that comes at once gets in the way of the mouse.
+const TIP_WAIT: Duration = Duration::from_millis(500);
+
+// The room a window of settings was opened with.
+const PROGRAM_ROOM: (f32, f32) = (760.0, 700.0);
+const MODEL_ROOM: (f32, f32) = (760.0, 760.0);
+
+// Which list the top bar holds open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Menu {
+    None,
+    Model,
+    Repository,
 }
 
-// Open the window and run the event loop.
-pub fn run(cfg: Config) -> Result<(), String> {
-    let engine = Rc::new(Engine::start(cfg));
-    let app = App::new().map_err(text_of)?;
+// One chat of the carousel, as the window needs it.
+pub struct Card {
+    pub id: String,
+    pub title: String,
+    pub when: String,
+    pub preview: String,
+    pub repo: String,
+}
 
-    // The Slint file gives the window a smallest size only. A window with a set
-    // size cannot be made bigger or smaller by hand, so the start size lives
-    // here instead.
-    app.window()
-        .set_size(slint::LogicalSize::new(1020.0, 720.0));
+// What the window of the program holds while it stands open.
+pub struct SettingsForm {
+    pub llama_dir: String,
+    pub models_dir: String,
+    pub repositories_dir: String,
+    pub port: String,
+    pub upnp: bool,
+    pub dark: bool,
+    // The name of a place that is not made yet.
+    pub new_repo: String,
+}
 
-    let ui = Rc::new(Ui {
-        messages: Rc::new(VecModel::default()),
-        models: Rc::new(VecModel::default()),
-        repositories: Rc::new(VecModel::default()),
-        chats: Rc::new(VecModel::default()),
-        last_structure: Cell::new(0),
-        last_rev: Cell::new(0),
-        last_chat_key: RefCell::new(String::new()),
-        last_greeting: RefCell::new(String::new()),
-        settings_window: RefCell::new(None),
-        config_window: RefCell::new(None),
-        config_model: Rc::new(RefCell::new(String::new())),
-        gpu_state: Rc::new(RefCell::new(Vec::new())),
-    });
+// What the window of one model holds while it stands open.
+pub struct ModelForm {
+    pub id: String,
+    pub name: String,
+    pub held: ModelSettings,
+    // The three lists of many choices. The words are what the reader sees, and
+    // the number is what the settings of the model keep.
+    pub kinds: Vec<parts::Choice>,
+    pub loads: Vec<parts::Choice>,
+    pub specs: Vec<parts::Choice>,
+    // The devices of the machine, before the switches of the form are read.
+    pub gpus: Vec<Gpu>,
+    // The command line the next answer will use.
+    pub preview: String,
+    // The two boxes of many lines. They hold their own words, so typing in one
+    // of them does not send a message of its own.
+    pub template: text_editor::Content,
+    pub extra: text_editor::Content,
+}
 
-    app.set_messages(ModelRc::from(ui.messages.clone()));
-    app.set_models(ModelRc::from(ui.models.clone()));
-    app.set_repositories(ModelRc::from(ui.repositories.clone()));
-    app.set_chats(ModelRc::from(ui.chats.clone()));
-    // The send mark stands in the chat box as well, dull while there is
-    // nothing to send. Enter still sends, and the mark is there for the pointer.
-    app.set_send_visible(true);
+// A help bubble that was asked for. It comes into view a while after the
+// pointer stays on the mark of a control, next to where the pointer stands.
+pub struct Tip {
+    pub note: String,
+    pub asked: Instant,
+}
 
-    // ---- user actions ----
-    let handle = engine.clone();
-    let weak_for_send = app.as_weak();
-    app.on_send_message(move |text: SharedString| {
-        let text = text.to_string();
-        if text.trim().is_empty() {
+impl Tip {
+    // True when the pointer has stayed long enough for the bubble to show.
+    pub fn shown(&self) -> bool {
+        self.asked.elapsed() >= TIP_WAIT
+    }
+}
+
+// Everything a click, a key or a tick can say.
+#[derive(Clone, Debug)]
+pub enum Msg {
+    // The window looked at the engine.
+    Tick,
+    // A window changed size.
+    Sized(window::Id, f32, f32),
+    // A key was let go, for the row of previews.
+    KeyUp(String),
+    // The pointer moved in a window. A help bubble stands near it.
+    Pointer(window::Id, f32, f32),
+    // A window asked to be put away.
+    WindowClose(window::Id),
+    // A window was put away, by the program or by the reader.
+    WindowClosed(window::Id),
+    // Something was done in the box for a new message.
+    Draft(Edit),
+    Send,
+    Cancel,
+    NewChat,
+    Roll(i32),
+    // The pointer in the row of previews.
+    RowAt(f32),
+    RowGrab,
+    RowWheel(f32),
+    RowRelease,
+    // The three marks at the foot of the box.
+    Code(bool),
+    Sandbox(bool),
+    Thinking,
+    // The two lists of the top bar.
+    MenuOpen(Menu),
+    PickModel(usize),
+    PickRepository(usize),
+    // One message was pointed at.
+    RowLit(String),
+    RowDim,
+    // A help bubble was asked for, or given up.
+    TipOn(String),
+    TipOff,
+    // The two windows of settings.
+    Settings,
+    // The window of one model, picked from the list of models by its place.
+    ModelSettings(usize),
+    LlamaDir(String),
+    ModelsDir(String),
+    ReposDir(String),
+    Port(String),
+    Upnp(bool),
+    Dark(bool),
+    // The words typed for the name of a new place, and the ask to make it.
+    NewRepoText(String),
+    NewRepository(String),
+    Ctx(i64),
+    KvKind(usize),
+    SpecKind(usize),
+    DraftTokens(i64),
+    Parallel(i64),
+    Batch(i64),
+    Ubatch(i64),
+    Vision(bool),
+    Budget(i64),
+    Template(Edit),
+    Extra(Edit),
+    LoadKind(usize),
+    Memory(f64),
+    CardOn(usize),
+    Save,
+    Close,
+}
+
+// The state of the window.
+pub struct App {
+    pub engine: Engine,
+    pub snap: Snap,
+    // The room the window has. The whole window is drawn from these two.
+    pub width: f32,
+    pub height: f32,
+    // The box a message is written in, and the words it holds.
+    pub draft: text_editor::Content,
+    pub draft_text: String,
+    // What the window draws. These follow the snapshot.
+    pub rows: Vec<message_view::Row>,
+    pub cards: Vec<Card>,
+    pub rev: u64,
+    pub structure: u64,
+    pub chats: String,
+    // The top bar and the pointer.
+    pub menu: Menu,
+    pub hovered: Option<String>,
+    pub tip: Option<Tip>,
+    // Where the pointer stands in each window, and how much room each window
+    // was given. Both are needed to place a help bubble inside its own window.
+    pub pointer: Option<(window::Id, f32, f32)>,
+    pub rooms: Vec<(window::Id, f32, f32)>,
+    // The last place the pointer stood along the row of previews.
+    pub at: f32,
+    // The box of a new message, so it can be given the keys.
+    pub draft_id: iced::widget::Id,
+    // Motion. The window moves things by hand, so it can be calm about it.
+    pub pulse: usize,
+    pub spin: f32,
+    // The speed a flick of the row left behind, in room of the window for every
+    // look at the engine. The row keeps gliding with it, and loses a little of
+    // it each time.
+    pub flick: f32,
+    pub grab: Option<f32>,
+    pub dragged: bool,
+    pub turn: f32,
+    pub open_t: f32,
+    pub opened: Option<Instant>,
+    // True while no chat is open, so the mark and the hour line show.
+    pub greet: bool,
+    // The two windows of settings.
+    pub settings: Option<SettingsForm>,
+    pub settings_window: Option<window::Id>,
+    pub model: Option<ModelForm>,
+    pub model_window: Option<window::Id>,
+}
+
+impl App {
+    // The state, from an engine that was started with this config.
+    fn new(engine: Engine) -> App {
+        let snap = engine.snapshot();
+        let mut app = App {
+            engine,
+            snap,
+            width: 1180.0,
+            height: 760.0,
+            draft: text_editor::Content::new(),
+            draft_text: String::new(),
+            rows: Vec::new(),
+            cards: Vec::new(),
+            rev: 0,
+            structure: 0,
+            chats: String::new(),
+            menu: Menu::None,
+            hovered: None,
+            tip: None,
+            pointer: None,
+            rooms: Vec::new(),
+            at: 0.0,
+            draft_id: iced::widget::Id::unique(),
+            pulse: 0,
+            spin: 0.0,
+            flick: 0.0,
+            grab: None,
+            dragged: false,
+            turn: 0.0,
+            open_t: 1.0,
+            opened: None,
+            greet: false,
+            settings: None,
+            settings_window: None,
+            model: None,
+            model_window: None,
+        };
+        app.pull();
+        app
+    }
+
+    // The places and the sizes of the window, at the size it has now.
+    pub fn shape(&self) -> Shape {
+        Shape::new(self.width, self.height, self.snap.home)
+    }
+
+    // True for the window that holds the chats. The other two hold a form.
+    pub fn is_main(&self, window: window::Id) -> bool {
+        Some(window) != self.settings_window && Some(window) != self.model_window
+    }
+
+    // The room one window has now. A window of settings keeps its own size in
+    // the list, because its size is not the size of the main window.
+    pub fn room_of(&self, window: window::Id) -> (f32, f32) {
+        if self.is_main(window) {
+            return (self.width, self.height);
+        }
+        for (held, wide, tall) in self.rooms.iter() {
+            if *held == window {
+                return (*wide, *tall);
+            }
+        }
+        if self.model_window == Some(window) {
+            return MODEL_ROOM;
+        }
+        PROGRAM_ROOM
+    }
+
+    // Where the pointer stands in one window, when it stands there.
+    pub fn pointer_at(&self, window: window::Id) -> Option<(f32, f32)> {
+        self.pointer.filter(|(held, _, _)| *held == window).map(|(_, x, y)| (x, y))
+    }
+
+    // The colours of the window.
+    fn palette(&self) -> Pal {
+        Pal::new(self.snap.dark_mode)
+    }
+
+    // Read the engine, and rebuild what moved. A list is built again only when
+    // its own count moved, so an answer that streams does not rebuild the
+    // carousel.
+    fn pull(&mut self) {
+        let fresh = self.engine.snapshot();
+        let moved = fresh.rev != self.rev || fresh.structure_rev != self.structure;
+        self.rev = fresh.rev;
+        self.snap = fresh;
+        if self.snap.structure_rev != self.structure || self.cards.is_empty() {
+            self.cards = cards_of(&self.snap);
+            self.structure = self.snap.structure_rev;
+        }
+        let key = chat_key(&self.snap);
+        if key != self.chats {
+            self.chats = key;
+            self.cards = cards_of(&self.snap);
+        }
+        if moved || self.rows.is_empty() {
+            self.rows = rows_of(&self.snap);
+        }
+        self.greet = self.snap.home;
+    }
+
+    // Move the row of previews on by what a flick left behind, then let it come
+    // to rest on the nearest chat. The row is moved and never built again, so a
+    // card that was built again has no earlier place to slide from.
+    fn glide(&mut self) {
+        if self.grab.is_some() || !self.snap.overview {
             return;
         }
-        // The box is empty again, so the user can write the next question.
-        if let Some(app) = weak_for_send.upgrade() {
-            app.set_draft_text(SharedString::default());
+        if self.flick.abs() > 0.5 {
+            self.spin += self.flick;
+            self.flick *= 0.82;
+            return;
         }
-        handle.prompt(text);
-    });
-
-    let handle = engine.clone();
-    app.on_cancel_generation(move || handle.cancel());
-
-    let handle = engine.clone();
-    app.on_toggle_code(move |enabled: bool| handle.set_code(enabled));
-
-    let handle = engine.clone();
-    app.on_toggle_sandbox(move |enabled: bool| handle.set_sandbox(enabled));
-
-    let handle = engine.clone();
-    app.on_cycle_thinking(move || handle.cycle_thinking());
-
-    let handle = engine.clone();
-    app.on_select_model(move |id: SharedString| handle.select_model(id.to_string()));
-
-    let handle = engine.clone();
-    app.on_select_repository(move |id: SharedString| handle.select_repository(id.to_string()));
-
-    let handle = engine.clone();
-    app.on_new_chat(move || handle.new_chat());
-
-    // The two round marks turn the carousel.
-    let handle = engine.clone();
-    app.on_roll_chat(move |step: i32| handle.roll(step));
-
-    // The row of small previews. The engine only remembers whether the row is
-    // up, and the window drives the motion of the row itself.
-    let handle = engine.clone();
-    app.on_show_overview(move || handle.set_overview(true));
-
-    let handle = engine.clone();
-    app.on_hide_overview(move || handle.set_overview(false));
-
-    // A click on a preview opens that chat, and closes the row.
-    let handle = engine.clone();
-    app.on_pick_chat(move |id: SharedString| handle.open_chat(id.to_string()));
-
-    // A full list of repositories is not built yet. The settings window holds
-    // every repository on disk, so this opens that window.
-    let handle = engine.clone();
-    let ui_for_repositories = ui.clone();
-    app.on_view_all_repositories(move || {
-        show_settings(&handle, &ui_for_repositories);
-    });
-
-    let handle = engine.clone();
-    let ui_for_settings = ui.clone();
-    app.on_open_settings(move || {
-        show_settings(&handle, &ui_for_settings);
-    });
-
-    let handle_for_config = engine.clone();
-    let ui_for_config = ui.clone();
-    app.on_configure_model(move |id: SharedString| {
-        show_model_config(&handle_for_config, &ui_for_config, id.to_string());
-    });
-
-    // Closing the main window ends the program, even when a dialog is open.
-    let handle_for_close = engine.clone();
-    app.window().on_close_requested(move || {
-        handle_for_close.shutdown();
-        CloseRequestResponse::HideWindow
-    });
-
-    // ---- the tick that paints the state ----
-    let timer = Timer::default();
-    let weak_for_tick = app.as_weak();
-    let handle_for_tick = engine.clone();
-    let ui_for_tick = ui.clone();
-    timer.start(TimerMode::Repeated, TICK, move || {
-        let Some(app) = weak_for_tick.upgrade() else { return };
-        render(&app, &handle_for_tick, &ui_for_tick);
-    });
-
-    render(&app, &engine, &ui);
-
-    app.run().map_err(text_of)?;
-    // The window can also be closed by the platform, so make sure the model is
-    // unloaded here too.
-    engine.shutdown();
-    Ok(())
-}
-
-// Draw the current state into the window.
-fn render(app: &App, engine: &Engine, ui: &Rc<Ui>) {
-    let snap = engine.snapshot();
-
-    // Palette. Light mode is the default.
-    app.global::<Theme>().set_dark(snap.dark_mode);
-
-    // The two flags that move the whole screen go first. A chat grows from the
-    // top down when it opens, and that growth starts at nothing, so the window
-    // must learn about the change before the chat list arrives.
-    app.set_home(snap.home);
-    app.set_overview(snap.overview);
-
-    // The line above the chat box on the first screen. It follows the clock, so
-    // it is written again only when the words really changed.
-    if snap.greeting != *ui.last_greeting.borrow() {
-        *ui.last_greeting.borrow_mut() = snap.greeting.clone();
-        app.set_greeting(text(snap.greeting.as_str()));
+        self.flick = 0.0;
+        let shape = self.shape();
+        let rest = shape.align(self.spin);
+        let step = (rest - self.spin) * 0.35;
+        if step.abs() < 0.4 {
+            self.spin = rest;
+            return;
+        }
+        self.spin += step;
     }
 
-    app.set_model_name(text(snap.model_name.as_str()));
-    app.set_model_kind(text(snap.model_kind.as_str()));
-    app.set_in_repository(snap.in_repository);
-    app.set_repository_name(text(snap.repository_name.as_str()));
-    app.set_chat_title(text(snap.chat_title.as_str()));
-    app.set_context_used(text(&count(snap.context_used)));
-    app.set_context_total(text(&count(snap.context_total)));
-    let ratio = if snap.context_total > 0 {
-        snap.context_used as f32 / snap.context_total as f32
-    } else {
-        0.0
+    // The words of the box, kept beside it so a half written ask is never lost.
+    fn draft_now(&mut self) {
+        self.draft_text = self.draft.text();
+    }
+
+    // Send what the box holds, and leave the box empty.
+    fn send(&mut self) {
+        let words = self.draft_text.trim().to_string();
+        if words.is_empty() || self.snap.generating {
+            return;
+        }
+        self.engine.prompt(words);
+        self.draft = text_editor::Content::new();
+        self.draft_text = String::new();
+        self.pull();
+    }
+
+    // The list of settings of the program, filled from what the engine holds.
+    fn settings_form(&self) -> SettingsForm {
+        let cfg = self.engine.config();
+        SettingsForm {
+            llama_dir: cfg.llama_dir.clone(),
+            models_dir: cfg.models_dir.clone(),
+            repositories_dir: cfg.repositories_dir.clone(),
+            port: if cfg.remote_port == 0 {
+                String::new()
+            } else {
+                cfg.remote_port.to_string()
+            },
+            upnp: cfg.upnp_enabled,
+            dark: cfg.dark_mode,
+            new_repo: String::new(),
+        }
+    }
+
+    // The list of settings of one model, filled from what the engine holds.
+    fn model_form(&self, id: &str, name: &str) -> ModelForm {
+        let (held, devices) = self.engine.model_settings(id);
+        let mut form = ModelForm {
+            id: id.to_string(),
+            name: name.to_string(),
+            template: text_editor::Content::with_text(&held.chat_template),
+            extra: text_editor::Content::with_text(&held.extra_args),
+            held,
+            kinds: parts::choices(llama::KV_TYPES),
+            loads: parts::choices(llama::LOAD_MODES),
+            specs: parts::choices(llama::SPEC_TYPES),
+            gpus: devices,
+            preview: String::new(),
+        };
+        form.preview = preview_of(self, &form);
+        form
+    }
+
+    // The command line of the form, read again after a field moved.
+    fn refresh_model(&mut self) {
+        let Some(form) = self.model.as_ref() else {
+            return;
+        };
+        let made = preview_of(self, form);
+        if let Some(form) = self.model.as_mut() {
+            form.preview = made;
+        }
+    }
+}
+
+impl Drop for App {
+    // The window is going away, so the server must go with it. A llama-server
+    // left behind would hold the model in the memory of the machine.
+    fn drop(&mut self) {
+        self.engine.shutdown();
+    }
+}
+
+// The command line the next answer will use, as the window of one model shows
+// it. It helps to see it here, because a wrong extra argument is then easy to
+// find. Nothing is started: only the arguments are built.
+fn preview_of(app: &App, form: &ModelForm) -> String {
+    let Some(model) = app.snap.models.iter().find(|one| one.id() == form.id) else {
+        return String::new();
     };
-    app.set_context_ratio(ratio.min(1.0));
-    app.set_generating(snap.generating);
-    app.set_server_busy(snap.busy);
-    app.set_code_enabled(snap.code_enabled);
-    app.set_sandbox_enabled(snap.sandbox_enabled);
-    app.set_sandbox_available(snap.sandbox_available);
-    app.set_thinking_mode(text(&snap.thinking_mode));
-    app.set_thinking_available(snap.thinking_available);
-    app.set_status_text(text(snap.status.as_str()));
-
-    // The carousel turns to the open chat, and says when that chat is blank.
-    app.set_chat_index(snap.chat_index as i32);
-    app.set_blank_chat(snap.blank_chat);
-
-    if snap.structure_rev != ui.last_structure.get() {
-        ui.last_structure.set(snap.structure_rev);
-        ui.models.set_vec(
-            snap.models
-                .iter()
-                .map(|m| ModelRow {
-                    id: text(&m.id()),
-                    name: text(&m.name),
-                    kind: text(m.kind),
-                    active: m.id() == snap.model_id,
-                })
-                .collect::<Vec<ModelRow>>(),
-        );
-        ui.repositories.set_vec(
-            snap.repositories
-                .iter()
-                .map(|r| RepoRow {
-                    id: text(&r.id),
-                    name: text(&r.name),
-                    path: text(&r.path.display().to_string()),
-                })
-                .collect::<Vec<RepoRow>>(),
-        );
-        // The two boxes in the top bar take the width of the widest name of
-        // their list, so a name is never cut down to a few letters.
-        app.set_longest_model(text(&longest_model(&snap)));
-        app.set_longest_kind(text(&longest_kind(&snap)));
-        app.set_longest_repository(text(&longest_repository(&snap)));
-    }
-
-    // The chat list is set up again only when a chat came or went away. A turn
-    // of the carousel marks another chat as the open one, and those rows are
-    // written in place, so the window slides the cards instead of building them
-    // again. A card that is built again has no earlier place to slide from.
-    let key = chat_key(&snap);
-    if key != *ui.last_chat_key.borrow() {
-        *ui.last_chat_key.borrow_mut() = key;
-        ui.chats.set_vec(chat_rows(&snap));
-    } else {
-        for (index, row) in chat_rows(&snap).into_iter().enumerate() {
-            let same = ui.chats.row_data(index).is_some_and(|current| current == row);
-            if !same {
-                ui.chats.set_row_data(index, row);
-            }
+    // The switches of the form win over the switches the model was saved with.
+    let mut devices = form.gpus.clone();
+    for (place, flag) in form.held.gpu_enabled.iter().enumerate() {
+        if let Some(card) = devices.get_mut(place) {
+            card.enabled = *flag;
         }
     }
-
-    if snap.rev != ui.last_rev.get() || ui.messages.row_count() == 0 {
-        ui.last_rev.set(snap.rev);
-        draw_messages(ui, &snap);
-        // Tell the window to keep the newest message in view.
-        let next = app.get_message_rev().saturating_add(1);
-        app.set_message_rev(next);
+    let mut held = form.held.clone();
+    held.chat_template = form.template.text();
+    held.extra_args = form.extra.text();
+    let mut notes = Vec::new();
+    let args = llama::build_args(
+        std::path::Path::new(""),
+        model,
+        &held,
+        &devices,
+        0,
+        app.snap.code_enabled,
+        app.snap.thinking_mode.as_str(),
+        &mut notes,
+    );
+    let mut line = String::from("llama-server ");
+    for arg in args {
+        if arg.contains(' ') {
+            line.push_str(&format!("\"{arg}\""));
+        } else {
+            line.push_str(&arg);
+        }
+        line.push(' ');
     }
+    for note in notes {
+        line.push('\n');
+        line.push_str(&note);
+    }
+    line.trim_end().to_string()
 }
 
-// Build the message rows. While an answer comes in, the text the model wrote
-// just now gets its own row.
-fn draw_messages(ui: &Rc<Ui>, snap: &Snap) {
-    let mut rows: Vec<MessageRow> = Vec::with_capacity(snap.messages.len() + 1);
-    let mut previous_tool = false;
-    for message in &snap.messages {
-        rows.push(row_for(message, previous_tool));
-        previous_tool = message.role == "Tool";
+// The chats of this place, as the carousel and the row of previews want them.
+fn cards_of(snap: &Snap) -> Vec<Card> {
+    snap.chats
+        .iter()
+        .map(|chat| Card {
+            id: chat.meta.id.clone(),
+            title: chat.meta.title.clone(),
+            when: store::format_when(chat.meta.updated),
+            preview: store::preview(&chat.messages),
+            repo: repo_label(snap, &chat.meta.repo_id),
+        })
+        .collect()
+}
+
+// One text that says which chats a place holds, and in which order.
+fn chat_key(snap: &Snap) -> String {
+    let mut key = String::new();
+    for chat in &snap.chats {
+        key.push_str(&chat.meta.id);
+        key.push('|');
+        key.push_str(&chat.meta.title);
+        key.push('|');
     }
-    if snap.generating {
-        rows.push(MessageRow {
-            id: text("live"),
-            role: text("Assistant"),
-            body: text(&snap.live_text),
-            cmd: SharedString::default(),
-            tool: SharedString::default(),
+    key
+}
+
+// The name of a repository, written out. A chat with no repository says so.
+fn repo_label(snap: &Snap, id: &str) -> String {
+    if id.is_empty() {
+        return String::from("loose");
+    }
+    for repo in &snap.repositories {
+        if repo.id == id {
+            return repo.name.clone();
+        }
+    }
+    String::from("loose")
+}
+
+// The messages of the open chat, as the window shows them. While an answer comes
+// in, the words the model wrote just now get a line of their own.
+fn rows_of(snap: &Snap) -> Vec<message_view::Row> {
+    let mut rows: Vec<message_view::Row> = Vec::with_capacity(snap.messages.len() + 1);
+    for message in &snap.messages {
+        rows.push(row_of(message));
+    }
+    if snap.generating && !(snap.live_text.is_empty() && snap.live_reasoning.is_empty()) {
+        rows.push(message_view::Row {
+            id: String::from("live"),
+            role: String::from("Assistant"),
+            body: snap.live_text.clone(),
+            cmd: String::new(),
+            tool: String::new(),
             mono: false,
             failed: false,
-            when: text(&store::format_clock(store::now_secs())),
-            blocks: blocks_model(&snap.live_text),
-            reasoning: text(&snap.live_reasoning),
+            when: String::new(),
+            blocks: crate::markdown::parse(&snap.live_text),
+            reasoning: snap.live_reasoning.clone(),
         });
     }
-    let same_count = rows.len() == ui.messages.row_count();
-    if same_count {
-        // Only rows that changed are written, so the list does not flicker.
-        for (index, row) in rows.into_iter().enumerate() {
-            let current = ui.messages.row_data(index);
-            if let Some(current) = current {
-                if current != row {
-                    ui.messages.set_row_data(index, row);
-                }
-            }
-        }
-    } else {
-        ui.messages.set_vec(rows);
-    }
-}
-
-// Convert parsed markdown blocks into the Slint model type.
-fn blocks_model(body: &str) -> ModelRc<MarkdownBlock> {
-    let vec: Vec<MarkdownBlock> = crate::markdown::parse(body)
-        .into_iter()
-        .map(|b| MarkdownBlock {
-            kind: text(&b.kind),
-            level: b.level,
-            content: text(&b.content),
-        })
-        .collect();
-    ModelRc::from(Rc::new(VecModel::from(vec)))
+    rows
 }
 
 // One message as the window shows it.
-fn row_for(message: &store::Message, previous_tool: bool) -> MessageRow {
-    let _ = previous_tool;
+fn row_of(message: &store::Message) -> message_view::Row {
     // The first line of a tool command stands in the head of the tool panel.
     let cmd = if message.role == "Tool" {
         message.body.lines().next().unwrap_or("").to_string()
     } else {
         String::new()
     };
-    MessageRow {
-        id: text(&message.id),
-        role: text(&message.role),
-        body: text(&message.body),
-        cmd: text(&cmd),
-        tool: text(&message.tool),
+    message_view::Row {
+        id: message.id.clone(),
+        role: message.role.clone(),
+        body: message.body.clone(),
+        cmd,
+        tool: message.tool.clone(),
         mono: message.mono,
         failed: message.failed,
-        when: text(&store::format_clock(message.when)),
-        blocks: blocks_model(&message.body),
-        reasoning: text(&message.reasoning),
+        when: store::format_clock(message.when),
+        blocks: crate::markdown::parse(&message.body),
+        reasoning: message.reasoning.clone(),
     }
 }
 
-// The chat rows as the window and the previews show them. The name of a
-// repository is written out, never the id of one.
-fn chat_rows(snap: &Snap) -> Vec<ChatRow> {
-    snap.chats
-        .iter()
-        .map(|c| ChatRow {
-            id: text(&c.meta.id),
-            title: text(&c.meta.title),
-            repo: text(&repo_label(snap, &c.meta.repo_id)),
-            when: text(&store::format_when(c.meta.updated)),
-            active: c.meta.id == snap.chat_id,
-            preview: text(&store::preview(&c.messages)),
-        })
-        .collect()
-}
-
-// One text that says which chats a place holds, and in which order. The window
-// sets the chat list up again only when this text changes.
-fn chat_key(snap: &Snap) -> String {
-    snap.chats
-        .iter()
-        .map(|c| c.meta.id.as_str())
-        .collect::<Vec<&str>>()
-        .join("|")
-}
-
-// The widest model name of the list, with the kind of the model after it, as
-// the top bar shows it. The model box takes this width.
-fn longest_model(snap: &Snap) -> String {
-    let mut best = String::new();
-    for model in &snap.models {
-        if model.name.chars().count() > best.chars().count() {
-            best = model.name.clone();
+// The one place that changes the state of the window. Nothing here waits for the
+// model: a command goes to the engine and the next tick brings the answer.
+fn update(app: &mut App, message: Msg) -> Task<Msg> {
+    // True when a field of the window of one model moved. The command line at
+    // the foot of that window is read again after such a move.
+    let mut touched = matches!(
+        &message,
+        Msg::Ctx(_)
+            | Msg::KvKind(_)
+            | Msg::SpecKind(_)
+            | Msg::DraftTokens(_)
+            | Msg::Parallel(_)
+            | Msg::Batch(_)
+            | Msg::Ubatch(_)
+            | Msg::Vision(_)
+            | Msg::Budget(_)
+            | Msg::LoadKind(_)
+            | Msg::Memory(_)
+            | Msg::CardOn(_)
+            | Msg::Template(_)
+            | Msg::Extra(_)
+    );
+    match message {
+        Msg::Tick => {
+            app.pulse = (app.pulse + 1) % 3;
+            if let Some(since) = app.opened {
+                let gone = since.elapsed().as_secs_f32();
+                app.open_t = (gone / (SETTLE.as_secs_f32())).clamp(0.0, 1.0);
+            }
+            app.glide();
+            app.pull();
         }
-    }
-    best
-}
-
-// The widest kind of the list, for example "Safetensors". The kind stands in a
-// small pill inside the model box, so the box must make room for it too.
-fn longest_kind(snap: &Snap) -> String {
-    let mut best = String::new();
-    for model in &snap.models {
-        if model.kind.chars().count() > best.chars().count() {
-            best = model.kind.to_string();
-        }
-    }
-    best
-}
-
-// The widest repository name of the list. The repository box takes this width.
-fn longest_repository(snap: &Snap) -> String {
-    let mut best = String::new();
-    for repo in &snap.repositories {
-        if repo.name.chars().count() > best.chars().count() {
-            best = repo.name.clone();
-        }
-    }
-    best
-}
-
-// The settings dialog. It writes settings.json through the engine.
-fn show_settings(engine: &Rc<Engine>, ui: &Rc<Ui>) {
-    let Some(window) = take_settings(&ui.settings_window) else {
-        return;
-    };
-
-    let snap = engine.snapshot();
-    let cfg = engine.config();
-    window.global::<Theme>().set_dark(snap.dark_mode);
-    window.set_data_dir(text(&snap.data_dir));
-    window.set_bwrap_text(text(&snap.sandbox_note));
-    window.set_mode_text(text("This run shows the desktop window."));
-    window.set_llama_dir(text(&cfg.llama_dir));
-    window.set_models_dir(text(&cfg.models_dir));
-    window.set_repositories_dir(text(&cfg.repositories_dir));
-    window.set_dark_mode(cfg.dark_mode);
-    window.set_remote_port(cfg.remote_port as i32);
-    window.set_upnp_enabled(cfg.upnp_enabled);
-    fill_repositories(&window, engine);
-
-    // Save reads every field, so a half written field cannot be missed.
-    let handle = engine.clone();
-    let weak = window.as_weak();
-    window.on_save(move || {
-        let Some(window) = weak.upgrade() else { return };
-        let mut cfg = handle.config();
-        cfg.llama_dir = window.get_llama_dir().trim().to_string();
-        cfg.models_dir = window.get_models_dir().trim().to_string();
-        cfg.repositories_dir = window.get_repositories_dir().trim().to_string();
-        cfg.dark_mode = window.get_dark_mode();
-        let port = window.get_remote_port();
-        cfg.remote_port = if port < 1 { config::DEFAULT_REMOTE_PORT } else { port as u16 };
-        cfg.upnp_enabled = window.get_upnp_enabled();
-        handle.save_settings(cfg);
-        let _ = window.window().hide();
-    });
-
-    // A new repository is made on disk, and then the window works in it.
-    let handle = engine.clone();
-    let weak = window.as_weak();
-    window.on_create_repository(move |name: SharedString| {
-        let Some(window) = weak.upgrade() else { return };
-        handle.create_repository(name.to_string());
-        // The name of the new repository is on disk, so the field is empty
-        // again for the next one.
-        window.set_new_repository(SharedString::default());
-        fill_repositories(&window, &handle);
-    });
-
-    let handle = engine.clone();
-    let weak = window.as_weak();
-    window.on_use_repository(move |id: SharedString| {
-        let Some(window) = weak.upgrade() else { return };
-        handle.select_repository(id.to_string());
-        fill_repositories(&window, &handle);
-    });
-
-    let weak = window.as_weak();
-    window.on_close_window(move || {
-        if let Some(window) = weak.upgrade() {
-            let _ = window.window().hide();
-        }
-    });
-
-    let _ = window.window().show();
-}
-
-// Show every repository in the settings dialog, and mark the one that is in
-// use. The list is read again after a new repository was made.
-fn fill_repositories(window: &SettingsWindow, engine: &Engine) {
-    let rows: Vec<RepoRow> = engine
-        .repositories()
-        .iter()
-        .map(|r| RepoRow {
-            id: text(&r.id),
-            name: text(&r.name),
-            path: text(&r.path.display().to_string()),
-        })
-        .collect();
-    window.set_repositories(ModelRc::from(Rc::new(VecModel::from(rows))));
-    let active = engine.snapshot().repository_id;
-    window.set_active_repository(text(&active));
-}
-
-// The model settings dialog. It shows the settings of one model and the
-// devices of the machine.
-fn show_model_config(engine: &Rc<Engine>, ui: &Rc<Ui>, id: String) {
-    let Some(window) = take_config(&ui.config_window) else {
-        return;
-    };
-
-    let snap = engine.snapshot();
-    let (settings, gpus) = engine.model_settings(&id);
-    // Device switches start from the stored settings, or all on.
-    let flags = if settings.gpu_enabled.len() == gpus.len() && !gpus.is_empty() {
-        settings.gpu_enabled.clone()
-    } else {
-        vec![true; gpus.len()]
-    };
-    *ui.gpu_state.borrow_mut() = flags.clone();
-    *ui.config_model.borrow_mut() = id.clone();
-
-    let total_mib: u64 = gpus.iter().map(|g| g.memory_mb).sum();
-    window.global::<Theme>().set_dark(snap.dark_mode);
-    window.set_model_name(text(
-        snap.models
-            .iter()
-            .find(|m| m.id() == id)
-            .map(|m| m.name.as_str())
-            .unwrap_or(""),
-    ));
-    window.set_model_kind(text(
-        snap.models
-            .iter()
-            .find(|m| m.id() == id)
-            .map(|m| m.kind)
-            .unwrap_or(""),
-    ));
-    window.set_model_path(text(&id));
-    window.set_server_text(text(&command_preview(engine, &snap, &settings, &gpus, &flags)));
-    window.set_kv_options(list(llama::KV_TYPES));
-    window.set_spec_options(list(llama::SPEC_TYPES));
-    window.set_load_options(list(llama::LOAD_MODES));
-    let rows: Vec<GpuRow> = gpus
-        .iter()
-        .enumerate()
-        .map(|(index, gpu)| GpuRow {
-            id: index as i32,
-            name: text(&gpu.name),
-            memory: text(&gpu.memory_text()),
-            enabled: *flags.get(index).unwrap_or(&true),
-        })
-        .collect();
-    window.set_gpus(ModelRc::from(Rc::new(VecModel::from(rows))));
-    window.set_vram_total(total_mib as f32);
-    window.set_vram_budget(settings.vram_budget as f32);
-    window.set_ctx_size(settings.ctx_size as i32);
-    window.set_kv_index(settings.kv_index as i32);
-    window.set_spec_index(settings.spec_index as i32);
-    window.set_load_index(settings.load_index as i32);
-    window.set_draft_model(text(&settings.draft_model));
-    window.set_draft_tokens(settings.draft_tokens as i32);
-    window.set_parallel(settings.parallel as i32);
-    window.set_batch_size(settings.batch_size as i32);
-    window.set_ubatch_size(settings.ubatch_size as i32);
-    window.set_tensor_parallel(settings.tensor_parallel);
-    window.set_vision(settings.vision);
-    window.set_reasoning_budget(settings.reasoning_budget as i32);
-    window.set_reasoning_message(text(&settings.reasoning_message));
-    window.set_extra_args(text(&settings.extra_args));
-    window.set_chat_template(text(&settings.chat_template));
-
-    // A device switch only changes the list in this dialog. Apply writes it.
-    let state = ui.gpu_state.clone();
-    let weak = window.as_weak();
-    window.on_toggle_gpu(move |index: i32, enabled: bool| {
-        let index = index.max(0) as usize;
-        {
-            let mut flags = state.borrow_mut();
-            if index < flags.len() {
-                flags[index] = enabled;
+        Msg::Sized(which, wide, tall) => {
+            if wide <= 1.0 || tall <= 1.0 {
+                return Task::none();
+            }
+            if app.is_main(which) {
+                app.width = wide;
+                app.height = tall;
+                return Task::none();
+            }
+            // A window of settings keeps its own room, so a help bubble of that
+            // window stays inside it.
+            let held = app.rooms.iter_mut().find(|(kept, _, _)| *kept == which);
+            if let Some(kept) = held {
+                *kept = (which, wide, tall);
+            } else {
+                app.rooms.push((which, wide, tall));
             }
         }
-        let Some(window) = weak.upgrade() else { return };
-        let gpus = window.get_gpus();
-        if let Some(row) = gpus.row_data(index) {
-            let mut fixed = row;
-            fixed.enabled = enabled;
-            gpus.set_row_data(index, fixed);
+        Msg::Pointer(which, x, y) => {
+            app.pointer = Some((which, x, y));
+            if app.is_main(which) && app.snap.overview {
+                app.at = x;
+            }
         }
-    });
-
-    let handle = engine.clone();
-    let model = ui.config_model.clone();
-    let state = ui.gpu_state.clone();
-    let weak = window.as_weak();
-    window.on_apply(move || {
-        let Some(window) = weak.upgrade() else { return };
-        let id = model.borrow().clone();
-        let settings = ModelSettings {
-            ctx_size: window.get_ctx_size().max(256) as u32,
-            kv_index: window.get_kv_index().max(0) as usize,
-            spec_index: window.get_spec_index().max(0) as usize,
-            draft_model: window.get_draft_model().trim().to_string(),
-            draft_tokens: window.get_draft_tokens().max(1) as u32,
-            parallel: window.get_parallel().max(1) as u32,
-            batch_size: window.get_batch_size().max(1) as u32,
-            ubatch_size: window.get_ubatch_size().max(1) as u32,
-            tensor_parallel: window.get_tensor_parallel(),
-            vision: window.get_vision(),
-            reasoning_budget: window.get_reasoning_budget().max(-1) as i64,
-            reasoning_message: window.get_reasoning_message().to_string(),
-            load_index: window.get_load_index().max(0) as usize,
-            extra_args: window.get_extra_args().to_string(),
-            chat_template: window.get_chat_template().to_string(),
-            vram_budget: window.get_vram_budget().max(0.0) as f64,
-            gpu_enabled: state.borrow().clone(),
-        };
-        handle.save_model_settings(id, settings);
-        let _ = window.window().hide();
-    });
-
-    let weak = window.as_weak();
-    window.on_close_window(move || {
-        if let Some(window) = weak.upgrade() {
-            let _ = window.window().hide();
+        Msg::WindowClose(which) => {
+            // The main window asked to be put away. The engine is told to stop,
+            // so the model leaves the memory before the window goes.
+            if app.is_main(which) {
+                app.engine.shutdown();
+                return iced::exit();
+            }
+            // A window of settings asked to be put away. It is closed here, and
+            // its form is forgotten when the close comes back as a message.
+            return window::close(which);
         }
-    });
-
-    let _ = window.window().show();
+        Msg::WindowClosed(which) => {
+            if app.is_main(which) {
+                // The main window is gone. The windows of settings go with it,
+                // and the engine is told to stop.
+                app.engine.shutdown();
+                let mut jobs = vec![iced::exit()];
+                for held in [app.settings_window, app.model_window].into_iter().flatten() {
+                    jobs.push(window::close(held));
+                }
+                app.settings = None;
+                app.model = None;
+                app.settings_window = None;
+                app.model_window = None;
+                return Task::batch(jobs);
+            }
+            // One window of settings is gone, so its form is forgotten. The form
+            // of the other one stays, because that window is still open.
+            if app.settings_window == Some(which) {
+                app.settings = None;
+                app.settings_window = None;
+            }
+            if app.model_window == Some(which) {
+                app.model = None;
+                app.model_window = None;
+            }
+        }
+        Msg::KeyUp(name) => {
+            if name == "Escape" {
+                // Escape puts the first thing that is in the way away. An answer
+                // that comes in is stopped, because it is the loudest thing the
+                // window does.
+                if app.menu != Menu::None {
+                    app.menu = Menu::None;
+                } else if app.snap.generating {
+                    app.engine.cancel();
+                } else if app.snap.overview {
+                    app.engine.set_overview(false);
+                    app.spin = 0.0;
+                }
+                return Task::none();
+            }
+            if name == "Alt" {
+                // The Alt key puts the row of previews up, and puts it away
+                // again. It is read when it is let go, so the row does not jump
+                // while another key is held with Alt.
+                let on = !app.snap.overview;
+                app.engine.set_overview(on);
+                app.spin = 0.0;
+                if on {
+                    app.opened = Some(Instant::now());
+                }
+                return Task::none();
+            }
+            if name == "Enter" {
+                if app.snap.overview {
+                    return pick_middle(app);
+                }
+                return Task::none();
+            }
+            if !app.snap.overview {
+                return Task::none();
+            }
+            match name.as_str() {
+                "ArrowLeft" | "a" | "A" => app.engine.roll(-1),
+                "ArrowRight" | "d" | "D" => app.engine.roll(1),
+                _ => {}
+            }
+            app.opened = Some(Instant::now());
+        }
+        // The words of the box are read again after an action that changed
+        // them, so the round mark knows whether there is something to send.
+        Msg::Draft(edit) => {
+            if edit.is_edit() {
+                app.draft_now();
+            }
+        }
+        Msg::Send => app.send(),
+        Msg::Cancel => app.engine.cancel(),
+        Msg::NewChat => {
+            app.engine.new_chat();
+            app.opened = Some(Instant::now());
+            // A new chat is written in at once, so the box takes the keys.
+            return focus_draft(app);
+        }
+        Msg::Roll(step) => {
+            app.engine.roll(step);
+            app.spin = 0.0;
+            app.opened = Some(Instant::now());
+        }
+        Msg::RowAt(where_) => {
+            app.at = where_;
+            if let Some(before) = app.grab {
+                let step = where_ - before;
+                if step.abs() > 2.0 {
+                    app.dragged = true;
+                }
+                app.spin += step;
+                // The last move of the hand is the speed the row keeps when the
+                // finger leaves it.
+                app.flick = step;
+                app.grab = Some(where_);
+            }
+        }
+        Msg::RowGrab => {
+            app.grab = Some(app.at);
+            app.dragged = false;
+            app.flick = 0.0;
+        }
+        Msg::RowWheel(step) => {
+            app.spin += step;
+        }
+        Msg::RowRelease => {
+            let stood = app.grab.take().unwrap_or(0.0);
+            if !app.dragged && app.snap.overview {
+                // A press without a move opens the preview the pointer stood on.
+                let shape = app.shape();
+                let first = app.snap.chat_index as i64 - 3;
+                for place in 0..6i64 {
+                    let index = first + place;
+                    if index < 0 || index as usize >= app.snap.chats.len() {
+                        continue;
+                    }
+                    let x = shape.prev_x(index as f32, app.snap.chat_index, app.spin);
+                    if stood >= x && stood <= x + shape.prev_width {
+                        let id = app.cards[index as usize].id.clone();
+                        app.engine.open_chat(id);
+                        app.engine.set_overview(false);
+                        app.spin = 0.0;
+                        app.opened = Some(Instant::now());
+                        return focus_draft(app);
+                    }
+                }
+            }
+            app.dragged = false;
+        }
+        Msg::Code(on) => app.engine.set_code(on),
+        Msg::Sandbox(on) => app.engine.set_sandbox(on),
+        Msg::Thinking => app.engine.cycle_thinking(),
+        Msg::MenuOpen(which) => {
+            app.menu = if app.menu == which { Menu::None } else { which };
+        }
+        Msg::PickModel(which) => {
+            if let Some(model) = app.snap.models.get(which) {
+                app.engine.select_model(model.id());
+            }
+            app.menu = Menu::None;
+        }
+        Msg::PickRepository(which) => {
+            // The first place in the list means "no repository". A window of
+            // settings lists every repository on disk, so the list is read from
+            // the engine: the snapshot stops at the five most recent ones.
+            if which == 0 {
+                app.engine.select_repository(String::new());
+            } else {
+                let places = app.engine.repositories();
+                if let Some(repo) = places.get(which - 1) {
+                    let id = repo.id.clone();
+                    app.engine.select_repository(id);
+                }
+            }
+            app.menu = Menu::None;
+        }
+        Msg::RowLit(id) => app.hovered = Some(id),
+        Msg::RowDim => app.hovered = None,
+        Msg::TipOn(note) => {
+            // The bubble stands where the pointer stands, and comes half a
+            // second later. The window puts a new bubble up in the place of the
+            // old one, so the ask that came last is the one that shows.
+            app.tip = Some(Tip { note, asked: Instant::now() });
+        }
+        Msg::TipOff => app.tip = None,
+        Msg::Settings => {
+            if app.settings.is_none() {
+                app.settings = Some(app.settings_form());
+            }
+            let card = window::Settings {
+                size: iced::Size::new(PROGRAM_ROOM.0, PROGRAM_ROOM.1),
+                // Only the main window may end the program. A form that is put
+                // away must leave the chats alone.
+                exit_on_close_request: false,
+                ..window::Settings::default()
+            };
+            let (id, task) = window::open(card);
+            app.settings_window = Some(id);
+            return task.map(|_| Msg::TipOff);
+        }
+        Msg::ModelSettings(place) => {
+            let Some(model) = app.snap.models.get(place) else {
+                return Task::none();
+            };
+            let id = model.id();
+            let name = model.name.clone();
+            app.model = Some(app.model_form(&id, &name));
+            app.menu = Menu::None;
+            let card = window::Settings {
+                size: iced::Size::new(MODEL_ROOM.0, MODEL_ROOM.1),
+                exit_on_close_request: false,
+                ..window::Settings::default()
+            };
+            let (id, task) = window::open(card);
+            app.model_window = Some(id);
+            return task.map(|_| Msg::TipOff);
+        }
+        // The window of the program.
+        Msg::LlamaDir(words) => {
+            if let Some(form) = &mut app.settings {
+                form.llama_dir = words;
+            }
+        }
+        Msg::ModelsDir(words) => {
+            if let Some(form) = &mut app.settings {
+                form.models_dir = words;
+            }
+        }
+        Msg::ReposDir(words) => {
+            if let Some(form) = &mut app.settings {
+                form.repositories_dir = words;
+            }
+        }
+        Msg::Port(words) => {
+            if let Some(form) = &mut app.settings {
+                form.port = words;
+            }
+        }
+        Msg::Upnp(on) => {
+            if let Some(form) = &mut app.settings {
+                form.upnp = on;
+            }
+        }
+        Msg::NewRepoText(words) => {
+            if let Some(form) = &mut app.settings {
+                form.new_repo = words;
+            }
+        }
+        Msg::NewRepository(words) => {
+            app.engine.create_repository(words);
+            // The name is used up, so the field is empty again and a second
+            // press of the mark makes a second place, not a copy of the first.
+            if let Some(form) = &mut app.settings {
+                form.new_repo.clear();
+            }
+        }
+        Msg::Dark(on) => {
+            if let Some(form) = &mut app.settings {
+                form.dark = on;
+            }
+            app.engine.set_dark_mode(on);
+        }
+        // The window of one model.
+        Msg::Ctx(value) => {
+            if let Some(form) = &mut app.model {
+                form.held.ctx_size = value.max(1) as u32;
+            }
+        }
+        Msg::KvKind(which) => {
+            if let Some(form) = &mut app.model {
+                form.held.kv_index = which;
+            }
+        }
+        Msg::SpecKind(which) => {
+            if let Some(form) = &mut app.model {
+                form.held.spec_index = which;
+            }
+        }
+        Msg::DraftTokens(value) => {
+            if let Some(form) = &mut app.model {
+                form.held.draft_tokens = value.max(1) as u32;
+            }
+        }
+        Msg::Parallel(value) => {
+            if let Some(form) = &mut app.model {
+                form.held.parallel = value.max(1) as u32;
+            }
+        }
+        Msg::Batch(value) => {
+            if let Some(form) = &mut app.model {
+                form.held.batch_size = value.max(1) as u32;
+            }
+        }
+        Msg::Ubatch(value) => {
+            if let Some(form) = &mut app.model {
+                form.held.ubatch_size = value.max(1) as u32;
+            }
+        }
+        Msg::Vision(on) => {
+            if let Some(form) = &mut app.model {
+                form.held.vision = on;
+            }
+        }
+        Msg::Budget(value) => {
+            if let Some(form) = &mut app.model {
+                form.held.reasoning_budget = value;
+            }
+        }
+        // The two boxes of many lines keep their own words until the form is
+        // saved, so only the command line at the foot of the window is read
+        // again. Only an action that changed the words is worth that.
+        Msg::Template(edit) | Msg::Extra(edit) => {
+            touched = edit.is_edit();
+        }
+        Msg::LoadKind(which) => {
+            if let Some(form) = &mut app.model {
+                form.held.load_index = which;
+            }
+        }
+        Msg::Memory(value) => {
+            if let Some(form) = &mut app.model {
+                form.held.vram_budget = value.max(0.0);
+            }
+        }
+        Msg::CardOn(which) => {
+            if let Some(form) = &mut app.model {
+                if which < form.held.gpu_enabled.len() {
+                    form.held.gpu_enabled[which] = !form.held.gpu_enabled[which];
+                }
+            }
+        }
+        Msg::Save => {
+            if let Some(form) = &app.settings {
+                let mut cfg = app.engine.config();
+                cfg.llama_dir = form.llama_dir.clone();
+                cfg.models_dir = form.models_dir.clone();
+                cfg.repositories_dir = form.repositories_dir.clone();
+                cfg.dark_mode = form.dark;
+                cfg.upnp_enabled = form.upnp;
+                cfg.remote_port = form.port.parse::<u16>().unwrap_or(0);
+                app.engine.save_settings(cfg);
+            }
+            if let Some(form) = &app.model {
+                let mut held = form.held.clone();
+                held.chat_template = form.template.text();
+                held.extra_args = form.extra.text();
+                app.engine.save_model_settings(form.id.clone(), held);
+            }
+            return close_windows(app);
+        }
+        Msg::Close => {
+            // The form is left behind, and the window with it.
+            return close_windows(app);
+        }
+    }
+    if touched {
+        app.refresh_model();
+    }
+    Task::none()
 }
 
-// The command line the next message will use. It helps to see it here, because
-// a wrong extra argument is then easy to find.
-fn command_preview(
-    engine: &Rc<Engine>,
-    snap: &Snap,
-    settings: &ModelSettings,
-    gpus: &[crate::gpu::Gpu],
-    flags: &[bool],
-) -> String {
-    let Some(model) = snap.models.iter().find(|m| m.id() == engine_model_id(engine, snap)) else {
-        return String::new();
+// Open the chat that stands in the middle of the row of previews, and put the
+// row away. The keys of the row answer for it, and so does Return.
+fn pick_middle(app: &mut App) -> Task<Msg> {
+    let Some(card) = app.cards.get(app.snap.chat_index) else {
+        return Task::none();
     };
-    let mut devices = gpus.to_vec();
-    for (index, flag) in flags.iter().enumerate() {
-        if let Some(device) = devices.get_mut(index) {
-            device.enabled = *flag;
-        }
+    let id = card.id.clone();
+    app.engine.open_chat(id);
+    app.engine.set_overview(false);
+    app.spin = 0.0;
+    app.opened = Some(Instant::now());
+    focus_draft(app)
+}
+
+// Give the box for a new message the keys, so the first word can be written at
+// once. The window was made with the box empty and the caret waiting.
+fn focus_draft(app: &mut App) -> Task<Msg> {
+    iced::widget::operation::focus(app.draft_id.clone())
+}
+
+// Put the two windows of settings away, and forget the forms they held.
+fn close_windows(app: &mut App) -> Task<Msg> {
+    app.settings = None;
+    app.model = None;
+    let mut jobs = vec![Task::none()];
+    if let Some(id) = app.settings_window.take() {
+        jobs.push(window::close(id));
     }
-    let mut notes = Vec::new();
-    let args = llama::build_args(
-        std::path::Path::new(""),
-        model,
-        settings,
-        &devices,
-        0,
-        snap.code_enabled,
-        snap.thinking_mode.as_str(),
-        &mut notes,
-    );
-    let mut text = String::from("llama-server ");
-    for arg in args {
-        if arg.contains(' ') {
-            text.push_str(&format!("\"{}\"", arg));
+    if let Some(id) = app.model_window.take() {
+        jobs.push(window::close(id));
+    }
+    Task::batch(jobs)
+}
+
+// What a key was let go, as a short word. The row of previews answers to these.
+// The written form of a named key cannot be used here, because it reads
+// "Named(Escape)". The words of one_word below are what the window compares.
+fn key_name(key: &iced::keyboard::Key) -> String {
+    use iced::keyboard::Key;
+
+    match key {
+        Key::Character(words) => words.to_string(),
+        Key::Named(named) => String::from(one_word(*named)),
+        // A key the window does not know is "Other", and does nothing.
+        _ => String::from("Other"),
+    }
+}
+
+// One named key, as one word. Only the keys the window answers to are named.
+// The rest are "Other", so they do nothing.
+fn one_word(named: iced::keyboard::key::Named) -> &'static str {
+    use iced::keyboard::key::Named;
+
+    match named {
+        Named::Escape => "Escape",
+        Named::Enter => "Enter",
+        Named::Alt => "Alt",
+        Named::ArrowLeft => "ArrowLeft",
+        Named::ArrowRight => "ArrowRight",
+        Named::ArrowUp => "ArrowUp",
+        Named::ArrowDown => "ArrowDown",
+        // The names a keyboard may give are not all known ahead of time, so the
+        // rest are "Other" and do nothing.
+        _ => "Other",
+    }
+}
+
+// The runner joins the state of the window to the windows themselves. It holds
+// the engine until the window is ready for it.
+pub struct Runner {
+    engine: std::cell::RefCell<Option<Engine>>,
+}
+
+impl iced_winit::program::Program for Runner {
+    type State = App;
+    type Message = Msg;
+    type Theme = Theme;
+    type Renderer = iced::Renderer;
+    type Executor = iced::executor::Default;
+
+    fn name() -> &'static str {
+        "autumn natter"
+    }
+
+    fn settings(&self) -> iced::Settings {
+        iced::Settings::default()
+    }
+
+    fn window(&self) -> Option<window::Settings> {
+        Some(window::Settings {
+            size: iced::Size::new(1180.0, 760.0),
+            ..window::Settings::default()
+        })
+    }
+
+    fn boot(&self) -> (App, Task<Msg>) {
+        let engine = self.engine.borrow_mut().take().expect("the engine is started once");
+        let mut app = App::new(engine);
+        // The box for a new message has the keys as soon as the window is up,
+        // so the first word can be written without a click first.
+        let keys = focus_draft(&mut app);
+        (app, keys)
+    }
+
+    fn update(&self, state: &mut App, message: Msg) -> Task<Msg> {
+        update(state, message)
+    }
+
+    fn view<'a>(&self, state: &'a App, window: window::Id) -> Element<'a, Msg> {
+        let pal = state.palette();
+        if state.settings_window == Some(window) {
+            return match &state.settings {
+                Some(form) => dialog_view::program(state, window, form, pal),
+                None => dialog_view::blank(pal),
+            };
+        }
+        if state.model_window == Some(window) {
+            return match &state.model {
+                Some(form) => dialog_view::model(state, window, form, pal),
+                None => dialog_view::blank(pal),
+            };
+        }
+        main_view::draw(state, window, pal)
+    }
+
+    fn title(&self, state: &App, window: window::Id) -> String {
+        if state.settings_window == Some(window) {
+            return String::from("Autumn Natter - Settings");
+        }
+        if state.model_window == Some(window) {
+            let name = state
+                .model
+                .as_ref()
+                .map(|form| form.name.clone())
+                .unwrap_or_else(|| state.snap.model_name.clone());
+            return format!("Autumn Natter - {name}");
+        }
+        if state.snap.chat_title.is_empty() {
+            return String::from("Autumn Natter");
+        }
+        format!("{} - Autumn Natter", state.snap.chat_title)
+    }
+
+    fn theme(&self, state: &App, _window: window::Id) -> Option<Theme> {
+        Some(if state.snap.dark_mode {
+            Theme::CatppuccinMocha
         } else {
-            text.push_str(&arg);
-        }
-        text.push(' ');
+            Theme::SolarizedLight
+        })
     }
-    for note in notes {
-        text.push_str(&format!("\n{}", note));
+
+    fn subscription(&self, _state: &App) -> Subscription<Msg> {
+        use iced::event::{self, Event};
+        use iced::keyboard::Event as Key;
+        use iced::mouse::Event as Mouse;
+
+        let ticks = iced::time::every(TICK).map(|_| Msg::Tick);
+        // The keys are read from every event, and not only from the ones no
+        // widget took. The box for a new message keeps the keys it is given,
+        // and the row of previews must still answer to Escape, to Alt and to
+        // Return while that box has the keys.
+        let keys = event::listen_with(|event, _status, which| match event {
+            Event::Keyboard(Key::KeyReleased { key, .. }) => Some(Msg::KeyUp(key_name(&key))),
+            Event::Mouse(Mouse::CursorMoved { position }) => {
+                Some(Msg::Pointer(which, position.x, position.y))
+            }
+            _ => None,
+        });
+        let sizes = iced::window::resize_events()
+            .map(|(which, size)| Msg::Sized(which, size.width, size.height));
+        // A window that asks to be put away, and a window that was put away.
+        // The server must not be left running behind an empty desk.
+        let asked = iced::window::close_requests().map(Msg::WindowClose);
+        let gone = iced::window::close_events().map(Msg::WindowClosed);
+        Subscription::batch([ticks, keys, sizes, asked, gone])
     }
-    text
 }
 
-fn engine_model_id(engine: &Rc<Engine>, snap: &Snap) -> String {
-    let _ = engine;
-    snap.model_id.clone()
-}
-
-// Make the settings window once, then reuse it.
-fn take_settings(slot: &RefCell<Option<Rc<SettingsWindow>>>) -> Option<Rc<SettingsWindow>> {
-    let mut slot = slot.borrow_mut();
-    if slot.is_none() {
-        *slot = SettingsWindow::new().ok().map(Rc::new);
-    }
-    slot.clone()
-}
-
-// Make the model window once, then reuse it.
-fn take_config(slot: &RefCell<Option<Rc<ModelConfigWindow>>>) -> Option<Rc<ModelConfigWindow>> {
-    let mut slot = slot.borrow_mut();
-    if slot.is_none() {
-        *slot = ModelConfigWindow::new().ok().map(Rc::new);
-    }
-    slot.clone()
-}
-
-// Name of a repository, for the chat list. A chat with no repository shows an
-// empty string, and the window then writes "no repository".
-fn repo_label(snap: &Snap, repo_id: &str) -> String {
-    if repo_id.is_empty() {
-        return String::new();
-    }
-    snap.repositories
-        .iter()
-        .find(|r| r.id == repo_id)
-        .map(|r| r.name.clone())
-        .unwrap_or_else(|| repo_id.to_string())
-}
-
-// Turn a list of names into the string list Slint wants.
-fn list(items: &[&'static str]) -> ModelRc<SharedString> {
-    let rows: Vec<SharedString> = items.iter().map(|item| text(item)).collect();
-    ModelRc::from(Rc::new(VecModel::from(rows)))
-}
-
-// Turn a string into the type Slint wants.
-fn text(value: &str) -> SharedString {
-    SharedString::from(value.to_string())
-}
-
-// Tokens with a comma every three digits.
-fn count(value: u64) -> String {
-    util::count(value)
-}
-
-fn text_of(error: slint::PlatformError) -> String {
-    format!("the window could not be opened: {}", error)
+// The window of the program. The engine was started before this, so the first
+// picture of the window already holds the chats on disk.
+pub fn run(cfg: Config) -> Result<(), String> {
+    let runner = Runner {
+        engine: std::cell::RefCell::new(Some(Engine::start(cfg))),
+    };
+    iced_winit::run(runner).map_err(|why| why.to_string())
 }

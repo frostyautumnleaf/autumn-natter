@@ -1,12 +1,12 @@
-// Convert markdown text into blocks that the Slint UI can render.
+// Convert markdown text into blocks that the window can render.
 // Block-level parts (code, headings, lists) become separate blocks.
 //
-// The words inside a block stay plain. Slint has no rich text for words that
-// arrive while the program runs, because its own markup works only on words that
-// stand in a .slint file. The marks are therefore taken out here and only the
-// words are kept, so a bold word reads as a plain word and never as <b> and
-// </b> around it. The address of a link stands after the words of the link,
-// which is how plain text shows an address.
+// The words of a block stay plain. The marks are taken out here, and only the
+// kind of the block is kept, so a bold word reads as a plain word and never as
+// <b> and </b> around it. The window draws the mark of a block itself: a heading
+// gets a short bar of an accent colour, and a list stands behind a rule. The
+// address of a link stands after the words of the link, which is how plain text
+// shows an address.
 
 /// One block of rendered markdown.
 #[derive(Debug, Clone, Default)]
@@ -15,7 +15,8 @@ pub struct Block {
     pub kind: String,
     /// Heading level (1-6). Zero for other kinds.
     pub level: i32,
-    /// The content. For "text" and "heading" this has inline HTML markup.
+    /// The words of the block. Marks are taken out, so this is plain text. For
+    /// a code block this holds the code.
     pub content: String,
 }
 

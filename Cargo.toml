@@ -2,7 +2,7 @@
 name = "autumn-natter"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.88"
 description = "Chat client for local LLMs. It uses llama.cpp as the inference backend."
 license = "MIT"
 readme = "README.md"
@@ -10,16 +10,12 @@ repository = "https://github.com/frostyautumnleaf/autumn-natter"
 build = "build.rs"
 
 [dependencies]
-# Slint is the front-end UI framework. The software renderer keeps the binary
-# small and works on Wayland and X11 without an OpenGL stack.
-slint = { version = "1.18", default-features = false, features = [
-    "std",
-    "compat-1-2",
-    "backend-winit-wayland",
-    "backend-winit-x11",
-    "renderer-software",
-    "accessibility",
-] }
+# Iced is the front-end UI framework. It draws with a GPU or with the software
+# fallback, and works on Wayland, X11 and Windows.
+iced = { version = "0.14", features = ["svg", "tokio"] }
+# The shell of Iced. It is used to run a program that draws more than one
+# window, which the plain builder of the iced crate cannot do.
+iced_winit = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
@@ -34,9 +30,6 @@ pulldown-cmark = "0.13"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-[build-dependencies]
-slint-build = "1.18"
 
 [profile.release]
 opt-level = "s"

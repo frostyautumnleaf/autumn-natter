@@ -1,15 +1,9 @@
-// Builds the Slint UI files before the Rust code compiles.
+// Autumn Natter has no code to make. This step only tells Cargo when to build
+// again. Two files are put into the program while it is built, so a change to
+// either of them must start a new build.
 fn main() {
-    slint_build::compile("ui/app.slint").expect("the Slint UI must compile");
-    // Rerun the build step when a UI file changes.
-    println!("cargo:rerun-if-changed=ui/app.slint");
-    println!("cargo:rerun-if-changed=ui/theme.slint");
-    println!("cargo:rerun-if-changed=ui/widgets.slint");
-    println!("cargo:rerun-if-changed=ui/types.slint");
-    println!("cargo:rerun-if-changed=ui/model_config.slint");
-    println!("cargo:rerun-if-changed=ui/settings.slint");
-    // The browser page of the remote mode and the icon of the page are put into
-    // the program when it is built.
+    // The browser page of the remote mode.
     println!("cargo:rerun-if-changed=web/page.html");
+    // The mark of the program, used by the window and by the page.
     println!("cargo:rerun-if-changed=assets/icons/autumn-natter.svg");
 }
