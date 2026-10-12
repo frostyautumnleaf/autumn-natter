@@ -186,9 +186,11 @@ mod tests {
 
     #[test]
     fn a_string_key_is_read_from_a_header() {
+        // Each test writes a file of its own. Two tests that write the same file
+        // at the same time can leave the other one reading a half written file.
         let dir = Path::new("uidata/gguf-tests");
         let _ = std::fs::create_dir_all(dir);
-        let path = write_gguf(dir, "test.gguf");
+        let path = write_gguf(dir, "with-template.gguf");
         let text = read_string(&path, "tokenizer.chat_template").expect("the key is in the file");
         assert_eq!(text, "{%- if enable_thinking %}X{% endif %}");
     }
@@ -197,7 +199,7 @@ mod tests {
     fn a_missing_key_gives_none() {
         let dir = Path::new("uidata/gguf-tests");
         let _ = std::fs::create_dir_all(dir);
-        let path = write_gguf(dir, "test.gguf");
+        let path = write_gguf(dir, "without-name.gguf");
         assert!(read_string(&path, "general.name").is_none());
     }
 
