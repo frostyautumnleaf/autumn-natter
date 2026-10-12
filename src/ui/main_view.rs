@@ -231,12 +231,12 @@ fn top_bar(app: &App, pal: Pal, shape: &Shape) -> Elem {
     let model_wide = (86.0 + words(longest_model(snap).as_str(), 13.0) + kind_room) .clamp(118.0, shape.model_cap);
     line = line.push(model_box(app, snap, pal, model_wide));
 
-    // The repository box, when the chat of the middle belongs to a repository.
-    if snap.in_repository {
-        let repo_wide = (66.0 + words(longest_repository(snap).as_str(), 13.0))
-            .clamp(104.0, shape.repo_cap);
-        line = line.push(repository_box(snap, pal, repo_wide));
-    }
+    // The repository box, always at the side of the model box. Every place
+    // keeps its own chats, and "No place" is a place of its own, so the box
+    // never leaves the bar.
+    let repo_wide = (66.0 + words(longest_repository(snap).as_str(), 13.0))
+        .clamp(118.0, shape.repo_cap);
+    line = line.push(repository_box(snap, pal, repo_wide));
 
     // The name of the chat. It is the chief word of this bar, so it takes the
     // room that is left.
@@ -334,8 +334,19 @@ fn model_box(app: &App, snap: &Snap, pal: Pal, wide: f32) -> Elem {
     )
 }
 
-// The box that shows which repository the carousel belongs to.
+// The box that shows which place the chats are kept in. Out of a place it
+// says "No place" in a dim ink, the way the model box says "No model".
 fn repository_box(snap: &Snap, pal: Pal, wide: f32) -> Elem {
+    let ink = if snap.repository_name.is_empty() {
+        pal.text_dim
+    } else {
+        pal.text
+    };
+    let named = if snap.repository_name.is_empty() {
+        String::from("No place")
+    } else {
+        snap.repository_name.clone()
+    };
     let mut inside = Row::new().spacing(7.0).align_y(Alignment::Center);
     inside = inside.push(
         container(parts::glyph("folder", pal.accent_warm, 15.0))
@@ -343,13 +354,9 @@ fn repository_box(snap: &Snap, pal: Pal, wide: f32) -> Elem {
             .height(Length::Fixed(15.0)),
     );
     inside = inside.push(
-        container(parts::word_one(
-            snap.repository_name.clone(),
-            pal.text,
-            13.0,
-        ))
-        .width(Length::Fill)
-        .clip(true),
+        container(parts::word_one(named, ink, 13.0))
+            .width(Length::Fill)
+            .clip(true),
     );
     inside = inside.push(
         container(parts::glyph("down", pal.text_dim, 13.0))

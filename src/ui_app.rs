@@ -1248,12 +1248,17 @@ mod typing {
     use crate::config;
     use std::path::PathBuf;
 
-    // The engines of the tests take turns, and they share one data folder.
-    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn app() -> App {
         config::set_data_dir(PathBuf::from("uidata/typing-tests"));
         let _ = config::ensure_dirs();
+        // The chats of an older run would stand in the carousel, so they go
+        // first, and every run starts with an empty place.
+        let chats = config::paths().chats;
+        if let Ok(entries) = std::fs::read_dir(&chats) {
+            for entry in entries.flatten() {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
         App::new(Engine::start(Config::default()))
     }
 
@@ -1261,7 +1266,7 @@ mod typing {
     // left in the words of the box, and read again before it is sent.
     #[test]
     fn a_pressed_key_is_written_into_the_box() {
-        let _guard = TURN.lock().unwrap();
+        let _guard = config::test_turn();
         let mut app = app();
 
         let _ = update(&mut app, Msg::Draft(Edit::Edit(text_editor::Edit::Insert('a'))));

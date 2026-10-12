@@ -21,8 +21,9 @@
 // the skin matters: the first screen, a chat with a block of code, a chat with
 // every kind of block (a heading, a list, a block of code, the thinking of the
 // model, a run of the terminal tool, and a line from the program), the row of
-// previews, an answer that is still coming in, a list of the top bar, a narrow
-// window, and the two windows of settings at the room they are opened with.
+// previews, an answer that is still coming in, a list of the top bar, a window
+// with a place of its own open, a narrow window, and the two windows of
+// settings at the room they are opened with.
 
 use std::path::PathBuf;
 
@@ -279,6 +280,57 @@ fn first_screen(dark: bool, wide: f32, tall: f32) -> App {
     app
 }
 
+// Take one repository of the pictures away, so a run starts clean and a place
+// made for one picture does not stand in the list of the next.
+fn remove_repository(name: &str) {
+    let repos_dir = config::repositories_dir(&Config::default());
+    let Ok(entries) = std::fs::read_dir(&repos_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file = path.join("repo.json");
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        if let Ok(repo) = serde_json::from_str::<store::Repo>(&text) {
+            if repo.name == name {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+        }
+    }
+}
+
+// A window with one place open. The repository box of the top bar shows the
+// name of the place, and the chat of the place stands in the carousel.
+fn repository_window(dark: bool, wide: f32, tall: f32) -> App {
+    let mut app = window(dark, wide, tall, false);
+    let store = store::Store::new(config::repositories_dir(&Config::default()));
+    // A place of the same name from an older run would refuse the making, so
+    // the old one goes first.
+    remove_repository("The garden");
+    let made = store.create_repo("The garden").expect("make the place");
+    let now = store::now_secs();
+    let mut chat = Chat::new(&made.id, "");
+    chat.meta.title = String::from("Pruning the roses");
+    chat.meta.updated = now - 300;
+    chat.messages = vec![
+        said("You", "When do I prune the roses?", now - 300),
+        said(
+            "Assistant",
+            "After the last frost, and again before the summer heat.",
+            now - 299,
+        ),
+    ];
+    store.save_chat(&chat);
+    app.engine.select_repository(made.id.clone());
+    app.pull();
+    for _ in 0..6 {
+        app.grow();
+    }
+    app
+}
+
 // The pictures of the main window: the first screen, a chat, a chat with every
 // kind of block, the row of previews, an answer that is still being written, a
 // list of the top bar, the dark skin, and a narrow window.
@@ -292,6 +344,9 @@ fn pictures_of_the_window() {
         println!("    AN_SHOTS=1 cargo test shot -- --test-threads=1");
         return;
     }
+    // The pictures take the folder of the data, so the other tests wait at
+    // the lock while they are made.
+    let _turn = config::test_turn();
 
     picture(&first_screen(false, WIDE, TALL), "home-pale");
     picture(&first_screen(true, WIDE, TALL), "home-dark");
@@ -332,6 +387,17 @@ fn pictures_of_the_window() {
     draft.draft = iced::widget::text_editor::Content::with_text(&words);
     draft.draft_text = words;
     picture(&draft, "draft-pale");
+
+    // A place of its own, with the repository box of the top bar and, in one
+    // of the pictures, the list under it.
+    picture(&repository_window(false, WIDE, TALL), "repo-pale");
+    picture(&repository_window(true, WIDE, TALL), "repo-dark");
+    let mut repo_menu = repository_window(false, WIDE, TALL);
+    repo_menu.menu = super::Menu::Repository;
+    picture(&repo_menu, "repo-menu-pale");
+    // The place goes away again, so the pictures that follow see no
+    // repository at all.
+    remove_repository("The garden");
 }
 
 // The pictures of the two windows of settings: the places of the program, and
@@ -343,6 +409,7 @@ fn pictures_of_the_settings_windows() {
     if std::env::var("AN_SHOTS").as_deref() != Ok("1") {
         return;
     }
+    let _turn = config::test_turn();
     for dark in [false, true] {
         let skin = if dark { "dark" } else { "pale" };
         let app = window(dark, WIDE, TALL, false);

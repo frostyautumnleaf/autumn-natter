@@ -1420,9 +1420,8 @@ mod tests {
     use super::*;
 
     // The program keeps its paths in one place for the whole run, so the tests
-    // share one data folder. They take turns, and each one empties the chats
-    // folder first.
-    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // share one data folder. They take turns through the lock of the config,
+    // and each one empties the chats folder first.
 
     fn setup() {
         config::set_data_dir(PathBuf::from("uidata/engine-tests"));
@@ -1457,7 +1456,7 @@ mod tests {
     // chat that was written in is stored at once.
     #[test]
     fn blank_chats_stay_off_disk() {
-        let _guard = TURN.lock().unwrap();
+        let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
         let chats = config::paths().chats;
@@ -1496,7 +1495,7 @@ mod tests {
 
     #[test]
     fn carousel_rules() {
-        let _guard = TURN.lock().unwrap();
+        let _guard = config::test_turn();
         setup();
         write_chat("aaaabbbb01", 100);
         write_chat("aaaabbbb02", 200);
@@ -1551,7 +1550,7 @@ mod tests {
     // a window over the carousel that does not change which chat is open.
     #[test]
     fn the_first_screen_and_the_previews() {
-        let _guard = TURN.lock().unwrap();
+        let _guard = config::test_turn();
         setup();
         write_chat("aaaabbbb03", 300);
         let engine = Engine::start(Config::default());
@@ -1592,7 +1591,7 @@ mod tests {
     // no thinking mode does not change.
     #[test]
     fn the_thinking_mode_cycles() {
-        let _guard = TURN.lock().unwrap();
+        let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
         engine.new_chat();

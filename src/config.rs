@@ -177,6 +177,14 @@ pub fn set_data_dir(dir: PathBuf) {
     let _ = DATA_DIR.set(dir);
 }
 
+// The tests that write through the data folder take turns through this one
+// lock, so no test empties the folder of another while it works.
+#[cfg(test)]
+pub fn test_turn() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    TURN.lock().expect("the lock of the tests")
+}
+
 // Create the data directory and the folders inside it.
 pub fn ensure_dirs() -> std::io::Result<()> {
     let p = paths();
