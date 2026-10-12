@@ -324,6 +324,14 @@ fn pictures_of_the_window() {
     let mut menu = window(false, WIDE, TALL, false);
     menu.menu = super::Menu::Model;
     picture(&menu, "menu-pale");
+
+    // A word that was written into the box of a new message, as it stands
+    // before it is sent.
+    let mut draft = window(false, WIDE, TALL, false);
+    let words = String::from("Count the lines of every file in the folder");
+    draft.draft = iced::widget::text_editor::Content::with_text(&words);
+    draft.draft_text = words;
+    picture(&draft, "draft-pale");
 }
 
 // The pictures of the two windows of settings: the places of the program, and

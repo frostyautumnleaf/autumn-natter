@@ -728,10 +728,14 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
             }
             app.opened = Some(Instant::now());
         }
-        // The words of the box are read again after an action that changed
-        // them, so the round mark knows whether there is something to send.
+        // The action of the box is performed on the words it holds, so a
+        // letter is written into them and kept for the next frame. The words
+        // are read again after an action that changed them, so send knows
+        // whether there is something to send.
         Msg::Draft(edit) => {
-            if edit.is_edit() {
+            let edited = edit.is_edit();
+            app.draft.perform(edit);
+            if edited {
                 app.draft_now();
             }
         }
@@ -971,10 +975,22 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
             }
         }
         // The two boxes of many lines keep their own words until the form is
-        // saved, so only the command line at the foot of the window is read
-        // again. Only an action that changed the words is worth that.
-        Msg::Template(edit) | Msg::Extra(edit) => {
-            touched = edit.is_edit();
+        // saved. The action is performed on the words, so a letter is kept
+        // for the next frame, and the command line at the foot of the window
+        // is read again after an action that changed the words.
+        Msg::Template(edit) => {
+            let edited = edit.is_edit();
+            if let Some(form) = &mut app.model {
+                form.template.perform(edit);
+            }
+            touched = edited;
+        }
+        Msg::Extra(edit) => {
+            let edited = edit.is_edit();
+            if let Some(form) = &mut app.model {
+                form.extra.perform(edit);
+            }
+            touched = edited;
         }
         Msg::LoadKind(which) => {
             if let Some(form) = &mut app.model {
@@ -1223,3 +1239,69 @@ pub fn run(cfg: Config) -> Result<(), String> {
 // the tests, and they write under `uidata/`.
 #[cfg(test)]
 mod shot;
+
+// The path of a key press: the action the box publishes, and the letter it
+// leaves behind in its words.
+#[cfg(test)]
+mod typing {
+    use super::*;
+    use crate::config;
+    use std::path::PathBuf;
+
+    // The engines of the tests take turns, and they share one data folder.
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn app() -> App {
+        config::set_data_dir(PathBuf::from("uidata/typing-tests"));
+        let _ = config::ensure_dirs();
+        App::new(Engine::start(Config::default()))
+    }
+
+    // The box writes what it is told to write, so a letter that is pressed is
+    // left in the words of the box, and read again before it is sent.
+    #[test]
+    fn a_pressed_key_is_written_into_the_box() {
+        let _guard = TURN.lock().unwrap();
+        let mut app = app();
+
+        let _ = update(&mut app, Msg::Draft(Edit::Edit(text_editor::Edit::Insert('a'))));
+        assert_eq!(app.draft_text, "a");
+        assert_eq!(app.draft.text(), "a");
+
+        let _ = update(&mut app, Msg::Draft(Edit::Edit(text_editor::Edit::Insert('b'))));
+        assert_eq!(app.draft_text, "ab");
+
+        let _ = update(&mut app, Msg::Draft(Edit::Edit(text_editor::Edit::Backspace)));
+        assert_eq!(app.draft_text, "a");
+
+        // Sending takes what the box holds, and the box is left empty. The
+        // first word of a run grows a chat of its own.
+        let _ = update(&mut app, Msg::Send);
+        assert!(app.draft_text.is_empty());
+        assert!(app.draft.text().is_empty());
+        assert_eq!(app.snap.chat_count, 1);
+    }
+
+    // A key the box does not answer for itself is given the binding of the
+    // box, so a plain letter is a letter that is written.
+    #[test]
+    fn a_plain_key_is_the_binding_of_the_box() {
+        use iced::keyboard::{key, Key, Modifiers};
+        use iced::widget::text_editor::{Binding, KeyPress, Status};
+
+        let press = KeyPress {
+            key: Key::Character("a".into()),
+            modified_key: Key::Character("a".into()),
+            physical_key: key::Physical::Code(key::Code::KeyA),
+            modifiers: Modifiers::NONE,
+            text: Some("a".into()),
+            // The box only gets a key while it holds the focus.
+            status: Status::Focused { is_hovered: false },
+        };
+
+        match Binding::<Msg>::from_key_press(press) {
+            Some(Binding::Insert(letter)) => assert_eq!(letter, 'a'),
+            other => panic!("a plain letter should write itself: {other:?}"),
+        }
+    }
+}

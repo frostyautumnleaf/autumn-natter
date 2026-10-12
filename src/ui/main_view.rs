@@ -883,7 +883,7 @@ fn composer_box<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
             }
             if matches!(press.key, Key::Named(Named::Enter)) {
                 if press.modifiers.shift() {
-                    return Some(iced::widget::text_editor::Binding::Insert('\n'));
+                    return Some(iced::widget::text_editor::Binding::Enter);
                 }
                 return Some(iced::widget::text_editor::Binding::Custom(Msg::Send));
             }
