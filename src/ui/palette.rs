@@ -55,6 +55,10 @@ pub struct Pal {
     pub text_dim: Color,
     // Soft autumn tint for selected items.
     pub tint: Color,
+    // Words that stand in an accent colour, on a tint or on a surface. The pale
+    // skin takes the deep accent, and the dark skin takes the bright one, so the
+    // words can be read in both skins.
+    pub accent_text: Color,
     // Text drawn on top of an accent colour.
     pub on_accent: Color,
     // Hover colour for buttons and rows.
@@ -77,6 +81,8 @@ pub struct Pal {
     pub think_bg: Color,
     // Colour for a failed tool run.
     pub danger: Color,
+    // The soft dark of a shadow under a list that stands over the window.
+    pub shade: Color,
 }
 
 impl Pal {
@@ -91,13 +97,18 @@ impl Pal {
             text: if dark { hex(0xF2EBE2) } else { hex(0x231A11) },
             text_dim: if dark { hex(0xA4998C) } else { hex(0x7B6A57) },
             tint: if dark { hex(0x2C1D10) } else { hex(0xFBE6D1) },
+            accent_text: if dark { hex(0xED7401) } else { hex(0xC53C01) },
             on_accent: hex(0xFAF2E6),
             hover: if dark { hex(0x2A2A2A) } else { hex(0xF8ECD9) },
 
             accent: hex(0xED7401),
             accent_warm: hex(0xDF6101),
             accent_strong: hex(0xC53C01),
-            accent_leaf: hex(0xAC4422),
+            // The leaf colour carries small words, such as the place of a chat
+            // and the head of the thinking panel. In the dark skin it takes the
+            // warm accent instead, because the brick colour cannot be read on a
+            // dark ground.
+            accent_leaf: if dark { hex(0xDF6101) } else { hex(0xAC4422) },
             accent_deep: hex(0xAF2600),
 
             bubble_user: if dark { hex(0x2B1C10) } else { hex(0xFBE6D1) },
@@ -105,6 +116,12 @@ impl Pal {
             code_bg: if dark { hex(0x201D1A) } else { hex(0xF6ECDC) },
             think_bg: if dark { hex(0x221E1B) } else { hex(0xF5EAD9) },
             danger: hex(0xAF2600),
+            shade: Color {
+                a: if dark { 0.42 } else { 0.16 },
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+            },
         }
     }
 }

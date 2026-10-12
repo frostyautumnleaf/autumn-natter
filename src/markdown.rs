@@ -93,6 +93,17 @@ pub fn parse(markdown: &str) -> Vec<Block> {
                 });
                 current_heading_level = 0;
             }
+            // A list or a quote cannot start inside a paragraph, so the words
+            // that came before it are made into a block first. Without this the
+            // list would stand before the words that came before it.
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::List(_))
+            | pulldown_cmark::Event::Start(pulldown_cmark::Tag::BlockQuote(_)) => {
+                flush_text(&mut blocks, &mut current_text);
+            }
+            // The end of a paragraph is the end of a block of words.
+            pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Paragraph) => {
+                flush_text(&mut blocks, &mut current_text);
+            }
             pulldown_cmark::Event::Start(pulldown_cmark::Tag::Item) => {
                 in_list = true;
                 current_item.clear();
@@ -355,6 +366,19 @@ mod tests {
         let options = analyze_template(template);
         assert!(options.has_effort);
         assert!(options.efforts.is_empty());
+    }
+
+    #[test]
+    fn the_blocks_keep_the_order_they_were_written_in() {
+        // A list that was written after a paragraph must not move in front of
+        // it, and the same for the block of code after the list.
+        let answer = "## Ways\n\nOne command does the work.\n\n- one file\n- many files\n\n```rust\nlet n = 1;\n```\n\nThe read is one call.";
+        let blocks = parse(answer);
+        let kinds: Vec<&str> = blocks.iter().map(|one| one.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["heading", "text", "list", "code", "text"]);
+        assert_eq!(blocks[1].content, "One command does the work.");
+        assert!(blocks[2].content.starts_with("1. one file"));
+        assert_eq!(blocks[4].content, "The read is one call.");
     }
 }
 

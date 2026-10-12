@@ -69,8 +69,11 @@ pub struct SettingsForm {
 
 // What the window of one model holds while it stands open.
 pub struct ModelForm {
+    // The whole file of the model, which is also its id.
     pub id: String,
     pub name: String,
+    // GGUF or Safetensors.
+    pub kind: String,
     pub held: ModelSettings,
     // The three lists of many choices. The words are what the reader sees, and
     // the number is what the settings of the model keep.
@@ -156,6 +159,10 @@ pub enum Msg {
     NewRepository(String),
     Ctx(i64),
     KvKind(usize),
+    // The file of the small model that guesses ahead, and the words the server
+    // adds when the room for thinking is gone.
+    DraftModel(String),
+    ReasonMessage(String),
     SpecKind(usize),
     DraftTokens(i64),
     Parallel(i64),
@@ -168,8 +175,12 @@ pub enum Msg {
     LoadKind(usize),
     Memory(f64),
     CardOn(usize),
-    Save,
-    Close,
+    // The two buttons of each window of settings. Each window has its own pair,
+    // so a button of one window cannot put the other one away.
+    SaveSettings,
+    CloseSettings,
+    SaveModel,
+    CloseModel,
 }
 
 // The state of the window.
@@ -185,6 +196,9 @@ pub struct App {
     // What the window draws. These follow the snapshot.
     pub rows: Vec<message_view::Row>,
     pub cards: Vec<Card>,
+    // The chat the card was grown for. Another chat here starts the growth
+    // again, so a chat is drawn in from the top down when it is opened.
+    pub card_chat: String,
     pub rev: u64,
     pub structure: u64,
     pub chats: String,
@@ -234,6 +248,7 @@ impl App {
             draft_text: String::new(),
             rows: Vec::new(),
             cards: Vec::new(),
+            card_chat: String::new(),
             rev: 0,
             structure: 0,
             chats: String::new(),
@@ -249,7 +264,9 @@ impl App {
             flick: 0.0,
             grab: None,
             dragged: false,
-            turn: 0.0,
+            // The first picture of the window shows the chat whole. The growth
+            // from the top down is for a chat that is opened later.
+            turn: 1.0,
             open_t: 1.0,
             opened: None,
             greet: false,
@@ -305,6 +322,12 @@ impl App {
     fn pull(&mut self) {
         let fresh = self.engine.snapshot();
         let moved = fresh.rev != self.rev || fresh.structure_rev != self.structure;
+        // Another chat in use means a chat was opened, so the card is grown
+        // again from the top down.
+        if fresh.chat_id != self.card_chat {
+            self.card_chat = fresh.chat_id.clone();
+            self.turn = 0.0;
+        }
         self.rev = fresh.rev;
         self.snap = fresh;
         if self.snap.structure_rev != self.structure || self.cards.is_empty() {
@@ -320,6 +343,18 @@ impl App {
             self.rows = rows_of(&self.snap);
         }
         self.greet = self.snap.home;
+    }
+
+    // Let the card of the chat in use grow a step further. It takes about as
+    // long as the row of previews takes to settle, and it stops at whole.
+    fn grow(&mut self) {
+        if self.snap.home {
+            self.turn = 0.0;
+            return;
+        }
+        if self.turn < 1.0 {
+            self.turn = (self.turn + 0.2).min(1.0);
+        }
     }
 
     // Move the row of previews on by what a flick left behind, then let it come
@@ -383,9 +418,17 @@ impl App {
     // The list of settings of one model, filled from what the engine holds.
     fn model_form(&self, id: &str, name: &str) -> ModelForm {
         let (held, devices) = self.engine.model_settings(id);
+        let kind = self
+            .snap
+            .models
+            .iter()
+            .find(|one| one.id() == id)
+            .map(|one| one.kind.to_string())
+            .unwrap_or_default();
         let mut form = ModelForm {
             id: id.to_string(),
             name: name.to_string(),
+            kind,
             template: text_editor::Content::with_text(&held.chat_template),
             extra: text_editor::Content::with_text(&held.extra_args),
             held,
@@ -557,6 +600,8 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
         &message,
         Msg::Ctx(_)
             | Msg::KvKind(_)
+            | Msg::DraftModel(_)
+            | Msg::ReasonMessage(_)
             | Msg::SpecKind(_)
             | Msg::DraftTokens(_)
             | Msg::Parallel(_)
@@ -577,6 +622,7 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
                 let gone = since.elapsed().as_secs_f32();
                 app.open_t = (gone / (SETTLE.as_secs_f32())).clamp(0.0, 1.0);
             }
+            app.grow();
             app.glide();
             app.pull();
         }
@@ -787,11 +833,18 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
         }
         Msg::TipOff => app.tip = None,
         Msg::Settings => {
+            // One window of the program at a time. A second window for the same
+            // form would leave the first one behind with no record of it, and
+            // putting that one away would then look like the main window going.
+            if app.settings_window.is_some() {
+                return Task::none();
+            }
             if app.settings.is_none() {
                 app.settings = Some(app.settings_form());
             }
             let card = window::Settings {
                 size: iced::Size::new(PROGRAM_ROOM.0, PROGRAM_ROOM.1),
+                min_size: Some(iced::Size::new(520.0, 420.0)),
                 // Only the main window may end the program. A form that is put
                 // away must leave the chats alone.
                 exit_on_close_request: false,
@@ -802,6 +855,11 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
             return task.map(|_| Msg::TipOff);
         }
         Msg::ModelSettings(place) => {
+            // One window of one model at a time, for the same reason as above.
+            if app.model_window.is_some() {
+                app.menu = Menu::None;
+                return Task::none();
+            }
             let Some(model) = app.snap.models.get(place) else {
                 return Task::none();
             };
@@ -811,6 +869,7 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
             app.menu = Menu::None;
             let card = window::Settings {
                 size: iced::Size::new(MODEL_ROOM.0, MODEL_ROOM.1),
+                min_size: Some(iced::Size::new(560.0, 420.0)),
                 exit_on_close_request: false,
                 ..window::Settings::default()
             };
@@ -874,6 +933,16 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
                 form.held.kv_index = which;
             }
         }
+        Msg::DraftModel(words) => {
+            if let Some(form) = &mut app.model {
+                form.held.draft_model = words;
+            }
+        }
+        Msg::ReasonMessage(words) => {
+            if let Some(form) = &mut app.model {
+                form.held.reasoning_message = words;
+            }
+        }
         Msg::SpecKind(which) => {
             if let Some(form) = &mut app.model {
                 form.held.spec_index = which;
@@ -932,7 +1001,7 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
                 }
             }
         }
-        Msg::Save => {
+        Msg::SaveSettings => {
             if let Some(form) = &app.settings {
                 let mut cfg = app.engine.config();
                 cfg.llama_dir = form.llama_dir.clone();
@@ -943,17 +1012,28 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
                 cfg.remote_port = form.port.parse::<u16>().unwrap_or(0);
                 app.engine.save_settings(cfg);
             }
+            app.settings = None;
+            return close_window(app.settings_window.take());
+        }
+        Msg::SaveModel => {
             if let Some(form) = &app.model {
                 let mut held = form.held.clone();
                 held.chat_template = form.template.text();
                 held.extra_args = form.extra.text();
                 app.engine.save_model_settings(form.id.clone(), held);
             }
-            return close_windows(app);
+            app.model = None;
+            return close_window(app.model_window.take());
         }
-        Msg::Close => {
-            // The form is left behind, and the window with it.
-            return close_windows(app);
+        // The form is left behind, and the window with it. What was written in
+        // the other window stays in its own window.
+        Msg::CloseSettings => {
+            app.settings = None;
+            return close_window(app.settings_window.take());
+        }
+        Msg::CloseModel => {
+            app.model = None;
+            return close_window(app.model_window.take());
         }
     }
     if touched {
@@ -982,18 +1062,13 @@ fn focus_draft(app: &mut App) -> Task<Msg> {
     iced::widget::operation::focus(app.draft_id.clone())
 }
 
-// Put the two windows of settings away, and forget the forms they held.
-fn close_windows(app: &mut App) -> Task<Msg> {
-    app.settings = None;
-    app.model = None;
-    let mut jobs = vec![Task::none()];
-    if let Some(id) = app.settings_window.take() {
-        jobs.push(window::close(id));
+// Put one window of settings away. Nothing is asked for when the window was
+// never opened, because the form that went with it is already gone.
+fn close_window(which: Option<window::Id>) -> Task<Msg> {
+    match which {
+        Some(id) => window::close(id),
+        None => Task::none(),
     }
-    if let Some(id) = app.model_window.take() {
-        jobs.push(window::close(id));
-    }
-    Task::batch(jobs)
 }
 
 // What a key was let go, as a short word. The row of previews answers to these.
@@ -1053,6 +1128,9 @@ impl iced_winit::program::Program for Runner {
     fn window(&self) -> Option<window::Settings> {
         Some(window::Settings {
             size: iced::Size::new(1180.0, 760.0),
+            // A window narrower than this cannot hold the top bar in order, so
+            // the desktop is not asked to make one.
+            min_size: Some(iced::Size::new(620.0, 420.0)),
             ..window::Settings::default()
         })
     }
@@ -1148,3 +1226,8 @@ pub fn run(cfg: Config) -> Result<(), String> {
     };
     iced_winit::run(runner).map_err(|why| why.to_string())
 }
+
+// The pictures of the window, made without a display. They are only built for
+// the tests, and they write under `uidata/`.
+#[cfg(test)]
+mod shot;

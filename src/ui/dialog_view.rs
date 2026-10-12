@@ -4,7 +4,8 @@
 // read back when the user presses Save. A field that is left alone keeps the
 // value it had, so a half written field cannot be missed.
 
-use iced::widget::{column, container, row, scrollable, space};
+use iced::widget::{column, container, row, space};
+use iced::widget::{Column, Row};
 use iced::{alignment, border, window, Element, Length, Padding};
 
 use crate::ui::palette::Pal;
@@ -12,29 +13,40 @@ use crate::ui::parts::{self, line_of};
 use crate::ui_app::{App, ModelForm, Msg, SettingsForm};
 
 // The body of a settings window, with its buttons under it. A help bubble of
-// this window stands over the whole of it, next to the pointer.
+// this window stands over the whole of it, next to the pointer. The two buttons
+// belong to the window that shows them, so a form that stands in the other
+// window keeps what was written in it.
 fn shell<'a>(
     app: &App,
     which: window::Id,
     body: Element<'a, Msg>,
     above: Element<'a, Msg>,
+    save: Msg,
+    close: Msg,
     pal: Pal,
 ) -> Element<'a, Msg> {
     let foot = row![
-        parts::word_button("Save", true, Msg::Save, pal),
-        parts::word_button("Close", false, Msg::Close, pal),
+        parts::word_button("Save", true, save, pal),
+        parts::word_button("Close", false, close, pal),
     ]
     .spacing(8)
     .align_y(alignment::Vertical::Center);
-    let made: Element<'a, Msg> = column![
-        above,
-        container(scrollable(body).height(Length::Fill)).width(Length::Fill),
+    // The hairline above the buttons keeps the last field of the form apart from
+    // them. Without it the last field looks cut in half where the form ends.
+    let bar = column![
+        parts::hair_across(pal.line),
         container(foot)
             .width(Length::Fill)
-            .padding(Padding { top: 10.0, right: 22.0, bottom: 14.0, left: 22.0 }),
+            .padding(Padding { top: 12.0, right: 22.0, bottom: 14.0, left: 22.0 }),
     ]
-    .spacing(10)
-    .padding(Padding { top: 16.0, right: 0.0, bottom: 0.0, left: 0.0 })
+    .spacing(0);
+    let made: Element<'a, Msg> = column![
+        above,
+        container(parts::scroll(body, Length::Fill, pal)).width(Length::Fill),
+        bar,
+    ]
+    .spacing(6)
+    .padding(Padding { top: 14.0, right: 0.0, bottom: 0.0, left: 0.0 })
     .into();
     let (wide, tall) = app.room_of(which);
     parts::tip_over(app.tip.as_ref(), app.pointer_at(which), wide, tall, made, pal)
@@ -77,7 +89,7 @@ pub fn program(app: &App, which: window::Id, form: &SettingsForm, pal: Pal) -> p
         ));
     }
     let list = container(
-        container(scrollable(places).height(Length::Fill))
+        container(parts::scroll(places, Length::Fill, pal))
             .width(Length::Fill)
             .padding([3.0, 3.0]),
     )
@@ -112,7 +124,7 @@ pub fn program(app: &App, which: window::Id, form: &SettingsForm, pal: Pal) -> p
             pal
         ),
         line_of(
-            "Repositories",
+            "Repositories folder",
             "The folder the places of the chats are kept in. Empty means the usual place.",
             parts::field(&form.repositories_dir, "the usual place", Msg::ReposDir, pal),
             pal
@@ -154,7 +166,7 @@ pub fn program(app: &App, which: window::Id, form: &SettingsForm, pal: Pal) -> p
             pal
         ),
         line_of(
-            "Repositories",
+            "Open repository",
             "Pick the repository the chats of this window belong to. The folder on disk is named name_id.",
             list,
             pal
@@ -170,9 +182,17 @@ pub fn program(app: &App, which: window::Id, form: &SettingsForm, pal: Pal) -> p
     ]
     .spacing(10)
     .max_width(680)
-    .padding(Padding { top: 0.0, right: 22.0, bottom: 10.0, left: 22.0 });
+    .padding(Padding { top: 0.0, right: 22.0, bottom: 18.0, left: 22.0 });
 
-    shell(app, which, body.into(), head("Settings", pal), pal)
+    shell(
+        app,
+        which,
+        body.into(),
+        head("Settings", "", "", pal),
+        Msg::SaveSettings,
+        Msg::CloseSettings,
+        pal,
+    )
 }
 
 // The window with the settings of one model.
@@ -183,9 +203,9 @@ pub fn model<'a>(
     pal: Pal,
 ) -> Element<'a, Msg> {
     let held = &form.held;
+    // The name of the model stands once, at the head of the window. The head of
+    // the form is not the place to say it a second time.
     let mut body = column![
-        parts::section("Model", pal),
-        parts::strong(form.name.clone(), pal.text, 15.0),
         parts::section("Sizing", pal),
         line_of(
             "Memory of the talk",
@@ -205,11 +225,17 @@ pub fn model<'a>(
             parts::chooser(&form.loads, held.load_index, Msg::LoadKind, pal),
             pal
         ),
-        parts::section("Guessing", pal),
+        parts::section("Guessing ahead", pal),
         line_of(
-            "Guessing",
+            "Way of guessing",
             "The model may guess a few words ahead and then check them. It is quicker with a small draft model.",
             parts::chooser(&form.specs, held.spec_index, Msg::SpecKind, pal),
+            pal
+        ),
+        line_of(
+            "Draft model",
+            "The file of the small model that guesses words ahead. Leave it empty, and the model guesses from what stands in the chat.",
+            parts::field(&held.draft_model, "no draft model", Msg::DraftModel, pal),
             pal
         ),
         line_of(
@@ -248,6 +274,12 @@ pub fn model<'a>(
             "Room for the thoughts",
             "How many words a model may spend on thinking before it answers. -1 leaves it to the model.",
             typed(held.reasoning_budget, -1, 2097152, Msg::Budget, "words", pal),
+            pal
+        ),
+        line_of(
+            "Words when the room is gone",
+            "The words the server adds when the model has spent all the room for thinking. Empty adds nothing.",
+            parts::field(&held.reasoning_message, "nothing", Msg::ReasonMessage, pal),
             pal
         ),
         parts::section("Cards", pal),
@@ -315,6 +347,7 @@ pub fn model<'a>(
         true,
         pal,
     ));
+    body = body.push(parts::section("Extra arguments", pal));
     body = body.push(parts::area(
         &form.extra,
         "Arguments given to llama-server as they stand.",
@@ -341,7 +374,15 @@ pub fn model<'a>(
         }),
     );
 
-    shell(app, which, body.into(), head(&form.name, pal), pal)
+    shell(
+        app,
+        which,
+        body.into(),
+        head(&form.name, &form.kind, &form.id, pal),
+        Msg::SaveModel,
+        Msg::CloseModel,
+        pal,
+    )
 }
 
 // A number the reader writes down, with the word for what is counted beside it.
@@ -355,8 +396,10 @@ fn typed(
     after: &str,
     pal: Pal,
 ) -> parts::Elem {
+    // The field keeps a room of its own. A number does not need the whole width
+    // of the window, and a field that wide looks empty.
     row![
-        container(parts::number_field(value, low, top, on, pal)).width(Length::Fill),
+        container(parts::number_field(value, low, top, on, pal)).width(Length::Fixed(150.0)),
         container(parts::word(String::from(after), pal.text_dim, 12.0))
             .width(Length::Fixed(70.0)),
     ]
@@ -366,10 +409,27 @@ fn typed(
     .into()
 }
 
-// The name at the top of a settings window.
-fn head(name: &str, pal: Pal) -> parts::Elem {
-    container(parts::strong(name.to_string(), pal.text, 17.0))
+// The head of a settings window. The name of the thing stands large, the kind of
+// the file beside it, and the whole file under it. A reader who wants to find
+// the file on disk can do it from here.
+fn head(name: &str, kind: &str, path: &str, pal: Pal) -> parts::Elem {
+    let mut line: Row<'static, Msg> = row![parts::strong(name.to_string(), pal.text, 17.0)]
+        .spacing(9)
+        .align_y(alignment::Vertical::Center);
+    if !kind.is_empty() {
+        line = line.push(parts::pill(kind, pal));
+    }
+    let mut lines: Column<'static, Msg> = column![container(line).height(Length::Fixed(26.0))]
+        .spacing(2);
+    if !path.is_empty() {
+        lines = lines.push(
+            container(parts::mono_one(path.to_string(), pal.text_dim, 11.5))
+                .width(Length::Fill)
+                .clip(true),
+        );
+    }
+    container(lines)
         .width(Length::Fill)
-        .padding(Padding { top: 0.0, right: 22.0, bottom: 0.0, left: 22.0 })
+        .padding(Padding { top: 0.0, right: 22.0, bottom: 2.0, left: 22.0 })
         .into()
 }

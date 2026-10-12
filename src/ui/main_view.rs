@@ -5,7 +5,7 @@
 // than one layer needs comes from Shape, so the chat card and the box below it
 // always stand in line.
 
-use iced::widget::{button, container, mouse_area, row, scrollable, space, text_editor};
+use iced::widget::{button, container, mouse_area, row, space, text_editor};
 use iced::{border, window, Background, Color, Element, Length, Theme, Alignment};
 use iced::widget::{Column, Row, Stack, pin};
 
@@ -13,14 +13,37 @@ use crate::engine::Snap;
 use crate::ui_app::{App, Card, Menu, Msg};
 use super::message_view;
 use super::palette::{faded, mix, Pal};
-use super::parts::{self, word, word_cut, Elem};
+use super::parts::{self, word, word_cut, words, Elem};
 use super::shape::Shape;
 
-// Rough room that words take. A box is made as wide as the longest name of its
-// list, and this says how much room the letters need. The number for one letter
-// sits a little above what the fonts really need, so a name stays inside.
-fn words(body: &str, size: f32) -> f32 {
-    (body.chars().count() as f32) * size * 0.60
+// A layer of the window, stood at a place of it. A pin gives what stands in it
+// the room that is left from its place to the far edge of the layer. So the
+// size of a layer is its place added to the size of the thing that stands in
+// it, and never that size alone. A layer sized that way alone has no room
+// left, and what stands in it is squeezed to nothing.
+fn shelf<'a>(
+    what: impl Into<Element<'a, Msg>>,
+    x: f32,
+    y: f32,
+    wide: f32,
+    tall: f32,
+) -> Element<'a, Msg> {
+    pin(what)
+        .x(x)
+        .y(y)
+        .width(x + wide)
+        .height(y + tall)
+        .into()
+}
+
+// The room of a stack of layers. The first thing put into a stack gives the
+// stack its size, and a layer that stands outside that size is squeezed to
+// nothing. So a stack of layers starts with an empty room of its whole size.
+fn room_of(wide: f32, tall: f32) -> Elem {
+    space()
+        .width(Length::Fixed(wide))
+        .height(Length::Fixed(tall))
+        .into()
 }
 
 // A flat box of one colour, with a hairline and rounded corners.
@@ -47,55 +70,56 @@ pub fn draw<'a>(app: &'a App, window_id: window::Id, pal: Pal) -> Element<'a, Ms
     layers = layers.push(plate(wide, tall, pal.bg, transparent(), 0.0));
 
     // The top bar, with the hairline under it.
-    layers = layers.push(
-        pin(top_bar(app, pal, &shape))
-            .x(0.0)
-            .y(0.0)
-            .width(wide)
-            .height(shape.bar),
-    );
+    layers = layers.push(shelf(
+        top_bar(app, pal, &shape),
+        0.0,
+        0.0,
+        wide,
+        shape.bar,
+    ));
 
     // The stage: the carousel, the washes, and the row of previews.
-    layers = layers.push(
-        pin(stage(app, pal, &shape))
-            .x(0.0)
-            .y(shape.stage_top)
-            .width(wide)
-            .height(shape.stage_height),
-    );
+    layers = layers.push(shelf(
+        stage(app, pal, &shape),
+        0.0,
+        shape.stage_top,
+        wide,
+        shape.stage_height,
+    ));
 
     // The mark of the program and the line for this hour, while no chat is
     // open. They stand above the box and never over a chat.
     if app.greet {
-        layers = layers.push(
-            pin(greeting(app, pal, &shape))
-                .x(0.0)
-                .y((shape.dock_y - 178.0).max(0.0))
-                .width(wide)
-                .height(156.0),
-        );
+        layers = layers.push(shelf(
+            greeting(app, pal, &shape),
+            0.0,
+            shape.greet_y,
+            wide,
+            shape.greet_height,
+        ));
     }
 
     // The status line and the box for a new message.
-    layers = layers.push(
-        pin(dock(app, pal, &shape))
-            .x(shape.card_x)
-            .y(shape.dock_y)
-            .width(shape.card_width)
-            .height(shape.dock_height),
-    );
+    layers = layers.push(shelf(
+        dock(app, pal, &shape),
+        shape.card_x,
+        shape.dock_y,
+        shape.card_width,
+        shape.dock_height,
+    ));
 
     // One list of the top bar, when it is open. It stands under the bar, at the
     // left, where the two selector boxes stand.
     if app.menu != Menu::None {
         let tall_list = menu_height(app).min(tall - shape.bar - 20.0);
-        layers = layers.push(
-            pin(menu(app, pal))
-                .x(12.0)
-                .y(shape.bar + 6.0)
-                .width(420.0)
-                .height(tall_list),
-        );
+        let wide_list = menu_width(app, &shape).min(wide - 24.0);
+        layers = layers.push(shelf(
+            menu(app, pal),
+            12.0,
+            shape.bar + 6.0,
+            wide_list,
+            tall_list,
+        ));
     }
 
     // The help bubble stands over everything else, and takes no click.
@@ -116,12 +140,46 @@ fn transparent() -> iced::Color {
 
 // Rough height of a list of the top bar, so the layer under it has a size.
 fn menu_height(app: &App) -> f32 {
+    // One line of the list, with the hair of room at its head and foot. The
+    // list of models ends with a line and with the entry of the settings, so
+    // two lines more are counted.
+    let line = 31.0;
     match app.menu {
-        Menu::Model => 42.0 * (app.snap.models.len() as f32).max(1.0) + 16.0,
-        Menu::Repository => 38.0 * (app.snap.repositories.len() as f32 + 2.0) + 16.0,
+        Menu::Model => {
+            let mut rows = app.snap.models.len() as f32;
+            if selected_model(app).is_some() {
+                rows += 2.0;
+            }
+            line * rows.max(1.0) + 14.0
+        }
+        Menu::Repository => line * (app.snap.repositories.len() as f32 + 1.0).max(1.0) + 14.0,
         Menu::None => 0.0,
     }
     .min(420.0)
+}
+
+// How wide a list of the top bar must be. It is as wide as the widest line it
+// holds, so no name is cut, and it never grows past the window.
+fn menu_width(app: &App, shape: &Shape) -> f32 {
+    let mut longest = 0.0f32;
+    match app.menu {
+        Menu::Model => {
+            for model in &app.snap.models {
+                let line = format!("{} ({})", model.name, model.kind);
+                longest = longest.max(words(line.as_str(), 12.5));
+            }
+            longest = longest.max(words("Settings of this model", 12.5));
+            (longest + 62.0).clamp(240.0, 420.0).min(shape.width - 24.0)
+        }
+        Menu::Repository => {
+            for repo in &app.snap.repositories {
+                longest = longest.max(words(repo.name.as_str(), 12.5));
+            }
+            longest = longest.max(words("No place", 12.5));
+            (longest + 62.0).clamp(220.0, 400.0).min(shape.width - 24.0)
+        }
+        Menu::None => 240.0,
+    }
 }
 
 // The bar at the top of the window. The wide parts have a limit that follows
@@ -146,8 +204,7 @@ fn top_bar(app: &App, pal: Pal, shape: &Shape) -> Elem {
     } else {
         words(snap.model_kind.as_str(), 11.0) + 45.0
     };
-    let model_wide =
-        (86.0 + words(longest_model(snap).as_str(), 13.0) + kind_room).clamp(118.0, shape.model_cap);
+    let model_wide = (86.0 + words(longest_model(snap).as_str(), 13.0) + kind_room) .clamp(118.0, shape.model_cap);
     line = line.push(model_box(app, snap, pal, model_wide));
 
     // The repository box, when the chat of the middle belongs to a repository.
@@ -164,15 +221,10 @@ fn top_bar(app: &App, pal: Pal, shape: &Shape) -> Elem {
     // The name of the chat. It is the chief word of this bar, so it takes the
     // room that is left.
     line = line.push(
-        container(word_cut(
-            snap.chat_title.clone(),
-            pal.text,
-            13.5,
-            false,
-            40.0,
-        ))
-        .width(Length::Fill)
-        .height(Length::Fixed(34.0)),
+        container(parts::word_one(snap.chat_title.clone(), pal.text, 13.5))
+            .width(Length::Fill)
+            .height(Length::Fixed(34.0))
+            .clip(true),
     );
 
     // The tokens in use, with a thin bar under the words.
@@ -222,23 +274,29 @@ fn model_box(app: &App, snap: &Snap, pal: Pal, wide: f32) -> Elem {
             .width(Length::Fixed(15.0))
             .height(Length::Fixed(15.0)),
     );
+    let named = if snap.model_name.is_empty() {
+        String::from("No model")
+    } else {
+        snap.model_name.clone()
+    };
+    // The name keeps a room of its own, so the mark of the kind of file stands
+    // close behind it. The box as a whole stays as wide as the longest name of
+    // the list, so it does not move when another model is picked.
     inside = inside.push(
-        container(word_cut(
-            if snap.model_name.is_empty() {
-                String::from("No model")
-            } else {
-                snap.model_name.clone()
-            },
-            ink,
-            13.0,
-            false,
-            (wide - 78.0).max(40.0),
-        ))
-        .width(Length::Fill),
+        container(parts::word_one(named, ink, 13.0))
+            .width(Length::Fixed((words(snap.model_name.as_str(), 13.0) + 8.0).max(40.0)))
+            .clip(true),
     );
     if !snap.model_kind.is_empty() {
-        inside = inside.push(pill(snap.model_kind.as_str(), pal));
+        inside = inside.push(parts::pill(snap.model_kind.as_str(), pal));
     }
+    // The room between the mark of the kind and the mark of the list takes what
+    // is left, so the two marks keep their places at the ends.
+    inside = inside.push(
+        container(space())
+            .width(Length::Fill)
+            .height(Length::Fixed(1.0)),
+    );
     inside = inside.push(
         container(parts::glyph("down", pal.text_dim, 13.0))
             .width(Length::Fixed(13.0))
@@ -256,18 +314,6 @@ fn model_box(app: &App, snap: &Snap, pal: Pal, wide: f32) -> Elem {
     )
 }
 
-// A small rounded label, for example GGUF or Safetensors.
-fn pill(label: &str, pal: Pal) -> Elem {
-    container(word_cut(label.to_string(), pal.accent_strong, 11.0, false, 150.0))
-        .padding([3.0, 7.0])
-        .style(move |_| container::Style {
-            background: Some(Background::Color(pal.tint)),
-            border: border::rounded(7.0),
-            ..container::Style::default()
-        })
-        .into()
-}
-
 // The box that shows which repository the carousel belongs to.
 fn repository_box(snap: &Snap, pal: Pal, wide: f32) -> Elem {
     let mut inside = Row::new().spacing(7.0).align_y(Alignment::Center);
@@ -277,14 +323,13 @@ fn repository_box(snap: &Snap, pal: Pal, wide: f32) -> Elem {
             .height(Length::Fixed(15.0)),
     );
     inside = inside.push(
-        container(word_cut(
+        container(parts::word_one(
             snap.repository_name.clone(),
             pal.text,
             13.0,
-            false,
-            40.0,
         ))
-        .width(Length::Fill),
+        .width(Length::Fill)
+        .clip(true),
     );
     inside = inside.push(
         container(parts::glyph("down", pal.text_dim, 13.0))
@@ -361,7 +406,10 @@ fn roll_box(snap: &Snap, pal: Pal, shape: &Shape) -> Elem {
         pal,
     ));
     line = line.push(
-        container(word_cut(place, pal.text_dim, 12.0, true, 40.0)).width(Length::Fill),
+        container(parts::word_one(place, pal.text_dim, 12.0))
+            .width(Length::Fill)
+            .align_x(iced::alignment::Horizontal::Center)
+            .clip(true),
     );
     line = line.push(parts::mark_button(
         "right",
@@ -490,26 +538,28 @@ fn stage<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
     let tall = shape.stage_height;
     let mut layers = Stack::new();
 
-    if tall > 4.0 {
+    // The chat in use is put away while the row of previews stands in front of
+    // it, so no word of the chat shows behind a preview card.
+    if tall > 4.0 && !snap.overview {
         layers = layers.push(cards(app, pal, shape));
     }
 
-    // The soft backdrop of the row of previews, its count, its caption, the
-    // cards, and the place where the pointer moves along the row.
+    // The ground of the row of previews, its count, its caption, the cards, and
+    // the place where the pointer moves along the row.
     if snap.overview {
-        layers = layers.push(pin(
+        layers = layers.push(shelf(
             container(space())
                 .width(Length::Fixed(wide))
                 .height(Length::Fixed(tall))
                 .style(move |_| container::Style {
-                    background: Some(Background::Color(faded(pal.bg, 0.94))),
+                    background: Some(Background::Color(pal.bg)),
                     ..container::Style::default()
                 }),
-        )
-        .x(0.0)
-        .y(0.0)
-        .width(wide)
-        .height(tall));
+            0.0,
+            0.0,
+            wide,
+            tall,
+        ));
 
         let count = if snap.chats.is_empty() {
             String::from("This place holds no chat yet")
@@ -525,49 +575,37 @@ fn stage<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
                 }
             )
         };
-        layers = layers.push(
-            pin(
-                container(word_cut(
-                    count,
+        layers = layers.push(shelf(
+            container(word_cut(
+                count,
+                pal.text_dim,
+                12.0,
+                true,
+                (wide - 80.0).max(60.0),
+            ))
+            .width(Length::Fixed(wide - 80.0)),
+            40.0,
+            (shape.prev_y - 32.0).max(0.0),
+            wide - 80.0,
+            20.0,
+        ));
+        layers = layers.push(shelf(
+            container(
+                container(word(
+                    "Click a card to open it. Drag, the arrows, A and D or the wheel move along the row. Return opens the chat in the middle. Escape or Alt puts the row away.",
                     pal.text_dim,
                     12.0,
-                    true,
-                    (wide - 80.0).max(60.0),
                 ))
-                .width(Length::Fixed(wide - 80.0)),
+                .width(Length::Fixed((wide - 120.0).max(120.0))),
             )
-            .x(40.0)
-            .y((shape.prev_y - 32.0).max(0.0))
-            .width(wide - 80.0)
-            .height(20.0),
-        );
-        layers = layers.push(
-            pin(
-                container(
-                    container(word(
-                        "Click a card to open it. Drag, the arrows, A and D or the wheel move along the row. Return opens the chat in the middle. Escape or Alt puts the row away.",
-                        pal.text_dim,
-                        12.0,
-                    ))
-                    .width(Length::Fixed((wide - 120.0).max(120.0))),
-                )
-                .width(Length::Fixed(wide - 120.0)),
-            )
-            .x(60.0)
-            .y(shape.prev_y + shape.prev_height + 22.0)
-            .width(wide - 120.0)
-            .height(40.0),
-        );
-        layers = layers.push(pin(previews(app, pal, shape))
-            .x(0.0)
-            .y(0.0)
-            .width(wide)
-            .height(tall));
-        layers = layers.push(pin(row_place(shape))
-            .x(0.0)
-            .y(0.0)
-            .width(wide)
-            .height(tall));
+            .width(Length::Fixed(wide - 120.0)),
+            60.0,
+            shape.prev_y + shape.prev_height + 22.0,
+            wide - 120.0,
+            40.0,
+        ));
+        layers = layers.push(shelf(previews(app, pal, shape), 0.0, 0.0, wide, tall));
+        layers = layers.push(shelf(row_place(shape), 0.0, 0.0, wide, tall));
     }
 
     container(layers)
@@ -606,13 +644,13 @@ fn cards<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
     .padding([12.0, 14.0])
     .into();
     let mut layers = Stack::new();
-    layers = layers.push(
-        pin(card_frame(body, shape.card_width, tall, pal))
-            .x(shape.card_x)
-            .y(0.0)
-            .width(shape.card_width)
-            .height(tall),
-    );
+    layers = layers.push(shelf(
+        card_frame(body, shape.card_width, tall, pal),
+        shape.card_x,
+        0.0,
+        shape.card_width,
+        tall,
+    ));
     container(layers)
         .width(Length::Fixed(shape.width))
         .height(Length::Fixed(shape.stage_height))
@@ -638,6 +676,9 @@ fn card_frame<'a>(body: Element<'a, Msg>, wide: f32, tall: f32, pal: Pal) -> Ele
 // place with many chats stays light to draw.
 fn previews(app: &App, pal: Pal, shape: &Shape) -> Elem {
     let mut layers = Stack::new();
+    layers = layers.push(room_of(shape.width, shape.stage_height));
+    // The row comes up from a smaller size, and the middle card stands a little
+    // larger than the cards beside it.
     let scale = 1.0 + (1.0 - app.open_t) * 0.5;
     for place in 0..7i64 {
         let index = app.snap.chat_index as i64 + place - 3;
@@ -649,19 +690,19 @@ fn previews(app: &App, pal: Pal, shape: &Shape) -> Elem {
         let x = shape.prev_x(index as f32, app.snap.chat_index, app.spin)
             + shape.prev_width * (1.0 - scale) / 2.0;
         let y = shape.prev_y + shape.prev_height * (1.0 - scale) / 2.0;
-        layers = layers.push(
-            pin(preview(
+        layers = layers.push(shelf(
+            preview(
                 &app.cards[index as usize],
                 index as usize == app.snap.chat_index,
                 wide,
                 high,
                 pal,
-            ))
-            .x(x)
-            .y(y)
-            .width(wide)
-            .height(high),
-        );
+            ),
+            x,
+            y,
+            wide,
+            high,
+        ));
     }
     container(layers)
         .width(Length::Fixed(shape.width))
@@ -679,48 +720,43 @@ fn preview(card: &Card, middle: bool, wide: f32, tall: f32, pal: Pal) -> Elem {
     };
     let room = (wide - 28.0).max(40.0);
     let mut layers = Stack::new();
-    layers = layers.push(
-        pin(word_cut(card.title.clone(), pal.text, 13.5, false, room))
-            .x(14.0)
-            .y(18.0)
-            .width(room)
-            .height(20.0),
-    );
+    layers = layers.push(room_of(wide, tall));
+    layers = layers.push(shelf(
+        word_cut(card.title.clone(), pal.text, 13.5, false, room),
+        14.0,
+        18.0,
+        room,
+        20.0,
+    ));
     let body_room = (tall - 112.0).max(24.0);
-    layers = layers.push(
-        pin(container(word(card.preview.clone(), pal.text_dim, 12.0)).width(Length::Fixed(room)))
-            .x(14.0)
-            .y(42.0)
-            .width(room)
-            .height(body_room),
-    );
-    layers = layers.push(
-        pin(word_cut(
-            card.repo.clone(),
-            pal.accent_leaf,
-            11.0,
-            false,
-            room,
-        ))
-        .x(14.0)
-        .y((tall - 62.0).max(4.0))
-        .width(room)
-        .height(16.0),
-    );
-    layers = layers.push(
-        pin(parts::hair(room, pal.line))
-            .x(14.0)
-            .y((tall - 44.0).max(4.0))
-            .width(room)
-            .height(1.0),
-    );
-    layers = layers.push(
-        pin(word_cut(card.when.clone(), pal.text_dim, 11.0, false, room))
-            .x(14.0)
-            .y((tall - 30.0).max(4.0))
-            .width(room)
-            .height(16.0),
-    );
+    layers = layers.push(shelf(
+        container(word(card.preview.clone(), pal.text_dim, 12.0)).width(Length::Fixed(room)),
+        14.0,
+        42.0,
+        room,
+        body_room,
+    ));
+    layers = layers.push(shelf(
+        word_cut(card.repo.clone(), pal.accent_leaf, 11.0, false, room),
+        14.0,
+        (tall - 62.0).max(4.0),
+        room,
+        16.0,
+    ));
+    layers = layers.push(shelf(
+        parts::hair(room, pal.line),
+        14.0,
+        (tall - 44.0).max(4.0),
+        room,
+        1.0,
+    ));
+    layers = layers.push(shelf(
+        word_cut(card.when.clone(), pal.text_dim, 11.0, false, room),
+        14.0,
+        (tall - 30.0).max(4.0),
+        room,
+        16.0,
+    ));
     container(layers)
         .width(Length::Fixed(wide))
         .height(Length::Fixed(tall))
@@ -762,15 +798,17 @@ fn slide(step: iced::mouse::ScrollDelta) -> f32 {
 // that says where the words stay.
 fn greeting(app: &App, pal: Pal, shape: &Shape) -> Elem {
     let mut lines = Column::new();
+    // The three lines stand in the middle of the window. `center_x` is not
+    // used, because it sets the width of the box as well.
     lines = lines.push(
-        container(parts::glyph("mark", pal.accent, 64.0))
+        container(parts::glyph("mark", pal.accent, 62.0))
             .width(Length::Fixed(shape.width))
-            .center_x(Length::Shrink),
+            .align_x(iced::alignment::Horizontal::Center),
     );
     lines = lines.push(
         container(word(app.snap.greeting.clone(), pal.text_dim, 16.0))
-            .width(Length::Fixed((shape.width - 120.0).max(200.0)))
-            .center_x(Length::Shrink),
+            .width(Length::Fixed(shape.width))
+            .align_x(iced::alignment::Horizontal::Center),
     );
     lines = lines.push(
         container(word(
@@ -778,12 +816,12 @@ fn greeting(app: &App, pal: Pal, shape: &Shape) -> Elem {
             faded(pal.text_dim, 0.75),
             11.5,
         ))
-        .width(Length::Fixed((shape.width - 120.0).max(200.0)))
-        .center_x(Length::Shrink),
-    );
-    container(lines.spacing(14))
         .width(Length::Fixed(shape.width))
-        .height(Length::Fixed(156.0))
+        .align_x(iced::alignment::Horizontal::Center),
+    );
+    container(lines.spacing(13))
+        .width(Length::Fixed(shape.width))
+        .height(Length::Fixed(shape.greet_height))
         .into()
 }
 
@@ -799,7 +837,7 @@ fn dock<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
         pal.text_dim,
     ));
     let said = if app.snap.generating {
-        pal.accent_strong
+        pal.accent_text
     } else {
         pal.text_dim
     };
@@ -812,8 +850,8 @@ fn dock<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
     line = line.push(parts::press(
         container(
             row![
-                parts::glyph("plus", pal.accent_strong, 13.0),
-                word(String::from("New chat"), pal.accent_strong, 12.0),
+                parts::glyph("plus", pal.accent_text, 13.0),
+                word(String::from("New chat"), pal.accent_text, 12.0),
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -830,7 +868,10 @@ fn dock<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
     let mut parts = Column::new();
     parts = parts.push(container(line.spacing(8).align_y(Alignment::Center)).height(30.0));
     parts = parts.push(composer_box(app, pal, shape));
-    container(parts.spacing(8)).into()
+    container(parts.spacing(8))
+        .width(Length::Fixed(shape.card_width))
+        .height(Length::Fixed(shape.dock_height))
+        .into()
 }
 
 // The box a message is written in. Enter sends, and Shift and Enter starts a
@@ -949,9 +990,10 @@ fn composer_box<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
     );
 
     let mut layers = Stack::new();
-    layers = layers.push(pin(draft).x(16.0).y(14.0).width(wide - 32.0).height(tall - 58.0));
-    layers = layers.push(pin(marks).x(10.0).y(tall - 38.0));
-    layers = layers.push(pin(send).x(wide - 46.0).y(tall - 46.0));
+    layers = layers.push(room_of(wide, tall));
+    layers = layers.push(shelf(draft, 16.0, 14.0, wide - 32.0, tall - 58.0));
+    layers = layers.push(shelf(marks, 10.0, tall - 38.0, wide - 20.0, 38.0));
+    layers = layers.push(shelf(send, wide - 46.0, tall - 46.0, 34.0, 34.0));
     container(layers)
         .width(Length::Fixed(wide))
         .height(Length::Fixed(tall))
@@ -1006,13 +1048,18 @@ fn menu(app: &App, pal: Pal) -> Elem {
         }
         Menu::None => {}
     }
-    container(scrollable(lines).height(Length::Fill))
+    container(parts::scroll(lines, Length::Fill, pal))
         .width(Length::Fill)
         .height(Length::Fill)
         .padding([6.0, 6.0])
         .style(move |_| container::Style {
             background: Some(Background::Color(pal.surface)),
             border: border::rounded(10.0).color(pal.line_strong).width(1.0),
+            shadow: iced::Shadow {
+                color: pal.shade,
+                offset: iced::Vector::new(0.0, 4.0),
+                blur_radius: 18.0,
+            },
             ..container::Style::default()
         })
         .into()

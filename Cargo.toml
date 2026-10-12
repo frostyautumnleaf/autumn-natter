@@ -28,6 +28,11 @@ tiny_http = "0.12"
 urlencoding = "2"
 pulldown-cmark = "0.13"
 
+[dev-dependencies]
+# The software renderer of Iced. The pictures of the window use it, because this
+# machine has no display server.
+iced_tiny_skia = "0.14"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

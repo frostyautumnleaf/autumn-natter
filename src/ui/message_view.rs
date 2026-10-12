@@ -73,8 +73,8 @@ pub fn list<'a>(
         .width(Length::Fixed(width))
         .style(move |_theme: &Theme, _state| scrollable::Style {
             container: container::Style::default(),
-            vertical_rail: rail(pal),
-            horizontal_rail: rail(pal),
+            vertical_rail: parts::rail(pal),
+            horizontal_rail: parts::rail(pal),
             gap: None,
             auto_scroll: scrollable::AutoScroll {
                 background: Background::Color(pal.surface_alt),
@@ -84,18 +84,6 @@ pub fn list<'a>(
             },
         })
         .into()
-}
-
-// The rail of the scroll bar.
-fn rail(pal: Pal) -> scrollable::Rail {
-    scrollable::Rail {
-        background: Some(Background::Color(pal.line)),
-        border: border::rounded(2.0),
-        scroller: scrollable::Scroller {
-            background: Background::Color(pal.text_dim),
-            border: border::rounded(2.0),
-        },
-    }
 }
 
 // One message. The words of the user stand in a bubble of their own colour; the
@@ -235,21 +223,29 @@ pub fn block_of(
             // The heading of the first level stands a little larger than the
             // headings below it.
             let high = if block.level <= 1 { 15.0 } else { 14.0 };
+            let room = (width - 11.0).max(40.0);
             row![
-                bar_of(3.0, pal.accent),
+                bar_of(3.0, text_height(block.content.as_str(), high, room), pal.accent),
                 container(parts::strong(block.content.clone(), ink, high))
-                    .width(Length::Fixed((width - 11.0).max(40.0))),
+                    .width(Length::Fixed(room)),
             ]
             .spacing(11)
             .into()
         }
-        "list" => row![
-            bar_of(2.0, pal.line_strong),
-            container(parts::word(block.content.clone(), ink, 13.5))
-                .width(Length::Fixed((width - 11.0).max(40.0))),
-        ]
-        .spacing(11)
-        .into(),
+        "list" => {
+            let room = (width - 11.0).max(40.0);
+            row![
+                bar_of(
+                    2.0,
+                    text_height(block.content.as_str(), 13.5, room),
+                    pal.line_strong
+                ),
+                container(parts::word(block.content.clone(), ink, 13.5))
+                    .width(Length::Fixed(room)),
+            ]
+            .spacing(11)
+            .into()
+        }
         "code" => container(
             container(parts::mono(block.content.clone(), pal.text, 12.5))
                 .width(Length::Fixed((width - 22.0).max(40.0))),
@@ -278,12 +274,30 @@ pub fn block_of(
     }
 }
 
-// The bar of colour that stands at the left of a heading or of a list. It is as
-// tall as the words beside it.
-fn bar_of(thick: f32, ink: Color) -> Element<'static, Msg> {
+// How tall a block of words is, as far as the number of lines and the room they
+// have can say. A bar of colour beside the words needs this height.
+fn text_height(body: &str, size: f32, room: f32) -> f32 {
+    let one_line = size * 1.35;
+    let room = room.max(1.0);
+    let mut lines = 0.0f32;
+    for line in body.lines() {
+        lines += (parts::words(line, size) / room).ceil().max(1.0);
+    }
+    if lines <= 0.0 {
+        lines = 1.0;
+    }
+    lines * one_line
+}
+
+// The bar of colour that stands at the left of a heading, of a list, of the
+// thinking of the model, or of a run of the terminal tool. Its height comes from
+// the words beside it. `Length::Fill` cannot be used here: a thing that is
+// stretched to the height of its neighbours makes the whole row collapse in a
+// list that has no bottom to speak of, and the words then vanish.
+fn bar_of(thick: f32, tall: f32, ink: Color) -> Element<'static, Msg> {
     container(space())
         .width(Length::Fixed(thick))
-        .height(Length::Fill)
+        .height(Length::Fixed(tall.max(thick)))
         .style(move |_| container::Style {
             background: Some(Background::Color(ink)),
             border: border::rounded(thick / 2.0),
@@ -316,8 +330,10 @@ pub fn thinking(
         container(parts::word(body.to_string(), pal.text_dim, 12.0)).width(Length::Fill),
     ]
     .spacing(6);
+    let room = (width - 23.0).max(40.0);
+    let tall = 11.0 * 1.35 + 6.0 + text_height(body, 12.0, room) + 16.0;
     let body = row![
-        bar_of(3.0, pal.accent_leaf),
+        bar_of(3.0, tall, pal.accent_leaf),
         container(inside).padding([8.0, 10.0]).width(Length::Fill),
     ]
     .spacing(0)
@@ -358,8 +374,15 @@ fn tool_panel<'a>(item: &'a Row, width: f32, pulse: usize, pal: Pal) -> Element<
     ]
     .spacing(9)
     .align_y(alignment::Vertical::Center);
+    // The bar beside the body is as tall as the four parts under it: the word
+    // "command", the command, the word "output", and the output.
+    let room = (width - 39.0).max(60.0);
+    let tall = 11.0 * 1.35 * 2.0
+        + text_height(item.body.as_str(), 12.0, room)
+        + text_height(item.tool.as_str(), 12.0, room)
+        + 10.0;
     let body = row![
-        bar_of(2.0, pal.line_strong),
+        bar_of(2.0, tall, pal.line_strong),
         column![
             parts::word("command", pal.text_dim, 11.0),
             parts::mono(item.body.clone(), ink, 12.0),
@@ -391,12 +414,12 @@ fn tool_panel<'a>(item: &'a Row, width: f32, pulse: usize, pal: Pal) -> Element<
         column![
             container(head).padding([7.0, 12.0]),
             rule,
-            // The room below the words holds the last line of the body, which a
-            // box sized from its words does not count.
+            // A little room below the last line, so the border of the panel does
+            // not stand on the words of fixed width.
             container(body).padding(Padding {
                 top: 7.0,
                 right: 12.0,
-                bottom: 30.0,
+                bottom: 12.0,
                 left: 12.0,
             }),
         ]

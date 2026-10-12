@@ -24,6 +24,10 @@ pub struct Shape {
     pub stage_height: f32,
     // Place of the dock. At home it stands in the middle of the window.
     pub dock_y: f32,
+    // Place and height of the mark of the program and the line for this hour.
+    // They stand above the dock, and only while no chat is open.
+    pub greet_y: f32,
+    pub greet_height: f32,
     // Widest the two boxes of the top bar may grow.
     pub model_cap: f32,
     pub repo_cap: f32,
@@ -49,13 +53,17 @@ impl Shape {
         let card_x = inset;
         let card_width = (width - 2.0 * inset).max(280.0);
         let stage_top = bar + 12.0;
-        // At home the mark, the greeting and the box stand as one group, and the
-        // group sits in the middle of the room below the top bar. With a chat
-        // open the box stands at the bottom of the window.
+        // At home the mark, the line for this hour and the box stand as one
+        // group, and the group sits in the middle of the room below the top bar.
+        // With a chat open the box stands at the bottom of the window.
+        let greet_height = 150.0;
+        let greet_gap = 26.0;
+        let group = greet_height + greet_gap + dock_height;
+        let greet_y = bar + (height - bar - group).max(0.0) / 2.0;
         let dock_y = if home {
-            bar + 178.0 + (height - bar - 178.0 - dock_height) / 2.0
+            (greet_y + greet_height + greet_gap).min((height - dock_height - 12.0).max(bar + 70.0))
         } else {
-            height - dock_height - 14.0
+            (height - dock_height - 14.0).max(bar + 70.0)
         };
         let stage_height = (dock_y - stage_top - 12.0).max(0.0);
         // Room that the top bar spends on things other than the two selector
@@ -65,10 +73,23 @@ impl Shape {
             + if tight { 84.0 } else { 118.0 }
             + if tight { 0.0 } else { 168.0 }
             + if tight { 26.0 } else { 140.0 };
+        // The two ends of a `clamp` must stand in order, or the program stops.
+        // A very narrow window is therefore given the least room a box can work
+        // with, and the words inside it are cut instead.
         let chip_room = (width - bar_fixed).max(180.0);
+        let model_cap = chip_room
+            .mul_add(0.56, 0.0)
+            .min(if tight { 190.0 } else { 320.0 })
+            .max(150.0);
+        let repo_cap = chip_room
+            .mul_add(0.44, 0.0)
+            .min(if tight { 140.0 } else { 230.0 })
+            .max(120.0);
         let prev_width = ((width - 40.0) / 4.2).clamp(180.0, 300.0);
         let prev_gap = 18.0;
-        let prev_height = (prev_width * 1.24).min(stage_height - 78.0).max(120.0);
+        let prev_height = (prev_width * 1.24)
+            .min((stage_height - 78.0).max(140.0))
+            .max(120.0);
         Shape {
             width,
             height,
@@ -79,9 +100,11 @@ impl Shape {
             card_width,
             stage_top,
             stage_height,
+            greet_y: if home { greet_y } else { 0.0 },
+            greet_height,
             dock_y,
-            model_cap: chip_room.mul_add(0.56, 0.0).min(if tight { 190.0 } else { 320.0 }),
-            repo_cap: chip_room.mul_add(0.44, 0.0).min(if tight { 140.0 } else { 230.0 }),
+            model_cap,
+            repo_cap,
             prev_width,
             prev_step: prev_width + prev_gap,
             prev_height,

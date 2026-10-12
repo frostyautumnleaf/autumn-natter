@@ -3,8 +3,8 @@
 // stands blue in a window of autumn colours.
 
 use iced::widget::{
-    button, column, container, mouse_area, pick_list, row, space, text, text_editor, text_input,
-    Row,
+    button, column, container, mouse_area, pick_list, row, scrollable, space, text, text_editor,
+    text_input,
 };
 use iced::widget::{overlay, slider, Stack, pin};
 use iced::{alignment, border, font, Background, Color, Element, Font, Length, Theme};
@@ -39,6 +39,13 @@ pub const BOLD: Font = Font {
 // A font of fixed width, for a command and for the output of one.
 pub const MONO: Font = Font::MONOSPACE;
 
+// Rough room that words take. A box is made as wide as the longest name of its
+// list, and this says how much room the letters need. The number for one letter
+// sits a little above what the fonts really need, so a name stays inside.
+pub fn words(body: &str, size: f32) -> f32 {
+    (body.chars().count() as f32) * size * 0.60
+}
+
 // Words in one colour and one size.
 pub fn word(body: impl Into<String>, ink: Color, size: f32) -> Element<'static, Msg> {
     text(body.into()).size(size).color(ink).into()
@@ -58,6 +65,21 @@ pub fn mono(body: impl Into<String>, ink: Color, size: f32) -> Element<'static, 
     text(body.into()).size(size).color(ink).font(MONO).into()
 }
 
+// One line of words that never starts a second line. It is cut short when it
+// does not fit, so a long name stays on the line it stands on. The box it
+// stands in must be told to cut, with `clip`.
+pub fn word_one(
+    body: impl Into<String>,
+    ink: Color,
+    size: f32,
+) -> Element<'static, Msg> {
+    text(body.into())
+        .size(size)
+        .color(ink)
+        .wrapping(iced::widget::text::Wrapping::None)
+        .into()
+}
+
 // Words cut at a given width, centred in it.
 pub fn word_cut(
     body: impl Into<String>,
@@ -74,6 +96,30 @@ pub fn word_cut(
         return line.align_x(iced::alignment::Horizontal::Center).into();
     }
     line.into()
+}
+
+// One line of words of fixed width that never starts a second line. It is used
+// for a file, which must stay on the line it stands on.
+pub fn mono_one(body: impl Into<String>, ink: Color, size: f32) -> Element<'static, Msg> {
+    text(body.into())
+        .size(size)
+        .color(ink)
+        .font(MONO)
+        .wrapping(iced::widget::text::Wrapping::None)
+        .into()
+}
+
+// A small rounded label, for example GGUF or Safetensors. It stands beside the
+// name of a model, in the top bar and in the window of one model.
+pub fn pill(label: &str, pal: Pal) -> Element<'static, Msg> {
+    container(word(label.to_string(), pal.accent_text, 11.0))
+        .padding([3.0, 7.0])
+        .style(move |_| container::Style {
+            background: Some(Background::Color(pal.tint)),
+            border: border::rounded(7.0),
+            ..container::Style::default()
+        })
+        .into()
 }
 
 // A round mark. It lights while the machine works, and sleeps when it is quiet.
@@ -108,10 +154,12 @@ pub fn hair_across(ink: Color) -> Element<'static, Msg> {
 // shape in a list of a window of settings. The line in use stands warmer, with a
 // mark before it.
 pub fn entry(label: String, live: bool, on: Msg, pal: Pal) -> Element<'static, Msg> {
-    let content = Row::with_children(vec![
+    let content = row![
         dot(live, 6.0, pal.accent, pal.line),
-        word(label, if live { pal.accent_strong } else { pal.text }, 12.5),
-    ])
+        container(word_one(label, if live { pal.accent_text } else { pal.text }, 12.5))
+            .width(Length::Fill)
+            .clip(true),
+    ]
     .spacing(8)
     .align_y(alignment::Vertical::Center);
     press(
@@ -126,6 +174,53 @@ pub fn entry(label: String, live: bool, on: Msg, pal: Pal) -> Element<'static, M
         Some(on),
         pal,
     )
+}
+
+// The rail of a scroll bar, in the colours of the window. The rail of the
+// widget set is grey and thick, so it is drawn here instead.
+pub fn rail(pal: Pal) -> scrollable::Rail {
+    scrollable::Rail {
+        // The track of the rail is left out, so only the short bar that shows
+        // how far the list has moved stands in the window.
+        background: None,
+        border: border::rounded(2.0),
+        scroller: scrollable::Scroller {
+            // A little of the surface is mixed in, so the bar does not stand out
+            // of the window more than it needs to.
+            background: Background::Color(super::palette::mix(pal.text_dim, pal.surface, 0.35)),
+            border: border::rounded(2.0),
+        },
+    }
+}
+
+// A list that is longer than the room it has. The rail is thin and takes the
+// colours of the window, so no grey bar of the widget set stands in a form.
+pub fn scroll<'a>(
+    body: impl Into<Element<'a, Msg>> + 'a,
+    tall: Length,
+    pal: Pal,
+) -> Element<'a, Msg> {
+    scrollable(body)
+        .direction(iced::widget::scrollable::Direction::Vertical(
+            iced::widget::scrollable::Scrollbar::new()
+                .width(6.0)
+                .scroller_width(4.0)
+                .margin(3.0),
+        ))
+        .height(tall)
+        .style(move |_theme: &Theme, _state| scrollable::Style {
+            container: container::Style::default(),
+            vertical_rail: rail(pal),
+            horizontal_rail: rail(pal),
+            gap: None,
+            auto_scroll: scrollable::AutoScroll {
+                background: Background::Color(pal.surface_alt),
+                border: border::rounded(6.0).color(pal.line).width(1.0),
+                shadow: iced::Shadow::default(),
+                icon: pal.text_dim,
+            },
+        })
+        .into()
 }
 
 // A line one hair thick. Its place is always set by hand, because a line with
@@ -172,7 +267,10 @@ pub fn press<'a>(
     pal: Pal,
 ) -> Element<'a, Msg> {
     let warm = super::palette::mix(fill, pal.hover, 0.55);
+    // The button takes no padding of its own. The box handed to it carries the
+    // room its words need, and padding here would be counted twice.
     button(content)
+        .padding(0.0)
         .style(move |_theme: &Theme, state| {
             let made = match state {
                 button::Status::Pressed => warm,
@@ -203,7 +301,7 @@ pub fn badge(
     let ink = if !live {
         pal.text_dim
     } else if active {
-        pal.accent_strong
+        pal.accent_text
     } else {
         pal.text_dim
     };
@@ -230,11 +328,14 @@ pub fn badge(
 // carousel and for the mark of the settings.
 pub fn mark_button(name: &str, on: Option<Msg>, pal: Pal) -> Element<'static, Msg> {
     let live = on.is_some();
+    // The mark stands in the middle of its square. `center_x` and `center_y`
+    // are not used here, because they also set the size of the box, and a box
+    // of `Fill` would stretch the mark across the whole row.
     let inside = container(glyph(name, if live { pal.text } else { pal.text_dim }, 30.0))
         .width(Length::Fixed(30.0))
         .height(Length::Fixed(30.0))
-        .center_x(Length::Fill)
-        .center_y(Length::Fill);
+        .align_x(alignment::Horizontal::Center)
+        .align_y(alignment::Vertical::Center);
     press(
         inside,
         pal.surface,
@@ -258,9 +359,9 @@ pub fn word_button(
     let quiet = if firm { pal.accent } else { pal.surface };
     let near = if firm { pal.accent_warm } else { pal.hover };
     let ink = if firm { pal.on_accent } else { pal.text };
-    let label = container(word(body.to_string(), ink, 13.0))
-        .padding([7.0, 14.0])
-        .center_y(Length::Fixed(16.0));
+    // The words keep their own height: room above and below them, and no fixed
+    // height that could cut the letters.
+    let label = container(word(body.to_string(), ink, 13.0)).padding([7.0, 14.0]);
     let _ = near;
     press(
         label,
@@ -406,7 +507,20 @@ pub fn chooser<'a>(
     on: impl Fn(usize) -> Msg + 'static,
     pal: Pal,
 ) -> Element<'a, Msg> {
-    let picked = index.min(options.len().saturating_sub(1));
+    if options.is_empty() {
+        // A list with nothing in it is drawn as an empty box, so the window does
+        // not fall over when a machine has no choice to offer.
+        return container(space())
+            .width(Length::Fill)
+            .height(Length::Fixed(30.0))
+            .style(move |_| container::Style {
+                background: Some(Background::Color(pal.surface)),
+                border: border::rounded(8.0).color(pal.line).width(1.0),
+                ..container::Style::default()
+            })
+            .into();
+    }
+    let picked = index.min(options.len() - 1);
     let ink = pal.text;
     let dim = pal.text_dim;
     let ground = pal.surface;
@@ -479,7 +593,9 @@ pub fn line(
 }
 
 // A switch of two places. It is drawn here, because a switch of the widget set
-// takes the accent colour of the desktop.
+// takes the accent colour of the desktop. The knob stands at the left when the
+// switch is off, and at the right when it is on, so the place of the knob says
+// what the colour says.
 pub fn switch(on: bool, live: bool, change: Option<Msg>, pal: Pal) -> Element<'static, Msg> {
     let knob = container(space())
         .width(Length::Fixed(16.0))
@@ -493,11 +609,21 @@ pub fn switch(on: bool, live: bool, change: Option<Msg>, pal: Pal) -> Element<'s
             border: border::rounded(8.0),
             ..container::Style::default()
         });
-    let track = container(knob)
-        .width(Length::Fixed(40.0))
-        .height(Length::Fixed(22.0))
-        .padding(3.0)
-        .align_right(Length::Fill)
+    // The track keeps the size it is given. `align_right` and `align_left` set
+    // the width of the box as well, so the width handed to them is the width of
+    // the track. A `Fill` there would stretch the track over the whole window.
+    let track = if on {
+        container(knob)
+            .height(Length::Fixed(22.0))
+            .padding(3.0)
+            .align_right(Length::Fixed(40.0))
+    } else {
+        container(knob)
+            .height(Length::Fixed(22.0))
+            .padding(3.0)
+            .align_left(Length::Fixed(40.0))
+    };
+    let track = track
         .style(move |_| container::Style {
             background: Some(Background::Color(if on {
                 pal.accent
@@ -641,10 +767,16 @@ pub fn line_of<'a>(
     control: impl Into<Element<'a, Msg>>,
     pal: Pal,
 ) -> Element<'a, Msg> {
+    // The name keeps a room of its own and no height of its own, because a name
+    // that needs two lines must have the room of two lines.
     let named = container(strong(name.to_string(), pal.text, 13.0)).width(Length::Fixed(190.0));
+    // The room of the control is its own. `center_y` is not used, because it
+    // sets the height of the box as well, and a tall control would be cut.
     row![
         tipped(named, note, pal),
-        container(control).width(Length::Fill).center_y(Length::Fixed(30.0)),
+        container(control)
+            .width(Length::Fill)
+            .align_y(alignment::Vertical::Center),
     ]
     .spacing(10)
     .align_y(alignment::Vertical::Center)
