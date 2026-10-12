@@ -324,14 +324,14 @@ pub fn badge(
     )
 }
 
-// A square of one mark. It is the plain shape for the two arrows of the
-// carousel and for the mark of the settings.
+// A square of one mark. It is the plain shape for the mark of the settings.
 pub fn mark_button(name: &str, on: Option<Msg>, pal: Pal) -> Element<'static, Msg> {
     let live = on.is_some();
-    // The mark stands in the middle of its square. `center_x` and `center_y`
-    // are not used here, because they also set the size of the box, and a box
-    // of `Fill` would stretch the mark across the whole row.
-    let inside = container(glyph(name, if live { pal.text } else { pal.text_dim }, 30.0))
+    // The mark stands in the middle of its square, with room of its own at the
+    // edge, so it does not reach the boundary of the button. `center_x` and
+    // `center_y` are not used here, because they also set the size of the box,
+    // and a box of `Fill` would stretch the mark across the whole row.
+    let inside = container(glyph(name, if live { pal.text } else { pal.text_dim }, 20.0))
         .width(Length::Fixed(30.0))
         .height(Length::Fixed(30.0))
         .align_x(alignment::Horizontal::Center)

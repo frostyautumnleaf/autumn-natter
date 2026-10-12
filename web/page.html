@@ -302,8 +302,9 @@ pre.code {
 .pill svg { width: 13px; height: 13px; fill: none; stroke: var(--strong); stroke-width: 2; }
 
 /* The chat box. The badges sit in its lower left corner, and the round mark
-   for send or stop sits in the lower right. The mark is dull while there is
-   nothing to send, so it never promises more than it can do. */
+   for send or stop sits in the lower right on a touch screen. The mark is
+   dull while there is nothing to send, so it never promises more than it can
+   do. A screen with a keyboard sends with Enter, and the mark is not drawn. */
 .composer {
   flex: 0 0 auto; margin: 8px 14px 14px; padding: 12px 12px 50px;
   border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
@@ -331,8 +332,10 @@ body.home .composer { width: min(720px, 100%); margin: 0 auto; }
 .send {
   position: absolute; right: 11px; bottom: 8px; width: 34px; height: 34px;
   border-radius: 17px; background: var(--accent); opacity: .45;
+  display: none;
   transition: opacity 180ms, background 180ms;
 }
+.send.show { display: block; }
 .send svg { width: 16px; height: 16px; fill: none; stroke: var(--on-accent); stroke-width: 2; }
 .send .mark-stop { display: none; }
 .send.stop .mark-send { display: none; }
@@ -489,9 +492,10 @@ var composer = document.getElementById('composer');
 var msgs = null;
 
 // A touch screen gets a send mark that it can lean on. Other screens send with
-// the Enter key, and the mark only shows that there is something to send.
+// the Enter key, and the mark is not drawn at all.
 var touch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
   || ('ontouchstart' in window);
+if (touch) { el.send.classList.add('show'); }
 // A page that is asked for few moves keeps the row and the chat box still.
 var reduce = !!(window.matchMedia
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches);

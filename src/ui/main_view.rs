@@ -6,7 +6,7 @@
 // always stand in line.
 
 use iced::widget::{button, container, mouse_area, row, space, text_editor};
-use iced::{border, window, Background, Color, Element, Length, Theme, Alignment};
+use iced::{border, window, Background, Element, Length, Theme, Alignment};
 use iced::widget::{Column, Row, Stack, pin};
 
 use crate::engine::Snap;
@@ -108,14 +108,15 @@ pub fn draw<'a>(app: &'a App, window_id: window::Id, pal: Pal) -> Element<'a, Ms
         shape.dock_height,
     ));
 
-    // One list of the top bar, when it is open. It stands under the bar, at the
-    // left, where the two selector boxes stand.
+    // One list of the top bar, when it is open. It stands under the box that
+    // brought it up, so the list and its box stand in line.
     if app.menu != Menu::None {
+        let x = menu_place(app, &shape);
         let tall_list = menu_height(app).min(tall - shape.bar - 20.0);
-        let wide_list = menu_width(app, &shape).min(wide - 24.0);
+        let wide_list = menu_width(app, &shape).min((wide - x - 12.0).max(160.0));
         layers = layers.push(shelf(
             menu(app, pal),
-            12.0,
+            x,
             shape.bar + 6.0,
             wide_list,
             tall_list,
@@ -156,6 +157,29 @@ fn menu_height(app: &App) -> f32 {
         Menu::None => 0.0,
     }
     .min(420.0)
+}
+
+// The place where a box of the top bar stands. The list of the box stands
+// under it, so the two are made from the same words.
+fn menu_place(app: &App, shape: &Shape) -> f32 {
+    let snap = &app.snap;
+    let mark_wide = if shape.tight {
+        28.0
+    } else {
+        38.0 + words("Autumn Natter", 13.5)
+    };
+    let mut x = 12.0 + mark_wide + 10.0;
+    if app.menu == Menu::Repository {
+        let kind_room = if snap.model_kind.is_empty() {
+            0.0
+        } else {
+            words(snap.model_kind.as_str(), 11.0) + 45.0
+        };
+        let model_wide = (86.0 + words(longest_model(snap).as_str(), 13.0) + kind_room)
+            .clamp(118.0, shape.model_cap);
+        x += model_wide + 10.0;
+    }
+    x
 }
 
 // How wide a list of the top bar must be. It is as wide as the widest line it
@@ -213,10 +237,6 @@ fn top_bar(app: &App, pal: Pal, shape: &Shape) -> Elem {
             .clamp(104.0, shape.repo_cap);
         line = line.push(repository_box(snap, pal, repo_wide));
     }
-
-    // The two marks that turn the carousel, with the place of this chat between
-    // them.
-    line = line.push(roll_box(snap, pal, shape));
 
     // The name of the chat. It is the chief word of this bar, so it takes the
     // room that is left.
@@ -364,8 +384,10 @@ pub fn box_button(
 ) -> Elem {
     let hover = pal.hover;
     let accent = pal.accent_strong;
+    // The words stand a little in from the edge of the box, so the marks at
+    // the ends do not touch the hairline.
     button(
-        container(content).width(wide).height(tall),
+        container(content).width(wide).height(tall).padding([0.0, 10.0]),
     )
     .padding(0.0)
     .style(move |_theme: &Theme, state| button::Style {
@@ -381,54 +403,6 @@ pub fn box_button(
     .height(tall)
     .on_press_maybe(action)
     .into()
-}
-
-// The two marks that turn the carousel, with the place of this chat between
-// them. They stand together in one box, so it is clear that they belong to the
-// carousel and not to the bar.
-fn roll_box(snap: &Snap, pal: Pal, shape: &Shape) -> Elem {
-    let wide = if shape.tight { 84.0 } else { 118.0 };
-    let place = if snap.chat_count < 2 {
-        String::new()
-    } else if shape.tight {
-        format!("{}", snap.chat_index + 1)
-    } else {
-        format!("{} of {}", snap.chat_index + 1, snap.chat_count)
-    };
-    let mut line = Row::new().spacing(1.0).align_y(Alignment::Center).padding([0.0, 3.0]);
-    line = line.push(parts::mark_button(
-        "left",
-        if snap.chat_index > 0 {
-            Some(Msg::Roll(-1))
-        } else {
-            None
-        },
-        pal,
-    ));
-    line = line.push(
-        container(parts::word_one(place, pal.text_dim, 12.0))
-            .width(Length::Fill)
-            .align_x(iced::alignment::Horizontal::Center)
-            .clip(true),
-    );
-    line = line.push(parts::mark_button(
-        "right",
-        if snap.chat_index + 1 < snap.chat_count {
-            Some(Msg::Roll(1))
-        } else {
-            None
-        },
-        pal,
-    ));
-    container(line)
-        .width(Length::Fixed(wide))
-        .height(Length::Fixed(34.0))
-        .style(move |_| container::Style {
-            background: Some(Background::Color(pal.surface)),
-            border: border::rounded(9.0).color(pal.line).width(1.0),
-            ..container::Style::default()
-        })
-        .into()
 }
 
 // The tokens in use, with a thin bar under the words. The bar turns dark red
@@ -855,7 +829,8 @@ fn dock<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
             ]
             .spacing(4)
             .align_y(Alignment::Center),
-        ),
+        )
+        .padding([4.0, 11.0]),
         pal.surface,
         pal.line,
         13.0,
@@ -880,7 +855,6 @@ fn dock<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
 fn composer_box<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
     let wide = shape.card_width;
     let tall = 118.0;
-    let live = app.snap.generating || !app.draft_text.is_empty();
     // The row of previews takes every key while it stands in front, so a letter
     // cannot be written into the box behind it.
     let row_up = app.snap.overview;
@@ -902,13 +876,21 @@ fn composer_box<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
                 // Return are answered by the window itself.
                 return Some(iced::widget::text_editor::Binding::Sequence(vec![]));
             }
-            if !matches!(press.key, Key::Named(Named::Enter)) {
-                return None;
+            // The window answers Escape, so the box keeps the keys and the
+            // caret stays where it was.
+            if matches!(press.key, Key::Named(Named::Escape)) {
+                return Some(iced::widget::text_editor::Binding::Sequence(vec![]));
             }
-            if press.modifiers.shift() {
-                return Some(iced::widget::text_editor::Binding::Insert('\n'));
+            if matches!(press.key, Key::Named(Named::Enter)) {
+                if press.modifiers.shift() {
+                    return Some(iced::widget::text_editor::Binding::Insert('\n'));
+                }
+                return Some(iced::widget::text_editor::Binding::Custom(Msg::Send));
             }
-            Some(iced::widget::text_editor::Binding::Custom(Msg::Send))
+            // A key the box does not answer for itself is given the binding of
+            // the box, so a letter is written and a mark is moved. A key that
+            // is given back as nothing is lost, and nothing is written.
+            iced::widget::text_editor::Binding::from_key_press(press)
         })
         .style(move |_: &Theme, _| iced::widget::text_editor::Style {
             background: Background::Color(pal.surface),
@@ -957,43 +939,10 @@ fn composer_box<'a>(app: &'a App, pal: Pal, shape: &Shape) -> Element<'a, Msg> {
             pal,
         ));
 
-    // The round mark. It is always there, dull while there is nothing to send,
-    // and it turns into the stop mark while an answer comes in.
-    let send_fill = if app.snap.generating {
-        pal.accent_strong
-    } else if live {
-        pal.accent
-    } else {
-        mix(pal.accent, pal.surface, 0.6)
-    };
-    let send = parts::press(
-        container(parts::glyph(
-            if app.snap.generating { "stop" } else { "send" },
-            pal.on_accent,
-            16.0,
-        ))
-        .width(Length::Fixed(34.0))
-        .height(Length::Fixed(34.0))
-        .center_x(Length::Fixed(34.0))
-        .center_y(Length::Fixed(34.0)),
-        send_fill,
-        Color::TRANSPARENT,
-        17.0,
-        0.0,
-        pal.on_accent,
-        Some(if app.snap.generating {
-            Msg::Cancel
-        } else {
-            Msg::Send
-        }),
-        pal,
-    );
-
     let mut layers = Stack::new();
     layers = layers.push(room_of(wide, tall));
     layers = layers.push(shelf(draft, 16.0, 14.0, wide - 32.0, tall - 58.0));
     layers = layers.push(shelf(marks, 10.0, tall - 38.0, wide - 20.0, 38.0));
-    layers = layers.push(shelf(send, wide - 46.0, tall - 46.0, 34.0, 34.0));
     container(layers)
         .width(Length::Fixed(wide))
         .height(Length::Fixed(tall))

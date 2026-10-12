@@ -52,7 +52,7 @@ impl Shape {
         // neighbours of the carousel used to have.
         let card_x = inset;
         let card_width = (width - 2.0 * inset).max(280.0);
-        let stage_top = bar + 12.0;
+        let stage_top = bar + 5.0;
         // At home the mark, the line for this hour and the box stand as one
         // group, and the group sits in the middle of the room below the top bar.
         // With a chat open the box stands at the bottom of the window.
@@ -70,7 +70,6 @@ impl Shape {
         // boxes, so the two boxes know how much is left for them.
         let bar_fixed = 24.0
             + 50.0
-            + if tight { 84.0 } else { 118.0 }
             + if tight { 0.0 } else { 168.0 }
             + if tight { 26.0 } else { 140.0 };
         // The two ends of a `clamp` must stand in order, or the program stops.

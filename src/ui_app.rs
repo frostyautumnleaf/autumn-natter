@@ -122,9 +122,7 @@ pub enum Msg {
     // Something was done in the box for a new message.
     Draft(Edit),
     Send,
-    Cancel,
     NewChat,
-    Roll(i32),
     // The pointer in the row of previews.
     RowAt(f32),
     RowGrab,
@@ -738,17 +736,11 @@ fn update(app: &mut App, message: Msg) -> Task<Msg> {
             }
         }
         Msg::Send => app.send(),
-        Msg::Cancel => app.engine.cancel(),
         Msg::NewChat => {
             app.engine.new_chat();
             app.opened = Some(Instant::now());
             // A new chat is written in at once, so the box takes the keys.
             return focus_draft(app);
-        }
-        Msg::Roll(step) => {
-            app.engine.roll(step);
-            app.spin = 0.0;
-            app.opened = Some(Instant::now());
         }
         Msg::RowAt(where_) => {
             app.at = where_;
