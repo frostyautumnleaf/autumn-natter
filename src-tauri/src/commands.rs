@@ -2,8 +2,11 @@
 //
 // The page of the window asks for the state with a short poll, in the same way
 // as the browser page of the remote mode, and it sends the actions of the user
-// as named calls. Every call runs on the Tauri worker threads, so a slow answer
-// never stops the window from drawing.
+// as named calls. Every command is async and takes the engine by reference, so
+// Tauri runs it on a worker thread and a slow answer never stops the window
+// from drawing. A command that takes a reference must return a Result, so each
+// one does. None of them fail on purpose: a bad value answers with a small
+// "not ok" record, and the window reads the state again.
 
 use serde_json::{json, Value};
 use tauri::State;
@@ -15,54 +18,61 @@ use autumn_natter_core::{llama, web};
 // The state as JSON. The page sends the number it already has (since). When
 // nothing changed, the answer stays small.
 #[tauri::command]
-pub async fn get_state(engine: State<'_, Engine>, since: Option<u64>) -> Value {
+pub async fn get_state(engine: State<'_, Engine>, since: Option<u64>) -> Result<Value, String> {
     let snap = engine.snapshot();
-    web::state(&snap, since)
+    Ok(web::state(&snap, since))
 }
 
 // One action of the user. The name is the same as the route of the remote page,
 // so the two share the mapping in web::action.
 #[tauri::command]
-pub async fn action(engine: State<'_, Engine>, path: String, body: Option<Value>) -> Value {
+pub async fn action(
+    engine: State<'_, Engine>,
+    path: String,
+    body: Option<Value>,
+) -> Result<Value, String> {
     let text = body.map(|value| value.to_string()).unwrap_or_default();
-    web::action(&engine, &path, &text)
+    Ok(web::action(&engine, &path, &text))
 }
 
 // The settings of the program, for the window of settings.
 #[tauri::command]
-pub async fn get_config(engine: State<'_, Engine>) -> Value {
-    serde_json::to_value(engine.config()).unwrap_or_else(|_| json!({}))
+pub async fn get_config(engine: State<'_, Engine>) -> Result<Value, String> {
+    Ok(serde_json::to_value(engine.config()).unwrap_or_else(|_| json!({})))
 }
 
 // Store new settings, and refresh what depends on them.
 #[tauri::command]
-pub async fn save_config(engine: State<'_, Engine>, config: Value) -> Value {
+pub async fn save_config(engine: State<'_, Engine>, config: Value) -> Result<Value, String> {
     match serde_json::from_value::<Config>(config) {
         Ok(cfg) => {
             engine.save_settings(cfg);
-            web::done()
+            Ok(web::done())
         }
-        Err(problem) => web::refused(&format!("the settings could not be read: {}", problem)),
+        Err(problem) => Ok(web::refused(&format!(
+            "the settings could not be read: {}",
+            problem
+        ))),
     }
 }
 
 // Every repository on disk, most recently used first. The window of settings
 // shows all of them, while the top bar shows five.
 #[tauri::command]
-pub async fn list_repositories(engine: State<'_, Engine>) -> Value {
+pub async fn list_repositories(engine: State<'_, Engine>) -> Result<Value, String> {
     let repos = engine.repositories();
-    Value::Array(
+    Ok(Value::Array(
         repos
             .iter()
             .map(|repo| json!({ "id": repo.id, "name": repo.name }))
             .collect(),
-    )
+    ))
 }
 
 // Everything the window of one model needs: the settings it holds, the devices
 // of the machine, and the three lists of choices.
 #[tauri::command]
-pub async fn get_model_settings(engine: State<'_, Engine>, id: String) -> Value {
+pub async fn get_model_settings(engine: State<'_, Engine>, id: String) -> Result<Value, String> {
     let snap = engine.snapshot();
     let (settings, gpus) = engine.model_settings(&id);
     let (name, kind) = snap
@@ -71,7 +81,7 @@ pub async fn get_model_settings(engine: State<'_, Engine>, id: String) -> Value 
         .find(|model| model.id() == id)
         .map(|model| (model.name.clone(), model.kind.to_string()))
         .unwrap_or_default();
-    json!({
+    Ok(json!({
         "id": id,
         "name": name,
         "kind": kind,
@@ -87,38 +97,46 @@ pub async fn get_model_settings(engine: State<'_, Engine>, id: String) -> Value 
                 "memory_text": card.memory_text(),
             }))
             .collect::<Vec<_>>(),
-        "kinds": llama::KV_TYPES.iter().copied().collect::<Vec<_>>(),
-        "loads": llama::LOAD_MODES.iter().copied().collect::<Vec<_>>(),
-        "specs": llama::SPEC_TYPES.iter().copied().collect::<Vec<_>>(),
-    })
+        "kinds": llama::KV_TYPES.to_vec(),
+        "loads": llama::LOAD_MODES.to_vec(),
+        "specs": llama::SPEC_TYPES.to_vec(),
+    }))
 }
 
 // Save the settings of one model. A running server is stopped, because it was
 // started with the old values.
 #[tauri::command]
-pub async fn save_model_settings(engine: State<'_, Engine>, id: String, settings: Value) -> Value {
+pub async fn save_model_settings(
+    engine: State<'_, Engine>,
+    id: String,
+    settings: Value,
+) -> Result<Value, String> {
     match serde_json::from_value::<ModelSettings>(settings) {
         Ok(made) => {
             engine.save_model_settings(id, made);
-            web::done()
+            Ok(web::done())
         }
-        Err(problem) => web::refused(&format!(
+        Err(problem) => Ok(web::refused(&format!(
             "the model settings could not be read: {}",
             problem
-        )),
+        ))),
     }
 }
 
 // The command line the next answer will use, read again whenever a field of the
 // window of one model moves. Nothing is started: only the arguments are built.
 #[tauri::command]
-pub async fn preview_command(engine: State<'_, Engine>, id: String, settings: Value) -> String {
+pub async fn preview_command(
+    engine: State<'_, Engine>,
+    id: String,
+    settings: Value,
+) -> Result<String, String> {
     let snap = engine.snapshot();
     let Some(model) = snap.models.iter().find(|m| m.id() == id) else {
-        return String::new();
+        return Ok(String::new());
     };
     let Ok(held) = serde_json::from_value::<ModelSettings>(settings) else {
-        return String::new();
+        return Ok(String::new());
     };
     // The switches of the form win over the switches the model was saved with.
     let (_, devices) = engine.model_settings(&id);
@@ -152,5 +170,5 @@ pub async fn preview_command(engine: State<'_, Engine>, id: String, settings: Va
         line.push('\n');
         line.push_str(&note);
     }
-    line.trim_end().to_string()
+    Ok(line.trim_end().to_string())
 }
