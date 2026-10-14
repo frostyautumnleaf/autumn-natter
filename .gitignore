@@ -35,3 +35,8 @@ uidata/
 
 # Tauri writes these while it builds the window.
 src-tauri/gen/
+
+# The headless browser packages for tools/page-shot.js.
+tools/node_modules/
+tools/package.json
+tools/package-lock.json

@@ -1,0 +1,260 @@
+// Pictures of the two pages of Autumn Natter, for the machine that has no
+// desktop.
+//
+// The window cannot be opened in a build box: there is no display. This tool
+// draws the pages in a headless browser instead, with a fake bridge, and writes
+// the pictures as PNG. The pages are read as they stand, so a fault of the
+// layout is seen here and not on the screen of the user.
+//
+// The core is not touched: no server is started, no model is read. The records
+// below stand for the state of the engine, and the bridge answers as Tauri or
+// as the small HTTP server of the remote mode.
+//
+//   npm install puppeteer           # once, in this folder, needs the network
+//   node page-shot.js rich-pale rich.png 1180 1450
+//   node page-shot.js home-dark home.png 1180 760
+//   AN_PAGE=../web/page.html AN_FETCH=1 node page-shot.js chat-pale page.png
+//
+// The scenes: home, chat, rich, streaming, previews, sheet-program, sheet-model.
+// A name that ends in -dark draws the dark skin, and a name that ends in -pale
+// draws the pale one. AN_SCROLL=top puts the talk at the top instead of the end.
+
+'use strict';
+
+const path = require('path');
+const { execSync } = require('child_process');
+
+const page = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
+const useFetch = process.env.AN_FETCH === '1';
+
+// One message of the talk.
+function said(id, role, body, extra) {
+  return Object.assign({
+    id: id, role: role, body: body, reasoning: '', tool: '',
+    mono: false, failed: false, when: '09:4' + (id % 10)
+  }, extra || {});
+}
+
+// One chat with every kind of block in it: a heading, a paragraph, a list, a
+// block of code, the thinking of the model, two runs of the terminal tool, and
+// a line from the program.
+const FULL = [
+  said(1, 'You', 'Can you show the plan for the parser, and run the tests?'),
+  said(2, 'Assistant',
+    '# Plan\n\nWe change two files.\n\n'
+    + '1. `markdown.rs` closes a paragraph when a list starts.\n'
+    + '2. `message_view.rs` gives the bar a height.\n\n'
+    + 'The tests cover the order now.\n\n'
+    + '```rust\nfn flush(&mut self) {\n    self.close_para();\n}\n```',
+    { reasoning: 'The user wants a plan. The fault is in the parser, and not in '
+      + 'the view. Name both files, and keep every line short.' }),
+  said(3, 'Tool', 'cargo test --release markdown',
+    { tool: 'running 6 tests\ntest markdown::tests::list_after_paragraph ... ok\n'
+      + 'all 6 tests passed' }),
+  said(4, 'Assistant', 'The tests pass. Two notes:\n\n'
+    + '- The bar takes its height from the words beside it.\n'
+    + '- A list that follows a paragraph keeps its place.'),
+  said(5, 'Note', 'the answer was stopped'),
+  said(6, 'Tool', 'bwrap --die-with-parent ls -1 /nope',
+    { tool: 'exit 1: no such file', failed: true }),
+];
+
+const TALK = [
+  said(1, 'You', 'What is the difference between mmap and mlock?'),
+  said(2, 'Assistant', 'mmap lets the system page the model in and out. mlock keeps '
+    + 'the whole file in the memory of the machine.\n\nUse mlock when the model must '
+    + 'not be moved.'),
+  said(3, 'You', 'Which one is the default?'),
+  said(4, 'Assistant', 'mmap is the default. It costs less memory.'),
+];
+
+// The chats of the place, with one of them open.
+function chats(count, open) {
+  const out = [];
+  for (let n = 0; n < count; n++) {
+    out.push({
+      id: 'c' + n, title: n === open ? 'Parser order' : 'Chat ' + (n + 1),
+      repo: '', when: 'Today 09:0' + (n % 10), active: n === open,
+      preview: n === open ? 'Nothing written yet' : 'The last line of that chat, said short'
+    });
+  }
+  return out;
+}
+
+// The state of the engine, as the record of web::state.
+function scene(name, dark) {
+  const start = {
+    rev: 1, unchanged: false,
+    model: { id: 'm1', name: 'Qwen3.5-0.8B-UD-Q6_K', kind: 'GGUF' },
+    models: [
+      { id: 'm1', name: 'Qwen3.5-0.8B-UD-Q6_K', kind: 'GGUF' },
+      { id: 'm2', name: 'DeepSeek-R1-7B-Q4_K_M', kind: 'GGUF' },
+      { id: 'm3', name: 'gemma-3-4b-it', kind: 'Safetensors' }
+    ],
+    repository: { id: '', name: 'No repository' },
+    repositories: [{ id: 'r1', name: 'notes' }, { id: 'r2', name: 'kernel-ports' }],
+    chat: { id: 'c1', title: 'No chat' },
+    chats: [], home: true, greeting: 'Still here, still ready.', overview: false,
+    carousel: { index: 0, count: 0, blank: true },
+    messages: [], live: '', reasoning: '',
+    thinking: { mode: 'auto', available: true },
+    context: { used: '0', total: '8,192', ratio: 0.0 },
+    generating: false, busy: false, code: false, sandbox: false,
+    sandbox_available: true,
+    sandbox_note: 'bubblewrap (bwrap) was found, so the tool can be kept inside a jail.',
+    status: 'Ready', dark: !!dark, data_dir: '/home/user/.local/share/autumn-natter'
+  };
+  if (name === 'chat' || name === 'rich' || name === 'streaming' || name === 'previews') {
+    start.home = false;
+    start.chat = { id: 'c1', title: name === 'rich' ? 'Parser order' : 'Memory of the talk' };
+    start.chats = chats(name === 'previews' ? 9 : 3, 1);
+    start.carousel = { index: 1, count: start.chats.length, blank: false };
+    start.messages = name === 'rich' ? FULL : TALK;
+    start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
+    start.code = name === 'rich';
+    start.sandbox = name === 'rich';
+  }
+  if (name === 'streaming') {
+    start.generating = true;
+    start.live = 'The bar takes its height from the words beside it, and the list '
+      + 'keeps its place after the paragraph.';
+    start.reasoning = 'Look at the order of the blocks first.';
+    start.status = 'Answering';
+    start.context = { used: '5,980', total: '8,192', ratio: 0.73 };
+  }
+  return start;
+}
+
+const CONFIG = {
+  llama_dir: '/home/user/src/llama.cpp/build/bin',
+  models_dir: '/home/user/models',
+  repositories_dir: '',
+  remote_port: 8723,
+  upnp_enabled: false,
+  dark_mode: false
+};
+
+const MODEL = {
+  id: 'm1', name: 'Qwen3.5-0.8B-UD-Q6_K', kind: 'GGUF',
+  settings: {
+    ctx_size: 8192, kv_index: 1, load_index: 1, spec_index: 0, draft_model: '',
+    draft_tokens: 4, parallel: 1, batch_size: 512, ubatch_size: 128, vision: false,
+    reasoning_budget: -1, reasoning_message: '', chat_template: '', extra_args: '',
+    vram_budget: 0, gpu_enabled: [true, false]
+  },
+  gpus: [
+    { device: '0', name: 'NVIDIA GeForce RTX 3060', memory_mb: 12288, enabled: true,
+      is_offload: true, memory_text: '12,288 MiB' },
+    { device: '1', name: 'llamaCPU-AVX2', memory_mb: 32768, enabled: false,
+      is_offload: false, memory_text: '32,768 MiB' }
+  ],
+  kinds: ['f16', 'bf16', 'q8_0'],
+  loads: ['none', 'mmap', 'mlock', 'mmap+mlock', 'directio'],
+  specs: ['none', 'ngram', 'ngram-mod', 'lookahead']
+};
+
+async function main() {
+  let name = process.argv[2] || 'home';
+  const out = process.argv[3] || (name + '.png');
+  const width = Number(process.argv[4] || 1180);
+  const height = Number(process.argv[5] || 760);
+  let dark = false;
+  if (name.endsWith('-dark')) { dark = true; name = name.slice(0, -5); }
+  else if (name.endsWith('-pale')) { name = name.slice(0, -5); }
+  const state = scene(name === 'sheet-program' || name === 'sheet-model' ? 'chat' : name, dark);
+
+  const puppeteer = require('puppeteer');
+  let shell = '';
+  try {
+    shell = execSync('find "' + process.env.HOME + '/.cache/puppeteer" '
+      + '-name chrome-headless-shell -type f | head -1').toString().trim();
+  } catch (e) { shell = ''; }
+
+  const browser = await puppeteer.launch({
+    headless: shell ? 'shell' : true,
+    executablePath: shell || undefined,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu',
+      '--font-render-hinting=none', '--force-color-profile=srgb']
+  });
+  const view = await browser.newPage();
+  await view.setViewport({ width: width, height: height, deviceScaleFactor: 2 });
+  view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
+  view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
+
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model) {
+    if (fetchMode) {
+      // The page of the remote mode asks a small HTTP server. The records are
+      // the same, so the same scenes can be drawn.
+      window.fetch = function (url) {
+        if (String(url).indexOf('/api/state') === 0) {
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(JSON.parse(JSON.stringify(held))); } });
+        }
+        return Promise.resolve({ json: function () {
+          return Promise.resolve({ ok: true }); } });
+      };
+      return;
+    }
+    window.__TAURI__ = {
+      core: {
+        invoke: function (command, args) {
+          if (command === 'get_state') {
+            return Promise.resolve(JSON.parse(JSON.stringify(held)));
+          }
+          if (command === 'get_config') {
+            return Promise.resolve(JSON.parse(JSON.stringify(config)));
+          }
+          if (command === 'list_repositories') {
+            return Promise.resolve(held.repositories.map(function (r) {
+              return { id: r.id, name: r.name }; }));
+          }
+          if (command === 'get_model_settings') {
+            return Promise.resolve(JSON.parse(JSON.stringify(model)));
+          }
+          if (command === 'preview_command') {
+            return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
+              + '-ngl 999 --fit on --fit-target 400');
+          }
+          return Promise.resolve({ ok: true });
+        }
+      }
+    };
+  }, useFetch, state, CONFIG, MODEL);
+
+  await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
+  await new Promise(function (r) { setTimeout(r, 700); });
+
+  if (name === 'previews') {
+    await view.evaluate(function () {
+      var b = document.getElementById('chatsbtn');
+      if (b) { b.click(); }
+    });
+    await new Promise(function (r) { setTimeout(r, 1400); });
+  }
+  if (name === 'sheet-program') {
+    await view.evaluate(function () {
+      var b = document.getElementById('settingsbtn');
+      if (b) { b.click(); }
+    });
+    await new Promise(function (r) { setTimeout(r, 600); });
+  }
+  if (name === 'sheet-model') {
+    await view.evaluate(function () {
+      var b = document.getElementById('modelbtn');
+      if (b) { b.click(); }
+    });
+    await new Promise(function (r) { setTimeout(r, 600); });
+  }
+  if (process.env.AN_SCROLL === 'top') {
+    await view.evaluate(function () {
+      var box = document.getElementById('thread');
+      if (box) { box.scrollTop = 0; }
+    });
+    await new Promise(function (r) { setTimeout(r, 250); });
+  }
+  await view.screenshot({ path: out });
+  await browser.close();
+  console.log('wrote ' + out);
+}
+
+main().catch(function (e) { console.log('FAIL', String(e)); process.exit(1); });

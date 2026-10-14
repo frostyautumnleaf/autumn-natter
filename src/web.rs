@@ -109,6 +109,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox_note": snap.sandbox_note,
         "status": snap.status,
         "dark": snap.dark_mode,
+        // The folder of the program data. The window of settings reads it out.
+        "data_dir": snap.data_dir,
     })
 }
 
