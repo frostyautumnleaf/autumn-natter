@@ -215,14 +215,16 @@ impl State {
     }
 
     // Put a tool run in the chat before it starts. The id is given back so the
-    // output can be written into the same message.
-    fn begin_tool(&mut self, call: &ToolCall, shown: &str) -> String {
+    // output can be written into the same message. The thinking of a turn with
+    // no words of its own stands here too, so it is not lost.
+    fn begin_tool(&mut self, call: &ToolCall, shown: &str, thinking: &str) -> String {
         let id = store::new_id();
         if let Some(chat) = self.chat_mut() {
             chat.messages.push(Message {
                 id: id.clone(),
                 role: "Tool".to_string(),
                 body: shown.to_string(),
+                reasoning: thinking.to_string(),
                 tool: String::from("running ..."),
                 mono: true,
                 call_id: call.id.clone(),
@@ -1109,6 +1111,51 @@ fn stop_server(server: &mut Option<Server>) {
     }
 }
 
+// What one answer of the model leaves in the chat.
+#[derive(Debug, PartialEq, Eq)]
+enum Kept {
+    // The words of the answer.
+    Words,
+    // No words came in, but the thinking of the turn is kept.
+    Thinking,
+    // A quiet line for a turn that left nothing to read.
+    Note,
+    // Nothing at all. A command, or a stop with nothing in it, needs no line
+    // about itself.
+    Nothing,
+}
+
+// Choose what one answer leaves. `stopped` says the reader stopped the run,
+// and `error` says the run failed. A command is an answer of its own, so a
+// turn that asks for one writes no line, and a stop is not written down
+// either. The thinking of a turn with no words goes to the command it led to.
+fn kept_of(
+    text: &str,
+    thinking: &str,
+    stopped: bool,
+    asked_for_tool: bool,
+    error: bool,
+) -> Kept {
+    if !text.trim().is_empty() {
+        return Kept::Words;
+    }
+    if asked_for_tool {
+        return Kept::Nothing;
+    }
+    if stopped {
+        return if thinking.trim().is_empty() {
+            Kept::Nothing
+        } else {
+            Kept::Thinking
+        };
+    }
+    if error {
+        // The reason of the failure already stands as a note of its own.
+        return Kept::Nothing;
+    }
+    Kept::Note
+}
+
 // Answer one prompt. When the model asks for a terminal command, the command
 // runs and the model is asked again with the result.
 fn run_turn(
@@ -1236,35 +1283,69 @@ fn run_turn(
 
         let Ok(mut guard) = state.lock() else { return };
         let live = std::mem::take(&mut guard.live_text);
+        let live_thinking = std::mem::take(&mut guard.live_reasoning);
         // Both hold the answer. The longer one is the safer one.
         let answer_text = if answer.text.chars().count() >= live.chars().count() {
             answer.text.clone()
         } else {
             live
         };
+        // The thinking is kept the same way. Both live buffers are empty from
+        // here on, so a stored step is not shown again while the next one is
+        // still coming in.
+        let answer_thinking = if answer
+            .reasoning
+            .chars()
+            .count()
+            >= live_thinking.chars().count()
+        {
+            answer.reasoning.clone()
+        } else {
+            live_thinking
+        };
 
         if let Some(problem) = &answer.error {
             let text = problem.clone();
             guard.push_note(&text, true);
         }
-        if answer.stopped {
-            let stopped = if answer_text.trim().is_empty() {
-                String::from("(stopped)")
-            } else {
-                format!("{}\n(stopped)", answer_text)
-            };
-            guard.push_message("Assistant", &stopped, &answer.reasoning, false);
-        } else if !answer_text.trim().is_empty() {
-            guard.push_message("Assistant", &answer_text, &answer.reasoning, false);
-        } else if answer.error.is_none() {
-            // The model used tokens but gave no visible text. This happens
-            // when the answer is all thinking, or the context ran full.
-            let note = if answer.finish == "length" {
-                String::from("(the context ran full before the model could answer)")
-            } else {
-                String::from("(the model gave no answer)")
-            };
-            guard.push_message("Assistant", &note, &answer.reasoning, false);
+        // A command is an answer of its own, when it really runs. A turn that
+        // thinks and then asks for one has words enough, so nothing is written
+        // about a missing answer. Its thinking goes to the command that stands
+        // for it. When no command runs, the thinking stays with the turn.
+        let a_command_runs = use_tools && steps < MAX_TOOL_STEPS;
+        let asked_for_tool = a_command_runs
+            && answer
+                .tool_calls
+                .iter()
+                .any(|call| !call.name.is_empty());
+        let no_words = answer_text.trim().is_empty();
+        let turn_thinking = if no_words && asked_for_tool {
+            answer_thinking.as_str()
+        } else {
+            ""
+        };
+        match kept_of(
+            &answer_text,
+            &answer_thinking,
+            answer.stopped,
+            asked_for_tool,
+            answer.error.is_some(),
+        ) {
+            // The words are kept as they came in, also when the reader
+            // stopped the run.
+            Kept::Words => guard.push_message("Assistant", &answer_text, &answer_thinking, false),
+            Kept::Thinking => guard.push_message("Assistant", "", &answer_thinking, false),
+            // The model used tokens but left nothing to read, and asked for no
+            // command. This happens when the context ran full.
+            Kept::Note => {
+                let note = if answer.finish == "length" {
+                    String::from("(the context ran full before the model could answer)")
+                } else {
+                    String::from("(the model gave no answer)")
+                };
+                guard.push_message("Assistant", &note, &answer_thinking, false);
+            }
+            Kept::Nothing => {}
         }
 
         // Tokens for the context meter.
@@ -1303,18 +1384,21 @@ fn run_turn(
         drop(guard);
 
         // The model wants a command to run.
-        for call in &calls {
+        for (number, call) in calls.iter().enumerate() {
             let (command, purpose) = tools::parse_arguments(&call.arguments);
             let shown = if purpose.trim().is_empty() {
                 command.clone()
             } else {
                 format!("{}\nwhy: {}", command, purpose)
             };
+            // The thinking of a turn with no words stands with the first
+            // command of that turn, and with no other one.
+            let thinking = if number == 0 { turn_thinking } else { "" };
             let message_id = {
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
-                let id = guard.begin_tool(call, &shown);
+                let id = guard.begin_tool(call, &shown, thinking);
                 let text = format!("running a command: {}", first_line(&command));
                 guard.set_status(&text);
                 id
@@ -1661,5 +1745,61 @@ mod tests {
         }
         engine.cycle_thinking();
         assert_eq!(engine.snapshot().thinking_mode, "auto");
+    }
+
+    // A turn writes no line about itself. A command is an answer, a stop is
+    // not a sentence, and a failure is already told by its own note.
+    #[test]
+    fn a_turn_writes_no_line_about_itself() {
+        // Words stand for themselves, also the words of a stopped run.
+        assert_eq!(
+            kept_of("Here is the plan", "", false, false, false),
+            Kept::Words
+        );
+        assert_eq!(
+            kept_of("Half way to the plan", "", true, false, false),
+            Kept::Words
+        );
+        // The model thought and then asked for a command. The command is the
+        // answer, so no line is written about a missing one.
+        assert_eq!(
+            kept_of("", "I will run a command.", false, true, false),
+            Kept::Nothing
+        );
+        // A stopped turn keeps the thinking it had, and nothing else.
+        assert_eq!(
+            kept_of("", "Half way through the thinking", true, false, false),
+            Kept::Thinking
+        );
+        assert_eq!(kept_of("", "", true, false, false), Kept::Nothing);
+        // A failed run is told by the note of the failure alone.
+        assert_eq!(kept_of("", "", false, false, true), Kept::Nothing);
+        // Nothing came in, and nothing failed. One quiet line is right.
+        assert_eq!(kept_of("", "", false, false, false), Kept::Note);
+    }
+
+    // The thinking of a turn with no words of its own stands with the command
+    // it led to, so it is not lost when the line about the answer is left out.
+    #[test]
+    fn a_tool_run_keeps_the_thinking_of_its_turn() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.new_chat();
+        let call = ToolCall {
+            id: String::from("call-one"),
+            name: String::from(tools::TOOL_NAME),
+            arguments: String::from("{\"command\":\"python -c 'print(5)'\"}"),
+        };
+        {
+            let mut state = engine.state.lock().unwrap();
+            let id = state.begin_tool(&call, "python -c 'print(5)'", "I will run the command.");
+            state.finish_tool(&id, "5", true);
+        }
+        let snap = engine.snapshot();
+        let last = snap.messages.last().expect("the chat holds the run");
+        assert_eq!(last.role, "Tool");
+        assert_eq!(last.reasoning, "I will run the command.");
+        assert_eq!(last.tool, "5");
     }
 }

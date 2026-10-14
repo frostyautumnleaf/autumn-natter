@@ -1312,6 +1312,13 @@ function fill(turn, m, live) {
     return;
   }
   if (m.role === 'Tool' && m.tool !== '') {
+    // A turn that only asked for a command has no words of its own. Its
+    // thinking stands above the command it led to.
+    if (m.reasoning) {
+      var thought = make('div', 'plain');
+      thought.appendChild(thinkingBox(m));
+      turn.appendChild(thought);
+    }
     turn.appendChild(toolBox(m));
   } else {
     var words = make('div', m.role === 'You' ? 'bubble' : 'plain');

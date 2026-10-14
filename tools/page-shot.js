@@ -37,7 +37,8 @@ function said(id, role, body, extra) {
 
 // One chat with every kind of block in it: a heading, a paragraph, a list, a
 // block of code, the thinking of the model, two runs of the terminal tool, and
-// a line from the program.
+// a line from the program. The first run of the tool came out of a turn with
+// no words of its own, so the thinking of that turn stands above the command.
 const FULL = [
   said(1, 'You', 'Can you show the plan for the parser, and run the tests?'),
   said(2, 'Assistant',
@@ -49,12 +50,14 @@ const FULL = [
     { reasoning: 'The user wants a plan. The fault is in the parser, and not in '
       + 'the view. Name both files, and keep every line short.' }),
   said(3, 'Tool', 'cargo test --release markdown',
-    { tool: 'running 6 tests\ntest markdown::tests::list_after_paragraph ... ok\n'
+    { reasoning: 'The plan is written. Run the tests of the parser before the '
+      + 'answer goes out, so the plan is checked and not only promised.',
+      tool: 'running 6 tests\ntest markdown::tests::list_after_paragraph ... ok\n'
       + 'all 6 tests passed' }),
   said(4, 'Assistant', 'The tests pass. Two notes:\n\n'
     + '- The bar takes its height from the words beside it.\n'
     + '- A list that follows a paragraph keeps its place.'),
-  said(5, 'Note', 'the answer was stopped'),
+  said(5, 'Note', 'cannot reach the model: connection refused', { failed: true }),
   said(6, 'Tool', 'bwrap --die-with-parent ls -1 /nope',
     { tool: 'exit 1: no such file', failed: true }),
 ];
