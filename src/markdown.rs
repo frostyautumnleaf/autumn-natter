@@ -287,7 +287,10 @@ mod tests {
 
     #[test]
     fn code_in_a_sentence_keeps_its_words() {
-        assert_eq!(words("Run `ls -l west-beds` first."), "Run ls -l west-beds first.");
+        assert_eq!(
+            words("Run `ls -l west-beds` first."),
+            "Run ls -l west-beds first."
+        );
     }
 
     #[test]
@@ -300,7 +303,10 @@ mod tests {
 
     #[test]
     fn a_link_of_only_an_address_shows_the_address_once() {
-        assert_eq!(words("See https://example.com/log for the run."), "See https://example.com/log for the run.");
+        assert_eq!(
+            words("See https://example.com/log for the run."),
+            "See https://example.com/log for the run."
+        );
     }
 
     #[test]
@@ -381,4 +387,3 @@ mod tests {
         assert_eq!(blocks[4].content, "The read is one call.");
     }
 }
-

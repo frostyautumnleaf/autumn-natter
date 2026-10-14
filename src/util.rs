@@ -42,11 +42,7 @@ impl Capture {
 
 // Run a program and read what it prints. The call never waits longer than the
 // timeout. A program that cannot be started gives a failed Capture.
-pub fn capture<A: AsRef<std::ffi::OsStr>>(
-    program: &str,
-    args: &[A],
-    timeout: Duration,
-) -> Capture {
+pub fn capture<A: AsRef<std::ffi::OsStr>>(program: &str, args: &[A], timeout: Duration) -> Capture {
     capture_in(program, args, None, timeout)
 }
 

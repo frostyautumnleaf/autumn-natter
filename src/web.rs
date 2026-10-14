@@ -142,3 +142,90 @@ pub fn done() -> Value {
 pub fn refused(text: &str) -> Value {
     json!({ "ok": false, "status": text })
 }
+
+// One call of the user interface. The page of the remote mode and the buttons
+// of the desktop window send the same names, so the two go through here. Every
+// call is answered with a small JSON record, and the caller then reads the
+// state again.
+pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
+    let value = serde_json::from_str::<Value>(body).unwrap_or_else(|_| json!({}));
+    match path {
+        "/api/send" | "send" => {
+            let text = text_field(&value, "text");
+            if text.trim().is_empty() {
+                return refused("nothing was written");
+            }
+            engine.prompt(text);
+            done()
+        }
+        "/api/cancel" | "cancel" => {
+            engine.cancel();
+            done()
+        }
+        "/api/code" | "code" => {
+            engine.set_code(flag(&value, "on"));
+            done()
+        }
+        "/api/sandbox" | "sandbox" => {
+            engine.set_sandbox(flag(&value, "on"));
+            done()
+        }
+        "/api/thinking" | "thinking" => {
+            engine.cycle_thinking();
+            done()
+        }
+        "/api/new_chat" | "new_chat" => {
+            engine.new_chat();
+            done()
+        }
+        // Turn the carousel of chats. Minus one shows the chat at the left.
+        "/api/roll" | "roll" => {
+            let step = value
+                .get("step")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0)
+                .clamp(-50, 50) as i32;
+            engine.roll(step);
+            done()
+        }
+        "/api/open_chat" | "open_chat" => {
+            engine.open_chat(text_field(&value, "id"));
+            done()
+        }
+        "/api/overview" | "overview" => {
+            engine.set_overview(flag(&value, "on"));
+            done()
+        }
+        "/api/select_model" | "select_model" => {
+            engine.select_model(text_field(&value, "id"));
+            done()
+        }
+        "/api/select_repository" | "select_repository" => {
+            engine.select_repository(text_field(&value, "id"));
+            done()
+        }
+        "/api/create_repository" | "create_repository" => {
+            engine.create_repository(text_field(&value, "name"));
+            done()
+        }
+        "/api/dark" | "dark" => {
+            engine.set_dark_mode(flag(&value, "on"));
+            done()
+        }
+        other => refused(&format!("the caller may not use {}", other)),
+    }
+}
+
+// One text of the JSON body. A missing text gives an empty string.
+fn text_field(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+// One switch of the JSON body. A missing switch is off.
+fn flag(value: &Value, key: &str) -> bool {
+    value.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+}

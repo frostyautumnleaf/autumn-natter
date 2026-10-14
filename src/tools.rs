@@ -63,7 +63,11 @@ impl Outcome {
 
 // Where bwrap is. None means the sandbox cannot be used.
 pub fn bwrap_path() -> Option<PathBuf> {
-    for candidate in ["/usr/bin/bwrap", "/usr/local/bin/bwrap", "/run/current-system/sw/bin/bwrap"] {
+    for candidate in [
+        "/usr/bin/bwrap",
+        "/usr/local/bin/bwrap",
+        "/run/current-system/sw/bin/bwrap",
+    ] {
         let path = PathBuf::from(candidate);
         if path.is_file() {
             return Some(path);
@@ -163,7 +167,12 @@ fn bwrap_args(workdir: &Path) -> Vec<String> {
         wd.clone(),
     ];
     // A host file the command may need, when it is there.
-    for file in ["/etc/resolv.conf", "/etc/ssl", "/etc/hosts", "/etc/nsswitch.conf"] {
+    for file in [
+        "/etc/resolv.conf",
+        "/etc/ssl",
+        "/etc/hosts",
+        "/etc/nsswitch.conf",
+    ] {
         if Path::new(file).exists() {
             args.push("--ro-bind".into());
             args.push(file.into());
@@ -261,10 +270,7 @@ fn trim_output(text: &str) -> String {
         .iter()
         .rev()
         .collect();
-    format!(
-        "{}\n... output cut in the middle ...\n{}",
-        head, tail
-    )
+    format!("{}\n... output cut in the middle ...\n{}", head, tail)
 }
 
 // Read the arguments of a tool call. The model sometimes writes no JSON at

@@ -378,14 +378,17 @@ impl State {
         let dropped = self.chats.remove(place);
         // A blank chat never reaches the disk. The delete covers a file that an
         // older run may have left, so the chat cannot come back by itself.
-        self.store.delete_chat(&dropped.meta.repo_id, &dropped.meta.id);
+        self.store
+            .delete_chat(&dropped.meta.repo_id, &dropped.meta.id);
         self.touch_structure();
     }
 
     // Take away a blank chat that the user turned away from. This waits until
     // the carousel had the time to move, so the move stays smooth.
     fn prune_blank(&mut self) {
-        let Some((id, deadline)) = self.pending_blank.clone() else { return };
+        let Some((id, deadline)) = self.pending_blank.clone() else {
+            return;
+        };
         if Instant::now() < deadline {
             return;
         }
@@ -395,7 +398,9 @@ impl State {
 
     // Note that the open chat is a blank one, in case the user leaves it now.
     fn leave_blank(&mut self) {
-        let Some(id) = self.current.clone() else { return };
+        let Some(id) = self.current.clone() else {
+            return;
+        };
         let blank = self
             .chats
             .iter()
@@ -512,7 +517,10 @@ impl State {
         };
         Snap {
             model_name: model.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
-            model_kind: model.as_ref().map(|m| m.kind.to_string()).unwrap_or_default(),
+            model_kind: model
+                .as_ref()
+                .map(|m| m.kind.to_string())
+                .unwrap_or_default(),
             in_repository: !self.scope_repo.is_empty(),
             repository_id: self.scope_repo.clone(),
             repository_name,
@@ -523,9 +531,7 @@ impl State {
             context_total,
             generating: self.generating,
             busy: self.busy,
-            code_enabled: chat
-                .map(|c| c.meta.code_enabled)
-                .unwrap_or(self.new_code),
+            code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(self.new_code),
             sandbox_enabled: chat
                 .map(|c| c.meta.sandbox_enabled)
                 .unwrap_or(self.new_sandbox),
@@ -1185,10 +1191,7 @@ fn run_turn(
         steps += 1;
         let (history, use_tools) = {
             let Ok(guard) = state.lock() else { return };
-            let use_tools = guard
-                .chat()
-                .map(|c| c.meta.code_enabled)
-                .unwrap_or(false);
+            let use_tools = guard.chat().map(|c| c.meta.code_enabled).unwrap_or(false);
             (guard.build_history(), use_tools)
         };
         let mut body = json!({
@@ -1308,7 +1311,9 @@ fn run_turn(
                 format!("{}\nwhy: {}", command, purpose)
             };
             let message_id = {
-                let Ok(mut guard) = state.lock() else { continue };
+                let Ok(mut guard) = state.lock() else {
+                    continue;
+                };
                 let id = guard.begin_tool(call, &shown);
                 let text = format!("running a command: {}", first_line(&command));
                 guard.set_status(&text);
@@ -1320,7 +1325,9 @@ fn run_turn(
             if sandbox_on && !outcome.sandboxed {
                 output = format!("{}\n(bubblewrap did not wrap this run)", output);
             }
-            let Ok(mut guard) = state.lock() else { continue };
+            let Ok(mut guard) = state.lock() else {
+                continue;
+            };
             guard.finish_tool(&message_id, &output, outcome.ok);
         }
         let Ok(mut guard) = state.lock() else { return };
@@ -1348,7 +1355,10 @@ fn ensure_server(
             binary,
             state.gpus.clone(),
             state.chat().map(|c| c.meta.code_enabled).unwrap_or(false),
-            state.chat().map(|c| c.meta.thinking_mode.clone()).unwrap_or_else(|| String::from("auto")),
+            state
+                .chat()
+                .map(|c| c.meta.thinking_mode.clone())
+                .unwrap_or_else(|| String::from("auto")),
         )
     };
     // A server for the same model and thinking mode is kept, so the model
@@ -1369,7 +1379,14 @@ fn ensure_server(
     if cancel.load(Ordering::Relaxed) {
         return Err("stopped before the model loaded".to_string());
     }
-    match llama::Server::start(&binary, model, settings, &gpus, code_enabled, &thinking_mode) {
+    match llama::Server::start(
+        &binary,
+        model,
+        settings,
+        &gpus,
+        code_enabled,
+        &thinking_mode,
+    ) {
         Ok(started) => {
             let total = started.ctx_total;
             let notes = started.notes.clone();
@@ -1460,7 +1477,11 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let chats = config::paths().chats;
-        let stored = || std::fs::read_dir(&chats).map(|entries| entries.count()).unwrap_or(0);
+        let stored = || {
+            std::fs::read_dir(&chats)
+                .map(|entries| entries.count())
+                .unwrap_or(0)
+        };
 
         // A run starts with no chat at all, and nothing on disk.
         assert_eq!(engine.snapshot().chat_count, 0);

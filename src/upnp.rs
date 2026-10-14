@@ -73,7 +73,8 @@ pub fn open(port: u16) -> Result<Mapping, String> {
 // Send the SSDP search and take the description address of the first router
 // that answers.
 fn search() -> Result<String, String> {
-    let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("cannot open a UDP socket: {}", e))?;
+    let socket =
+        UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("cannot open a UDP socket: {}", e))?;
     socket
         .set_read_timeout(Some(SEARCH))
         .map_err(|e| e.to_string())?;

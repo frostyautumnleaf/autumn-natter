@@ -67,11 +67,7 @@ pub fn format_clock(secs: i64) -> String {
         }
     }
     let secs_of_day = secs.rem_euclid(86400);
-    format!(
-        "{:02}:{:02}",
-        secs_of_day / 3600,
-        (secs_of_day / 60) % 60
-    )
+    format!("{:02}:{:02}", secs_of_day / 3600, (secs_of_day / 60) % 60)
 }
 
 // Days since the epoch to a year, month and day. This is the civil from days
@@ -141,7 +137,10 @@ fn id_from_dir_name(name: &str) -> Option<String> {
     if tail.len() != 10 {
         return None;
     }
-    if tail.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c.to_ascii_lowercase())) {
+    if tail
+        .chars()
+        .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c.to_ascii_lowercase()))
+    {
         Some(tail.to_ascii_lowercase())
     } else {
         None
@@ -419,7 +418,8 @@ impl Store {
         if path.join("repo.json").is_file() {
             return Err("a repository with that name already exists".to_string());
         }
-        fs::create_dir_all(&path).map_err(|e| format!("cannot create {}: {}", path.display(), e))?;
+        fs::create_dir_all(&path)
+            .map_err(|e| format!("cannot create {}: {}", path.display(), e))?;
         fs::create_dir_all(path.join("chats")).map_err(|e| e.to_string())?;
         let text = serde_json::to_string_pretty(&repo).unwrap_or_else(|_| String::from("{}"));
         fs::write(path.join("repo.json"), text).map_err(|e| e.to_string())?;

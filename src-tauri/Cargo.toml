@@ -1,0 +1,20 @@
+# The desktop window of Autumn Natter. It is a Tauri app: the engine and all
+# the work live in the core crate, and the window shows an HTML page with the
+# web view that the operating system already has.
+[package]
+name = "autumn-natter"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Chat client for local LLMs. It uses llama.cpp as the inference backend."
+license = "MIT"
+repository = "https://github.com/frostyautumnleaf/autumn-natter"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+autumn-natter-core = { path = "../" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

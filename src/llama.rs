@@ -190,7 +190,16 @@ impl Server {
     ) -> Result<Server, String> {
         let port = util::free_port().ok_or("no free port on this machine")?;
         let mut notes = Vec::new();
-        let mut args = build_args(binary, model, settings, gpus, port, use_tools, thinking_mode, &mut notes);
+        let mut args = build_args(
+            binary,
+            model,
+            settings,
+            gpus,
+            port,
+            use_tools,
+            thinking_mode,
+            &mut notes,
+        );
 
         let mut attempt = 0;
         loop {
@@ -213,13 +222,7 @@ impl Server {
             }
             let child = match command.spawn() {
                 Ok(child) => child,
-                Err(e) => {
-                    return Err(format!(
-                        "cannot start {}: {}",
-                        binary.display(),
-                        e
-                    ))
-                }
+                Err(e) => return Err(format!("cannot start {}: {}", binary.display(), e)),
             };
             let mut server = Server {
                 child,
@@ -251,7 +254,16 @@ impl Server {
                             "the model has no usable chat template, so the terminal tool is off"
                                 .to_string(),
                         );
-                        args = build_args(binary, model, settings, gpus, port, false, thinking_mode, &mut notes);
+                        args = build_args(
+                            binary,
+                            model,
+                            settings,
+                            gpus,
+                            port,
+                            false,
+                            thinking_mode,
+                            &mut notes,
+                        );
                         server.stop_now();
                         continue;
                     }
@@ -399,7 +411,11 @@ pub fn build_args(
     }
 
     // A VRAM budget below the total makes llama.cpp fit the model into it.
-    let total: u64 = gpus.iter().filter(|g| g.is_offload).map(|g| g.memory_mb).sum();
+    let total: u64 = gpus
+        .iter()
+        .filter(|g| g.is_offload)
+        .map(|g| g.memory_mb)
+        .sum();
     if settings.vram_budget > 0.0 && total > 0 && (settings.vram_budget as u64) < total {
         args.push("--fit".into());
         args.push("on".into());
@@ -424,10 +440,7 @@ pub fn build_args(
                 args.push("--mmproj".into());
                 args.push(path.display().to_string());
             }
-            None => notes.push(format!(
-                "no vision projector next to {}",
-                model.name
-            )),
+            None => notes.push(format!("no vision projector next to {}", model.name)),
         }
     }
 

@@ -1,0 +1,1755 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autumn Natter</title>
+<style>
+/* The colours of the window, in the order theme.slint lists them. Light mode
+   is the default. A body.dark class picks the dark column. The five accents are
+   the same in both modes. */
+:root {
+  --bg: #faf2e6; --surface: #fff9f0; --surface-alt: #f3e7d5;
+  --line: #e6d7c2; --line-strong: #d6c0a2;
+  --text: #231a11; --dim: #7b6a57;
+  --tint: #fbe6d1; --hover: #f8ecd9; --on-accent: #faf2e6;
+  --accent: #ED7401; --warm: #DF6101; --strong: #C53C01; --leaf: #AC4422; --deep: #AF2600;
+  --bubble: #fbe6d1; --bubble-line: #f0d2b0;
+  --code-bg: #f6ecdc; --code-head: #eeddc4; --think-bg: #f5ead9;
+  --fade: rgba(250, 242, 230, 1);
+}
+body.dark {
+  --bg: #141414; --surface: #1b1b1b; --surface-alt: #242424;
+  --line: #342f2a; --line-strong: #463f37;
+  --text: #f2ebe2; --dim: #a4998c;
+  --tint: #2c1d10; --hover: #2a2a2a;
+  --bubble: #2b1c10; --bubble-line: #4a3626;
+  --code-bg: #201d1a; --code-head: #2b2621; --think-bg: #221e1b;
+  --fade: rgba(20, 20, 20, 1);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, "Segoe UI", sans-serif;
+  display: flex; flex-direction: column;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+select { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+textarea {
+  font: inherit; background: none; color: var(--text); border: 0; padding: 0; resize: none;
+}
+:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.grow { flex: 1 1 auto; }
+.hidden { display: none; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; }
+
+/* The top bar: the mark, the two selector chips, the chat name, and the meter
+   of the context. A hairline runs under it, so the bar is kept apart from the
+   stage. */
+.top {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
+  height: 46px; padding: 0 14px; background: var(--surface); position: relative;
+}
+.top::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: var(--line);
+}
+.mark { width: 22px; height: 22px; display: block; }
+.name { font-weight: 600; white-space: nowrap; }
+/* A chip is a small box with a hairline. The selector chips hold a select, so
+   they keep the look of the window while the browser does the work. */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 10px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--surface);
+  font-size: 13px; white-space: nowrap; min-width: 0;
+}
+.chip:hover { background: var(--hover); }
+.chip.sel { max-width: 250px; }
+.chip.sel select { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+.chip svg { width: 15px; height: 15px; flex: 0 0 auto; fill: none; stroke: var(--warm); stroke-width: 1.7; }
+.chip select { display: block; }
+.kind {
+  font-size: 11px; color: var(--strong); text-transform: uppercase;
+  letter-spacing: 0.04em; flex: 0 0 auto;
+}
+.plus { color: var(--strong); }
+.title { font-size: 13px; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pager { font-size: 12px; color: var(--dim); white-space: nowrap; }
+/* The context chip carries a hairline meter under the words. The meter goes
+   dark red when the window of the model is nearly full. */
+.ctx { flex-direction: column; align-items: flex-start; gap: 0; padding: 4px 9px 5px; }
+.ctx .num { font-size: 11.5px; color: var(--dim); line-height: 1.1; white-space: nowrap; }
+.meter { display: block; width: 100%; height: 3px; margin-top: 3px; border-radius: 2px; background: var(--line); }
+.meter i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.ctx.near { border-color: var(--deep); }
+.ctx.near .meter i { background: var(--deep); }
+
+/* The part below the bar: the stage with the carousel, the line of state, and
+   the chat box. At home the mark, the line and the box stand as one group in
+   the middle of the screen. */
+.area { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+
+/* The first screen. */
+.hello {
+  flex: 0 0 auto; display: none; flex-direction: column; align-items: center;
+  gap: 12px; padding: 26px 18px 0;
+}
+body.home .hello { display: flex; }
+body.home .stage, body.home .under { display: none; }
+.hello .mark { width: 54px; height: 54px; }
+.greet { font-size: 15px; color: var(--dim); max-width: 46ch; text-align: center; }
+body.home .area { justify-content: center; }
+body.home .composer { order: 2; }
+
+/* The cards of the carousel. The card in the middle is the chat in use. A
+   neighbour shows only a strip of itself, pale and soft. */
+#cards { position: absolute; inset: 0; }
+.card {
+  position: absolute; top: 10px; bottom: 10px; left: 50%;
+  width: var(--card, 640px); margin-left: calc(var(--card, 640px) / -2);
+  border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
+  overflow: hidden; transition: transform 320ms cubic-bezier(.2, .7, .3, 1);
+}
+.card.on { border-color: var(--accent); }
+.card.ghost { opacity: .4; filter: blur(1.5px); cursor: pointer; }
+.soft { position: absolute; inset: 0; }
+.card.on .soft { display: none; }
+.card.ghost .msgs { display: none; }
+.gt { font-size: 13px; font-weight: 600; margin: 12px 14px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp { font-size: 12px; color: var(--dim); margin: 8px 14px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gb { position: absolute; border-radius: 10px; }
+.gb.a { left: 14px; bottom: 78px; width: 60%; height: 44px; background: var(--tint); }
+.gb.b { right: 12%; bottom: 40px; width: 55%; height: 34px; background: var(--line); }
+.gb.c { left: 14px; bottom: 14px; width: 72%; height: 22px; background: var(--tint); }
+/* The wash fades the outer edge of a neighbour card. */
+.wash { position: absolute; top: 0; bottom: 0; width: var(--peek, 46px); z-index: 2; pointer-events: none; }
+.wash.l { left: 0; background: linear-gradient(90deg, var(--fade), rgba(0, 0, 0, 0)); }
+.wash.r { right: 0; background: linear-gradient(270deg, var(--fade), rgba(0, 0, 0, 0)); }
+.zone { position: absolute; top: 0; bottom: 0; width: var(--peek, 46px); z-index: 3; cursor: pointer; }
+.zone.l { left: 0; }
+.zone.r { right: 0; }
+.turn {
+  position: absolute; top: 50%; margin-top: -15px; width: 30px; height: 30px;
+  border-radius: 15px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--dim); font-size: 18px; line-height: 28px; z-index: 4;
+}
+.turn:hover { color: var(--strong); border-color: var(--accent); background: var(--tint); }
+.turn.l { left: 8px; }
+.turn.r { right: 8px; }
+
+/* The row of small previews. */
+.previews { position: absolute; inset: 0; z-index: 5; display: none; }
+.previews.on { display: block; }
+.previews::before { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: .92; }
+.pcount, .pcap {
+  position: absolute; left: 40px; right: 40px; z-index: 6; display: none;
+  color: var(--dim); font-size: 12px; text-align: center;
+}
+.pcount { top: 16px; }
+.pcap { bottom: 14px; }
+.previews.on ~ .pcount, .previews.on ~ .pcap { display: block; }
+.prev {
+  position: absolute; top: 46px; left: 0; width: 190px; height: 218px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--surface);
+  overflow: hidden; cursor: pointer;
+}
+.prev.mid { border: 2px solid var(--accent); }
+.pt { font-size: 13px; font-weight: 600; margin: 12px 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp { font-size: 12px; color: var(--dim); margin: 8px 12px 0; overflow: hidden; }
+.pw { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--dim); }
+/* The list of messages. The scroll bar of the window is thin and drawn in the
+   palette of the program, so the page asks the browser for the same shape. */
+.msgs {
+  position: absolute; inset: 0; overflow-y: auto; padding: 14px 16px 14px;
+  scrollbar-width: thin; scrollbar-color: var(--dim) transparent;
+}
+.msgs::-webkit-scrollbar { width: 6px; }
+.msgs::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
+.msgs::-webkit-scrollbar-track { background: transparent; }
+.blank { color: var(--dim); font-size: 13px; padding: 6px 4px; }
+
+/* One row. A message that came in fades up, so no word pops from nothing. */
+.row { position: relative; margin: 0 0 14px; }
+.row.in { animation: rise 220ms ease-out; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: none; }
+}
+/* A note from the program stands on its own, in the middle, with no bubble. */
+.note {
+  color: var(--dim); font-size: 12px; text-align: center; white-space: pre-wrap;
+  overflow-wrap: anywhere; padding: 2px 26px;
+}
+.note.bad { color: var(--deep); }
+/* The words of the user stand in a bubble of their own colour. The words of
+   the model stand on the card with no bubble and no label, because the bubble
+   of the user is the mark of the user. The corner that looks inwards is cut
+   less than the others, which shows at a glance who spoke. */
+.bubble {
+  width: 55%; max-width: 640px; margin-left: auto;
+  padding: 11px 14px; background: var(--bubble); border: 1px solid var(--bubble-line);
+  border-radius: 14px 4px 14px 14px;
+}
+.plain { width: 75%; max-width: 860px; }
+/* The time of the message stands in the open space beside the bubble, so it
+   never pushes the words about. It comes up when the pointer is over the row. */
+.when {
+  font-size: 11px; color: var(--dim); margin-top: 3px; opacity: 0;
+  transition: opacity 180ms;
+}
+.row.you .when { text-align: right; }
+.row:hover .when { opacity: 1; }
+
+/* Words of one kind, as the window sets them. */
+.body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.h { font-weight: 600; font-size: 15px; color: var(--strong); margin: 2px 0 0; }
+.h::before {
+  content: ""; display: inline-block; width: 3px; height: 13px; margin: 0 7px 0 0;
+  background: var(--accent); vertical-align: -1px; border-radius: 1px;
+}
+.h.small { font-size: 14px; }
+.list { margin: 0; padding: 0 0 0 12px; border-left: 2px solid var(--line-strong); }
+.list li { margin: 3px 0; }
+pre.code {
+  margin: 0; padding: 10px 12px; background: var(--code-bg);
+  border-radius: 10px; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* The thinking of the model. A rule of colour runs down its left, and the
+   words are kept small, because they are a look inside the answer. */
+.think {
+  position: relative; margin: 0 0 10px; padding: 9px 12px 9px 20px;
+  background: var(--think-bg); border-radius: 10px;
+}
+.think::before {
+  content: ""; position: absolute; left: 10px; top: 9px; bottom: 9px; width: 2px;
+  border-radius: 1px; background: var(--accent);
+}
+.think .cap {
+  font-size: 11px; color: var(--dim); margin: 0 0 4px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.think .words { font-size: 13px; color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The mark of an answer that is still coming. */
+.caret { color: var(--accent); animation: beat 1.1s ease-in-out infinite; }
+/* A message that went wrong keeps its words in the colour of a failure. */
+.row.bad .body, .row.bad .bubble, .row.bad .plain, .row.bad .h { color: var(--deep); }
+
+/* One run of the terminal tool. The head says which command runs, or has run,
+   and the body keeps the command and the output under their own small labels.
+   A run with no output yet keeps the panel, so the wait shows. */
+.tool {
+  margin: 0 0 2px; background: var(--code-bg); border-radius: 10px; overflow: hidden;
+}
+.tool.bad { border: 1px solid var(--deep); }
+.thead {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  height: 30px; padding: 0 10px 0 12px; text-align: left;
+}
+.thead:hover { background: var(--hover); }
+.thead .cmd {
+  font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex: 1 1 auto;
+}
+.tool.bad .cmd, .tool.bad .out { color: var(--deep); }
+.thead svg { width: 13px; height: 13px; flex: 0 0 auto; fill: none; stroke: var(--dim); stroke-width: 1.8; }
+.thead .fold { margin-left: auto; transition: transform 180ms; }
+.tool.closed .fold { transform: rotate(-90deg); }
+/* The running mark: a ring that turns. */
+.busy {
+  width: 12px; height: 12px; flex: 0 0 auto; border-radius: 50%;
+  border: 2px solid var(--line-strong); border-top-color: var(--accent);
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.tbody { display: flex; gap: 0; padding: 7px 12px 12px 11px; }
+.tool.closed .tbody { display: none; }
+.rail { flex: 0 0 2px; align-self: stretch; border-radius: 1px; background: var(--line-strong); }
+.tspace { flex: 1 1 auto; padding-left: 13px; min-width: 0; }
+.lab { font-size: 11px; color: var(--dim); }
+.cmd-text, .out {
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;
+}
+.tspace .gap { height: 6px; }
+.out.live { color: var(--dim); }
+
+/* The line under the card: the state of the program, the keys the box needs,
+   and the small pill that starts a new chat. */
+.under {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px 0;
+}
+.pulse {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: 0 0 auto;
+  opacity: .4;
+}
+.pulse.busy { background: var(--accent); opacity: 1; animation: beat 1.1s ease-in-out infinite; }
+.pulse.busy.stop { background: var(--strong); }
+@keyframes beat { 50% { opacity: .35; } }
+.status { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status.hot { color: var(--strong); }
+.hint { font-size: 11px; color: var(--dim); opacity: .8; white-space: nowrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 11px;
+  border-radius: 13px; border: 1px solid var(--line); background: var(--surface);
+  font-size: 12px; white-space: nowrap;
+}
+.pill:hover { background: var(--tint); border-color: var(--accent); }
+.pill svg { width: 13px; height: 13px; fill: none; stroke: var(--strong); stroke-width: 2; }
+
+/* The chat box. The badges sit in its lower left corner, and the round mark
+   for send or stop sits in the lower right on a touch screen. The mark is
+   dull while there is nothing to send, so it never promises more than it can
+   do. A screen with a keyboard sends with Enter, and the mark is not drawn. */
+.composer {
+  flex: 0 0 auto; margin: 8px 14px 14px; padding: 12px 12px 50px;
+  border: 1px solid var(--line); border-radius: 14px; background: var(--surface);
+  position: relative; min-height: 116px;
+}
+.composer:focus-within { border-color: var(--accent); }
+body.home .composer { width: min(720px, 100%); margin: 0 auto; }
+#draft {
+  display: block; width: 100%; min-height: 44px; max-height: 40vh;
+  font-size: 15px; line-height: 1.45; overflow: hidden;
+}
+#draft::placeholder { color: var(--dim); }
+.badges {
+  position: absolute; left: 12px; bottom: 9px; display: flex; align-items: center; gap: 8px;
+}
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px;
+  border-radius: 13px; border: 1px solid var(--line); background: var(--bg);
+  font-size: 12px; color: var(--dim); white-space: nowrap;
+}
+.badge svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.badge.on { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.badge.off { color: var(--deep); border-color: var(--deep); }
+.badge[disabled] { opacity: .5; cursor: default; }
+.send {
+  position: absolute; right: 11px; bottom: 8px; width: 34px; height: 34px;
+  border-radius: 17px; background: var(--accent); opacity: .45;
+  display: none;
+  transition: opacity 180ms, background 180ms;
+}
+.send.show { display: block; }
+.send svg { width: 16px; height: 16px; fill: none; stroke: var(--on-accent); stroke-width: 2; }
+.send .mark-stop { display: none; }
+.send.stop .mark-send { display: none; }
+.send.stop .mark-stop { display: inline; }
+.send.live, .send.stop { opacity: 1; }
+.send.stop { background: var(--strong); }
+.send.stop:hover { background: var(--deep); }
+
+/* The small settings box of the page. The full settings live on the computer
+   that runs Autumn Natter. */
+.panel {
+  flex: 0 0 auto; margin: 0 14px 12px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+}
+.panel label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.panel p { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
+
+@media (max-width: 760px) {
+  .title, .pager { display: none; }
+  .chip.sel { max-width: 150px; }
+  .chip.sel select { max-width: 100px; }
+  .hint { display: none; }
+  .bubble { width: 78%; }
+  .plain { width: 100%; }
+  .turn.l { left: 4px; }
+  .turn.r { right: 4px; }
+}
+
+/* A page that is asked for few moves keeps the row and the chat box still. */
+@media (prefers-reduced-motion: reduce) {
+  .card, .prev, .composer, .when, .send { transition: none; }
+  .row.in { animation: none; }
+  .busy { animation-duration: 3s; }
+  .pulse.busy { animation: none; }
+}
+
+/* Settings: a sheet over the window, with two tabs. The colours come from the
+   same tokens as the rest of the page, and the native controls lean on the
+   accent colour, so no blue theme shows through in either skin. */
+.overlay { position: fixed; inset: 0; background: rgba(20,16,12,.42);
+  display: flex; align-items: center; justify-content: center; z-index: 60; }
+.overlay.hidden { display: none; }
+.sheet { width: min(720px, 94vw); max-height: 92vh; display: flex; flex-direction: column;
+  background: var(--surface); color: var(--text); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.28); }
+.sheet-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+  border-bottom: 1px solid var(--line); }
+.tabs { display: flex; gap: 6px; }
+.tab { padding: 7px 14px; border-radius: 999px; font-size: 13px; color: var(--dim);
+  border: 1px solid transparent; }
+.tab.active { color: var(--on-accent); background: var(--accent); }
+.sheet-head .x { margin-left: auto; width: 30px; height: 30px; border-radius: 8px;
+  color: var(--dim); font-size: 18px; line-height: 1; }
+.sheet-head .x:hover { background: var(--hover); color: var(--text); }
+.sheet-body { overflow: auto; padding: 4px 18px 12px; }
+.sheet-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 18px;
+  border-top: 1px solid var(--line); }
+.pane.hidden { display: none; }
+.sec { margin: 16px 0 2px; font-size: 12px; letter-spacing: .04em; text-transform:
+  uppercase; color: var(--leaf); }
+.fld { display: grid; gap: 4px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.fld:last-child { border-bottom: 0; }
+.fld .lbl { font-size: 13px; font-weight: 600; }
+.fld .sub { font-size: 12px; color: var(--dim); }
+.fld .ctl { margin-top: 3px; display: flex; gap: 10px; align-items: center; }
+.txt, select, textarea { width: 100%; background: var(--surface-alt); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+textarea { min-height: 92px; resize: vertical; }
+input[type="number"] { max-width: 160px; }
+input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); }
+.grow { flex: 1 1 auto; }
+.ro { font-size: 12px; color: var(--dim); word-break: break-all; }
+.head-model { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.head-model .path { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+  color: var(--dim); word-break: break-all; }
+pre.code { margin: 0; background: var(--code-bg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px 12px; font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+.pill.primary { background: var(--accent); color: var(--on-accent); }
+</style>
+</head>
+<body>
+<header class="top">
+  <img class="mark" src="assets/autumn-natter.svg" alt="">
+  <span class="name">Autumn Natter</span>
+
+  <label class="chip sel" title="Model">
+    <select id="model"></select>
+    <span class="kind" id="kind"></span>
+  </label>
+
+  <label class="chip sel" title="Repository">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.8 4.4c0-.6.4-1 1-1h3.4l1.4 1.8h5.6c.6 0 1 .4 1 1v5.4c0 .6-.4 1-1 1H2.8c-.6 0-1-.4-1-1z"/></svg>
+    <select id="repo"></select>
+  </label>
+  <button class="chip" id="newrepo" title="New repository">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
+  </button>
+
+  <span class="title" id="title"></span>
+  <span class="grow"></span>
+  <span class="pager" id="where"></span>
+
+  <span class="chip ctx" id="ctx" title="Tokens the model keeps in memory">
+    <span class="num" id="ctxtext"></span>
+    <span class="meter"><i id="ctxfill"></i></span>
+  </span>
+</header>
+
+<div class="area">
+  <!-- The first screen: the mark and a line for this hour, above the chat box. -->
+  <div class="hello">
+    <img class="mark" src="assets/autumn-natter.svg" alt="">
+    <span class="greet" id="greet"></span>
+  </div>
+
+  <!-- The carousel. The card in the middle is the chat in use. -->
+  <div class="stage" id="stage">
+    <div id="cards"></div>
+    <span class="wash l" id="washL"></span>
+    <span class="wash r" id="washR"></span>
+    <div class="zone l hidden" id="zoneL" title="Show the chat on the left"></div>
+    <div class="zone r hidden" id="zoneR" title="Show the chat on the right"></div>
+    <button class="turn l hidden" id="turnL" title="Show the chat on the left">&#8249;</button>
+    <button class="turn r hidden" id="turnR" title="Show the chat on the right">&#8250;</button>
+    <div class="previews" id="previews"></div>
+    <div class="pcount" id="pcount"></div>
+    <div class="pcap">Click a card to open it. Drag, arrows, WASD or the wheel move along the row. Escape or Alt puts the row away.</div>
+  </div>
+
+  <div class="under">
+    <span class="pulse" id="dot"></span>
+    <span class="status" id="status"></span>
+    <span class="hint" id="hint"></span>
+    <span class="grow"></span>
+    <button class="pill" id="newchat">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
+      New chat
+    </button>
+    <button class="pill" id="chatsbtn" title="Show the chats as small previews">Show chats</button>
+    <button class="pill" id="modelbtn" title="Settings of this model">Model settings</button>
+    <button class="pill" id="settingsbtn" title="Settings of the program">Settings</button>
+  </div>
+
+  <div class="composer" id="composer">
+    <textarea id="draft" rows="2"
+      placeholder="Write a message. Enter sends it, and Shift and Enter starts a new line."></textarea>
+    <div class="badges">
+      <button class="badge" id="code"
+        title="Let the model run one terminal command per step. Every command runs in the sandbox when the sandbox is on.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
+        <span id="codetext">Code</span>
+      </button>
+      <button class="badge" id="sandbox"
+        title="Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.4 4v4c0 3.2-2.1 5.2-5.4 6.2C4.7 13.2 2.6 11.2 2.6 8V4z"/></svg>
+        <span id="sandboxtext">Sandbox</span>
+      </button>
+      <span class="badge" id="think" title="The model shows its thinking before its answer.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
+        <span id="thinktext">think: auto</span>
+      </span>
+    </div>
+    <button class="send" id="send" title="Send">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path class="mark-send" d="M3.6 12.4 13 4M13 4H7.2M13 4v5.8"/>
+        <path class="mark-stop" d="M5.4 5.4h5.2v5.2H5.4z"/>
+      </svg>
+    </button>
+  </div>
+
+</div>
+
+<!-- The window of settings. Two tabs stand in one sheet: the program, and one
+     model. It is drawn by the page and calls the engine through Tauri. -->
+<div class="overlay hidden" id="overlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="sheet-head">
+      <div class="tabs">
+        <button class="tab" id="tabProgram" type="button">Program</button>
+        <button class="tab" id="tabModel" type="button">Model</button>
+      </div>
+      <button class="x" id="sheetClose" type="button" title="Close">&#215;</button>
+    </div>
+    <div class="sheet-body">
+      <div class="pane" id="paneProgram">
+        <div class="sec">Places</div>
+        <div class="fld"><span class="lbl">Data directory</span>
+          <span class="sub">Where Autumn Natter keeps the settings, the chats and the data of the repositories.</span>
+          <div class="ctl"><span class="ro" id="fData"></span></div></div>
+        <div class="fld"><span class="lbl">llama.cpp</span>
+          <span class="sub">The folder that holds llama-server. The program starts that file for every answer.</span>
+          <div class="ctl"><input class="txt" id="fLlama" type="text" placeholder="the folder of llama.cpp"></div></div>
+        <div class="fld"><span class="lbl">Models</span>
+          <span class="sub">The folder the model files are read from.</span>
+          <div class="ctl"><input class="txt" id="fModels" type="text" placeholder="the folder of the models"></div></div>
+        <div class="fld"><span class="lbl">Repositories folder</span>
+          <span class="sub">The folder the places of the chats are kept in. Empty means the usual place.</span>
+          <div class="ctl"><input class="txt" id="fRepos" type="text" placeholder="the usual place"></div></div>
+        <div class="sec">Network</div>
+        <div class="fld"><span class="lbl">Port</span>
+          <span class="sub">The number the page of the browser listens on.</span>
+          <div class="ctl"><input id="fPort" type="number" min="1" max="65535" placeholder="8723"></div></div>
+        <div class="fld"><span class="lbl">Offer on the network</span>
+          <span class="sub">The page can then be opened from other machines of the same network.</span>
+          <div class="ctl"><input id="fUpnp" type="checkbox"></div></div>
+        <div class="sec">Places of the chats</div>
+        <div class="fld"><span class="lbl">New repository</span>
+          <span class="sub">Make a folder for one project. A chat inside a repository runs its terminal commands in that folder.</span>
+          <div class="ctl"><input class="txt" id="fNewRepo" type="text" placeholder="name of the repository"><button class="pill" id="createRepo" type="button">Create</button></div></div>
+        <div class="fld"><span class="lbl">Open repository</span>
+          <span class="sub">Pick the repository the chats of this window belong to. The folder on disk is named name_id.</span>
+          <div class="ctl"><select id="fOpenRepo"></select></div></div>
+        <div class="fld"><div class="ctl"><span class="ro" id="fSandbox"></span></div></div>
+        <div class="sec">Look</div>
+        <div class="fld"><span class="lbl">Dark colours</span>
+          <span class="sub">The warm dark skin, instead of the pale one. It changes at once.</span>
+          <div class="ctl"><input id="fDark" type="checkbox"></div></div>
+      </div>
+      <div class="pane hidden" id="paneModel">
+        <div class="fld"><div class="head-model"><strong id="mName"></strong><span class="kind" id="mKind"></span></div>
+          <div class="ctl"><span class="path" id="mId"></span></div></div>
+        <div id="mForm">
+        <div class="sec">Sizing</div>
+        <div class="fld"><span class="lbl">Memory of the talk</span><span class="sub">How much of the talk the model keeps in mind at once. More costs more memory.</span>
+          <div class="ctl"><input id="mCtx" type="number" min="256" max="2097152" step="256"><span class="sub">tokens</span></div></div>
+        <div class="fld"><span class="lbl">Numbers kept for the talk</span><span class="sub">Fewer numbers make the memory of the talk smaller, but the answers a little rougher.</span>
+          <div class="ctl"><select id="mKv"></select></div></div>
+        <div class="fld"><span class="lbl">How the file is read</span><span class="sub">Keeps the model in the memory of the machine, on the disk, or in both.</span>
+          <div class="ctl"><select id="mLoad"></select></div></div>
+        <div class="sec">Guessing ahead</div>
+        <div class="fld"><span class="lbl">Way of guessing</span><span class="sub">The model may guess a few words ahead and then check them.</span>
+          <div class="ctl"><select id="mSpec"></select></div></div>
+        <div class="fld"><span class="lbl">Draft model</span><span class="sub">The file of the small model that guesses words ahead. Empty guesses from the chat.</span>
+          <div class="ctl"><input class="txt" id="mDraft" type="text" placeholder="no draft model"></div></div>
+        <div class="fld"><span class="lbl">Words guessed at once</span>
+          <div class="ctl"><input id="mDraftTokens" type="number" min="1" max="32"><span class="sub">words</span></div></div>
+        <div class="sec">Working</div>
+        <div class="fld"><span class="lbl">Chats at once</span>
+          <div class="ctl"><input id="mParallel" type="number" min="1" max="32"><span class="sub">chats</span></div></div>
+        <div class="fld"><span class="lbl">Words at a time</span>
+          <div class="ctl"><input id="mBatch" type="number" min="16" max="65536"><span class="sub">words</span></div></div>
+        <div class="fld"><span class="lbl">Words in a piece</span>
+          <div class="ctl"><input id="mUbatch" type="number" min="8" max="65536"><span class="sub">words</span></div></div>
+        <div class="fld"><span class="lbl">Pictures</span><span class="sub">Read the pictures of a chat, when the model can look at them.</span>
+          <div class="ctl"><input id="mVision" type="checkbox"></div></div>
+        <div class="sec">Thoughts</div>
+        <div class="fld"><span class="lbl">Room for the thoughts</span><span class="sub">How many words a model may spend on thinking before it answers. -1 leaves it to the model.</span>
+          <div class="ctl"><input id="mBudget" type="number" min="-1" max="2097152"><span class="sub">words</span></div></div>
+        <div class="fld"><span class="lbl">Words when the room is gone</span><span class="sub">The words the server adds when the model has spent all the room for thinking.</span>
+          <div class="ctl"><input class="txt" id="mReasonMsg" type="text" placeholder="nothing"></div></div>
+        <div class="sec">Cards</div>
+        <div id="mCards"></div>
+        <div class="sec">Memory</div>
+        <div class="fld"><span class="lbl">Memory of the cards</span><span class="sub">How much of the cards is spent on the model. The whole of it uses every card fully.</span>
+          <div class="ctl"><input id="mVram" type="range" min="0" max="1" step="128" value="0"><span class="sub" id="mVramText">0 MiB</span></div></div>
+        <div class="sec">Words of the talk</div>
+        <div class="fld"><span class="sub">The template of the talk. Leave it empty to use the one inside the model file.</span>
+          <div class="ctl"><textarea id="mTemplate" placeholder="the template inside the model"></textarea></div></div>
+        <div class="sec">Extra arguments</div>
+        <div class="fld"><span class="sub">Arguments given to llama-server as they stand.</span>
+          <div class="ctl"><textarea id="mExtra" placeholder="extra arguments"></textarea></div></div>
+        <div class="sec">The command line</div>
+        <div class="fld"><div class="ctl"><pre class="code" id="mPreview"></pre></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="sheet-foot">
+      <button class="pill primary" id="saveSheet" type="button">Save</button>
+      <button class="pill" id="closeSheet" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>'use strict';
+
+// The window talks to the engine through Tauri, and not through a web server.
+// The names of the calls match the routes of the remote page, so the two share
+// one mapping on the Rust side.
+var invoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)
+  ? window.__TAURI__.core.invoke
+  : function (name) { return Promise.reject(new Error('no ' + name + ' in this window')); };
+
+// The parts of the page that stay in place. Their content is written again on
+// every draw.
+var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'where', 'ctx', 'ctxtext', 'ctxfill',
+  'stage', 'cards', 'washL', 'washR', 'zoneL', 'zoneR', 'turnL', 'turnR', 'previews', 'pcount',
+  'greet', 'dot', 'status', 'hint', 'newchat', 'chatsbtn', 'settingsbtn',
+  'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'draft', 'send',
+  'modelbtn'];
+// The send mark holds two paths, and the class of the button says which one
+// shows. Nothing is written into the picture of the mark on a draw.
+var el = {};
+for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
+// The chat box moves between the middle of the page and the bottom, so it is
+// taken by name too.
+var composer = document.getElementById('composer');
+
+// The message box lives inside the open card, so it is taken again each time
+// the cards are built.
+var msgs = null;
+
+// A touch screen gets a send mark that it can lean on. Other screens send with
+// the Enter key, and the mark is not drawn at all.
+var touch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
+  || ('ontouchstart' in window);
+if (touch) { el.send.classList.add('show'); }
+// A page that is asked for few moves keeps the row and the chat box still.
+var reduce = !!(window.matchMedia
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+var rev = -1;          // what the page has seen last
+var timer = null;      // the next poll
+var pending = false;   // only one poll at a time
+var cur = null;        // the last state
+
+function post(path, body) {
+  var name = path.replace(/^\/api\//, '');
+  invoke('action', { path: name, body: body || {} })
+    .then(function () { poll(); }, function () { poll(); });
+}
+
+function poll() {
+  if (pending) { return; }
+  pending = true;
+  invoke('get_state', { since: rev < 0 ? null : rev })
+    .then(function (s) {
+      rev = s.rev;
+      if (!s.unchanged) { draw(s); }
+      schedule(!!s.generating);
+      pending = false;
+    }, function () { schedule(false); pending = false; });
+}
+
+// A fast poll while an answer comes in, a slow one when nothing happens.
+function schedule(fast) {
+  clearTimeout(timer);
+  timer = setTimeout(poll, fast ? 150 : 600);
+}
+
+// True when the top bar has to give way, as the window does in a narrow box.
+function tight() { return (document.documentElement.clientWidth || 640) < 760; }
+
+function draw(s) {
+  cur = s;
+  drawHome(s);
+  document.body.classList.toggle('dark', !!s.dark);
+  fillSelect(el.model, s.models, s.model.id, function (m) { return m.name; });
+  fillRepos(s);
+  el.kind.textContent = s.model.kind;
+  el.title.textContent = s.chat.title;
+
+  // The context chip. The bar goes dark red when the window of the model is
+  // nearly full.
+  var ratio = Math.max(0, Math.min(1, s.context.ratio));
+  el.ctxtext.textContent = tight()
+    ? s.context.used + ' / ' + s.context.total
+    : s.context.used + ' of ' + s.context.total + ' tokens';
+  el.ctxfill.style.width = Math.round(ratio * 100) + '%';
+  el.ctx.classList.toggle('near', ratio > 0.9);
+
+  // The badges. The sandbox badge goes red when the sandbox is asked for but
+  // cannot be had, and the thinking badge says what the model can do.
+  el.code.classList.toggle('on', !!s.code);
+  el.sandbox.classList.toggle('on', !!s.sandbox);
+  el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
+  el.sandbox.title = s.sandbox_available
+    ? 'Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory.'
+    : 'bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.';
+  var thinking = s.thinking || { mode: 'auto', available: false };
+  el.thinktext.textContent = thinking.available ? 'think: ' + thinking.mode : 'No thinking modes';
+  el.think.classList.toggle('on', thinking.available && thinking.mode !== 'auto');
+
+  // The line under the card. The mark beats while the program is at work, and
+  // it goes red while an answer can still be stopped.
+  var busy = !!s.generating || !!s.busy;
+  el.dot.className = 'pulse' + (busy ? ' busy' : '') + (s.generating ? ' stop' : '');
+  el.status.textContent = s.status;
+  el.status.className = 'status' + (s.generating ? ' hot' : '');
+  el.hint.textContent = hintFor(s);
+  el.newchat.style.display = s.generating ? 'none' : '';
+
+  // The round mark. It is dull while there is nothing to send, and it turns
+  // into the stop mark while an answer comes in.
+  var live = !!s.generating || el.draft.value !== '';
+  el.send.className = 'send' + (s.generating ? ' stop' : '') + (live ? ' live' : '');
+  el.send.title = s.generating ? 'Stop the answer' : 'Send';
+
+  drawChats(s);
+  drawMessages(s);
+  if (ov.on) { rowCount(s); buildPreviews(ov.pos); placePreviews(); }
+}
+
+// One line of keys next to the box. It says what the box needs at this moment:
+// the keys to send while the box is empty and holds the keys, Escape while an
+// answer comes, and Alt the rest of the time.
+function hintFor(s) {
+  if (s.generating) { return 'Escape stops the answer'; }
+  if (document.activeElement === el.draft && el.draft.value === '') {
+    return 'Enter sends. Shift and Enter starts a new line.';
+  }
+  return 'Alt shows the chats';
+}
+
+// A list is built again only when its content changed. This keeps an open
+// choice list of the browser from closing on every poll.
+function fillSelect(sel, items, active, label) {
+  var key = items.map(function (m) { return m.id; }).join('|') + '#' + active;
+  if (sel.dataset.key === key) { return; }
+  sel.dataset.key = key;
+  sel.innerHTML = '';
+  for (var n = 0; n < items.length; n++) {
+    var option = document.createElement('option');
+    option.value = items[n].id;
+    option.textContent = label(items[n]) + ' (' + items[n].kind + ')';
+    if (items[n].id === active) { option.selected = true; }
+    sel.appendChild(option);
+  }
+}
+
+function fillRepos(s) {
+  var items = [{ id: '', name: 'No repository' }].concat(s.repositories);
+  var key = items.map(function (r) { return r.id; }).join('|') + '#' + s.repository.id;
+  if (el.repo.dataset.key === key) { return; }
+  el.repo.dataset.key = key;
+  el.repo.innerHTML = '';
+  for (var n = 0; n < items.length; n++) {
+    var option = document.createElement('option');
+    option.value = items[n].id;
+    option.textContent = items[n].name;
+    if (items[n].id === s.repository.id) { option.selected = true; }
+    el.repo.appendChild(option);
+  }
+}
+// --------------------------------------------------------------------
+// The words of a message.
+//
+// The stored words keep the marks of markdown. The window puts them in blocks
+// of their own: a heading, a list, a block of code, and plain words. The marks
+// of the words inside a block are taken out, so a bold word reads as a plain
+// word and the address of a link stands after the words of the link. The page
+// does the same, and no mark reaches the reader.
+// --------------------------------------------------------------------
+
+// The words of a line with the marks of markdown taken out.
+function plain(text) {
+  var words = String(text || '');
+  // Two passes, so a bold run with marks of its own inside loses all of them.
+  for (var pass = 0; pass < 2; pass++) { words = stripOnce(words); }
+  return words;
+}
+
+// One run over the words, with the marks taken out.
+function stripOnce(text) {
+  return text
+    // A link gives its words where they fall, and its address follows them.
+    .replace(/!\[([^\]]*)\]\(([^)\s]*)[^)]*\)/g, '$1 ($2)')
+    .replace(/\[([^\]]*)\]\(([^)\s]*)[^)]*\)/g, '$1 ($2)')
+    // An italic or a bold word keeps its words and loses its marks. The marks
+    // go in pairs, so a lone mark in the middle of a file name stays.
+    .replace(/\*\*\*([^*]+?)\*\*\*/g, '$1')
+    .replace(/\*\*([^*]+?)\*\*/g, '$1')
+    .replace(/___([^_]+?)___/g, '$1')
+    .replace(/__([^_]+?)__/g, '$1')
+    .replace(/(^|[^\w*])\*([^*\s][^*]*?)\*(?=[^\w*]|$)/g, '$1$2')
+    .replace(/(^|[^\w])_([^_\s][^_]*?)_(?=[^\w]|$)/g, '$1$2')
+    .replace(/~~([^~]+?)~~/g, '$1')
+    // A piece of inline code keeps its words too.
+    .replace(/`+/g, '')
+    // HTML inside the words is dropped, so no tag can reach the page.
+    .replace(/<[^>]*>/g, '');
+}
+
+// The blocks of one message. Each block has a kind and words of its own.
+function blocks(text) {
+  var lines = String(text || '').split('\n');
+  var out = [];
+  var para = [];
+  var list = null;
+  var fence = null;
+  function flushPara() {
+    var joined = para.join('\n').replace(/^\s+|\s+$/g, '');
+    if (joined) { out.push({ kind: 'text', text: joined }); }
+    para = [];
+  }
+  function flushList() {
+    if (list && list.length) {
+      // A list is shown as a run of numbered lines behind a rule of colour,
+      // which is how the window shows it.
+      out.push({
+        kind: 'list',
+        text: list.map(function (item, n) { return (n + 1) + '. ' + item; }).join('\n')
+      });
+    }
+    list = null;
+  }
+  for (var n = 0; n < lines.length; n++) {
+    var line = lines[n];
+    var cut = line.replace(/^\s*/, '');
+    if (fence !== null) {
+      if (/^```/.test(cut)) {
+        out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, '') });
+        fence = null;
+      } else {
+        fence.push(line);
+      }
+      continue;
+    }
+    if (/^```/.test(cut)) { flushList(); flushPara(); fence = []; continue; }
+    var head = /^(#{1,6})\s+(.*)$/.exec(cut);
+    if (head) {
+      flushList(); flushPara();
+      out.push({ kind: 'heading', text: plain(head[2]), level: head[1].length });
+      continue;
+    }
+    var item = /^[-*+]\s+(.*)$/.exec(cut);
+    if (item) {
+      flushPara();
+      if (!list) { list = []; }
+      list.push(plain(item[1]));
+      continue;
+    }
+    var numbered = /^(\d+)[.)]\s+(.*)$/.exec(cut);
+    if (numbered) {
+      flushPara();
+      if (!list) { list = []; }
+      list.push(plain(numbered[2]));
+      continue;
+    }
+    if (!cut) { flushList(); flushPara(); continue; }
+    flushList();
+    para.push(plain(line));
+  }
+  if (fence !== null) { out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, '') }); }
+  flushList();
+  flushPara();
+  return out;
+}
+
+// The first line of a command, for the head of the tool panel.
+function firstLine(text) {
+  var lines = String(text || '').split('\n');
+  return lines.length ? lines[0] : '';
+}
+
+function make(tag, cls) {
+  var node = document.createElement(tag);
+  if (cls) { node.className = cls; }
+  return node;
+}
+
+// The thinking of the model. A rule of colour runs down its left, and the words
+// are kept small, because they are a look inside the answer.
+function thinkingBox(m, live) {
+  var box = make('div', 'think' + (live ? ' live' : ''));
+  var cap = make('div', 'cap');
+  cap.textContent = 'Thinking';
+  var words = make('div', 'words mono');
+  words.textContent = m.reasoning;
+  box.appendChild(cap);
+  box.appendChild(words);
+  return box;
+}
+
+// One run of the terminal tool. The head says which command runs, or has run,
+// and the body keeps the command and the output under their own small labels.
+// A run with no output yet keeps the panel, so the wait shows.
+function toolBox(m) {
+  var running = m.tool === 'running ...';
+  var panel = make('div', 'tool' + (m.failed ? ' bad' : ''));
+
+  var head = make('button', 'thead');
+  head.type = 'button';
+  if (running) {
+    head.appendChild(make('span', 'busy'));
+  } else {
+    var mark = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    mark.setAttribute('viewBox', '0 0 16 16');
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2');
+    mark.appendChild(path);
+    head.appendChild(mark);
+  }
+  var cmd = make('span', 'cmd');
+  cmd.textContent = (running ? 'Using tool: ' : 'Used tool: ') + firstLine(m.body);
+  head.appendChild(cmd);
+  var fold = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  fold.setAttribute('viewBox', '0 0 16 16');
+  fold.setAttribute('class', 'fold');
+  var foldPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  foldPath.setAttribute('d', 'M4 6.4 8 10.4 12 6.4');
+  fold.appendChild(foldPath);
+  head.appendChild(fold);
+  // The fold is of this panel alone, so it is lost when the row is made again.
+  head.addEventListener('click', function () { panel.classList.toggle('closed'); });
+
+  var body = make('div', 'tbody');
+  body.appendChild(make('span', 'rail'));
+  var space = make('div', 'tspace');
+  var labOne = make('div', 'lab');
+  labOne.textContent = 'command';
+  var commandText = make('pre', 'cmd-text');
+  commandText.textContent = m.body;
+  var gap = make('div', 'gap');
+  var labTwo = make('div', 'lab');
+  labTwo.textContent = 'output';
+  var output = make('pre', 'out' + (running ? ' live' : ''));
+  output.textContent = m.tool;
+  space.appendChild(labOne);
+  space.appendChild(commandText);
+  space.appendChild(gap);
+  space.appendChild(labTwo);
+  space.appendChild(output);
+  body.appendChild(space);
+
+  panel.appendChild(head);
+  panel.appendChild(body);
+  return panel;
+}
+
+// The words of one message, put into a row. The row is made once and its words
+// are put again while an answer grows.
+function fill(row, m, live) {
+  row.className = 'row ' + roleClass(m) + (m.failed ? ' bad' : '');
+  row.innerHTML = '';
+  if (m.role === 'Note') {
+    // A note from the program stands on its own, in the middle, with no bubble
+    // around it.
+    var note = make('div', 'note');
+    note.textContent = m.body;
+    row.appendChild(note);
+    return;
+  }
+  if (m.role === 'Tool' && m.tool !== '') {
+    row.appendChild(toolBox(m));
+  } else {
+    // The words of the user stand in a bubble of their own colour. The words of
+    // the model stand on the card with no bubble and no label.
+    var words = make('div', m.role === 'You' ? 'bubble' : 'plain');
+    if (m.reasoning) { words.appendChild(thinkingBox(m, live)); }
+    var made = blocks(m.body);
+    for (var n = 0; n < made.length; n++) { words.appendChild(blockNode(made[n])); }
+    if (live) {
+      // The mark of an answer that is still coming. It beats while the words
+      // grow, so the page never looks finished too early.
+      var caret = make('span', 'caret');
+      caret.textContent = '\u258c';
+      words.appendChild(caret);
+    }
+    row.appendChild(words);
+  }
+  if (m.when) {
+    var when = make('div', 'when');
+    when.textContent = m.when;
+    row.appendChild(when);
+  }
+}
+
+function roleClass(m) {
+  if (m.role === 'You') { return 'you'; }
+  if (m.role === 'Tool') { return 'tool'; }
+  if (m.role === 'Note') { return 'note'; }
+  return 'ai';
+}
+
+// One block of words, as the window sets it.
+function blockNode(block) {
+  if (block.kind === 'heading') {
+    var head = make('div', 'h' + (block.level >= 3 ? ' small' : ''));
+    head.textContent = block.text;
+    return head;
+  }
+  if (block.kind === 'list') {
+    var list = make('div', 'list');
+    list.textContent = block.text;
+    return list;
+  }
+  if (block.kind === 'code') {
+    var code = make('pre', 'code mono');
+    code.textContent = block.text;
+    return code;
+  }
+  var text = make('div', 'body');
+  text.textContent = block.text;
+  return text;
+}
+
+// The message box holds one row for every message. A row is made once and then
+// only the words of the last row are put again, so a message that came in fades
+// up and an answer that grows does not shake the page.
+function drawMessages(s) {
+  var box = msgs;
+  if (!box) { return; }
+  var items = s.messages.slice();
+  if (s.generating) {
+    items.push({
+      id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
+      tool: '', mono: false, failed: false, when: ''
+    });
+  }
+  if (items.length === 0) {
+    if (box.dataset.key !== 'blank') {
+      box.dataset.key = 'blank';
+      box.innerHTML = '';
+      var blank = make('div', 'blank');
+      blank.textContent = 'Nothing written yet. Write below and press Enter. '
+        + 'A chat with nothing in it goes away when you turn the carousel.';
+      box.appendChild(blank);
+    }
+    return;
+  }
+  // Keep the newest message in view while an answer comes in.
+  var near = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
+  var key = items.map(function (m) { return m.id; }).join('|');
+  if (box.dataset.key !== key) {
+    var had = Number(box.dataset.count || 0);
+    box.dataset.key = key;
+    box.dataset.count = items.length;
+    box.innerHTML = '';
+    for (var n = 0; n < items.length; n++) {
+      var row = make('div', 'row');
+      // Only the row that came in fades up. A chat that was opened is already
+      // there, and its rows do not need to say so again.
+      fill(row, items[n], false);
+      if (n === items.length - 1 && items.length > had && !reduce) { row.classList.add('in'); }
+      box.appendChild(row);
+    }
+  } else {
+    // The last row is the one that can still grow.
+    var last = box.lastChild;
+    var tail = items[items.length - 1];
+    var stamp = [tail.role, tail.body.length, tail.reasoning ? tail.reasoning.length : 0,
+      tail.tool.length, tail.tool === 'running ...' ? 1 : 0].join('#');
+    if (last.dataset.stamp !== stamp) {
+      last.dataset.stamp = stamp;
+      fill(last, tail, !!s.generating && tail.id === 'live');
+    }
+  }
+  if (near || s.generating) { box.scrollTop = box.scrollHeight; }
+}
+// --------------------------------------------------------------------
+// The carousel.
+//
+// The chats of one place stand in a row. The card in the middle of the stage is
+// the chat in use. The next chats show a strip of themselves at each side, pale
+// and soft, and a click on a strip turns the carousel.
+// --------------------------------------------------------------------
+
+// Space between two cards of the carousel.
+var CARD_GAP = 14;
+
+// Work out how wide a card is, and hand the numbers to the style. The two
+// neighbours take a fixed strip at each side of the window.
+function cardStep() {
+  var width = el.stage.clientWidth || 640;
+  var peek = width < 620 ? 26 : 46;
+  var card = Math.max(280, width - 2 * peek);
+  el.stage.style.setProperty('--card', card + 'px');
+  el.stage.style.setProperty('--peek', peek + 'px');
+  return card + CARD_GAP;
+}
+
+// Stand the cards up. The open chat sits in the middle, and its neighbours
+// show a strip of themselves at each side.
+function drawChats(s) {
+  var step = cardStep();
+  var index = s.carousel ? s.carousel.index : 0;
+  // The list is built again only when a chat came or went away.
+  var key = s.chats.map(function (c) { return c.id; }).join('|');
+  if (el.cards.dataset.key !== key) {
+    el.cards.dataset.key = key;
+    buildCards(s, index, step);
+  }
+  var cards = el.cards.children;
+  for (var n = 0; n < cards.length; n++) {
+    var on = n === index;
+    cards[n].classList.toggle('on', on);
+    cards[n].classList.toggle('ghost', !on);
+    if (!on) { paintSoft(cards[n], s.chats[n]); }
+    cards[n].style.transform = 'translateX(' + ((n - index) * step) + 'px)';
+  }
+  // The message box of the middle card is the one the page writes into.
+  msgs = index < cards.length ? cards[index].querySelector('.msgs') : null;
+  // A side is there only when a chat sits that way.
+  var left = index > 0;
+  var right = index < s.chats.length - 1;
+  el.zoneL.classList.toggle('hidden', !left);
+  el.turnL.classList.toggle('hidden', !left);
+  el.washL.classList.toggle('hidden', !left);
+  el.zoneR.classList.toggle('hidden', !right);
+  el.turnR.classList.toggle('hidden', !right);
+  el.where.textContent = s.chats.length > 1
+    ? (index + 1) + ' of ' + s.chats.length : '';
+}
+
+// One card per chat. A card holds a message box and a soft picture, and shows
+// one of them. The soft picture tells the user that the chat holds a talk. A
+// card is made once and then only moved, so a turn of the carousel is smooth.
+function buildCards(s, index, step) {
+  el.cards.innerHTML = '';
+  var made = [];
+  for (var n = 0; n < s.chats.length; n++) {
+    var card = make('div', 'card ghost');
+    card.dataset.id = s.chats[n].id;
+    // No slide for the first stand, because the place is not known yet.
+    card.style.transition = 'none';
+    card.style.transform = 'translateX(' + ((n - index) * step) + 'px)';
+
+    var soft = make('div', 'soft');
+    var title = make('div', 'gt');
+    var preview = make('div', 'gp');
+    soft.appendChild(title);
+    soft.appendChild(preview);
+    // Shapes that stand for the bubbles of that chat.
+    var names = ['a', 'b', 'c'];
+    for (var b = 0; b < names.length; b++) {
+      soft.appendChild(make('div', 'gb ' + names[b]));
+    }
+    card.appendChild(soft);
+    card.appendChild(make('div', 'msgs'));
+    el.cards.appendChild(card);
+    made.push(card);
+  }
+  // The place is now set without an animation, so the next change can slide.
+  void el.cards.offsetWidth;
+  for (var m = 0; m < made.length; m++) { made[m].style.transition = ''; }
+}
+
+// The soft picture of a neighbour chat: its name and the start of its newest
+// message. The work is skipped when nothing changed.
+function paintSoft(card, c) {
+  var soft = card.querySelector('.soft');
+  var key = c.title + '|' + c.preview;
+  if (soft.dataset.key === key) { return; }
+  soft.dataset.key = key;
+  soft.querySelector('.gt').textContent = c.title;
+  soft.querySelector('.gp').textContent = c.preview;
+}
+
+// A click on a neighbour chat turns the carousel to it.
+el.cards.addEventListener('click', function (event) {
+  var card = event.target.closest ? event.target.closest('.card') : null;
+  if (!card || card.classList.contains('on')) { return; }
+  if (card.dataset.id) { openChat(card.dataset.id); }
+});
+
+// Turn the carousel. Minus one shows the chat at the left.
+function roll(step) {
+  post('/api/roll', { step: step });
+}
+
+function openChat(id) {
+  post('/api/open_chat', { id: id });
+}
+
+// --------------------------------------------------------------------
+// The row of small previews.
+//
+// The Alt key or the button turns the chats into a row of small previews in the
+// middle of the stage. One click on a preview opens that chat. The arrows, A and
+// D, a drag, a flick and the wheel move along the row. A count of the chats
+// stands above the row, and a line of keys stands under it.
+// --------------------------------------------------------------------
+
+// The state of the row. The place of every preview is worked out from these
+// numbers on every frame, so nothing is built again while the row moves.
+var ov = {
+  on: false,     // true while the row is up
+  pos: 0,        // where the row stands, counted in previews
+  target: 0,     // where the row wants to rest
+  speed: 0,      // previews for every frame, from a flick
+  open: 1,       // 0 to 1 while the row settles after it came up
+  drag: false,   // true while the pointer holds the row
+  from: 0,       // where the row stood when the pointer went down
+  pointer: 0,    // where the pointer was when it went down
+  last: 0,       // where the pointer stood in the last move
+  flick: 0,      // speed of the last move, in previews for one frame
+  frame: 0,      // the frame that is planned, or 0 for none
+  pressed: -1    // which preview the pointer went down on, or -1
+};
+
+// Space between two previews.
+var PREV_GAP = 18;
+
+// How many chats this place holds.
+function chatCount() { return cur && cur.chats ? cur.chats.length : 0; }
+
+// The chat the carousel stands on.
+function chatIndex() { return cur && cur.carousel ? cur.carousel.index : 0; }
+
+// Keeps a chat number inside the list of this place.
+function keepInside(value) { return Math.max(0, Math.min(chatCount() - 1, value)); }
+
+// The line above the row: how many chats this place holds, and where they are.
+function rowCount(s) {
+  el.pcount.textContent = s.chats.length === 0
+    ? 'This place holds no chat yet'
+    : s.chats.length + ' ' + (s.chats.length === 1 ? 'chat' : 'chats') + ' in '
+      + (s.repository.id ? s.repository.name : 'the loose chats of this machine');
+}
+
+// Width of one preview, and the step from one preview to the next.
+function prevWidth() {
+  var width = el.stage.clientWidth || 640;
+  return Math.max(150, Math.min(230, (width - 60) / 4));
+}
+function prevStep() { return prevWidth() + PREV_GAP; }
+
+// The previews are made once and only moved after that. Only the fifteen about
+// the chat in use are made, so a place with a hundred chats stays light to draw.
+function buildPreviews(centre) {
+  var start = Math.max(0, Math.min(Math.max(0, chatCount() - 15),
+      Math.round(keepInside(centre)) - 7));
+  var stop = Math.min(chatCount(), start + 15);
+  var key = start + '-' + stop + '-'
+    + cur.chats.slice(start, stop).map(function (c) { return c.id; }).join('|');
+  if (el.previews.dataset.key === key) { return; }
+  el.previews.dataset.key = key;
+  el.previews.innerHTML = '';
+  for (var n = start; n < stop; n++) {
+    var card = make('div', 'prev');
+    card.dataset.n = n;
+    card.dataset.id = cur.chats[n].id;
+    var title = make('div', 'pt');
+    title.textContent = cur.chats[n].title;
+    var line = make('div', 'pp');
+    line.textContent = cur.chats[n].preview;
+    var when = make('div', 'pw');
+    when.textContent = cur.chats[n].when;
+    card.appendChild(title);
+    card.appendChild(line);
+    card.appendChild(when);
+    el.previews.appendChild(card);
+  }
+}
+
+// Stand the previews in their place. Only the place, the size and the strength
+// of a card change, which is what keeps the motion smooth.
+function placePreviews() {
+  var step = prevStep();
+  var width = prevWidth();
+  var height = Math.round(width * 1.15);
+  var centre = (el.stage.clientWidth - width) / 2;
+  // The row comes up big and shrinks into place, which is the look of a scale
+  // that goes from 1.6 down to 1.
+  var settle = 1 + (1 - ov.open) * 0.6;
+  var middle = Math.round(ov.pos);
+  var cards = el.previews.children;
+  for (var n = 0; n < cards.length; n++) {
+    var at = Number(cards[n].dataset.n);
+    var x = centre + (at - ov.pos) * step;
+    var on = at === middle;
+    cards[n].style.width = width + 'px';
+    cards[n].style.height = height + 'px';
+    cards[n].style.transform = 'translate(' + x.toFixed(1) + 'px, 0) scale('
+      + settle.toFixed(3) + ')';
+    cards[n].style.opacity = (ov.open * (on ? 1 : 0.62)).toFixed(3);
+    cards[n].classList.toggle('mid', on);
+  }
+}
+
+// One frame of the row. A flick keeps gliding and gives a little speed back on
+// every frame, and the row then settles on the nearest preview.
+function stepRow() {
+  ov.frame = 0;
+  var last = Math.max(0, chatCount() - 1);
+  if (ov.open < 1) { ov.open = Math.min(1, ov.open + 0.07); }
+  if (!ov.drag) {
+    if (Math.abs(ov.speed) > 0.008 && !reduce) {
+      ov.pos += ov.speed;
+      ov.speed *= 0.94;
+      // At an end there is nothing left to see, so the row stops there.
+      if (ov.pos < 0) { ov.pos = 0; ov.speed = 0; }
+      if (ov.pos > last) { ov.pos = last; ov.speed = 0; }
+      ov.target = keepInside(Math.round(ov.pos));
+    } else {
+      ov.speed = 0;
+      var gap = ov.target - ov.pos;
+      if (Math.abs(gap) < 0.004) { ov.pos = ov.target; } else { ov.pos += gap * 0.22; }
+    }
+  }
+  placePreviews();
+  var still = ov.speed === 0 && ov.pos === ov.target && ov.open >= 1;
+  if (ov.on && !still) { runRow(); }
+}
+
+// Ask for the next frame, once.
+function runRow() {
+  if (ov.on && !ov.frame) { ov.frame = requestAnimationFrame(stepRow); }
+}
+
+// Bring the row up, or put it away again.
+function showRow(on) {
+  if (on === ov.on) { return; }
+  ov.on = on;
+  el.previews.classList.toggle('on', on);
+  if (!on) {
+    if (ov.frame) { cancelAnimationFrame(ov.frame); ov.frame = 0; }
+    ov.drag = false;
+    return;
+  }
+  ov.pos = chatIndex();
+  ov.target = chatIndex();
+  ov.speed = 0;
+  ov.open = reduce ? 1 : 0;
+  ov.drag = false;
+  ov.pressed = -1;
+  if (cur) { rowCount(cur); }
+  buildPreviews(ov.pos);
+  placePreviews();
+  runRow();
+}
+
+// One step with the keys. A key always moves the row, so the middle preview
+// changes even when the row stood on a preview edge.
+function rowStep(step) {
+  ov.speed = 0;
+  ov.target = keepInside(Math.round(ov.target) + step);
+  if (reduce) { ov.pos = ov.target; }
+  runRow();
+}
+
+// Open one chat of the row. Without a number, the chat in the middle is opened.
+function pickRow(at) {
+  var n = at === undefined ? Math.round(ov.pos) : keepInside(Math.round(at));
+  if (!cur || !cur.chats[n]) { return; }
+  showRow(false);
+  openChat(cur.chats[n].id);
+}
+
+// The pointer went down on the row.
+el.previews.addEventListener('pointerdown', function (event) {
+  var card = event.target.closest ? event.target.closest('.prev') : null;
+  ov.pressed = card ? Number(card.dataset.n) : -1;
+  ov.drag = true;
+  ov.from = ov.pos;
+  ov.pointer = event.clientX;
+  ov.last = event.clientX;
+  ov.flick = 0;
+  ov.speed = 0;
+  if (el.previews.setPointerCapture) { el.previews.setPointerCapture(event.pointerId); }
+  runRow();
+});
+
+// The pointer moved while the row was held down, so the row follows it and a
+// preview stays under the pointer.
+el.previews.addEventListener('pointermove', function (event) {
+  if (!ov.drag) { return; }
+  var step = prevStep();
+  ov.flick = (event.clientX - ov.last) / step;
+  ov.last = event.clientX;
+  var last = Math.max(0, chatCount() - 1);
+  // A drag to the right brings the chats that came before, so the count of the
+  // row goes the other way.
+  ov.pos = Math.max(-0.6, Math.min(last + 0.6,
+      ov.from - (event.clientX - ov.pointer) / step));
+  ov.target = keepInside(Math.round(ov.pos));
+  runRow();
+});
+
+// The pointer let go. A short press that did not move opens the preview it stood
+// on. A flick keeps gliding until the row settles.
+el.previews.addEventListener('pointerup', function (event) {
+  if (!ov.drag) { return; }
+  ov.drag = false;
+  var moved = Math.abs(event.clientX - ov.pointer);
+  var stood = ov.pressed;
+  ov.pressed = -1;
+  if (moved < 6) {
+    if (stood >= 0) { pickRow(stood); } else { runRow(); }
+    return;
+  }
+  ov.speed = Math.max(-0.6, Math.min(0.6, -ov.flick));
+  runRow();
+});
+
+el.previews.addEventListener('pointercancel', function () {
+  ov.drag = false;
+  runRow();
+});
+
+// The wheel moves along the row.
+el.previews.addEventListener('wheel', function (event) {
+  event.preventDefault();
+  var down = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+  rowStep(down > 0 ? 1 : -1);
+}, { passive: false });
+
+// The keys of the row. Alt brings the row up or takes it away, Escape puts it
+// away, the arrows and A and D move along it, and Enter opens the middle preview.
+document.addEventListener('keydown', function (event) {
+  if (event.key === 'Alt') {
+    event.preventDefault();
+    showRow(!ov.on);
+    return;
+  }
+  if (!ov.on) { return; }
+  if (event.key === 'Escape') { showRow(false); return; }
+  if (event.key === 'ArrowLeft' || event.key === 'a') { rowStep(-1); return; }
+  if (event.key === 'ArrowRight' || event.key === 'd') { rowStep(1); return; }
+  if (event.key === 'Enter') { pickRow(); return; }
+  // Nothing else reaches the chat box while the row is up.
+  if (event.key !== 'Tab') { event.preventDefault(); }
+});
+
+// --------------------------------------------------------------------
+// The first screen, and the chat box.
+//
+// With no chat open, the chat box stands in the middle of the page, under the
+// mark and a line for this hour. The first message opens a chat, and the box
+// goes back to the bottom of the window.
+// --------------------------------------------------------------------
+
+// Move the chat box between the middle of the page and the bottom without a
+// jump. The place before the change is kept, and the box is slid from there to
+// the place it has now.
+function slidePart(part, change) {
+  if (!part || reduce) { change(); return; }
+  var before = part.getBoundingClientRect();
+  change();
+  var after = part.getBoundingClientRect();
+  var dx = before.left - after.left;
+  var dy = before.top - after.top;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) { return; }
+  part.style.transition = 'none';
+  part.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
+  void part.offsetWidth;
+  part.style.transition = 'transform 420ms cubic-bezier(.2, .7, .3, 1)';
+  part.style.transform = '';
+}
+
+// The first screen. The mark and the line for this hour come and go with it.
+function drawHome(s) {
+  var home = !!s.home;
+  var was = document.body.classList.contains('home');
+  el.greet.textContent = s.greeting || '';
+  if (home === was) { return; }
+  // The chat box slides into its new place. The mark and the line come with it.
+  slidePart(composer, function () { document.body.classList.toggle('home', home); });
+  if (home) { showRow(false); }
+}
+
+// The box grows with the words, up to a height, and the round mark knows
+// whether there is anything to send.
+function grow() {
+  el.draft.style.height = 'auto';
+  el.draft.style.height = Math.min(el.draft.scrollHeight, window.innerHeight * 0.4) + 'px';
+  if (cur) {
+    var live = el.draft.value !== '' || !!cur.generating;
+    el.send.classList.toggle('live', live);
+  }
+  if (cur) { el.hint.textContent = hintFor(cur); }
+}
+
+function send() {
+  var text = el.draft.value.trim();
+  if (!text) { return; }
+  el.draft.value = '';
+  grow();
+  post('/api/send', { text: text });
+}
+
+el.send.addEventListener('click', function () {
+  if (cur && cur.generating) { post('/api/cancel'); return; }
+  send();
+});
+el.newchat.addEventListener('click', function () { post('/api/new_chat'); });
+// The two sides of the window turn the carousel.
+el.zoneL.addEventListener('click', function () { roll(-1); });
+el.zoneR.addEventListener('click', function () { roll(1); });
+el.turnL.addEventListener('click', function () { roll(-1); });
+el.turnR.addEventListener('click', function () { roll(1); });
+// A new window size changes the width of the cards and the shape of the bar.
+window.addEventListener('resize', function () { if (cur) { draw(cur); } });
+el.model.addEventListener('change', function (e) { post('/api/select_model', { id: e.target.value }); });
+el.repo.addEventListener('change', function (e) { post('/api/select_repository', { id: e.target.value }); });
+el.newrepo.addEventListener('click', function () {
+  var name = window.prompt('Name of the new repository');
+  if (name && name.trim()) { post('/api/create_repository', { name: name.trim() }); }
+});
+el.code.addEventListener('click', function () { if (cur) { post('/api/code', { on: !cur.code }); } });
+el.sandbox.addEventListener('click', function () { if (cur) { post('/api/sandbox', { on: !cur.sandbox }); } });
+el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
+el.modelbtn.addEventListener('click', function () { openSettings('model'); });
+el.chatsbtn.addEventListener('click', function () { showRow(true); });
+el.draft.addEventListener('input', grow);
+el.draft.addEventListener('focus', grow);
+el.draft.addEventListener('blur', function () { if (cur) { el.hint.textContent = hintFor(cur); } });
+
+el.draft.addEventListener('keydown', function (e) {
+  // While the row of previews is up, the row takes every key.
+  if (ov.on) { return; }
+  if (e.key === 'Enter' && !e.shiftKey && !touch) {
+    e.preventDefault();
+    send();
+  } else if (e.key === 'Escape') {
+    post('/api/cancel');
+  }
+});
+
+// --------------------------------------------------------------------
+// The window of settings.
+//
+// The two tabs stand in one sheet over the window. The Program tab reads the
+// settings and the list of repositories, and the Model tab reads the settings of
+// one model with the devices of the machine. The command line under the Model
+// tab is read again whenever a field of that tab moves.
+// --------------------------------------------------------------------
+
+var setTab = 'program';
+var progCfg = null;      // the settings read for the Program tab
+var mdl = null;          // the whole answer of get_model_settings
+var mdlId = '';          // the model the Model tab shows
+var prevTimer = 0;       // the timer that asks for the command line
+
+function byId(id) { return document.getElementById(id); }
+function overlayOpen() { var o = byId('overlay'); return o && !o.classList.contains('hidden'); }
+function setOption(text, value) { var o = document.createElement('option'); o.textContent = text; o.value = value; return o; }
+
+function openSettings(tab) {
+  setTab = tab === 'model' ? 'model' : 'program';
+  byId('overlay').classList.remove('hidden');
+  showSetTab(setTab);
+  if (setTab === 'program') { loadProgram(); } else { loadModel(); }
+}
+
+function closeSettings() { byId('overlay').classList.add('hidden'); }
+
+function showSetTab(tab) {
+  setTab = tab;
+  byId('tabProgram').classList.toggle('active', tab === 'program');
+  byId('tabModel').classList.toggle('active', tab === 'model');
+  byId('paneProgram').classList.toggle('hidden', tab !== 'program');
+  byId('paneModel').classList.toggle('hidden', tab !== 'model');
+}
+
+// Program tab: read the settings and every repository on disk.
+function loadProgram() {
+  Promise.all([invoke('get_config'), invoke('list_repositories')]).then(function (res) {
+    var cfg = res[0]; var repos = res[1] || [];
+    progCfg = cfg;
+    byId('fData').textContent = (cur && cur.data_dir) || '';
+    byId('fLlama').value = cfg.llama_dir || '';
+    byId('fModels').value = cfg.models_dir || '';
+    byId('fRepos').value = cfg.repositories_dir || '';
+    byId('fPort').value = cfg.remote_port || '';
+    byId('fUpnp').checked = !!cfg.upnp_enabled;
+    byId('fDark').checked = !!(cur && cur.dark);
+    byId('fSandbox').textContent = (cur && cur.sandbox_note) || '';
+    var sel = byId('fOpenRepo'); sel.innerHTML = '';
+    sel.appendChild(setOption('No repository', ''));
+    for (var i = 0; i < repos.length; i++) { sel.appendChild(setOption(repos[i].name, repos[i].id)); }
+    sel.value = (cur && cur.repository && cur.repository.id) || '';
+  }, function () {});
+}
+
+// Model tab: read the settings of the open model, or say there is no model.
+function loadModel() {
+  var id = cur && cur.model && cur.model.id;
+  if (!id) {
+    mdl = null; mdlId = '';
+    byId('mName').textContent = 'No model';
+    byId('mKind').textContent = '';
+    byId('mId').textContent = 'Pick a model in the top bar first.';
+    byId('mForm').style.display = 'none';
+    return;
+  }
+  byId('mForm').style.display = '';
+  invoke('get_model_settings', { id: id }).then(function (m) {
+    mdl = m; mdlId = id;
+    var s = m.settings || {};
+    byId('mName').textContent = m.name || '';
+    byId('mKind').textContent = m.kind || '';
+    byId('mId').textContent = id;
+    byId('mCtx').value = s.ctx_size;
+    setChoices('mKv', m.kinds, s.kv_index);
+    setChoices('mLoad', m.loads, s.load_index);
+    setChoices('mSpec', m.specs, s.spec_index);
+    byId('mDraft').value = s.draft_model || '';
+    byId('mDraftTokens').value = s.draft_tokens;
+    byId('mParallel').value = s.parallel;
+    byId('mBatch').value = s.batch_size;
+    byId('mUbatch').value = s.ubatch_size;
+    byId('mVision').checked = !!s.vision;
+    byId('mBudget').value = s.reasoning_budget;
+    byId('mReasonMsg').value = s.reasoning_message || '';
+    var box = byId('mCards'); box.innerHTML = '';
+    var gpus = m.gpus || [];
+    if (!gpus.length) {
+      var none = document.createElement('div'); none.className = 'sub'; none.textContent = 'No card was found.';
+      box.appendChild(none);
+    }
+    for (var i = 0; i < gpus.length; i++) { box.appendChild(cardRow(gpus[i], i, (s.gpu_enabled && s.gpu_enabled[i]) || false)); }
+    var total = 0;
+    for (var j = 0; j < gpus.length; j++) { if (gpus[j].is_offload) { total += gpus[j].memory_mb; } }
+    var rng = byId('mVram'); rng.min = 0; rng.max = Math.max(1, total); rng.step = 128;
+    rng.value = s.vram_budget || 0;
+    byId('mVramText').textContent = Math.round(s.vram_budget || 0) + ' MiB';
+    byId('mTemplate').value = s.chat_template || '';
+    byId('mExtra').value = s.extra_args || '';
+    refreshPreview();
+  }, function () {});
+}
+
+function setChoices(id, arr, index) {
+  var sel = byId(id); sel.innerHTML = '';
+  arr = arr || [];
+  for (var i = 0; i < arr.length; i++) { sel.appendChild(setOption(arr[i], String(i))); }
+  sel.value = String(index || 0);
+}
+
+function cardRow(g, i, on) {
+  var row = document.createElement('div'); row.className = 'fld';
+  var lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = g.name + ', ' + g.memory_text;
+  var ctl = document.createElement('div'); ctl.className = 'ctl';
+  var box = document.createElement('input'); box.type = 'checkbox'; box.checked = !!on; box.dataset.i = i;
+  box.addEventListener('change', refreshPreview);
+  var txt = document.createElement('span'); txt.className = 'sub'; txt.textContent = 'Let this card draw part of the model.';
+  ctl.appendChild(box); ctl.appendChild(txt);
+  row.appendChild(lbl); row.appendChild(ctl);
+  return row;
+}
+
+// The settings of the Model tab, read back from the fields.
+function readModel() {
+  var s = (mdl && mdl.settings) ? mdl.settings : {};
+  s.ctx_size = intOf('mCtx', s.ctx_size);
+  s.kv_index = selIndex('mKv');
+  s.load_index = selIndex('mLoad');
+  s.spec_index = selIndex('mSpec');
+  s.draft_model = byId('mDraft').value;
+  s.draft_tokens = intOf('mDraftTokens', s.draft_tokens);
+  s.parallel = intOf('mParallel', s.parallel);
+  s.batch_size = intOf('mBatch', s.batch_size);
+  s.ubatch_size = intOf('mUbatch', s.ubatch_size);
+  s.vision = byId('mVision').checked;
+  s.reasoning_budget = intOf('mBudget', s.reasoning_budget);
+  s.reasoning_message = byId('mReasonMsg').value;
+  s.chat_template = byId('mTemplate').value;
+  s.extra_args = byId('mExtra').value;
+  s.vram_budget = Number(byId('mVram').value) || 0;
+  var arr = [];
+  var boxes = byId('mCards').querySelectorAll('input[data-i]');
+  for (var k = 0; k < boxes.length; k++) { arr[Number(boxes[k].dataset.i)] = boxes[k].checked; }
+  var gpus = (mdl && mdl.gpus) || [];
+  for (var i = 0; i < gpus.length; i++) { if (arr[i] === undefined) { arr[i] = false; } }
+  s.gpu_enabled = arr;
+  return s;
+}
+
+function intOf(id, fallback) { var v = parseInt(byId(id).value, 10); return isNaN(v) ? (fallback || 0) : v; }
+function selIndex(id) { var v = parseInt(byId(id).value, 10); return isNaN(v) ? 0 : v; }
+
+// Read the command line again, but not on every keystroke.
+function refreshPreview() {
+  if (!mdl) { return; }
+  clearTimeout(prevTimer);
+  prevTimer = setTimeout(function () {
+    invoke('preview_command', { id: mdlId, settings: readModel() }).then(function (line) {
+      byId('mPreview').textContent = line;
+    }, function () {});
+  }, 140);
+}
+
+// The Save button, for whichever tab stands in front.
+function saveSheet() {
+  if (setTab === 'program') {
+    var cfg = progCfg || {};
+    cfg.llama_dir = byId('fLlama').value;
+    cfg.models_dir = byId('fModels').value;
+    cfg.repositories_dir = byId('fRepos').value;
+    var port = parseInt(byId('fPort').value, 10);
+    cfg.remote_port = isNaN(port) ? (cfg.remote_port || 8723) : port;
+    cfg.upnp_enabled = byId('fUpnp').checked;
+    cfg.dark_mode = byId('fDark').checked;
+    invoke('save_config', { config: cfg }).then(function () { poll(); closeSettings(); }, function () { poll(); closeSettings(); });
+  } else {
+    if (!mdl) { closeSettings(); return; }
+    invoke('save_model_settings', { id: mdlId, settings: readModel() }).then(function () { poll(); closeSettings(); }, function () { poll(); closeSettings(); });
+  }
+}
+
+byId('tabProgram').addEventListener('click', function () { showSetTab('program'); loadProgram(); });
+byId('tabModel').addEventListener('click', function () { showSetTab('model'); loadModel(); });
+byId('sheetClose').addEventListener('click', closeSettings);
+byId('closeSheet').addEventListener('click', closeSettings);
+byId('saveSheet').addEventListener('click', saveSheet);
+byId('overlay').addEventListener('click', function (e) { if (e.target === byId('overlay')) { closeSettings(); } });
+byId('createRepo').addEventListener('click', function () {
+  var name = byId('fNewRepo').value.trim();
+  if (!name) { return; }
+  post('/api/create_repository', { name: name });
+  byId('fNewRepo').value = '';
+  loadProgram();
+});
+byId('fOpenRepo').addEventListener('change', function (e) { post('/api/select_repository', { id: e.target.value }); });
+byId('fDark').addEventListener('change', function (e) { if (progCfg) { progCfg.dark_mode = e.target.checked; } post('/api/dark', { on: e.target.checked }); });
+
+['mCtx', 'mKv', 'mLoad', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch', 'mVision', 'mBudget', 'mReasonMsg', 'mVram', 'mTemplate', 'mExtra'].forEach(function (id) {
+  var node = byId(id);
+  node.addEventListener('input', function () { if (id === 'mVram') { byId('mVramText').textContent = Math.round(Number(node.value) || 0) + ' MiB'; } refreshPreview(); });
+  node.addEventListener('change', refreshPreview);
+});
+
+// Escape puts the sheet away, and Alt does not reach the row of previews behind
+// it. The other keys go through, so a field can still be written in.
+document.addEventListener('keydown', function (e) {
+  if (!overlayOpen()) { return; }
+  if (e.key === 'Escape') { closeSettings(); e.preventDefault(); e.stopPropagation(); }
+  else if (e.key === 'Alt') { e.preventDefault(); e.stopPropagation(); }
+}, true);
+
+poll();
+</script>
+</body>
+</html>

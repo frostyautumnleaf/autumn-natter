@@ -100,7 +100,10 @@ fn handle(engine: &Engine, mut request: Request) {
 
     match (method.as_str(), path.as_str()) {
         ("GET", "/") => {
-            let _ = request.respond(Response::from_string(web::PAGE).with_header(content_type("text/html; charset=utf-8")));
+            let _ = request.respond(
+                Response::from_string(web::PAGE)
+                    .with_header(content_type("text/html; charset=utf-8")),
+            );
         }
         ("GET", "/autumn-natter.svg") => {
             let _ = request.respond(
@@ -119,77 +122,12 @@ fn handle(engine: &Engine, mut request: Request) {
             let mut body = String::new();
             // A call with no body is allowed, so a read error is not a problem.
             let _ = request.as_reader().read_to_string(&mut body);
-            let value = action(engine, path.as_str(), &body);
+            let value = web::action(engine, path.as_str(), &body);
             let _ = request.respond(json_response(&value));
         }
         _ => {
             let _ = request.respond(json_status(404, "there is nothing at that address"));
         }
-    }
-}
-
-// One call of the page. Every call is answered with a small JSON record, and
-// the page then reads the state again.
-fn action(engine: &Engine, path: &str, body: &str) -> serde_json::Value {
-    let value = serde_json::from_str::<serde_json::Value>(body)
-        .unwrap_or_else(|_| serde_json::json!({}));
-    match path {
-        "/api/send" => {
-            let text = text_field(&value, "text");
-            if text.trim().is_empty() {
-                return web::refused("nothing was written");
-            }
-            engine.prompt(text);
-            web::done()
-        }
-        "/api/cancel" => {
-            engine.cancel();
-            web::done()
-        }
-        "/api/code" => {
-            engine.set_code(flag(&value, "on"));
-            web::done()
-        }
-        "/api/sandbox" => {
-            engine.set_sandbox(flag(&value, "on"));
-            web::done()
-        }
-        "/api/new_chat" => {
-            engine.new_chat();
-            web::done()
-        }
-        // Turn the carousel of chats. Minus one shows the chat at the left.
-        "/api/roll" => {
-            let step = value
-                .get("step")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0)
-                .clamp(-50, 50) as i32;
-            engine.roll(step);
-            web::done()
-        }
-        "/api/open_chat" => {
-            engine.open_chat(text_field(&value, "id"));
-            web::done()
-        }
-        "/api/select_model" => {
-            engine.select_model(text_field(&value, "id"));
-            web::done()
-        }
-        "/api/select_repository" => {
-            engine.select_repository(text_field(&value, "id"));
-            web::done()
-        }
-        "/api/create_repository" => {
-            engine.create_repository(text_field(&value, "name"));
-            web::done()
-        }
-        "/api/dark" => {
-            engine.set_dark_mode(flag(&value, "on"));
-            web::done()
-        }
-        // The page only makes the calls above, so anything else is refused.
-        other => web::refused(&format!("the page may not call {}", other)),
     }
 }
 
@@ -235,22 +173,9 @@ fn query_u64(query: &str, key: &str) -> Option<u64> {
     None
 }
 
-// One text of the JSON body. A missing text gives an empty string.
-fn text_field(value: &serde_json::Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
-}
-
-// One switch of the JSON body. A missing switch is off.
-fn flag(value: &serde_json::Value, key: &str) -> bool {
-    value.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
-}
-
 fn json_response(value: &serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
-    Response::from_string(value.to_string()).with_header(content_type("application/json; charset=utf-8"))
+    Response::from_string(value.to_string())
+        .with_header(content_type("application/json; charset=utf-8"))
 }
 
 // A JSON answer with a status number that is not 200.

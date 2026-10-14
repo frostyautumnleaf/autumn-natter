@@ -133,8 +133,23 @@ else
   die "curl or wget is required to download the Rust toolchain"
 fi
 
-[ -f Cargo.toml ] && [ -f src/main.rs ] || die "build.sh must sit next to Cargo.toml"
+[ -f Cargo.toml ] && [ -f src-tauri/src/main.rs ] || die "build.sh must sit next to Cargo.toml"
 ok "checkout looks right"
+
+# The window is a Tauri app, so it needs the web view of the system. Linux
+# wants the WebKitGTK development files. A warning only: the core, the tests
+# and the remote page build without them.
+if [ "$OS" = Linux ]; then
+  if command -v pkg-config >/dev/null 2>&1 \
+     && ( pkg-config --exists webkit2gtk-4.1 || pkg-config --exists webkit2gtk-4.0 ); then
+    ok "web view: WebKitGTK present"
+  else
+    warn "WebKitGTK was not found, which the window needs. Install it, or build just the core with 'cargo build -p autumn-natter-core'."
+    say "    Debian/Ubuntu:  sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config"
+    say "    Fedora:         sudo dnf install webkit2gtk4.1-devel openssl-devel libappindicator-gtk3-devel librsvg2-devel pkgconf-pkg-config"
+    say "    Arch:           sudo pacman -S webkit2gtk-4.1 base-devel openssl libappindicator-gtk3 librsvg"
+  fi
+fi
 
 # ---------------------------------------------------------------- toolchain
 step "Rust toolchain"

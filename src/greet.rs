@@ -115,7 +115,11 @@ fn pick(hour: i64, minute: i64, day: i64) -> (usize, usize) {
 // same rule, so the greeting and the clock of the window never disagree.
 fn hour_of_day(secs: i64) -> i64 {
     let clock = crate::store::format_clock(secs);
-    match clock.split(':').next().and_then(|h| h.trim().parse::<i64>().ok()) {
+    match clock
+        .split(':')
+        .next()
+        .and_then(|h| h.trim().parse::<i64>().ok())
+    {
         Some(hour) => hour.rem_euclid(24),
         None => 12,
     }

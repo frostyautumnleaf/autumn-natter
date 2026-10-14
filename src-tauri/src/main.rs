@@ -1,28 +1,19 @@
 // Autumn Natter. A chat program for models that run on this machine.
 //
-// The program starts llama-server as a child process and talks to it over the
-// OpenAI compatible HTTP interface. It does not load a model by itself.
+// This is the program the user runs. It reads the command line, then either
+// starts the engine with no window and serves a page for the local network
+// (--remote), or opens the desktop window. All the work lives in the core
+// crate; this crate is the window and the command line.
 //
-// Run it with --help to see the arguments.
+// Run with --help to see the arguments.
 
-mod config;
-mod engine;
-mod gguf;
-mod greet;
-mod markdown;
-mod remote;
-mod gpu;
-mod llama;
-mod store;
-mod tools;
-mod ui;
-mod ui_app;
-mod upnp;
-mod util;
-mod web;
+mod commands;
+mod desktop;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+use autumn_natter_core::config;
 
 // What the user asked for on the command line.
 struct Args {
@@ -70,9 +61,9 @@ fn run() -> Result<(), String> {
 
     if args.remote {
         // The remote run has no window. It serves a page for other computers.
-        return remote::start(cfg);
+        return autumn_natter_core::remote::start(cfg);
     }
-    ui_app::run(cfg)
+    desktop::run(cfg)
 }
 
 // Read the command line. Unknown arguments are an error, so a spelling mistake
@@ -85,7 +76,7 @@ fn parse_args() -> Result<Args, String> {
         help: false,
         version: false,
     };
-    let mut items: Vec<String> = std::env::args().skip(1).collect();
+    let items: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
     while index < items.len() {
         let item = items[index].clone();
@@ -120,8 +111,6 @@ fn parse_args() -> Result<Args, String> {
             }
         }
     }
-    // The list is only read once, so drop the parts that were used.
-    items.clear();
     Ok(args)
 }
 
@@ -144,7 +133,7 @@ Arguments:
 The settings live in the autumn_natter folder of the program data of the
 operating system. Set the folders for llama-server and for the models in the
 settings window.
-"
-    , env!("CARGO_PKG_VERSION"));
+",
+        env!("CARGO_PKG_VERSION")
+    );
 }
-

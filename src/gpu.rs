@@ -148,10 +148,7 @@ fn from_sysfs() -> Vec<Gpu> {
         // Skip the simple frame buffer and emulated display adapters.
         let driver = fs::read_link(device_dir.join("driver"))
             .ok()
-            .and_then(|p| {
-                p.file_name()
-                    .map(|n| n.to_string_lossy().to_lowercase())
-            })
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()))
             .unwrap_or_default();
         if driver.contains("simple-framebuffer") || driver.contains("virtio") {
             continue;
@@ -198,7 +195,12 @@ fn read_mem_total_kb() -> Option<u64> {
     let text = fs::read_to_string("/proc/meminfo").ok()?;
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("MemTotal:") {
-            return rest.trim().trim_end_matches("kB").trim().parse::<u64>().ok();
+            return rest
+                .trim()
+                .trim_end_matches("kB")
+                .trim()
+                .parse::<u64>()
+                .ok();
         }
     }
     None
