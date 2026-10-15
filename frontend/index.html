@@ -1027,6 +1027,14 @@ pre.code.line {
 
         <div class="sec">Cards</div>
         <div class="cards" id="mCards"></div>
+        <details class="adv" id="advCards">
+          <summary>Advanced</summary>
+          <div class="adv-body">
+            <div class="fld"><span class="lbl">Tensor parallelism</span>
+              <span class="sub">Split the model across every card that is on. Off keeps the model on the first card only.</span>
+              <div class="ctl"><input id="mTensor" type="checkbox"></div></div>
+          </div>
+        </details>
 
         <div class="sec">Memory of the cards</div>
         <div class="fld wide"><span class="lbl">VRAM budget</span>
@@ -2969,6 +2977,8 @@ function loadModel() {
     byId('mVision').checked = !!s.vision;
     byId('mBudget').value = s.reasoning_budget;
     byId('mReasonMsg').value = s.reasoning_message || '';
+    byId('mTensor').checked = !!s.tensor_parallel;
+    advOpen('advCards', ['tensor_parallel'], { tensor_parallel: false });
     var box = byId('mCards'); box.innerHTML = '';
     var gpus = m.gpus || [];
     if (!gpus.length) {
@@ -3036,6 +3046,7 @@ function readModel() {
   s.vision = byId('mVision').checked;
   s.reasoning_budget = intOf('mBudget', s.reasoning_budget);
   s.reasoning_message = byId('mReasonMsg').value;
+  s.tensor_parallel = byId('mTensor').checked;
   s.chat_template = byId('mTemplate').value;
   s.extra_args = byId('mExtra').value;
   s.vram_budget = Number(byId('mVram').value) || 0;
@@ -3140,7 +3151,7 @@ byId('fDark').addEventListener('change', function (e) {
 
 ['mCtx', 'mKv', 'mLoad', 'mTemp', 'mTopP', 'mTopK', 'mMinP', 'mRepeatPen', 'mPresencePen',
   'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',
-  'mVision', 'mBudget', 'mReasonMsg', 'mVram', 'mTemplate', 'mExtra'].forEach(function (id) {
+  'mVision', 'mBudget', 'mReasonMsg', 'mTensor', 'mVram', 'mTemplate', 'mExtra'].forEach(function (id) {
   var node = byId(id);
   node.addEventListener('input', function () {
     if (id === 'mVram') { byId('mVramText').textContent = Math.round(Number(node.value) || 0) + ' MiB'; }
