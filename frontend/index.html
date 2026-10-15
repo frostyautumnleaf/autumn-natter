@@ -671,6 +671,18 @@ pre.code.line {
 .cards { display: grid; gap: 0; }
 .cards .fld { grid-template-columns: minmax(0, 1fr) 34px; }
 .cards .fld .ctl { justify-content: flex-start; }
+/* The advanced fields of a section stand in a fold under the section. */
+.adv { border-bottom: 1px solid var(--line-soft); }
+.adv:last-child { border-bottom: 0; }
+.adv > summary { list-style: none; cursor: pointer; display: flex; align-items: center;
+  gap: 8px; padding: 9px 0; font-size: 11px; font-weight: 650; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--faint); user-select: none; }
+.adv > summary::-webkit-details-marker { display: none; }
+.adv > summary:hover { color: var(--dim); }
+.adv > summary::before { content: ""; width: 0; height: 0; border-left: 5px solid currentColor;
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform .15s ease; }
+.adv[open] > summary::before { transform: rotate(90deg); }
 
 /* --------------------------------------------------- size and movement */
 @media (max-width: 1000px) {
@@ -948,6 +960,37 @@ pre.code.line {
         <div class="fld"><span class="lbl">How the file is read</span>
           <span class="sub">Keeps the model in the memory of the machine, on the disk, or in both.</span>
           <div class="ctl"><select id="mLoad"></select></div></div>
+
+        <div class="sec">Sampling</div>
+        <div class="fld"><span class="lbl">Temperature</span>
+          <span class="sub">How freely the model picks from the words it can say. A low value reads safe, and a high value reads loose.</span>
+          <div class="ctl"><input id="mTemp" type="number" min="0" max="5" step="0.05"><span class="unit">0 to 5</span></div></div>
+        <div class="fld"><span class="lbl">Top p</span>
+          <span class="sub">The model picks from the words that hold this share of the chance. 1 keeps every word.</span>
+          <div class="ctl"><input id="mTopP" type="number" min="0" max="1" step="0.01"><span class="unit">0 to 1</span></div></div>
+        <div class="fld"><span class="lbl">Top k</span>
+          <span class="sub">The model picks from the k most likely words. 0 keeps every word.</span>
+          <div class="ctl"><input id="mTopK" type="number" min="0" max="1000" step="1"><span class="unit">words</span></div></div>
+        <div class="fld"><span class="lbl">Min p</span>
+          <span class="sub">A word that is less likely than this share of the top word is left out. 0 keeps every word.</span>
+          <div class="ctl"><input id="mMinP" type="number" min="0" max="1" step="0.01"><span class="unit">0 to 1</span></div></div>
+        <details class="adv" id="advSampling">
+          <summary>Advanced</summary>
+          <div class="adv-body">
+            <div class="fld"><span class="lbl">Repetition penalty</span>
+              <span class="sub">Words that came up before are pushed down. 1 leaves the penalty off.</span>
+              <div class="ctl"><input id="mRepeatPen" type="number" min="0" max="2" step="0.05"><span class="unit">1 for off</span></div></div>
+            <div class="fld"><span class="lbl">Presence penalty</span>
+              <span class="sub">Every word that came up before is pushed down once. 0 leaves the penalty off.</span>
+              <div class="ctl"><input id="mPresencePen" type="number" min="-2" max="2" step="0.05"><span class="unit">0 for off</span></div></div>
+            <div class="fld"><span class="lbl">Max tokens</span>
+              <span class="sub">The most tokens one answer may give. -1 leaves the answer without a limit.</span>
+              <div class="ctl"><input id="mMaxTokens" type="number" min="-1" max="2097152" step="1"><span class="unit">-1 for no limit</span></div></div>
+            <div class="fld"><span class="lbl">Seed</span>
+              <span class="sub">The start of the random draw. -1 draws a new one on every start. A fixed seed gives the same answer for the same words.</span>
+              <div class="ctl"><input id="mSeed" type="number" min="-1" max="9223372036854775807" step="1"><span class="unit">-1 for random</span></div></div>
+          </div>
+        </details>
 
         <div class="sec">Guessing ahead</div>
         <div class="fld"><span class="lbl">Way of guessing</span>
@@ -2907,6 +2950,17 @@ function loadModel() {
     setChoices('mKv', m.kinds, s.kv_index);
     setChoices('mLoad', m.loads, s.load_index);
     setChoices('mSpec', m.specs, s.spec_index);
+    byId('mTemp').value = s.temperature;
+    byId('mTopP').value = s.top_p;
+    byId('mTopK').value = s.top_k;
+    byId('mMinP').value = s.min_p;
+    byId('mRepeatPen').value = s.repeat_penalty;
+    byId('mPresencePen').value = s.presence_penalty;
+    byId('mMaxTokens').value = s.max_tokens;
+    byId('mSeed').value = s.seed;
+    advOpen('advSampling',
+      ['repeat_penalty', 'presence_penalty', 'max_tokens', 'seed'],
+      { repeat_penalty: 1, presence_penalty: 0, max_tokens: -1, seed: -1 });
     byId('mDraft').value = s.draft_model || '';
     byId('mDraftTokens').value = s.draft_tokens;
     byId('mParallel').value = s.parallel;
@@ -2966,6 +3020,14 @@ function readModel() {
   s.kv_index = selIndex('mKv');
   s.load_index = selIndex('mLoad');
   s.spec_index = selIndex('mSpec');
+  s.temperature = numOf('mTemp', s.temperature);
+  s.top_p = numOf('mTopP', s.top_p);
+  s.top_k = intOf('mTopK', s.top_k);
+  s.min_p = numOf('mMinP', s.min_p);
+  s.repeat_penalty = numOf('mRepeatPen', s.repeat_penalty);
+  s.presence_penalty = numOf('mPresencePen', s.presence_penalty);
+  s.max_tokens = intOf('mMaxTokens', s.max_tokens);
+  s.seed = intOf('mSeed', s.seed);
   s.draft_model = byId('mDraft').value;
   s.draft_tokens = intOf('mDraftTokens', s.draft_tokens);
   s.parallel = intOf('mParallel', s.parallel);
@@ -2988,6 +3050,23 @@ function readModel() {
 
 function intOf(id, fallback) {
   var v = parseInt(byId(id).value, 10); return isNaN(v) ? (fallback || 0) : v;
+}
+function numOf(id, fallback) {
+  var v = parseFloat(byId(id).value); return isNaN(v) ? (fallback || 0) : v;
+}
+// The advanced fold of a section stands open when one of its fields has moved
+// away from the default the program gives a new set of settings.
+function advOpen(id, keys, defaults) {
+  var node = byId(id); if (!node) { return; }
+  var s = (mdl && mdl.settings) ? mdl.settings : {};
+  var open = false;
+  for (var i = 0; i < keys.length; i++) {
+    var v = s[keys[i]]; var d = defaults[keys[i]];
+    if (typeof v === 'number' && typeof d === 'number') {
+      if (Math.abs(v - d) > 1e-9) { open = true; break; }
+    } else if (v !== d) { open = true; break; }
+  }
+  node.open = open;
 }
 // One of the two rooms for steps, as the setting holds it. An empty field or a
 // word that is not a number means no limit, which is -1. A number below -1 is
@@ -3059,7 +3138,8 @@ byId('fDark').addEventListener('change', function (e) {
   post('/api/dark', { on: e.target.checked });
 });
 
-['mCtx', 'mKv', 'mLoad', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',
+['mCtx', 'mKv', 'mLoad', 'mTemp', 'mTopP', 'mTopK', 'mMinP', 'mRepeatPen', 'mPresencePen',
+  'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',
   'mVision', 'mBudget', 'mReasonMsg', 'mVram', 'mTemplate', 'mExtra'].forEach(function (id) {
   var node = byId(id);
   node.addEventListener('input', function () {

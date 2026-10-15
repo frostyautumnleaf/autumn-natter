@@ -437,6 +437,27 @@ pub fn build_args(
         args.push(margins.join(","));
     }
 
+    // Sampling of one answer. The values are sent on every start, so the
+    // defaults of this program stand over the defaults of the server.
+    args.push("--temp".into());
+    args.push(settings.temperature.to_string());
+    args.push("--top-p".into());
+    args.push(settings.top_p.to_string());
+    args.push("--top-k".into());
+    args.push(settings.top_k.to_string());
+    args.push("--min-p".into());
+    args.push(settings.min_p.to_string());
+    args.push("--repeat-penalty".into());
+    args.push(settings.repeat_penalty.to_string());
+    args.push("--presence-penalty".into());
+    args.push(settings.presence_penalty.to_string());
+    // -1 leaves the answer without a limit of tokens.
+    args.push("--n-predict".into());
+    args.push(settings.max_tokens.to_string());
+    // -1 makes the server draw a new seed on every start.
+    args.push("--seed".into());
+    args.push(settings.seed.to_string());
+
     // Vision projector.
     if settings.vision {
         match find_mmproj(&model.path) {
@@ -722,4 +743,84 @@ fn server_message(code: u16, body: &str) -> String {
         return format!("the model server answered with status {}", code);
     }
     format!("{} (status {})", detail, code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // One model file, and no devices, for the argument tests.
+    fn model() -> ModelInfo {
+        ModelInfo {
+            path: PathBuf::from("/models/one.gguf"),
+            name: String::from("one"),
+            kind: "GGUF",
+        }
+    }
+
+    // The Sampling section sends its values to the server on every start, and
+    // the defaults of the program stand in a new set of settings.
+    #[test]
+    fn the_sampling_values_go_to_the_server() {
+        let mut settings = ModelSettings::default();
+        settings.temperature = 0.2;
+        settings.top_p = 0.5;
+        settings.top_k = 7;
+        settings.min_p = 0.1;
+        settings.repeat_penalty = 1.1;
+        settings.presence_penalty = 0.2;
+        settings.max_tokens = 256;
+        settings.seed = 42;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        let find = |flag: &str| -> String {
+            let pos = args.iter().position(|a| a == flag).expect("the flag is there");
+            args[pos + 1].clone()
+        };
+        assert_eq!(find("--temp"), "0.2");
+        assert_eq!(find("--top-p"), "0.5");
+        assert_eq!(find("--top-k"), "7");
+        assert_eq!(find("--min-p"), "0.1");
+        assert_eq!(find("--repeat-penalty"), "1.1");
+        assert_eq!(find("--presence-penalty"), "0.2");
+        assert_eq!(find("--n-predict"), "256");
+        assert_eq!(find("--seed"), "42");
+
+        // The defaults of a new set of settings.
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--temp"), "0.7");
+        assert_eq!(find_flag(&args, "--top-p"), "0.95");
+        assert_eq!(find_flag(&args, "--top-k"), "20");
+        assert_eq!(find_flag(&args, "--min-p"), "0");
+        assert_eq!(find_flag(&args, "--repeat-penalty"), "1");
+        assert_eq!(find_flag(&args, "--presence-penalty"), "0");
+        assert_eq!(find_flag(&args, "--n-predict"), "-1");
+        assert_eq!(find_flag(&args, "--seed"), "-1");
+    }
+
+    // The value behind one flag, for the tests.
+    fn find_flag(args: &[String], flag: &str) -> String {
+        let pos = args.iter().position(|a| a == flag).expect("the flag is there");
+        args[pos + 1].clone()
+    }
 }
