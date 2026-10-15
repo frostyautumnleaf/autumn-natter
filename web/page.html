@@ -286,6 +286,27 @@ pre.code {
   scrollbar-color: var(--line-strong) transparent; color: var(--text-2);
 }
 
+/* The colours of a code block. Every one of them is one of the five accents, a
+   neutral, or a mix of an accent with a warm neutral for the dark skin, where
+   the deep accents cannot be read on #141414. Weight and shape tell one kind of
+   word from another as much as colour does, so a block can be read without it. */
+:root {
+  --t-com: var(--faint); --t-key: var(--strong); --t-str: var(--deep);
+  --t-num: var(--text-2); --t-name: var(--accent); --t-var: var(--leaf);
+  --t-pun: var(--dim);
+}
+body.dark {
+  --t-com: #857c71; --t-key: var(--ink); --t-str: var(--ink-fail); --t-num: var(--text-2);
+  --t-name: #f8ab5c; --t-var: var(--ink-leaf); --t-pun: var(--dim);
+}
+pre.code .t-c { color: var(--t-com); font-style: italic; }
+pre.code .t-k { color: var(--t-key); font-weight: 600; }
+pre.code .t-s { color: var(--t-str); }
+pre.code .t-n { color: var(--t-num); font-weight: 600; }
+pre.code .t-f { color: var(--t-name); font-weight: 600; }
+pre.code .t-v { color: var(--t-var); font-weight: 600; }
+pre.code .t-p { color: var(--t-pun); }
+
 /* The thinking of the model: a look inside the answer, so it is kept small and
    behind a rule of colour. The head of the panel folds the words away in the
    same way as the head of a tool run, and carries the chevron that says which
@@ -697,7 +718,7 @@ var cur = null;        // the last state
 // engine gives them. The page of the browser has no sheet of settings, so it
 // reads the two here and follows them. A panel that is folded as it comes in
 // stands closed from the first look, and the reader opens it with a click.
-var fold = { thinking: true, tools: true };
+var chatting = { thinking: true, tools: true, highlight: true };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -728,7 +749,7 @@ function tight() { return (document.documentElement.clientWidth || 640) < 860; }
 function draw(s) {
   cur = s;
   document.body.classList.toggle('dark', !!s.dark);
-  readFold(s);
+  readChatting(s);
   el.darkbtn.title = s.dark ? 'Switch to the pale colours' : 'Switch to the dark colours';
   drawHome(s);
   fillSelect(el.model, s.models, s.model.id, function (m) { return m.name; });
@@ -766,10 +787,11 @@ function draw(s) {
 // Chatting. The two switches of the settings are read again with every state,
 // so a change made in the window is followed here too. A state of an older
 // engine has no record of them, and then both stand on.
-function readFold(s) {
+function readChatting(s) {
   var chat = s.chatting || {};
-  fold.thinking = chat.collapse_thinking !== false;
-  fold.tools = chat.collapse_tools !== false;
+  chatting.thinking = chat.collapse_thinking !== false;
+  chatting.tools = chat.collapse_tools !== false;
+  chatting.highlight = chat.highlight !== false;
 }
 
 // The meter of the context: the words in use, the whole room, and a bar.
@@ -940,6 +962,9 @@ function blocks(text) {
   var para = [];
   var list = null;
   var fence = null;
+  // The word after the three marks of a fence says which kind of file the
+  // block holds, and the colours of the block follow it.
+  var fenceLang = '';
   function flushPara() {
     var joined = para.join('\n').replace(/^\s+|\s+$/g, '');
     if (joined) { out.push({ kind: 'text', text: joined }); }
@@ -954,14 +979,22 @@ function blocks(text) {
     var cut = line.replace(/^\s*/, '');
     if (fence !== null) {
       if (/^```/.test(cut)) {
-        out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, '') });
+        out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, ''),
+          lang: fenceLang });
         fence = null;
+        fenceLang = '';
       } else {
         fence.push(line);
       }
       continue;
     }
-    if (/^```/.test(cut)) { flushList(); flushPara(); fence = []; continue; }
+    if (/^```/.test(cut)) {
+      var opened = /^```[ \t]*([A-Za-z0-9+#._-]{1,20})/.exec(cut);
+      flushList(); flushPara();
+      fence = [];
+      fenceLang = opened ? opened[1] : '';
+      continue;
+    }
     var head = /^(#{1,6})\s+(.*)$/.exec(cut);
     if (head) {
       flushList(); flushPara();
@@ -986,7 +1019,9 @@ function blocks(text) {
     flushList();
     para.push(plain(line));
   }
-  if (fence !== null) { out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, '') }); }
+  if (fence !== null) {
+    out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, ''), lang: fenceLang });
+  }
   flushList();
   flushPara();
   return out;
@@ -1037,7 +1072,7 @@ function thinkHead() {
 // The Chatting settings say whether it starts closed, and a click on the head
 // of one panel changes that panel alone.
 function thinkPanel() {
-  var panel = make('div', 'think' + (fold.thinking ? ' closed' : ''));
+  var panel = make('div', 'think' + (chatting.thinking ? ' closed' : ''));
   var head = thinkHead();
   var words = make('div', 'words');
   head.head.addEventListener('click', function () { panel.classList.toggle('closed'); });
@@ -1066,7 +1101,7 @@ function toolBox(m) {
   var running = m.tool === 'running ...';
   // The Chatting settings say whether a command starts folded up.
   var panel = make('div', 'tool' + (m.failed ? ' bad' : '')
-    + (fold.tools ? ' closed' : ''));
+    + (chatting.tools ? ' closed' : ''));
 
   var head = make('button', 'thead');
   head.type = 'button';
@@ -1115,6 +1150,294 @@ function roleClass(m) {
   return 't-ai';
 }
 
+// ---------------------------------------------------- the colours of a code block
+//
+// A block of code is read by a small reader of its own, so its words are not
+// all of one colour. The reader cuts a block into parts: a comment, a word of
+// the language, a word in quotes, a number, a name, and a mark of punctuation.
+// Every part takes a colour of this program: one of the five accents, a
+// neutral, or a mix of the two. Nothing is fetched and nothing is loaded, so
+// the page stays a page of the machine it stands on. A kind of file the reader
+// does not know is painted as it came in, which reads better than wrong
+// colours.
+
+// One kind of file: how its comments and its quotes look, and which words are
+// its own words. A `key` kind is one where a name before a colon stands out.
+// `flag` and `dollar` mark a command line, and `json`, `markup` and `css` the
+// three kinds that are read by a rule of their own.
+var CODE_KINDS = {
+  python: {
+    line: ['#'], str: ['"', "'"], triple: true, prefixed: true,
+    words: 'and as assert async await break class continue def del elif else except '
+      + 'finally for from global if import in is lambda match nonlocal not or pass '
+      + 'raise return try while with yield None True False self cls'
+  },
+  clike: {
+    line: ['//'], block: [['/*', '*/']], str: ['"', "'"],
+    words: 'as auto bool break case catch char class const constexpr continue crate dyn '
+      + 'else enum extern false final finally float fn for func function goto if impl '
+      + 'implements inline int interface let long match namespace new nullptr operator '
+      + 'package private protected public ref return restrict sealed short signed sizeof '
+      + 'static struct super switch template this throw trait true typedef typeof union '
+      + 'unsigned unsafe use using var virtual void volatile while yield'
+  },
+  go: {
+    line: ['//'], block: [['/*', '*/']], str: ['"', "'", '`'],
+    words: 'break case chan const continue default defer else fallthrough for func go '
+      + 'goto if import interface map package range return select struct switch type '
+      + 'var nil true false make new len cap append copy delete panic recover'
+  },
+  lua: {
+    line: ['--'], str: ['"', "'"],
+    words: 'and break do else elseif end false for function goto if in local nil not or '
+      + 'repeat return then true until while'
+  },
+  ruby: {
+    line: ['#'], str: ['"', "'"],
+    words: 'alias and begin break case class def defined do else elsif end ensure false '
+      + 'for if in module next not or redo rescue retry return self super then true '
+      + 'undef unless until when while yield require'
+  },
+  php: {
+    line: ['//', '#'], block: [['/*', '*/']], str: ['"', "'"],
+    words: 'abstract and array as break callable case catch class clone const continue '
+      + 'declare default do echo else elseif empty enddeclare endfor endforeach endif '
+      + 'endswitch endwhile extends final finally fn for foreach function global goto if '
+      + 'implements instanceof insteadof interface isset list match namespace new or '
+      + 'print private protected public readonly return static switch throw trait try '
+      + 'unset use var while xor yield true false null'
+  },
+  shell: {
+    line: ['#'], str: ['"', "'"], flag: true, dollar: true,
+    words: 'if then else elif fi for while until do done case esac function in select '
+      + 'time return exit break continue declare export local readonly set shift source '
+      + 'alias echo printf read trap sudo cd ls cat grep sed awk cut sort uniq head '
+      + 'tail wc find xargs curl wget git cargo npm make cmake docker systemctl bwrap'
+  },
+  sql: {
+    line: ['--'], block: [['/*', '*/']], str: ['"', "'"],
+    words: 'select from where insert into values update delete set create table drop '
+      + 'alter add all and as between by case cast commit constraint primary foreign '
+      + 'key references join left right inner outer full on group having limit offset '
+      + 'union distinct like in is not null or order sum avg min max exists begin end '
+      + 'grant revoke view index sequence truncate desc asc default'
+  },
+  yaml: { line: ['#'], str: ['"', "'"], key: true, words: 'true false null yes no on off' },
+  toml: { line: ['#'], str: ['"', "'"], key: true, words: 'true false' },
+  ini: { line: [';', '#'], str: ['"', "'"], key: true, words: 'true false' },
+  json: { json: true },
+  markup: { markup: true },
+  css: { css: true }
+};
+
+// The words after the three marks of a fence, and the kind they call for. A
+// word that is not here gives no colours at all.
+var CODE_ALIAS = {
+  python: 'python', py: 'python', python3: 'python', py3: 'python',
+  js: 'clike', javascript: 'clike', jsx: 'clike', mjs: 'clike', cjs: 'clike',
+  ts: 'clike', tsx: 'clike', typescript: 'clike', node: 'clike',
+  c: 'clike', h: 'clike', cpp: 'clike', cxx: 'clike', cc: 'clike', 'c++': 'clike',
+  hpp: 'clike', cs: 'clike', java: 'clike', kotlin: 'clike', swift: 'clike',
+  scala: 'clike', dart: 'clike', objc: 'clike', zig: 'clike', julia: 'clike',
+  rust: 'clike', rs: 'clike',
+  go: 'go', golang: 'go',
+  lua: 'lua', ruby: 'ruby', rb: 'ruby', php: 'php',
+  sh: 'shell', bash: 'shell', zsh: 'shell', shell: 'shell', console: 'shell',
+  terminal: 'shell', batch: 'shell', bat: 'shell', ps: 'shell', powershell: 'shell',
+  sql: 'sql', postgres: 'sql', postgresql: 'sql', sqlite: 'sql', mysql: 'sql',
+  yaml: 'yaml', yml: 'yaml', toml: 'toml', ini: 'ini', conf: 'ini', cfg: 'ini',
+  json: 'json', jsonc: 'json', html: 'markup', xml: 'markup', svg: 'markup',
+  vue: 'markup', svelte: 'markup', css: 'css', scss: 'css', less: 'css'
+};
+
+// A number: a whole one, a broken one, one with an exponent, and one in another
+// root.
+var CODE_NUMBER = '\\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\\d[\\d_]*(?:\\.\\d+)?'
+  + '(?:[eE][+-]?\\d+)?)(?![A-Za-z0-9_])';
+// A measure in a style sheet: the figure and its unit stand as one part, so
+// 40em is one number and not a number that forgot its letter.
+var CSS_NUMBER = '\\b\\d+(?:\\.\\d+)?'
+  + '(?:px|rem|em|%|vh|vw|vmin|vmax|ms|s|deg|fr|ch|ex|pt|pc|in|cm|mm)?(?![A-Za-z0-9])';
+
+// A word of a program, and the same with the dashes of a style sheet or a tag.
+var CODE_WORD = '[A-Za-z_$][A-Za-z0-9_$]*';
+var CODE_DASHED = '[A-Za-z][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)*';
+
+// Take the marks out of a piece of a rule, so a mark of this program is read as
+// a word and not as a rule.
+function escapeRe(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// One pair of quotes with the words inside them. A run between two quotes does
+// not cross a line, so an unfinished quote cannot swallow the rest of the file.
+function quoteRe(quote) {
+  if (quote === '`') { return '`(?:\\\\.|[^`\\\\])*`'; }
+  var not = (quote === '"') ? '[^"\\\\\\n]' : "[^'\\\\\\n]";
+  return escapeRe(quote) + '(?:\\\\.|' + not + ')*' + escapeRe(quote);
+}
+
+// The parts of one kind of file, in the order they are tried. No part holds a
+// group of its own, so the place of a part in this list is the place of its
+// group in the whole rule. The class 'w' stands for a word, which is only
+// known to be a word of the language after the words of the kind are looked at.
+function codeParts(kind) {
+  var parts = [];
+  var n;
+  var pair;
+  if (kind.markup) {
+    parts.push(['c', '<!--[\\s\\S]*?(?:-->|$)']);
+    parts.push(['s', quoteRe('"')]);
+    parts.push(['s', quoteRe("'")]);
+    parts.push(['f', '</?[A-Za-z][A-Za-z0-9.:-]*']);
+    parts.push(['v', '[A-Za-z_:][A-Za-z0-9_.:-]*(?=\\s*=)']);
+    parts.push(['v', '&[A-Za-z0-9]+;|&#\\d+;']);
+    parts.push(['p', '/?>']);
+    parts.push(['w', CODE_DASHED]);
+    return parts;
+  }
+  if (kind.css) {
+    parts.push(['c', '\\/\\*[\\s\\S]*?(?:\\*\\/|$)']);
+    parts.push(['s', quoteRe('"')]);
+    parts.push(['s', quoteRe("'")]);
+    parts.push(['v', '@[A-Za-z-]+']);
+    parts.push(['n', '#[0-9a-fA-F]{3,8}\\b']);
+    parts.push(['f', '[#.][A-Za-z-][A-Za-z0-9_-]*']);
+    parts.push(['v', '[A-Za-z-][A-Za-z0-9_-]*(?=\\s*:(?!=))']);
+    parts.push(['n', CSS_NUMBER]);
+    parts.push(['p', '[{}();:,]']);
+    parts.push(['w', CODE_DASHED]);
+    return parts;
+  }
+  if (kind.json) {
+    parts.push(['v', '"(?:\\\\.|[^"\\\\])*"(?=\\s*:)']);
+    parts.push(['s', quoteRe('"')]);
+    parts.push(['k', '\\b(?:true|false|null)\\b']);
+    parts.push(['n', CODE_NUMBER]);
+    parts.push(['p', '[{}\\[\\],:]']);
+    return parts;
+  }
+  if (kind.block) {
+    for (n = 0; n < kind.block.length; n++) {
+      pair = kind.block[n];
+      parts.push(['c', escapeRe(pair[0]) + '[\\s\\S]*?(?:' + escapeRe(pair[1]) + '|$)']);
+    }
+  }
+  if (kind.line) {
+    for (n = 0; n < kind.line.length; n++) {
+      parts.push(['c', escapeRe(kind.line[n]) + '[^\\n]*']);
+    }
+  }
+  if (kind.triple) {
+    // Three quotes in a row are read before a pair of them, so a long run of
+    // words between six quotes is one run of words and not three empty ones.
+    parts.push(['s', '"""[\\s\\S]*?"""']);
+    parts.push(['s', "[']{3}[\\s\\S]*?[']{3}"]);
+  }
+  if (kind.str) {
+    for (n = 0; n < kind.str.length; n++) {
+      parts.push(['s', (kind.prefixed ? '[A-Za-z]{0,2}' : '') + quoteRe(kind.str[n])]);
+    }
+  }
+  if (kind.flag) { parts.push(['v', '-{1,2}[A-Za-z][A-Za-z0-9_-]*']); }
+  if (kind.dollar) {
+    parts.push(['v', '\\$(?:[A-Za-z_][A-Za-z0-9_]*|\\{[^}]*\\}|[0-9@#?!$*-])']);
+  }
+  // A name before a colon stands out, but only at the start of a line, so an
+  // address inside the words of a file is not taken for a name of its own.
+  if (kind.key) {
+    parts.push(['v', '(?:^|\\n)[ \\t]*[-*]?[A-Za-z_"@][A-Za-z0-9_. -]*(?=\\s*:(?!=))']);
+  }
+  parts.push(['n', CODE_NUMBER]);
+  parts.push(['p', '[{}\\[\\]();,]']);
+  parts.push(['w', CODE_WORD]);
+  return parts;
+}
+
+// The whole rule of one kind of file, made once and kept, with the words of the
+// kind beside it.
+var codeReaders = {};
+function readerOf(name) {
+  if (codeReaders[name]) { return codeReaders[name]; }
+  var kind = CODE_KINDS[name];
+  if (!kind) { return null; }
+  var parts = codeParts(kind);
+  var source = '';
+  var n;
+  for (n = 0; n < parts.length; n++) { source += (n ? '|' : '') + '(' + parts[n][1] + ')'; }
+  var words = {};
+  var list = String(kind.words || '').split(/[\s,]+/);
+  for (n = 0; n < list.length; n++) { if (list[n]) { words[list[n].toLowerCase()] = true; } }
+  codeReaders[name] = { re: new RegExp(source, 'g'), parts: parts, words: words };
+  return codeReaders[name];
+}
+
+// Which class a word of a program takes: a word of the language, a name, or no
+// colour of its own. The words of the language are looked at in lower case, so
+// a model that writes SELECT and a model that writes select read the same.
+function classOfWord(reader, word, text, place) {
+  if (reader.words[word.toLowerCase()]) { return 'k'; }
+  if (word.length > 1 && /^[A-Z][A-Za-z0-9_]*$/.test(word)) { return 'f'; }
+  if (/^\s*\(/.test(text.slice(place + word.length))) { return 'f'; }
+  return '';
+}
+
+// The words of a block, cut into parts. The answer is a list of pairs: the
+// class of a part, and its words. No part holds a mark of html, because every
+// part goes on the page as words.
+function codeRuns(text, name) {
+  var reader = readerOf(name);
+  if (!reader) { return [['', text]]; }
+  var runs = [];
+  var last = 0;
+  var hit;
+  var n;
+  var cls;
+  reader.re.lastIndex = 0;
+  while ((hit = reader.re.exec(text)) !== null) {
+    if (hit[0] === '') { reader.re.lastIndex += 1; continue; }
+    if (hit.index > last) { runs.push(['', text.slice(last, hit.index)]); }
+    cls = '';
+    for (n = 1; n < hit.length; n++) {
+      if (hit[n] !== undefined) {
+        cls = reader.parts[n - 1][0];
+        if (cls === 'w') { cls = classOfWord(reader, hit[n], text, hit.index); }
+        break;
+      }
+    }
+    runs.push([cls, hit[0]]);
+    last = hit.index + hit[0].length;
+  }
+  if (last < text.length) { runs.push(['', text.slice(last)]); }
+  return runs;
+}
+
+// Which kind of file a block of code asks for. Nothing after the three marks of
+// a fence, or a word that is not known, gives no colours at all.
+function codeKind(lang) {
+  return CODE_ALIAS[String(lang || '').toLowerCase()] || '';
+}
+
+// Paint one block of code. With no kind of file, or with the colours of code
+// turned off in the Chatting settings, the words stand as they came in.
+function paintCode(node, text, lang) {
+  node.innerHTML = '';
+  var kind = codeKind(lang);
+  if (!kind || !chatting.highlight) {
+    node.textContent = text;
+    return;
+  }
+  var runs = codeRuns(text, kind);
+  for (var n = 0; n < runs.length; n++) {
+    if (!runs[n][0]) {
+      node.appendChild(document.createTextNode(runs[n][1]));
+    } else {
+      var span = make('span', 't-' + runs[n][0]);
+      span.textContent = runs[n][1];
+      node.appendChild(span);
+    }
+  }
+}
 // One block of words, as the window sets it.
 function blockNode(block) {
   if (block.kind === 'heading') {
@@ -1138,7 +1461,8 @@ function blockNode(block) {
   }
   if (block.kind === 'code') {
     var code = make('pre', 'code');
-    code.textContent = block.text;
+    code.dataset.lang = block.lang || '';
+    paintCode(code, block.text, block.lang);
     return code;
   }
   var text = make('div', 'body');
@@ -1223,6 +1547,27 @@ function settle(node) {
   node.normalize();
 }
 
+// The new words of the block that can still grow. A block of code is painted
+// again whole, so its colours stay right while the words come in; a block of
+// words takes the new words at its end, behind a fade.
+function putTail(holder, want, rebuilt) {
+  if (holder.classList.contains('code')) {
+    paintCode(holder, want, holder.dataset.lang || '');
+    return;
+  }
+  if (rebuilt) {
+    holder.textContent = '';
+    if (want) { fresh(holder, want); }
+    return;
+  }
+  var have = holder.textContent;
+  if (want.length > have.length && want.slice(0, have.length) === have) {
+    fresh(holder, want.slice(have.length));
+  } else {
+    holder.textContent = want;
+  }
+}
+
 // Words put on the page as blocks of markdown. A block that came in is made
 // again; a block that only grew takes the new words at its end. The shape of
 // the blocks last time stands in state, so a change of shape is seen at once.
@@ -1233,23 +1578,17 @@ function writeBlocks(node, state, text) {
   var shape = shapeOf(made);
   var want = tailText(made);
   var holder = null;
+  var rebuilt = false;
   if (shape !== state.shape) {
     state.shape = shape;
     node.innerHTML = '';
     for (var n = 0; n < made.length; n++) { node.appendChild(blockNode(made[n])); }
     holder = holderOf(lastBlock(node));
-    if (holder && want) { holder.textContent = ''; fresh(holder, want); }
+    rebuilt = true;
   } else if (made.length) {
     holder = holderOf(lastBlock(node));
-    if (holder) {
-      var have = holder.textContent;
-      if (want.length > have.length && want.slice(0, have.length) === have) {
-        fresh(holder, want.slice(have.length));
-      } else {
-        holder.textContent = want;
-      }
-    }
   }
+  if (holder) { putTail(holder, want, rebuilt); }
   settle(node);
   return holder;
 }

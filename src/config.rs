@@ -110,6 +110,9 @@ pub struct Config {
     // Fold a tool panel up while its command runs.
     #[serde(default = "on_by_default")]
     pub chat_collapse_tools: bool,
+    // Give the words of a block of code the colours of their kind.
+    #[serde(default = "on_by_default")]
+    pub chat_highlight: bool,
 }
 
 impl Default for Config {
@@ -125,6 +128,7 @@ impl Default for Config {
             model_settings: BTreeMap::new(),
             chat_collapse_thinking: true,
             chat_collapse_tools: true,
+            chat_highlight: true,
         }
     }
 }
@@ -250,6 +254,7 @@ mod tests {
         let cfg = Config::default();
         assert!(cfg.chat_collapse_thinking);
         assert!(cfg.chat_collapse_tools);
+        assert!(cfg.chat_highlight);
     }
 
     // A settings file written before the Chatting section existed still reads,
@@ -262,6 +267,7 @@ mod tests {
         let read: Config = serde_json::from_str(old).expect("an old settings file reads");
         assert!(read.chat_collapse_thinking);
         assert!(read.chat_collapse_tools);
+        assert!(read.chat_highlight);
     }
 }
 

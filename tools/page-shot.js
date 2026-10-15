@@ -58,7 +58,13 @@ const FULL = [
       + 'all 6 tests passed' }),
   said(4, 'Assistant', 'The tests pass. Two notes:\n\n'
     + '- The bar takes its height from the words beside it.\n'
-    + '- A list that follows a paragraph keeps its place.'),
+    + '- A list that follows a paragraph keeps its place.\n\n'
+    + '```python\n'
+    + '# the bar takes a height from the words beside it\n'
+    + 'def height(words, size=15):\n'
+    + '    line = words.count("\\n") + 1\n'
+    + '    return 1.55 * size * line   # points\n'
+    + '```'),
   said(5, 'Note', 'cannot reach the model: connection refused', { failed: true }),
   said(6, 'Tool', 'bwrap --die-with-parent ls -1 /nope',
     { tool: 'exit 1: no such file', failed: true }),
@@ -103,14 +109,15 @@ function scene(name, dark) {
     carousel: { index: 0, count: 0, blank: true },
     messages: [], live: '', reasoning: '',
     thinking: { mode: 'auto', available: true },
-    chatting: { collapse_thinking: true, collapse_tools: true },
+    chatting: { collapse_thinking: true, collapse_tools: true, highlight: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
     generating: false, busy: false, code: false, sandbox: false,
     sandbox_available: true,
     sandbox_note: 'bubblewrap (bwrap) was found, so the tool can be kept inside a jail.',
     status: 'Ready', dark: !!dark, data_dir: '/home/user/.local/share/autumn-natter'
   };
-  if (name === 'chat' || name === 'rich' || name === 'streaming' || name === 'previews') {
+  if (name === 'chat' || name === 'rich' || name === 'streaming' || name === 'streaming-code'
+    || name === 'previews') {
     start.home = false;
     start.chat = { id: 'c1', title: name === 'rich' ? 'Parser order' : 'Memory of the talk' };
     start.chats = chats(name === 'previews' ? 9 : 3, 1);
@@ -119,6 +126,18 @@ function scene(name, dark) {
     start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
     start.code = name === 'rich';
     start.sandbox = name === 'rich';
+  }
+  if (name === 'streaming-code') {
+    // A block of code that is still being written, so the colours of it are
+    // painted again while it grows.
+    start.generating = true;
+    start.live = 'The reader of the fence is small:\n\n'
+      + '```python\ndef read(line):\n    # a fence opens the block\n'
+      + '    return line.startswith("```")  # and closes it';
+    // The fence is left open on purpose: the block is still being written.
+    start.reasoning = 'Show a fence coming in, so the repaint of a growing block is seen.';
+    start.status = 'Answering';
+    start.context = { used: '5,980', total: '8,192', ratio: 0.73 };
   }
   if (name === 'streaming') {
     start.generating = true;
@@ -139,7 +158,8 @@ const CONFIG = {
   upnp_enabled: false,
   dark_mode: false,
   chat_collapse_thinking: true,
-  chat_collapse_tools: true
+  chat_collapse_tools: true,
+  chat_highlight: true
 };
 
 const MODEL = {
@@ -171,13 +191,18 @@ async function main() {
   else if (name.endsWith('-pale')) { name = name.slice(0, -5); }
   const state = scene(name === 'sheet-program' || name === 'sheet-model' ? 'chat' : name, dark);
 
-  // AN_FOLD=0 turns the two switches of the Chatting section off, so a picture
-  // can be taken of a panel that is written out as it comes in.
+  // AN_FOLD=0 turns the two fold switches of the Chatting section off, so a
+  // picture can be taken of a panel that is written out as it comes in.
+  // AN_HL=0 turns the colours of a code block off.
   if (process.env.AN_FOLD === '0') {
     state.chatting.collapse_thinking = false;
     state.chatting.collapse_tools = false;
     CONFIG.chat_collapse_thinking = false;
     CONFIG.chat_collapse_tools = false;
+  }
+  if (process.env.AN_HL === '0') {
+    state.chatting.highlight = false;
+    CONFIG.chat_highlight = false;
   }
 
   const puppeteer = require('puppeteer');

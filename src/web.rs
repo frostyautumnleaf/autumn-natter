@@ -109,10 +109,12 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox_note": snap.sandbox_note,
         "status": snap.status,
         "dark": snap.dark_mode,
-        // Chatting. How the page shows a thinking panel and a tool panel.
+        // Chatting. How the page shows a thinking panel, a tool panel and a
+        // block of code.
         "chatting": {
             "collapse_thinking": snap.chat_collapse_thinking,
             "collapse_tools": snap.chat_collapse_tools,
+            "highlight": snap.chat_highlight,
         },
         // The folder of the program data. The window of settings reads it out.
         "data_dir": snap.data_dir,

@@ -69,6 +69,8 @@ pub struct Snap {
     pub chat_collapse_thinking: bool,
     // Whether a tool panel is folded up while its command runs.
     pub chat_collapse_tools: bool,
+    // Whether a block of code takes the colours of the kinds of word in it.
+    pub chat_highlight: bool,
     pub models: Vec<ModelInfo>,
     pub model_id: String,
     pub repositories: Vec<Repo>,
@@ -552,6 +554,7 @@ impl State {
             sandbox_note: self.sandbox_note.clone(),
             chat_collapse_thinking: self.cfg.chat_collapse_thinking,
             chat_collapse_tools: self.cfg.chat_collapse_tools,
+            chat_highlight: self.cfg.chat_highlight,
             models: self.models.clone(),
             model_id: self.current_model_id(),
             // The top bar shows five recent repositories at most.
@@ -1049,6 +1052,7 @@ impl Snap {
             sandbox_note: String::new(),
             chat_collapse_thinking: true,
             chat_collapse_tools: true,
+            chat_highlight: true,
             models: Vec::new(),
             model_id: String::new(),
             repositories: Vec::new(),
