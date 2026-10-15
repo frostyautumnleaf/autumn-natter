@@ -1957,13 +1957,22 @@ function holderOf(node) {
   return node;
 }
 
+// Put a child of words at the end of the words of a node. The mark that says an
+// answer is not over stands among those words, so new words go in before it and
+// never after it: a mark that new words were written behind is a mark in the
+// middle of a word, which is a fault and not a mark of an answer.
+function putLast(node, made) {
+  if (ink.caret && ink.caret.parentNode === node) { node.insertBefore(made, ink.caret); return; }
+  node.appendChild(made);
+}
+
 // New words go in behind a fade.
 function fresh(node, text) {
   if (!node || !text) { return; }
-  if (reduce) { node.appendChild(document.createTextNode(text)); return; }
+  if (reduce) { putLast(node, document.createTextNode(text)); return; }
   var span = make('span', 'ink');
   span.textContent = text;
-  node.appendChild(span);
+  putLast(node, span);
 }
 
 // Words that have finished fading are plain words again, so a long answer does
