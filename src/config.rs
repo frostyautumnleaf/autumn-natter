@@ -72,6 +72,10 @@ pub struct ModelSettings {
     pub cache_ram: i64,
     // The server keeps the work of the prompt and reuses it on the next turn.
     pub cache_prompt: bool,
+    // The room one image may take, for a model that can look at pictures.
+    // 0 keeps the value inside the model file.
+    pub image_min_tokens: i64,
+    pub image_max_tokens: i64,
     // -1 means no limit. 0 stops thinking at once.
     pub reasoning_budget: i64,
     pub reasoning_message: String,
@@ -111,6 +115,8 @@ impl Default for ModelSettings {
             ctx_checkpoints: 32,
             cache_ram: 8192,
             cache_prompt: true,
+            image_min_tokens: 0,
+            image_max_tokens: 0,
             reasoning_budget: -1,
             reasoning_message: String::new(),
             chat_template: String::new(),

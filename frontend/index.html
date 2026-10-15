@@ -1030,6 +1030,17 @@ pre.code.line {
         <div class="fld"><span class="lbl">Pictures</span>
           <span class="sub">Read the pictures of a chat, when the model can look at them.</span>
           <div class="ctl"><input id="mVision" type="checkbox"></div></div>
+        <details class="adv" id="advWorking">
+          <summary>Advanced</summary>
+          <div class="adv-body">
+            <div class="fld"><span class="lbl">Image minimum tokens</span>
+              <span class="sub">The least tokens one image may take, for a model that can look at pictures. 0 keeps the value inside the model file.</span>
+              <div class="ctl"><input id="mImgMin" type="number" min="0" max="100000" step="1"><span class="unit">0 for the model value</span></div></div>
+            <div class="fld"><span class="lbl">Image maximum tokens</span>
+              <span class="sub">The most tokens one image may take, for a model that can look at pictures. 0 keeps the value inside the model file.</span>
+              <div class="ctl"><input id="mImgMax" type="number" min="0" max="100000" step="1"><span class="unit">0 for the model value</span></div></div>
+          </div>
+        </details>
 
         <div class="sec">Thoughts</div>
         <div class="fld"><span class="lbl">Room for the thoughts</span>
@@ -2994,6 +3005,10 @@ function loadModel() {
     byId('mBatch').value = s.batch_size;
     byId('mUbatch').value = s.ubatch_size;
     byId('mVision').checked = !!s.vision;
+    byId('mImgMin').value = s.image_min_tokens;
+    byId('mImgMax').value = s.image_max_tokens;
+    advOpen('advWorking', ['image_min_tokens', 'image_max_tokens'],
+      { image_min_tokens: 0, image_max_tokens: 0 });
     byId('mBudget').value = s.reasoning_budget;
     byId('mReasonMsg').value = s.reasoning_message || '';
     byId('mTensor').checked = !!s.tensor_parallel;
@@ -3066,6 +3081,8 @@ function readModel() {
   s.batch_size = intOf('mBatch', s.batch_size);
   s.ubatch_size = intOf('mUbatch', s.ubatch_size);
   s.vision = byId('mVision').checked;
+  s.image_min_tokens = intOf('mImgMin', s.image_min_tokens);
+  s.image_max_tokens = intOf('mImgMax', s.image_max_tokens);
   s.reasoning_budget = intOf('mBudget', s.reasoning_budget);
   s.reasoning_message = byId('mReasonMsg').value;
   s.tensor_parallel = byId('mTensor').checked;
@@ -3175,7 +3192,8 @@ byId('fDark').addEventListener('change', function (e) {
   'mTopP', 'mTopK',
   'mMinP', 'mRepeatPen', 'mPresencePen',
   'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',
-  'mVision', 'mBudget', 'mReasonMsg', 'mTensor', 'mVram', 'mTemplate', 'mExtra'].forEach(function (id) {
+  'mVision', 'mImgMin', 'mImgMax', 'mBudget', 'mReasonMsg', 'mTensor', 'mVram',
+  'mTemplate', 'mExtra'].forEach(function (id) {
   var node = byId(id);
   node.addEventListener('input', function () {
     if (id === 'mVram') { byId('mVramText').textContent = Math.round(Number(node.value) || 0) + ' MiB'; }

@@ -484,6 +484,16 @@ pub fn build_args(
             }
             None => notes.push(format!("no vision projector next to {}", model.name)),
         }
+        // The room one image may take. 0 keeps the value inside the model
+        // file, so the flag stays away.
+        if settings.image_min_tokens > 0 {
+            args.push("--image-min-tokens".into());
+            args.push(settings.image_min_tokens.to_string());
+        }
+        if settings.image_max_tokens > 0 {
+            args.push("--image-max-tokens".into());
+            args.push(settings.image_max_tokens.to_string());
+        }
     }
 
     // Reasoning budget.
@@ -904,6 +914,60 @@ mod tests {
         );
         assert!(!args.iter().any(|a| a == "--cache-prompt"));
         assert!(args.iter().any(|a| a == "--no-cache-prompt"));
+    }
+
+    // The room one image may take goes to the server with the vision switch
+    // on. With the switch off, or with 0 in a field, the flag stays away, and
+    // the value inside the model file stands.
+    #[test]
+    fn the_image_tokens_go_to_the_server_with_vision() {
+        let mut settings = ModelSettings::default();
+        settings.vision = true;
+        settings.image_min_tokens = 256;
+        settings.image_max_tokens = 1024;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--image-min-tokens"), "256");
+        assert_eq!(find_flag(&args, "--image-max-tokens"), "1024");
+
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--image-min-tokens"));
+        assert!(!args.iter().any(|a| a == "--image-max-tokens"));
+
+        let mut settings = ModelSettings::default();
+        settings.vision = true;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--image-min-tokens"));
+        assert!(!args.iter().any(|a| a == "--image-max-tokens"));
     }
 
     // The value behind one flag, for the tests.
