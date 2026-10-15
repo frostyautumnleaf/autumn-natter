@@ -389,6 +389,10 @@ pub fn build_args(
         settings.ubatch_size.max(1).to_string(),
         "-lm".into(),
         load_mode_value(clamp(settings.load_index, LOAD_MODES.len())).to_string(),
+        // Fast attention stands on for every start, and has no setting of its
+        // own.
+        "-fa".into(),
+        "on".into(),
     ];
 
     // Devices. llama.cpp has no tensor parallel switch, so the device list
@@ -437,6 +441,51 @@ pub fn build_args(
         args.push(margins.join(","));
     }
 
+    // Sampling of one answer. The values are sent on every start, so the
+    // defaults of this program stand over the defaults of the server.
+    args.push("--temp".into());
+    args.push(settings.temperature.to_string());
+    args.push("--top-p".into());
+    args.push(settings.top_p.to_string());
+    args.push("--top-k".into());
+    args.push(settings.top_k.to_string());
+    args.push("--min-p".into());
+    args.push(settings.min_p.to_string());
+    args.push("--repeat-penalty".into());
+    args.push(settings.repeat_penalty.to_string());
+    args.push("--presence-penalty".into());
+    args.push(settings.presence_penalty.to_string());
+    // -1 leaves the answer without a limit of tokens.
+    args.push("--n-predict".into());
+    args.push(settings.max_tokens.to_string());
+    // -1 makes the server draw a new seed on every start.
+    args.push("--seed".into());
+    args.push(settings.seed.to_string());
+
+    // The room for context checkpoints, and the ceiling of the talk memory.
+    // 0 turns the checkpoints off, and for the ceiling 0 turns the cache off
+    // while -1 lifts the limit.
+    args.push("--ctx-checkpoints".into());
+    args.push(settings.ctx_checkpoints.to_string());
+    args.push("--cache-ram".into());
+    args.push(settings.cache_ram.to_string());
+
+    // Prompt caching. The server keeps the work of the prompt and reuses it
+    // on the next turn. The flag is sent in one form or the other, so the
+    // switch of the window always reaches the server.
+    if settings.cache_prompt {
+        args.push("--cache-prompt".into());
+    } else {
+        args.push("--no-cache-prompt".into());
+    }
+
+    // A talk that overflows the room. By default the server shifts the old
+    // words out and keeps going. With the switch on, the shift stays away,
+    // and the answer stops at the edge of the room.
+    if settings.no_context_shift {
+        args.push("--no-context-shift".into());
+    }
+
     // Vision projector.
     if settings.vision {
         match find_mmproj(&model.path) {
@@ -445,6 +494,21 @@ pub fn build_args(
                 args.push(path.display().to_string());
             }
             None => notes.push(format!("no vision projector next to {}", model.name)),
+        }
+        // The room one image may take. 0 keeps the value inside the model
+        // file, so the flag stays away.
+        if settings.image_min_tokens > 0 {
+            args.push("--image-min-tokens".into());
+            args.push(settings.image_min_tokens.to_string());
+        }
+        if settings.image_max_tokens > 0 {
+            args.push("--image-max-tokens".into());
+            args.push(settings.image_max_tokens.to_string());
+        }
+        // The projector works on the card, by default. With the switch on, it
+        // works on the CPU, and the card stays free for the model.
+        if settings.mmproj_cpu {
+            args.push("--no-mmproj-offload".into());
         }
     }
 
@@ -722,4 +786,294 @@ fn server_message(code: u16, body: &str) -> String {
         return format!("the model server answered with status {}", code);
     }
     format!("{} (status {})", detail, code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // One model file, and no devices, for the argument tests.
+    fn model() -> ModelInfo {
+        ModelInfo {
+            path: PathBuf::from("/models/one.gguf"),
+            name: String::from("one"),
+            kind: "GGUF",
+        }
+    }
+
+    // The Sampling section sends its values to the server on every start, and
+    // the defaults of the program stand in a new set of settings.
+    #[test]
+    fn the_sampling_values_go_to_the_server() {
+        let mut settings = ModelSettings::default();
+        settings.temperature = 0.2;
+        settings.top_p = 0.5;
+        settings.top_k = 7;
+        settings.min_p = 0.1;
+        settings.repeat_penalty = 1.1;
+        settings.presence_penalty = 0.2;
+        settings.max_tokens = 256;
+        settings.seed = 42;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        let find = |flag: &str| -> String {
+            let pos = args.iter().position(|a| a == flag).expect("the flag is there");
+            args[pos + 1].clone()
+        };
+        assert_eq!(find("--temp"), "0.2");
+        assert_eq!(find("--top-p"), "0.5");
+        assert_eq!(find("--top-k"), "7");
+        assert_eq!(find("--min-p"), "0.1");
+        assert_eq!(find("--repeat-penalty"), "1.1");
+        assert_eq!(find("--presence-penalty"), "0.2");
+        assert_eq!(find("--n-predict"), "256");
+        assert_eq!(find("--seed"), "42");
+
+        // The defaults of a new set of settings.
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--temp"), "0.7");
+        assert_eq!(find_flag(&args, "--top-p"), "0.95");
+        assert_eq!(find_flag(&args, "--top-k"), "20");
+        assert_eq!(find_flag(&args, "--min-p"), "0");
+        assert_eq!(find_flag(&args, "--repeat-penalty"), "1");
+        assert_eq!(find_flag(&args, "--presence-penalty"), "0");
+        assert_eq!(find_flag(&args, "--n-predict"), "-1");
+        assert_eq!(find_flag(&args, "--seed"), "-1");
+    }
+
+    // The checkpoints and the ceiling of the talk memory go to the server, and
+    // the defaults of the program stand in a new set of settings.
+    #[test]
+    fn the_checkpoints_and_the_cache_ram_go_to_the_server() {
+        let mut settings = ModelSettings::default();
+        settings.ctx_checkpoints = 4;
+        settings.cache_ram = -1;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--ctx-checkpoints"), "4");
+        assert_eq!(find_flag(&args, "--cache-ram"), "-1");
+
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--ctx-checkpoints"), "32");
+        assert_eq!(find_flag(&args, "--cache-ram"), "8192");
+    }
+
+    // The prompt cache stands on for a new set of settings, and the switch of
+    // the window reaches the server in one form or the other.
+    #[test]
+    fn the_cache_prompt_flag_follows_the_switch() {
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(args.iter().any(|a| a == "--cache-prompt"));
+        assert!(!args.iter().any(|a| a == "--no-cache-prompt"));
+
+        let mut settings = ModelSettings::default();
+        settings.cache_prompt = false;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--cache-prompt"));
+        assert!(args.iter().any(|a| a == "--no-cache-prompt"));
+    }
+
+    // The room one image may take goes to the server with the vision switch
+    // on. With the switch off, or with 0 in a field, the flag stays away, and
+    // the value inside the model file stands.
+    #[test]
+    fn the_image_tokens_go_to_the_server_with_vision() {
+        let mut settings = ModelSettings::default();
+        settings.vision = true;
+        settings.image_min_tokens = 256;
+        settings.image_max_tokens = 1024;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--image-min-tokens"), "256");
+        assert_eq!(find_flag(&args, "--image-max-tokens"), "1024");
+
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--image-min-tokens"));
+        assert!(!args.iter().any(|a| a == "--image-max-tokens"));
+
+        let mut settings = ModelSettings::default();
+        settings.vision = true;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--image-min-tokens"));
+        assert!(!args.iter().any(|a| a == "--image-max-tokens"));
+    }
+
+    // Fast attention is sent to the server on every start, with no setting of
+    // its own.
+    #[test]
+    fn fast_attention_is_always_on() {
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "-fa"), "on");
+    }
+
+    // The switch for no context shift sends its flag, and the flag stays away
+    // for a new set of settings.
+    #[test]
+    fn the_no_context_shift_flag_follows_the_switch() {
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--no-context-shift"));
+
+        let mut settings = ModelSettings::default();
+        settings.no_context_shift = true;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(args.iter().any(|a| a == "--no-context-shift"));
+    }
+
+    // The switch for the CPU projector sends its flag with the vision switch
+    // on, and the flag stays away for a new set of settings.
+    #[test]
+    fn the_cpu_projector_flag_follows_the_switch() {
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--no-mmproj-offload"));
+
+        let mut settings = ModelSettings::default();
+        settings.vision = true;
+        settings.mmproj_cpu = true;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(args.iter().any(|a| a == "--no-mmproj-offload"));
+    }
+
+    // The value behind one flag, for the tests.
+    fn find_flag(args: &[String], flag: &str) -> String {
+        let pos = args.iter().position(|a| a == flag).expect("the flag is there");
+        args[pos + 1].clone()
+    }
 }
