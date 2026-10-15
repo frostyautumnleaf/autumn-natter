@@ -52,15 +52,16 @@ pub struct ModelSettings {
     pub tensor_parallel: bool,
     pub vision: bool,
     // Sampling of one answer. The defaults are the values of this program, and
-    // they are sent to the server on every start.
-    pub temperature: f32,
-    pub top_p: f32,
+    // they are sent to the server on every start. The values are f64, so the
+    // settings file and the window show 0.7, not the full form of an f32.
+    pub temperature: f64,
+    pub top_p: f64,
     pub top_k: u32,
-    pub min_p: f32,
+    pub min_p: f64,
     // 1.0 turns the penalty off.
-    pub repeat_penalty: f32,
+    pub repeat_penalty: f64,
     // 0.0 turns the penalty off.
-    pub presence_penalty: f32,
+    pub presence_penalty: f64,
     // The most tokens one answer may give. -1 leaves no limit.
     pub max_tokens: i64,
     // The seed of the random draw. -1 picks a new one on every start.
@@ -364,14 +365,19 @@ mod tests {
     #[test]
     fn the_sampling_defaults_are_kept() {
         let s = ModelSettings::default();
-        assert!((s.temperature - 0.7).abs() < f32::EPSILON);
-        assert!((s.top_p - 0.95).abs() < f32::EPSILON);
+        assert!((s.temperature - 0.7).abs() < f64::EPSILON);
+        assert!((s.top_p - 0.95).abs() < f64::EPSILON);
         assert_eq!(s.top_k, 20);
-        assert!((s.min_p - 0.0).abs() < f32::EPSILON);
-        assert!((s.repeat_penalty - 1.0).abs() < f32::EPSILON);
-        assert!((s.presence_penalty - 0.0).abs() < f32::EPSILON);
+        assert!((s.min_p - 0.0).abs() < f64::EPSILON);
+        assert!((s.repeat_penalty - 1.0).abs() < f64::EPSILON);
+        assert!((s.presence_penalty - 0.0).abs() < f64::EPSILON);
         assert_eq!(s.max_tokens, -1);
         assert_eq!(s.seed, -1);
+        // The values are written in the short form, so the window shows 0.7
+        // and not the full form of a small number.
+        let text = serde_json::to_string(&s).expect("the settings are written");
+        assert!(text.contains("\"temperature\":0.7"));
+        assert!(text.contains("\"top_p\":0.95"));
         // A file written before the section existed still reads, with the
         // defaults of the section in place.
         let old = "{\"ctx_size\":8192,\"kv_index\":1,\"spec_index\":0,\"draft_model\":\"\",\
@@ -381,7 +387,7 @@ mod tests {
                     \"extra_args\":\"\",\"vram_budget\":0,\"gpu_enabled\":[]}";
         let read: ModelSettings =
             serde_json::from_str(old).expect("an old model settings entry reads");
-        assert!((read.temperature - 0.7).abs() < f32::EPSILON);
+        assert!((read.temperature - 0.7).abs() < f64::EPSILON);
         assert_eq!(read.top_k, 20);
         assert_eq!(read.max_tokens, -1);
         assert_eq!(read.seed, -1);
