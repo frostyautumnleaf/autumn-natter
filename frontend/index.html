@@ -268,9 +268,13 @@ body.home .stage { display: none; }
 .h.l2 { font-size: 15.5px; }
 .h.l3, .h.l4, .h.l5, .h.l6 { font-size: 14px; color: var(--ink-leaf); }
 .h:first-child { margin-top: 2px; }
-ul.marks, ol.marks { margin: 4px 0 10px; padding: 1px 0 1px 15px;
+/* The mark of an item stands outside its box, in the room the list leaves for
+   it. The room must be wider than the widest number, or the number stands over
+   the rule. Two digits and a gap are kept for it, and the words of the item
+   start after a gap of their own. */
+ul.marks, ol.marks { margin: 4px 0 10px; padding: 1px 0 1px 40px;
   border-left: 2px solid var(--line-strong); }
-ul.marks li, ol.marks li { margin: 4px 0; padding-left: 3px; }
+ul.marks li, ol.marks li { margin: 4px 0; padding-left: 6px; }
 ul.marks li::marker { color: var(--dim); }
 ol.marks li::marker { color: var(--ink-leaf); font-weight: 600; }
 pre.code {
