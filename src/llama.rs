@@ -389,6 +389,10 @@ pub fn build_args(
         settings.ubatch_size.max(1).to_string(),
         "-lm".into(),
         load_mode_value(clamp(settings.load_index, LOAD_MODES.len())).to_string(),
+        // Fast attention stands on for every start, and has no setting of its
+        // own.
+        "-fa".into(),
+        "on".into(),
     ];
 
     // Devices. llama.cpp has no tensor parallel switch, so the device list
@@ -975,6 +979,24 @@ mod tests {
         );
         assert!(!args.iter().any(|a| a == "--image-min-tokens"));
         assert!(!args.iter().any(|a| a == "--image-max-tokens"));
+    }
+
+    // Fast attention is sent to the server on every start, with no setting of
+    // its own.
+    #[test]
+    fn fast_attention_is_always_on() {
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "-fa"), "on");
     }
 
     // The switch for no context shift sends its flag, and the flag stays away
