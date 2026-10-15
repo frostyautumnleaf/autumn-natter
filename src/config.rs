@@ -70,6 +70,8 @@ pub struct ModelSettings {
     // The ceiling of the talk memory in mebibytes. 0 turns the cache off, and
     // -1 lifts the limit.
     pub cache_ram: i64,
+    // The server keeps the work of the prompt and reuses it on the next turn.
+    pub cache_prompt: bool,
     // -1 means no limit. 0 stops thinking at once.
     pub reasoning_budget: i64,
     pub reasoning_message: String,
@@ -108,6 +110,7 @@ impl Default for ModelSettings {
             seed: -1,
             ctx_checkpoints: 32,
             cache_ram: 8192,
+            cache_prompt: true,
             reasoning_budget: -1,
             reasoning_message: String::new(),
             chat_template: String::new(),

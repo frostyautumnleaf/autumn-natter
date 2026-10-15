@@ -969,6 +969,9 @@ pre.code.line {
             <div class="fld"><span class="lbl">Cache ram</span>
               <span class="sub">The ceiling of the memory the talk may take, in mebibytes. 0 turns the cache off, and -1 lifts the limit.</span>
               <div class="ctl"><input id="mCacheRam" type="number" min="-1" max="131072" step="128"><span class="unit">MiB, -1 for no limit</span></div></div>
+            <div class="fld"><span class="lbl">Cache prompt</span>
+              <span class="sub">The server keeps the work of the words already sent, and reuses it on the next turn. Turn it off to pay the work again on every turn.</span>
+              <div class="ctl"><input id="mCachePrompt" type="checkbox"></div></div>
           </div>
         </details>
 
@@ -2970,8 +2973,9 @@ function loadModel() {
     setChoices('mLoad', m.loads, s.load_index);
     byId('mCheckpoints').value = s.ctx_checkpoints;
     byId('mCacheRam').value = s.cache_ram;
-    advOpen('advSizing', ['ctx_checkpoints', 'cache_ram'],
-      { ctx_checkpoints: 32, cache_ram: 8192 });
+    byId('mCachePrompt').checked = s.cache_prompt !== false;
+    advOpen('advSizing', ['ctx_checkpoints', 'cache_ram', 'cache_prompt'],
+      { ctx_checkpoints: 32, cache_ram: 8192, cache_prompt: true });
     setChoices('mSpec', m.specs, s.spec_index);
     byId('mTemp').value = s.temperature;
     byId('mTopP').value = s.top_p;
@@ -3047,6 +3051,7 @@ function readModel() {
   s.spec_index = selIndex('mSpec');
   s.ctx_checkpoints = intOf('mCheckpoints', s.ctx_checkpoints);
   s.cache_ram = intOf('mCacheRam', s.cache_ram);
+  s.cache_prompt = byId('mCachePrompt').checked;
   s.temperature = numOf('mTemp', s.temperature);
   s.top_p = numOf('mTopP', s.top_p);
   s.top_k = intOf('mTopK', s.top_k);
@@ -3166,7 +3171,8 @@ byId('fDark').addEventListener('change', function (e) {
   post('/api/dark', { on: e.target.checked });
 });
 
-['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mTemp', 'mTopP', 'mTopK',
+['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mCachePrompt', 'mTemp',
+  'mTopP', 'mTopK',
   'mMinP', 'mRepeatPen', 'mPresencePen',
   'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',
   'mVision', 'mBudget', 'mReasonMsg', 'mTensor', 'mVram', 'mTemplate', 'mExtra'].forEach(function (id) {

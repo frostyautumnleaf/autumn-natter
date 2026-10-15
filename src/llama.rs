@@ -466,6 +466,15 @@ pub fn build_args(
     args.push("--cache-ram".into());
     args.push(settings.cache_ram.to_string());
 
+    // Prompt caching. The server keeps the work of the prompt and reuses it
+    // on the next turn. The flag is sent in one form or the other, so the
+    // switch of the window always reaches the server.
+    if settings.cache_prompt {
+        args.push("--cache-prompt".into());
+    } else {
+        args.push("--no-cache-prompt".into());
+    }
+
     // Vision projector.
     if settings.vision {
         match find_mmproj(&model.path) {
@@ -860,6 +869,41 @@ mod tests {
         );
         assert_eq!(find_flag(&args, "--ctx-checkpoints"), "32");
         assert_eq!(find_flag(&args, "--cache-ram"), "8192");
+    }
+
+    // The prompt cache stands on for a new set of settings, and the switch of
+    // the window reaches the server in one form or the other.
+    #[test]
+    fn the_cache_prompt_flag_follows_the_switch() {
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(args.iter().any(|a| a == "--cache-prompt"));
+        assert!(!args.iter().any(|a| a == "--no-cache-prompt"));
+
+        let mut settings = ModelSettings::default();
+        settings.cache_prompt = false;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--cache-prompt"));
+        assert!(args.iter().any(|a| a == "--no-cache-prompt"));
     }
 
     // The value behind one flag, for the tests.
