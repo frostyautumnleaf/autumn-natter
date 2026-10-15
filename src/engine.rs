@@ -60,6 +60,9 @@ pub struct Snap {
     pub thinking_mode: String,
     // True when the model's template can switch thinking.
     pub thinking_available: bool,
+    // The thinking modes the badge offers, in the order they are listed. An
+    // empty list means the model has no thinking mode at all.
+    pub thinking_modes: Vec<String>,
     pub status: String,
     pub dark_mode: bool,
     pub data_dir: String,
@@ -335,6 +338,14 @@ impl State {
     // Read the chats of the current scope from disk.
     fn reload_chats(&mut self) {
         self.chats = self.store.list_chats(&self.scope_repo);
+        // The badge no longer offers "auto": the reader chooses, and thinking
+        // is off unless it is asked for. A chat left with the old mode starts
+        // with thinking off, which is what the badge then shows.
+        for chat in self.chats.iter_mut() {
+            if chat.meta.thinking_mode.is_empty() || chat.meta.thinking_mode == "auto" {
+                chat.meta.thinking_mode = String::from("off");
+            }
+        }
         // Keep the open chat when it is still there.
         if let Some(id) = self.current.clone() {
             if !self.chats.iter().any(|c| c.meta.id == id) {
@@ -577,6 +588,7 @@ impl State {
                 .map(|c| c.meta.thinking_mode.clone())
                 .unwrap_or_else(|| self.new_thinking.clone()),
             thinking_available: self.thinking.has_thinking || self.thinking.has_effort,
+            thinking_modes: self.thinking.modes().iter().map(|m| m.to_string()).collect(),
             status: self.status.clone(),
             dark_mode: self.cfg.dark_mode,
             data_dir: config::paths().data.display().to_string(),
@@ -656,7 +668,7 @@ impl Engine {
             overview: false,
             new_code: false,
             new_sandbox: true,
-            new_thinking: String::from("auto"),
+            new_thinking: String::from("off"),
         };
         state.refresh_lists();
         state.reload_chats();
@@ -776,9 +788,9 @@ impl Engine {
         });
     }
 
-    // Turn the thinking mode of the open chat to the next one the model
-    // offers. A model with no thinking mode does not change.
-    pub fn cycle_thinking(&self) {
+    // Choose the thinking mode of the open chat. A model with no thinking
+    // mode does not change, and neither does a mode the model does not offer.
+    pub fn set_thinking(&self, mode: &str) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
@@ -786,26 +798,16 @@ impl Engine {
             state.set_status("wait for the answer to finish");
             return;
         }
-        let modes = state.thinking.modes();
-        if modes.is_empty() {
+        if !state.thinking.modes().iter().any(|offered| *offered == mode) {
             return;
         }
-        let current = state
-            .chat()
-            .map(|c| c.meta.thinking_mode.clone())
-            .unwrap_or_else(|| state.new_thinking.clone());
-        let next = match modes.iter().position(|mode| *mode == current) {
-            Some(place) => modes[(place + 1) % modes.len()].to_string(),
-            // The model does not offer the stored mode, so start from the top.
-            None => modes[0].to_string(),
-        };
         if let Some(chat) = state.chat_mut() {
-            chat.meta.thinking_mode = next.clone();
+            chat.meta.thinking_mode = mode.to_string();
         } else {
-            state.new_thinking = next.clone();
+            state.new_thinking = mode.to_string();
         }
         state.persist();
-        state.set_status(&format!("thinking mode is {}", next));
+        state.set_status(&format!("thinking is {}", mode));
         state.touch();
         drop(state);
         // The flags are server level, so the running server goes with them.
@@ -1079,7 +1081,8 @@ impl Snap {
             code_enabled: false,
             sandbox_enabled: true,
             sandbox_available: false,
-            thinking_mode: String::from("auto"),
+            thinking_mode: String::from("off"),
+            thinking_modes: Vec::new(),
             thinking_available: false,
             status: String::new(),
             dark_mode: false,
@@ -1777,10 +1780,11 @@ mod tests {
         assert!(after.chats[0].transient);
     }
 
-    // The badge cycles through the modes the model offers, and a model with
-    // no thinking mode does not change.
+    // The badge offers the modes of the model and the reader chooses one. A
+    // mode the model does not offer is refused, and a model with no thinking
+    // mode does not change.
     #[test]
-    fn the_thinking_mode_cycles() {
+    fn the_thinking_mode_is_chosen() {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
@@ -1793,15 +1797,17 @@ mod tests {
                 efforts: Vec::new(),
             };
         }
-        // The switch model walks auto, off, on and back to auto.
-        engine.cycle_thinking();
+        // The switch model offers off and on, and a new chat starts with the
+        // thinking off.
         assert_eq!(engine.snapshot().thinking_mode, "off");
-        engine.cycle_thinking();
+        engine.set_thinking("on");
         assert_eq!(engine.snapshot().thinking_mode, "on");
-        engine.cycle_thinking();
-        assert_eq!(engine.snapshot().thinking_mode, "auto");
-        // The effort model offers auto, off, low and high. The stored mode
-        // is offered, so the cycle continues from it.
+        // A level is no use to a model with only a switch.
+        engine.set_thinking("xhigh");
+        assert_eq!(engine.snapshot().thinking_mode, "on");
+        engine.set_thinking("off");
+        assert_eq!(engine.snapshot().thinking_mode, "off");
+        // The effort model offers the levels its template names.
         {
             let mut state = engine.state.lock().unwrap();
             state.thinking = markdown::ThinkingOptions {
@@ -1810,26 +1816,17 @@ mod tests {
                 efforts: vec![String::from("low"), String::from("high")],
             };
         }
-        engine.cycle_thinking();
-        assert_eq!(engine.snapshot().thinking_mode, "off");
-        engine.cycle_thinking();
-        assert_eq!(engine.snapshot().thinking_mode, "low");
-        // A stored mode the model does not offer starts from the top.
-        {
-            let mut state = engine.state.lock().unwrap();
-            if let Some(chat) = state.chat_mut() {
-                chat.meta.thinking_mode = String::from("on");
-            }
-        }
-        engine.cycle_thinking();
-        assert_eq!(engine.snapshot().thinking_mode, "auto");
-        // A model with no thinking mode keeps its mode.
+        engine.set_thinking("high");
+        assert_eq!(engine.snapshot().thinking_mode, "high");
+        engine.set_thinking("medium");
+        assert_eq!(engine.snapshot().thinking_mode, "high");
+        // A model with no thinking mode keeps the mode it had.
         {
             let mut state = engine.state.lock().unwrap();
             state.thinking = markdown::ThinkingOptions::default();
         }
-        engine.cycle_thinking();
-        assert_eq!(engine.snapshot().thinking_mode, "auto");
+        engine.set_thinking("off");
+        assert_eq!(engine.snapshot().thinking_mode, "high");
     }
 
     // A turn writes no line about itself. A command is an answer, a stop is

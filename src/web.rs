@@ -101,6 +101,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "thinking": {
             "mode": &snap.thinking_mode,
             "available": snap.thinking_available,
+            // The modes the badge offers, for the drop-down of the badge.
+            "modes": &snap.thinking_modes,
         },
         "context": {
             "used": util::count(snap.context_used),
@@ -186,7 +188,7 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             done()
         }
         "/api/thinking" | "thinking" => {
-            engine.cycle_thinking();
+            engine.set_thinking(&text_field(&value, "mode"));
             done()
         }
         "/api/new_chat" | "new_chat" => {

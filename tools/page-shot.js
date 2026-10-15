@@ -15,7 +15,8 @@
 //   node page-shot.js home-dark home.png 1180 760
 //   AN_PAGE=../web/page.html AN_FETCH=1 node page-shot.js chat-pale page.png
 //   AN_PICK='.think .thead' AN_HOVER='.turn' node page-shot.js rich p.png
-//   AN_PICK and AN_HOVER pick out parts of the page by their class.
+//   AN_CLICK='#think' node page-shot.js chat p.png
+//   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
 //
 // The scenes: home, chat, rich, streaming, previews, sheet-program, sheet-model.
 // A name that ends in -dark draws the dark skin, and a name that ends in -pale
@@ -113,7 +114,10 @@ function scene(name, dark) {
     chats: [], home: true, greeting: 'Still here, still ready.', overview: false,
     carousel: { index: 0, count: 0, blank: true },
     messages: [], live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
-    thinking: { mode: 'auto', available: true },
+    thinking: {
+      mode: 'off', available: true,
+      modes: ['off', 'low', 'medium', 'high', 'xhigh']
+    },
     chatting: { collapse_thinking: true, collapse_tools: true, highlight: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
     generating: false, busy: false, code: false, sandbox: false,
@@ -310,6 +314,15 @@ async function main() {
       if (box) { box.scrollTop = box.scrollHeight; }
     });
     await new Promise(function (r) { setTimeout(r, 250); });
+  }
+  // AN_CLICK=selector clicks one thing, so a menu that opens on a click can
+  // be seen open.
+  if (process.env.AN_CLICK) {
+    const hit = await view.$(process.env.AN_CLICK);
+    if (hit) {
+      await hit.click();
+      await new Promise(function (r) { setTimeout(r, 300); });
+    }
   }
   // AN_HOVER=selector puts the mouse over one thing, so a look that only
   // shows when the reader hovers over it can be seen. AN_PICK=selector draws a

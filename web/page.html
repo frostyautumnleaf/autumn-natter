@@ -487,6 +487,23 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
 .badge.off { color: var(--ink-fail); border-color: var(--ink-fail); }
 .badge[disabled] { opacity: .5; cursor: default; }
 .badge.static { cursor: default; }
+/* The drop-down of a badge. The menu stands over the badge that opened it and
+   holds one line for each thing the reader may choose, with a mark against the
+   thing chosen now. */
+.menuwrap { position: relative; display: inline-flex; }
+.menu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 40;
+  min-width: 176px; max-width: 260px; padding: 4px; background: var(--surface-2);
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  box-shadow: var(--shadow); }
+.menu button { display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 7px; background: none;
+  color: var(--text-2); font-size: 12.5px; text-align: left; }
+.menu button:hover { background: var(--hover); color: var(--ink); }
+.menu button.now { color: var(--ink); font-weight: 600; }
+.menu .tick { width: 12px; height: 12px; flex: 0 0 auto; stroke: var(--accent);
+  opacity: 0; }
+.menu button.now .tick { opacity: 1; }
+.badge .down { width: 11px; height: 11px; margin-left: 1px; opacity: .65; }
 .keys { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 .keys kbd { font: inherit; font-size: 11px; color: var(--dim); background: var(--surface-2);
@@ -669,10 +686,14 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
             <span id="sandboxtext">Sandbox</span>
           </button>
-          <button class="badge static" id="think" title="The model shows its thinking before its answer. A click takes the next mode.">
-            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
-            <span id="thinktext">think: auto</span>
-          </button>
+          <div class="menuwrap" id="thinkwrap">
+            <button class="badge" id="think" title="The thinking the model shows before its answer. A click chooses another.">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
+              <span id="thinktext">Thinking: Disabled</span>
+              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+            </button>
+            <div class="menu hidden" id="thinkmenu"></div>
+          </div>
         </div>
         <span class="grow"></span>
         <span class="keys" id="hint"></span>
@@ -716,7 +737,8 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', '
   'ctx', 'ctxtext', 'ctxpct', 'ctxfill', 'stage', 'thread', 'col', 'turnL', 'turnR',
   'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'hint',
   'newchat', 'chatsbtn', 'darkbtn',
-  'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'draft', 'send',
+  'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
+  'thinkmenu', 'draft', 'send',
   'box', 'dock'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
@@ -828,6 +850,54 @@ function drawContext(s) {
 }
 
 // The three marks of the chat: the tool, the jail, and the thinking.
+// The thinking modes in the words the reader sees. The engine keeps the short
+// names, which are what the server is started with; only here do they get a
+// long one. A mode this page does not know is shown as it is.
+var THINK_WORDS = {
+  off: 'Disabled', on: 'Enabled', low: 'Low', medium: 'Medium', high: 'High',
+  xhigh: 'Extra High'
+};
+
+function thinkWords(mode) {
+  return THINK_WORDS[mode] || String(mode || '');
+}
+
+// The menu of the thinking badge: one line for every mode the model offers,
+// with a mark against the mode the chat stands on. A line chooses that mode.
+function fillThinkMenu(s) {
+  var menu = el.thinkmenu;
+  if (!menu) { return; }
+  var thinking = s.thinking || {};
+  var modes = thinking.modes || [];
+  menu.innerHTML = '';
+  for (var n = 0; n < modes.length; n++) {
+    var line = make('button');
+    line.type = 'button';
+    if (modes[n] === thinking.mode) { line.className = 'now'; }
+    line.appendChild(mark('M3.4 8.4 6.4 11.4 12.6 4.8', 'tick'));
+    var word = make('span');
+    word.textContent = thinkWords(modes[n]);
+    line.appendChild(word);
+    line.addEventListener('click', function (mode) {
+      return function () {
+        closeThinkMenu();
+        post('/api/thinking', { mode: mode });
+      };
+    }(modes[n]));
+    menu.appendChild(line);
+  }
+}
+
+function openThinkMenu() {
+  if (!cur || !cur.thinking || !cur.thinking.available) { return; }
+  fillThinkMenu(cur);
+  el.thinkmenu.classList.remove('hidden');
+}
+
+function closeThinkMenu() {
+  if (el.thinkmenu) { el.thinkmenu.classList.add('hidden'); }
+}
+
 function drawBadges(s) {
   el.code.classList.toggle('on', !!s.code);
   el.sandbox.classList.toggle('on', !!s.sandbox);
@@ -835,13 +905,18 @@ function drawBadges(s) {
   el.sandbox.title = s.sandbox_available
     ? 'Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory.'
     : 'bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.';
-  var thinking = s.thinking || { mode: 'auto', available: false };
+  var thinking = s.thinking || { mode: 'off', available: false, modes: [] };
+  // The badge says what the model will do, in the words of this page. The
+  // short names stay between the page and the server.
   el.thinktext.textContent = thinking.available
-    ? 'think: ' + thinking.mode : 'no thinking modes';
-  el.think.classList.toggle('on', thinking.available && thinking.mode !== 'auto');
+    ? 'Thinking: ' + thinkWords(thinking.mode) : 'No thinking modes';
+  el.think.classList.toggle('on', thinking.available && thinking.mode !== 'off');
   el.think.title = thinking.available
-    ? 'The model shows its thinking before its answer. A click takes the next mode.'
+    ? 'The thinking the model shows before its answer. A click chooses another.'
     : 'The template of this model has no switch for thinking.';
+  // The menu is filled again while it stands open, so a new model or a new
+  // chat does not leave it standing with the old lines.
+  if (!el.thinkmenu.classList.contains('hidden')) { fillThinkMenu(s); }
 }
 
 // One line of keys next to the box. It says what the box needs at this moment.
@@ -2250,7 +2325,14 @@ el.newrepo.addEventListener('click', function () {
 });
 el.code.addEventListener('click', function () { if (cur) { post('/api/code', { on: !cur.code }); } });
 el.sandbox.addEventListener('click', function () { if (cur) { post('/api/sandbox', { on: !cur.sandbox }); } });
-el.think.addEventListener('click', function () { if (cur && cur.thinking && cur.thinking.available) { post('/api/thinking'); } });
+// The thinking badge is a drop-down, for a mode is chosen and not cycled
+// through: the reader must be able to see what is on offer.
+el.think.addEventListener('click', function (event) {
+  event.stopPropagation();
+  if (el.thinkmenu.classList.contains('hidden')) { openThinkMenu(); } else { closeThinkMenu(); }
+});
+// A click anywhere else in the page puts the menu away.
+document.addEventListener('click', function () { closeThinkMenu(); });
 el.darkbtn.addEventListener('click', function () { post('/api/dark', { on: !(cur && cur.dark) }); });
 el.draft.addEventListener('input', grow);
 el.draft.addEventListener('focus', function () {
@@ -2268,6 +2350,10 @@ el.draft.addEventListener('keydown', function (e) {
     e.preventDefault();
     send();
   } else if (e.key === 'Escape') {
+    if (el.thinkmenu && !el.thinkmenu.classList.contains('hidden')) {
+      closeThinkMenu();
+      return;
+    }
     post('/api/cancel');
   }
 });

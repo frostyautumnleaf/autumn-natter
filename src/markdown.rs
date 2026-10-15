@@ -217,8 +217,9 @@ pub struct ThinkingOptions {
 }
 
 impl ThinkingOptions {
-    /// The modes the badge shows, in the order a click cycles them.
-    /// An empty list means the model has no thinking mode at all.
+    /// The modes the badge of the chat offers, in the order they are listed.
+    /// There is no "auto": the reader chooses, and thinking is off unless it
+    /// is asked for. An empty list means the model has no thinking mode.
     pub fn modes(&self) -> Vec<&'static str> {
         if self.has_effort {
             let all: &[&str] = &["low", "medium", "high", "xhigh"];
@@ -230,12 +231,12 @@ impl ThinkingOptions {
                     .filter(|level| self.efforts.iter().any(|named| named == *level))
                     .collect()
             };
-            let mut list = vec!["auto", "off"];
+            let mut list = vec!["off"];
             list.extend(levels);
             return list;
         }
         if self.has_thinking {
-            return vec!["auto", "off", "on"];
+            return vec!["off", "on"];
         }
         Vec::new()
     }
@@ -340,7 +341,7 @@ mod tests {
         let options = analyze_template(template);
         assert!(options.has_thinking);
         assert!(!options.has_effort);
-        assert_eq!(options.modes(), vec!["auto", "off", "on"]);
+        assert_eq!(options.modes(), vec!["off", "on"]);
     }
 
     #[test]
@@ -350,7 +351,7 @@ mod tests {
         let options = analyze_template(template);
         assert!(options.has_effort);
         assert_eq!(options.efforts, vec!["low".to_string(), "high".to_string()]);
-        assert_eq!(options.modes(), vec!["auto", "off", "low", "high"]);
+        assert_eq!(options.modes(), vec!["off", "low", "high"]);
     }
 
     #[test]
@@ -361,7 +362,7 @@ mod tests {
         assert!(options.efforts.is_empty());
         assert_eq!(
             options.modes(),
-            vec!["auto", "off", "low", "medium", "high", "xhigh"]
+            vec!["off", "low", "medium", "high", "xhigh"]
         );
     }
 
