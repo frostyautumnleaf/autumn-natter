@@ -922,6 +922,12 @@ pre.code.line {
         <div class="fld"><span class="lbl">The chapters of a chat</span>
           <span class="sub">The model may mark where a new part of the chat begins. The marks stand on a line at the left of the chat, and a click on one of them takes you there. Turn this off to hide the line, and the model is no longer offered the marks.</span>
           <div class="ctl"><input id="fChapters" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Commands in one answer</span>
+          <span class="sub">How many terminal commands the model may run inside one answer. -1 leaves no limit, so the model may run a command as often as it wants. A mark of a chapter is not a command and eats none of this room.</span>
+          <div class="ctl"><input id="fToolSteps" type="number" min="-1" max="1000000" step="1" placeholder="-1"><span class="unit">runs, -1 for no limit</span></div></div>
+        <div class="fld"><span class="lbl">Steps in one answer</span>
+          <span class="sub">How many turns of the model one answer may take. A turn is asked again after every command, so a long talk with many parts needs room here. -1 leaves no limit, and the answer then ends only when the model stops by itself.</span>
+          <div class="ctl"><input id="fAnswerSteps" type="number" min="-1" max="1000000" step="1" placeholder="-1"><span class="unit">turns, -1 for no limit</span></div></div>
       </div>
 
       <div class="pane hidden" id="paneModel">
@@ -2860,6 +2866,8 @@ function loadProgram() {
     byId('fFoldTools').checked = cfg.chat_collapse_tools !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
     byId('fChapters').checked = cfg.chat_chapters !== false;
+    byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
+    byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
     byId('fSandbox').textContent = (cur && cur.sandbox_note) || '';
     var sel = byId('fOpenRepo'); sel.innerHTML = '';
     sel.appendChild(setOption('No repository', ''));
@@ -2972,6 +2980,14 @@ function readModel() {
 function intOf(id, fallback) {
   var v = parseInt(byId(id).value, 10); return isNaN(v) ? (fallback || 0) : v;
 }
+// One of the two rooms for steps, as the setting holds it. An empty field or a
+// word that is not a number means no limit, which is -1. A number below -1 is
+// read as -1 too, for a ceiling of minus five says nothing.
+function stepsOf(value) {
+  var v = (typeof value === 'string') ? parseInt(value, 10) : parseInt(value, 10);
+  if (isNaN(v)) { return -1; }
+  return v < -1 ? -1 : v;
+}
 function selIndex(id) { var v = parseInt(byId(id).value, 10); return isNaN(v) ? 0 : v; }
 
 // Read the command line again, but not on every keystroke.
@@ -3000,6 +3016,8 @@ function saveSheet() {
     cfg.chat_collapse_tools = byId('fFoldTools').checked;
     cfg.chat_highlight = byId('fHighlight').checked;
     cfg.chat_chapters = byId('fChapters').checked;
+    cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
+    cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
     invoke('save_config', { config: cfg }).then(function () { poll(); closeSettings(); },
       function () { poll(); closeSettings(); });
   } else {
