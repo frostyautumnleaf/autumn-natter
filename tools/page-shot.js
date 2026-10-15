@@ -47,8 +47,10 @@ const FULL = [
     + '2. `message_view.rs` gives the bar a height.\n\n'
     + 'The tests cover the order now.\n\n'
     + '```rust\nfn flush(&mut self) {\n    self.close_para();\n}\n```',
-    { reasoning: 'The user wants a plan. The fault is in the parser, and not in '
-      + 'the view. Name both files, and keep every line short.' }),
+    { reasoning: 'The user wants a **plan**. The fault is in `markdown.rs`, and not '
+      + 'in the view. Two things to check first:\n\n'
+      + '- the order the blocks come out in\n- the height of the bar beside a heading\n\n'
+      + '```rust\nif list {\n    flush_para();\n}\n```' }),
   said(3, 'Tool', 'cargo test --release markdown',
     { reasoning: 'The plan is written. Run the tests of the parser before the '
       + 'answer goes out, so the plan is checked and not only promised.',
