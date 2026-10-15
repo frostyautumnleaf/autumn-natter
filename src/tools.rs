@@ -57,7 +57,7 @@ pub fn chapter_definition() -> Value {
         "type": "function",
         "function": {
             "name": CHAPTER_TOOL_NAME,
-            "description": "Mark the start of a new chapter of this chat. Call it when a new task, a new question or a new phase of the work begins, so the reader can jump from one part of the chat to another. The name is a few words that say what the part is about. Do not call it twice for the same part, do not speak of this call, and do not mention chapters in your answer.",
+            "description": "Mark the start of a new chapter of this chat. Call it whenever a new part of the work begins: a new task, a new question, a new phase, or the next chapter of a story you are writing. You may call it as often as you like, and in the middle of your work: call it for a part just before you write that part, then go straight on writing. After the call you are told only that the mark was taken, and you go on where you left off. The name is a few words that say what the part is about. Do not call it twice for the same part, do not speak of this call, and do not mention chapters in your answer.",
             "parameters": {
                 "type": "object",
                 "properties": {

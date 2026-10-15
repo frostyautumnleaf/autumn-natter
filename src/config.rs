@@ -23,6 +23,18 @@ fn on_by_default() -> bool {
     true
 }
 
+// The room for steps of one answer, as the engine wants it. The setting is -1
+// for no limit, so the answer is None. A number below -1 is read as no limit
+// too, for a ceiling of minus five means nothing. The engine crate keeps this
+// line, so the setting of the window and the ceiling of the loop cannot drift
+// apart.
+pub fn engine_steps(setting: i64) -> Option<usize> {
+    if setting < 0 {
+        return None;
+    }
+    Some(setting as usize)
+}
+
 // Model settings. One entry per model file. The model path is the key.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -116,6 +128,21 @@ pub struct Config {
     // Let the model mark the chapters of a chat, and show them beside it.
     #[serde(default = "on_by_default")]
     pub chat_chapters: bool,
+    // How many terminal commands one answer may run. -1 leaves no limit, so a
+    // model may run a command as often as it wants inside one answer.
+    #[serde(default = "no_limit")]
+    pub chat_max_tool_steps: i64,
+    // How many round trips one answer may take in all: a round trip is one turn
+    // of the model, and one more follows every command it asks for. -1 leaves
+    // no limit, so an answer ends only when the model stops by itself.
+    #[serde(default = "no_limit")]
+    pub chat_max_answer_steps: i64,
+}
+
+// A number of steps with no ceiling. The Chatting settings hold -1 for it, and
+// llama.cpp uses the same number for "as much as the model can think of".
+fn no_limit() -> i64 {
+    -1
 }
 
 impl Default for Config {
@@ -133,6 +160,8 @@ impl Default for Config {
             chat_collapse_tools: true,
             chat_highlight: true,
             chat_chapters: true,
+            chat_max_tool_steps: -1,
+            chat_max_answer_steps: -1,
         }
     }
 }
@@ -252,7 +281,8 @@ pub fn repositories_dir(cfg: &Config) -> PathBuf {
 mod tests {
     use super::*;
 
-    // The switches of the Chatting section stand on for a new set of settings.
+    // The switches of the Chatting section stand on for a new set of settings,
+    // and the two rooms for steps stand unlimited.
     #[test]
     fn the_chatting_switches_stand_on() {
         let cfg = Config::default();
@@ -260,6 +290,28 @@ mod tests {
         assert!(cfg.chat_collapse_tools);
         assert!(cfg.chat_highlight);
         assert!(cfg.chat_chapters);
+        assert_eq!(cfg.chat_max_tool_steps, -1);
+        assert_eq!(cfg.chat_max_answer_steps, -1);
+    }
+
+    // A number of steps is kept and read back, and a number below -1 is read as
+    // no limit rather than as a nonsense ceiling.
+    #[test]
+    fn the_rooms_for_steps_are_kept() {
+        let cfg = Config {
+            chat_max_tool_steps: 3,
+            chat_max_answer_steps: 40,
+            ..Config::default()
+        };
+        let text = serde_json::to_string(&cfg).expect("the settings are written");
+        let back: Config = serde_json::from_str(&text).expect("the settings are read");
+        assert_eq!(back.chat_max_tool_steps, 3);
+        assert_eq!(back.chat_max_answer_steps, 40);
+        // The engine reads a number as a ceiling, and -1 as no ceiling at all.
+        assert_eq!(engine_steps(back.chat_max_tool_steps), Some(3));
+        assert_eq!(engine_steps(-1), None);
+        assert_eq!(engine_steps(-9), None);
+        assert_eq!(engine_steps(0), Some(0));
     }
 
     // A settings file written before the Chatting section existed still reads,
@@ -274,6 +326,10 @@ mod tests {
         assert!(read.chat_collapse_tools);
         assert!(read.chat_highlight);
         assert!(read.chat_chapters);
+        // The two rooms for steps were not in the file either, so they read as
+        // unlimited rather than as a ceiling of nothing.
+        assert_eq!(read.chat_max_tool_steps, -1);
+        assert_eq!(read.chat_max_answer_steps, -1);
     }
 }
 

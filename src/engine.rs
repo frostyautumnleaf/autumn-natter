@@ -23,8 +23,17 @@ use crate::tools;
 
 // Longest wait for one terminal command.
 const TOOL_TIMEOUT: Duration = Duration::from_secs(120);
-// How many tool steps one answer may take.
-const MAX_TOOL_STEPS: usize = 6;
+// How many terminal commands one answer may run, and how many round trips one
+// answer may take in all, both read from the Chatting settings. A mark of a
+// chapter is not a command: it runs nothing, so it eats neither room. The two
+// settings stand unlimited for a new set of settings, and the answer then ends
+// only when the model stops by itself.
+//
+// A ceiling of nothing is a poor thing to leave in an answer, so the two rooms
+// are never smaller than this when the reader sets one: one round trip for the
+// turn that asks, and one command.
+const LEAST_TOOL_STEPS: usize = 1;
+const LEAST_ANSWER_STEPS: usize = 2;
 
 // Work for the worker thread.
 enum Job {
@@ -887,7 +896,7 @@ impl Engine {
             state.set_status("wait for the answer to finish");
             return;
         }
-        if !state.thinking.modes().iter().any(|offered| *offered == mode) {
+        if !state.thinking.modes().contains(&mode) {
             return;
         }
         if let Some(chat) = state.chat_mut() {
@@ -1268,6 +1277,35 @@ enum Kept {
     Nothing,
 }
 
+// Split the calls of one step into the marks of chapters and the commands the
+// model wants run. A mark costs no room for commands, so a talk with many
+// chapters is not cut short by the command ceiling.
+fn split_calls(calls: Vec<ToolCall>) -> (Vec<ToolCall>, Vec<ToolCall>) {
+    let mut marks: Vec<ToolCall> = Vec::new();
+    let mut runs: Vec<ToolCall> = Vec::new();
+    for call in calls {
+        if call.name == tools::CHAPTER_TOOL_NAME {
+            marks.push(call);
+        } else {
+            runs.push(call);
+        }
+    }
+    (marks, runs)
+}
+
+// Put the marks of one step into the chat, and count them. They are put in the
+// order the model asked for them, and each stands where its call came.
+fn take_marks(state: &Arc<Mutex<State>>, calls: &[ToolCall], made: &mut usize) {
+    for call in calls {
+        let name = tools::chapter_name(&call.arguments);
+        let Ok(mut guard) = state.lock() else {
+            return;
+        };
+        guard.add_chapter(call, &name);
+        *made += 1;
+    }
+}
+
 // Choose what one answer leaves. `stopped` says the reader stopped the run,
 // and `error` says the run failed. A command is an answer of its own, so a
 // turn that asks for one writes no line, and a stop is not written down
@@ -1376,7 +1414,25 @@ fn run_turn(
     }
 
     let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
+    // The two rooms of the Chatting settings, read once for this answer. None
+    // means no ceiling, which is how both stand for a new set of settings: the
+    // answer then ends when the model stops by itself, and a model may run as
+    // many commands as it wants. A mark of a chapter eats neither room.
+    let (command_room, answer_room) = {
+        let Ok(guard) = state.lock() else { return };
+        (
+            config::engine_steps(guard.cfg.chat_max_tool_steps).map(|n| n.max(LEAST_TOOL_STEPS)),
+            config::engine_steps(guard.cfg.chat_max_answer_steps)
+                .map(|n| n.max(LEAST_ANSWER_STEPS)),
+        )
+    };
     let mut steps = 0usize;
+    // How many commands have run and how many chapters have been marked in this
+    // answer. The two rooms are kept apart on purpose: a mark runs nothing, and
+    // a model that marks every part of a long talk needs far more marks than it
+    // needs commands.
+    let mut commands = 0usize;
+    let mut marks = 0usize;
     loop {
         steps += 1;
         let (history, code_on, chapters_on) = {
@@ -1495,16 +1551,25 @@ fn run_turn(
             let text = problem.clone();
             guard.push_note(&text, true);
         }
-        // A command is an answer of its own, when it really runs. A turn that
-        // thinks and then asks for one has words enough, so nothing is written
-        // about a missing answer. Its thinking goes to the command that stands
-        // for it. When no command runs, the thinking stays with the turn.
-        let a_command_runs = use_tools && steps < MAX_TOOL_STEPS;
-        let asked_for_tool = a_command_runs
-            && answer
-                .tool_calls
-                .iter()
-                .any(|call| !call.name.is_empty());
+        // The calls this step made, split into marks and commands. Only the
+        // commands eat the room for commands. A mark is an action of its own
+        // kind: the model is told that it was taken, and it goes on with the
+        // next part of the talk. A turn that thinks and then asks for a command
+        // has words enough, so nothing is written about a missing answer, and
+        // its thinking goes to the command that stands for it.
+        let step_calls: Vec<ToolCall> = answer
+            .tool_calls
+            .iter()
+            .filter(|call| !call.name.is_empty())
+            .cloned()
+            .collect();
+        let (step_marks, step_runs) = if use_tools {
+            split_calls(step_calls)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let asked_for_tool =
+            use_tools && (!step_runs.is_empty() || !step_marks.is_empty());
         let no_words = answer_text.trim().is_empty();
         let turn_thinking = if no_words && asked_for_tool {
             answer_thinking.as_str()
@@ -1553,44 +1618,64 @@ fn run_turn(
         }
         guard.persist();
 
-        let calls: Vec<ToolCall> = answer
-            .tool_calls
-            .into_iter()
-            .filter(|c| !c.name.is_empty())
-            .collect();
-        let finished = answer.stopped || answer.error.is_some() || calls.is_empty();
-        if finished || !use_tools || steps >= MAX_TOOL_STEPS {
+        // What is left to do after this step: the marks, and the commands the
+        // room still holds. A step that only marked a chapter is not a tool run
+        // in the old sense, so the answer goes on to the next part of the talk.
+        let finished = answer.stopped || answer.error.is_some();
+        let nothing_left = step_marks.is_empty() && step_runs.is_empty();
+        // A ceiling of nothing is the same as no ceiling at all, so an answer
+        // with an empty room for commands still ends on the turn that asked.
+        let no_room_left = answer_room.is_some_and(|room| steps >= room);
+        if finished || !use_tools || nothing_left || no_room_left {
             guard.generating = false;
             let text = if answer.stopped {
                 "stopped"
-            } else if !finished && steps >= MAX_TOOL_STEPS {
-                "the model asked for too many tool runs in one answer"
+            } else if !finished && !nothing_left {
+                if no_room_left {
+                    "the answer stopped at the room for steps of the Chatting settings"
+                } else {
+                    "the model asked for more than one answer could hold"
+                }
             } else {
                 "ready"
             };
             guard.set_status(text);
+            // A mark costs nothing, so the marks of a step that ran clean are
+            // taken even when the answer ends on the ceiling of the loop. A
+            // stopped run or a failed one keeps nothing of a step that never
+            // came to an end.
+            drop(guard);
+            if !finished {
+                take_marks(state, &step_marks, &mut marks);
+            }
             break;
         }
-        // Keep the lock free while a command runs.
+        // Keep the lock free while a mark is made and while a command runs.
         drop(guard);
 
-        // The model wants a command to run. The thinking of a turn with no
-        // words of its own stands with the first thing the reader is shown. A
-        // turn that only marked a chapter shows nothing, so its thoughts are
-        // kept on their own rather than lost with a mark nobody sees.
+        // The model wants a mark, a command, or both. The thinking of a turn
+        // with no words of its own stands with the first thing the reader is
+        // shown. A turn that only marked chapters shows nothing, so its
+        // thoughts are kept on their own rather than lost with a mark nobody
+        // sees.
         let mut thoughts = turn_thinking.to_string();
-        for call in calls.iter() {
-            // A chapter is not a command and is not shown. The mark goes into
-            // the chat where the call came, and the model is told quietly that
-            // it was taken.
-            if call.name == tools::CHAPTER_TOOL_NAME {
-                let name = tools::chapter_name(&call.arguments);
+        // The marks first: they cost nothing, and the reader sees the parts of
+        // the talk in the order the model asked for them.
+        take_marks(state, &step_marks, &mut marks);
+        for call in step_runs.iter() {
+            // The room for commands is spent. The call is still answered, so
+            // the model hears why and can go on with its talk instead of
+            // asking again for a command that never runs.
+            if command_room.is_some_and(|room| commands >= room) {
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
-                guard.add_chapter(call, &name);
+                let note = "the room for commands in this answer is spent, so the command did not run";
+                let id = guard.begin_tool(call, note, "", 0);
+                guard.finish_tool(&id, note, false);
                 continue;
             }
+            commands += 1;
             let (command, purpose) = tools::parse_arguments(&call.arguments);
             let shown = if purpose.trim().is_empty() {
                 command.clone()
@@ -2016,6 +2101,33 @@ mod tests {
         let preview = store::preview(&spoken);
         assert!(!preview.contains(&"n".repeat(50)));
         assert_eq!(preview, "The parser is fixed.");
+    }
+
+    // A mark of a chapter is not a command, so it is split away from the
+    // commands of a step and eats none of the room a command has.
+    #[test]
+    fn a_mark_of_a_chapter_costs_no_command_room() {
+        let call = |name: &str, id: &str| ToolCall {
+            id: id.to_string(),
+            name: name.to_string(),
+            arguments: String::from("{}"),
+        };
+        let step = vec![
+            call(tools::CHAPTER_TOOL_NAME, "one"),
+            call(tools::TOOL_NAME, "two"),
+            call(tools::CHAPTER_TOOL_NAME, "three"),
+        ];
+        let (marks, runs) = split_calls(step);
+        assert_eq!(marks.len(), 2);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(marks[0].id, "one");
+        assert_eq!(marks[1].id, "three");
+        assert_eq!(runs[0].id, "two");
+        // A step of nothing but marks holds no command at all, so an answer can
+        // mark chapter after chapter without touching the room for commands.
+        let (only, runs) = split_calls(vec![call(tools::CHAPTER_TOOL_NAME, "one")]);
+        assert_eq!(only.len(), 1);
+        assert!(runs.is_empty());
     }
 
     // A turn writes no line about itself. A command is an answer, a stop is

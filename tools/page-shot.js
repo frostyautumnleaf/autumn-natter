@@ -199,7 +199,10 @@ const CONFIG = {
   chat_collapse_thinking: true,
   chat_collapse_tools: true,
   chat_highlight: true,
-  chat_chapters: true
+  chat_chapters: true,
+  // The two rooms for steps stand unlimited, as they do for a new set of settings.
+  chat_max_tool_steps: -1,
+  chat_max_answer_steps: -1
 };
 
 const MODEL = {
