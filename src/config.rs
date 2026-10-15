@@ -76,6 +76,9 @@ pub struct ModelSettings {
     // 0 keeps the value inside the model file.
     pub image_min_tokens: i64,
     pub image_max_tokens: i64,
+    // Stop the shift of the context when the talk overflows the room. Good to
+    // use when coding, where a shift cuts the words the model works on.
+    pub no_context_shift: bool,
     // -1 means no limit. 0 stops thinking at once.
     pub reasoning_budget: i64,
     pub reasoning_message: String,
@@ -117,6 +120,7 @@ impl Default for ModelSettings {
             cache_prompt: true,
             image_min_tokens: 0,
             image_max_tokens: 0,
+            no_context_shift: false,
             reasoning_budget: -1,
             reasoning_message: String::new(),
             chat_template: String::new(),

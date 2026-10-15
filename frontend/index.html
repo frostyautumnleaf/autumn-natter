@@ -972,6 +972,9 @@ pre.code.line {
             <div class="fld"><span class="lbl">Cache prompt</span>
               <span class="sub">The server keeps the work of the words already sent, and reuses it on the next turn. Turn it off to pay the work again on every turn.</span>
               <div class="ctl"><input id="mCachePrompt" type="checkbox"></div></div>
+            <div class="fld"><span class="lbl">No context shift</span>
+              <span class="sub">When the talk overflows the room, the server shifts the old words out and keeps going. Turn this on to stop the shift, and the answer stops at the edge of the room. Good to use when coding.</span>
+              <div class="ctl"><input id="mNoShift" type="checkbox"></div></div>
           </div>
         </details>
 
@@ -2985,8 +2988,9 @@ function loadModel() {
     byId('mCheckpoints').value = s.ctx_checkpoints;
     byId('mCacheRam').value = s.cache_ram;
     byId('mCachePrompt').checked = s.cache_prompt !== false;
-    advOpen('advSizing', ['ctx_checkpoints', 'cache_ram', 'cache_prompt'],
-      { ctx_checkpoints: 32, cache_ram: 8192, cache_prompt: true });
+    byId('mNoShift').checked = !!s.no_context_shift;
+    advOpen('advSizing', ['ctx_checkpoints', 'cache_ram', 'cache_prompt', 'no_context_shift'],
+      { ctx_checkpoints: 32, cache_ram: 8192, cache_prompt: true, no_context_shift: false });
     setChoices('mSpec', m.specs, s.spec_index);
     byId('mTemp').value = s.temperature;
     byId('mTopP').value = s.top_p;
@@ -3067,6 +3071,7 @@ function readModel() {
   s.ctx_checkpoints = intOf('mCheckpoints', s.ctx_checkpoints);
   s.cache_ram = intOf('mCacheRam', s.cache_ram);
   s.cache_prompt = byId('mCachePrompt').checked;
+  s.no_context_shift = byId('mNoShift').checked;
   s.temperature = numOf('mTemp', s.temperature);
   s.top_p = numOf('mTopP', s.top_p);
   s.top_k = intOf('mTopK', s.top_k);
@@ -3188,7 +3193,8 @@ byId('fDark').addEventListener('change', function (e) {
   post('/api/dark', { on: e.target.checked });
 });
 
-['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mCachePrompt', 'mTemp',
+['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mCachePrompt', 'mNoShift',
+  'mTemp',
   'mTopP', 'mTopK',
   'mMinP', 'mRepeatPen', 'mPresencePen',
   'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',

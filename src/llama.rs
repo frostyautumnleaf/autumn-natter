@@ -475,6 +475,13 @@ pub fn build_args(
         args.push("--no-cache-prompt".into());
     }
 
+    // A talk that overflows the room. By default the server shifts the old
+    // words out and keeps going. With the switch on, the shift stays away,
+    // and the answer stops at the edge of the room.
+    if settings.no_context_shift {
+        args.push("--no-context-shift".into());
+    }
+
     // Vision projector.
     if settings.vision {
         match find_mmproj(&model.path) {
@@ -968,6 +975,39 @@ mod tests {
         );
         assert!(!args.iter().any(|a| a == "--image-min-tokens"));
         assert!(!args.iter().any(|a| a == "--image-max-tokens"));
+    }
+
+    // The switch for no context shift sends its flag, and the flag stays away
+    // for a new set of settings.
+    #[test]
+    fn the_no_context_shift_flag_follows_the_switch() {
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--no-context-shift"));
+
+        let mut settings = ModelSettings::default();
+        settings.no_context_shift = true;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(args.iter().any(|a| a == "--no-context-shift"));
     }
 
     // The value behind one flag, for the tests.
