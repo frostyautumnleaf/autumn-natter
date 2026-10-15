@@ -287,17 +287,25 @@ pre.code {
 }
 
 /* The thinking of the model: a look inside the answer, so it is kept small and
-   behind a rule of colour. The words are cut off at a height, and the reader
-   can scroll inside the panel. */
-.think { position: relative; margin: 0 0 11px; padding: 9px 13px 10px 19px;
-  background: var(--think-bg); border: 1px solid var(--line-soft); border-radius: 10px; }
-.think::before { content: ""; position: absolute; left: 9px; top: 8px; bottom: 8px; width: 2px;
+   behind a rule of colour. The head of the panel folds the words away in the
+   same way as the head of a tool run, and carries the chevron that says which
+   way the panel stands. The words are cut off at a height, and the reader can
+   scroll inside the panel. */
+.think { position: relative; margin: 0 0 11px; background: var(--think-bg);
+  border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; }
+.think::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px;
   border-radius: 2px; background: var(--accent); }
-.think .cap { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 650;
-  letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
-.think .cap .svg { width: 12px; height: 12px; stroke: var(--ink); }
-.think .words { font-size: 13px; line-height: 1.5; color: var(--dim); white-space: pre-wrap;
-  overflow-wrap: anywhere; max-height: 190px; overflow-y: auto; scrollbar-width: thin; }
+.think > .thead { gap: 7px; min-height: 31px; padding: 6px 11px 6px 15px; }
+.think > .thead:hover { background: var(--hover); }
+.think > .thead .svg { width: 12px; height: 12px; stroke: var(--ink); }
+.think > .thead .cap { font-size: 10.5px; font-weight: 650; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--dim); }
+.think > .thead .fold { width: 14px; height: 14px; margin-left: auto; stroke: var(--faint); }
+.think.closed > .thead .fold { transform: rotate(-90deg); }
+.think .words { padding: 0 13px 10px 15px; font-size: 13px; line-height: 1.5; color: var(--dim);
+  overflow-wrap: anywhere; max-height: 190px; overflow-y: auto; scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent; }
+.think.closed .words { display: none; }
 
 /* The mark of an answer that is still coming. */
 .caret { display: inline-block; width: 7px; height: 15px; margin-top: 2px; border-radius: 1px;
@@ -676,6 +684,11 @@ var rev = -1;          // what the page has seen last
 var timer = null;      // the next poll
 var pending = false;   // only one poll at a time
 var cur = null;        // the last state
+// Chatting. The two switches of the Chatting section of the settings, as the
+// engine gives them. The page of the browser has no sheet of settings, so it
+// reads the two here and follows them. A panel that is folded as it comes in
+// stands closed from the first look, and the reader opens it with a click.
+var fold = { thinking: true, tools: true };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -706,6 +719,7 @@ function tight() { return (document.documentElement.clientWidth || 640) < 860; }
 function draw(s) {
   cur = s;
   document.body.classList.toggle('dark', !!s.dark);
+  readFold(s);
   el.darkbtn.title = s.dark ? 'Switch to the pale colours' : 'Switch to the dark colours';
   drawHome(s);
   fillSelect(el.model, s.models, s.model.id, function (m) { return m.name; });
@@ -738,6 +752,15 @@ function draw(s) {
 
   drawThread(s);
   if (ov.on) { rowCount(s); buildPreviews(ov.pos); placePreviews(); }
+}
+
+// Chatting. The two switches of the settings are read again with every state,
+// so a change made in the window is followed here too. A state of an older
+// engine has no record of them, and then both stand on.
+function readFold(s) {
+  var chat = s.chatting || {};
+  fold.thinking = chat.collapse_thinking !== false;
+  fold.tools = chat.collapse_tools !== false;
 }
 
 // The meter of the context: the words in use, the whole room, and a bar.
@@ -987,20 +1010,39 @@ function mark(path, cls) {
 // The mark of the thinking panel. The answer that is coming in needs it too.
 var THINK_MARK = 'M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4';
 
+// The head of a thinking panel: the mark, the words that say what the panel
+// holds, and the chevron that tells which way the panel stands.
+function thinkHead() {
+  var head = make('button', 'thead');
+  head.type = 'button';
+  var icon = mark(THINK_MARK);
+  var label = make('span', 'cap');
+  label.textContent = 'Thinking';
+  head.appendChild(icon);
+  head.appendChild(label);
+  head.appendChild(mark('M4 6.4 8 10.4 12 6.4', 'fold'));
+  return { head: head, icon: icon, label: label };
+}
+
+// A thinking panel with a head that folds, as the head of a tool run folds.
+// The Chatting settings say whether it starts closed, and a click on the head
+// of one panel changes that panel alone.
+function thinkPanel() {
+  var panel = make('div', 'think' + (fold.thinking ? ' closed' : ''));
+  var head = thinkHead();
+  var words = make('div', 'words');
+  head.head.addEventListener('click', function () { panel.classList.toggle('closed'); });
+  panel.appendChild(head.head);
+  panel.appendChild(words);
+  return { panel: panel, words: words, label: head.label, icon: head.icon };
+}
+
 // The thinking of the model: a look inside the answer, kept small, behind a
 // rule of colour, and cut off at a height the reader can move in.
 function thinkingBox(m) {
-  var box = make('div', 'think');
-  var cap = make('div', 'cap');
-  cap.appendChild(mark(THINK_MARK));
-  var label = make('span');
-  label.textContent = 'Thinking';
-  cap.appendChild(label);
-  var words = make('div', 'words');
-  words.textContent = m.reasoning;
-  box.appendChild(cap);
-  box.appendChild(words);
-  return box;
+  var made = thinkPanel();
+  made.words.textContent = m.reasoning;
+  return made.panel;
 }
 
 // One run of the terminal tool. The head says which command runs, or has run,
@@ -1009,7 +1051,9 @@ function thinkingBox(m) {
 // the panel, so the wait shows.
 function toolBox(m) {
   var running = m.tool === 'running ...';
-  var panel = make('div', 'tool' + (m.failed ? ' bad' : ''));
+  // The Chatting settings say whether a command starts folded up.
+  var panel = make('div', 'tool' + (m.failed ? ' bad' : '')
+    + (fold.tools ? ' closed' : ''));
 
   var head = make('button', 'thead');
   head.type = 'button';
@@ -1265,15 +1309,10 @@ function fillLive(turn, m) {
   turn.className = 'turn t-ai';
   turn.innerHTML = '';
   stopInk();
-  var panel = make('div', 'think' + (m.reasoning ? '' : ' hidden'));
-  var cap = make('div', 'cap');
-  cap.appendChild(mark(THINK_MARK));
-  var label = make('span');
-  label.textContent = 'Thinking';
-  cap.appendChild(label);
-  var thought = make('div', 'words');
-  panel.appendChild(cap);
-  panel.appendChild(thought);
+  var made = thinkPanel();
+  var panel = made.panel;
+  var thought = made.words;
+  if (!m.reasoning) { panel.classList.add('hidden'); }
   turn.appendChild(panel);
   var plain = make('div', 'plain');
   turn.appendChild(plain);

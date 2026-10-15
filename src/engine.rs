@@ -65,6 +65,10 @@ pub struct Snap {
     pub data_dir: String,
     // What the sandbox can do on this machine, for the settings window.
     pub sandbox_note: String,
+    // Chatting. Whether a thinking panel is folded up while it is written.
+    pub chat_collapse_thinking: bool,
+    // Whether a tool panel is folded up while its command runs.
+    pub chat_collapse_tools: bool,
     pub models: Vec<ModelInfo>,
     pub model_id: String,
     pub repositories: Vec<Repo>,
@@ -546,6 +550,8 @@ impl State {
             dark_mode: self.cfg.dark_mode,
             data_dir: config::paths().data.display().to_string(),
             sandbox_note: self.sandbox_note.clone(),
+            chat_collapse_thinking: self.cfg.chat_collapse_thinking,
+            chat_collapse_tools: self.cfg.chat_collapse_tools,
             models: self.models.clone(),
             model_id: self.current_model_id(),
             // The top bar shows five recent repositories at most.
@@ -1041,6 +1047,8 @@ impl Snap {
             dark_mode: false,
             data_dir: String::new(),
             sandbox_note: String::new(),
+            chat_collapse_thinking: true,
+            chat_collapse_tools: true,
             models: Vec::new(),
             model_id: String::new(),
             repositories: Vec::new(),

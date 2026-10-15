@@ -18,6 +18,11 @@ fn default_remote_port() -> u16 {
     DEFAULT_REMOTE_PORT
 }
 
+// A switch of the Chatting section that stands on unless the user turns it off.
+fn on_by_default() -> bool {
+    true
+}
+
 // Model settings. One entry per model file. The model path is the key.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -98,6 +103,13 @@ pub struct Config {
     pub model_id: String,
     // Per model settings. The key is the full model path.
     pub model_settings: BTreeMap<String, ModelSettings>,
+    // Chatting. How the chat of the window shows the parts of an answer.
+    // Fold a thinking panel up while the thinking of the model comes in.
+    #[serde(default = "on_by_default")]
+    pub chat_collapse_thinking: bool,
+    // Fold a tool panel up while its command runs.
+    #[serde(default = "on_by_default")]
+    pub chat_collapse_tools: bool,
 }
 
 impl Default for Config {
@@ -111,6 +123,8 @@ impl Default for Config {
             upnp_enabled: false,
             model_id: String::new(),
             model_settings: BTreeMap::new(),
+            chat_collapse_thinking: true,
+            chat_collapse_tools: true,
         }
     }
 }
@@ -224,6 +238,31 @@ pub fn repositories_dir(cfg: &Config) -> PathBuf {
     };
     let _ = fs::create_dir_all(&dir);
     dir
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The switches of the Chatting section stand on for a new set of settings.
+    #[test]
+    fn the_chatting_switches_stand_on() {
+        let cfg = Config::default();
+        assert!(cfg.chat_collapse_thinking);
+        assert!(cfg.chat_collapse_tools);
+    }
+
+    // A settings file written before the Chatting section existed still reads,
+    // and its two switches are on rather than off.
+    #[test]
+    fn an_old_settings_file_keeps_the_switches_on() {
+        let old = "{\"llama_dir\":\"\",\"models_dir\":\"\",\"repositories_dir\":\"\",\
+                   \"dark_mode\":false,\"remote_port\":8723,\"upnp_enabled\":false,\
+                   \"model_id\":\"\",\"model_settings\":{}}";
+        let read: Config = serde_json::from_str(old).expect("an old settings file reads");
+        assert!(read.chat_collapse_thinking);
+        assert!(read.chat_collapse_tools);
+    }
 }
 
 // Look for the llama-server binary in the usual build places.

@@ -101,6 +101,7 @@ function scene(name, dark) {
     carousel: { index: 0, count: 0, blank: true },
     messages: [], live: '', reasoning: '',
     thinking: { mode: 'auto', available: true },
+    chatting: { collapse_thinking: true, collapse_tools: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
     generating: false, busy: false, code: false, sandbox: false,
     sandbox_available: true,
@@ -134,7 +135,9 @@ const CONFIG = {
   repositories_dir: '',
   remote_port: 8723,
   upnp_enabled: false,
-  dark_mode: false
+  dark_mode: false,
+  chat_collapse_thinking: true,
+  chat_collapse_tools: true
 };
 
 const MODEL = {
@@ -165,6 +168,15 @@ async function main() {
   if (name.endsWith('-dark')) { dark = true; name = name.slice(0, -5); }
   else if (name.endsWith('-pale')) { name = name.slice(0, -5); }
   const state = scene(name === 'sheet-program' || name === 'sheet-model' ? 'chat' : name, dark);
+
+  // AN_FOLD=0 turns the two switches of the Chatting section off, so a picture
+  // can be taken of a panel that is written out as it comes in.
+  if (process.env.AN_FOLD === '0') {
+    state.chatting.collapse_thinking = false;
+    state.chatting.collapse_tools = false;
+    CONFIG.chat_collapse_thinking = false;
+    CONFIG.chat_collapse_tools = false;
+  }
 
   const puppeteer = require('puppeteer');
   let shell = '';
@@ -252,6 +264,14 @@ async function main() {
     await view.evaluate(function () {
       var box = document.getElementById('thread');
       if (box) { box.scrollTop = 0; }
+    });
+    await new Promise(function (r) { setTimeout(r, 250); });
+  }
+  if (process.env.AN_SCROLL === 'sheet') {
+    // Look at the foot of the sheet of settings, where the last sections stand.
+    await view.evaluate(function () {
+      var box = document.querySelector('.sheet-body');
+      if (box) { box.scrollTop = box.scrollHeight; }
     });
     await new Promise(function (r) { setTimeout(r, 250); });
   }
