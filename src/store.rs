@@ -209,6 +209,10 @@ pub struct Message {
     // The model's reasoning, streamed before the answer. Empty for most models.
     #[serde(default)]
     pub reasoning: String,
+    // How long the reasoning above took, in milliseconds. Zero when there was
+    // none, or when the chat was written before this was measured.
+    #[serde(default)]
+    pub reasoning_ms: u64,
     // Tool name plus arguments, for a tool call. Empty for other messages.
     #[serde(default)]
     pub tool: String,

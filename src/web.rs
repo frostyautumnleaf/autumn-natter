@@ -56,6 +56,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "body": m.body,
                 // The thinking of the model, when the model has any.
                 "reasoning": m.reasoning,
+                // How long that thinking took, in milliseconds.
+                "reasoning_ms": m.reasoning_ms,
                 "tool": m.tool,
                 "mono": m.mono,
                 "failed": m.failed,
@@ -89,8 +91,12 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "messages": messages,
         // Text the model wrote since the last message was stored.
         "live": snap.live_text,
-        // The thinking that comes with a live answer.
+        // The thinking that comes with a live answer, how long it lasted and
+        // whether it has stopped. The page writes the last two on the head of
+        // the panel.
         "reasoning": snap.live_reasoning,
+        "reasoning_ms": snap.live_thought_ms,
+        "reasoning_done": snap.live_thought_done,
         // The thinking mode of the open chat, and whether this model has one.
         "thinking": {
             "mode": &snap.thinking_mode,

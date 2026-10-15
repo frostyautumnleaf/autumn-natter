@@ -95,6 +95,11 @@ pub struct Snap {
     pub live_text: String,
     // The model's reasoning, streamed while an answer comes in.
     pub live_reasoning: String,
+    // How long the thinking of the answer taking shape lasted, in
+    // milliseconds, and whether it has stopped. The page writes these on the
+    // head of the panel.
+    pub live_thought_ms: u64,
+    pub live_thought_done: bool,
     // Goes up when a message changes, so the window redraws them.
     pub rev: u64,
     // Goes up when a list changes, so the window rebuilds it.
@@ -120,6 +125,15 @@ pub struct State {
     pub live_text: String,
     // The model's reasoning, streamed while an answer comes in.
     pub live_reasoning: String,
+    // Whether the thinking that came with the live answer has stopped. The
+    // head of the panel says how long it took once it has.
+    pub live_thought_done: bool,
+    // How long the thinking of the live answer lasted, in milliseconds.
+    pub live_thought_ms: u64,
+    // The moments the thinking of the live answer began and last stopped. The
+    // two together are the length of it.
+    thought_start: Option<Instant>,
+    thought_end: Option<Instant>,
     pub generating: bool,
     // The model is loading, so the window shows a spinner.
     pub busy: bool,
@@ -187,13 +201,21 @@ impl State {
     }
 
     // Add one message of a normal kind to the open chat.
-    fn push_message(&mut self, role: &str, body: &str, reasoning: &str, mono: bool) {
+    fn push_message(
+        &mut self,
+        role: &str,
+        body: &str,
+        reasoning: &str,
+        reasoning_ms: u64,
+        mono: bool,
+    ) {
         if let Some(chat) = self.chat_mut() {
             chat.messages.push(Message {
                 id: store::new_id(),
                 role: role.to_string(),
                 body: body.to_string(),
                 reasoning: reasoning.to_string(),
+                reasoning_ms,
                 mono,
                 when: store::now_secs(),
                 ..Default::default()
@@ -223,7 +245,13 @@ impl State {
     // Put a tool run in the chat before it starts. The id is given back so the
     // output can be written into the same message. The thinking of a turn with
     // no words of its own stands here too, so it is not lost.
-    fn begin_tool(&mut self, call: &ToolCall, shown: &str, thinking: &str) -> String {
+    fn begin_tool(
+        &mut self,
+        call: &ToolCall,
+        shown: &str,
+        thinking: &str,
+        thinking_ms: u64,
+    ) -> String {
         let id = store::new_id();
         if let Some(chat) = self.chat_mut() {
             chat.messages.push(Message {
@@ -231,6 +259,7 @@ impl State {
                 role: "Tool".to_string(),
                 body: shown.to_string(),
                 reasoning: thinking.to_string(),
+                reasoning_ms: thinking_ms,
                 tool: String::from("running ..."),
                 mono: true,
                 call_id: call.id.clone(),
@@ -574,6 +603,8 @@ impl State {
             messages: chat.map(|c| c.messages.clone()).unwrap_or_default(),
             live_text: self.live_text.clone(),
             live_reasoning: self.live_reasoning.clone(),
+            live_thought_ms: self.live_thought_ms,
+            live_thought_done: self.live_thought_done,
             rev: self.rev,
             structure_rev: self.structure_rev,
         }
@@ -607,6 +638,10 @@ impl Engine {
             current: None,
             live_text: String::new(),
             live_reasoning: String::new(),
+            live_thought_done: false,
+            live_thought_ms: 0,
+            thought_start: None,
+            thought_end: None,
             generating: false,
             busy: false,
             status: String::from("ready"),
@@ -1067,6 +1102,8 @@ impl Snap {
             messages: Vec::new(),
             live_text: String::new(),
             live_reasoning: String::new(),
+            live_thought_ms: 0,
+            live_thought_done: false,
             rev: 0,
             structure_rev: 0,
         }
@@ -1269,6 +1306,14 @@ fn run_turn(
         let stream_state = state.clone();
         let mut text_update = Instant::now();
         let mut reason_update = Instant::now();
+        // The thinking of this step is measured, so that the head of the panel
+        // can say how long the model thought for.
+        if let Ok(mut guard) = state.lock() {
+            guard.thought_start = None;
+            guard.thought_end = None;
+            guard.live_thought_ms = 0;
+            guard.live_thought_done = false;
+        }
         let answer = llama::stream_chat(
             &base_url,
             &body,
@@ -1276,6 +1321,11 @@ fn run_turn(
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
                     guard.live_text.push_str(piece);
+                    // Words have come, so the thinking of this moment is over.
+                    // It may begin again before the answer ends.
+                    if guard.thought_start.is_some() {
+                        guard.live_thought_done = true;
+                    }
                     if text_update.elapsed() > Duration::from_millis(60) {
                         text_update = Instant::now();
                         guard.touch();
@@ -1284,6 +1334,15 @@ fn run_turn(
             },
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
+                    let now = Instant::now();
+                    if guard.thought_start.is_none() {
+                        guard.thought_start = Some(now);
+                    }
+                    guard.thought_end = Some(now);
+                    if let Some(begun) = guard.thought_start {
+                        guard.live_thought_ms = now.duration_since(begun).as_millis() as u64;
+                    }
+                    guard.live_thought_done = false;
                     guard.live_reasoning.push_str(piece);
                     if reason_update.elapsed() > Duration::from_millis(60) {
                         reason_update = Instant::now();
@@ -1296,6 +1355,16 @@ fn run_turn(
         let Ok(mut guard) = state.lock() else { return };
         let live = std::mem::take(&mut guard.live_text);
         let live_thinking = std::mem::take(&mut guard.live_reasoning);
+        // How long the model spent thinking in this step. The words of the
+        // panel are made from this.
+        let thought_ms = match (guard.thought_start, guard.thought_end) {
+            (Some(begun), Some(end)) => end.duration_since(begun).as_millis() as u64,
+            _ => 0,
+        };
+        guard.thought_start = None;
+        guard.thought_end = None;
+        guard.live_thought_ms = 0;
+        guard.live_thought_done = false;
         // Both hold the answer. The longer one is the safer one.
         let answer_text = if answer.text.chars().count() >= live.chars().count() {
             answer.text.clone()
@@ -1345,8 +1414,12 @@ fn run_turn(
         ) {
             // The words are kept as they came in, also when the reader
             // stopped the run.
-            Kept::Words => guard.push_message("Assistant", &answer_text, &answer_thinking, false),
-            Kept::Thinking => guard.push_message("Assistant", "", &answer_thinking, false),
+            Kept::Words => {
+                guard.push_message("Assistant", &answer_text, &answer_thinking, thought_ms, false)
+            }
+            Kept::Thinking => {
+                guard.push_message("Assistant", "", &answer_thinking, thought_ms, false)
+            }
             // The model used tokens but left nothing to read, and asked for no
             // command. This happens when the context ran full.
             Kept::Note => {
@@ -1355,7 +1428,7 @@ fn run_turn(
                 } else {
                     String::from("(the model gave no answer)")
                 };
-                guard.push_message("Assistant", &note, &answer_thinking, false);
+                guard.push_message("Assistant", &note, &answer_thinking, thought_ms, false);
             }
             Kept::Nothing => {}
         }
@@ -1410,7 +1483,7 @@ fn run_turn(
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
-                let id = guard.begin_tool(call, &shown, thinking);
+                let id = guard.begin_tool(call, &shown, thinking, thought_ms);
                 let text = format!("running a command: {}", first_line(&command));
                 guard.set_status(&text);
                 id
@@ -1593,7 +1666,7 @@ mod tests {
         // The first message makes it a real chat.
         {
             let mut state = engine.state.lock().unwrap();
-            state.push_message("You", "A real question", "", false);
+            state.push_message("You", "A real question", "", 0, false);
         }
         assert_eq!(stored(), 1);
 
@@ -1644,7 +1717,7 @@ mod tests {
         engine.new_chat();
         {
             let mut state = engine.state.lock().unwrap();
-            state.push_message("You", "Hello there", "", false);
+            state.push_message("You", "Hello there", "", 0, false);
         }
         engine.roll(1);
         std::thread::sleep(Duration::from_millis(500));
@@ -1805,7 +1878,8 @@ mod tests {
         };
         {
             let mut state = engine.state.lock().unwrap();
-            let id = state.begin_tool(&call, "python -c 'print(5)'", "I will run the command.");
+            let id =
+                state.begin_tool(&call, "python -c 'print(5)'", "I will run the command.", 0);
             state.finish_tool(&id, "5", true);
         }
         let snap = engine.snapshot();

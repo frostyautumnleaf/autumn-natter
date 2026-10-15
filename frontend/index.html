@@ -1285,6 +1285,33 @@ function mark(path, cls) {
 // The mark of the thinking panel. The answer that is coming in needs it too.
 var THINK_MARK = 'M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4';
 
+// A length of time in words, as the head of a thinking panel says it: so many
+// seconds, or minutes and seconds, or hours.
+function spanWords(ms) {
+  var secs = Math.round((Number(ms) || 0) / 1000);
+  if (secs < 60) { return secs + (secs === 1 ? ' second' : ' seconds'); }
+  var mins = Math.floor(secs / 60);
+  secs = secs % 60;
+  if (mins < 60) {
+    return mins + (mins === 1 ? ' minute' : ' minutes') +
+      (secs ? ', ' + secs + (secs === 1 ? ' second' : ' seconds') : '');
+  }
+  var hours = Math.floor(mins / 60);
+  mins = mins % 60;
+  return hours + (hours === 1 ? ' hour' : ' hours') +
+    (mins ? ', ' + mins + (mins === 1 ? ' minute' : ' minutes') : '');
+}
+
+// The words on the head of a thinking panel. While the model thinks, the head
+// says only that. Once the model has stopped, the head says how long it
+// thought for. A thought of no length at all, as in a chat written before the
+// program measured this, says nothing of the time.
+function thoughtWords(ms, over) {
+  if (!over) { return 'Thinking'; }
+  var span = Number(ms) || 0;
+  return span > 0 ? 'Thought for ' + spanWords(span) : 'Thought';
+}
+
 // The head of a thinking panel: the mark, the words that say what the panel
 // holds, and the chevron that tells which way the panel stands.
 function thinkHead() {
@@ -1317,6 +1344,7 @@ function thinkPanel() {
 // are markdown, as the answer is, so they stand in the same kinds of block.
 function thinkingBox(m) {
   var made = thinkPanel();
+  made.label.textContent = thoughtWords(m.reasoning_ms, true);
   var blocksOfThought = blocks(m.reasoning);
   for (var n = 0; n < blocksOfThought.length; n++) {
     made.words.appendChild(blockNode(blocksOfThought[n]));
@@ -1714,6 +1742,9 @@ var ink = {
   thought: null,    // the words of the thinking
   words: null,      // where the words of the answer stand
   caret: null,      // the mark that says the answer is not over
+  label: null,      // the words on the head of the thinking panel
+  ms: 0,            // how long the model has thought for, in milliseconds
+  done: false,      // whether the model has stopped thinking
   said: '',         // all the words the engine has given
   musing: '',       // all the thinking the engine has given
   shown: 0,         // how much of the words stands on the page
@@ -1845,6 +1876,16 @@ function writeThought() {
   if (node.scrollHeight - (node.scrollTop + node.clientHeight) < 60) {
     node.scrollTop = node.scrollHeight;
   }
+  thinkHeadWords();
+}
+
+// The words on the head of the thinking panel of the answer that is coming in.
+// They say how long the model thought for once the thoughts are all on the
+// page and the model has stopped thinking; until then they say it is thinking.
+function thinkHeadWords() {
+  if (!ink.label) { return; }
+  var over = ink.done && ink.shownMusing >= ink.musing.length;
+  ink.label.textContent = thoughtWords(ink.ms, over);
 }
 
 // One look of the writer. A few characters go on the page, and more of them
@@ -1874,7 +1915,10 @@ function stepInk(now) {
 function feedInk(m) {
   ink.said = String(m.body || '');
   ink.musing = String(m.reasoning || '');
+  ink.ms = Number(m.reasoning_ms) || 0;
+  ink.done = !!m.reasoning_done;
   if (ink.panel && ink.musing) { ink.panel.classList.remove('hidden'); }
+  thinkHeadWords();
   if (!ink.frame) {
     ink.clock = 0;
     ink.frame = requestAnimationFrame(stepInk);
@@ -1885,6 +1929,7 @@ function feedInk(m) {
 function stopInk() {
   if (ink.frame) { cancelAnimationFrame(ink.frame); }
   ink.turn = null; ink.panel = null; ink.thought = null; ink.words = null;
+  ink.label = null; ink.ms = 0; ink.done = false;
   ink.caret = null; ink.said = ''; ink.musing = ''; ink.shown = 0;
   ink.shownMusing = 0; ink.shape = ''; ink.thoughtShape.shape = ''; ink.frame = 0;
 }
@@ -1903,14 +1948,17 @@ function fillLive(turn, m) {
   var plain = make('div', 'plain');
   turn.appendChild(plain);
   ink.turn = turn; ink.panel = panel; ink.thought = thought;
-  ink.words = plain; ink.caret = make('span', 'caret');
+  ink.words = plain; ink.caret = make('span', 'caret'); ink.label = made.label;
   plain.appendChild(ink.caret);
   ink.said = String(m.body || '');
   ink.musing = String(m.reasoning || '');
+  ink.ms = Number(m.reasoning_ms) || 0;
+  ink.done = !!m.reasoning_done;
   ink.shown = ink.said.length;
   ink.shownMusing = ink.musing.length;
   writeSaid();
   if (ink.musing) { writeThought(); }
+  thinkHeadWords();
 }
 
 // The words of one message, put into a turn. The turn is made once, and the
@@ -1970,6 +2018,7 @@ function drawThread(s) {
   if (s.generating) {
     items.push({
       id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
+      reasoning_ms: s.reasoning_ms || 0, reasoning_done: !!s.reasoning_done,
       tool: '', mono: false, failed: false, when: ''
     });
   }

@@ -14,6 +14,8 @@
 //   node page-shot.js rich-pale rich.png 1180 1450
 //   node page-shot.js home-dark home.png 1180 760
 //   AN_PAGE=../web/page.html AN_FETCH=1 node page-shot.js chat-pale page.png
+//   AN_PICK='.think .thead' AN_HOVER='.turn' node page-shot.js rich p.png
+//   AN_PICK and AN_HOVER pick out parts of the page by their class.
 //
 // The scenes: home, chat, rich, streaming, previews, sheet-program, sheet-model.
 // A name that ends in -dark draws the dark skin, and a name that ends in -pale
@@ -30,7 +32,7 @@ const useFetch = process.env.AN_FETCH === '1';
 // One message of the talk.
 function said(id, role, body, extra) {
   return Object.assign({
-    id: id, role: role, body: body, reasoning: '', tool: '',
+    id: id, role: role, body: body, reasoning: '', reasoning_ms: 0, tool: '',
     mono: false, failed: false, when: '09:4' + (id % 10)
   }, extra || {});
 }
@@ -50,10 +52,13 @@ const FULL = [
     { reasoning: 'The user wants a **plan**. The fault is in `markdown.rs`, and not '
       + 'in the view. Two things to check first:\n\n'
       + '- the order the blocks come out in\n- the height of the bar beside a heading\n\n'
-      + '```rust\nif list {\n    flush_para();\n}\n```' }),
+      + '```rust\nif list {\n    flush_para();\n}\n```',
+      // How long the model thought for, as the head of the panel says it.
+      reasoning_ms: 80000 }),
   said(3, 'Tool', 'cargo test --release markdown',
     { reasoning: 'The plan is written. Run the tests of the parser before the '
       + 'answer goes out, so the plan is checked and not only promised.',
+      reasoning_ms: 320000,
       tool: 'running 6 tests\ntest markdown::tests::list_after_paragraph ... ok\n'
       + 'all 6 tests passed' }),
   said(4, 'Assistant', 'The tests pass. Two notes:\n\n'
@@ -107,7 +112,7 @@ function scene(name, dark) {
     chat: { id: 'c1', title: 'No chat' },
     chats: [], home: true, greeting: 'Still here, still ready.', overview: false,
     carousel: { index: 0, count: 0, blank: true },
-    messages: [], live: '', reasoning: '',
+    messages: [], live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
     thinking: { mode: 'auto', available: true },
     chatting: { collapse_thinking: true, collapse_tools: true, highlight: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
@@ -144,6 +149,10 @@ function scene(name, dark) {
     start.live = 'The bar takes its height from the words beside it, and the list '
       + 'keeps its place after the paragraph.';
     start.reasoning = 'Look at the order of the blocks first.';
+    // The thinking is over while the answer is still coming, so the head of
+    // the panel says how long the model thought for.
+    start.reasoning_ms = 12400;
+    start.reasoning_done = true;
     start.status = 'Answering';
     start.context = { used: '5,980', total: '8,192', ratio: 0.73 };
   }
@@ -302,7 +311,28 @@ async function main() {
     });
     await new Promise(function (r) { setTimeout(r, 250); });
   }
-  await view.screenshot({ path: out });
+  // AN_HOVER=selector puts the mouse over one thing, so a look that only
+  // shows when the reader hovers over it can be seen. AN_PICK=selector draws a
+  // picture of each thing that matches, of its own, instead of the page.
+  if (process.env.AN_HOVER) {
+    const over = await view.$(process.env.AN_HOVER);
+    if (over) {
+      await over.hover();
+      await new Promise(function (r) { setTimeout(r, 400); });
+    }
+  }
+  const picked = process.env.AN_PICK ? await view.$$(process.env.AN_PICK) : [];
+  if (picked.length) {
+    for (let n = 0; n < picked.length; n++) {
+      const piece = out.replace(/\.png$/, '') + '-' + (n + 1) + '.png';
+      try {
+        await picked[n].screenshot({ path: piece });
+        console.log('wrote ' + piece);
+      } catch (e) { console.log('skipped ' + piece); }
+    }
+  } else {
+    await view.screenshot({ path: out });
+  }
   await browser.close();
   console.log('wrote ' + out);
 }
