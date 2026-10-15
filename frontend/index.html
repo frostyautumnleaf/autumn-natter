@@ -303,6 +303,11 @@ pre.code {
 .caret { display: inline-block; width: 7px; height: 15px; margin-top: 2px; border-radius: 1px;
   background: var(--accent); animation: beat 1.1s ease-in-out infinite; vertical-align: text-bottom; }
 
+/* The words of an answer that are new. They go on the page a few at a time, so
+   a new run fades in instead of popping in. */
+@keyframes ink { from { opacity: 0; } to { opacity: 1; } }
+.ink { animation: ink 420ms ease-out; }
+
 /* A note from the program stands in the middle, between two hairlines, with no
    bubble around it. */
 .note { display: flex; align-items: center; gap: 12px; color: var(--dim); font-size: 12px;
@@ -579,7 +584,7 @@ pre.code.line {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
-  .caret, .pulse.busy, .state.run { animation: none; }
+  .caret, .ink, .pulse.busy, .state.run { animation: none; }
 }
 </style>
 </head>
@@ -1200,12 +1205,15 @@ function mark(path, cls) {
   return svg;
 }
 
+// The mark of the thinking panel. The answer that is coming in needs it too.
+var THINK_MARK = 'M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4';
+
 // The thinking of the model: a look inside the answer, kept small, behind a
 // rule of colour, and cut off at a height the reader can move in.
 function thinkingBox(m) {
   var box = make('div', 'think');
   var cap = make('div', 'cap');
-  cap.appendChild(mark('M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4'));
+  cap.appendChild(mark(THINK_MARK));
   var label = make('span');
   label.textContent = 'Thinking';
   cap.appendChild(label);
@@ -1302,9 +1310,208 @@ function blockNode(block) {
   return text;
 }
 
-// The words of one message, put into a turn. The turn is made once and its
-// words are put again while an answer grows.
-function fill(turn, m, live) {
+// ------------------------------------------------------------ the live answer
+//
+// The engine gives the words of an answer in pieces, and the page asks for the
+// state about six times a second. Put on the page as they arrive, the words
+// would pop in. They stand behind a writer instead: the writer puts a few
+// characters at a time, and every new run fades in, so an answer reads as one
+// movement and not as a stack of jumps.
+var ink = {
+  turn: null,       // the turn of the answer that is coming in
+  panel: null,      // the panel of the thinking, kept out while there is none
+  thought: null,    // the words of the thinking
+  words: null,      // where the words of the answer stand
+  caret: null,      // the mark that says the answer is not over
+  said: '',         // all the words the engine has given
+  musing: '',       // all the thinking the engine has given
+  shown: 0,         // how much of the words stands on the page
+  shownMusing: 0,   // how much of the thinking stands on the page
+  shape: '',        // the blocks the words stand in
+  frame: 0,         // the next look of the writer, or nothing
+  clock: 0          // when the page was written last
+};
+
+// The blocks of an answer as one line, so a change of shape is seen at once.
+function shapeOf(made) {
+  var parts = [];
+  for (var n = 0; n < made.length; n++) {
+    var block = made[n];
+    parts.push(block.kind + (block.level || 0) + (block.items ? block.items.length : 0));
+  }
+  return parts.join(' ');
+}
+
+// The words of the last block. Only that block can still grow.
+function tailText(made) {
+  if (!made.length) { return ''; }
+  var last = made[made.length - 1];
+  if (last.kind === 'list') { return last.items[last.items.length - 1].text; }
+  return last.text || '';
+}
+
+// The node of the last block. The mark of an answer that is still coming is
+// left out, so it is never taken for a block of words.
+function lastBlock(node) {
+  var child = node.lastElementChild;
+  if (child === ink.caret) { child = child.previousElementSibling; }
+  return child;
+}
+
+// The node inside a block that holds the words which can still grow.
+function holderOf(node) {
+  if (!node) { return null; }
+  if (node.tagName === 'UL' || node.tagName === 'OL') { return node.lastChild; }
+  if (node.classList.contains('h')) { return node.lastChild; }
+  return node;
+}
+
+// New words go in behind a fade.
+function fresh(node, text) {
+  if (!node || !text) { return; }
+  if (reduce) { node.appendChild(document.createTextNode(text)); return; }
+  var span = make('span', 'ink');
+  span.textContent = text;
+  node.appendChild(span);
+}
+
+// Words that have finished fading are plain words again, so a long answer does
+// not leave a span for every few characters.
+function settle(node) {
+  if (reduce || !node) { return; }
+  var spans = node.querySelectorAll('.ink');
+  for (var n = 0; n + 8 < spans.length; n++) {
+    spans[n].replaceWith(document.createTextNode(spans[n].textContent));
+  }
+  node.normalize();
+}
+
+// The words of the answer that is coming in, put on the page. A block that came
+// in is made again; a block that only grew takes the new words at its end.
+function writeSaid() {
+  var node = ink.words;
+  if (!node) { return; }
+  var made = blocks(ink.said.slice(0, ink.shown));
+  var shape = shapeOf(made);
+  var want = tailText(made);
+  var holder;
+  if (shape !== ink.shape) {
+    ink.shape = shape;
+    node.innerHTML = '';
+    for (var n = 0; n < made.length; n++) { node.appendChild(blockNode(made[n])); }
+    holder = holderOf(lastBlock(node));
+    if (holder && want) { holder.textContent = ''; fresh(holder, want); }
+  } else if (made.length) {
+    holder = holderOf(lastBlock(node));
+    if (holder) {
+      var have = holder.textContent;
+      if (want.length > have.length && want.slice(0, have.length) === have) {
+        fresh(holder, want.slice(have.length));
+      } else {
+        holder.textContent = want;
+      }
+    }
+  }
+  // The mark of an answer that is not over stands behind the last words, and
+  // not on a line of its own when those words are plain words.
+  var home = (holder && holder.classList.contains('body')) ? holder : node;
+  if (ink.caret && ink.caret.parentNode !== home) { home.appendChild(ink.caret); }
+  settle(node);
+}
+
+// The thinking of the answer that is coming in, put on the page.
+function writeThought() {
+  var node = ink.thought;
+  if (!node) { return; }
+  var want = ink.musing.slice(0, ink.shownMusing);
+  var have = node.textContent;
+  if (want.length > have.length && want.slice(0, have.length) === have) {
+    fresh(node, want.slice(have.length));
+  } else if (want !== have) {
+    node.textContent = want;
+  }
+  settle(node);
+  // The end of the thinking is what matters while it comes in, unless the
+  // reader has gone up in the panel to read the start of it.
+  if (node.scrollHeight - (node.scrollTop + node.clientHeight) < 60) {
+    node.scrollTop = node.scrollHeight;
+  }
+}
+
+// One look of the writer. A few characters go on the page, and more of them
+// while the model is ahead of the reader.
+function stepInk(now) {
+  ink.frame = 0;
+  if (!ink.words) { return; }
+  if (now - ink.clock < 26) { ink.frame = requestAnimationFrame(stepInk); return; }
+  ink.clock = now;
+  var room = ink.said.length - ink.shown;
+  if (room > 0) {
+    ink.shown += reduce ? room : Math.min(140, Math.max(2, Math.ceil(room / 5)));
+    writeSaid();
+  }
+  var musing = ink.musing.length - ink.shownMusing;
+  if (musing > 0) {
+    ink.shownMusing += reduce ? musing : Math.min(200, Math.max(3, Math.ceil(musing / 5)));
+    writeThought();
+  }
+  if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
+  if (ink.shown < ink.said.length || ink.shownMusing < ink.musing.length) {
+    ink.frame = requestAnimationFrame(stepInk);
+  }
+}
+
+// The state has new words for the answer that is coming in.
+function feedInk(m) {
+  ink.said = String(m.body || '');
+  ink.musing = String(m.reasoning || '');
+  if (ink.panel && ink.musing) { ink.panel.classList.remove('hidden'); }
+  if (!ink.frame) {
+    ink.clock = 0;
+    ink.frame = requestAnimationFrame(stepInk);
+  }
+}
+
+// The answer is over, or another chat stands in the way of the writer.
+function stopInk() {
+  if (ink.frame) { cancelAnimationFrame(ink.frame); }
+  ink.turn = null; ink.panel = null; ink.thought = null; ink.words = null;
+  ink.caret = null; ink.said = ''; ink.musing = ''; ink.shown = 0;
+  ink.shownMusing = 0; ink.shape = ''; ink.frame = 0;
+}
+
+// The turn of an answer that is coming in. What the engine has given so far
+// stands on the page at once; what comes after that the writer puts on slowly.
+function fillLive(turn, m) {
+  turn.className = 'turn t-ai';
+  turn.innerHTML = '';
+  stopInk();
+  var panel = make('div', 'think' + (m.reasoning ? '' : ' hidden'));
+  var cap = make('div', 'cap');
+  cap.appendChild(mark(THINK_MARK));
+  var label = make('span');
+  label.textContent = 'Thinking';
+  cap.appendChild(label);
+  var thought = make('div', 'words');
+  panel.appendChild(cap);
+  panel.appendChild(thought);
+  turn.appendChild(panel);
+  var plain = make('div', 'plain');
+  turn.appendChild(plain);
+  ink.turn = turn; ink.panel = panel; ink.thought = thought;
+  ink.words = plain; ink.caret = make('span', 'caret');
+  plain.appendChild(ink.caret);
+  ink.said = String(m.body || '');
+  ink.musing = String(m.reasoning || '');
+  ink.shown = ink.said.length;
+  ink.shownMusing = ink.musing.length;
+  writeSaid();
+  if (ink.musing) { writeThought(); }
+}
+
+// The words of one message, put into a turn. The turn is made once, and the
+// words of an answer that is coming in are put again by the writer above.
+function fill(turn, m) {
   turn.className = 'turn ' + roleClass(m) + (m.failed ? ' bad' : '');
   turn.innerHTML = '';
   if (m.role === 'Note') {
@@ -1335,11 +1542,6 @@ function fill(turn, m, live) {
     } else {
       var made = blocks(m.body);
       for (var n = 0; n < made.length; n++) { words.appendChild(blockNode(made[n])); }
-      if (live) {
-        // The mark of an answer that is still coming, so the page never looks
-        // finished too early.
-        words.appendChild(make('span', 'caret'));
-      }
     }
     turn.appendChild(words);
   }
@@ -1368,6 +1570,7 @@ function drawThread(s) {
     });
   }
   if (items.length === 0) {
+    stopInk();
     if (box.dataset.key !== 'blank') {
       box.dataset.key = 'blank';
       box.innerHTML = '';
@@ -1391,7 +1594,7 @@ function drawThread(s) {
     box.innerHTML = '';
     for (var n = 0; n < items.length; n++) {
       var turn = make('div', 'turn');
-      fill(turn, items[n], false);
+      if (items[n].id === 'live') { fillLive(turn, items[n]); } else { fill(turn, items[n]); }
       turn.dataset.stamp = roleStamp(items[n]);
       // Only the turn that came in fades up. A chat that was opened is already
       // there, and its turns do not need to say so again.
@@ -1405,10 +1608,17 @@ function drawThread(s) {
     // The last turn is the one that can still grow.
     var last = box.lastChild;
     var tail = items[items.length - 1];
-    var stamp = roleStamp(tail);
-    if (last && last.dataset.stamp !== stamp) {
-      last.dataset.stamp = stamp;
-      fill(last, tail, !!s.generating && tail.id === 'live');
+    if (tail.id === 'live') {
+      // An answer that is coming in is written a few characters at a time by
+      // the writer, so the words flow instead of arriving in jumps.
+      feedInk(tail);
+    } else {
+      stopInk();
+      var stamp = roleStamp(tail);
+      if (last && last.dataset.stamp !== stamp) {
+        last.dataset.stamp = stamp;
+        fill(last, tail);
+      }
     }
   }
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
