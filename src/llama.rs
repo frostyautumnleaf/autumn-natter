@@ -458,6 +458,14 @@ pub fn build_args(
     args.push("--seed".into());
     args.push(settings.seed.to_string());
 
+    // The room for context checkpoints, and the ceiling of the talk memory.
+    // 0 turns the checkpoints off, and for the ceiling 0 turns the cache off
+    // while -1 lifts the limit.
+    args.push("--ctx-checkpoints".into());
+    args.push(settings.ctx_checkpoints.to_string());
+    args.push("--cache-ram".into());
+    args.push(settings.cache_ram.to_string());
+
     // Vision projector.
     if settings.vision {
         match find_mmproj(&model.path) {
@@ -816,6 +824,42 @@ mod tests {
         assert_eq!(find_flag(&args, "--presence-penalty"), "0");
         assert_eq!(find_flag(&args, "--n-predict"), "-1");
         assert_eq!(find_flag(&args, "--seed"), "-1");
+    }
+
+    // The checkpoints and the ceiling of the talk memory go to the server, and
+    // the defaults of the program stand in a new set of settings.
+    #[test]
+    fn the_checkpoints_and_the_cache_ram_go_to_the_server() {
+        let mut settings = ModelSettings::default();
+        settings.ctx_checkpoints = 4;
+        settings.cache_ram = -1;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--ctx-checkpoints"), "4");
+        assert_eq!(find_flag(&args, "--cache-ram"), "-1");
+
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--ctx-checkpoints"), "32");
+        assert_eq!(find_flag(&args, "--cache-ram"), "8192");
     }
 
     // The value behind one flag, for the tests.

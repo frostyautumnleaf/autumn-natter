@@ -65,6 +65,11 @@ pub struct ModelSettings {
     pub max_tokens: i64,
     // The seed of the random draw. -1 picks a new one on every start.
     pub seed: i64,
+    // The most context checkpoints the server keeps per slot. 0 turns them off.
+    pub ctx_checkpoints: i64,
+    // The ceiling of the talk memory in mebibytes. 0 turns the cache off, and
+    // -1 lifts the limit.
+    pub cache_ram: i64,
     // -1 means no limit. 0 stops thinking at once.
     pub reasoning_budget: i64,
     pub reasoning_message: String,
@@ -101,6 +106,8 @@ impl Default for ModelSettings {
             presence_penalty: 0.0,
             max_tokens: -1,
             seed: -1,
+            ctx_checkpoints: 32,
+            cache_ram: 8192,
             reasoning_budget: -1,
             reasoning_message: String::new(),
             chat_template: String::new(),

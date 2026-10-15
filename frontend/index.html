@@ -960,6 +960,17 @@ pre.code.line {
         <div class="fld"><span class="lbl">How the file is read</span>
           <span class="sub">Keeps the model in the memory of the machine, on the disk, or in both.</span>
           <div class="ctl"><select id="mLoad"></select></div></div>
+        <details class="adv" id="advSizing">
+          <summary>Advanced</summary>
+          <div class="adv-body">
+            <div class="fld"><span class="lbl">Checkpoints</span>
+              <span class="sub">The most points of the talk the server saves, so it can go back to one and reuse the work done before it. 0 turns the checkpoints off.</span>
+              <div class="ctl"><input id="mCheckpoints" type="number" min="0" max="1024" step="1"><span class="unit">0 for off</span></div></div>
+            <div class="fld"><span class="lbl">Cache ram</span>
+              <span class="sub">The ceiling of the memory the talk may take, in mebibytes. 0 turns the cache off, and -1 lifts the limit.</span>
+              <div class="ctl"><input id="mCacheRam" type="number" min="-1" max="131072" step="128"><span class="unit">MiB, -1 for no limit</span></div></div>
+          </div>
+        </details>
 
         <div class="sec">Sampling</div>
         <div class="fld"><span class="lbl">Temperature</span>
@@ -2957,6 +2968,10 @@ function loadModel() {
     byId('mCtx').value = s.ctx_size;
     setChoices('mKv', m.kinds, s.kv_index);
     setChoices('mLoad', m.loads, s.load_index);
+    byId('mCheckpoints').value = s.ctx_checkpoints;
+    byId('mCacheRam').value = s.cache_ram;
+    advOpen('advSizing', ['ctx_checkpoints', 'cache_ram'],
+      { ctx_checkpoints: 32, cache_ram: 8192 });
     setChoices('mSpec', m.specs, s.spec_index);
     byId('mTemp').value = s.temperature;
     byId('mTopP').value = s.top_p;
@@ -3030,6 +3045,8 @@ function readModel() {
   s.kv_index = selIndex('mKv');
   s.load_index = selIndex('mLoad');
   s.spec_index = selIndex('mSpec');
+  s.ctx_checkpoints = intOf('mCheckpoints', s.ctx_checkpoints);
+  s.cache_ram = intOf('mCacheRam', s.cache_ram);
   s.temperature = numOf('mTemp', s.temperature);
   s.top_p = numOf('mTopP', s.top_p);
   s.top_k = intOf('mTopK', s.top_k);
@@ -3149,7 +3166,8 @@ byId('fDark').addEventListener('change', function (e) {
   post('/api/dark', { on: e.target.checked });
 });
 
-['mCtx', 'mKv', 'mLoad', 'mTemp', 'mTopP', 'mTopK', 'mMinP', 'mRepeatPen', 'mPresencePen',
+['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mTemp', 'mTopP', 'mTopK',
+  'mMinP', 'mRepeatPen', 'mPresencePen',
   'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',
   'mVision', 'mBudget', 'mReasonMsg', 'mTensor', 'mVram', 'mTemplate', 'mExtra'].forEach(function (id) {
   var node = byId(id);
