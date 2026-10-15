@@ -79,6 +79,9 @@ pub struct ModelSettings {
     // Stop the shift of the context when the talk overflows the room. Good to
     // use when coding, where a shift cuts the words the model works on.
     pub no_context_shift: bool,
+    // The projector that reads the pictures works on the card, by default.
+    // With the switch on, it works on the CPU.
+    pub mmproj_cpu: bool,
     // -1 means no limit. 0 stops thinking at once.
     pub reasoning_budget: i64,
     pub reasoning_message: String,
@@ -121,6 +124,7 @@ impl Default for ModelSettings {
             image_min_tokens: 0,
             image_max_tokens: 0,
             no_context_shift: false,
+            mmproj_cpu: false,
             reasoning_budget: -1,
             reasoning_message: String::new(),
             chat_template: String::new(),

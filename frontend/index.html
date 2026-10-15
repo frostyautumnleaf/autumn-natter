@@ -1042,6 +1042,9 @@ pre.code.line {
             <div class="fld"><span class="lbl">Image maximum tokens</span>
               <span class="sub">The most tokens one image may take, for a model that can look at pictures. 0 keeps the value inside the model file.</span>
               <div class="ctl"><input id="mImgMax" type="number" min="0" max="100000" step="1"><span class="unit">0 for the model value</span></div></div>
+            <div class="fld"><span class="lbl">Offload vision to CPU</span>
+              <span class="sub">The projector that reads the pictures works on the card, by default. Turn this on to move it to the CPU, and leave the card free for the model.</span>
+              <div class="ctl"><input id="mMmprojCpu" type="checkbox"></div></div>
           </div>
         </details>
 
@@ -3011,8 +3014,9 @@ function loadModel() {
     byId('mVision').checked = !!s.vision;
     byId('mImgMin').value = s.image_min_tokens;
     byId('mImgMax').value = s.image_max_tokens;
-    advOpen('advWorking', ['image_min_tokens', 'image_max_tokens'],
-      { image_min_tokens: 0, image_max_tokens: 0 });
+    byId('mMmprojCpu').checked = !!s.mmproj_cpu;
+    advOpen('advWorking', ['image_min_tokens', 'image_max_tokens', 'mmproj_cpu'],
+      { image_min_tokens: 0, image_max_tokens: 0, mmproj_cpu: false });
     byId('mBudget').value = s.reasoning_budget;
     byId('mReasonMsg').value = s.reasoning_message || '';
     byId('mTensor').checked = !!s.tensor_parallel;
@@ -3088,6 +3092,7 @@ function readModel() {
   s.vision = byId('mVision').checked;
   s.image_min_tokens = intOf('mImgMin', s.image_min_tokens);
   s.image_max_tokens = intOf('mImgMax', s.image_max_tokens);
+  s.mmproj_cpu = byId('mMmprojCpu').checked;
   s.reasoning_budget = intOf('mBudget', s.reasoning_budget);
   s.reasoning_message = byId('mReasonMsg').value;
   s.tensor_parallel = byId('mTensor').checked;
@@ -3198,7 +3203,8 @@ byId('fDark').addEventListener('change', function (e) {
   'mTopP', 'mTopK',
   'mMinP', 'mRepeatPen', 'mPresencePen',
   'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',
-  'mVision', 'mImgMin', 'mImgMax', 'mBudget', 'mReasonMsg', 'mTensor', 'mVram',
+  'mVision', 'mImgMin', 'mImgMax', 'mMmprojCpu', 'mBudget', 'mReasonMsg', 'mTensor',
+  'mVram',
   'mTemplate', 'mExtra'].forEach(function (id) {
   var node = byId(id);
   node.addEventListener('input', function () {

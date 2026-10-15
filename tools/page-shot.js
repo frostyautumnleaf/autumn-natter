@@ -215,6 +215,7 @@ const MODEL = {
     presence_penalty: 0, max_tokens: -1, seed: -1,
     ctx_checkpoints: 32, cache_ram: 8192, cache_prompt: true,
     image_min_tokens: 0, image_max_tokens: 0, no_context_shift: false,
+    mmproj_cpu: false,
     reasoning_budget: -1, reasoning_message: '', chat_template: '', extra_args: '',
     vram_budget: 0, gpu_enabled: [true, false]
   },

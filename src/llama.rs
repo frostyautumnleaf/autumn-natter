@@ -505,6 +505,11 @@ pub fn build_args(
             args.push("--image-max-tokens".into());
             args.push(settings.image_max_tokens.to_string());
         }
+        // The projector works on the card, by default. With the switch on, it
+        // works on the CPU, and the card stays free for the model.
+        if settings.mmproj_cpu {
+            args.push("--no-mmproj-offload".into());
+        }
     }
 
     // Reasoning budget.
@@ -1030,6 +1035,40 @@ mod tests {
             &mut notes,
         );
         assert!(args.iter().any(|a| a == "--no-context-shift"));
+    }
+
+    // The switch for the CPU projector sends its flag with the vision switch
+    // on, and the flag stays away for a new set of settings.
+    #[test]
+    fn the_cpu_projector_flag_follows_the_switch() {
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--no-mmproj-offload"));
+
+        let mut settings = ModelSettings::default();
+        settings.vision = true;
+        settings.mmproj_cpu = true;
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            false,
+            "off",
+            &mut notes,
+        );
+        assert!(args.iter().any(|a| a == "--no-mmproj-offload"));
     }
 
     // The value behind one flag, for the tests.
