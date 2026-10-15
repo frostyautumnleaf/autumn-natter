@@ -251,9 +251,15 @@ body.home .stage { display: none; }
   white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
 }
 .plain { min-width: 0; }
-.stamp { font-size: 11px; color: var(--faint); margin-top: 5px; opacity: 0;
-  transition: opacity 160ms; font-variant-numeric: tabular-nums; }
-.turn:hover .stamp { opacity: 1; }
+/* The time of a message. It takes no room of its own until the reader hovers
+   over the message; then it opens out below the words. Only what hangs under
+   the message moves, so the message the reader points at, and every message
+   above it, stand exactly where they stood. */
+.stamp { font-size: 11px; color: var(--faint); opacity: 0; height: 0;
+  margin-top: 0; overflow: hidden; line-height: 15px;
+  transition: opacity 160ms, height 160ms, margin-top 160ms;
+  font-variant-numeric: tabular-nums; }
+.turn:hover .stamp { opacity: 1; height: 15px; margin-top: 5px; }
 .turn.t-you .stamp { padding-right: 2px; }
 
 /* Words of one kind, as the window sets them. */
