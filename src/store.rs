@@ -200,7 +200,9 @@ impl Default for ChatMeta {
     }
 }
 
-// One message. The role is "You", "Assistant", "Tool" or "Note".
+// One message. The role is "You", "Assistant", "Tool", "Note" or "Chapter".
+// A chapter is a mark the model made of where a part of the talk begins: it
+// holds its place among the messages below, and is never drawn as a message.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
@@ -249,7 +251,10 @@ pub struct Chat {
 // The first line of the newest message, in a short form. The carousel uses it
 // for the soft picture of a chat at the side of the window.
 pub fn preview(messages: &[Message]) -> String {
-    let last = match messages.last() {
+    // A mark of a chapter is not a word of the talk, so it says nothing about
+    // what the chat is about either. The newest message that was really said is
+    // the one to show.
+    let last = match messages.iter().rev().find(|m| m.role != "Chapter") {
         Some(message) => message,
         None => return String::from("Nothing written yet"),
     };

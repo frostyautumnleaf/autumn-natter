@@ -220,6 +220,57 @@ body.home .stage { display: none; }
   position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain;
   padding: 22px 0 26px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
 }
+/* The chat makes room at the left when a chat has chapters, so the line never
+   stands over the words. The line stands clear of the round button that turns
+   the carousel, and a window too narrow for a margin of its own does not show
+   it at all. */
+.stage.withchapters .thread { padding-left: var(--rail, 116px); }
+@media (max-width: 880px) {
+  .stage.withchapters .thread { padding-left: 0; }
+  .chapters { display: none; }
+}
+
+/* ------------------------------------------------------------ chapter line */
+/* The chapters the model marked stand on a line at the left of the chat. The
+   nodes are always the same distance apart, whatever the chat holds between
+   them. Without a chapter there is no node, and no line either. A chat with
+   more chapters than the window is tall for draws them closer together, so the
+   last one stands where the reader can still reach it. */
+.chapters {
+  position: absolute; left: calc(var(--rail, 116px) / 2); top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--cgap, 21px); z-index: 14;
+}
+.chapters::before {
+  content: ""; position: absolute; left: 50%; top: -13px; bottom: -13px; width: 2px;
+  transform: translateX(-50%); border-radius: 2px; background: var(--line-strong);
+}
+.chapter {
+  position: relative; width: 11px; height: 11px; padding: 0; border: 2px solid var(--surface);
+  border-radius: 50%; background: var(--dim); box-shadow: 0 0 0 1px var(--line-strong);
+  transition: transform 140ms, background 140ms;
+}
+.chapter:hover, .chapter:focus-visible {
+  background: var(--accent); transform: scale(1.35); outline: none;
+}
+/* The card of a node: the name of the chapter, and under it a little of what
+   the chapter is about. It stands to the right of the node, and does not catch
+   clicks of its own. A node is a button, and a button puts its words in the
+   middle of itself, so the card asks for them at the left again. */
+.chapter .card {
+  position: absolute; left: 21px; top: 50%; transform: translateY(-50%); width: 236px;
+  padding: 9px 11px; background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 10px; box-shadow: var(--shadow); opacity: 0; visibility: hidden;
+  text-align: left; transition: opacity 140ms, visibility 140ms;
+}
+.chapter:hover .card, .chapter:focus-visible .card { opacity: 1; visibility: visible; }
+.chapter .cname { font-size: 12px; font-weight: 650; color: var(--ink); }
+.chapter .cprev {
+  margin-top: 5px; font-size: 11.5px; line-height: 1.45; color: var(--dim);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.chapter .cprev.none { font-style: italic; opacity: .8; }
 .thread::-webkit-scrollbar { width: 8px; }
 .thread::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 999px;
   border: 2px solid transparent; background-clip: padding-box; }
@@ -734,6 +785,9 @@ pre.code.line {
   <!-- The chat in use. The chats beside it are turned by the arrows here and by
        the row of small previews, and are not drawn beside it. -->
   <div class="stage" id="stage">
+    <!-- The chapters the model marked. They stand out of the words, on a line
+         at the left of the chat: one node for the start of one chapter. -->
+    <div class="chapters hidden" id="chapters"></div>
     <div class="thread" id="thread">
       <div class="col" id="col"></div>
     </div>
@@ -865,6 +919,9 @@ pre.code.line {
         <div class="fld"><span class="lbl">Colours of a code block</span>
           <span class="sub">The words of a block of code take the colour of their kind: a comment, a word of the language, a word in quotes, a number. Turn it off to read a block in one colour.</span>
           <div class="ctl"><input id="fHighlight" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">The chapters of a chat</span>
+          <span class="sub">The model may mark where a new part of the chat begins. The marks stand on a line at the left of the chat, and a click on one of them takes you there. Turn this off to hide the line, and the model is no longer offered the marks.</span>
+          <div class="ctl"><input id="fChapters" type="checkbox"></div></div>
       </div>
 
       <div class="pane hidden" id="paneModel">
@@ -964,7 +1021,7 @@ var invoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', 'where',
   'ctx', 'ctxtext', 'ctxpct', 'ctxfill', 'stage', 'thread', 'col', 'turnL', 'turnR',
   'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'hint',
-  'newchat', 'chatsbtn', 'settingsbtn', 'modelbtn',
+  'newchat', 'chatsbtn', 'settingsbtn', 'modelbtn', 'chapters',
   'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send',
   'box', 'dock'];
@@ -986,7 +1043,7 @@ var cur = null;        // the last state
 // Chatting. The two switches of the Chatting section of the settings, as the
 // engine gives them. A panel that is folded as it comes in stands closed from
 // the first look, and the reader opens it with a click on its head.
-var chatting = { thinking: true, tools: true, highlight: true };
+var chatting = { thinking: true, tools: true, highlight: true, chapters: true };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -1053,6 +1110,7 @@ function draw(s) {
   el.send.title = s.generating ? 'Stop the answer' : 'Send the message';
 
   drawThread(s);
+  drawChapters(s);
   if (ov.on) { rowCount(s); buildPreviews(ov.pos); placePreviews(); }
 }
 
@@ -1064,6 +1122,7 @@ function readChatting(s) {
   chatting.thinking = chat.collapse_thinking !== false;
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
+  chatting.chapters = chat.chapters !== false;
 }
 
 // The meter of the context: the words in use, the whole room, and a bar.
@@ -2155,6 +2214,9 @@ function drawThread(s) {
       var turn = make('div', 'turn');
       if (items[n].id === 'live') { fillLive(turn, items[n]); } else { fill(turn, items[n]); }
       turn.dataset.stamp = roleStamp(items[n]);
+      // The chapter nodes are tied to a message, so the line beside the chat
+      // can find its place among the turns.
+      turn.dataset.mid = items[n].id;
       // Only the turn that came in fades up. A chat that was opened is already
       // there, and its turns do not need to say so again.
       if (n === items.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
@@ -2189,6 +2251,158 @@ el.thread.addEventListener('scroll', function () {
   var box = el.thread;
   stick = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
 });
+
+// ------------------------------------------------------------ chapter line
+//
+// The model can mark the start of a chapter of the chat. The marks are not
+// shown among the words: they stand on a line at the left of the chat, one node
+// each, always the same distance apart. A node that the reader hovers over says
+// which chapter it is and shows a little of it; a click on it takes the chat
+// there. A chat with no chapter has no line at all.
+
+var chapterMark = '';      // what the line was made of last
+
+// What the line is made of, so it is only built again when a chapter came in
+// or one of the names changed.
+function chapterSignature(chapters) {
+  var parts = [];
+  for (var n = 0; n < chapters.length; n++) {
+    parts.push(chapters[n].id + ':' + chapters[n].name);
+  }
+  return parts.join('|');
+}
+
+// Where each chapter begins and ends among the words of the chat. A chapter
+// begins after the message the model marked, and ends where the next chapter
+// begins.
+function chapterRanges(chapters) {
+  var messages = (cur && cur.messages) || [];
+  var begins = [];
+  for (var c = 0; c < chapters.length; c++) {
+    var at = 0;
+    if (chapters[c].after) {
+      for (var n = 0; n < messages.length; n++) {
+        if (messages[n].id === chapters[c].after) { at = n + 1; break; }
+      }
+    }
+    begins.push(at);
+  }
+  var out = [];
+  for (var c = 0; c < begins.length; c++) {
+    out.push([begins[c], c + 1 < begins.length ? begins[c + 1] : messages.length]);
+  }
+  return out;
+}
+
+// A little of one chapter, for the card of its node. The marks of the writing
+// are taken off, and the words of the program and of a command are left out,
+// for they say nothing of what the chapter is about.
+function chapterWords(from, until) {
+  var messages = (cur && cur.messages) || [];
+  var said = '';
+  for (var n = from; n < until && n < messages.length; n++) {
+    var m = messages[n];
+    if (m.role === 'Note' || m.role === 'Tool') { continue; }
+    var words = String(m.body || '')
+      .replace(/```[\s\S]*?```/g, ' ')
+      // The mark that stands before a line of a list says nothing here, and
+      // neither do the other marks of the writing. The stroke under a word is
+      // left where it is, for taking it out of the middle of a word would spoil
+      // the word, and a word of a program is often written with one.
+      .replace(/\n\s*[-+]\s+/g, ' ')
+      .replace(/[#*`>~]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!words) { continue; }
+    said += (said ? ' ' : '') + words;
+    if (said.length > 190) { break; }
+  }
+  if (said.length > 200) { said = said.slice(0, 200).trim() + '…'; }
+  return said;
+}
+
+// The distance two nodes keep between them, the length the line hangs past the
+// first node and the last, and the width of a node.
+var CHAPTER_GAP = 21;
+var CHAPTER_ENDS = 26;
+var CHAPTER_NODE = 11;
+
+// The nodes stand the same distance apart, and that distance is the same for
+// two nodes as for forty. A chat with more chapters than the window is tall for
+// cannot show them all at the usual distance, so the distance is made less until
+// the last node stands in the window too -- a node the reader cannot reach is of
+// no use to them.
+function fitChapters(box, stage, count) {
+  var gap = CHAPTER_GAP;
+  var room = stage ? stage.clientHeight : 0;
+  if (count > 1 && room > 0) {
+    // What is left over after the nodes themselves and the two ends of the
+    // line, shared between the gaps. A node is never given smaller than one
+    // pixel of room, and a chat with more marks than even that cannot hold is
+    // left hanging over the end, as nothing fairer is left to do.
+    var fits = Math.floor((room - 16 - CHAPTER_ENDS - count * CHAPTER_NODE) / (count - 1));
+    if (fits < gap) { gap = fits > 1 ? fits : 1; }
+  }
+  box.style.setProperty('--cgap', gap + 'px');
+}
+
+// The line beside the chat, made again when the chapters changed.
+function drawChapters(s) {
+  var box = el.chapters;
+  if (!box) { return; }
+  var chapters = (chatting.chapters && s.chapters) ? s.chapters : [];
+  var stage = el.stage || document.body;
+  stage.classList.toggle('withchapters', chapters.length > 0);
+  // The room the nodes have changes with the window, so the distance between
+  // them is looked at again at every draw, and not only when a chapter came in.
+  fitChapters(box, stage, chapters.length);
+  var mark = chapterSignature(chapters);
+  if (mark === chapterMark) { return; }
+  chapterMark = mark;
+  box.innerHTML = '';
+  box.classList.toggle('hidden', chapters.length === 0);
+  var places = chapterRanges(chapters);
+  for (var n = 0; n < chapters.length; n++) {
+    var node = make('button', 'chapter');
+    node.type = 'button';
+    node.setAttribute('aria-label', 'The chapter ' + chapters[n].name);
+    var card = make('div', 'card');
+    var name = make('div', 'cname');
+    name.textContent = chapters[n].name;
+    var words = make('div', 'cprev');
+    var preview = chapterWords(places[n][0], places[n][1]);
+    words.textContent = preview || 'Nothing written there yet.';
+    if (!preview) { words.classList.add('none'); }
+    card.appendChild(name);
+    card.appendChild(words);
+    node.appendChild(card);
+    node.addEventListener('click', function (chapter) {
+      return function () { gotoChapter(chapter); };
+    }(chapters[n]));
+    box.appendChild(node);
+  }
+}
+
+// Take the chat to the place one chapter begins. The words above that place are
+// brought up to the top of the view, and the chat stops following the answer,
+// for the reader has gone looking somewhere else.
+function gotoChapter(chapter) {
+  var node = null;
+  if (!chapter.after) {
+    node = el.col.firstChild;
+  } else {
+    var before = el.col.querySelector('[data-mid="' + chapter.after + '"]');
+    node = (before && before.nextElementSibling) || before;
+  }
+  if (!node) { return; }
+  var view = el.thread.getBoundingClientRect();
+  var here = node.getBoundingClientRect();
+  stick = false;
+  el.thread.scrollTo({
+    top: el.thread.scrollTop + (here.top - view.top) - 16,
+    behavior: reduce ? 'auto' : 'smooth'
+  });
+}
 
 // ---------------------------------------------------------------- carousel
 //
@@ -2645,6 +2859,7 @@ function loadProgram() {
     byId('fFoldThink').checked = cfg.chat_collapse_thinking !== false;
     byId('fFoldTools').checked = cfg.chat_collapse_tools !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
+    byId('fChapters').checked = cfg.chat_chapters !== false;
     byId('fSandbox').textContent = (cur && cur.sandbox_note) || '';
     var sel = byId('fOpenRepo'); sel.innerHTML = '';
     sel.appendChild(setOption('No repository', ''));
@@ -2784,6 +2999,7 @@ function saveSheet() {
     cfg.chat_collapse_thinking = byId('fFoldThink').checked;
     cfg.chat_collapse_tools = byId('fFoldTools').checked;
     cfg.chat_highlight = byId('fHighlight').checked;
+    cfg.chat_chapters = byId('fChapters').checked;
     invoke('save_config', { config: cfg }).then(function () { poll(); closeSettings(); },
       function () { poll(); closeSettings(); });
   } else {

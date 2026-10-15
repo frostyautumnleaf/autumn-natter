@@ -16,6 +16,8 @@
 //   AN_PAGE=../web/page.html AN_FETCH=1 node page-shot.js chat-pale page.png
 //   AN_PICK='.think .thead' AN_HOVER='.turn' node page-shot.js rich p.png
 //   AN_CLICK='#think' node page-shot.js chat p.png
+//   AN_CHAPTERS=12 node page-shot.js rich p.png   # that many marks on the line
+//   AN_NOCHAPTERS=1 node page-shot.js rich p.png  # the Chatting switch turned off
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
 //
 // The scenes: home, chat, rich, streaming, previews, sheet-program, sheet-model.
@@ -114,11 +116,13 @@ function scene(name, dark) {
     chats: [], home: true, greeting: 'Still here, still ready.', overview: false,
     carousel: { index: 0, count: 0, blank: true },
     messages: [], live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
+    chapters: [],
     thinking: {
       mode: 'off', available: true,
       modes: ['off', 'low', 'medium', 'high', 'xhigh']
     },
-    chatting: { collapse_thinking: true, collapse_tools: true, highlight: true },
+    chatting: { collapse_thinking: true, collapse_tools: true, highlight: true,
+                chapters: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
     generating: false, busy: false, code: false, sandbox: false,
     sandbox_available: true,
@@ -132,6 +136,28 @@ function scene(name, dark) {
     start.chats = chats(name === 'previews' ? 9 : 3, 1);
     start.carousel = { index: 1, count: start.chats.length, blank: false };
     start.messages = name === 'rich' ? FULL : TALK;
+    // The chapters the model marked, tied to the message each begins after.
+    start.chapters = name === 'rich'
+      ? [{ id: 'ch1', name: 'The plan for the parser', after: 1 },
+         { id: 'ch2', name: 'Running the tests', after: 3 },
+         { id: 'ch3', name: 'The bar beside a list', after: 4 }]
+      : [];
+    // AN_CHAPTERS=N puts that many marks on the line, spread over the talk, so
+    // the line can be looked at when a chat has more chapters than room. Zero
+    // means no chapter at all. AN_NOCHAPTERS=1 leaves the marks in the chat but
+    // turns the switch of the Chatting section off.
+    if (process.env.AN_CHAPTERS !== undefined) {
+      var many = Number(process.env.AN_CHAPTERS) || 0;
+      var ids = start.messages.map(function (m) { return m.id; });
+      start.chapters = [];
+      for (var n = 0; many > 0 && n < many; n++) {
+        start.chapters.push({
+          id: 'ch' + n, name: 'Chapter ' + (n + 1) + ' of the long talk',
+          after: ids.length ? ids[Math.floor(n * ids.length / many)] : 0
+        });
+      }
+    }
+    if (process.env.AN_NOCHAPTERS === '1') { start.chatting.chapters = false; }
     start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
     start.code = name === 'rich';
     start.sandbox = name === 'rich';
@@ -172,7 +198,8 @@ const CONFIG = {
   dark_mode: false,
   chat_collapse_thinking: true,
   chat_collapse_tools: true,
-  chat_highlight: true
+  chat_highlight: true,
+  chat_chapters: true
 };
 
 const MODEL = {
@@ -316,12 +343,13 @@ async function main() {
     await new Promise(function (r) { setTimeout(r, 250); });
   }
   // AN_CLICK=selector clicks one thing, so a menu that opens on a click can
-  // be seen open.
+  // be seen open. The chat glides when a chapter is picked, so the wait is
+  // long enough for the glide to come to rest.
   if (process.env.AN_CLICK) {
     const hit = await view.$(process.env.AN_CLICK);
     if (hit) {
       await hit.click();
-      await new Promise(function (r) { setTimeout(r, 300); });
+      await new Promise(function (r) { setTimeout(r, 700); });
     }
   }
   // AN_HOVER=selector puts the mouse over one thing, so a look that only
@@ -333,6 +361,24 @@ async function main() {
       await over.hover();
       await new Promise(function (r) { setTimeout(r, 400); });
     }
+  }
+  // AN_MEASURE=selector prints where the things that match stand, in the
+  // measure of the page, so a layout can be checked without looking at pixels.
+  // It is read after a click or a hover was asked for, so the picture a click
+  // leaves behind can be measured too.
+  if (process.env.AN_MEASURE) {
+    const boxes = await view.evaluate(function (selector) {
+      var out = [];
+      var found = document.querySelectorAll(selector);
+      for (var n = 0; n < found.length; n++) {
+        var b = found[n].getBoundingClientRect();
+        out.push({ n: n, cls: found[n].className, left: Math.round(b.left),
+          top: Math.round(b.top), width: Math.round(b.width),
+          height: Math.round(b.height) });
+      }
+      return out;
+    }, process.env.AN_MEASURE);
+    console.log('MEASURE ' + JSON.stringify(boxes));
   }
   const picked = process.env.AN_PICK ? await view.$$(process.env.AN_PICK) : [];
   if (picked.length) {

@@ -44,6 +44,21 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             })
         })
         .collect();
+    // The mark of a chapter is not a message of the talk: it stands beside the
+    // chat as a node on the chapter line, so it is kept out of the words.
+    let chapters: Vec<Value> = snap
+        .chapters
+        .iter()
+        .map(|one| {
+            json!({
+                "id": one.id,
+                "name": one.name,
+                // The chapter begins after this message. Empty for the chapter
+                // at the very top of the chat.
+                "after": one.after,
+            })
+        })
+        .collect();
     let messages: Vec<Value> = snap
         .messages
         .iter()
@@ -89,6 +104,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "blank": snap.blank_chat,
         },
         "messages": messages,
+        // The chapters the model marked, in the order it marked them. The line
+        // beside the chat is made of these, and of nothing else.
+        "chapters": chapters,
         // Text the model wrote since the last message was stored.
         "live": snap.live_text,
         // The thinking that comes with a live answer, how long it lasted and
@@ -123,6 +141,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "collapse_thinking": snap.chat_collapse_thinking,
             "collapse_tools": snap.chat_collapse_tools,
             "highlight": snap.chat_highlight,
+            "chapters": snap.chat_chapters,
         },
         // The folder of the program data. The window of settings reads it out.
         "data_dir": snap.data_dir,

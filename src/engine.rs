@@ -40,6 +40,45 @@ enum Job {
     Shutdown,
 }
 
+// One chapter of a chat, as the window needs it. A chapter is kept in the chat
+// as a message of its own, so it stands where the model asked for it, and the
+// window draws it as a node on the chapter line and never as a message.
+#[derive(Clone, Debug, Default)]
+pub struct Chapter {
+    // The id of the message the chapter stands on.
+    pub id: String,
+    // The name the model gave the chapter, no longer than the tool allows.
+    pub name: String,
+    // The id of the message the chapter begins after. Empty when the chapter
+    // stands at the very top of the chat.
+    pub after: String,
+}
+
+// The chapters of one chat, in the order they were marked. A note is not a
+// place a chapter can begin after, for the window puts notes between the turns
+// and they come and go with them.
+fn chapter_marks(chat: &Chat) -> Vec<Chapter> {
+    let mut out: Vec<Chapter> = Vec::new();
+    let mut before = String::new();
+    for message in &chat.messages {
+        // A mark with no name is no chapter: the reader would see a node with
+        // nothing to read on it. A mark of either kind is never a place another
+        // chapter begins after.
+        if message.role == "Chapter" {
+            if !message.body.trim().is_empty() {
+                out.push(Chapter {
+                    id: message.id.clone(),
+                    name: message.body.clone(),
+                    after: before.clone(),
+                });
+            }
+        } else if message.role != "Note" {
+            before = message.id.clone();
+        }
+    }
+    out
+}
+
 // A copy of everything a window needs to draw. It is made while the state lock
 // is held, and then used without the lock.
 pub struct Snap {
@@ -74,6 +113,9 @@ pub struct Snap {
     pub chat_collapse_tools: bool,
     // Whether a block of code takes the colours of the kinds of word in it.
     pub chat_highlight: bool,
+    // Whether the model may mark the chapters of a chat, and whether the
+    // chapter line stands beside it.
+    pub chat_chapters: bool,
     pub models: Vec<ModelInfo>,
     pub model_id: String,
     pub repositories: Vec<Repo>,
@@ -94,6 +136,8 @@ pub struct Snap {
     // The line above the chat box while no chat is open.
     pub greeting: String,
     pub messages: Vec<Message>,
+    // The chapters of the open chat, in the order the model marked them.
+    pub chapters: Vec<Chapter>,
     // Text the model is writing right now, while an answer comes in.
     pub live_text: String,
     // The model's reasoning, streamed while an answer comes in.
@@ -245,6 +289,37 @@ impl State {
         self.touch();
     }
 
+    // Mark the start of a chapter of the chat. The mark is a message of its
+    // own, so it keeps its place in the talk, but it is never drawn: the window
+    // shows it as a node on the chapter line beside the chat. The model is
+    // answered that the mark was taken, and asked again for a name when it sent
+    // none.
+    fn add_chapter(&mut self, call: &ToolCall, name: &str) {
+        let answer = if name.is_empty() {
+            "the chapter needs a name, so it was not marked"
+        } else {
+            "the chapter was marked"
+        };
+        let Some(chat) = self.chat_mut() else {
+            // The chat was put away between the call and the mark, so there is
+            // nowhere for the mark to stand.
+            return;
+        };
+        chat.messages.push(Message {
+            id: store::new_id(),
+            role: "Chapter".to_string(),
+            body: name.to_string(),
+            tool: answer.to_string(),
+            call_id: call.id.clone(),
+            tool_name: call.name.clone(),
+            tool_args: call.arguments.clone(),
+            when: store::now_secs(),
+            ..Default::default()
+        });
+        self.persist();
+        self.touch();
+    }
+
     // Put a tool run in the chat before it starts. The id is given back so the
     // output can be written into the same message. The thinking of a turn with
     // no words of its own stands here too, so it is not lost.
@@ -302,7 +377,9 @@ impl State {
                     "role": "assistant",
                     "content": message.body,
                 })),
-                "Tool" => {
+                // A tool run and a chapter are both a call the model made and
+                // an answer it got back. Only the run is shown to the reader.
+                "Tool" | "Chapter" => {
                     if message.call_id.is_empty() {
                         continue;
                     }
@@ -596,6 +673,7 @@ impl State {
             chat_collapse_thinking: self.cfg.chat_collapse_thinking,
             chat_collapse_tools: self.cfg.chat_collapse_tools,
             chat_highlight: self.cfg.chat_highlight,
+            chat_chapters: self.cfg.chat_chapters,
             models: self.models.clone(),
             model_id: self.current_model_id(),
             // The top bar shows five recent repositories at most.
@@ -612,7 +690,18 @@ impl State {
             home: self.current.is_none(),
             overview: self.overview,
             greeting: crate::greet::greeting(store::now_secs()),
-            messages: chat.map(|c| c.messages.clone()).unwrap_or_default(),
+            // The marks of the chapters are not words of the talk: they are
+            // given on the side, and kept out of the messages the window draws.
+            messages: chat
+                .map(|c| {
+                    c.messages
+                        .iter()
+                        .filter(|m| m.role != "Chapter")
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+            chapters: chat.map(chapter_marks).unwrap_or_default(),
             live_text: self.live_text.clone(),
             live_reasoning: self.live_reasoning.clone(),
             live_thought_ms: self.live_thought_ms,
@@ -1091,6 +1180,7 @@ impl Snap {
             chat_collapse_thinking: true,
             chat_collapse_tools: true,
             chat_highlight: true,
+            chat_chapters: true,
             models: Vec::new(),
             model_id: String::new(),
             repositories: Vec::new(),
@@ -1103,6 +1193,7 @@ impl Snap {
             overview: false,
             greeting: String::new(),
             messages: Vec::new(),
+            chapters: Vec::new(),
             live_text: String::new(),
             live_reasoning: String::new(),
             live_thought_ms: 0,
@@ -1288,11 +1379,16 @@ fn run_turn(
     let mut steps = 0usize;
     loop {
         steps += 1;
-        let (history, use_tools) = {
+        let (history, code_on, chapters_on) = {
             let Ok(guard) = state.lock() else { return };
-            let use_tools = guard.chat().map(|c| c.meta.code_enabled).unwrap_or(false);
-            (guard.build_history(), use_tools)
+            (
+                guard.build_history(),
+                guard.chat().map(|c| c.meta.code_enabled).unwrap_or(false),
+                guard.cfg.chat_chapters,
+            )
         };
+        // Either tool is enough to let the model ask for one.
+        let use_tools = code_on || chapters_on;
         let mut body = json!({
             "messages": history,
             "stream": true,
@@ -1300,7 +1396,14 @@ fn run_turn(
             "stream_options": { "include_usage": true },
         });
         if use_tools {
-            body["tools"] = json!([tools::definition()]);
+            let mut offered: Vec<Value> = Vec::new();
+            if code_on {
+                offered.push(tools::definition());
+            }
+            if chapters_on {
+                offered.push(tools::chapter_definition());
+            }
+            body["tools"] = Value::Array(offered);
             body["tool_choice"] = json!("auto");
         }
 
@@ -1471,22 +1574,37 @@ fn run_turn(
         // Keep the lock free while a command runs.
         drop(guard);
 
-        // The model wants a command to run.
-        for (number, call) in calls.iter().enumerate() {
+        // The model wants a command to run. The thinking of a turn with no
+        // words of its own stands with the first thing the reader is shown. A
+        // turn that only marked a chapter shows nothing, so its thoughts are
+        // kept on their own rather than lost with a mark nobody sees.
+        let mut thoughts = turn_thinking.to_string();
+        for call in calls.iter() {
+            // A chapter is not a command and is not shown. The mark goes into
+            // the chat where the call came, and the model is told quietly that
+            // it was taken.
+            if call.name == tools::CHAPTER_TOOL_NAME {
+                let name = tools::chapter_name(&call.arguments);
+                let Ok(mut guard) = state.lock() else {
+                    continue;
+                };
+                guard.add_chapter(call, &name);
+                continue;
+            }
             let (command, purpose) = tools::parse_arguments(&call.arguments);
             let shown = if purpose.trim().is_empty() {
                 command.clone()
             } else {
                 format!("{}\nwhy: {}", command, purpose)
             };
-            // The thinking of a turn with no words stands with the first
-            // command of that turn, and with no other one.
-            let thinking = if number == 0 { turn_thinking } else { "" };
+            // The first command the reader sees takes the thoughts of the turn,
+            // and no other one does.
+            let thinking = std::mem::take(&mut thoughts);
             let message_id = {
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
-                let id = guard.begin_tool(call, &shown, thinking, thought_ms);
+                let id = guard.begin_tool(call, &shown, &thinking, thought_ms);
                 let text = format!("running a command: {}", first_line(&command));
                 guard.set_status(&text);
                 id
@@ -1502,6 +1620,12 @@ fn run_turn(
             };
             guard.finish_tool(&message_id, &output, outcome.ok);
         }
+        if !thoughts.is_empty() {
+            // The turn asked for marks and for nothing a reader could look at,
+            // so the thoughts stand above the marks as a panel of their own.
+            let Ok(mut guard) = state.lock() else { return };
+            guard.push_message("Assistant", "", &thoughts, thought_ms, false);
+        }
         let Ok(mut guard) = state.lock() else { return };
         guard.set_status("the model reads the tool result");
     }
@@ -1516,29 +1640,41 @@ fn ensure_server(
     settings: &ModelSettings,
     cancel: &Arc<AtomicBool>,
 ) -> Result<u64, String> {
-    let (binary, gpus, code_enabled, thinking_mode) = {
+    let (binary, gpus, tools_wanted, thinking_mode) = {
         let Ok(state) = state.lock() else {
             return Err("the state is gone".to_string());
         };
         let binary = state
             .server_binary()
             .ok_or("llama-server was not found in the folder from the settings")?;
+        // Either tool is enough to ask the server for tool support: the chapter
+        // is wanted even in a chat that never runs a command.
+        let tools_wanted = state
+            .chat()
+            .map(|c| c.meta.code_enabled)
+            .unwrap_or(false)
+            || state.cfg.chat_chapters;
         (
             binary,
             state.gpus.clone(),
-            state.chat().map(|c| c.meta.code_enabled).unwrap_or(false),
+            tools_wanted,
             state
                 .chat()
                 .map(|c| c.meta.thinking_mode.clone())
-                .unwrap_or_else(|| String::from("auto")),
+                .unwrap_or_else(|| String::from("off")),
         )
     };
-    // A server for the same model and thinking mode is kept, so the model
-    // loads only once. A new thinking mode needs the new flags.
+    // A server for the same model, thinking mode and tool support is kept, so
+    // the model loads only once. A new thinking mode needs new flags, and so
+    // does a tool that came or went since the model was loaded.
     let reusable = server.as_mut().map(|s| s.alive()).unwrap_or(false)
         && server
             .as_ref()
-            .map(|s| s.model_id == model.id() && s.thinking_mode == thinking_mode)
+            .map(|s| {
+                s.model_id == model.id()
+                    && s.thinking_mode == thinking_mode
+                    && s.tools_on == tools_wanted
+            })
             .unwrap_or(false);
     if reusable {
         let total = server
@@ -1556,7 +1692,7 @@ fn ensure_server(
         model,
         settings,
         &gpus,
-        code_enabled,
+        tools_wanted,
         &thinking_mode,
     ) {
         Ok(started) => {
@@ -1827,6 +1963,59 @@ mod tests {
         }
         engine.set_thinking("off");
         assert_eq!(engine.snapshot().thinking_mode, "high");
+    }
+
+    // A chapter stands where the model asked for it. The marks are given to the
+    // window in the order they were made, each tied to the message the chapter
+    // begins after, and a mark with no name is not a chapter.
+    #[test]
+    fn the_chapters_stand_where_they_were_marked() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.new_chat();
+        let mark = |name: &str| ToolCall {
+            id: format!("call-{name}"),
+            name: String::from(tools::CHAPTER_TOOL_NAME),
+            arguments: format!(r#"{{"name":"{name}"}}"#),
+        };
+        let (first, second, spoken) = {
+            let mut state = engine.state.lock().unwrap();
+            state.push_message("You", "Fix the parser", "", 0, false);
+            let first = state.chat().unwrap().messages.last().unwrap().id.clone();
+            state.add_chapter(&mark("Fixing the parser"), "Fixing the parser");
+            state.push_message("Assistant", "The parser is fixed.", "", 0, false);
+            let second = state.chat().unwrap().messages.last().unwrap().id.clone();
+            // A mark with no name, and a mark of a chapter of its own. The name
+            // of the second mark is longer than the tool allows, and comes back
+            // cut.
+            state.add_chapter(&mark(""), "");
+            let sixty = "n".repeat(62);
+            let long = tools::chapter_name(&mark(&sixty).arguments);
+            assert_eq!(long.len(), tools::MAX_CHAPTER_NAME);
+            state.add_chapter(&mark(&long), &long);
+            // Everything the chat holds, the marks of the chapters and all.
+            let spoken = state.chat().unwrap().messages.clone();
+            (first, second, spoken)
+        };
+        let chapters = engine.snapshot().chapters;
+        assert_eq!(chapters.len(), 2);
+        assert_eq!(chapters[0].name, "Fixing the parser");
+        assert_eq!(chapters[0].after, first);
+        // The unnamed mark is skipped, and the chapter after it still begins
+        // after the same message.
+        assert_eq!(chapters[1].name, "n".repeat(50));
+        assert_eq!(chapters[1].after, second);
+        // The marks are not words of the talk: the window is given the chapter
+        // on the side, and the message list without them.
+        let visible = engine.snapshot().messages;
+        assert!(!visible.iter().any(|m| m.role == "Chapter"));
+        assert_eq!(visible.len(), 2);
+        // The soft picture of the chat in the corner is the newest thing that
+        // was really said, and never the name of a chapter.
+        let preview = store::preview(&spoken);
+        assert!(!preview.contains(&"n".repeat(50)));
+        assert_eq!(preview, "The parser is fixed.");
     }
 
     // A turn writes no line about itself. A command is an answer, a stop is

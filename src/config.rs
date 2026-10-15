@@ -113,6 +113,9 @@ pub struct Config {
     // Give the words of a block of code the colours of their kind.
     #[serde(default = "on_by_default")]
     pub chat_highlight: bool,
+    // Let the model mark the chapters of a chat, and show them beside it.
+    #[serde(default = "on_by_default")]
+    pub chat_chapters: bool,
 }
 
 impl Default for Config {
@@ -129,6 +132,7 @@ impl Default for Config {
             chat_collapse_thinking: true,
             chat_collapse_tools: true,
             chat_highlight: true,
+            chat_chapters: true,
         }
     }
 }
@@ -255,10 +259,11 @@ mod tests {
         assert!(cfg.chat_collapse_thinking);
         assert!(cfg.chat_collapse_tools);
         assert!(cfg.chat_highlight);
+        assert!(cfg.chat_chapters);
     }
 
     // A settings file written before the Chatting section existed still reads,
-    // and its two switches are on rather than off.
+    // and its switches are on rather than off.
     #[test]
     fn an_old_settings_file_keeps_the_switches_on() {
         let old = "{\"llama_dir\":\"\",\"models_dir\":\"\",\"repositories_dir\":\"\",\
@@ -268,6 +273,7 @@ mod tests {
         assert!(read.chat_collapse_thinking);
         assert!(read.chat_collapse_tools);
         assert!(read.chat_highlight);
+        assert!(read.chat_chapters);
     }
 }
 

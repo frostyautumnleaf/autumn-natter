@@ -152,6 +152,9 @@ pub struct Server {
     pub model_id: String,
     // The thinking mode the server was started with. A change needs a restart.
     pub thinking_mode: String,
+    // Whether the server was started with tool support. A tool coming or going
+    // needs a restart as well, for the server reads the chat template once.
+    pub tools_on: bool,
     // Notes for the user, for example a missing vision projector.
     pub notes: Vec<String>,
 }
@@ -179,7 +182,7 @@ impl Server {
     }
 
     // Start llama-server and wait until it answers. use_tools is true when the
-    // chat may call the terminal tool.
+    // chat may call a tool of any kind: a command, or a mark of a chapter.
     pub fn start(
         binary: &Path,
         model: &ModelInfo,
@@ -230,6 +233,7 @@ impl Server {
                 ctx_total: settings.ctx_size as u64,
                 model_id: model.id(),
                 thinking_mode: thinking_mode.to_string(),
+                tools_on: use_tools,
                 notes: notes.clone(),
             };
             match server.wait_ready() {

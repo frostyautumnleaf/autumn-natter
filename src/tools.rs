@@ -14,6 +14,15 @@ use crate::util;
 // Name the model uses to ask for a terminal run.
 pub const TOOL_NAME: &str = "run_terminal";
 
+// Name the model uses to mark the start of a chapter of the chat. The call is
+// of the program's own: the reader never sees it, and the model is asked not to
+// speak of it.
+pub const CHAPTER_TOOL_NAME: &str = "chapter";
+
+// The longest name a chapter may have. The node beside the chat and the card
+// over it both have to hold the name in a small space.
+pub const MAX_CHAPTER_NAME: usize = 50;
+
 // Longest output kept for one run.
 const MAX_OUTPUT: usize = 8000;
 
@@ -40,6 +49,49 @@ pub fn definition() -> Value {
             }
         }
     })
+}
+
+// The tool description for a chapter of the chat.
+pub fn chapter_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": CHAPTER_TOOL_NAME,
+            "description": "Mark the start of a new chapter of this chat. Call it when a new task, a new question or a new phase of the work begins, so the reader can jump from one part of the chat to another. The name is a few words that say what the part is about. Do not call it twice for the same part, do not speak of this call, and do not mention chapters in your answer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the chapter, in a few words, no longer than 50 characters."
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+    })
+}
+
+// The name of a chapter out of what the model sent. It is made one line, cut at
+// MAX_CHAPTER_NAME, and empty when the model sent nothing usable.
+pub fn chapter_name(raw: &str) -> String {
+    let taken = match serde_json::from_str::<Value>(raw) {
+        Ok(value) => value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        // A model that sent the name on its own, without the object.
+        Err(_) => raw.to_string(),
+    };
+    let mut name = String::new();
+    for word in taken.split_whitespace() {
+        if !name.is_empty() {
+            name.push(' ');
+        }
+        name.push_str(word);
+    }
+    name.chars().take(MAX_CHAPTER_NAME).collect::<String>().trim().to_string()
 }
 
 // What one run produced.
@@ -350,4 +402,27 @@ fn extract_object(text: &str) -> Option<&str> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The name of a chapter is what the reader sees beside the chat, so it is
+    // made one line and kept short.
+    #[test]
+    fn a_chapter_name_is_one_line_and_short() {
+        assert_eq!(chapter_name(r#"{"name":"Fixing the parser"}"#), "Fixing the parser");
+        // A name the length of the limit, and one longer than it.
+        let long = "n".repeat(MAX_CHAPTER_NAME + 12);
+        assert_eq!(chapter_name(&format!(r#"{{"name":"{long}"}}"#)).len(), MAX_CHAPTER_NAME);
+        // Marks of a list, newlines and runs of spaces are made into one line.
+        let messy = r#"  Ways\tof\n  the  work  "#;
+        assert_eq!(chapter_name(&format!(r#"{{"name":"{messy}"}}"#)), "Ways of the work");
+        // A model that sent the name on its own, without the object.
+        assert_eq!(chapter_name("The work"), "The work");
+        // Nothing usable gives nothing, and the call is answered as such.
+        assert_eq!(chapter_name(r#"{"name":"   "}"#), "");
+        assert_eq!(chapter_name("{}"), "");
+    }
 }
