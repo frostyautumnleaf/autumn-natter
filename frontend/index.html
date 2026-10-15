@@ -329,6 +329,19 @@ pre.code .t-p { color: var(--t-pun); }
   text-transform: uppercase; color: var(--dim); }
 .think > .thead .fold { width: 14px; height: 14px; margin-left: auto; stroke: var(--faint); }
 .think.closed > .thead .fold { transform: rotate(-90deg); }
+/* While the model is thinking there is no bulb: three dots stand in its place
+   and nod at one another, so the reader sees that the block is not finished.
+   When the thoughts stop the bulb comes back. */
+.think > .thead .dots { display: none; gap: 3px; align-items: center;
+  justify-content: center; width: 12px; height: 12px; }
+.think > .thead.busy .dots { display: inline-flex; }
+.think > .thead.busy .bulb { display: none; }
+.think > .thead .dots i { width: 3.5px; height: 3.5px; border-radius: 50%;
+  background: var(--ink); animation: nod 1.1s ease-in-out infinite; }
+.think > .thead .dots i:nth-child(2) { animation-delay: .15s; }
+.think > .thead .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes nod { 0%, 100% { opacity: .28; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2.5px); } }
 .think .words { padding: 0 13px 10px 15px; font-size: 13px; line-height: 1.5; color: var(--dim);
   overflow-wrap: anywhere; max-height: 190px; overflow-y: auto; scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent; }
@@ -1323,13 +1336,20 @@ function thoughtWords(ms, over) {
 function thinkHead() {
   var head = make('button', 'thead');
   head.type = 'button';
-  var icon = mark(THINK_MARK);
+  var icon = mark(THINK_MARK, 'bulb');
+  // The three dots that stand in place of the bulb while the block is being
+  // thought. They are hidden unless the head is told it is busy.
+  var dots = make('span', 'dots');
+  dots.appendChild(make('i'));
+  dots.appendChild(make('i'));
+  dots.appendChild(make('i'));
   var label = make('span', 'cap');
   label.textContent = 'Thinking';
   head.appendChild(icon);
+  head.appendChild(dots);
   head.appendChild(label);
   head.appendChild(mark('M4 6.4 8 10.4 12 6.4', 'fold'));
-  return { head: head, icon: icon, label: label };
+  return { head: head, icon: icon, label: label, dots: dots };
 }
 
 // A thinking panel with a head that folds, as the head of a tool run folds.
@@ -1342,7 +1362,8 @@ function thinkPanel() {
   head.head.addEventListener('click', function () { panel.classList.toggle('closed'); });
   panel.appendChild(head.head);
   panel.appendChild(words);
-  return { panel: panel, words: words, label: head.label, icon: head.icon };
+  return { panel: panel, head: head.head, words: words, label: head.label,
+    icon: head.icon };
 }
 
 // The thinking of the model: a look inside the answer, kept small, behind a
@@ -1748,6 +1769,7 @@ var ink = {
   thought: null,    // the words of the thinking
   words: null,      // where the words of the answer stand
   caret: null,      // the mark that says the answer is not over
+  head: null,       // the head of the thinking panel of that answer
   label: null,      // the words on the head of the thinking panel
   ms: 0,            // how long the model has thought for, in milliseconds
   done: false,      // whether the model has stopped thinking
@@ -1892,6 +1914,8 @@ function thinkHeadWords() {
   if (!ink.label) { return; }
   var over = ink.done && ink.shownMusing >= ink.musing.length;
   ink.label.textContent = thoughtWords(ink.ms, over);
+  // The bulb makes way for the three dots while the thoughts are coming.
+  if (ink.head) { ink.head.classList.toggle('busy', !over); }
 }
 
 // One look of the writer. A few characters go on the page, and more of them
@@ -1935,7 +1959,7 @@ function feedInk(m) {
 function stopInk() {
   if (ink.frame) { cancelAnimationFrame(ink.frame); }
   ink.turn = null; ink.panel = null; ink.thought = null; ink.words = null;
-  ink.label = null; ink.ms = 0; ink.done = false;
+  ink.head = null; ink.label = null; ink.ms = 0; ink.done = false;
   ink.caret = null; ink.said = ''; ink.musing = ''; ink.shown = 0;
   ink.shownMusing = 0; ink.shape = ''; ink.thoughtShape.shape = ''; ink.frame = 0;
 }
@@ -1954,7 +1978,8 @@ function fillLive(turn, m) {
   var plain = make('div', 'plain');
   turn.appendChild(plain);
   ink.turn = turn; ink.panel = panel; ink.thought = thought;
-  ink.words = plain; ink.caret = make('span', 'caret'); ink.label = made.label;
+  ink.words = plain; ink.caret = make('span', 'caret');
+  ink.head = made.head; ink.label = made.label;
   plain.appendChild(ink.caret);
   ink.said = String(m.body || '');
   ink.musing = String(m.reasoning || '');
