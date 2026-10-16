@@ -1381,6 +1381,26 @@ fn finish_progress(state: &mut State) -> bool {
     true
 }
 
+// The model wrote something of a call. A call cannot be written before the
+// server has the whole of the words it was sent through, so the gauge above the
+// chat box has nothing left to say from this moment: it stood for the work
+// before the first word of the answer, and a model that asks for a command
+// before it has said anything would else leave it standing over the chat until
+// the command had run. The words of the call are put into the state as well, so
+// the reader sees the command grow. True when the window has something new to
+// draw.
+fn write_calls(state: &mut State, calls: &[ToolCall]) -> bool {
+    let made = watched(calls);
+    // The gauge leaves for a mark of a chapter too. Such a call gives the
+    // reader no block, but the model wrote it after the words it was sent.
+    let gauge = finish_progress(state);
+    let grew = made != state.live_tools;
+    if grew {
+        state.live_tools = made;
+    }
+    gauge || grew
+}
+
 // The meter of the context while an answer comes in. The server says how many
 // words the talk takes on every piece of the answer, so the meter moves during
 // the answer and not only when the answer is over. The meter only climbs: the
@@ -1695,12 +1715,11 @@ fn run_turn(
             &mut |made: &[ToolCall]| {
                 // The reader sees the model write a command: the words of it go
                 // into the state as they come, and not when the call is over.
-                // The blocks are written again only when a word came, so a piece
-                // that says nothing new costs the window nothing.
+                // The same piece takes the gauge away, so a model that asks for
+                // a command before it has said anything does not leave it
+                // standing over the chat for the whole of the run.
                 if let Ok(mut guard) = tool_state.lock() {
-                    let now = watched(made);
-                    if now != guard.live_tools {
-                        guard.live_tools = now;
+                    if write_calls(&mut guard, made) {
                         guard.touch();
                     }
                 }
@@ -2517,6 +2536,61 @@ mod tests {
             state.live_tools.clear();
         }
         assert!(engine.snapshot().live_tools.is_empty());
+    }
+
+    // The gauge above the chat box stood while the server worked the words it
+    // was sent through. A model cannot write a command before that is over, so
+    // the first word of a call takes the gauge away. A model that asks for a
+    // command before it has said anything must not leave it standing over the
+    // chat until the command has run.
+    #[test]
+    fn the_gauge_leaves_when_a_call_is_begun() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.new_chat();
+        let command = ToolCall {
+            id: String::from("call-one"),
+            name: String::from(tools::TOOL_NAME),
+            arguments: String::from("{\"command\":\"uname"),
+        };
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.progress_on = true;
+            state.progress = 42;
+            // The command is only begun, and the gauge goes already.
+            assert!(write_calls(&mut state, std::slice::from_ref(&command)));
+            assert!(!state.progress_on, "the gauge stood on after the call began");
+            // A gauge that goes away has finished its work.
+            assert_eq!(state.progress, 100);
+            assert_eq!(state.live_tools.len(), 1);
+            assert_eq!(state.live_tools[0].command, "uname");
+        }
+        assert!(!engine.snapshot().progress_on);
+        // The mark of a chapter gives the reader no block, but it is written
+        // after the words that were sent, so the gauge leaves for it as well.
+        let mark = ToolCall {
+            id: String::from("call-two"),
+            name: String::from(tools::CHAPTER_TOOL_NAME),
+            arguments: String::from("{\"name\":\"The plan\"}"),
+        };
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.live_tools.clear();
+            state.progress_on = true;
+            state.progress = 10;
+            assert!(write_calls(&mut state, std::slice::from_ref(&mark)));
+            assert!(!state.progress_on, "the gauge stood on after a mark began");
+            assert!(state.live_tools.is_empty());
+        }
+        // A piece that says nothing new of a call the state holds already says
+        // nothing at all: the gauge went with the first word of it.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.live_tools.clear();
+            write_calls(&mut state, std::slice::from_ref(&command));
+            assert!(!write_calls(&mut state, std::slice::from_ref(&command)));
+        }
     }
 
     // The meter of the context moves while an answer comes in, and it only
