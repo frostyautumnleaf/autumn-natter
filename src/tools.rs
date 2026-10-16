@@ -647,6 +647,93 @@ pub fn parse_arguments(raw: &str) -> (String, String) {
     (line, String::new())
 }
 
+// Read the arguments of a call that is still being written. The model sends
+// them piece by piece, so the object is often not finished, a quote stands
+// open, and the last mark of an escape has no word behind it yet. What is there
+// of a text is given back, and nothing is made up of what is not there. The
+// answer is the command and the purpose, as `parse_arguments` gives them.
+pub fn partial_arguments(raw: &str) -> (String, String) {
+    let text = raw.trim_start();
+    let command = partial_text(text, "command");
+    let purpose = partial_text(text, "purpose");
+    if !command.is_empty() || !purpose.is_empty() {
+        return (command, purpose);
+    }
+    // Nothing of a named part has come. A model that writes the command with no
+    // marks of JSON at all is answered with the line so far. Words that open an
+    // object are no command, and say nothing of one yet.
+    if text.is_empty() || text.starts_with('{') {
+        return (String::new(), String::new());
+    }
+    let mut plain = text.to_string();
+    for fence in ["```json", "```", "~~~"] {
+        if let Some(rest) = plain.strip_prefix(fence) {
+            plain = rest.trim_start().to_string();
+        }
+    }
+    let line = plain.lines().next().unwrap_or("").trim().to_string();
+    (line, String::new())
+}
+
+// The words of one named part of an object that may not be finished. The name
+// is looked for, and the text behind it is read to the closing mark, or to the
+// end of what has come in so far. A part this page does not know, or a number
+// where a text was looked for, gives nothing.
+fn partial_text(text: &str, wanted: &str) -> String {
+    let key = format!("\"{}\"", wanted);
+    let Some(at) = text.find(&key) else {
+        return String::new();
+    };
+    let head = text[at + key.len()..].trim_start();
+    // The name of a part is worth nothing without the mark of a value behind
+    // it, and a value of no quotes is no text.
+    let Some(after) = head.strip_prefix(':') else {
+        return String::new();
+    };
+    let Some(value) = after.trim_start().strip_prefix('"') else {
+        return String::new();
+    };
+    let mut out = String::new();
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            // The part is finished.
+            break;
+        }
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        // A mark of something the model meant to finish. Without the character
+        // behind it there is nothing to give back, and what comes after it
+        // cannot be read either, so the rest is left for the next look.
+        let Some(next) = chars.next() else { break };
+        match next {
+            'n' => out.push('\n'),
+            't' => out.push('\t'),
+            'r' => out.push('\r'),
+            'b' | 'f' => {}
+            'u' => {
+                let mut hex = String::new();
+                for _ in 0..4 {
+                    match chars.next() {
+                        Some(digit) if digit.is_ascii_hexdigit() => hex.push(digit),
+                        _ => return out,
+                    }
+                }
+                match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                    Some(letter) => out.push(letter),
+                    None => return out,
+                }
+            }
+            // The marks of a quote, a backslash and the rest stand for the
+            // character itself.
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 // Return the part between the first brace and the matching one.
 fn extract_object(text: &str) -> Option<&str> {
     let start = text.find('{')?;
@@ -891,5 +978,105 @@ mod tests {
         assert!(!plain.sandboxed);
         assert!(plain.output.contains("NOT-FOR-A-JAIL"), "{}", plain.output);
         let _ = std::fs::remove_dir_all(&room);
+    }
+
+    // The words of a command are read out of an object that is not finished, for
+    // the model writes it one piece at a time. Nothing is made up of what has
+    // not come.
+    #[test]
+    fn the_words_of_a_command_are_read_while_the_call_is_written() {
+        // Nothing has come, and the mark of an object alone is no command.
+        assert_eq!(partial_arguments(""), (String::new(), String::new()));
+        assert_eq!(partial_arguments("{"), (String::new(), String::new()));
+        assert_eq!(
+            partial_arguments("{\"comm"),
+            (String::new(), String::new())
+        );
+        // The quote of the command stands open, and the words of it are read as
+        // far as they have come.
+        assert_eq!(partial_arguments("{\"command\":\"ls"), ("ls".into(), String::new()));
+        assert_eq!(
+            partial_arguments("{\"command\":\"ls -la\",\"purpose\":\"see what is"),
+            (String::from("ls -la"), String::from("see what is"))
+        );
+        // The whole of the call, which is what parse_arguments is given when the
+        // answer is over. Both readings answer the same.
+        let whole = "{\"command\":\"ls -la\",\"purpose\":\"see what is here\"}";
+        assert_eq!(
+            partial_arguments(whole),
+            parse_arguments(whole)
+        );
+        assert_eq!(
+            partial_arguments(whole),
+            (String::from("ls -la"), String::from("see what is here"))
+        );
+    }
+
+    // The marks a model puts inside the words of a command are read the same way
+    // as `parse_arguments` reads them, and a mark with nothing behind it is left
+    // for the next look.
+    #[test]
+    fn the_marks_inside_a_command_are_read_while_it_is_written() {
+        // A quote of the shell, held by a mark. The quote that closes the text
+        // of the command has not come yet, and the two marks inside it stand for
+        // the quotes of the command.
+        assert_eq!(
+            partial_arguments(r#"{"command":"echo \"hi\""#),
+            (String::from("echo \"hi\""), String::new())
+        );
+        // The same command with the quote of it closed, which is what the model
+        // sends a moment later.
+        assert_eq!(
+            partial_arguments(r#"{"command":"echo \"hi\""}"#),
+            (String::from("echo \"hi\""), String::new())
+        );
+        // A new line inside the command.
+        assert_eq!(
+            partial_arguments("{\"command\":\"echo a\\nb"),
+            (String::from("echo a\nb"), String::new())
+        );
+        // The mark of a new line came last of all, so the word it brings has not
+        // come yet.
+        assert_eq!(
+            partial_arguments("{\"command\":\"echo a\\"),
+            (String::from("echo a"), String::new())
+        );
+        // Four hexadecimal characters make one letter. Without all four the
+        // letter is not known, and what stands behind it cannot be read either.
+        assert_eq!(
+            partial_arguments("{\"command\":\"arrow \\u2192 done"),
+            (String::from("arrow \u{2192} done"), String::new())
+        );
+        assert_eq!(
+            partial_arguments("{\"command\":\"arrow \\u21"),
+            (String::from("arrow "), String::new())
+        );
+        // The whole of the call reads the same as the part of it.
+        let whole = r#"{"command":"echo \"hi\""}"#;
+        assert_eq!(partial_arguments(whole), parse_arguments(whole));
+        assert_eq!(partial_arguments(whole).0, "echo \"hi\"");
+    }
+
+    // A model that writes the command with no marks of JSON at all is answered
+    // with the line so far, and not with nothing.
+    #[test]
+    fn a_command_with_no_marks_of_json_is_read_as_a_line() {
+        assert_eq!(
+            partial_arguments("ls -la"),
+            (String::from("ls -la"), String::new())
+        );
+        assert_eq!(
+            partial_arguments("ls -l"),
+            (String::from("ls -l"), String::new())
+        );
+        assert_eq!(
+            partial_arguments("```json\ncargo test\n"),
+            (String::from("cargo test"), String::new())
+        );
+        // A number where a text was looked for is no command.
+        assert_eq!(
+            partial_arguments("{\"command\":5}"),
+            (String::new(), String::new())
+        );
     }
 }

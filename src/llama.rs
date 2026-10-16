@@ -657,6 +657,8 @@ pub struct Answer {
 // Send one chat request and stream the answer. on_text gets every piece of new
 // text as it arrives, so the window can show it. on_progress gets the state of
 // the prompt work, as the server reports it while the prompt goes through.
+// on_tool gets the calls of the model as they are written, so the reader can
+// see the words of a command as the model puts them down.
 pub fn stream_chat(
     base_url: &str,
     body: &Value,
@@ -664,6 +666,7 @@ pub fn stream_chat(
     on_text: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
     on_progress: &mut dyn FnMut(Progress),
+    on_tool: &mut dyn FnMut(&[ToolCall]),
 ) -> Answer {
     let mut answer = Answer::default();
     let agent = ureq::AgentBuilder::new()
@@ -709,6 +712,7 @@ pub fn stream_chat(
                             on_text,
                             on_reasoning,
                             on_progress,
+                            on_tool,
                         ) {
                             // The stream told us it is finished.
                             pending.clear();
@@ -735,6 +739,7 @@ fn apply_event(
     on_text: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
     on_progress: &mut dyn FnMut(Progress),
+    on_tool: &mut dyn FnMut(&[ToolCall]),
 ) -> bool {
     if payload == "[DONE]" {
         return false;
@@ -791,6 +796,9 @@ fn apply_event(
     }
     // Tool calls arrive in pieces. They are joined by their index.
     if let Some(calls) = delta.get("tool_calls").and_then(|c| c.as_array()) {
+        // The names and the words of a call are put again below, so the whole
+        // of what is written so far is given back, and not only the piece.
+        let wrote = !calls.is_empty();
         for item in calls {
             let index = item
                 .get("index")
@@ -819,6 +827,9 @@ fn apply_event(
             {
                 target.arguments.push_str(args);
             }
+        }
+        if wrote {
+            on_tool(&answer.tool_calls);
         }
     }
     true
@@ -1142,12 +1153,88 @@ mod tests {
             &mut |_| {},
             &mut |_| {},
             &mut |made: Progress| seen.push(made.processed),
+            &mut |_| {},
         );
         assert!(going_on);
         assert_eq!(seen, vec![108]);
         assert_eq!(answer.progress.total, 215);
         assert_eq!(answer.progress.cache, 20);
         assert_eq!(answer.progress.time_ms, 900);
+    }
+
+    // The words of a call of the model come in pieces, about one word at a
+    // time. The whole of what is written so far is given back on every piece, so
+    // the reader can watch a command grow instead of waiting for the end of it.
+    #[test]
+    fn the_words_of_a_call_are_given_back_as_they_come() {
+        let mut answer = Answer::default();
+        let mut seen: Vec<String> = Vec::new();
+        let pieces = [
+            concat!(
+                "{\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,",
+                "\"id\":\"call-one\",\"type\":\"function\",\"function\":",
+                "{\"name\":\"run_terminal\",\"arguments\":\"{\"}}]}}]}"
+            ),
+            concat!(
+                "{\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,",
+                "\"function\":{\"arguments\":\"\\\"command\\\":\\\"ls\"}}]}}]}"
+            ),
+            concat!(
+                "{\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,",
+                "\"function\":{\"arguments\":\" -la\\\"}\"}}]}}]}"
+            ),
+        ];
+        for piece in pieces {
+            apply_event(
+                piece,
+                &mut answer,
+                &mut |_| {},
+                &mut |_| {},
+                &mut |_| {},
+                &mut |made: &[ToolCall]| seen.push(made[0].arguments.clone()),
+            );
+        }
+        assert_eq!(
+            seen,
+            vec![
+                "{",
+                "{\"command\":\"ls",
+                "{\"command\":\"ls -la\"}",
+            ]
+        );
+        // The name came with the first piece, and the id with it, so the call is
+        // known by the end of it as well as it was before.
+        let call = answer.tool_calls.first().expect("one call was written");
+        assert_eq!(call.name, "run_terminal");
+        assert_eq!(call.id, "call-one");
+    }
+
+    // A piece of an answer is not a piece of a call, so it says nothing about
+    // the calls.
+    #[test]
+    fn a_piece_of_the_answer_says_nothing_of_the_calls() {
+        let mut answer = Answer::default();
+        let mut told = 0usize;
+        let piece = "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Now\"}}]}";
+        apply_event(
+            piece,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| told += 1,
+        );
+        // A piece that carries a call of nothing is passed over too.
+        let empty = "{\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[]}}]}";
+        apply_event(
+            empty,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| told += 1,
+        );
+        assert_eq!(told, 0);
     }
 
     // The part of the work that is done leaves out the tokens the server kept

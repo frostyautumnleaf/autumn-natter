@@ -20,8 +20,8 @@
 //   AN_NOCHAPTERS=1 node page-shot.js rich p.png  # the Chatting switch turned off
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
 //
-// The scenes: home, chat, rich, streaming, streaming-code, processing, previews,
-// sheet-program, sheet-model. A name that ends in -dark draws the dark skin, and
+// The scenes: home, chat, rich, streaming, streaming-code, writing, processing,
+// previews, sheet-program, sheet-model. A name that ends in -dark draws the dark skin, and
 // a name that ends in -pale draws the pale one. AN_SCROLL=top puts the talk at
 // the top instead of the end.
 //   AN_PROGRESS=42 AN_WHAT=image node page-shot.js processing p.png
@@ -90,6 +90,11 @@ const TALK = [
   said(4, 'Assistant', 'mmap is the default. It costs less memory.'),
 ];
 
+// The command the model writes in the `writing` scene, and the reason it gives
+// for it. AN_WRITE counts the characters of both, one after the other.
+const WRITING = 'cargo test --release markdown -- --nocapture';
+const WRITING_WHY = 'see whether the order of the blocks is mended';
+
 // The chats of the place, with one of them open.
 function chats(count, open) {
   const out = [];
@@ -119,6 +124,9 @@ function scene(name, dark) {
     chats: [], home: true, greeting: 'Still here, still ready.', overview: false,
     carousel: { index: 0, count: 0, blank: true },
     messages: [], live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
+    // The calls of a tool the model is writing right now. A block of a command
+    // being written is made of these.
+    live_tools: [],
     // How far the server is with the words it was sent. The gauge above the
     // chat box stands on these three.
     progress: { percent: 0, active: false, what: 'text' },
@@ -198,6 +206,31 @@ function scene(name, dark) {
     start.status = 'thinking';
     start.progress = { percent: 42, active: true, what: 'text' };
     start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
+  }
+  if (name === 'writing') {
+    // The model is writing a command. The block stands in the chat while the
+    // words of it come, and not only when the command runs.
+    start.home = false;
+    start.chat = { id: 'c1', title: 'Memory of the talk' };
+    start.chats = chats(3, 1);
+    start.carousel = { index: 1, count: 3, blank: false };
+    start.messages = [
+      said(1, 'You', 'What stands in the folder of the chat? Run a command and tell me.'),
+    ];
+    start.generating = true;
+    start.status = 'the model writes a command';
+    // The words of the answer are nothing: the model spends them on the call.
+    start.live = '';
+    start.reasoning = 'Look in the folder first, then say what stands in it.';
+    var have = process.env.AN_WRITE === undefined ? 12
+      : Math.max(0, Number(process.env.AN_WRITE) || 0);
+    start.live_tools = [{
+      name: 'run_terminal',
+      command: WRITING.slice(0, have),
+      // The reason comes after the command, as the model writes it.
+      purpose: have > WRITING.length ? WRITING_WHY.slice(0, have - WRITING.length) : ''
+    }];
+    start.context = { used: '1,180', total: '8,192', ratio: 0.14 };
   }
   if (name === 'streaming') {
     start.generating = true;

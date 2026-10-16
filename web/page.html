@@ -441,8 +441,10 @@ pre.code .t-p { color: var(--t-pun); }
 .state { flex: 0 0 auto; font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
   text-transform: uppercase; color: var(--dim); padding: 2px 7px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--surface); }
-.state.run { color: var(--ink); border-color: var(--accent-line); background: var(--accent-soft);
-  animation: beat 1.4s ease-in-out infinite; }
+/* Both a command that runs and a command that is being written say so by
+   beating. The words of the pill tell which of the two it is. */
+.state.run, .state.write { color: var(--ink); border-color: var(--accent-line);
+  background: var(--accent-soft); animation: beat 1.4s ease-in-out infinite; }
 .state.fail { color: var(--ink-fail); border-color: var(--ink-fail); }
 .thead .fold { margin-left: 4px; transition: transform 180ms; stroke: var(--faint); }
 .tool.closed .fold { transform: rotate(-90deg); }
@@ -661,7 +663,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
-  .caret, .ink, .pulse.busy, .state.run, .gauge .spin { animation: none; }
+  .caret, .ink, .pulse.busy, .state.run, .state.write, .gauge .spin { animation: none; }
 }
 </style>
 </head>
@@ -1405,6 +1407,118 @@ function toolBox(m) {
   return panel;
 }
 
+// ------------------------------------------------------ a call being written
+//
+// A run of the terminal tool used to come into the chat whole, at the moment the
+// command had already run. The model writes a command one word at a time, and
+// the answer stream carries those words, so the block now stands in the chat
+// while they come. The engine reads the words of the call and gives back the
+// command and the reason the model gave for it.
+
+// One block of a call that is being written. It stands like the panel of a run,
+// so the block that comes after it, when the command runs, is of the same shape.
+// The command is open while it is written, whatever the Chatting settings say of
+// a run that is over: what the reader is asked to look at here is the command
+// itself, and a fold would hide the writing.
+function writeBox(one) {
+  var panel = make('div', 'tool write');
+
+  var head = make('button', 'thead');
+  head.type = 'button';
+  head.appendChild(mark('M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2'));
+  var cmd = make('span', 'cmd');
+  cmd.textContent = firstLine(one.command) || 'a command, begun';
+  head.appendChild(cmd);
+  var state = make('span', 'state write');
+  state.textContent = 'writing';
+  head.appendChild(state);
+  head.appendChild(mark('M4 6.4 8 10.4 12 6.4', 'fold'));
+  // The fold is of this block alone, as it is of a run.
+  head.addEventListener('click', function () { panel.classList.toggle('closed'); });
+
+  var body = make('div', 'tbody');
+  body.appendChild(make('span', 'rail'));
+  var space = make('div', 'tspace');
+  var lab = make('div', 'lab');
+  lab.textContent = 'command';
+  var text = make('pre', 'cmd-text');
+  var words = document.createTextNode('');
+  var caret = make('span', 'caret');
+  // The mark of the writing stands behind the words, as the mark of an answer
+  // does, so the words never grow around it.
+  text.appendChild(words);
+  text.appendChild(caret);
+  space.appendChild(lab);
+  space.appendChild(text);
+  body.appendChild(space);
+  panel.appendChild(head);
+  panel.appendChild(body);
+  return { panel: panel, head: head, cmd: cmd, text: text, words: words,
+    caret: caret, space: space, why: null };
+}
+
+// The reason of the command, put under the command itself. It comes after the
+// command is over, so the block grows a second part while the model writes on.
+// The mark of the writing moves along to the words that are being written now.
+function addWhy(box) {
+  var lab = make('div', 'lab');
+  lab.textContent = 'why';
+  var text = make('pre', 'cmd-text');
+  var words = document.createTextNode('');
+  text.appendChild(words);
+  // Putting the mark in the new words takes it off the command, which is now
+  // over.
+  text.appendChild(box.caret);
+  box.space.appendChild(lab);
+  box.space.appendChild(text);
+  box.why = { label: lab, text: text, words: words };
+}
+
+// The blocks of the calls being written are kept from one look to the next, and
+// only the words that grew are put again, so the page does not shake while a
+// command is written. A block that came in is made once, and a block the engine
+// has taken away goes with it.
+function feedWrite(list) {
+  if (!ink.toolHost) { return; }
+  var made = list || [];
+  var key = '';
+  for (var n = 0; n < made.length; n++) {
+    key += made[n].name + '#' + (made[n].command || '').length
+        + '#' + (made[n].purpose || '').length + '|';
+  }
+  if (key === ink.toolKey) { return; }
+  ink.toolKey = key;
+  while (ink.tools.length > made.length) {
+    var gone = ink.tools.pop();
+    if (gone.panel.parentNode) { gone.panel.parentNode.removeChild(gone.panel); }
+  }
+  for (var m = 0; m < made.length; m++) {
+    var one = made[m];
+    var box = ink.tools[m];
+    if (!box) {
+      box = writeBox(one);
+      ink.tools[m] = box;
+      ink.toolHost.appendChild(box.panel);
+    }
+    if (box.words.nodeValue !== one.command) {
+      box.words.nodeValue = one.command;
+      // The end of a command is followed while it is written, unless the reader
+      // has gone up in the block to read the start of it.
+      if (box.text.scrollHeight - (box.text.scrollTop + box.text.clientHeight) < 40) {
+        box.text.scrollTop = box.text.scrollHeight;
+      }
+    }
+    var line = firstLine(one.command) || 'a command, begun';
+    if (box.cmd.textContent !== line) { box.cmd.textContent = line; }
+    if (one.purpose) {
+      if (!box.why) { addWhy(box); }
+      if (box.why.words.nodeValue !== one.purpose) {
+        box.why.words.nodeValue = one.purpose;
+      }
+    }
+  }
+}
+
 // The class of a turn says who spoke. The words 't-you' and the like keep the
 // name apart from the parts that stand inside the turn, so a rule for a part
 // cannot reach the turn of the same name.
@@ -1759,7 +1873,10 @@ var ink = {
   thoughtShape: { shape: '' },  // the blocks the thoughts stand in
   shape: '',        // the blocks the words stand in
   frame: 0,         // the next look of the writer, or nothing
-  clock: 0          // when the page was written last
+  clock: 0,         // when the page was written last
+  tools: [],        // the blocks of the calls the model is writing now
+  toolHost: null,   // where those blocks stand in the turn of the answer
+  toolKey: ''       // what those blocks said at the last look
 };
 
 // The blocks of an answer as one line, so a change of shape is seen at once.
@@ -1937,6 +2054,8 @@ function feedInk(m) {
   ink.done = !!m.reasoning_done;
   if (ink.panel && ink.musing) { ink.panel.classList.remove('hidden'); }
   thinkHeadWords();
+  // A command may be written while the answer is, and after it.
+  feedWrite(m.tools);
   if (!ink.frame) {
     ink.clock = 0;
     ink.frame = requestAnimationFrame(stepInk);
@@ -1950,6 +2069,7 @@ function stopInk() {
   ink.head = null; ink.label = null; ink.ms = 0; ink.done = false;
   ink.caret = null; ink.said = ''; ink.musing = ''; ink.shown = 0;
   ink.shownMusing = 0; ink.shape = ''; ink.thoughtShape.shape = ''; ink.frame = 0;
+  ink.tools = []; ink.toolHost = null; ink.toolKey = '';
 }
 
 // The turn of an answer that is coming in. What the engine has given so far
@@ -1978,6 +2098,13 @@ function fillLive(turn, m) {
   writeSaid();
   if (ink.musing) { writeThought(); }
   thinkHeadWords();
+  // The calls being written, if the engine has any. A command may already be
+  // half written at the first look at a new answer.
+  ink.toolHost = make('div', 'writes');
+  turn.appendChild(ink.toolHost);
+  ink.tools = [];
+  ink.toolKey = '';
+  feedWrite(m.tools);
 }
 
 // The words of one message, put into a turn. The turn is made once, and the
@@ -2038,7 +2165,7 @@ function drawThread(s) {
     items.push({
       id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
       reasoning_ms: s.reasoning_ms || 0, reasoning_done: !!s.reasoning_done,
-      tool: '', mono: false, failed: false, when: ''
+      tool: '', tools: s.live_tools || [], mono: false, failed: false, when: ''
     });
   }
   if (items.length === 0) {

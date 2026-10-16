@@ -80,6 +80,20 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             })
         })
         .collect();
+    // The calls of a tool the model is writing right now. The words of a
+    // command are those read out of the call so far, for the call is seldom
+    // finished. A mark of a chapter is never in this list, as it is never shown.
+    let live_tools: Vec<Value> = snap
+        .live_tools
+        .iter()
+        .map(|one| {
+            json!({
+                "name": one.name,
+                "command": one.command,
+                "purpose": one.purpose,
+            })
+        })
+        .collect();
     json!({
         "rev": snap.rev,
         "unchanged": false,
@@ -109,6 +123,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "chapters": chapters,
         // Text the model wrote since the last message was stored.
         "live": snap.live_text,
+        // The calls the model is writing at this moment, in the order it writes
+        // them. The window shows them as blocks of a command being written, so
+        // the reader sees the words of it and does not wait for the run.
+        "live_tools": live_tools,
         // The thinking that comes with a live answer, how long it lasted and
         // whether it has stopped. The page writes the last two on the head of
         // the panel.
