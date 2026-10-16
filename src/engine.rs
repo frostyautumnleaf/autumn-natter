@@ -732,11 +732,17 @@ impl Engine {
     // Start the engine and its worker thread.
     pub fn start(cfg: Config) -> Engine {
         let store = store::Store::new(config::repositories_dir(&cfg));
-        let sandbox_available = tools::available();
-        let sandbox_note = match tools::probe() {
-            Ok(()) => String::from("bubblewrap is present, so tool runs are sandboxed"),
+        // The badge stands on only when the jail has been tried and kept what
+        // it promises, so a machine with bubblewrap installed and user
+        // namespaces switched off says so instead of running commands free.
+        let sandbox_note = match tools::jail_check() {
+            Ok(()) => String::from(
+                "bubblewrap works. A command sees only the working directory of the chat, \
+                 and it has no network.",
+            ),
             Err(problem) => problem,
         };
+        let sandbox_available = tools::jail_check().is_ok();
         let mut state = State {
             cfg,
             store,
@@ -1359,9 +1365,13 @@ fn run_turn(
             state.set_status("start a new chat first");
             return;
         }
+        // What the chat asks for, and nothing else. Whether the jail really
+        // works on this machine is looked at by the tool itself, which refuses
+        // the run when the jail cannot be had. A chat that wants the sandbox is
+        // never served a plain run because the jail is broken.
         let sandbox_on = state
             .chat()
-            .map(|c| c.meta.sandbox_enabled && state.sandbox_available)
+            .map(|c| c.meta.sandbox_enabled)
             .unwrap_or(false);
         let workdir = state
             .chat()
@@ -1696,9 +1706,19 @@ fn run_turn(
             };
             let outcome = tools::run(&command, &workdir, sandbox_on, TOOL_TIMEOUT);
             let mut output = outcome.summary();
-            // The chat asked for the sandbox, so say when it was not used.
+            // The chat asked for the sandbox, so say when it was not used. The
+            // run itself already says why, and it did not run at all then.
             if sandbox_on && !outcome.sandboxed {
-                output = format!("{}\n(bubblewrap did not wrap this run)", output);
+                output = format!(
+                    "{}\n(the command did not run, for the sandbox was not to be had)",
+                    output
+                );
+            }
+            if !sandbox_on {
+                output = format!(
+                    "{}\n(not sandboxed: this command could reach the whole machine)",
+                    output
+                );
             }
             let Ok(mut guard) = state.lock() else {
                 continue;

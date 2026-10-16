@@ -833,7 +833,7 @@ pre.code.line {
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
             <span id="codetext">Code</span>
           </button>
-          <button class="badge" id="sandbox" title="Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory.">
+          <button class="badge" id="sandbox" title="Run every terminal command inside a bubblewrap jail. A command sees only the working directory, and it has no network. Inside a repository, the commands start in the repository directory.">
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
             <span id="sandboxtext">Sandbox</span>
           </button>
@@ -1281,8 +1281,8 @@ function drawBadges(s) {
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
   el.sandbox.title = s.sandbox_available
-    ? 'Run every terminal command inside a bubblewrap sandbox. Inside a repository, the commands start in the repository directory.'
-    : 'bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.';
+    ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory, and it has no network. Inside a repository, the commands start in the repository directory.'
+    : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.');
   var thinking = s.thinking || { mode: 'off', available: false, modes: [] };
   // The badge says what the model will do, in the words of this page. The
   // short names stay between the page and the server.
@@ -2959,7 +2959,10 @@ function loadProgram() {
     byId('fChapters').checked = cfg.chat_chapters !== false;
     byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
-    byId('fSandbox').textContent = (cur && cur.sandbox_note) || '';
+    // The note is what the program found when it asked its own jail whether it
+    // keeps what it promises.
+    byId('fSandbox').textContent = (cur && cur.sandbox_note)
+      || 'The sandbox was not looked at.';
     var sel = byId('fOpenRepo'); sel.innerHTML = '';
     sel.appendChild(setOption('No repository', ''));
     for (var i = 0; i < repos.length; i++) { sel.appendChild(setOption(repos[i].name, repos[i].id)); }
