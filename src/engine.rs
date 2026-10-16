@@ -63,6 +63,41 @@ pub struct Chapter {
     pub after: String,
 }
 
+// One call of a tool the model is writing right now. The reader sees the words
+// of it as they come, so the block stands in the chat before the call is over
+// and before the command it asks for has run. The words are those the reader is
+// given: the command, and the reason the model gave for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveTool {
+    // The name of the tool, as the model wrote it.
+    pub name: String,
+    // The command so far. It is read out of the words of the call, which are
+    // often not finished.
+    pub command: String,
+    // The reason the model gave for the command, as far as it has come.
+    pub purpose: String,
+}
+
+// The calls the reader may watch being written. A mark of a chapter is not
+// shown, so a call that could still become one stands aside until its name is
+// known: the name comes in pieces, and three letters of it are not yet the name
+// of a tool. A call with no name of its own is therefore kept out too.
+fn watched(calls: &[ToolCall]) -> Vec<LiveTool> {
+    let mut out: Vec<LiveTool> = Vec::new();
+    for call in calls {
+        if tools::CHAPTER_TOOL_NAME.starts_with(call.name.as_str()) {
+            continue;
+        }
+        let (command, purpose) = tools::partial_arguments(&call.arguments);
+        out.push(LiveTool {
+            name: call.name.clone(),
+            command,
+            purpose,
+        });
+    }
+    out
+}
+
 // The chapters of one chat, in the order they were marked. A note is not a
 // place a chapter can begin after, for the window puts notes between the turns
 // and they come and go with them.
@@ -165,6 +200,9 @@ pub struct Snap {
     // sends words today, so the number is nothing. The words of the gauge
     // follow it, so a chat that can carry a picture says so by itself.
     pub progress_images: usize,
+    // The calls of a tool the model is writing right now, in the order it
+    // writes them. A block of a command being written is made of these.
+    pub live_tools: Vec<LiveTool>,
     // Goes up when a message changes, so the window redraws them.
     pub rev: u64,
     // Goes up when a list changes, so the window rebuilds it.
@@ -201,6 +239,9 @@ pub struct State {
     pub progress_on: bool,
     // How many pictures the message being worked through carries.
     pub progress_images: usize,
+    // The calls of a tool the model is writing right now, in the order the
+    // model writes them. The reader sees a command as it is written.
+    pub live_tools: Vec<LiveTool>,
     // The moments the thinking of the live answer began and last stopped. The
     // two together are the length of it.
     thought_start: Option<Instant>,
@@ -733,6 +774,7 @@ impl State {
             progress: self.progress,
             progress_on: self.progress_on,
             progress_images: self.progress_images,
+            live_tools: self.live_tools.clone(),
             rev: self.rev,
             structure_rev: self.structure_rev,
         }
@@ -777,6 +819,7 @@ impl Engine {
             progress: 0,
             progress_on: false,
             progress_images: 0,
+            live_tools: Vec::new(),
             thought_start: None,
             thought_end: None,
             generating: false,
@@ -1237,6 +1280,7 @@ impl Snap {
             progress: 0,
             progress_on: false,
             progress_images: 0,
+            live_tools: Vec::new(),
             rev: 0,
             structure_rev: 0,
         }
@@ -1469,6 +1513,7 @@ fn run_turn(
         // words of an older one, not even from another chat.
         state.live_text = String::new();
         state.live_reasoning = String::new();
+        state.live_tools = Vec::new();
         state.set_status("the model is getting ready");
         let settings = state.settings_for(&model);
         (model, settings, workdir, sandbox_on)
@@ -1571,9 +1616,13 @@ fn run_turn(
             guard.progress = 0;
             guard.progress_images = pending_images(&history);
             guard.progress_on = true;
+            // The calls of the step before this one stand in the chat by now, so
+            // the blocks of the words being written start anew.
+            guard.live_tools = Vec::new();
         }
         let progress_state = state.clone();
         let context_state = state.clone();
+        let tool_state = state.clone();
         let answer = llama::stream_chat(
             &base_url,
             &body,
@@ -1643,6 +1692,19 @@ fn run_turn(
                     }
                 }
             },
+            &mut |made: &[ToolCall]| {
+                // The reader sees the model write a command: the words of it go
+                // into the state as they come, and not when the call is over.
+                // The blocks are written again only when a word came, so a piece
+                // that says nothing new costs the window nothing.
+                if let Ok(mut guard) = tool_state.lock() {
+                    let now = watched(made);
+                    if now != guard.live_tools {
+                        guard.live_tools = now;
+                        guard.touch();
+                    }
+                }
+            },
         );
 
         let Ok(mut guard) = state.lock() else { return };
@@ -1650,6 +1712,10 @@ fn run_turn(
         guard.progress_on = false;
         let live = std::mem::take(&mut guard.live_text);
         let live_thinking = std::mem::take(&mut guard.live_reasoning);
+        // The call is over, so the block of the words being written goes. The
+        // run of the command stands in the chat in its place, and says what
+        // became of it.
+        guard.live_tools.clear();
         // How long the model spent thinking in this step. The words of the
         // panel are made from this.
         let thought_ms = match (guard.thought_start, guard.thought_end) {
@@ -2371,6 +2437,86 @@ mod tests {
 
         // A chat with nothing in it is still a chat of words.
         assert_eq!(pending_images(&json!([])), 0);
+    }
+
+    // The reader watches a command as the model writes it, and watches nothing
+    // of a mark of a chapter. The name of a call comes in pieces, so a name that
+    // could still become the mark stands aside until it is known.
+    #[test]
+    fn only_a_command_the_reader_can_use_is_written_out() {
+        let command = ToolCall {
+            id: String::from("call-one"),
+            name: String::from(tools::TOOL_NAME),
+            arguments: String::from("{\"command\":\"ls -la\",\"purpose\":\"see what is here\"}"),
+        };
+        let made = watched(std::slice::from_ref(&command));
+        assert_eq!(made.len(), 1);
+        assert_eq!(made[0].name, tools::TOOL_NAME);
+        assert_eq!(made[0].command, "ls -la");
+        assert_eq!(made[0].purpose, "see what is here");
+
+        // A mark of a chapter runs nothing and is shown to nobody, so there is
+        // nothing to watch while it is written.
+        let mark = ToolCall {
+            id: String::from("call-two"),
+            name: String::from(tools::CHAPTER_TOOL_NAME),
+            arguments: String::from("{\"name\":\"The plan\"}"),
+        };
+        assert!(watched(std::slice::from_ref(&mark)).is_empty());
+
+        // Three letters of a name are not yet the name of a tool: the mark could
+        // still be coming, so nothing stands in the chat for it yet.
+        let half = ToolCall {
+            id: String::from("call-three"),
+            name: String::from("cha"),
+            arguments: String::from("{\"na"),
+        };
+        assert!(watched(std::slice::from_ref(&half)).is_empty());
+
+        // A call with no name of its own says nothing of what it is.
+        let blank = ToolCall {
+            id: String::from("call-four"),
+            ..Default::default()
+        };
+        assert!(watched(std::slice::from_ref(&blank)).is_empty());
+
+        // The words of a command that is not finished are kept as they came, so
+        // the reader sees the command grow instead of waiting for the end.
+        let grown = ToolCall {
+            id: String::from("call-five"),
+            name: String::from(tools::TOOL_NAME),
+            arguments: String::from("{\"command\":\"cargo test --release mark"),
+        };
+        let made = watched(std::slice::from_ref(&grown));
+        assert_eq!(made[0].command, "cargo test --release mark");
+        assert!(made[0].purpose.is_empty());
+    }
+
+    // The calls being written stand in the snapshot, and go away with the step
+    // that wrote them, so a block is never left standing over a chat.
+    #[test]
+    fn the_calls_being_written_stand_in_the_snapshot() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.new_chat();
+        {
+            let mut state = engine.state.lock().unwrap();
+            let call = ToolCall {
+                id: String::from("call-one"),
+                name: String::from(tools::TOOL_NAME),
+                arguments: String::from("{\"command\":\"uname"),
+            };
+            state.live_tools = watched(std::slice::from_ref(&call));
+        }
+        let snap = engine.snapshot();
+        assert_eq!(snap.live_tools.len(), 1);
+        assert_eq!(snap.live_tools[0].command, "uname");
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.live_tools.clear();
+        }
+        assert!(engine.snapshot().live_tools.is_empty());
     }
 
     // The meter of the context moves while an answer comes in, and it only
