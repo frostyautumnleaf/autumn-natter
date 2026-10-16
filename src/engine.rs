@@ -1337,6 +1337,21 @@ fn finish_progress(state: &mut State) -> bool {
     true
 }
 
+// The meter of the context while an answer comes in. The server says how many
+// words the talk takes on every piece of the answer, so the meter moves during
+// the answer and not only when the answer is over. The meter only climbs: the
+// words of an answer that is still coming are not taken back. The number the
+// server gives at the end of the answer is kept for the end, and that number
+// may be smaller, for a stop takes words away. True when the number moved, so
+// the caller says that the messages changed.
+fn climb_context(state: &mut State, made: u64) -> bool {
+    if made == 0 || made <= state.ctx_used {
+        return false;
+    }
+    state.ctx_used = made;
+    true
+}
+
 // How many pictures the message that is being worked through carries. That is
 // the last thing that goes out with the request. The program sends words today,
 // so the answer is nothing. The count is taken from the words that go out, and
@@ -1520,6 +1535,10 @@ fn run_turn(
             // gauge above the chat box has numbers to show before the model has
             // a word to give back.
             "return_progress": true,
+            // And the server says on every piece how many words the talk takes,
+            // so the meter of the context moves while the model writes, and not
+            // only when it has stopped.
+            "timings_per_token": true,
         });
         if use_tools {
             let mut offered: Vec<Value> = Vec::new();
@@ -1554,6 +1573,7 @@ fn run_turn(
             guard.progress_on = true;
         }
         let progress_state = state.clone();
+        let context_state = state.clone();
         let answer = llama::stream_chat(
             &base_url,
             &body,
@@ -1608,6 +1628,17 @@ fn run_turn(
                     let percent = (made.part() * 100.0).round() as u32;
                     if percent != guard.progress {
                         guard.progress = percent;
+                        guard.touch();
+                    }
+                }
+            },
+            &mut |made: llama::Context| {
+                // The room of the talk moves with every piece of the answer, so
+                // the meter in the top bar moves with it. The number is put in
+                // only when it grew, so a piece that says nothing new costs the
+                // window nothing.
+                if let Ok(mut guard) = context_state.lock() {
+                    if climb_context(&mut guard, made.used()) {
                         guard.touch();
                     }
                 }
@@ -1706,12 +1737,17 @@ fn run_turn(
             Kept::Nothing => {}
         }
 
-        // Tokens for the context meter.
+        // Tokens for the context meter. The number the server gives at the end
+        // is the number that stands, and it is kept over the live number of the
+        // answer, for the answer is over and the server knows best.
         let used = answer.prompt_tokens + answer.completion_tokens;
         guard.ctx_used = if used > 0 {
             used
         } else {
-            estimate_tokens(&history)
+            // Nothing came back, for the answer was stopped or the server could
+            // not be reached. The meter already holds the words the server said
+            // it had worked through, so they are kept over the guess.
+            guard.ctx_used.max(estimate_tokens(&history))
         };
         let used_now = guard.ctx_used;
         if let Some(chat) = guard.chat_mut() {
@@ -2335,5 +2371,36 @@ mod tests {
 
         // A chat with nothing in it is still a chat of words.
         assert_eq!(pending_images(&json!([])), 0);
+    }
+
+    // The meter of the context moves while an answer comes in, and it only
+    // climbs. The number the server gives at the end of the answer is kept for
+    // the end, and that one may be smaller.
+    #[test]
+    fn the_context_meter_moves_while_an_answer_comes() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.new_chat();
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.ctx_used = 0;
+            // Nothing is known of the talk yet, so the meter keeps what it
+            // stands on.
+            assert!(!climb_context(&mut state, 0));
+            assert_eq!(state.ctx_used, 0);
+            // The words of the talk so far. The meter climbs.
+            assert!(climb_context(&mut state, 431));
+            // A piece that says the same, or less, moves nothing: the words of
+            // an answer that is still coming are not taken back.
+            assert!(!climb_context(&mut state, 431));
+            assert!(!climb_context(&mut state, 400));
+            assert_eq!(state.ctx_used, 431);
+            assert!(climb_context(&mut state, 900));
+            assert_eq!(state.ctx_used, 900);
+        }
+        // The window draws the number of the meter from the snapshot, so the
+        // number of the live answer reaches the top bar.
+        assert_eq!(engine.snapshot().context_used, 900);
     }
 }
