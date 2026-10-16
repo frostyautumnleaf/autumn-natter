@@ -497,8 +497,13 @@ pre.code .t-p { color: var(--t-pun); }
 /* The arrows that turn the carousel. They stand at the edge of the stage and
    only when a chat sits that way. */
 /* While the row of previews stands in front, the chat and its arrows are put
-   away, so no word of the chat shows behind a preview. */
-body.rowon .thread, body.rowon .turn-btn { visibility: hidden; }
+   away, so no word of the chat shows behind a preview. The ground of the veil
+   is solid, and it covers the thread, so the thread is not changed at all
+   while the row stands in front: a change of visibility would make the
+   engine draw the chat again, and a chat with a lot in it costs a look or
+   two. The script keeps the reader and the keys away from the covered chat.
+   See showRow. */
+body.rowon .turn-btn { visibility: hidden; }
 .turn-btn { position: absolute; top: 50%; margin-top: -17px; width: 34px; height: 34px;
   border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
   color: var(--dim); z-index: 6; display: inline-flex; align-items: center; justify-content: center;
@@ -2389,6 +2394,16 @@ function showRow(on) {
   el.veil.classList.toggle('on', on);
   el.chatsbtn.classList.toggle('on', on);
   document.body.classList.toggle('rowon', on);
+  // The ground of the veil covers the chat, so the thread is left as it
+  // stands: a change of visibility would make the engine draw the chat
+  // again, and a chat with a lot in it costs a look or two. The reader is
+  // kept away from the covered chat with aria-hidden, and a key that stood
+  // in the chat is put back, for it would stand where the reader cannot see
+  // it.
+  el.thread.setAttribute('aria-hidden', on ? 'true' : 'false');
+  if (on && el.thread.contains(document.activeElement)) {
+    document.activeElement.blur();
+  }
   if (!on) {
     if (ov.frame) { cancelAnimationFrame(ov.frame); ov.frame = 0; }
     ov.drag = false;
