@@ -73,7 +73,11 @@ const ETC_PATHS: [&str; 12] = [
     "/etc/pki/tls/certs",
 ];
 
-// The tool description handed to the model.
+// The tool description handed to the model. The call is asked for one thing: the
+// command. No reason for the command is asked for, for a model told to say why
+// it runs something spends its words on a line the reader can work out from the
+// command itself. A model that gives a reason of its own is still read, and the
+// reader still sees it, so a chat written before this change keeps what it had.
 pub fn definition() -> Value {
     json!({
         "type": "function",
@@ -86,10 +90,6 @@ pub fn definition() -> Value {
                     "command": {
                         "type": "string",
                         "description": "The shell command to run, in one line."
-                    },
-                    "purpose": {
-                        "type": "string",
-                        "description": "One short sentence that says why the command is needed."
                     }
                 },
                 "required": ["command"]
@@ -602,7 +602,10 @@ fn check_lines(text: &str) -> Vec<String> {
 }
 
 // Read the arguments of a tool call. The model sometimes writes no JSON at
-// all, so a plain line is taken as the command.
+// all, so a plain line is taken as the command. The second half of the answer is
+// the reason the model gave for the command. That reason is no longer asked for,
+// but it is still read here, so a model that gives one of its own, and a chat
+// written before the change, are shown as they were.
 pub fn parse_arguments(raw: &str) -> (String, String) {
     let text = raw.trim();
     if text.is_empty() {
@@ -978,6 +981,44 @@ mod tests {
         assert!(!plain.sandboxed);
         assert!(plain.output.contains("NOT-FOR-A-JAIL"), "{}", plain.output);
         let _ = std::fs::remove_dir_all(&room);
+    }
+
+    // The call is asked for one thing: the command. No reason for the command is
+    // asked for, so a model may run a command without first writing a line about
+    // it, and the words of the definition lead it nowhere near such a line.
+    #[test]
+    fn the_tool_asks_for_no_reason_of_the_command() {
+        let made = definition();
+        let call = made.get("function").expect("the tool is a function");
+        assert_eq!(
+            call.get("name").and_then(|v| v.as_str()),
+            Some(TOOL_NAME),
+            "the name of the tool is the one the engine runs"
+        );
+        let mut keys: Vec<String> = call
+            .get("parameters")
+            .and_then(|p| p.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("the parts of a call are listed")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        assert_eq!(keys, vec![String::from("command")]);
+        let want = call
+            .get("parameters")
+            .and_then(|p| p.get("required"))
+            .and_then(|r| r.as_array())
+            .expect("the parts that must come are listed");
+        assert_eq!(want.len(), 1);
+        assert_eq!(want[0].as_str(), Some("command"));
+        // Nothing of a reason stands in the words handed to the model.
+        let words = made.to_string().to_lowercase();
+        assert!(
+            !words.contains("purpose"),
+            "the definition still asks for a purpose: {}",
+            made
+        );
     }
 
     // The words of a command are read out of an object that is not finished, for
