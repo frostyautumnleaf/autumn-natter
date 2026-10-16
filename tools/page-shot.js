@@ -94,6 +94,9 @@ const TALK = [
 // for it. AN_WRITE counts the characters of both, one after the other.
 const WRITING = 'cargo test --release markdown -- --nocapture';
 const WRITING_WHY = 'see whether the order of the blocks is mended';
+// What the model says before the command, for AN_SAYS.
+const WRITING_SAYS = 'I will write a short greeting to a file called hello.txt, '
+  + 'and I will read it back to you.';
 
 // The chats of the place, with one of them open.
 function chats(count, open) {
@@ -219,8 +222,14 @@ function scene(name, dark) {
     ];
     start.generating = true;
     start.status = 'the model writes a command';
-    // The words of the answer are nothing: the model spends them on the call.
+    // The words of the answer are nothing by default: the model spends them on
+    // the call. AN_SAYS=<n> puts that many words of an answer before the call,
+    // so the room between them and the block of the command can be looked at.
     start.live = '';
+    if (process.env.AN_SAYS !== undefined) {
+      var told = Math.max(0, Number(process.env.AN_SAYS) || 0);
+      start.live = WRITING_SAYS.slice(0, Math.min(WRITING_SAYS.length, told));
+    }
     start.reasoning = 'Look in the folder first, then say what stands in it.';
     var have = process.env.AN_WRITE === undefined ? 12
       : Math.max(0, Number(process.env.AN_WRITE) || 0);
