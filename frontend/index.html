@@ -189,7 +189,12 @@ textarea, input { font: inherit; color: inherit; }
 .meter-box .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
 .meter-box .num { font-size: 11px; color: var(--dim); white-space: nowrap;
   font-variant-numeric: tabular-nums; }
-.meter-box .pct { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.meter-box .pct { font-size: 11px; color: var(--faint); white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
+/* The two numbers of the meter are rolled by the page, and a line of words that
+   is to be moved has to be a block of its own. A block of its own is also a
+   place the line may break, which is why neither number is broken above. */
+.meter-box .roll { display: inline-block; }
 .meter { display: block; height: 4px; border-radius: 999px; background: var(--surface-3);
   overflow: hidden; }
 .meter i { display: block; height: 100%; border-radius: 999px; background: var(--accent);
@@ -801,8 +806,8 @@ pre.code.line {
 
   <div class="meter-box" id="ctx" title="Tokens the model keeps in mind for this chat">
     <div class="row1">
-      <span class="num" id="ctxtext">0 of 0</span>
-      <span class="pct" id="ctxpct">0%</span>
+      <span class="num" id="ctxtext"><span class="roll" id="ctxused">0</span><span id="ctxtail"> of 0</span></span>
+      <span class="pct" id="ctxpct"><span class="roll" id="ctxpctnum">0</span>%</span>
     </div>
     <span class="meter"><i id="ctxfill"></i></span>
   </div>
@@ -1156,7 +1161,8 @@ var invoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core
 // The parts of the page that stay in place. Their words are written again on
 // every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', 'where',
-  'ctx', 'ctxtext', 'ctxpct', 'ctxfill', 'stage', 'thread', 'col', 'turnL', 'turnR',
+  'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
+  'stage', 'thread', 'col', 'turnL', 'turnR',
   'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'hint',
   'newchat', 'chatsbtn', 'settingsbtn', 'modelbtn', 'chapters',
   'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
@@ -1263,13 +1269,105 @@ function readChatting(s) {
   chatting.chapters = chat.chapters !== false;
 }
 
-// The meter of the context: the words in use, the whole room, and a bar.
+// The numbers of the meter are written with a comma in the place of a
+// thousand, the way the engine writes them.
+function commas(n) {
+  var digits = String(Math.max(0, Math.round(n)));
+  var out = '';
+  while (digits.length > 3) {
+    out = ',' + digits.slice(digits.length - 3) + out;
+    digits = digits.slice(0, digits.length - 3);
+  }
+  return digits + out;
+}
+
+// A number that walks up to the number it is asked for, instead of landing on
+// it. While an answer comes in the engine sends a new number of the talk about
+// six times a second, and a meter whose number jumps is not a meter.
+//
+// The walk takes the number it stands on and goes over the room between that
+// and the number asked for, one number at a time. Each number it stops on
+// comes a little way down into its place and fades in, so the digits seem to
+// turn over into place rather than be stamped there again. The walk keeps to
+// eight stops at the most, so a long way to go is a brisk walk and not a long
+// one.
+//
+// A number that goes back is taken where it stands, with no walk. A new chat,
+// or a chat that has been tidied, has no room between the two to walk down,
+// and a meter that rolled backwards would say the talk had been shorter than
+// it ever was. A page that is asked for few moves gets the number at once too.
+function makeClimber(node, words) {
+  var shown = -1;    // the number that stands in the page
+  var goal = -1;     // the number the page is walking to
+  var from = 0;      // the number the walk began on
+  var start = 0;     // when the walk began
+  var since = 0;     // when the number now standing came in
+  var whole = 0;     // how long the whole walk takes
+  var each = 0;      // how long one number of the walk takes
+  var frame = 0;     // the next look of the walk, or none
+
+  // Stand on a number, and stand still: no shift, no fade.
+  function stand(n) {
+    shown = n;
+    node.textContent = words(n);
+    node.style.transform = '';
+    node.style.opacity = '';
+  }
+
+  function walk(now) {
+    frame = 0;
+    var gone = whole > 0 ? (now - start) / whole : 1;
+    if (gone > 1) { gone = 1; }
+    var on = gone >= 1 ? goal : from + Math.round((goal - from) * gone);
+    if (on !== shown) { shown = on; since = now; }
+    var come = each > 0 ? (now - since) / each : 1;   // how far this number has come in
+    if (come > 1) { come = 1; }
+    node.textContent = words(shown);
+    if (come >= 1) {
+      node.style.transform = '';
+      node.style.opacity = '';
+    } else {
+      // A number comes in a third of its own height under its place.
+      node.style.transform = 'translateY(' + (0.3 * (1 - come)).toFixed(3) + 'em)';
+      node.style.opacity = String(0.35 + 0.65 * come);
+    }
+    if (gone < 1 || come < 1) { frame = requestAnimationFrame(walk); }
+  }
+
+  // Where the number stands when the walk is over, or at once when there is
+  // nothing to walk.
+  function aim(target) {
+    if (!node || !(target >= 0)) { return; }
+    if (target === goal && frame) { return; }   // already on the way there
+    if (frame) { cancelAnimationFrame(frame); frame = 0; }
+    if (shown < 0 || reduce || target <= shown) { stand(target); goal = target; return; }
+    from = shown;
+    goal = target;
+    var jump = goal - from;
+    whole = Math.max(150, Math.min(320, jump * 26));
+    each = whole / (jump > 8 ? 8 : jump);
+    start = performance.now();
+    frame = requestAnimationFrame(walk);
+  }
+
+  return aim;
+}
+
+// The two numbers of the meter of the context. Only the words in use climb
+// while an answer comes in; the whole room stands still. The mark of the
+// hundredth stands in the page, outside the number that is rolled.
+var climbUsed = makeClimber(el.ctxused, commas);
+var climbPct = makeClimber(el.ctxpctnum, function (n) { return String(n); });
+
+// The meter of the context: the words in use, the whole room, and a bar. The
+// two numbers are walked to rather than set, for the engine sends a new number
+// of the talk about six times a second while an answer comes in.
 function drawContext(s) {
   var ratio = Math.max(0, Math.min(1, s.context.ratio));
-  el.ctxtext.textContent = tight()
-    ? s.context.used + ' / ' + s.context.total
-    : s.context.used + ' of ' + s.context.total;
-  el.ctxpct.textContent = Math.round(ratio * 100) + '%';
+  el.ctxtail.textContent = (tight() ? ' / ' : ' of ') + s.context.total;
+  var used = Number(String(s.context.used).replace(/[^0-9]/g, ''));
+  climbUsed(isFinite(used) ? used : 0);
+  climbPct(Math.round(ratio * 100));
   el.ctxfill.style.width = Math.round(ratio * 100) + '%';
   el.ctx.classList.toggle('near', ratio > 0.9);
   el.ctx.title = 'Tokens the model keeps in mind for this chat: '
