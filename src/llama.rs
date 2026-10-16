@@ -605,6 +605,37 @@ pub struct ToolCall {
     pub arguments: String,
 }
 
+// How far the server is with the words it was sent. The server sends these
+// numbers while it works the prompt through, before it has a word to give
+// back. `total` counts every token of the prompt, and `cache` the tokens the
+// server kept from an earlier turn and does not work through again.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Progress {
+    pub total: u64,
+    pub cache: u64,
+    pub processed: u64,
+    pub time_ms: u64,
+}
+
+impl Progress {
+    // The part of the work that is done, between 0.0 and 1.0. The tokens the
+    // server kept from before are left out of both sides, for they cost
+    // nothing and would make the work look finished before it began.
+    pub fn part(&self) -> f64 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        let cache = self.cache.min(self.total);
+        let room = self.total - cache;
+        if room == 0 {
+            // Every token was kept from before, so there is nothing to do.
+            return 1.0;
+        }
+        let done = self.processed.min(self.total).saturating_sub(cache);
+        (done as f64 / room as f64).clamp(0.0, 1.0)
+    }
+}
+
 // What one streamed answer gave.
 #[derive(Clone, Debug, Default)]
 pub struct Answer {
@@ -615,6 +646,8 @@ pub struct Answer {
     pub finish: String,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
+    // The last word the server said about the prompt it was working through.
+    pub progress: Progress,
     // The user stopped the answer.
     pub stopped: bool,
     // A transport problem, or the message from the server.
@@ -622,13 +655,15 @@ pub struct Answer {
 }
 
 // Send one chat request and stream the answer. on_text gets every piece of new
-// text as it arrives, so the window can show it.
+// text as it arrives, so the window can show it. on_progress gets the state of
+// the prompt work, as the server reports it while the prompt goes through.
 pub fn stream_chat(
     base_url: &str,
     body: &Value,
     cancel: &AtomicBool,
     on_text: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
+    on_progress: &mut dyn FnMut(Progress),
 ) -> Answer {
     let mut answer = Answer::default();
     let agent = ureq::AgentBuilder::new()
@@ -668,7 +703,13 @@ pub fn stream_chat(
                     let text = String::from_utf8_lossy(&line);
                     let text = text.trim_end_matches(['\r', '\n']);
                     if let Some(payload) = text.strip_prefix("data:") {
-                        if !apply_event(payload.trim(), &mut answer, on_text, on_reasoning) {
+                        if !apply_event(
+                            payload.trim(),
+                            &mut answer,
+                            on_text,
+                            on_reasoning,
+                            on_progress,
+                        ) {
                             // The stream told us it is finished.
                             pending.clear();
                             break;
@@ -693,6 +734,7 @@ fn apply_event(
     answer: &mut Answer,
     on_text: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
+    on_progress: &mut dyn FnMut(Progress),
 ) -> bool {
     if payload == "[DONE]" {
         return false;
@@ -713,6 +755,19 @@ fn apply_event(
             .get("completion_tokens")
             .and_then(|v| v.as_u64())
             .unwrap_or(answer.completion_tokens);
+    }
+    // The server is asked for the state of the prompt work (return_progress).
+    // Every number of it is given again in one go, so the last one seen is the
+    // one that stands.
+    if let Some(made) = value.get("prompt_progress") {
+        let number = |name: &str| made.get(name).and_then(|v| v.as_u64()).unwrap_or(0);
+        answer.progress = Progress {
+            total: number("total"),
+            cache: number("cache"),
+            processed: number("processed"),
+            time_ms: number("time_ms"),
+        };
+        on_progress(answer.progress);
     }
     let Some(choice) = value.get("choices").and_then(|c| c.get(0)) else {
         return true;
@@ -1069,6 +1124,61 @@ mod tests {
             &mut notes,
         );
         assert!(args.iter().any(|a| a == "--no-mmproj-offload"));
+    }
+
+    // The server answers a request for the state of the prompt work with a
+    // part named prompt_progress, and every number of it is kept.
+    #[test]
+    fn the_state_of_the_prompt_work_is_read_from_the_stream() {
+        let mut answer = Answer::default();
+        let mut seen: Vec<u64> = Vec::new();
+        let payload = concat!(
+            "{\"choices\":[{\"index\":0,\"delta\":{\"content\":null}}],",
+            "\"prompt_progress\":{\"total\":215,\"cache\":20,\"processed\":108,\"time_ms\":900}}"
+        );
+        let going_on = apply_event(
+            payload,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |made: Progress| seen.push(made.processed),
+        );
+        assert!(going_on);
+        assert_eq!(seen, vec![108]);
+        assert_eq!(answer.progress.total, 215);
+        assert_eq!(answer.progress.cache, 20);
+        assert_eq!(answer.progress.time_ms, 900);
+    }
+
+    // The part of the work that is done leaves out the tokens the server kept
+    // from an earlier turn, for those cost nothing.
+    #[test]
+    fn the_part_of_the_work_leaves_the_kept_tokens_out() {
+        let half = Progress {
+            total: 200,
+            cache: 100,
+            processed: 150,
+            time_ms: 10,
+        };
+        assert!((half.part() - 0.5).abs() < 1e-9);
+        // Nothing is known yet, so nothing is done.
+        assert_eq!(Progress::default().part(), 0.0);
+        // Every token was kept from before, so no work is left to do.
+        let kept = Progress {
+            total: 200,
+            cache: 200,
+            processed: 200,
+            time_ms: 0,
+        };
+        assert_eq!(kept.part(), 1.0);
+        // A part over the whole is read as the whole.
+        let over = Progress {
+            total: 100,
+            cache: 0,
+            processed: 140,
+            time_ms: 0,
+        };
+        assert_eq!(over.part(), 1.0);
     }
 
     // The value behind one flag, for the tests.

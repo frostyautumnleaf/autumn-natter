@@ -513,10 +513,45 @@ body.rowon .thread, body.rowon .turn-btn { visibility: hidden; }
 .dock { flex: 0 0 auto; padding: 0 14px 12px; }
 body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
 .box {
+  position: relative;
   border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface);
   box-shadow: var(--shadow-1); transition: border-color 160ms, box-shadow 160ms;
 }
 .box.focus { border-color: var(--line-strong); box-shadow: var(--shadow-1), var(--ring); }
+/* The gauge of the work the server does with the words it was sent. It hangs
+   above the box, over the foot of the chat, so the chat box never has to move
+   for it. The number stands in the middle of a ring, and the ring fills with
+   the number. A faint arc goes round under it, so the gauge still says that the
+   program is at work while one batch of words takes its time. */
+.gauge {
+  position: absolute; bottom: calc(100% + 10px); left: 50%; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 14px 9px; border-radius: var(--r-m);
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-2);
+  transform: translate(-50%, 6px); opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 200ms ease-out, transform 200ms ease-out, visibility 200ms;
+}
+.gauge.on { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+.gauge .ring { position: relative; display: block; width: 44px; height: 44px; }
+.gauge .ring svg { display: block; width: 44px; height: 44px; transform: rotate(-90deg); }
+.gauge .track { fill: none; stroke: var(--line); stroke-width: 3; }
+.gauge .sweep {
+  fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 119.4; stroke-dashoffset: 119.4;
+  transition: stroke-dashoffset 260ms cubic-bezier(.32, .72, .24, 1);
+}
+.gauge .spin {
+  fill: none; stroke: var(--accent-line); stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 15 104.4;
+  transform-box: fill-box; transform-origin: center;
+  animation: gauge-round 1.5s linear infinite;
+}
+@keyframes gauge-round { to { transform: rotate(360deg); } }
+.gauge .num {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 11.5px; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.gauge .what { font-size: 11px; color: var(--dim); white-space: nowrap; }
 #draft {
   display: block; width: 100%; min-height: 26px; max-height: 40vh; padding: 13px 15px 4px;
   background: none; border: 0; resize: none; font-size: 15px; line-height: 1.5;
@@ -721,7 +756,7 @@ pre.code.line {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
-  .caret, .ink, .pulse.busy, .state.run { animation: none; }
+  .caret, .ink, .pulse.busy, .state.run, .gauge .spin { animation: none; }
 }
 </style>
 </head>
@@ -825,6 +860,21 @@ pre.code.line {
        no part of the box is left empty. -->
   <div class="dock" id="dock">
     <div class="box" id="box">
+      <!-- How far the server is with the words it was sent. The number stands
+           in the middle of a ring that fills with it, and the words under the
+           ring say what is worked through now. It stands over the foot of the
+           chat, so the chat box keeps the place it had. -->
+      <div class="gauge" id="gauge" aria-hidden="true">
+        <span class="ring">
+          <svg viewBox="0 0 44 44" aria-hidden="true">
+            <circle class="track" cx="22" cy="22" r="19"></circle>
+            <circle class="spin" cx="22" cy="22" r="19"></circle>
+            <circle class="sweep" id="gaugeArc" cx="22" cy="22" r="19"></circle>
+          </svg>
+          <span class="num" id="gaugeNum">0%</span>
+        </span>
+        <span class="what" id="gaugeText">Processing text...</span>
+      </div>
       <textarea id="draft" rows="1" spellcheck="false"
         placeholder="Write a message for the model"></textarea>
       <div class="dock-row">
@@ -1112,7 +1162,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', '
   'newchat', 'chatsbtn', 'settingsbtn', 'modelbtn', 'chapters',
   'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send',
-  'box', 'dock'];
+  'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
 
@@ -1179,6 +1229,7 @@ function draw(s) {
   el.title.classList.toggle('none', blank);
 
   drawContext(s);
+  drawProgress(s);
   drawCarousel(s);
   drawBadges(s);
 
@@ -1225,6 +1276,35 @@ function drawContext(s) {
   el.ctx.title = 'Tokens the model keeps in mind for this chat: '
     + s.context.used + ' of ' + s.context.total
     + (ratio > 0.9 ? '. The room is nearly full.' : '.');
+}
+
+// The ring of the gauge, in the units of the drawing: the circle is 19 wide and
+// its ring is therefore a little under 120.
+var ARC = 119.4;
+
+// What the program is working on, in the words the reader sees. The engine
+// keeps the short name, as it does for the names of the thinking modes.
+var PROGRESS_WORDS = {
+  text: 'Processing text...', image: 'Processing image...',
+  images: 'Processing images...'
+};
+
+// The gauge above the chat box: how far the server is with the words it was
+// sent. The engine says when it stands, so a chat that is only reading its own
+// words, or a command that is running, has no gauge.
+function drawProgress(s) {
+  var made = s.progress || {};
+  var on = !!made.active;
+  if (on) {
+    var percent = Math.max(0, Math.min(100, Math.round(Number(made.percent) || 0)));
+    el.gaugeNum.textContent = percent + '%';
+    el.gaugeArc.style.strokeDashoffset = (ARC * (1 - percent / 100)).toFixed(1);
+    el.gaugeText.textContent = PROGRESS_WORDS[made.what] || PROGRESS_WORDS.text;
+  }
+  if (on !== el.gauge.classList.contains('on')) {
+    el.gauge.classList.toggle('on', on);
+    el.gauge.setAttribute('aria-hidden', on ? 'false' : 'true');
+  }
 }
 
 // The three marks of the chat: the tool, the jail, and the thinking.
