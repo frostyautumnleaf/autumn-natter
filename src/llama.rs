@@ -636,6 +636,29 @@ impl Progress {
     }
 }
 
+// How full the room of the talk is so far, as the server says it. The server
+// is asked to give these numbers on every piece of the answer, and not only at
+// the end of it, so the meter of the context can move while the model writes.
+// `prompt` counts the words of the talk the server has worked through, `cache`
+// the words it kept from an earlier turn, and `written` the words the model has
+// given back.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Context {
+    pub prompt: u64,
+    pub cache: u64,
+    pub written: u64,
+}
+
+impl Context {
+    // The words the talk takes up: every word that was sent, whether the server
+    // worked it through anew or kept it from before, and every word the model
+    // has written. The two sides of the words sent do not stand together, so
+    // all three numbers are wanted.
+    pub fn used(&self) -> u64 {
+        self.prompt + self.cache + self.written
+    }
+}
+
 // What one streamed answer gave.
 #[derive(Clone, Debug, Default)]
 pub struct Answer {
@@ -657,8 +680,12 @@ pub struct Answer {
 // Send one chat request and stream the answer. on_text gets every piece of new
 // text as it arrives, so the window can show it. on_progress gets the state of
 // the prompt work, as the server reports it while the prompt goes through.
-// on_tool gets the calls of the model as they are written, so the reader can
-// see the words of a command as the model puts them down.
+// on_context gets how full the room of the talk is, as the server reports it on
+// every piece of the answer. on_tool gets the calls of the model as they are
+// written, so the reader can see the words of a command as the model puts them
+// down. The stream has a hand for everything the window shows at once, so the
+// call is a flat list of them.
+#[allow(clippy::too_many_arguments)]
 pub fn stream_chat(
     base_url: &str,
     body: &Value,
@@ -666,6 +693,7 @@ pub fn stream_chat(
     on_text: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
     on_progress: &mut dyn FnMut(Progress),
+    on_context: &mut dyn FnMut(Context),
     on_tool: &mut dyn FnMut(&[ToolCall]),
 ) -> Answer {
     let mut answer = Answer::default();
@@ -712,6 +740,7 @@ pub fn stream_chat(
                             on_text,
                             on_reasoning,
                             on_progress,
+                            on_context,
                             on_tool,
                         ) {
                             // The stream told us it is finished.
@@ -739,6 +768,7 @@ fn apply_event(
     on_text: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
     on_progress: &mut dyn FnMut(Progress),
+    on_context: &mut dyn FnMut(Context),
     on_tool: &mut dyn FnMut(&[ToolCall]),
 ) -> bool {
     if payload == "[DONE]" {
@@ -773,6 +803,21 @@ fn apply_event(
             time_ms: number("time_ms"),
         };
         on_progress(answer.progress);
+    }
+    // The room of the talk, as the server says it on this piece. The server is
+    // asked for the numbers of every piece (timings_per_token), so the meter of
+    // the context moves during the answer. A piece of no words at all says
+    // nothing of the talk, so it is passed over in silence.
+    if let Some(made) = value.get("timings") {
+        let number = |name: &str| made.get(name).and_then(|v| v.as_u64()).unwrap_or(0);
+        let told = Context {
+            prompt: number("prompt_n"),
+            cache: number("cache_n"),
+            written: number("predicted_n"),
+        };
+        if told.used() > 0 {
+            on_context(told);
+        }
     }
     let Some(choice) = value.get("choices").and_then(|c| c.get(0)) else {
         return true;
@@ -1154,6 +1199,7 @@ mod tests {
             &mut |_| {},
             &mut |made: Progress| seen.push(made.processed),
             &mut |_| {},
+            &mut |_| {},
         );
         assert!(going_on);
         assert_eq!(seen, vec![108]);
@@ -1191,6 +1237,7 @@ mod tests {
                 &mut |_| {},
                 &mut |_| {},
                 &mut |_| {},
+                &mut |_| {},
                 &mut |made: &[ToolCall]| seen.push(made[0].arguments.clone()),
             );
         }
@@ -1222,6 +1269,7 @@ mod tests {
             &mut |_| {},
             &mut |_| {},
             &mut |_| {},
+            &mut |_| {},
             &mut |_| told += 1,
         );
         // A piece that carries a call of nothing is passed over too.
@@ -1232,9 +1280,89 @@ mod tests {
             &mut |_| {},
             &mut |_| {},
             &mut |_| {},
+            &mut |_| {},
             &mut |_| told += 1,
         );
         assert_eq!(told, 0);
+    }
+
+    // The server is asked for the room the talk takes on every piece, so the
+    // meter of the context has numbers to move on while the model writes.
+    #[test]
+    fn the_room_of_the_talk_is_read_from_the_stream() {
+        let mut answer = Answer::default();
+        let mut seen: Vec<u64> = Vec::new();
+        let payload = concat!(
+            "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Now\"}}],",
+            "\"timings\":{\"cache_n\":14,\"prompt_n\":327,\"predicted_n\":9,\"prompt_ms\":4393.85}}"
+        );
+        let going_on = apply_event(
+            payload,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |made: Context| seen.push(made.used()),
+            &mut |_| {},
+        );
+        assert!(going_on);
+        // 327 words worked through, 14 kept from an earlier turn, and 9 words
+        // written by the model.
+        assert_eq!(seen, vec![350]);
+    }
+
+    // A piece with no room in it says nothing of the talk. The first piece of a
+    // request stands for the request itself, and the numbers of it are nothing.
+    #[test]
+    fn a_piece_of_no_words_says_nothing_of_the_talk() {
+        let mut answer = Answer::default();
+        let mut told = 0usize;
+        let empty = concat!(
+            "{\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null}}],",
+            "\"timings\":{\"cache_n\":0,\"prompt_n\":0,\"predicted_n\":0}}"
+        );
+        apply_event(
+            empty,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| told += 1,
+            &mut |_| {},
+        );
+        assert_eq!(told, 0);
+        // A piece with no room of its own in it says nothing either.
+        let plain = "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Now\"}}]}";
+        apply_event(
+            plain,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| told += 1,
+            &mut |_| {},
+        );
+        assert_eq!(told, 0);
+    }
+
+    // The words of the talk are counted once, whatever the server kept from
+    // before. A talk of no words at all takes no room.
+    #[test]
+    fn the_words_of_the_talk_are_counted_once() {
+        assert_eq!(Context::default().used(), 0);
+        let fresh = Context {
+            prompt: 327,
+            cache: 0,
+            written: 108,
+        };
+        assert_eq!(fresh.used(), 435);
+        // The same talk, but the server kept part of the words from before.
+        let kept = Context {
+            prompt: 4,
+            cache: 323,
+            written: 108,
+        };
+        assert_eq!(kept.used(), 435);
     }
 
     // The part of the work that is done leaves out the tokens the server kept
