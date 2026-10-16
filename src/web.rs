@@ -115,6 +115,21 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "reasoning": snap.live_reasoning,
         "reasoning_ms": snap.live_thought_ms,
         "reasoning_done": snap.live_thought_done,
+        // How far the server is with the words it was sent. The gauge above the
+        // chat box is made of these three: the number, whether it stands, and
+        // what the program is working on. The page puts the words of the last
+        // one together, as it does for the names of the thinking modes.
+        "progress": {
+            "percent": snap.progress,
+            "active": snap.progress_on,
+            "what": if snap.progress_images > 1 {
+                "images"
+            } else if snap.progress_images == 1 {
+                "image"
+            } else {
+                "text"
+            },
+        },
         // The thinking mode of the open chat, and whether this model has one.
         "thinking": {
             "mode": &snap.thinking_mode,

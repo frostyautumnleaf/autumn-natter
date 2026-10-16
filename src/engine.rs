@@ -156,6 +156,15 @@ pub struct Snap {
     // head of the panel.
     pub live_thought_ms: u64,
     pub live_thought_done: bool,
+    // How far the server is with the words it was sent, from 0 to 100, and
+    // whether the gauge above the chat box stands. The gauge stands from the
+    // moment a request goes out until the model has a word to give back.
+    pub progress: u32,
+    pub progress_on: bool,
+    // How many pictures the message being worked through carries. The program
+    // sends words today, so the number is nothing. The words of the gauge
+    // follow it, so a chat that can carry a picture says so by itself.
+    pub progress_images: usize,
     // Goes up when a message changes, so the window redraws them.
     pub rev: u64,
     // Goes up when a list changes, so the window rebuilds it.
@@ -186,6 +195,12 @@ pub struct State {
     pub live_thought_done: bool,
     // How long the thinking of the live answer lasted, in milliseconds.
     pub live_thought_ms: u64,
+    // How far the server is with the words it was sent, from 0 to 100, and
+    // whether the gauge above the chat box stands.
+    pub progress: u32,
+    pub progress_on: bool,
+    // How many pictures the message being worked through carries.
+    pub progress_images: usize,
     // The moments the thinking of the live answer began and last stopped. The
     // two together are the length of it.
     thought_start: Option<Instant>,
@@ -715,6 +730,9 @@ impl State {
             live_reasoning: self.live_reasoning.clone(),
             live_thought_ms: self.live_thought_ms,
             live_thought_done: self.live_thought_done,
+            progress: self.progress,
+            progress_on: self.progress_on,
+            progress_images: self.progress_images,
             rev: self.rev,
             structure_rev: self.structure_rev,
         }
@@ -756,6 +774,9 @@ impl Engine {
             live_reasoning: String::new(),
             live_thought_done: false,
             live_thought_ms: 0,
+            progress: 0,
+            progress_on: false,
+            progress_images: 0,
             thought_start: None,
             thought_end: None,
             generating: false,
@@ -1213,6 +1234,9 @@ impl Snap {
             live_reasoning: String::new(),
             live_thought_ms: 0,
             live_thought_done: false,
+            progress: 0,
+            progress_on: false,
+            progress_images: 0,
             rev: 0,
             structure_rev: 0,
         }
@@ -1297,6 +1321,38 @@ fn split_calls(calls: Vec<ToolCall>) -> (Vec<ToolCall>, Vec<ToolCall>) {
         }
     }
     (marks, runs)
+}
+
+// The model has a word to give back, so the words it was sent are worked
+// through and the gauge above the chat box has nothing left to say. True when
+// the gauge stood, so the caller says that the messages changed.
+fn finish_progress(state: &mut State) -> bool {
+    if !state.progress_on {
+        return false;
+    }
+    state.progress_on = false;
+    // The number is put at the end on purpose: a gauge that goes away has
+    // finished its work, and the reader may still see it for a moment.
+    state.progress = 100;
+    true
+}
+
+// How many pictures the message that is being worked through carries. That is
+// the last thing that goes out with the request. The program sends words today,
+// so the answer is nothing. The count is taken from the words that go out, and
+// not from a guess about the number of tokens, so the gauge says the right thing
+// on the day a chat can carry a picture.
+fn pending_images(history: &Value) -> usize {
+    let Some(last) = history.as_array().and_then(|items| items.last()) else {
+        return 0;
+    };
+    let Some(parts) = last.get("content").and_then(|c| c.as_array()) else {
+        return 0;
+    };
+    parts
+        .iter()
+        .filter(|part| part.get("type").and_then(|t| t.as_str()) == Some("image_url"))
+        .count()
 }
 
 // Put the marks of one step into the chat, and count them. They are put in the
@@ -1460,6 +1516,10 @@ fn run_turn(
             "stream": true,
             // The usage numbers drive the context meter.
             "stream_options": { "include_usage": true },
+            // The server says how far it is with the words it was sent, so the
+            // gauge above the chat box has numbers to show before the model has
+            // a word to give back.
+            "return_progress": true,
         });
         if use_tools {
             let mut offered: Vec<Value> = Vec::new();
@@ -1485,7 +1545,15 @@ fn run_turn(
             guard.thought_end = None;
             guard.live_thought_ms = 0;
             guard.live_thought_done = false;
+            // The gauge stands for this step alone, and for every step of an
+            // answer. The words under the number follow the pictures the
+            // message carries; the server has none of them, so the count is
+            // read from the words that go out.
+            guard.progress = 0;
+            guard.progress_images = pending_images(&history);
+            guard.progress_on = true;
         }
+        let progress_state = state.clone();
         let answer = llama::stream_chat(
             &base_url,
             &body,
@@ -1493,6 +1561,11 @@ fn run_turn(
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
                     guard.live_text.push_str(piece);
+                    // The first word is here, so the words that were sent are
+                    // worked through and the gauge has nothing left to say.
+                    if finish_progress(&mut guard) {
+                        guard.touch();
+                    }
                     // Words have come, so the thinking of this moment is over.
                     // It may begin again before the answer ends.
                     if guard.thought_start.is_some() {
@@ -1516,8 +1589,25 @@ fn run_turn(
                     }
                     guard.live_thought_done = false;
                     guard.live_reasoning.push_str(piece);
+                    // A thought is a word of the answer as well: the words that
+                    // were sent are worked through by now.
+                    if finish_progress(&mut guard) {
+                        guard.touch();
+                    }
                     if reason_update.elapsed() > Duration::from_millis(60) {
                         reason_update = Instant::now();
+                        guard.touch();
+                    }
+                }
+            },
+            &mut |made: llama::Progress| {
+                // The server speaks of the prompt work in whole numbers, and a
+                // batch of words may stand between two of its answers. The
+                // gauge is written again only when the number it shows moved.
+                if let Ok(mut guard) = progress_state.lock() {
+                    let percent = (made.part() * 100.0).round() as u32;
+                    if percent != guard.progress {
+                        guard.progress = percent;
                         guard.touch();
                     }
                 }
@@ -1525,6 +1615,8 @@ fn run_turn(
         );
 
         let Ok(mut guard) = state.lock() else { return };
+        // A step that ended without a word leaves no gauge standing behind.
+        guard.progress_on = false;
         let live = std::mem::take(&mut guard.live_text);
         let live_thinking = std::mem::take(&mut guard.live_reasoning);
         // How long the model spent thinking in this step. The words of the
@@ -2205,5 +2297,43 @@ mod tests {
         assert_eq!(last.role, "Tool");
         assert_eq!(last.reasoning, "I will run the command.");
         assert_eq!(last.tool, "5");
+    }
+
+    // The words under the number of the gauge follow the pictures the message
+    // carries. A chat of words gives none, which is how the program stands
+    // today, and only the newest message of the user is looked at.
+    #[test]
+    fn the_pictures_of_a_message_are_counted() {
+        let words = json!([{ "role": "user", "content": "one question" }]);
+        assert_eq!(pending_images(&words), 0);
+
+        let one = json!([{
+            "role": "user",
+            "content": [
+                { "type": "text", "text": "what is this?" },
+                { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAA" } },
+            ],
+        }]);
+        assert_eq!(pending_images(&one), 1);
+
+        let two = json!([{
+            "role": "user",
+            "content": [
+                { "type": "image_url", "image_url": { "url": "AAA" } },
+                { "type": "image_url", "image_url": { "url": "BBB" } },
+            ],
+        }]);
+        assert_eq!(pending_images(&two), 2);
+
+        // Only the last thing that goes out is worked through anew. A turn that
+        // ends with the words of the model carries no picture of its own.
+        let older = json!([
+            { "role": "user", "content": [{ "type": "image_url", "image_url": { "url": "AAA" } }] },
+            { "role": "assistant", "content": "a cat on a mat" },
+        ]);
+        assert_eq!(pending_images(&older), 0);
+
+        // A chat with nothing in it is still a chat of words.
+        assert_eq!(pending_images(&json!([])), 0);
     }
 }

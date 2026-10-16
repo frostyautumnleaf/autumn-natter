@@ -20,9 +20,12 @@
 //   AN_NOCHAPTERS=1 node page-shot.js rich p.png  # the Chatting switch turned off
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
 //
-// The scenes: home, chat, rich, streaming, previews, sheet-program, sheet-model.
-// A name that ends in -dark draws the dark skin, and a name that ends in -pale
-// draws the pale one. AN_SCROLL=top puts the talk at the top instead of the end.
+// The scenes: home, chat, rich, streaming, streaming-code, processing, previews,
+// sheet-program, sheet-model. A name that ends in -dark draws the dark skin, and
+// a name that ends in -pale draws the pale one. AN_SCROLL=top puts the talk at
+// the top instead of the end.
+//   AN_PROGRESS=42 AN_WHAT=image node page-shot.js processing p.png
+//   AN_PROGRESS and AN_WHAT stand for the gauge above the chat box.
 
 'use strict';
 
@@ -116,6 +119,9 @@ function scene(name, dark) {
     chats: [], home: true, greeting: 'Still here, still ready.', overview: false,
     carousel: { index: 0, count: 0, blank: true },
     messages: [], live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
+    // How far the server is with the words it was sent. The gauge above the
+    // chat box stands on these three.
+    progress: { percent: 0, active: false, what: 'text' },
     chapters: [],
     thinking: {
       mode: 'off', available: true,
@@ -173,6 +179,25 @@ function scene(name, dark) {
     start.reasoning = 'Show a fence coming in, so the repaint of a growing block is seen.';
     start.status = 'Answering';
     start.context = { used: '5,980', total: '8,192', ratio: 0.73 };
+  }
+  if (name === 'processing') {
+    // The words of the answer have not begun, so the gauge above the chat box
+    // is the only thing that says the program is at work.
+    start.home = false;
+    start.chat = { id: 'c1', title: 'Memory of the talk' };
+    start.chats = chats(3, 1);
+    start.carousel = { index: 1, count: 3, blank: false };
+    start.messages = [
+      said(1, 'You', 'What is the difference between mmap and mlock?'),
+      said(2, 'Assistant', 'mmap lets the system page the model in and out. mlock '
+        + 'keeps the whole file in the memory of the machine.\n\nUse mlock when the '
+        + 'model must not be moved.'),
+      said(3, 'You', 'And which one costs less?'),
+    ];
+    start.generating = true;
+    start.status = 'thinking';
+    start.progress = { percent: 42, active: true, what: 'text' };
+    start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
   }
   if (name === 'streaming') {
     start.generating = true;
@@ -253,6 +278,16 @@ async function main() {
     state.chatting.highlight = false;
     CONFIG.chat_highlight = false;
   }
+  // AN_PROGRESS=<0..100> puts the gauge above the chat box at that number, and
+  // AN_WHAT says what the program is working on: text, image or images.
+  if (process.env.AN_PROGRESS !== undefined) {
+    state.progress = {
+      percent: Math.max(0, Math.min(100, Number(process.env.AN_PROGRESS) || 0)),
+      active: true,
+      what: state.progress.what
+    };
+  }
+  if (process.env.AN_WHAT) { state.progress.what = process.env.AN_WHAT; }
 
   const puppeteer = require('puppeteer');
   let shell = '';
