@@ -26,6 +26,7 @@ pub fn run(cfg: Config) -> Result<(), String> {
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::action,
+            commands::get_attachment,
             commands::get_config,
             commands::save_config,
             commands::list_repositories,

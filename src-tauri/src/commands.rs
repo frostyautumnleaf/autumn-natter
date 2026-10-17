@@ -35,6 +35,22 @@ pub async fn action(
     Ok(web::action(&engine, &path, &text))
 }
 
+// One attachment of a message, for the block the window draws. The page
+// asks by the id the state gave with the message, and gets back the name,
+// the kind, the data URL of a picture, or the words of a file.
+#[tauri::command]
+pub async fn get_attachment(engine: State<'_, Engine>, id: String) -> Result<Value, String> {
+    match engine.attachment(&id) {
+        Some(record) => Ok(json!({
+            "name": record.name,
+            "mime": record.mime,
+            "data": record.data,
+            "text": record.text,
+        })),
+        None => Err("that attachment is not here".to_string()),
+    }
+}
+
 // The settings of the program, for the window of settings.
 #[tauri::command]
 pub async fn get_config(engine: State<'_, Engine>) -> Result<Value, String> {
