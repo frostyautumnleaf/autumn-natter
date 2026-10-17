@@ -3195,14 +3195,36 @@ el.draft.addEventListener('keydown', function (e) {
   }
 });
 
+// The files a drag or a paste carries. The files of the transfer are the first
+// place they stand. Some web views fill the list of items only, so that list is
+// looked at too, and gives the same files back.
+function filesFrom(transfer) {
+  var out = [];
+  if (!transfer) { return out; }
+  var files = transfer.files;
+  if (files && files.length > 0) {
+    for (var n = 0; n < files.length; n++) { out.push(files[n]); }
+    return out;
+  }
+  var items = transfer.items;
+  if (!items || !items.length) { return out; }
+  for (var k = 0; k < items.length; k++) {
+    if (items[k].kind !== 'file') { continue; }
+    var one = items[k].getAsFile ? items[k].getAsFile() : null;
+    if (one) { out.push(one); }
+  }
+  return out;
+}
+
 // A file on the clipboard becomes an attachment, and nothing of it is
 // written into the words of the box. A paste of words above the set number
 // becomes a file too, so the box keeps its shape.
-el.draft.addEventListener('paste', function (e) {
+function takePaste(e) {
   var data = e.clipboardData;
-  if (data && data.files && data.files.length > 0) {
+  var files = filesFrom(data);
+  if (files.length > 0) {
     e.preventDefault();
-    addFiles(data.files);
+    addFiles(files);
     return;
   }
   var words = data && data.getData ? data.getData('text/plain') : '';
@@ -3210,6 +3232,26 @@ el.draft.addEventListener('paste', function (e) {
     e.preventDefault();
     holdWords(words);
   }
+  // The window of the program asks the clipboard of the machine when a paste
+  // brought nothing at all. This page is not given it, so it stops here.
+}
+
+// True when a paste belongs to the chat box: the box itself, or a part of the
+// page that is no field of its own. A field keeps its paste, so a path or an
+// address stands where the reader put it.
+function pasteForTheBox(e) {
+  var from = e.target;
+  if (!from || from === el.draft || from === document.body) { return true; }
+  var tag = from.tagName;
+  return tag !== 'INPUT' && tag !== 'TEXTAREA' && !from.isContentEditable;
+}
+
+// The paste is taken from the whole page, as the file let go is: a Ctrl+V over
+// the chat, over the row of previews or over the bar hangs its files on the
+// message, and the reader need not find the box first.
+document.addEventListener('paste', function (e) {
+  if (!pasteForTheBox(e)) { return; }
+  takePaste(e);
 });
 
 // A file let go anywhere over the page lands in the chat box. Without the
@@ -3218,9 +3260,8 @@ document.addEventListener('dragover', function (e) { e.preventDefault(); });
 document.addEventListener('drop', function (e) {
   e.preventDefault();
   el.box.classList.remove('drop');
-  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-    addFiles(e.dataTransfer.files);
-  }
+  var files = filesFrom(e.dataTransfer);
+  if (files.length > 0) { addFiles(files); }
 });
 // The box says that a file let go there would land in it.
 el.box.addEventListener('dragover', function (e) {

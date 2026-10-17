@@ -1248,6 +1248,11 @@ var invoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core
   ? window.__TAURI__.core.invoke
   : function (name) { return Promise.reject(new Error('no ' + name + ' in this window')); };
 
+// True in the window of the program, and false on the page of the remote mode.
+// The two take their files the same way, but the window has one road more: the
+// clipboard of the machine, which the browser page is not given.
+var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
+
 // The parts of the page that stay in place. Their words are written again on
 // every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', 'where',
@@ -3366,6 +3371,38 @@ function addFiles(files) {
   grow();
 }
 
+// The clipboard of the machine, asked from the page. The window gives the page
+// leave to read it, in enable_clipboard_access of src-tauri/src/desktop.rs, and
+// a paste that brought nothing of its own asks it here. A word of the box is
+// never lost this way: the clipboard is asked only when the paste brought
+// neither a file nor a word, and a clipboard with nothing of the kind on it
+// answers with nothing. This road stands in the window alone, for a browser
+// page is not given the clipboard of the machine.
+function askClipboard() {
+  if (!inWindow) { return; }
+  if (!window.navigator || !navigator.clipboard || !navigator.clipboard.read) { return; }
+  navigator.clipboard.read().then(function (items) {
+    for (var n = 0; n < items.length; n++) {
+      var types = items[n].types || [];
+      var ofKind = '';
+      for (var k = 0; k < types.length; k++) {
+        // The words of the clipboard are the business of the box, and the file
+        // a page was copied with is worth more than its marks.
+        if (types[k] === 'text/plain' || types[k] === 'text/html') { continue; }
+        ofKind = types[k];
+        break;
+      }
+      if (!ofKind || !items[n].getType) { continue; }
+      (function (item, type) {
+        item.getType(type).then(function (blob) {
+          var name = type.indexOf('image/') === 0 ? 'image.png' : 'clipboard-file.bin';
+          addFiles([new File([blob], name, { type: type })]);
+        }, function () {});
+      })(items[n], ofKind);
+    }
+  }, function () {});
+}
+
 // A paste of many words becomes a file of its own. What is held has the same
 // shape as a file taken from the disk, so the words ride to the model as a
 // text attachment with its own number and its whole name, ending included.
@@ -3521,32 +3558,75 @@ el.draft.addEventListener('keydown', function (e) {
   }
 });
 
+// The files a drag or a paste carries. The files of the transfer are the first
+// place they stand. Some web views fill the list of items only, so that list is
+// looked at too, and gives the same files back.
+function filesFrom(transfer) {
+  var out = [];
+  if (!transfer) { return out; }
+  var files = transfer.files;
+  if (files && files.length > 0) {
+    for (var n = 0; n < files.length; n++) { out.push(files[n]); }
+    return out;
+  }
+  var items = transfer.items;
+  if (!items || !items.length) { return out; }
+  for (var k = 0; k < items.length; k++) {
+    if (items[k].kind !== 'file') { continue; }
+    var one = items[k].getAsFile ? items[k].getAsFile() : null;
+    if (one) { out.push(one); }
+  }
+  return out;
+}
+
 // A file on the clipboard becomes an attachment, and nothing of it is
 // written into the words of the box. A paste of words above the set number
 // becomes a file too, so the box keeps its shape.
-el.draft.addEventListener('paste', function (e) {
+function takePaste(e) {
   var data = e.clipboardData;
-  if (data && data.files && data.files.length > 0) {
+  var files = filesFrom(data);
+  if (files.length > 0) {
     e.preventDefault();
-    addFiles(data.files);
+    addFiles(files);
     return;
   }
   var words = data && data.getData ? data.getData('text/plain') : '';
   if (words && words.length > chatting.paste) {
     e.preventDefault();
     holdWords(words);
+    return;
   }
+  if (!words) { askClipboard(); }
+}
+
+// True when a paste belongs to the chat box: the box itself, or a part of the
+// window that is no field of its own. A field of the sheet keeps its paste, so
+// a path or an address stands where the reader put it.
+function pasteForTheBox(e) {
+  var from = e.target;
+  if (!from || from === el.draft || from === document.body) { return true; }
+  var tag = from.tagName;
+  return tag !== 'INPUT' && tag !== 'TEXTAREA' && !from.isContentEditable;
+}
+
+// The paste is taken from the whole window, as the file let go is: a Ctrl+V
+// over the chat, over the row of previews or over the bar hangs its files on
+// the message, and the reader need not find the box first.
+document.addEventListener('paste', function (e) {
+  if (!pasteForTheBox(e)) { return; }
+  takePaste(e);
 });
 
 // A file let go anywhere over the window lands in the chat box. Without the
-// guard below the web view would leave the chat for the file itself.
+// guard below the web view would leave the chat for the file itself. The window
+// keeps no handler of its own for a drop, so the event comes to this page;
+// see dragDropEnabled in src-tauri/tauri.conf.json.
 document.addEventListener('dragover', function (e) { e.preventDefault(); });
 document.addEventListener('drop', function (e) {
   e.preventDefault();
   el.box.classList.remove('drop');
-  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-    addFiles(e.dataTransfer.files);
-  }
+  var files = filesFrom(e.dataTransfer);
+  if (files.length > 0) { addFiles(files); }
 });
 // The box says that a file let go there would land in it.
 el.box.addEventListener('dragover', function (e) {

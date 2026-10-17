@@ -34,6 +34,25 @@ pub fn run(cfg: Config) -> Result<(), String> {
             commands::save_model_settings,
             commands::preview_command
         ])
+        // The window stands in the settings file, but it is built here, and the
+        // file says so with "create": false. Two switches the file cannot hold
+        // go with it. The file does say "dragDropEnabled": false, which keeps
+        // Tauri from eating a file let go over the window: with that handler on
+        // the page never sees a drop, and the chat box could never take a file.
+        // The switch below is the leave to read the clipboard of the machine,
+        // which the web view of the system keeps from the page until it is
+        // asked for. Without it a Ctrl+V of a file came to nothing in the
+        // window, though it worked in the browser page of the remote mode.
+        .setup(|app| {
+            let windows = app.config().app.windows.clone();
+            let Some(shape) = windows.first() else {
+                return Err("no window in the settings of the program".into());
+            };
+            tauri::WebviewWindowBuilder::from_config(app.handle(), shape)?
+                .enable_clipboard_access()
+                .build()?;
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .map_err(|problem| format!("the window could not be opened: {}", problem))?;
 

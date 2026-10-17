@@ -28,6 +28,8 @@
 //   AN_PROGRESS and AN_WHAT stand for the gauge above the chat box.
 //   AN_PASTE=1 hangs a picture and a file of words on the chat box, as the
 //   reader's Ctrl+V would, so the blocks over the words can be looked at.
+//   AN_DROP=1 hangs them as a file let go over the box would, which is the
+//   other road on to the box, and the one Tauri used to eat.
 //   AN_PICFILE=pic.png makes the pictures of the attachments real, so the
 //   blocks of a sent message can be judged as they will be seen. A second
 //   picture of another shape goes to AN_PICFILE2, and is handed out to an
@@ -477,6 +479,29 @@ async function main() {
       var draft = document.getElementById('draft');
       draft.dispatchEvent(new ClipboardEvent('paste', {
         clipboardData: transfer, bubbles: true, cancelable: true
+      }));
+    }, ATT_PIC);
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
+
+  // AN_DROP=1 lets a picture and a file of words go over the chat box, the way
+  // a drag from the file manager of the machine would. The window took these
+  // from the page before, so this is the look of the road that was shut.
+  if (process.env.AN_DROP === '1') {
+    await view.evaluate(function (picUrl) {
+      var bin = atob(picUrl.split(',')[1]);
+      var bytes = new Uint8Array(bin.length);
+      for (var n = 0; n < bin.length; n++) { bytes[n] = bin.charCodeAt(n); }
+      var transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], 'let-go-photo.png', { type: 'image/png' }));
+      transfer.items.add(new File(['the words of a file let go'], 'let-go.md',
+        { type: 'text/markdown' }));
+      var box = document.getElementById('box');
+      box.dispatchEvent(new DragEvent('dragover', {
+        dataTransfer: transfer, bubbles: true, cancelable: true
+      }));
+      box.dispatchEvent(new DragEvent('drop', {
+        dataTransfer: transfer, bubbles: true, cancelable: true
       }));
     }, ATT_PIC);
     await new Promise(function (r) { setTimeout(r, 400); });
