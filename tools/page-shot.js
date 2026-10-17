@@ -255,9 +255,12 @@ function scene(name, dark) {
   }
   if (name === 'markdown') {
     // A talk made of the blocks that the marks of the markdown make: a table,
-    // whose columns stand as the colons under its head said they would, and a
-    // quote with a list and a block of code standing inside it. The last message
-    // is a table of one column, which is still a table.
+    // whose columns stand as the colons under its head said they would, a quote
+    // with a list and a block of code standing inside it, the marks across the
+    // page that divide two parts of an answer, and links. A link gives its words
+    // and keeps its address in itself; an address that is not one to follow is
+    // read as words. The last message is a table of one column, which is still a
+    // table.
     start.home = false;
     start.chat = { id: 'c1', title: 'The shape of the blocks' };
     start.chats = chats(3, 1);
@@ -291,8 +294,25 @@ function scene(name, dark) {
       said(4, 'Assistant',
         '| the whole of it |\n| :- |\n| one cell, standing in the middle |\n\n'
         + 'Nothing else. A table of one column is a table still.'),
-      said(5, 'You', 'And a table of seven columns, in a chat this wide?'),
+      said(5, 'You', 'And the marks across the page, with a link?'),
       said(6, 'Assistant',
+        'The rule divides one part of an answer from the next. It is a hairline of '
+        + 'the neutral, for the accent is kept for the marks of the program.\n\n'
+        + '---\n\n'
+        + 'A link gives its words and keeps its address in itself: [the llama.cpp '
+        + 'page](https://github.com/ggml-org/llama.cpp), and an address written '
+        + 'whole <https://autumn.example/notes>.\n\n'
+        + '- an item with [a link of its own](https://autumn.example/one)\n'
+        + '- an item with an address that is not one to follow: [run it]'
+        + '(javascript:alert(1))\n\n'
+        + '# A heading with [a link](https://autumn.example/head) in it',
+        { reasoning: 'The rule wants a hairline of the neutral, and the words of a '
+          + 'link the bright accent of the skin.\n\n---\n\nSee [the palette]'
+          + '(https://autumn.example/palette), '
+          + 'and read <https://autumn.example/two> after it.',
+          reasoning_ms: 3100 }),
+      said(7, 'You', 'And a table of seven columns, in a chat this wide?'),
+      said(8, 'Assistant',
         'The words of a cell break to fit, so the chat keeps the width it had.\n\n'
         + '| file | what it holds | lines | before | after | took | left |\n'
         + '| :--- | :--- | ---: | ---: | ---: | ---: | ---: |\n'
