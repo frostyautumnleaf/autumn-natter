@@ -345,7 +345,22 @@ impl Chat {
         }
         out
     }
+
+    // The marks of every attachment the messages of this chat carry. The
+    // records of them stand in the folder of the chat.
+    pub fn attachment_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = Vec::new();
+        for message in &self.messages {
+            for held in &message.attachments {
+                if !ids.contains(&held.id) {
+                    ids.push(held.id.clone());
+                }
+            }
+        }
+        ids
+    }
 }
+
 
 // Reads and writes the data on disk.
 pub struct Store {

@@ -461,6 +461,10 @@ impl State {
             return json!([]);
         };
         let vision_on = self.pictures_can_go();
+        // The records of the attachments of this chat stand in a folder of
+        // its own room, so that is where their words and pictures are looked
+        // for.
+        let shelf = self.attach_place_for(&chat);
         for message in &chat.messages {
             match message.role.as_str() {
                 // The words of the reader, and the attachments that hang on
@@ -468,7 +472,7 @@ impl State {
                 // always was.
                 "You" => out.push(json!({
                     "role": "user",
-                    "content": attach::content(&message.body, &message.attachments, vision_on),
+                    "content": attach::content_at(&shelf, &message.body, &message.attachments, vision_on),
                 })),
                 "Assistant" => out.push(json!({
                     "role": "assistant",
@@ -720,6 +724,51 @@ impl State {
         dir
     }
 
+    // The folder the records of the attachments of a chat stand in: the folder
+    // `.attachments` in the room of the chat. A chat and its files are opened
+    // again together, and go together when the reader moves the repository,
+    // and a command of the tool may read a file the reader hung on a message,
+    // for it works in the same room.
+    fn attach_place_for(&self, chat: &Chat) -> PathBuf {
+        attach::shelf(&self.workdir_for(chat))
+    }
+
+    // The records of the attachments used to stand in one flat folder under
+    // the data directory, with nothing in it to say which chat held them. When
+    // such a folder stands, the records are moved into the room of the chat
+    // that carries their marks, and the old folder goes when it holds nothing
+    // left. This runs once, when the program starts.
+    fn migrate_attachments(&mut self) {
+        if !attach::old_dir().is_dir() {
+            return;
+        }
+        let work = config::paths().data.join("work");
+        // Every chat of a repository shares the folder of that repository.
+        for repo in self.store.scan_repos() {
+            let Some(room) = self.store.repo_path(&repo.id) else {
+                continue;
+            };
+            let mut ids: Vec<String> = Vec::new();
+            for chat in self.store.list_chats(&repo.id) {
+                for id in chat.attachment_ids() {
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
+                }
+            }
+            attach::move_old(&attach::shelf(&room), &ids);
+        }
+        // A chat with no repository has a folder of its own.
+        for chat in self.store.list_chats("") {
+            let ids = chat.attachment_ids();
+            if ids.is_empty() {
+                continue;
+            }
+            attach::move_old(&attach::shelf(&work.join(&chat.meta.id)), &ids);
+        }
+        attach::drop_old_dir();
+    }
+
     // Make the snapshot a window draws from.
     pub fn snap(&self) -> Snap {
         let model = self.model();
@@ -872,6 +921,7 @@ impl Engine {
             new_thinking: String::from("off"),
         };
         state.refresh_lists();
+        state.migrate_attachments();
         state.reload_chats();
         // The first screen holds no chat at all, even when this place has
         // chats. The window shows the chat box on its own, the first message
@@ -1090,7 +1140,18 @@ impl Engine {
     // window asks by the id the state gave with the message. Nothing is
     // known of the reader who asks: the record is the record.
     pub fn attachment(&self, id: &str) -> Option<attach::Stored> {
-        attach::read(id)
+        // The record of an attachment stands with the chat that holds it, so
+        // the chat that is open is looked in first, and the rooms of the other
+        // chats after it.
+        if let Ok(keeper) = self.state.lock() {
+            if let Some(chat) = keeper.chat() {
+                if let Some(record) = attach::read_at(&keeper.attach_place_for(chat), id) {
+                    return Some(record);
+                }
+            }
+        }
+        let paths = config::paths();
+        attach::find_in(&[paths.data.join("work"), paths.repositories], id)
     }
 
     // Start a chat in the place that is open now. The chat is blank, so it
@@ -1541,9 +1602,18 @@ fn run_turn(
     cancel: &Arc<AtomicBool>,
     sent: SentMessage,
 ) {
-    // The files wait on disk from here on, so the model can be asked again
-    // about them after a restart of the program.
-    let kept: Vec<Attachment> = attach::save(&sent.files);
+    // The files wait in the folder of the chat that carries them, so the
+    // model can be asked again about them after a restart of the program, and
+    // a command of the tool can read them in the room it works in.
+    let shelf = state
+        .lock()
+        .ok()
+        .and_then(|keeper| keeper.chat().map(|chat| keeper.attach_place_for(chat)));
+    let kept: Vec<Attachment> = match &shelf {
+        Some(place) => attach::save_at(place, &sent.files),
+        // No chat to carry them, so there is no room to keep them in.
+        None => Vec::new(),
+    };
     let lost = sent.files.len().saturating_sub(kept.len());
     let text = sent.text;
     // Take the work order first, so two answers cannot mix.
@@ -2581,10 +2651,17 @@ mod tests {
                 text: String::from("the words of the note"),
             },
         ];
-        let kept = attach::save(&files);
-        assert_eq!(kept.len(), 2);
         let mut state = engine.state.lock().unwrap();
         state.open_blank_chat();
+        // The records of the attachments stand in a folder of the room of the
+        // chat that carries them, so this test saves them where a chat of this
+        // place would keep them.
+        let shelf = {
+            let chat = state.chat().expect("a blank chat stands open");
+            state.attach_place_for(chat)
+        };
+        let kept = attach::save_at(&shelf, &files);
+        assert_eq!(kept.len(), 2);
         if let Some(chat) = state.chat_mut() {
             chat.messages.push(Message {
                 id: store::new_id(),
@@ -2628,7 +2705,10 @@ mod tests {
         assert!(message.attachments[0].image);
         assert!(!message.attachments[1].image);
         drop(state);
-        attach::remove(&kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
+        attach::remove_at(
+            &shelf,
+            &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
+        );
     }
 
     // The reader watches a command as the model writes it, and watches nothing

@@ -3,8 +3,16 @@
 // A reader drags files on to the chat box, or pastes them, and each file
 // becomes an attachment. The page reads a picture as a data URL and a file
 // of words as its words, and sends both with the message. The engine keeps
-// the words of one attachment in a record of its own under the data
-// directory, and keeps the id, the name and the kind in the message.
+// the words of one attachment in a record of its own, and keeps the id, the
+// name and the kind in the message.
+//
+// The records stand under a folder of the chat that holds them: the folder
+// `.attachments` inside the repository of the chat, or inside the working
+// folder the program gave a chat with no repository. A chat and its files
+// therefore stand together, so the files of a chat are still there when the
+// chat is opened again the next day, and they go with the repository when the
+// reader moves it. A command of the tool sees them too, for the folder stands
+// in the room the command works in.
 //
 // The words that go to the model name every attachment with its place in
 // the order the reader attached it, and its whole file name, ending
@@ -16,7 +24,7 @@
 
 use serde_json::{json, Value};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config;
 use crate::store;
@@ -70,9 +78,95 @@ pub struct Stored {
     pub text: String,
 }
 
-// The folder that holds the records of all attachments.
-pub fn dir() -> PathBuf {
+// The name of the folder of the records, inside the room of the chat.
+pub const FOLDER: &str = ".attachments";
+
+// The folder that holds the records of the attachments of one chat. It stands
+// inside the room that chat works in, which is its repository, or its own
+// folder under `work/` when it has no repository.
+pub fn shelf(workdir: &Path) -> PathBuf {
+    workdir.join(FOLDER)
+}
+
+// The folder an older run of the program kept the records in: one flat folder
+// under the data directory, with no room of the chat in it. It is looked at
+// once, and only to move what stands in it away.
+pub fn old_dir() -> PathBuf {
     config::paths().data.join("attachments")
+}
+
+// Move the records of these attachments out of the old folder into the folder
+// of the chat that holds them. A record that stands in the new place already
+// is left where it is, and a record that is in neither place is nothing to
+// move. The number of what moved comes back, so the caller can say whether the
+// old folder is empty now.
+pub fn move_old(place: &Path, ids: &[String]) -> usize {
+    move_from(&old_dir(), place, ids)
+}
+
+// The same move, between two folders that are named. This is what the move of
+// the old records comes down to, and it is what a test can try without
+// touching the place the program keeps its data in.
+pub fn move_from(from: &Path, place: &Path, ids: &[String]) -> usize {
+    if !from.is_dir() {
+        return 0;
+    }
+    let mut moved = 0usize;
+    for id in ids {
+        if !looks_like_id(id) {
+            continue;
+        }
+        let name = format!("{}.json", id);
+        let was = from.join(&name);
+        let now = place.join(&name);
+        if !was.is_file() || now.exists() {
+            continue;
+        }
+        if !place.is_dir() && fs::create_dir_all(place).is_err() {
+            break;
+        }
+        if fs::rename(&was, &now).is_ok() {
+            moved += 1;
+        }
+    }
+    moved
+}
+
+// The record of one attachment, looked for under a list of rooms. Every room
+// holds chats, and the record of a chat stands in a folder of that chat, so
+// this walks the rooms and opens only the record it was asked for. It is the
+// slow way, for when the chat that holds the record is not known.
+pub fn find_in(rooms: &[PathBuf], id: &str) -> Option<Stored> {
+    if !looks_like_id(id) {
+        return None;
+    }
+    for room in rooms {
+        let Ok(entries) = fs::read_dir(room) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let chat = entry.path();
+            if !chat.is_dir() {
+                continue;
+            }
+            if let Some(record) = read_at(&shelf(&chat), id) {
+                return Some(record);
+            }
+        }
+    }
+    None
+}
+
+// Take the old folder away when it holds nothing left.
+pub fn drop_old_dir() {
+    let _ = fs::remove_dir(old_dir());
+}
+
+// True for the ten hexadecimal characters of an id, and for nothing else. A
+// caller from the web may hand over anything, so nothing that smells like a
+// road is opened.
+fn looks_like_id(id: &str) -> bool {
+    id.len() == 10 && id.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 // True when the attachment is a picture the model can be shown. An unknown
@@ -188,12 +282,12 @@ pub fn parse_incoming(value: Value) -> Vec<Incoming> {
     out
 }
 
-// Write the records of new attachments, and give back the marks the message
-// keeps. A record that cannot be written loses that attachment, and the
-// reader is told of it by the count that comes back short.
-pub fn save(files: &[Incoming]) -> Vec<store::Attachment> {
-    let place = dir();
-    let _ = fs::create_dir_all(&place);
+// Write the records of new attachments in the folder of the chat that holds
+// them, and give back the marks the message keeps. A record that cannot be
+// written loses that attachment, and the reader is told of it by the count
+// that comes back short.
+pub fn save_at(place: &Path, files: &[Incoming]) -> Vec<store::Attachment> {
+    let _ = fs::create_dir_all(place);
     let mut out: Vec<store::Attachment> = Vec::new();
     for file in files {
         let id = store::new_id();
@@ -204,7 +298,7 @@ pub fn save(files: &[Incoming]) -> Vec<store::Attachment> {
             "text": file.text,
         });
         let text = serde_json::to_string(&record).unwrap_or_else(|_| String::from("{}"));
-        if fs::write(place.join(format!("{}.json", id)), text).is_err() {
+        if fs::write(record_path(place, &id), text).is_err() {
             continue;
         }
         out.push(store::Attachment {
@@ -219,8 +313,8 @@ pub fn save(files: &[Incoming]) -> Vec<store::Attachment> {
 
 // The words of one stored attachment, for the model. A record that is gone
 // says that it is gone, so the model hears the truth and not a blank space.
-fn stored_text(id: &str) -> String {
-    match read(id) {
+fn stored_text_at(place: &Path, id: &str) -> String {
+    match read_at(place, id) {
         Some(record) if !record.text.is_empty() => {
             let mut words = record.text.as_str();
             if words.chars().count() > MAX_TEXT_CHARS {
@@ -242,14 +336,12 @@ fn stored_text(id: &str) -> String {
     }
 }
 
-// The record of one attachment, read from disk.
-pub fn read(id: &str) -> Option<Stored> {
-    // An id is ten hexadecimal characters. A caller from the web may hand
-    // over anything, so nothing that smells like a road is opened.
-    if id.len() != 10 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+// The record of one attachment, read from the folder of the chat.
+pub fn read_at(place: &Path, id: &str) -> Option<Stored> {
+    if !looks_like_id(id) {
         return None;
     }
-    let path = dir().join(format!("{}.json", id));
+    let path = record_path(place, id);
     let text = fs::read_to_string(path).ok()?;
     let value: Value = serde_json::from_str(&text).ok()?;
     let text_of = |key: &str| {
@@ -271,13 +363,18 @@ pub fn read(id: &str) -> Option<Stored> {
 
 // Take one attachment away from the disk. The chat that held it is gone, so
 // its records may go too.
-pub fn remove(ids: &[String]) {
-    let place = dir();
+pub fn remove_at(place: &Path, ids: &[String]) {
     for id in ids {
-        if id.len() == 10 && id.chars().all(|c| c.is_ascii_hexdigit()) {
-            let _ = fs::remove_file(place.join(format!("{}.json", id)));
+        if looks_like_id(id) {
+            let _ = fs::remove_file(record_path(place, id));
         }
     }
+}
+
+// The way from the folder of the chat to the record of one attachment. The id
+// is ten hexadecimal characters, so nothing that smells like a road is opened.
+fn record_path(place: &Path, id: &str) -> PathBuf {
+    place.join(format!("{}.json", id))
 }
 
 // The content of a user message for the API. With no attachments this is
@@ -289,7 +386,7 @@ pub fn remove(ids: &[String]) {
 // and a picture follows as an image part with one line of words before it
 // that names its number and its file. The pictures therefore stand in the
 // order of the list, and each can be named by its number.
-pub fn content(body: &str, attachments: &[store::Attachment], vision_on: bool) -> Value {
+pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], vision_on: bool) -> Value {
     if attachments.is_empty() {
         return json!(body);
     }
@@ -305,7 +402,7 @@ pub fn content(body: &str, attachments: &[store::Attachment], vision_on: bool) -
         attachments.len()
     ));
     let mut picture_of = 0usize;
-    for (place, one) in attachments.iter().enumerate() {
+    for (number, one) in attachments.iter().enumerate() {
         let kind = if is_image(&one.mime, &one.name) {
             if !vision_on {
                 String::from("a picture, which this model cannot be shown, for vision is off")
@@ -320,27 +417,27 @@ pub fn content(body: &str, attachments: &[store::Attachment], vision_on: bool) -
         } else {
             String::from("a file that cannot be read here, so only its name goes to the model")
         };
-        lead.push_str(&format!("{}. {} ({})\n", place + 1, one.name, kind));
+        lead.push_str(&format!("{}. {} ({})\n", number + 1, one.name, kind));
     }
     lead.push('\n');
     parts.push(json!({ "type": "text", "text": lead }));
 
     let mut picture_of = 0usize;
-    for (place, one) in attachments.iter().enumerate() {
+    for (number, one) in attachments.iter().enumerate() {
         if is_image(&one.mime, &one.name) {
             if !vision_on {
                 continue;
             }
             picture_of += 1;
-            let record = read(&one.id);
-            let data = record.map(|made| made.data).unwrap_or_default();
+            let kept = read_at(place, &one.id);
+            let data = kept.map(|made| made.data).unwrap_or_default();
             if data.is_empty() {
                 parts.push(json!({
                     "type": "text",
                     "text": format!(
                         "Image number {}, which is attachment {} named {}, was not there when the model was asked again.",
                         picture_of,
-                        place + 1,
+                        number + 1,
                         one.name
                     ),
                 }));
@@ -351,7 +448,7 @@ pub fn content(body: &str, attachments: &[store::Attachment], vision_on: bool) -
                 "text": format!(
                     "Here is image number {}, attachment {} named {}:",
                     picture_of,
-                    place + 1,
+                    number + 1,
                     one.name
                 ),
             }));
@@ -364,9 +461,9 @@ pub fn content(body: &str, attachments: &[store::Attachment], vision_on: bool) -
                 "type": "text",
                 "text": format!(
                     "The words of attachment {}, named {}:\n{}",
-                    place + 1,
+                    number + 1,
                     one.name,
-                    stored_text(&one.id)
+                    stored_text_at(place, &one.id)
                 ),
             }));
         }
@@ -378,11 +475,16 @@ pub fn content(body: &str, attachments: &[store::Attachment], vision_on: bool) -
 mod tests {
     use super::*;
 
-    // The records of the attachments stand under the data folder, so the
-    // tests point that folder at a place of their own before they write.
-    fn setup() {
-        config::set_data_dir(PathBuf::from("uidata/attach-tests"));
-        let _ = fs::create_dir_all(dir());
+    // The records of the attachments stand in a folder of the chat that
+    // holds them, so a test makes a place of its own to keep them in. Each
+    // test has a folder no other test looks at, for the tests run together.
+    fn test_shelf() -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let place = std::env::temp_dir().join(format!("atnatter-attach-test-{}-{}", std::process::id(), n));
+        let _ = fs::remove_dir_all(&place);
+        fs::create_dir_all(&place).expect("a test place for the records can be made");
+        place
     }
 
     fn incoming(name: &str, mime: &str, data: &str, text: &str) -> Incoming {
@@ -455,7 +557,7 @@ mod tests {
     // this part of the program existed.
     #[test]
     fn a_message_without_attachments_sends_plain_words() {
-        let made = content("Hello there", &[], true);
+        let made = content_at(Path::new("."), "Hello there", &[], true);
         assert_eq!(made, json!("Hello there"));
     }
 
@@ -465,18 +567,18 @@ mod tests {
     #[test]
     fn the_attachments_stand_numbered_in_the_order_they_came() {
         let _guard = config::test_turn();
-        setup();
+        let shelf = test_shelf();
         let files = vec![
             incoming("photo.png", "image/png", "data:image/png;base64,AAA=", ""),
             incoming("notes.txt", "text/plain", "", "the words of the note"),
             incoming("tool.zip", "application/zip", "", ""),
         ];
-        let kept = save(&files);
+        let kept = save_at(&shelf, &files);
         assert_eq!(kept.len(), 3);
         assert!(kept[0].image);
         assert!(!kept[1].image);
 
-        let made = content("Look at these", &kept, true);
+        let made = content_at(&shelf, "Look at these", &kept, true);
         let parts = made.as_array().expect("the content is a list of parts");
         let lead = parts[0].get("text").unwrap().as_str().unwrap();
         assert!(lead.starts_with("Look at these"));
@@ -512,7 +614,7 @@ mod tests {
             1
         );
 
-        remove(&kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
+        remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
     }
 
     // Two pictures take two numbers in the order the reader attached them.
@@ -521,13 +623,13 @@ mod tests {
     #[test]
     fn pictures_keep_their_order_and_their_names() {
         let _guard = config::test_turn();
-        setup();
+        let shelf = test_shelf();
         let files = vec![
             incoming("cat.png", "image/png", "data:image/png;base64,CAT", ""),
             incoming("dog.png", "image/png", "data:image/png;base64,DOG", ""),
         ];
-        let kept = save(&files);
-        let made = content("Which one barks?", &kept, true);
+        let kept = save_at(&shelf, &files);
+        let made = content_at(&shelf, "Which one barks?", &kept, true);
         let parts = made.as_array().unwrap();
         let urls: Vec<&str> = parts
             .iter()
@@ -539,7 +641,7 @@ mod tests {
         assert!(lead.contains("image number 1"));
         assert!(lead.contains("image number 2"));
 
-        let off = content("Which one barks?", &kept, false);
+        let off = content_at(&shelf, "Which one barks?", &kept, false);
         let parts = off.as_array().unwrap();
         assert!(!parts
             .iter()
@@ -547,7 +649,7 @@ mod tests {
         let lead = parts[0].get("text").unwrap().as_str().unwrap();
         assert!(lead.contains("vision is off"));
 
-        remove(&kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
+        remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
     }
 
     // The record of an attachment reads back as it was written, and an id
@@ -555,15 +657,73 @@ mod tests {
     #[test]
     fn a_record_reads_back_and_a_strange_id_opens_nothing() {
         let _guard = config::test_turn();
-        setup();
+        let shelf = test_shelf();
         let files = vec![incoming("note.md", "text/markdown", "", "# Head")];
-        let kept = save(&files);
-        let made = read(&kept[0].id).expect("the record reads back");
+        let kept = save_at(&shelf, &files);
+        let made = read_at(&shelf, &kept[0].id).expect("the record reads back");
         assert_eq!(made.name, "note.md");
         assert_eq!(made.text, "# Head");
-        assert!(read("").is_none());
-        assert!(read("../../etc/passwd").is_none());
-        remove(&kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
-        assert!(read(&kept[0].id).is_none());
+        assert!(read_at(&shelf, "").is_none());
+        assert!(read_at(&shelf, "../../etc/passwd").is_none());
+        remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
+        assert!(read_at(&shelf, &kept[0].id).is_none());
+    }
+
+    // The records stand in a folder of the room of the chat, under the name
+    // `.attachments`, so a chat and its files are found together.
+    #[test]
+    fn the_records_stand_in_a_folder_of_the_room_of_the_chat() {
+        let room = test_shelf();
+        let folder = shelf(&room);
+        assert_eq!(folder.file_name().and_then(|n| n.to_str()), Some(".attachments"));
+        let files = vec![incoming("note.md", "text/markdown", "", "words")];
+        let kept = save_at(&folder, &files);
+        assert_eq!(kept.len(), 1, "the record was written");
+        assert!(record_path(&folder, &kept[0].id).is_file(), "it stands in the folder");
+        assert!(read_at(&folder, &kept[0].id).is_some());
+        remove_at(&folder, &[kept[0].id.clone()]);
+        let _ = fs::remove_dir_all(&room);
+    }
+
+    // A run of the program that kept the records in one flat folder moves them
+    // into the folder of the chat that carries them. A record that is not
+    // asked for, and one that stands in the new place already, stay put.
+    #[test]
+    fn the_records_of_an_older_run_move_into_the_room_of_the_chat() {
+        let rooms = test_shelf();
+        let old = rooms.join("of-old-run");
+        let room = rooms.join("the-chat");
+        let folder = shelf(&room);
+        fs::create_dir_all(&old).expect("the old folder can be made");
+        let files = vec![
+            incoming("a.txt", "text/plain", "", "one"),
+            incoming("b.txt", "text/plain", "", "two"),
+        ];
+        let kept = save_at(&folder, &files);
+        let now = record_path(&folder, &kept[0].id);
+        let was = record_path(&old, &kept[0].id);
+        fs::rename(&now, &was).expect("a record goes back to the old folder");
+        let ids = vec![kept[0].id.clone(), kept[1].id.clone()];
+        assert_eq!(move_from(&old, &folder, &ids), 1, "one record moved");
+        assert!(now.is_file(), "the record stands with the chat now");
+        assert!(!was.exists(), "the old folder holds it no longer");
+        assert!(read_at(&folder, &kept[0].id).is_some());
+        assert_eq!(move_from(&old, &folder, &ids), 0, "nothing left to move");
+        let _ = fs::remove_dir_all(&rooms);
+    }
+
+    // When the chat that holds a record is not known, the rooms of the chats
+    // are walked, and only the record that was asked for is opened.
+    #[test]
+    fn a_record_is_found_by_walking_the_rooms() {
+        let rooms = test_shelf();
+        let chat = rooms.join("chat-one");
+        let files = vec![incoming("found.txt", "text/plain", "", "here")];
+        let kept = save_at(&shelf(&chat), &files);
+        let made = find_in(&[rooms.clone()], &kept[0].id).expect("the record is found");
+        assert_eq!(made.name, "found.txt");
+        assert!(find_in(&[rooms.clone()], "0000000000").is_none());
+        assert!(find_in(&[rooms.clone()], "../outside").is_none());
+        let _ = fs::remove_dir_all(&rooms);
     }
 }
