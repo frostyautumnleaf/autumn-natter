@@ -575,6 +575,41 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
   overflow-y: auto; scrollbar-width: thin;
 }
 #draft::placeholder { color: var(--faint); }
+/* The files that hang on a message: held in the chat box before the message
+   goes out, and shown under the words of the reader after it. A block is a
+   chip: the picture or a mark of the file, its whole name with the ending,
+   and, in the box, a mark to take the file away again. */
+.parts { display: flex; flex-wrap: wrap; gap: 6px; padding: 9px 10px 0 12px; }
+.parts.hidden { display: none; }
+.part {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 250px; min-width: 0;
+  padding: 4px 5px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--surface-2); color: var(--text-2); font-size: 12px; line-height: 1.3;
+}
+.part .pic {
+  width: 26px; height: 26px; flex: 0 0 auto; display: block; object-fit: cover;
+  border-radius: 6px; background: var(--surface-3); border: 1px solid var(--line);
+}
+.part .mark { display: inline-flex; flex: 0 0 auto; width: 26px; height: 26px;
+  align-items: center; justify-content: center; }
+.part .mark .svg { width: 16px; height: 16px; stroke: var(--dim); }
+.part .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.part .x {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; padding: 0; border: 0; border-radius: 6px; background: none;
+}
+.part .x:hover { background: var(--hover); }
+.part .x .svg { width: 10px; height: 10px; stroke: var(--dim); stroke-width: 2.2; }
+.part .x:hover .svg { stroke: var(--ink); }
+/* The box says that a file let go there would land in it. */
+.box.drop { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line); }
+/* The blocks of a sent message hang under the reader's words, inside the
+   bubble, on the reader's side. A picture gets more room there than in the
+   box, because that one is worth looking at again. */
+.bubble .parts { padding: 8px 0 0; justify-content: flex-end; }
+.bubble .part { background: var(--surface); }
+.bubble .part .pic { width: 72px; height: 72px; }
+.bubble .part .mark { width: 40px; height: 40px; }
 .dock-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px 10px; }
 .badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .badge {
@@ -795,6 +830,10 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
         </span>
         <span class="what" id="gaugeText">Processing text...</span>
       </div>
+      <!-- The files the reader has hung on the message that has not gone out
+           yet. A block stands over the words for each of them, and the mark
+           on a block takes that file away again. -->
+      <div class="parts hidden" id="parts"></div>
       <textarea id="draft" rows="1" spellcheck="false"
         placeholder="Write a message for the model"></textarea>
       <div class="dock-row">
@@ -860,7 +899,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', '
   'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'hint',
   'newchat', 'chatsbtn', 'darkbtn', 'chapters',
   'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
-  'thinkmenu', 'draft', 'send',
+  'thinkmenu', 'draft', 'send', 'parts',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
@@ -940,7 +979,9 @@ function draw(s) {
 
   // The round mark. It is dull while there is nothing to send, and it turns
   // into the stop mark while an answer comes in.
-  var live = !!s.generating || el.draft.value !== '';
+  // The files hung on the message count as something to send, words or no
+  // words.
+  var live = !!s.generating || anythingToSend();
   el.send.className = 'send' + (s.generating ? ' stop' : '') + (live ? ' live' : '');
   el.send.title = s.generating ? 'Stop the answer' : 'Send the message';
 
@@ -2267,6 +2308,11 @@ function fill(turn, m) {
       var said = make('div', 'body');
       said.textContent = m.body;
       words.appendChild(said);
+      // The files that hung on the message keep their blocks under the
+      // words, in the order the reader hung them.
+      if (m.attachments && m.attachments.length) {
+        words.appendChild(sentParts(m));
+      }
     } else {
       var made = blocks(m.body);
       for (var n = 0; n < made.length; n++) { words.appendChild(blockNode(made[n])); }
@@ -2280,9 +2326,45 @@ function fill(turn, m) {
   }
 }
 
+// The blocks of the files that hang on a message of the reader, in the order
+// the reader hung them. A picture asks the small server for its bytes once,
+// and keeps them, so a chat that is drawn again asks nothing again.
+function sentParts(m) {
+  var row = make('div', 'parts');
+  for (var n = 0; n < m.attachments.length; n++) {
+    var one = m.attachments[n];
+    var block = partBlock({ name: one.name, kind: one.image ? 'image' : 'file',
+                             url: attUrls[one.id] || '' });
+    row.appendChild(block);
+    if (one.image && !attUrls[one.id]) {
+      (function (id, block) {
+        attachmentWords(id).then(function (record) {
+          var url = record && record.data ? record.data : '';
+          attUrls[id] = url;
+          if (!url) { return; }
+          var held = block.querySelector('.pic');
+          var pic = held && held.tagName === 'IMG' ? held : make('img', 'pic');
+          if (held && held !== pic) { block.replaceChild(pic, held); }
+          pic.src = url;
+          pic.alt = one.name;
+        }, function () {});
+      })(one.id, block);
+    }
+  }
+  return row;
+}
+
+// The record of one attachment, from the small server of the remote mode.
+var attUrls = {};
+function attachmentWords(id) {
+  return fetch('/api/attachment?id=' + encodeURIComponent(id))
+    .then(function (r) { return r.json(); });
+}
+
 function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
-    (m.tool || '').length, m.tool === 'running ...' ? 1 : 0, m.when || ''].join('#');
+    (m.tool || '').length, m.tool === 'running ...' ? 1 : 0,
+    m.attachments ? m.attachments.length : 0, m.when || ''].join('#');
 }
 
 // The chat box holds one turn for every message. A turn is made once and then
@@ -2838,11 +2920,143 @@ document.addEventListener('keydown', function (event) {
 //
 // The box grows with the words, up to a height. The round mark knows whether
 // there is anything to send, and turns into the stop mark while an answer comes.
+
+// The files the reader has hung on the message that has not gone out yet.
+// A block stands over the words of the box for each of them. The order of
+// this list is the order of the blocks, and it goes out with the message, so
+// the model can be told which attachment it meant by its number.
+var heldFiles = [];
+
+// What kind of file this is, as the program reads it: a picture the model
+// can be shown, a file of words the model can read, or a file that can only
+// be named. The same rules stand on the Rust side.
+var TEXT_ENDINGS = 'txt md markdown rs py js ts jsx tsx json toml yaml yml ini cfg conf '
+  + 'sh bash csv log sql html css c h cpp hpp go java';
+function fileKind(name, mime) {
+  mime = (mime || '').toLowerCase();
+  var dot = name.lastIndexOf('.');
+  var end = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  if (mime === 'image/svg+xml' || end === 'svg') { return 'text'; }
+  if (mime.indexOf('image/') === 0) { return 'image'; }
+  if (TEXT_ENDINGS.split(' ').indexOf(end) >= 0) { return 'text'; }
+  if (mime.indexOf('text/') === 0) { return 'text'; }
+  if (mime === 'application/json' || mime === 'application/x-sh' ||
+      mime === 'application/javascript' || mime === 'application/typescript' ||
+      mime === 'application/xml' || mime === 'application/x-yaml' ||
+      mime === 'application/toml') { return 'text'; }
+  return 'file';
+}
+
+// A name for a file that comes without one, as a pasted picture often does.
+// A name that stands already takes a number behind it, so no two blocks of
+// one message read the same.
+function freeName(base) {
+  var taken = {};
+  for (var n = 0; n < heldFiles.length; n++) { taken[heldFiles[n].name] = true; }
+  if (!taken[base]) { return base; }
+  var dot = base.lastIndexOf('.');
+  var stem = dot > 0 ? base.slice(0, dot) : base;
+  var tail = dot > 0 ? base.slice(dot) : '';
+  for (var k = 2; ; k++) {
+    var candidate = stem + '-' + k + tail;
+    if (!taken[candidate]) { return candidate; }
+  }
+}
+
+// Hold one file: its name, its kind, and its words or its data URL as soon
+// as it has been read. The block stands at once, so the reader sees the file
+// even while it is coming in.
+function holdFile(file) {
+  var name = freeName(file.name || (file.type && file.type.indexOf('image/') === 0
+    ? 'image.png' : 'attachment.bin'));
+  var kind = fileKind(name, file.type);
+  var held = { name: name, mime: file.type || '', kind: kind, data: '', text: '', url: '' };
+  heldFiles.push(held);
+  if (kind === 'image') {
+    var reader = new FileReader();
+    reader.onload = function () {
+      held.data = String(reader.result);
+      held.url = held.data;
+      drawParts();
+    };
+    reader.readAsDataURL(file);
+  } else if (kind === 'text') {
+    var words = new FileReader();
+    words.onload = function () { held.text = String(words.result); };
+    words.readAsText(file);
+  }
+}
+
+// The most files one message may carry. The Rust side keeps the same number.
+var MOST_FILES = 16;
+function addFiles(files) {
+  for (var n = 0; n < files.length; n++) {
+    if (heldFiles.length >= MOST_FILES) { break; }
+    holdFile(files[n]);
+  }
+  drawParts();
+  grow();
+}
+
+// One block of the box, or of a sent message. A place to drop from makes it
+// a block of the box, with the mark that takes the file away again.
+function partBlock(one, place) {
+  var part = make('div', 'part');
+  part.title = one.name;
+  if (one.kind === 'image' && one.url) {
+    var pic = make('img', 'pic');
+    pic.src = one.url;
+    pic.alt = one.name;
+    part.appendChild(pic);
+  } else if (one.kind === 'image') {
+    part.appendChild(make('span', 'pic'));
+  } else {
+    var mark = make('span', 'mark');
+    mark.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true">'
+      + '<path d="M9.3 2.2H4.6a1.4 1.4 0 0 0-1.4 1.4v8.8a1.4 1.4 0 0 0 1.4 1.4h6.8'
+      + 'a1.4 1.4 0 0 0 1.4-1.4V5.6z"/><path d="M9.2 2.2v3.4h3.6"/></svg>';
+    part.appendChild(mark);
+  }
+  var nm = make('span', 'nm');
+  nm.textContent = one.name;
+  part.appendChild(nm);
+  if (place !== undefined) {
+    var x = make('button', 'x');
+    x.type = 'button';
+    x.title = 'Take this file away';
+    x.setAttribute('aria-label', 'Take ' + one.name + ' away from the message');
+    x.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true">'
+      + '<path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    x.addEventListener('click', function () {
+      heldFiles.splice(place, 1);
+      drawParts();
+      grow();
+    });
+    part.appendChild(x);
+  }
+  return part;
+}
+
+// The row of blocks over the words of the box.
+function drawParts() {
+  el.parts.innerHTML = '';
+  el.parts.classList.toggle('hidden', heldFiles.length === 0);
+  for (var n = 0; n < heldFiles.length; n++) {
+    el.parts.appendChild(partBlock(heldFiles[n], n));
+  }
+}
+
+// The round mark knows about the files as well as the words: a message of
+// files and no words is a message.
+function anythingToSend() {
+  return heldFiles.length > 0 || el.draft.value !== '';
+}
+
 function grow() {
   el.draft.style.height = 'auto';
   el.draft.style.height = Math.min(el.draft.scrollHeight, window.innerHeight * 0.4) + 'px';
   if (cur) {
-    var live = el.draft.value !== '' || !!cur.generating;
+    var live = anythingToSend() || !!cur.generating;
     el.send.classList.toggle('live', live && !cur.generating);
     el.hint.innerHTML = hintFor(cur);
   }
@@ -2850,10 +3064,20 @@ function grow() {
 
 function send() {
   var text = el.draft.value.trim();
-  if (!text) { return; }
+  if (!text && heldFiles.length === 0) { return; }
+  var body = { text: text };
+  if (heldFiles.length > 0) {
+    // The files go out in the order of the blocks over the box, each with
+    // its whole name, ending included.
+    body.attachments = heldFiles.map(function (one) {
+      return { name: one.name, mime: one.mime, data: one.data, text: one.text };
+    });
+  }
   el.draft.value = '';
+  heldFiles = [];
+  drawParts();
   grow();
-  post('/api/send', { text: text });
+  post('/api/send', body);
 }
 
 el.send.addEventListener('click', function () {
@@ -2912,6 +3136,35 @@ el.draft.addEventListener('keydown', function (e) {
     }
     post('/api/cancel');
   }
+});
+
+// A file on the clipboard becomes an attachment, and nothing of it is
+// written into the words of the box. Text stays text, for now.
+el.draft.addEventListener('paste', function (e) {
+  var data = e.clipboardData;
+  if (data && data.files && data.files.length > 0) {
+    e.preventDefault();
+    addFiles(data.files);
+  }
+});
+
+// A file let go anywhere over the page lands in the chat box. Without the
+// guard below the browser would leave the chat for the file itself.
+document.addEventListener('dragover', function (e) { e.preventDefault(); });
+document.addEventListener('drop', function (e) {
+  e.preventDefault();
+  el.box.classList.remove('drop');
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    addFiles(e.dataTransfer.files);
+  }
+});
+// The box says that a file let go there would land in it.
+el.box.addEventListener('dragover', function (e) {
+  e.preventDefault();
+  el.box.classList.add('drop');
+});
+el.box.addEventListener('dragleave', function (e) {
+  if (!el.box.contains(e.relatedTarget)) { el.box.classList.remove('drop'); }
 });
 
 function roll(step) { post('/api/roll', { step: step }); }

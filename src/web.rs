@@ -63,12 +63,29 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         .messages
         .iter()
         .map(|m| {
+            // The blocks of the attachments need the name and the kind of
+            // each file, in the order the reader hung them. The words of a
+            // file and the bytes of a picture do not stand here: the page
+            // asks for one of them by its id when it draws the block.
+            let attachments: Vec<Value> = m
+                .attachments
+                .iter()
+                .map(|a| {
+                    json!({
+                        "id": a.id,
+                        "name": a.name,
+                        "mime": a.mime,
+                        "image": a.image,
+                    })
+                })
+                .collect();
             json!({
                 // The id lets the page keep the rows it has and write again
                 // only the words that changed.
                 "id": m.id,
                 "role": m.role,
                 "body": m.body,
+                "attachments": attachments,
                 // The thinking of the model, when the model has any.
                 "reasoning": m.reasoning,
                 // How long that thinking took, in milliseconds.
@@ -221,10 +238,16 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
     match path {
         "/api/send" | "send" => {
             let text = text_field(&value, "text");
-            if text.trim().is_empty() {
+            // The files the reader hung on the message, in the order the
+            // reader hung them. A message of files and no words is a real
+            // message, so only a message of nothing at all is refused.
+            let files = crate::attach::parse_incoming(
+                value.get("attachments").cloned().unwrap_or(serde_json::Value::Null),
+            );
+            if text.trim().is_empty() && files.is_empty() {
                 return refused("nothing was written");
             }
-            engine.prompt(text);
+            engine.prompt(text, files);
             done()
         }
         "/api/cancel" | "cancel" => {

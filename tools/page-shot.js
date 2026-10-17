@@ -26,6 +26,8 @@
 // the top instead of the end.
 //   AN_PROGRESS=42 AN_WHAT=image node page-shot.js processing p.png
 //   AN_PROGRESS and AN_WHAT stand for the gauge above the chat box.
+//   AN_PASTE=1 hangs a picture and a file of words on the chat box, as the
+//   reader's Ctrl+V would, so the blocks over the words can be looked at.
 
 'use strict';
 
@@ -35,11 +37,15 @@ const { execSync } = require('child_process');
 const page = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const useFetch = process.env.AN_FETCH === '1';
 
+// One picture for the attachment blocks, so small that no one counts the
+// bytes. The bridge hands it out when a block of the chat asks for its file.
+const ATT_PIC = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
 // One message of the talk.
 function said(id, role, body, extra) {
   return Object.assign({
     id: id, role: role, body: body, reasoning: '', reasoning_ms: 0, tool: '',
-    mono: false, failed: false, when: '09:4' + (id % 10)
+    mono: false, failed: false, when: '09:4' + (id % 10), attachments: []
   }, extra || {});
 }
 
@@ -48,7 +54,14 @@ function said(id, role, body, extra) {
 // a line from the program. The first run of the tool came out of a turn with
 // no words of its own, so the thinking of that turn stands above the command.
 const FULL = [
-  said(1, 'You', 'Can you show the plan for the parser, and run the tests?'),
+  // The first message of the reader hangs two files on its words, so the
+  // blocks under the bubble are drawn in both skins.
+  said(1, 'You', 'Can you show the plan for the parser, and run the tests?', {
+    attachments: [
+      { id: 'att-1', name: 'parser-diagram.png', mime: 'image/png', image: true },
+      { id: 'att-2', name: 'notes.txt', mime: 'text/plain', image: false }
+    ]
+  }),
   said(2, 'Assistant',
     '# Plan\n\nWe change two files.\n\n'
     + '1. `markdown.rs` closes a paragraph when a list starts.\n'
@@ -82,7 +95,9 @@ const FULL = [
 ];
 
 const TALK = [
-  said(1, 'You', 'What is the difference between mmap and mlock?'),
+  said(1, 'You', 'What is the difference between mmap and mlock?', {
+    attachments: [{ id: 'att-3', name: 'memory-map.png', mime: 'image/png', image: true }]
+  }),
   said(2, 'Assistant', 'mmap lets the system page the model in and out. mlock keeps '
     + 'the whole file in the memory of the machine.\n\nUse mlock when the model must '
     + 'not be moved.'),
@@ -349,7 +364,7 @@ async function main() {
   view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
   view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
 
-  await view.evaluateOnNewDocument(function (fetchMode, held, config, model) {
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, pic) {
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
@@ -357,6 +372,13 @@ async function main() {
         if (String(url).indexOf('/api/state') === 0) {
           return Promise.resolve({ json: function () {
             return Promise.resolve(JSON.parse(JSON.stringify(held))); } });
+        }
+        if (String(url).indexOf('/api/attachment') === 0) {
+          // One attachment record, as the small server of the remote mode
+          // hands it to the block that asks for its file.
+          return Promise.resolve({ json: function () {
+            return Promise.resolve({ name: 'memory-map.png', mime: 'image/png',
+              data: pic, text: '' }); } });
         }
         return Promise.resolve({ json: function () {
           return Promise.resolve({ ok: true }); } });
@@ -383,14 +405,38 @@ async function main() {
             return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
               + '-ngl 999 --fit on --fit-target 400');
           }
+          if (command === 'get_attachment') {
+            // One attachment record, as the window hands it to the block
+            // that asks for its file.
+            return Promise.resolve({ name: 'memory-map.png', mime: 'image/png',
+              data: pic, text: '' });
+          }
           return Promise.resolve({ ok: true });
         }
       }
     };
-  }, useFetch, state, CONFIG, MODEL);
+  }, useFetch, state, CONFIG, MODEL, ATT_PIC);
 
   await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
   await new Promise(function (r) { setTimeout(r, 700); });
+  // AN_PASTE=1 hangs a picture and a file of words on the chat box the way
+  // Ctrl+V would, so the blocks over the words of the box can be looked at.
+  if (process.env.AN_PASTE === '1') {
+    await view.evaluate(function (picUrl) {
+      var bin = atob(picUrl.split(',')[1]);
+      var bytes = new Uint8Array(bin.length);
+      for (var n = 0; n < bin.length; n++) { bytes[n] = bin.charCodeAt(n); }
+      var transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], 'dropped-photo.png', { type: 'image/png' }));
+      transfer.items.add(new File(['the pasted words of a note'], 'note.txt',
+        { type: 'text/plain' }));
+      var draft = document.getElementById('draft');
+      draft.dispatchEvent(new ClipboardEvent('paste', {
+        clipboardData: transfer, bubbles: true, cancelable: true
+      }));
+    }, ATT_PIC);
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
 
   if (name === 'previews') {
     await view.evaluate(function () {

@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use crate::attach;
+use crate::store::Attachment;
 use crate::config::{self, Config, ModelSettings};
 use crate::gpu::{self, Gpu};
 use crate::llama::{self, ModelInfo, Server, ToolCall};
@@ -35,10 +37,17 @@ const TOOL_TIMEOUT: Duration = Duration::from_secs(120);
 const LEAST_TOOL_STEPS: usize = 1;
 const LEAST_ANSWER_STEPS: usize = 2;
 
+// One send of the chat box: the words of the reader, and the files they hung
+// on it, in the order the reader hung them.
+struct SentMessage {
+    text: String,
+    files: Vec<attach::Incoming>,
+}
+
 // Work for the worker thread.
 enum Job {
-    // The user asked something.
-    Prompt(String),
+    // The user asked something, with the files of the message beside it.
+    Prompt(SentMessage),
     // Another model is wanted, so the running server must go.
     ModelChanged,
     // Settings changed, so a server must not stay with the old values.
@@ -429,15 +438,35 @@ impl State {
         self.touch();
     }
 
+    // True when the model can be shown a picture: the vision switch of the
+    // model settings stands on, and a projector file stands next to the model
+    // for the server to take. The server gets its `--mmproj` from the same
+    // two facts, so the answer here and the flags there cannot drift apart.
+    fn pictures_can_go(&self) -> bool {
+        match self.model() {
+            Some(model) => {
+                self.cfg.model(&model.id()).vision && llama::find_mmproj(&model.path).is_some()
+            }
+            None => false,
+        }
+    }
+
     // Turn the open chat into the message list the API expects.
     fn build_history(&self) -> Value {
         let mut out: Vec<Value> = Vec::new();
         let Some(chat) = self.chat() else {
             return json!([]);
         };
+        let vision_on = self.pictures_can_go();
         for message in &chat.messages {
             match message.role.as_str() {
-                "You" => out.push(json!({ "role": "user", "content": message.body })),
+                // The words of the reader, and the attachments that hang on
+                // them. Without attachments this is the plain words, as it
+                // always was.
+                "You" => out.push(json!({
+                    "role": "user",
+                    "content": attach::content(&message.body, &message.attachments, vision_on),
+                })),
                 "Assistant" => out.push(json!({
                     "role": "assistant",
                     "content": message.body,
@@ -882,11 +911,17 @@ impl Engine {
         }
     }
 
-    // Ask the model something. The worker thread does the work.
-    pub fn prompt(&self, text: String) {
+    // Ask the model something, with the files the reader hung on the message
+    // beside the words. The worker thread does the work. A message of nothing
+    // at all is refused; a message of files and no words is a real message.
+    pub fn prompt(&self, text: String, files: Vec<attach::Incoming>) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        if text.trim().is_empty() && files.is_empty() {
+            state.set_status("nothing was written");
+            return;
+        }
         if state.generating {
             state.set_status("an answer is still coming");
             return;
@@ -906,7 +941,9 @@ impl Engine {
         }
         drop(state);
         self.cancel.store(false, Ordering::SeqCst);
-        let _ = self.jobs.send(Job::Prompt(text));
+        let _ = self
+            .jobs
+            .send(Job::Prompt(SentMessage { text, files }));
     }
 
     // Stop reading the answer.
@@ -1043,6 +1080,13 @@ impl Engine {
             Ok(state) => state.repositories.clone(),
             Err(_) => Vec::new(),
         }
+    }
+
+    // The words of one attachment, for the page that shows the block. A
+    // window asks by the id the state gave with the message. Nothing is
+    // known of the reader who asks: the record is the record.
+    pub fn attachment(&self, id: &str) -> Option<attach::Stored> {
+        attach::read(id)
     }
 
     // Start a chat in the place that is open now. The chat is blank, so it
@@ -1324,8 +1368,8 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                 // The model and context stay the same, so nothing else changes.
                 stop_server(&mut server);
             }
-            Job::Prompt(text) => {
-                run_turn(&state, &mut server, &cancel, text);
+            Job::Prompt(sent) => {
+                run_turn(&state, &mut server, &cancel, sent);
             }
         }
     }
@@ -1479,13 +1523,20 @@ fn kept_of(
 }
 
 // Answer one prompt. When the model asks for a terminal command, the command
-// runs and the model is asked again with the result.
+// runs and the model is asked again with the result. The files the reader
+// hung on the message are written to disk first, and the message of the
+// reader carries their marks, in the order the reader hung them.
 fn run_turn(
     state: &Arc<Mutex<State>>,
     server: &mut Option<Server>,
     cancel: &Arc<AtomicBool>,
-    text: String,
+    sent: SentMessage,
 ) {
+    // The files wait on disk from here on, so the model can be asked again
+    // about them after a restart of the program.
+    let kept: Vec<Attachment> = attach::save(&sent.files);
+    let lost = sent.files.len().saturating_sub(kept.len());
+    let text = sent.text;
     // Take the work order first, so two answers cannot mix.
     let (model, settings, workdir, sandbox_on) = {
         let Ok(mut state) = state.lock() else { return };
@@ -1512,19 +1563,44 @@ fn run_turn(
             .chat()
             .map(|c| state.workdir_for(&c.clone()))
             .unwrap_or_else(|| config::paths().data);
-        // The question goes into the chat at once.
+        // The question goes into the chat at once, with its attachments
+        // hanging on it in the order the reader hung them.
         if let Some(chat) = state.chat_mut() {
             chat.messages.push(Message {
                 id: store::new_id(),
                 role: "You".to_string(),
                 body: text.clone(),
+                attachments: kept.clone(),
                 when: store::now_secs(),
                 ..Default::default()
             });
             if chat.meta.title == "New chat" {
-                chat.meta.title = Chat::title_from_prompt(&text);
+                // A message of files and no words takes its name from the
+                // first file, so the chat is not left nameless.
+                let naming = if text.trim().is_empty() {
+                    kept.first().map(|a| a.name.clone()).unwrap_or_default()
+                } else {
+                    text.clone()
+                };
+                chat.meta.title = Chat::title_from_prompt(&naming);
             }
             chat.meta.updated = store::now_secs();
+        }
+        if lost > 0 {
+            let text = format!(
+                "{} of the attachments were too big, or the disk would not have them, so they did not go",
+                lost
+            );
+            state.push_note(&text, true);
+        }
+        // A picture the model cannot be shown is said out loud, so the reader
+        // does not wonder why the model looks blind at it.
+        let pictures = kept.iter().filter(|a| a.image).count();
+        if pictures > 0 && !state.pictures_can_go() {
+            state.push_note(
+                "the pictures of this message cannot be shown to this model: turn vision on in the settings of the model, and send the message again",
+                true,
+            );
         }
         state.persist();
         state.generating = true;
@@ -2032,13 +2108,28 @@ fn ensure_server(
     }
 }
 
-// Rough token count, used when the server gives no usage numbers.
+// Rough token count, used when the server gives no usage numbers. The
+// content of a message is words, or a list of parts with the words of the
+// reader, the words of the files, and the pictures of the message among
+// them. A picture costs a block of tokens of its own, whatever it shows.
 fn estimate_tokens(history: &Value) -> u64 {
     let mut chars = 0u64;
     if let Some(items) = history.as_array() {
         for item in items {
-            if let Some(text) = item.get("content").and_then(|c| c.as_str()) {
-                chars += text.chars().count() as u64;
+            match item.get("content") {
+                Some(Value::String(text)) => chars += text.chars().count() as u64,
+                Some(Value::Array(parts)) => {
+                    for part in parts {
+                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                            chars += text.chars().count() as u64;
+                        }
+                        if part.get("type").and_then(|t| t.as_str()) == Some("image_url") {
+                            // A picture stands for a few hundred tokens.
+                            chars += 4000;
+                        }
+                    }
+                }
+                _ => {}
             }
             // Every message costs a few tokens on its own.
             chars += 8;
@@ -2227,7 +2318,7 @@ mod tests {
         engine.select_repository(String::new());
         engine.create_repository(String::from("Second"));
         assert!(engine.snapshot().home);
-        engine.prompt(String::from("A first question"));
+        engine.prompt(String::from("A first question"), Vec::new());
         let after = engine.snapshot();
         assert!(!after.home);
         assert_eq!(after.chat_count, 1);
@@ -2456,6 +2547,79 @@ mod tests {
 
         // A chat with nothing in it is still a chat of words.
         assert_eq!(pending_images(&json!([])), 0);
+    }
+
+    // A message that hangs attachments goes out to the model as parts: the
+    // words of the reader, the list of the files with their numbers and
+    // their endings, and the words of a file of words. Without a model that
+    // can look at pictures, no picture part goes out, and the list says why.
+    #[test]
+    fn the_attachments_of_a_message_stand_in_the_history() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let files = vec![
+            attach::Incoming {
+                name: String::from("photo.png"),
+                mime: String::from("image/png"),
+                data: String::from("data:image/png;base64,AAA="),
+                text: String::new(),
+            },
+            attach::Incoming {
+                name: String::from("notes.txt"),
+                mime: String::from("text/plain"),
+                data: String::new(),
+                text: String::from("the words of the note"),
+            },
+        ];
+        let kept = attach::save(&files);
+        assert_eq!(kept.len(), 2);
+        let mut state = engine.state.lock().unwrap();
+        state.open_blank_chat();
+        if let Some(chat) = state.chat_mut() {
+            chat.messages.push(Message {
+                id: store::new_id(),
+                role: String::from("You"),
+                body: String::from("What is in these?"),
+                attachments: kept.clone(),
+                ..Default::default()
+            });
+        }
+        let history = state.build_history();
+        let items = history.as_array().expect("the history is a list");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["role"], json!("user"));
+        let parts = items[0]["content"]
+            .as_array()
+            .expect("a message with attachments goes out as parts");
+        let lead = parts[0].get("text").unwrap().as_str().unwrap();
+        assert!(lead.starts_with("What is in these?"));
+        assert!(lead.contains("1. photo.png"));
+        assert!(lead.contains("2. notes.txt"));
+        // No model stands in this test, so no picture can go, and the list
+        // says that plainly.
+        assert!(lead.contains("vision is off"));
+        assert!(!parts
+            .iter()
+            .any(|p| p.get("type").and_then(|t| t.as_str()) == Some("image_url")));
+        // The file of words goes out under its number and its name.
+        let words = parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+            .find(|t| t.starts_with("The words of attachment 2"))
+            .expect("the words of the second attachment");
+        assert!(words.contains("notes.txt"));
+        assert!(words.contains("the words of the note"));
+        // The snapshot hands the blocks to the window: name and kind, in the
+        // order the reader hung them, and which of them are pictures.
+        let snap = state.snap();
+        let message = snap.messages.iter().find(|m| m.role == "You").unwrap();
+        assert_eq!(message.attachments.len(), 2);
+        assert_eq!(message.attachments[0].name, "photo.png");
+        assert!(message.attachments[0].image);
+        assert!(!message.attachments[1].image);
+        drop(state);
+        attach::remove(&kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
     }
 
     // The reader watches a command as the model writes it, and watches nothing
