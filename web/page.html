@@ -39,6 +39,11 @@
   --hover: #f7ebd9; --tint: #fbe6d1; --on-accent: #fffaf2;
 
   --bubble: #fbe6d1; --bubble-line: #f0d2b0;
+  /* A file that has been sent stands on the bubble, so it needs a ground of
+     its own: a wash lighter than the bubble, and a hairline of light. */
+  --plate: rgba(255, 253, 248, .66); --plate-line: rgba(255, 255, 255, .9);
+  --plate-mark: rgba(124, 84, 44, .12);
+  --plate-shadow: 0 1px 3px rgba(70, 40, 12, .10);
   --code-bg: #f6ecdc; --code-line: #e8d7bf;
   --think-bg: #f8eedf; --tool-bg: #f7eee0;
   --scrim: rgba(38, 26, 15, .46);
@@ -60,6 +65,9 @@ body.dark {
   --hover: #262422; --tint: #2c1d10; --on-accent: #fff8ef;
 
   --bubble: #2b1c10; --bubble-line: #4a3626;
+  --plate: rgba(255, 255, 255, .075); --plate-line: rgba(255, 255, 255, .15);
+  --plate-mark: rgba(255, 255, 255, .10);
+  --plate-shadow: 0 1px 3px rgba(0, 0, 0, .38);
   --code-bg: #201d1a; --code-line: #37312a;
   --think-bg: #221e1a; --tool-bg: #211e1b;
   --scrim: rgba(8, 7, 6, .6);
@@ -603,13 +611,39 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
 .part .x:hover .svg { stroke: var(--ink); }
 /* The box says that a file let go there would land in it. */
 .box.drop { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line); }
-/* The blocks of a sent message hang under the reader's words, inside the
-   bubble, on the reader's side. A picture gets more room there than in the
-   box, because that one is worth looking at again. */
-.bubble .parts { padding: 8px 0 0; justify-content: flex-end; }
-.bubble .part { background: var(--surface); }
-.bubble .part .pic { width: 72px; height: 72px; }
-.bubble .part .mark { width: 40px; height: 40px; }
+/* The files that hang on a message the reader has sent stand under its words,
+   inside the bubble, on the reader's side. They are not chips: a chip is a
+   thing in the chat box that may still be thrown away. Here the file has gone
+   out, so a picture is laid out as a plate — the picture, and under it its
+   whole name with the ending — and a file of words is a card no taller than
+   the name it carries. Nothing stretches to the height of its neighbour, which
+   is what made a row of blocks look like a shelf of holes of one size. */
+.bubble .parts { display: flex; flex-wrap: wrap; align-items: flex-start;
+  justify-content: flex-end; gap: 9px; padding: 4px 0 1px; white-space: normal; }
+.bubble .part { flex: 0 0 auto; min-width: 0; max-width: 100%; padding: 0; border: 0;
+  border-radius: 0; background: none; color: var(--text-2); font-size: 11.5px; }
+/* A picture: the plate, and the whole name of it under the plate. */
+.bubble .part.image { flex-direction: column; align-items: center; gap: 5px; width: 120px; }
+.bubble .part.image .pic { display: block; width: 120px; height: 120px; border-radius: 11px;
+  border: 1px solid var(--plate-line); background: var(--surface-3);
+  box-shadow: var(--plate-shadow); }
+/* A picture that has just been read in comes over the ground of its plate
+   rather than standing on it of a sudden. */
+img.pic { animation: plate-in 180ms ease-out; }
+@keyframes plate-in { from { opacity: 0; } to { opacity: 1; } }
+/* A message of files and no words carries no line of its own, so the bubble
+   keeps no room above the blocks for words that were never written. */
+.body:empty { display: none; }
+.bubble .part.image .nm { display: block; width: 120px; text-align: center; color: var(--dim);
+  font-size: 10.5px; line-height: 1.3; }
+/* A file with no picture in it: a card with the mark of a file beside its name. */
+.bubble .part.file { flex: 0 1 auto; align-items: center; gap: 8px; max-width: 218px;
+  padding: 6px 11px 6px 6px; border: 1px solid var(--plate-line); border-radius: 10px;
+  background: var(--plate); box-shadow: var(--plate-shadow); }
+.bubble .part.file .mark { width: 28px; height: 28px; border-radius: 8px;
+  background: var(--plate-mark); }
+.bubble .part.file .mark .svg { width: 15px; height: 15px; }
+.bubble .part.file .nm { font-size: 12px; }
 .dock-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px 10px; }
 .badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .badge {
@@ -715,6 +749,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
   .caret, .ink, .pulse.busy, .state.run, .state.write, .gauge .spin { animation: none; }
+  img.pic { animation: none; }
 }
 </style>
 </head>
@@ -3021,7 +3056,9 @@ function holdWords(words) {
 // One block of the box, or of a sent message. A place to drop from makes it
 // a block of the box, with the mark that takes the file away again.
 function partBlock(one, place) {
-  var part = make('div', 'part');
+  // A block of a picture and a block of a file are cut differently once they
+  // stand under a sent message, so each carries word of what it is.
+  var part = make('div', 'part ' + (one.kind === 'image' ? 'image' : 'file'));
   part.title = one.name;
   if (one.kind === 'image' && one.url) {
     var pic = make('img', 'pic');

@@ -28,6 +28,11 @@
 //   AN_PROGRESS and AN_WHAT stand for the gauge above the chat box.
 //   AN_PASTE=1 hangs a picture and a file of words on the chat box, as the
 //   reader's Ctrl+V would, so the blocks over the words can be looked at.
+//   AN_PICFILE=pic.png makes the pictures of the attachments real, so the
+//   blocks of a sent message can be judged as they will be seen. A second
+//   picture of another shape goes to AN_PICFILE2, and is handed out to an
+//   attachment whose number holds the word 'tall'. The scene 'parts' is a talk
+//   made of nothing but the blocks under a message.
 
 'use strict';
 
@@ -37,9 +42,19 @@ const { execSync } = require('child_process');
 const page = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const useFetch = process.env.AN_FETCH === '1';
 
-// One picture for the attachment blocks, so small that no one counts the
-// bytes. The bridge hands it out when a block of the chat asks for its file.
-const ATT_PIC = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+// The pictures of the attachment blocks. A single pixel is too small to tell
+// whether the plate of a picture is laid out well, so AN_PICFILE names a real
+// picture to hand out instead, and AN_PICFILE2 a second one of another shape;
+// the bridge gives either to any block that asks for the file of an attachment.
+function aPicture(where) {
+  const ONE_PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk' +
+    '+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  return 'data:image/png;base64,'
+    + (where ? require('fs').readFileSync(where).toString('base64') : ONE_PIXEL);
+}
+
+const ATT_PIC = aPicture(process.env.AN_PICFILE);
+const ATT_TALL = aPicture(process.env.AN_PICFILE2 || process.env.AN_PICFILE);
 
 // One message of the talk.
 function said(id, role, body, extra) {
@@ -105,6 +120,31 @@ const TALK = [
   said(4, 'Assistant', 'mmap is the default. It costs less memory.'),
 ];
 
+// A talk whose only point is the blocks under the words of the reader: a
+// picture of the usual shape, a picture taller than it is wide, a name too
+// long for a block, a message of files and no words, and a file whose name is
+// made of many parts. The second picture is asked for by an attachment whose
+// number holds the word 'tall', so the two shapes can stand in one row.
+const PARTS = [
+  said(1, 'You', 'Two pictures of the plateau, the log of the run, and a note.', {
+    attachments: [
+      { id: 'att-wide', name: 'plateau-east.png', mime: 'image/png', image: true },
+      { id: 'att-tall', name: 'plateau-west.png', mime: 'image/png', image: true },
+      { id: 'att-long', name: 'run-log-2026-10-17-afternoon-of-the-third-day.txt',
+        mime: 'text/plain', image: false },
+      { id: 'att-note', name: 'notes.txt', mime: 'text/plain', image: false }
+    ]
+  }),
+  said(2, 'Assistant', 'The eastern picture holds the lake; the western one is cut off '
+    + 'by the ridge.'),
+  said(3, 'You', '', {
+    attachments: [
+      { id: 'att-only', name: 'the-plan-of-the-bar.svg', mime: 'image/svg+xml', image: false },
+      { id: 'att-tall2', name: 'screenshot-of-the-sheet.png', mime: 'image/png', image: true }
+    ]
+  }),
+];
+
 // The command the model writes in the `writing` scene, and the reason it gives
 // for it. AN_WRITE counts the characters of both, one after the other.
 const WRITING = 'cargo test --release markdown -- --nocapture';
@@ -161,13 +201,13 @@ function scene(name, dark) {
     sandbox_note: 'bubblewrap (bwrap) was found, so the tool can be kept inside a jail.',
     status: 'Ready', dark: !!dark, data_dir: '/home/user/.local/share/autumn-natter'
   };
-  if (name === 'chat' || name === 'rich' || name === 'streaming' || name === 'streaming-code'
-    || name === 'previews') {
+  if (name === 'chat' || name === 'rich' || name === 'parts' || name === 'streaming'
+    || name === 'streaming-code' || name === 'previews') {
     start.home = false;
     start.chat = { id: 'c1', title: name === 'rich' ? 'Parser order' : 'Memory of the talk' };
     start.chats = chats(name === 'previews' ? 9 : 3, 1);
     start.carousel = { index: 1, count: start.chats.length, blank: false };
-    start.messages = name === 'rich' ? FULL : TALK;
+    start.messages = name === 'rich' ? FULL : name === 'parts' ? PARTS : TALK;
     // The chapters the model marked, tied to the message each begins after.
     start.chapters = name === 'rich'
       ? [{ id: 'ch1', name: 'The plan for the parser', after: 1 },
@@ -366,7 +406,7 @@ async function main() {
   view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
   view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
 
-  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, pic) {
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, pic, pic2) {
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
@@ -378,9 +418,10 @@ async function main() {
         if (String(url).indexOf('/api/attachment') === 0) {
           // One attachment record, as the small server of the remote mode
           // hands it to the block that asks for its file.
+          var asked = String(url).indexOf('tall') < 0 ? pic : pic2;
           return Promise.resolve({ json: function () {
             return Promise.resolve({ name: 'memory-map.png', mime: 'image/png',
-              data: pic, text: '' }); } });
+              data: asked, text: '' }); } });
         }
         return Promise.resolve({ json: function () {
           return Promise.resolve({ ok: true }); } });
@@ -411,13 +452,14 @@ async function main() {
             // One attachment record, as the window hands it to the block
             // that asks for its file.
             return Promise.resolve({ name: 'memory-map.png', mime: 'image/png',
-              data: pic, text: '' });
+              data: String((args && args.id) || '').indexOf('tall') < 0 ? pic : pic2,
+              text: '' });
           }
           return Promise.resolve({ ok: true });
         }
       }
     };
-  }, useFetch, state, CONFIG, MODEL, ATT_PIC);
+  }, useFetch, state, CONFIG, MODEL, ATT_PIC, ATT_TALL);
 
   await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
   await new Promise(function (r) { setTimeout(r, 700); });
