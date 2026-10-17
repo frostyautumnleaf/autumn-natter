@@ -339,6 +339,38 @@ ul.marks, ol.marks { margin: 4px 0 10px; padding: 1px 0 1px 40px;
 ul.marks li, ol.marks li { margin: 4px 0; padding-left: 6px; }
 ul.marks li::marker { color: var(--dim); }
 ol.marks li::marker { color: var(--ink-leaf); font-weight: 600; }
+/* A quote of the markdown: the words of another voice, kept behind a rule of
+   colour, as a heading stands by its bar and a list by its rule. What stands
+   inside a quote is markdown as much as anything else, so a list, a heading, or
+   a block of code may stand there too, and a quote inside a quote is told by a
+   rule of the neutral colour. */
+.quote { margin: 4px 0 11px; padding: 2px 0 2px 14px; color: var(--dim);
+  border-left: 3px solid var(--accent-line); }
+.quote > :first-child { margin-top: 0; }
+.quote > :last-child { margin-bottom: 0; }
+.quote .quote { border-left-color: var(--line-strong); }
+
+/* A table of the markdown. It stands on a ground of its own, as a block of code
+   does, with the head of it in a warmer ground and kept in place at the top
+   while a long table is read. The frame takes the width of the table and no
+   more; a table of many columns is wrapped to the width of the chat, as the
+   words of a block of code are, and the frame is kept as a way out in case the
+   words of a cell cannot be broken at all. */
+.tablewrap { margin: 4px 0 11px; overflow: auto; max-height: 420px;
+  width: fit-content; max-width: 100%; border: 1px solid var(--code-line);
+  border-radius: 10px; background: var(--code-bg);
+  scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+table.mdtable { border-collapse: separate; border-spacing: 0; font-size: 13px;
+  line-height: 1.5; color: var(--text-2); font-variant-numeric: tabular-nums; }
+table.mdtable th, table.mdtable td { padding: 7px 13px; text-align: left;
+  vertical-align: top; overflow-wrap: anywhere;
+  border-right: 1px solid var(--code-line); border-bottom: 1px solid var(--code-line); }
+table.mdtable th { position: sticky; top: 0; z-index: 1; background: var(--tint);
+  color: var(--text); font-weight: 650; }
+table.mdtable th:last-child, table.mdtable td:last-child { border-right: 0; }
+table.mdtable tbody tr:last-child td { border-bottom: 0; }
+table.mdtable .ac { text-align: center; }
+table.mdtable .ar { text-align: right; }
 pre.code {
   margin: 4px 0 11px; padding: 11px 13px; background: var(--code-bg);
   border: 1px solid var(--code-line); border-radius: 10px;
@@ -1295,13 +1327,84 @@ function stripOnce(text) {
     .replace(/<[^>]*>/g, '');
 }
 
-// The blocks of one message. Each block has a kind and words of its own.
-function blocks(text) {
-  var lines = String(text || '').split('\n');
+// The marks of the lines that begin a table or a quote. The line under the head
+// of a table is made of cells of dashes, and a colon at either end of one says
+// which way the words of that column stand.
+var QUOTE_LINE = /^(?:>\s?)+(.*)$/;
+var RULE_CELL = /^:?-+:?$/;
+
+// The cells of one line, with the words in them as they were written. The wall
+// at each end of a row is cut off, and a pipe with a line before it is a pipe
+// of the words and not a wall between two cells.
+function splitCells(line) {
+  var text = String(line).trim();
+  if (text.charAt(0) === '|') { text = text.slice(1); }
+  if (text.length > 1 && text.charAt(text.length - 1) === '|'
+      && text.charAt(text.length - 2) !== '\\') { text = text.slice(0, -1); }
+  var out = [], word = '';
+  for (var n = 0; n < text.length; n++) {
+    var ch = text.charAt(n);
+    if (ch === '\\' && text.charAt(n + 1) === '|') { word += '|'; n++; continue; }
+    if (ch === '|') { out.push(word); word = ''; continue; }
+    word += ch;
+  }
+  out.push(word);
+  for (var m = 0; m < out.length; m++) { out[m] = out[m].replace(/^\s+|\s+$/g, ''); }
+  return out;
+}
+
+// The cells of a row of a table, with the marks of the words taken out as the
+// words of any other block lose them.
+function tableCells(line) {
+  var raw = splitCells(line), out = [];
+  for (var n = 0; n < raw.length; n++) { out.push(plain(raw[n])); }
+  return out;
+}
+
+// Which way the words of each column stand, read from the line of dashes under
+// the head: left, centre, right, or as they come.
+function tableAligns(line) {
+  var raw = splitCells(line), out = [];
+  for (var n = 0; n < raw.length; n++) {
+    var cell = raw[n];
+    var before = cell.charAt(0) === ':';
+    var after = cell.charAt(cell.length - 1) === ':';
+    out.push(before && after ? 'c' : after ? 'r' : before ? 'l' : '');
+  }
+  return out;
+}
+
+// Whether a line is the line of dashes under the head of a table. The line must
+// hold a wall, or three marks on their own - which draw a rule across the page
+// and are no table - would be taken for one.
+function isRuleRow(line) {
+  if (line.indexOf('|') < 0) { return false; }
+  var cells = splitCells(line);
+  if (!cells.length) { return false; }
+  for (var n = 0; n < cells.length; n++) {
+    if (!RULE_CELL.test(cells[n])) { return false; }
+  }
+  return true;
+}
+
+// Whether a line goes on as a row of the table that is being read. A quote, a
+// heading, or a fence is a thing of its own and ends the table.
+function isRow(cut) {
+  return !!cut && cut.indexOf('|') >= 0 && !QUOTE_LINE.test(cut)
+    && !/^```/.test(cut) && !/^(#{1,6})\s/.test(cut);
+}
+
+// The blocks of one list of lines. A quote holds lines of its own, and so the
+// rule runs over them again: a list, a heading, or a block of code may stand
+// inside a quote.
+function blocksFromLines(lines) {
   var out = [];
   var para = [];
   var list = null;
   var fence = null;
+  // The lines of a quote that is being read, and the table that is being read.
+  var quote = null;
+  var table = null;
   // The word after the three marks of a fence says which kind of file the
   // block holds, and the colours of the block follow it.
   var fenceLang = '';
@@ -1314,9 +1417,48 @@ function blocks(text) {
     if (list && list.length) { out.push({ kind: 'list', items: list.slice() }); }
     list = null;
   }
+  function flushQuote() {
+    if (quote && quote.length) {
+      var made = blocksFromLines(quote);
+      if (made.length) { out.push({ kind: 'quote', blocks: made }); }
+    }
+    quote = null;
+  }
+  function flushTable() {
+    if (table) {
+      // Every row is made as wide as the widest thing in the table, so the
+      // walls of it stand straight when a row lost a cell on the way.
+      var wide = table.head.length;
+      for (var n = 0; n < table.rows.length; n++) {
+        if (table.rows[n].length > wide) { wide = table.rows[n].length; }
+      }
+      while (table.head.length < wide) { table.head.push(''); }
+      while (table.align.length < wide) { table.align.push(''); }
+      for (var m = 0; m < table.rows.length; m++) {
+        while (table.rows[m].length < wide) { table.rows[m].push(''); }
+      }
+      table.width = wide;
+      out.push(table);
+    }
+    table = null;
+  }
+
   for (var n = 0; n < lines.length; n++) {
     var line = lines[n];
     var cut = line.replace(/^\s*/, '');
+    // A table goes on for as long as the lines are rows of cells, and ends at
+    // the first line that is not one.
+    if (table) {
+      if (isRow(cut)) { table.rows.push(tableCells(cut)); continue; }
+      flushTable();
+    }
+    // A quote goes on for as long as the lines carry the mark, and ends at the
+    // first line that does not.
+    if (quote !== null) {
+      var more = QUOTE_LINE.exec(cut);
+      if (more) { quote.push(more[1]); continue; }
+      flushQuote();
+    }
     if (fence !== null) {
       if (/^```/.test(cut)) {
         out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, ''),
@@ -1356,17 +1498,41 @@ function blocks(text) {
       continue;
     }
     if (!cut) { flushList(); flushPara(); continue; }
+    // A table is a row of cells with the line of dashes under it. The row of
+    // cells is read again below, as the head of a table with no rows yet; the
+    // line of dashes under it is spent here.
+    var under = n + 1 < lines.length ? lines[n + 1].replace(/^\s*/, '') : '';
+    if (cut.indexOf('|') >= 0 && isRuleRow(under)) {
+      flushList(); flushPara();
+      table = { kind: 'table', head: tableCells(cut), align: tableAligns(under),
+        rows: [] };
+      n++;
+      continue;
+    }
+    // The mark of another voice at the head of the line.
+    var quoted = QUOTE_LINE.exec(cut);
+    if (quoted) {
+      flushList(); flushPara();
+      quote = [quoted[1]];
+      continue;
+    }
     flushList();
     para.push(plain(line));
   }
   if (fence !== null) {
     out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, ''), lang: fenceLang });
   }
+  flushTable();
+  flushQuote();
   flushList();
   flushPara();
   return out;
 }
 
+// The blocks of one message. Each block has a kind and words of its own.
+function blocks(text) {
+  return blocksFromLines(String(text || '').split('\n'));
+}
 // The first line of a command, for the head of the tool panel.
 function firstLine(text) {
   var lines = String(text || '').split('\n');
@@ -1968,6 +2134,48 @@ function blockNode(block) {
     }
     return list;
   }
+  if (block.kind === 'quote') {
+    // The words of another voice. What stands inside a quote is markdown as
+    // much as anything else, so the blocks of it are made by the same rule.
+    var quote = make('div', 'quote');
+    for (var q = 0; q < block.blocks.length; q++) {
+      quote.appendChild(blockNode(block.blocks[q]));
+    }
+    return quote;
+  }
+  if (block.kind === 'table') {
+    // A table of the markdown. The head is always the first row, which is how
+    // the marks of a table say which row it was.
+    var wrap = make('div', 'tablewrap');
+    var table = make('table', 'mdtable');
+    var wide = block.width || block.head.length;
+    var head = make('tr');
+    for (var c = 0; c < wide; c++) {
+      var th = make('th');
+      th.textContent = block.head[c] || '';
+      if (block.align[c]) { th.className = 'a' + block.align[c]; }
+      head.appendChild(th);
+    }
+    var thead = make('thead');
+    thead.appendChild(head);
+    table.appendChild(thead);
+    if (block.rows.length) {
+      var body = make('tbody');
+      for (var r = 0; r < block.rows.length; r++) {
+        var row = make('tr');
+        for (var k = 0; k < wide; k++) {
+          var td = make('td');
+          td.textContent = block.rows[r][k] || '';
+          if (block.align[k]) { td.className = 'a' + block.align[k]; }
+          row.appendChild(td);
+        }
+        body.appendChild(row);
+      }
+      table.appendChild(body);
+    }
+    wrap.appendChild(table);
+    return wrap;
+  }
   if (block.kind === 'code') {
     var code = make('pre', 'code');
     code.dataset.lang = block.lang || '';
@@ -2014,7 +2222,15 @@ function shapeOf(made) {
   var parts = [];
   for (var n = 0; n < made.length; n++) {
     var block = made[n];
-    parts.push(block.kind + (block.level || 0) + (block.items ? block.items.length : 0));
+    var one = block.kind + (block.level || 0) + (block.items ? block.items.length : 0);
+    // A row of cells added to a table, and a block added to a quote, change the
+    // shape of the answer as much as a line of words does.
+    if (block.rows) {
+      var lastRow = block.rows.length ? block.rows[block.rows.length - 1] : block.head;
+      one += block.rows.length + 'row' + lastRow.join('\u0001');
+    }
+    if (block.blocks) { one += 'quote(' + shapeOf(block.blocks) + ')'; }
+    parts.push(one);
   }
   return parts.join(' ');
 }
@@ -2024,6 +2240,13 @@ function tailText(made) {
   if (!made.length) { return ''; }
   var last = made[made.length - 1];
   if (last.kind === 'list') { return last.items[last.items.length - 1].text; }
+  // The words that can still grow are the last cell of the last row of a table,
+  // and the last words inside a quote.
+  if (last.kind === 'table') {
+    var row = last.rows.length ? last.rows[last.rows.length - 1] : last.head;
+    return row.length ? row[row.length - 1] : '';
+  }
+  if (last.kind === 'quote') { return last.blocks.length ? tailText(last.blocks) : ''; }
   return last.text || '';
 }
 
@@ -2040,6 +2263,15 @@ function holderOf(node) {
   if (!node) { return null; }
   if (node.tagName === 'UL' || node.tagName === 'OL') { return node.lastChild; }
   if (node.classList.contains('h')) { return node.lastChild; }
+  // The words that can still grow stand in the last block of a quote, and in
+  // the last cell of the last row of a table.
+  if (node.classList.contains('quote')) {
+    return node.lastElementChild ? holderOf(node.lastElementChild) : node;
+  }
+  if (node.classList.contains('tablewrap')) {
+    return node.querySelector('tbody tr:last-child td:last-child')
+      || node.querySelector('thead tr:last-child th:last-child') || node;
+  }
   return node;
 }
 

@@ -20,8 +20,8 @@
 //   AN_NOCHAPTERS=1 node page-shot.js rich p.png  # the Chatting switch turned off
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
 //
-// The scenes: home, chat, rich, streaming, streaming-code, writing, processing,
-// previews, sheet-program, sheet-model. A name that ends in -dark draws the dark skin, and
+// The scenes: home, chat, rich, markdown, streaming, streaming-code, writing,
+// processing, previews, sheet-program, sheet-model. A name that ends in -dark draws the dark skin, and
 // a name that ends in -pale draws the pale one. AN_SCROLL=top puts the talk at
 // the top instead of the end.
 //   AN_PROGRESS=42 AN_WHAT=image node page-shot.js processing p.png
@@ -252,6 +252,54 @@ function scene(name, dark) {
     start.reasoning_done = true;
     start.status = 'Answering';
     start.context = { used: '5,980', total: '8,192', ratio: 0.73 };
+  }
+  if (name === 'markdown') {
+    // A talk made of the blocks that the marks of the markdown make: a table,
+    // whose columns stand as the colons under its head said they would, and a
+    // quote with a list and a block of code standing inside it. The last message
+    // is a table of one column, which is still a table.
+    start.home = false;
+    start.chat = { id: 'c1', title: 'The shape of the blocks' };
+    start.chats = chats(3, 1);
+    start.carousel = { index: 1, count: 3, blank: false };
+    start.messages = [
+      said(1, 'You', 'Put the sizes of the two blocks in a table, and quote the rule.'),
+      said(2, 'Assistant',
+        'The heights the two blocks took, measured in points:\n\n'
+        + '| block | before | after |\n'
+        + '| :--- | ---: | :-: |\n'
+        + '| a heading | 14 | 16 |\n'
+        + '| a list, one item | 6 | 8 |\n'
+        + '| a list, two items | 12 | 8 |\n\n'
+        + 'The rule the two blocks stand by:\n\n'
+        + '> The bar takes its height from the words beside it, and never from '
+        + 'the block that stands under it.\n'
+        + '>\n'
+        + '> - a heading, and\n'
+        + '> - a list\n'
+        + '>\n'
+        + '> ```rust\n> fn height(words: &Words) -> f32 {\n>     lines(words) * 1.55\n> }\n> ```\n\n'
+        + 'A line of words of its own, after all of that.',
+        // The thoughts of an answer go through the same blocks, so a table and a
+        // quote stand in the panel of the thinking as well.
+        { reasoning: 'The table wants the two heights that were measured, not the '
+          + 'ones that were planned.\n\n| block | planned | measured |\n| --- | --- | --- |\n'
+          + '| a heading | 15 | 16 |\n\n> The bar takes its height from the words '
+          + 'beside it.\n\nSo the bar is not touched.',
+          reasoning_ms: 64000 }),
+      said(3, 'You', 'And a table of one column?'),
+      said(4, 'Assistant',
+        '| the whole of it |\n| :- |\n| one cell, standing in the middle |\n\n'
+        + 'Nothing else. A table of one column is a table still.'),
+      said(5, 'You', 'And a table of seven columns, in a chat this wide?'),
+      said(6, 'Assistant',
+        'The words of a cell break to fit, so the chat keeps the width it had.\n\n'
+        + '| file | what it holds | lines | before | after | took | left |\n'
+        + '| :--- | :--- | ---: | ---: | ---: | ---: | ---: |\n'
+        + '| markdown.rs | the cutting of the blocks into kinds | 390 | 14 | 16 | 3 min | none |\n'
+        + '| page.html | the page of the remote mode | 3207 | 6 | 8 | 1 min | none |'),
+    ];
+    start.context = { used: '2,040', total: '8,192', ratio: 0.25 };
   }
   return start;
 }
