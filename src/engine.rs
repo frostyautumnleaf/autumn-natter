@@ -169,6 +169,9 @@ pub struct Snap {
     // Whether the model may mark the chapters of a chat, and whether the
     // chapter line stands beside it.
     pub chat_chapters: bool,
+    // The number of characters where a paste of words into the chat box turns
+    // into a file of its own.
+    pub chat_paste_limit: u32,
     pub models: Vec<ModelInfo>,
     pub model_id: String,
     pub repositories: Vec<Repo>,
@@ -768,6 +771,7 @@ impl State {
             chat_collapse_tools: self.cfg.chat_collapse_tools,
             chat_highlight: self.cfg.chat_highlight,
             chat_chapters: self.cfg.chat_chapters,
+            chat_paste_limit: self.cfg.pasted_text_char_limit,
             models: self.models.clone(),
             model_id: self.current_model_id(),
             // The top bar shows five recent repositories at most.
@@ -1222,6 +1226,10 @@ impl Engine {
             state.set_status("wait for the answer to finish");
             return;
         }
+        let mut cfg = cfg;
+        // The chat box turns a long paste of words into a file, and the number
+        // it does this at is kept inside the two bounds here.
+        cfg.pasted_text_char_limit = config::sanitize_pasted_text_limit(cfg.pasted_text_char_limit);
         state.cfg = cfg;
         let _ = config::save(&state.cfg);
         state.store = store::Store::new(config::repositories_dir(&state.cfg));
@@ -1304,6 +1312,7 @@ impl Snap {
             chat_collapse_tools: true,
             chat_highlight: true,
             chat_chapters: true,
+            chat_paste_limit: 6000,
             models: Vec::new(),
             model_id: String::new(),
             repositories: Vec::new(),

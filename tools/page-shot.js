@@ -284,7 +284,9 @@ const CONFIG = {
   chat_chapters: true,
   // The two rooms for steps stand unlimited, as they do for a new set of settings.
   chat_max_tool_steps: -1,
-  chat_max_answer_steps: -1
+  chat_max_answer_steps: -1,
+  // A paste of many words becomes a file at six thousand characters.
+  pasted_text_char_limit: 6000
 };
 
 const MODEL = {
@@ -451,6 +453,13 @@ async function main() {
       if (b) { b.click(); }
     });
     await new Promise(function (r) { setTimeout(r, 600); });
+    // The sheet is taller than the window, so bring the last field of the
+    // Chatting section into the picture.
+    await view.evaluate(function () {
+      var f = document.getElementById('fPasteLimit');
+      if (f) { f.scrollIntoView({ block: 'center' }); }
+    });
+    await new Promise(function (r) { setTimeout(r, 300); });
   }
   if (name === 'sheet-model') {
     await view.evaluate(function () {

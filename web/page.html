@@ -920,7 +920,9 @@ var cur = null;        // the last state
 // engine gives them. The page of the browser has no sheet of settings, so it
 // reads the two here and follows them. A panel that is folded as it comes in
 // stands closed from the first look, and the reader opens it with a click.
-var chatting = { thinking: true, tools: true, highlight: true, chapters: true };
+// The number of characters where a paste of words into the chat box turns
+// into a file of its own. It stands in the Chatting section of the settings.
+var chatting = { thinking: true, tools: true, highlight: true, chapters: true, paste: 6000 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -999,6 +1001,7 @@ function readChatting(s) {
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
   chatting.chapters = chat.chapters !== false;
+  chatting.paste = chat.paste_limit || 6000;
 }
 
 // The numbers of the meter are written with a comma in the place of a
@@ -2998,6 +3001,23 @@ function addFiles(files) {
   grow();
 }
 
+// A paste of many words becomes a file of its own. What is held has the same
+// shape as a file taken from the disk, so the words ride to the model as a
+// text attachment with its own number and its whole name, ending included.
+function holdWords(words) {
+  if (heldFiles.length >= MOST_FILES) { return; }
+  heldFiles.push({
+    name: freeName('pasted-text.txt'),
+    mime: 'text/plain',
+    kind: 'text',
+    data: '',
+    text: words,
+    url: ''
+  });
+  drawParts();
+  grow();
+}
+
 // One block of the box, or of a sent message. A place to drop from makes it
 // a block of the box, with the mark that takes the file away again.
 function partBlock(one, place) {
@@ -3139,12 +3159,19 @@ el.draft.addEventListener('keydown', function (e) {
 });
 
 // A file on the clipboard becomes an attachment, and nothing of it is
-// written into the words of the box. Text stays text, for now.
+// written into the words of the box. A paste of words above the set number
+// becomes a file too, so the box keeps its shape.
 el.draft.addEventListener('paste', function (e) {
   var data = e.clipboardData;
   if (data && data.files && data.files.length > 0) {
     e.preventDefault();
     addFiles(data.files);
+    return;
+  }
+  var words = data && data.getData ? data.getData('text/plain') : '';
+  if (words && words.length > chatting.paste) {
+    e.preventDefault();
+    holdWords(words);
   }
 });
 
