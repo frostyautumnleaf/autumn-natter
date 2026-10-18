@@ -347,6 +347,61 @@ ul.marks, ol.marks { margin: 4px 0 10px; padding: 1px 0 1px 40px;
 ul.marks li, ol.marks li { margin: 4px 0; padding-left: 6px; }
 ul.marks li::marker { color: var(--dim); }
 ol.marks li::marker { color: var(--ink-leaf); font-weight: 600; }
+/* A quote of the markdown: the words of another voice, kept behind a rule of
+   colour, as a heading stands by its bar and a list by its rule. What stands
+   inside a quote is markdown as much as anything else, so a list, a heading, or
+   a block of code may stand there too, and a quote inside a quote is told by a
+   rule of the neutral colour. */
+.quote { margin: 4px 0 11px; padding: 2px 0 2px 14px; color: var(--dim);
+  border-left: 3px solid var(--accent-line); }
+.quote > :first-child { margin-top: 0; }
+.quote > :last-child { margin-bottom: 0; }
+.quote .quote { border-left-color: var(--line-strong); }
+
+/* A table of the markdown. It stands on a ground of its own, as a block of code
+   does, with the head of it in a warmer ground and kept in place at the top
+   while a long table is read. The frame takes the width of the table and no
+   more; a table of many columns is wrapped to the width of the chat, as the
+   words of a block of code are, and the frame is kept as a way out in case the
+   words of a cell cannot be broken at all. */
+.tablewrap { margin: 4px 0 11px; overflow: auto; max-height: 420px;
+  width: fit-content; max-width: 100%; border: 1px solid var(--code-line);
+  border-radius: 10px; background: var(--code-bg);
+  scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+table.mdtable { border-collapse: separate; border-spacing: 0; font-size: 13px;
+  line-height: 1.5; color: var(--text-2); font-variant-numeric: tabular-nums; }
+table.mdtable th, table.mdtable td { padding: 7px 13px; text-align: left;
+  vertical-align: top; overflow-wrap: anywhere;
+  border-right: 1px solid var(--code-line); border-bottom: 1px solid var(--code-line); }
+table.mdtable th { position: sticky; top: 0; z-index: 1; background: var(--tint);
+  color: var(--text); font-weight: 650; }
+table.mdtable th:last-child, table.mdtable td:last-child { border-right: 0; }
+table.mdtable tbody tr:last-child td { border-bottom: 0; }
+table.mdtable .ac { text-align: center; }
+table.mdtable .ar { text-align: right; }
+/* A rule of the markdown: the marks across the page that divide one part of an
+   answer from the next. It is a hairline of the neutral, and no accent, for the
+   accent is kept for the marks of the program. The name of the class carries the
+   writing it comes from: `.rule` alone is the mark that stands between two parts
+   of the top bar, and a narrow window takes that one away. */
+hr.mdrule { border: 0; border-top: 1px solid var(--line-strong); height: 0;
+  margin: 15px 0 14px; }
+hr.mdrule:first-child { margin-top: 2px; }
+hr.mdrule:last-child { margin-bottom: 0; }
+/* A link of the markdown. Its words stand in the bright accent of the skin, with
+   a rule under them that is a mix of the accent and not the accent itself, so a
+   link reads as a word the reader may follow and not as the mark of a live
+   state. The address of it is in the tip, and it is opened away from this page,
+   so the chat is never navigated away from. */
+a.link { color: var(--ink); overflow-wrap: anywhere;
+  text-decoration: underline; text-decoration-thickness: 1px;
+  text-decoration-color: var(--accent-line); text-underline-offset: 2px; }
+a.link:hover { text-decoration-color: currentColor; }
+/* A link that came in with an answer that is still coming fades in as the words
+   about it do. The class of it is not `.ink`, for words that have done fading
+   are made plain words again, and a link that was made a plain word would be a
+   link lost. */
+a.link.fade { animation: ink 420ms ease-out; }
 pre.code {
   margin: 4px 0 11px; padding: 11px 13px; background: var(--code-bg);
   border: 1px solid var(--code-line); border-radius: 10px;
@@ -419,6 +474,7 @@ pre.code .t-p { color: var(--t-pun); }
 .think .words .h::before { height: 12px; }
 .think .words ul.marks, .think .words ol.marks { padding-left: 26px; margin: 3px 0 7px; }
 .think .words pre.code { font-size: 12px; max-height: 150px; margin: 3px 0 7px; }
+.think .words hr.mdrule { margin: 9px 0; }
 
 /* The mark of an answer that is still coming. */
 .caret { display: inline-block; width: 7px; height: 15px; margin-top: 2px; border-radius: 1px;
@@ -748,7 +804,8 @@ img.pic { animation: plate-in 180ms ease-out; }
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
-  .caret, .ink, .pulse.busy, .state.run, .state.write, .gauge .spin { animation: none; }
+  .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
+  .gauge .spin { animation: none; }
   img.pic { animation: none; }
 }
 </style>
@@ -1339,13 +1396,17 @@ function addNoteBit(box, text, first) {
 
 // ---------------------------------------------------------------- the words
 //
-// The stored words keep the marks of markdown. The window puts them in blocks
-// of their own: a heading, a list, a block of code, and plain words. The marks
-// of the words inside a block are taken out, so a bold word reads as a plain
-// word and the address of a link stands after the words of the link. No mark
-// reaches the reader.
+// The stored words keep the marks of markdown. They are put in blocks of their
+// own: a heading, a list, a block of code, a table, a quote, a rule across the
+// page, and plain words. The marks of the words inside a block are taken out, so
+// a bold word reads as a plain word. A link is kept as a link: its words stand
+// where they fall and its address stands in the link itself. No mark of the
+// writing reaches the reader.
 
-// The words of a line with the marks of markdown taken out.
+// The words of a run with the marks of markdown taken out. A link that the
+// cutting of the parts made nothing of is answered here as it always was: its
+// words, and its address after them, so an address that is not one to follow is
+// at least read.
 function plain(text) {
   var words = String(text || '');
   // Two passes, so a bold run with marks of its own inside loses all of them.
@@ -1374,13 +1435,216 @@ function stripOnce(text) {
     .replace(/<[^>]*>/g, '');
 }
 
-// The blocks of one message. Each block has a kind and words of its own.
-function blocks(text) {
-  var lines = String(text || '').split('\n');
+// -------------------------------------------------- the words inside a block
+//
+// The words of a block are cut into parts: words, and the links in them. A link
+// is the one mark of the writing that is kept, for a reader may follow it. Every
+// other mark is taken out, as it always was. The run is read line by line, so a
+// stroke of emphasis in one line is never paired with a stroke in another.
+
+// The address of a link, or nothing when it is not an address to follow. Only
+// the addresses a reader means to reach are let through: a web page, and a mail.
+// The rest - a script of its own, a file of the machine, a road from this page -
+// is left as words, so the reader sees what was written and the program makes
+// nothing of it.
+function linkHref(address) {
+  var path = String(address || '');
+  if (/^https?:\/\//i.test(path) || /^mailto:/i.test(path)) { return path; }
+  return '';
+}
+
+// A link at one place of one line of words: the words of it, its address, and
+// where the marks of it end. Nothing is made of a bracket that is not closed,
+// of a mark that does not stand behind the bracket, or of an address that is not
+// one to follow. A title standing between the address and the mark that ends it
+// is spent there.
+function linkAt(words, at) {
+  var close = words.indexOf(']', at + 1);
+  if (close < 0 || words.charAt(close + 1) !== '(') { return null; }
+  // The address runs to the mark that ends it. A pair of marks of rounding
+  // inside it belongs to the address, as a web page of a bookshop often has.
+  var rest = words.slice(close + 2), address = '', deep = 0, n = 0;
+  for (n = 0; n < rest.length; n++) {
+    var ch = rest.charAt(n);
+    if (ch === ')') { if (!deep) { break; } deep--; }
+    else if (ch === '(') { deep++; }
+    else if (!deep && /\s/.test(ch)) { break; }
+    address += ch;
+  }
+  var ends = /^\s*(?:"[^"\n]*"|'[^'\n]*')?\s*\)/.exec(rest.slice(n));
+  if (!ends) { return null; }
+  var href = linkHref(address);
+  if (!href) { return null; }
+  var said = words.slice(at + 1, close);
+  // A link with no words of its own is read by its address, for a link that
+  // says nothing cannot be looked at.
+  return { words: said || address, href: href, end: close + 2 + n + ends[0].length };
+}
+
+// The parts of one line of words, put onto the list that is being filled. A
+// bracket with a line before it is an escaped bracket and starts nothing, and a
+// bracket with a mark of exclamation before it is a picture, which is read as
+// words here as it always was.
+function lineParts(line, out) {
+  var words = String(line || ''), run = '', n = 0;
+  while (n < words.length) {
+    var ch = words.charAt(n);
+    var back = n > 0 ? words.charAt(n - 1) : '';
+    if (ch === '[' && back !== '\\' && back !== '!') {
+      var link = linkAt(words, n);
+      if (link) {
+        if (run) { out.push({ words: plain(run) }); run = ''; }
+        out.push({ words: plain(link.words), href: link.href });
+        n = link.end;
+        continue;
+      }
+    }
+    if (ch === '<') {
+      // An address between marks of less-than is a link of its own, and the
+      // address is the whole of its words.
+      var straight = /^<((?:https?:\/\/|mailto:)[^\s<>]*)>/.exec(words.slice(n));
+      if (straight) {
+        if (run) { out.push({ words: plain(run) }); run = ''; }
+        out.push({ words: plain(straight[1]), href: linkHref(straight[1]) });
+        n += straight[0].length;
+        continue;
+      }
+    }
+    run += ch; n++;
+  }
+  if (run) { out.push({ words: plain(run) }); }
+  return out;
+}
+
+// The parts of the words of one block. The words of a block may stand over more
+// than one line, and every line is read on its own.
+function inlineParts(text) {
+  var lines = String(text || '').split('\n'), out = [];
+  for (var n = 0; n < lines.length; n++) {
+    if (n) { out.push({ words: '\n' }); }
+    lineParts(lines[n], out);
+  }
+  return out;
+}
+
+// The words of a list of parts, as the reader sees them.
+function inlineWords(parts) {
+  var said = '';
+  for (var n = 0; n < parts.length; n++) { said += parts[n].words; }
+  return said;
+}
+
+// The links of a run of words as one line. A link that comes in changes the look
+// of a block as much as a new line of words does, so it must stand in the shape
+// of an answer that is still coming.
+function linkShape(text) {
+  var parts = inlineParts(text), shape = '';
+  for (var n = 0; n < parts.length; n++) {
+    if (parts[n].href) { shape += ' link' + parts[n].href; }
+  }
+  return shape;
+}
+
+// The link itself. Its words are set as words and never as marks, so nothing the
+// model wrote can come into the page as a tag. The address stands in the tip of
+// the link, and the link is opened away from this page, so the chat is never
+// navigated away from and nothing is fetched for it.
+function linkNode(words, href, fade) {
+  var link = make('a', 'link' + (fade && !reduce ? ' fade' : ''));
+  link.setAttribute('href', href);
+  link.setAttribute('title', href);
+  link.setAttribute('target', '_blank');
+  link.setAttribute('rel', 'noopener noreferrer external');
+  link.textContent = words;
+  return link;
+}
+
+// The parts of a run of words put into a node. `fade` puts the words behind a
+// fade, as the new words of an answer are.
+function inlineInto(node, parts, fade) {
+  for (var n = 0; n < parts.length; n++) {
+    var part = parts[n];
+    if (!part.words) { continue; }
+    if (part.href) { putLast(node, linkNode(part.words, part.href, fade)); }
+    else if (fade) { fresh(node, part.words); }
+    else { putLast(node, document.createTextNode(part.words)); }
+  }
+}
+
+// The marks of the lines that begin a table or a quote. The line under the head
+// of a table is made of cells of dashes, and a colon at either end of one says
+// which way the words of that column stand.
+var QUOTE_LINE = /^(?:>\s?)+(.*)$/;
+var RULE_CELL = /^:?-+:?$/;
+// The line that is a rule across the page: three of one mark, with room between
+// them, and nothing else on the line.
+var RULE_LINE = /^([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+
+// The cells of one line, with the words in them as they were written. The wall
+// at each end of a row is cut off, and a pipe with a line before it is a pipe
+// of the words and not a wall between two cells.
+function splitCells(line) {
+  var text = String(line).trim();
+  if (text.charAt(0) === '|') { text = text.slice(1); }
+  if (text.length > 1 && text.charAt(text.length - 1) === '|'
+      && text.charAt(text.length - 2) !== '\\') { text = text.slice(0, -1); }
+  var out = [], word = '';
+  for (var n = 0; n < text.length; n++) {
+    var ch = text.charAt(n);
+    if (ch === '\\' && text.charAt(n + 1) === '|') { word += '|'; n++; continue; }
+    if (ch === '|') { out.push(word); word = ''; continue; }
+    word += ch;
+  }
+  out.push(word);
+  for (var m = 0; m < out.length; m++) { out[m] = out[m].replace(/^\s+|\s+$/g, ''); }
+  return out;
+}
+
+// Which way the words of each column stand, read from the line of dashes under
+// the head: left, centre, right, or as they come.
+function tableAligns(line) {
+  var raw = splitCells(line), out = [];
+  for (var n = 0; n < raw.length; n++) {
+    var cell = raw[n];
+    var before = cell.charAt(0) === ':';
+    var after = cell.charAt(cell.length - 1) === ':';
+    out.push(before && after ? 'c' : after ? 'r' : before ? 'l' : '');
+  }
+  return out;
+}
+
+// Whether a line is the line of dashes under the head of a table. The line must
+// hold a wall, or three marks on their own - which draw a rule across the page
+// and are no table - would be taken for one.
+function isRuleRow(line) {
+  if (line.indexOf('|') < 0) { return false; }
+  var cells = splitCells(line);
+  if (!cells.length) { return false; }
+  for (var n = 0; n < cells.length; n++) {
+    if (!RULE_CELL.test(cells[n])) { return false; }
+  }
+  return true;
+}
+
+// Whether a line goes on as a row of the table that is being read. A quote, a
+// heading, or a fence is a thing of its own and ends the table.
+function isRow(cut) {
+  return !!cut && cut.indexOf('|') >= 0 && !QUOTE_LINE.test(cut)
+    && !/^```/.test(cut) && !/^(#{1,6})\s/.test(cut);
+}
+
+// The blocks of one list of lines, with the marks of the writing left in the
+// words of each block: the words inside a block are cut into parts after it.
+// A quote holds lines of its own, and so the rule runs over them again: a list,
+// a heading, a block of code, a rule, or a quote may stand inside a quote.
+function blocksFromLines(lines) {
   var out = [];
   var para = [];
   var list = null;
   var fence = null;
+  // The lines of a quote that is being read, and the table that is being read.
+  var quote = null;
+  var table = null;
   // The word after the three marks of a fence says which kind of file the
   // block holds, and the colours of the block follow it.
   var fenceLang = '';
@@ -1393,9 +1657,48 @@ function blocks(text) {
     if (list && list.length) { out.push({ kind: 'list', items: list.slice() }); }
     list = null;
   }
+  function flushQuote() {
+    if (quote && quote.length) {
+      var made = blocksFromLines(quote);
+      if (made.length) { out.push({ kind: 'quote', blocks: made }); }
+    }
+    quote = null;
+  }
+  function flushTable() {
+    if (table) {
+      // Every row is made as wide as the widest thing in the table, so the
+      // walls of it stand straight when a row lost a cell on the way.
+      var wide = table.head.length;
+      for (var n = 0; n < table.rows.length; n++) {
+        if (table.rows[n].length > wide) { wide = table.rows[n].length; }
+      }
+      while (table.head.length < wide) { table.head.push(''); }
+      while (table.align.length < wide) { table.align.push(''); }
+      for (var m = 0; m < table.rows.length; m++) {
+        while (table.rows[m].length < wide) { table.rows[m].push(''); }
+      }
+      table.width = wide;
+      out.push(table);
+    }
+    table = null;
+  }
+
   for (var n = 0; n < lines.length; n++) {
     var line = lines[n];
     var cut = line.replace(/^\s*/, '');
+    // A table goes on for as long as the lines are rows of cells, and ends at
+    // the first line that is not one.
+    if (table) {
+      if (isRow(cut)) { table.rows.push(splitCells(cut)); continue; }
+      flushTable();
+    }
+    // A quote goes on for as long as the lines carry the mark, and ends at the
+    // first line that does not.
+    if (quote !== null) {
+      var more = QUOTE_LINE.exec(cut);
+      if (more) { quote.push(more[1]); continue; }
+      flushQuote();
+    }
     if (fence !== null) {
       if (/^```/.test(cut)) {
         out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, ''),
@@ -1417,35 +1720,70 @@ function blocks(text) {
     var head = /^(#{1,6})\s+(.*)$/.exec(cut);
     if (head) {
       flushList(); flushPara();
-      out.push({ kind: 'heading', text: plain(head[2]), level: head[1].length });
+      out.push({ kind: 'heading', text: head[2], level: head[1].length });
+      continue;
+    }
+    // The marks across the page, dividing one part of an answer from the next.
+    // The look for them stands before the marks of a list, for three marks with
+    // room between them are a rule and not three items; and a line of dashes
+    // under a row of cells was read above as the line of a table. A line of
+    // dashes under a line of words is a rule here too, for the program has no
+    // heading made by an underline.
+    if (RULE_LINE.test(cut)) {
+      flushList(); flushPara();
+      out.push({ kind: 'rule' });
       continue;
     }
     var item = /^[-*+]\s+(.*)$/.exec(cut);
     if (item) {
       flushPara();
       if (!list) { list = []; }
-      list.push({ text: plain(item[1]), ordered: false });
+      list.push({ text: item[1], ordered: false });
       continue;
     }
     var numbered = /^(\d+)[.)]\s+(.*)$/.exec(cut);
     if (numbered) {
       flushPara();
       if (!list) { list = []; }
-      list.push({ text: plain(numbered[2]), ordered: true });
+      list.push({ text: numbered[2], ordered: true });
       continue;
     }
     if (!cut) { flushList(); flushPara(); continue; }
+    // A table is a row of cells with the line of dashes under it. The row of
+    // cells is read again below, as the head of a table with no rows yet; the
+    // line of dashes under it is spent here.
+    var under = n + 1 < lines.length ? lines[n + 1].replace(/^\s*/, '') : '';
+    if (cut.indexOf('|') >= 0 && isRuleRow(under)) {
+      flushList(); flushPara();
+      table = { kind: 'table', head: splitCells(cut), align: tableAligns(under),
+        rows: [] };
+      n++;
+      continue;
+    }
+    // The mark of another voice at the head of the line.
+    var quoted = QUOTE_LINE.exec(cut);
+    if (quoted) {
+      flushList(); flushPara();
+      quote = [quoted[1]];
+      continue;
+    }
     flushList();
-    para.push(plain(line));
+    para.push(line);
   }
   if (fence !== null) {
     out.push({ kind: 'code', text: fence.join('\n').replace(/\s+$/, ''), lang: fenceLang });
   }
+  flushTable();
+  flushQuote();
   flushList();
   flushPara();
   return out;
 }
 
+// The blocks of one message. Each block has a kind and words of its own.
+function blocks(text) {
+  return blocksFromLines(String(text || '').split('\n'));
+}
 // The first line of a command, for the head of the tool panel.
 function firstLine(text) {
   var lines = String(text || '').split('\n');
@@ -2028,11 +2366,16 @@ function paintCode(node, text, lang) {
 }
 // One block of words, as the window sets it.
 function blockNode(block) {
+  if (block.kind === 'rule') {
+    // The marks across the page. A hairline of its own, between the two parts
+    // of the answer it divides.
+    return make('hr', 'mdrule');
+  }
   if (block.kind === 'heading') {
     var level = Math.max(1, Math.min(6, block.level || 1));
     var head = make('div', 'h l' + level);
     var span = make('span');
-    span.textContent = block.text;
+    inlineInto(span, inlineParts(block.text), false);
     head.appendChild(span);
     return head;
   }
@@ -2042,10 +2385,52 @@ function blockNode(block) {
     var list = make(ordered ? 'ol' : 'ul', 'marks');
     for (var m = 0; m < block.items.length; m++) {
       var li = make('li');
-      li.textContent = block.items[m].text;
+      inlineInto(li, inlineParts(block.items[m].text), false);
       list.appendChild(li);
     }
     return list;
+  }
+  if (block.kind === 'quote') {
+    // The words of another voice. What stands inside a quote is markdown as
+    // much as anything else, so the blocks of it are made by the same rule.
+    var quote = make('div', 'quote');
+    for (var q = 0; q < block.blocks.length; q++) {
+      quote.appendChild(blockNode(block.blocks[q]));
+    }
+    return quote;
+  }
+  if (block.kind === 'table') {
+    // A table of the markdown. The head is always the first row, which is how
+    // the marks of a table say which row it was.
+    var wrap = make('div', 'tablewrap');
+    var table = make('table', 'mdtable');
+    var wide = block.width || block.head.length;
+    var head = make('tr');
+    for (var c = 0; c < wide; c++) {
+      var th = make('th');
+      inlineInto(th, inlineParts(block.head[c] || ''), false);
+      if (block.align[c]) { th.className = 'a' + block.align[c]; }
+      head.appendChild(th);
+    }
+    var thead = make('thead');
+    thead.appendChild(head);
+    table.appendChild(thead);
+    if (block.rows.length) {
+      var body = make('tbody');
+      for (var r = 0; r < block.rows.length; r++) {
+        var row = make('tr');
+        for (var k = 0; k < wide; k++) {
+          var td = make('td');
+          inlineInto(td, inlineParts(block.rows[r][k] || ''), false);
+          if (block.align[k]) { td.className = 'a' + block.align[k]; }
+          row.appendChild(td);
+        }
+        body.appendChild(row);
+      }
+      table.appendChild(body);
+    }
+    wrap.appendChild(table);
+    return wrap;
   }
   if (block.kind === 'code') {
     var code = make('pre', 'code');
@@ -2054,7 +2439,7 @@ function blockNode(block) {
     return code;
   }
   var text = make('div', 'body');
-  text.textContent = block.text;
+  inlineInto(text, inlineParts(block.text), false);
   return text;
 }
 
@@ -2093,16 +2478,39 @@ function shapeOf(made) {
   var parts = [];
   for (var n = 0; n < made.length; n++) {
     var block = made[n];
-    parts.push(block.kind + (block.level || 0) + (block.items ? block.items.length : 0));
+    var one = block.kind + (block.level || 0) + (block.items ? block.items.length : 0);
+    // A row of cells added to a table, and a block added to a quote, change the
+    // shape of the answer as much as a line of words does.
+    if (block.rows) {
+      var lastRow = block.rows.length ? block.rows[block.rows.length - 1] : block.head;
+      one += block.rows.length + 'row' + lastRow.join('\u0001');
+    }
+    // A link that came in changes the look of a block as much as a new line of
+    // words does, so the links of the words stand in the shape too. The words of
+    // a table are in it already, and a block of code keeps its marks whole.
+    if (block.kind === 'text' || block.kind === 'heading') { one += linkShape(block.text); }
+    if (block.items) {
+      for (var k = 0; k < block.items.length; k++) { one += linkShape(block.items[k].text); }
+    }
+    if (block.blocks) { one += 'quote(' + shapeOf(block.blocks) + ')'; }
+    parts.push(one);
   }
   return parts.join(' ');
 }
 
-// The words of the last block. Only that block can still grow.
+// The words of the last block, as they were written. Only that block can still
+// grow.
 function tailText(made) {
   if (!made.length) { return ''; }
   var last = made[made.length - 1];
   if (last.kind === 'list') { return last.items[last.items.length - 1].text; }
+  // The words that can still grow are the last cell of the last row of a table,
+  // and the last words inside a quote.
+  if (last.kind === 'table') {
+    var row = last.rows.length ? last.rows[last.rows.length - 1] : last.head;
+    return row.length ? row[row.length - 1] : '';
+  }
+  if (last.kind === 'quote') { return last.blocks.length ? tailText(last.blocks) : ''; }
   return last.text || '';
 }
 
@@ -2119,6 +2527,15 @@ function holderOf(node) {
   if (!node) { return null; }
   if (node.tagName === 'UL' || node.tagName === 'OL') { return node.lastChild; }
   if (node.classList.contains('h')) { return node.lastChild; }
+  // The words that can still grow stand in the last block of a quote, and in
+  // the last cell of the last row of a table.
+  if (node.classList.contains('quote')) {
+    return node.lastElementChild ? holderOf(node.lastElementChild) : node;
+  }
+  if (node.classList.contains('tablewrap')) {
+    return node.querySelector('tbody tr:last-child td:last-child')
+      || node.querySelector('thead tr:last-child th:last-child') || node;
+  }
   return node;
 }
 
@@ -2151,24 +2568,34 @@ function settle(node) {
   node.normalize();
 }
 
-// The new words of the block that can still grow. A block of code is painted
-// again whole, so its colours stay right while the words come in; a block of
-// words takes the new words at its end, behind a fade.
-function putTail(holder, want, rebuilt) {
+// The new words of the block that can still grow. They are given as they were
+// written, and put on the page as parts. A block of code is painted again whole,
+// so its colours stay right while the words come in; a block of words takes the
+// new words at its end, behind a fade.
+function putTail(holder, written, rebuilt) {
   if (holder.classList.contains('code')) {
-    paintCode(holder, want, holder.dataset.lang || '');
+    paintCode(holder, written, holder.dataset.lang || '');
     return;
   }
+  var parts = inlineParts(written);
+  var want = inlineWords(parts);
   if (rebuilt) {
+    // The block came in, so its words are put on again and fade in. A link is
+    // put on whole, for the words of it must stand as a link and not as words.
     holder.textContent = '';
-    if (want) { fresh(holder, want); }
+    inlineInto(holder, parts, true);
     return;
   }
   var have = holder.textContent;
   if (want.length > have.length && want.slice(0, have.length) === have) {
+    // Only words were added to the end, and no link came in, so what stands on
+    // the page keeps its place.
     fresh(holder, want.slice(have.length));
   } else {
-    holder.textContent = want;
+    // The words changed instead of growing: a mark was finished, or a link went
+    // away. The block is put on again whole.
+    holder.textContent = '';
+    inlineInto(holder, parts, false);
   }
 }
 
@@ -2180,7 +2607,7 @@ function writeBlocks(node, state, text) {
   if (!node) { return null; }
   var made = blocks(text);
   var shape = shapeOf(made);
-  var want = tailText(made);
+  var tail = tailText(made);
   var holder = null;
   var rebuilt = false;
   if (shape !== state.shape) {
@@ -2192,7 +2619,7 @@ function writeBlocks(node, state, text) {
   } else if (made.length) {
     holder = holderOf(lastBlock(node));
   }
-  if (holder) { putTail(holder, want, rebuilt); }
+  if (holder) { putTail(holder, tail, rebuilt); }
   settle(node);
   return holder;
 }
