@@ -184,6 +184,28 @@ pub struct Config {
     // no limit, so an answer ends only when the model stops by itself.
     #[serde(default = "no_limit")]
     pub chat_max_answer_steps: i64,
+    // A paste of more than this many characters into the chat box becomes a
+    // file attachment instead of words in the box. 100 is the least, so a
+    // paste of a word or two always stays a paste.
+    #[serde(default = "default_pasted_text_char_limit")]
+    pub pasted_text_char_limit: u32,
+}
+
+// The least a paste limit may be set to. Smaller numbers are lifted to it.
+pub const LEAST_PASTE_LIMIT: u32 = 100;
+
+// The most a paste limit may be set to, so one paste cannot ask for a file of
+// more than a million characters.
+pub const GREATEST_PASTE_LIMIT: u32 = 1_000_000;
+
+// The place a paste of words turns into a file, in characters.
+fn default_pasted_text_char_limit() -> u32 {
+    6000
+}
+
+// Keep the paste limit inside the two bounds above.
+pub fn sanitize_pasted_text_limit(value: u32) -> u32 {
+    value.clamp(LEAST_PASTE_LIMIT, GREATEST_PASTE_LIMIT)
 }
 
 // A number of steps with no ceiling. The Chatting settings hold -1 for it, and
@@ -209,6 +231,7 @@ impl Default for Config {
             chat_chapters: true,
             chat_max_tool_steps: -1,
             chat_max_answer_steps: -1,
+            pasted_text_char_limit: default_pasted_text_char_limit(),
         }
     }
 }
@@ -409,6 +432,22 @@ mod tests {
         // unlimited rather than as a ceiling of nothing.
         assert_eq!(read.chat_max_tool_steps, -1);
         assert_eq!(read.chat_max_answer_steps, -1);
+    }
+
+    // A paste of words into the chat box becomes a file at six thousand
+    // characters, and a settings file written before this setting stood reads
+    // with the same number. The number keeps inside its two bounds.
+    #[test]
+    fn a_paste_of_words_becomes_a_file_after_six_thousand() {
+        assert_eq!(Config::default().pasted_text_char_limit, 6000);
+        let old = "{\"llama_dir\":\"\",\"models_dir\":\"\",\"repositories_dir\":\"\",\
+                   \"dark_mode\":false,\"remote_port\":8723,\"upnp_enabled\":false,\
+                   \"model_id\":\"\",\"model_settings\":{}}";
+        let read: Config = serde_json::from_str(old).expect("an old settings file reads");
+        assert_eq!(read.pasted_text_char_limit, 6000);
+        assert_eq!(sanitize_pasted_text_limit(9), 100);
+        assert_eq!(sanitize_pasted_text_limit(5000), 5000);
+        assert_eq!(sanitize_pasted_text_limit(2_000_000), 1_000_000);
     }
 }
 

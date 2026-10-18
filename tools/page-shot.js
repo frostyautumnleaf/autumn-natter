@@ -26,6 +26,15 @@
 // the top instead of the end.
 //   AN_PROGRESS=42 AN_WHAT=image node page-shot.js processing p.png
 //   AN_PROGRESS and AN_WHAT stand for the gauge above the chat box.
+//   AN_PASTE=1 hangs a picture and a file of words on the chat box, as the
+//   reader's Ctrl+V would, so the blocks over the words can be looked at.
+//   AN_DROP=1 hangs them as a file let go over the box would, which is the
+//   other road on to the box, and the one Tauri used to eat.
+//   AN_PICFILE=pic.png makes the pictures of the attachments real, so the
+//   blocks of a sent message can be judged as they will be seen. A second
+//   picture of another shape goes to AN_PICFILE2, and is handed out to an
+//   attachment whose number holds the word 'tall'. The scene 'parts' is a talk
+//   made of nothing but the blocks under a message.
 
 'use strict';
 
@@ -35,11 +44,25 @@ const { execSync } = require('child_process');
 const page = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const useFetch = process.env.AN_FETCH === '1';
 
+// The pictures of the attachment blocks. A single pixel is too small to tell
+// whether the plate of a picture is laid out well, so AN_PICFILE names a real
+// picture to hand out instead, and AN_PICFILE2 a second one of another shape;
+// the bridge gives either to any block that asks for the file of an attachment.
+function aPicture(where) {
+  const ONE_PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk' +
+    '+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  return 'data:image/png;base64,'
+    + (where ? require('fs').readFileSync(where).toString('base64') : ONE_PIXEL);
+}
+
+const ATT_PIC = aPicture(process.env.AN_PICFILE);
+const ATT_TALL = aPicture(process.env.AN_PICFILE2 || process.env.AN_PICFILE);
+
 // One message of the talk.
 function said(id, role, body, extra) {
   return Object.assign({
     id: id, role: role, body: body, reasoning: '', reasoning_ms: 0, tool: '',
-    mono: false, failed: false, when: '09:4' + (id % 10)
+    mono: false, failed: false, when: '09:4' + (id % 10), attachments: []
   }, extra || {});
 }
 
@@ -48,7 +71,14 @@ function said(id, role, body, extra) {
 // a line from the program. The first run of the tool came out of a turn with
 // no words of its own, so the thinking of that turn stands above the command.
 const FULL = [
-  said(1, 'You', 'Can you show the plan for the parser, and run the tests?'),
+  // The first message of the reader hangs two files on its words, so the
+  // blocks under the bubble are drawn in both skins.
+  said(1, 'You', 'Can you show the plan for the parser, and run the tests?', {
+    attachments: [
+      { id: 'att-1', name: 'parser-diagram.png', mime: 'image/png', image: true },
+      { id: 'att-2', name: 'notes.txt', mime: 'text/plain', image: false }
+    ]
+  }),
   said(2, 'Assistant',
     '# Plan\n\nWe change two files.\n\n'
     + '1. `markdown.rs` closes a paragraph when a list starts.\n'
@@ -82,12 +112,39 @@ const FULL = [
 ];
 
 const TALK = [
-  said(1, 'You', 'What is the difference between mmap and mlock?'),
+  said(1, 'You', 'What is the difference between mmap and mlock?', {
+    attachments: [{ id: 'att-3', name: 'memory-map.png', mime: 'image/png', image: true }]
+  }),
   said(2, 'Assistant', 'mmap lets the system page the model in and out. mlock keeps '
     + 'the whole file in the memory of the machine.\n\nUse mlock when the model must '
     + 'not be moved.'),
   said(3, 'You', 'Which one is the default?'),
   said(4, 'Assistant', 'mmap is the default. It costs less memory.'),
+];
+
+// A talk whose only point is the blocks under the words of the reader: a
+// picture of the usual shape, a picture taller than it is wide, a name too
+// long for a block, a message of files and no words, and a file whose name is
+// made of many parts. The second picture is asked for by an attachment whose
+// number holds the word 'tall', so the two shapes can stand in one row.
+const PARTS = [
+  said(1, 'You', 'Two pictures of the plateau, the log of the run, and a note.', {
+    attachments: [
+      { id: 'att-wide', name: 'plateau-east.png', mime: 'image/png', image: true },
+      { id: 'att-tall', name: 'plateau-west.png', mime: 'image/png', image: true },
+      { id: 'att-long', name: 'run-log-2026-10-17-afternoon-of-the-third-day.txt',
+        mime: 'text/plain', image: false },
+      { id: 'att-note', name: 'notes.txt', mime: 'text/plain', image: false }
+    ]
+  }),
+  said(2, 'Assistant', 'The eastern picture holds the lake; the western one is cut off '
+    + 'by the ridge.'),
+  said(3, 'You', '', {
+    attachments: [
+      { id: 'att-only', name: 'the-plan-of-the-bar.svg', mime: 'image/svg+xml', image: false },
+      { id: 'att-tall2', name: 'screenshot-of-the-sheet.png', mime: 'image/png', image: true }
+    ]
+  }),
 ];
 
 // The command the model writes in the `writing` scene, and the reason it gives
@@ -146,13 +203,13 @@ function scene(name, dark) {
     sandbox_note: 'bubblewrap (bwrap) was found, so the tool can be kept inside a jail.',
     status: 'Ready', dark: !!dark, data_dir: '/home/user/.local/share/autumn-natter'
   };
-  if (name === 'chat' || name === 'rich' || name === 'streaming' || name === 'streaming-code'
-    || name === 'previews') {
+  if (name === 'chat' || name === 'rich' || name === 'parts' || name === 'streaming'
+    || name === 'streaming-code' || name === 'previews') {
     start.home = false;
     start.chat = { id: 'c1', title: name === 'rich' ? 'Parser order' : 'Memory of the talk' };
     start.chats = chats(name === 'previews' ? 9 : 3, 1);
     start.carousel = { index: 1, count: start.chats.length, blank: false };
-    start.messages = name === 'rich' ? FULL : TALK;
+    start.messages = name === 'rich' ? FULL : name === 'parts' ? PARTS : TALK;
     // The chapters the model marked, tied to the message each begins after.
     start.chapters = name === 'rich'
       ? [{ id: 'ch1', name: 'The plan for the parser', after: 1 },
@@ -269,7 +326,9 @@ const CONFIG = {
   chat_chapters: true,
   // The two rooms for steps stand unlimited, as they do for a new set of settings.
   chat_max_tool_steps: -1,
-  chat_max_answer_steps: -1
+  chat_max_answer_steps: -1,
+  // A paste of many words becomes a file at six thousand characters.
+  pasted_text_char_limit: 6000
 };
 
 const MODEL = {
@@ -349,7 +408,7 @@ async function main() {
   view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
   view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
 
-  await view.evaluateOnNewDocument(function (fetchMode, held, config, model) {
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, pic, pic2) {
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
@@ -357,6 +416,14 @@ async function main() {
         if (String(url).indexOf('/api/state') === 0) {
           return Promise.resolve({ json: function () {
             return Promise.resolve(JSON.parse(JSON.stringify(held))); } });
+        }
+        if (String(url).indexOf('/api/attachment') === 0) {
+          // One attachment record, as the small server of the remote mode
+          // hands it to the block that asks for its file.
+          var asked = String(url).indexOf('tall') < 0 ? pic : pic2;
+          return Promise.resolve({ json: function () {
+            return Promise.resolve({ name: 'memory-map.png', mime: 'image/png',
+              data: asked, text: '' }); } });
         }
         return Promise.resolve({ json: function () {
           return Promise.resolve({ ok: true }); } });
@@ -383,14 +450,62 @@ async function main() {
             return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
               + '-ngl 999 --fit on --fit-target 400');
           }
+          if (command === 'get_attachment') {
+            // One attachment record, as the window hands it to the block
+            // that asks for its file.
+            return Promise.resolve({ name: 'memory-map.png', mime: 'image/png',
+              data: String((args && args.id) || '').indexOf('tall') < 0 ? pic : pic2,
+              text: '' });
+          }
           return Promise.resolve({ ok: true });
         }
       }
     };
-  }, useFetch, state, CONFIG, MODEL);
+  }, useFetch, state, CONFIG, MODEL, ATT_PIC, ATT_TALL);
 
   await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
   await new Promise(function (r) { setTimeout(r, 700); });
+  // AN_PASTE=1 hangs a picture and a file of words on the chat box the way
+  // Ctrl+V would, so the blocks over the words of the box can be looked at.
+  if (process.env.AN_PASTE === '1') {
+    await view.evaluate(function (picUrl) {
+      var bin = atob(picUrl.split(',')[1]);
+      var bytes = new Uint8Array(bin.length);
+      for (var n = 0; n < bin.length; n++) { bytes[n] = bin.charCodeAt(n); }
+      var transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], 'dropped-photo.png', { type: 'image/png' }));
+      transfer.items.add(new File(['the pasted words of a note'], 'note.txt',
+        { type: 'text/plain' }));
+      var draft = document.getElementById('draft');
+      draft.dispatchEvent(new ClipboardEvent('paste', {
+        clipboardData: transfer, bubbles: true, cancelable: true
+      }));
+    }, ATT_PIC);
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
+
+  // AN_DROP=1 lets a picture and a file of words go over the chat box, the way
+  // a drag from the file manager of the machine would. The window took these
+  // from the page before, so this is the look of the road that was shut.
+  if (process.env.AN_DROP === '1') {
+    await view.evaluate(function (picUrl) {
+      var bin = atob(picUrl.split(',')[1]);
+      var bytes = new Uint8Array(bin.length);
+      for (var n = 0; n < bin.length; n++) { bytes[n] = bin.charCodeAt(n); }
+      var transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], 'let-go-photo.png', { type: 'image/png' }));
+      transfer.items.add(new File(['the words of a file let go'], 'let-go.md',
+        { type: 'text/markdown' }));
+      var box = document.getElementById('box');
+      box.dispatchEvent(new DragEvent('dragover', {
+        dataTransfer: transfer, bubbles: true, cancelable: true
+      }));
+      box.dispatchEvent(new DragEvent('drop', {
+        dataTransfer: transfer, bubbles: true, cancelable: true
+      }));
+    }, ATT_PIC);
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
 
   if (name === 'previews') {
     await view.evaluate(function () {
@@ -405,6 +520,13 @@ async function main() {
       if (b) { b.click(); }
     });
     await new Promise(function (r) { setTimeout(r, 600); });
+    // The sheet is taller than the window, so bring the last field of the
+    // Chatting section into the picture.
+    await view.evaluate(function () {
+      var f = document.getElementById('fPasteLimit');
+      if (f) { f.scrollIntoView({ block: 'center' }); }
+    });
+    await new Promise(function (r) { setTimeout(r, 300); });
   }
   if (name === 'sheet-model') {
     await view.evaluate(function () {

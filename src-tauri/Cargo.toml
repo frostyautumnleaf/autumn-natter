@@ -18,3 +18,12 @@ autumn-natter-core = { path = "../" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A file the window took from the machine goes to the page as a data URL, which
+# is the shape the page already sends back with a message.
+base64 = "0.22"
+
+# The window of this system asks the clipboard of the machine through GTK, the
+# toolkit the web view of the system stands on. No other system has that tool.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { version = "0.18", features = ["v3_24"] }
+percent-encoding = "2"
