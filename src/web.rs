@@ -91,6 +91,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // How long that thinking took, in milliseconds.
                 "reasoning_ms": m.reasoning_ms,
                 "tool": m.tool,
+                // Which tool this run was: the page puts the mark and the words
+                // of that tool on the head of the block.
+                "tool_name": m.tool_name,
                 "mono": m.mono,
                 "failed": m.failed,
                 "when": store::format_clock(m.when),

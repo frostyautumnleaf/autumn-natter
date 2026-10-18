@@ -1,0 +1,1174 @@
+// The two file tools. One changes a file of the chat, and the other makes a
+// new one there.
+//
+// Both tools work in the program itself. They do not start a shell, so they do
+// not need bubblewrap, and a chat that cannot get the jail is not left without
+// file tools. They are kept to the room of the chat, which is the one room the
+// jail of the terminal tool may be written in: the name of the file is joined
+// onto that room, a road that goes up out of a folder is refused, links are
+// followed before the place is looked at, and the records of the attachments of
+// the chat are kept out of both tools. A chat with the sandbox on and a chat
+// with it off therefore reach the same files, and no more.
+//
+// The changes of one call are all matched against the file as it stood before
+// the call, and are written together or not at all. A batch that is part
+// written is a worse thing than a batch refused, for the model cannot work out
+// which half landed.
+//
+// Nothing of this is a place holder. No part of a call asks for a mark that
+// stands for other words, and no words are put behind the answer to tell the
+// window what was made.
+
+use serde_json::{json, Value};
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use crate::attach;
+use crate::tools;
+
+// The name the model uses to change a file, and the name it uses to make one.
+pub const EDIT_NAME: &str = "edit_file";
+pub const CREATE_NAME: &str = "create_file";
+
+// The longest file either tool reads or writes. The whole file is read to find
+// the places to change, so the cap stands on the file and not on a change.
+const MAX_FILE_BYTES: usize = 16 * 1024 * 1024;
+
+// The most changes one call may ask for. Every one of them costs a look through
+// the whole file, so a batch of a few thousand would hold the program for
+// minutes over one call.
+const MAX_EDITS: usize = 100;
+
+// The most places one change marked for every place may open. The limit on the
+// changes of a call says how many words are looked for, not how many places any
+// of them stands in, so one change of a short mark could fill the room alone.
+const MAX_MATCHES: usize = 10_000;
+
+// The longest run of words of one part of the receipt. The receipt says what
+// changed and where; the file itself is where the whole of it is read again.
+const EXCERPT_CHARS: usize = 160;
+
+// The front parts of a name a model brings over from another program, where its
+// files stood under a folder of that name.
+const HABIT_PREFIXES: [&str; 3] = ["/mnt/data", "/mnt/outputs", "/workspace"];
+
+// The call that changes a file. Every change is asked for as the words that
+// stand in the file now, so nothing here needs a place holder of any kind.
+pub fn edit_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": EDIT_NAME,
+            "description": "Change a file of the chat by putting exact words in the place of other exact words. Prefer this over writing a whole file out again with the terminal tool, for only what changes is sent. Copy each old_string word for word out of the file, spacing included. Put every change to one file in the same call, and not in several calls. Every old_string is matched against the file as it stood before this call, and no two of them may cover the same words. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. An old_string is never empty: use create_file for a new file. The file stands in the room of the chat, which is the only place this tool works, and the tool runs in the program, so it works the same whether the sandbox is on or off. A call that went well means the file now holds what was sent, so read it again only when you must.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The file to change, named from the room of the chat, as 'notes.txt' or 'src/parse.rs'."
+                    },
+                    "edits": {
+                        "type": "array",
+                        "description": "The changes to make together. Each one names the words to take out and the words to put in their place.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "old_string": {
+                                    "type": "string",
+                                    "description": "The words to take out, copied out of the file. Never empty."
+                                },
+                                "new_string": {
+                                    "type": "string",
+                                    "description": "The words to put in their place."
+                                },
+                                "replace_all": {
+                                    "type": "boolean",
+                                    "description": "Change every place these words stand, instead of asking that they stand in one place. Off when it is not given."
+                                }
+                            },
+                            "required": ["old_string", "new_string"]
+                        }
+                    }
+                },
+                "required": ["path", "edits"]
+            }
+        }
+    })
+}
+
+// The call that makes a new file. The whole file is given at once, so there is
+// no part of it that stands for something else.
+pub fn create_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": CREATE_NAME,
+            "description": "Make a new file in the room of the chat, with the words given for it. A file that already stands there is left as it is, for this tool never writes over one: use edit_file to change a file. Folders on the way to the file are made. The whole file is written at once, so words that go on growing are better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The file to make, named from the room of the chat, as 'notes.txt' or 'src/parse.rs'."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The whole of the file, as it is to stand on the disk. A file of nothing at all is made with the words empty."
+                    }
+                },
+                "required": ["path", "text"]
+            }
+        }
+    })
+}
+
+// The name of the file a call asks for. Nothing is made up of words that have
+// not come in yet.
+pub fn partial_words(raw: &str) -> String {
+    tools::partial_text(raw.trim_start(), "path")
+}
+
+// The name of the file of a call that is finished. The reader sees this in the
+// head of the block, so the whole name is worth having.
+pub fn file_of(raw: &str) -> String {
+    match object(raw) {
+        Some(call) => first_of(&call, &["path", "file_path", "file"]).unwrap_or_default(),
+        None => partial_words(raw),
+    }
+}
+
+// One change of a call.
+struct Change {
+    before: String,
+    after: String,
+    everywhere: bool,
+}
+
+// What one call of the edit tool did.
+#[derive(Debug)]
+struct Made {
+    // The whole file as it is now.
+    after: String,
+    // How many places were changed.
+    count: usize,
+    // Where in the file the first change stands, counted in bytes.
+    first: usize,
+    // A few words of what went out, and of what came in.
+    taken: String,
+    put: String,
+}
+
+// The words of a file, and the two marks that say how it stood: the marks of
+// its lines, and the mark of a byte order at its front.
+struct Standing {
+    words: String,
+    newline: String,
+    bom: String,
+    // The file as it was read. The words are put again only when the file has
+    // not changed while they were being worked on.
+    bytes: Vec<u8>,
+}
+
+// The words of a call, made into an object. A model that put the object inside a
+// fenced block is read through the fence.
+fn object(raw: &str) -> Option<Value> {
+    let text = raw.trim();
+    let cut = tools::extract_object(text).unwrap_or(text);
+    match serde_json::from_str::<Value>(cut) {
+        Ok(value) if value.is_object() => Some(value),
+        _ => None,
+    }
+}
+
+// The first of a few names the model may have used for one part of a call, in
+// the order they are worth looking at. A part with no words in it is not an
+// answer, so it is passed over.
+fn first_of(call: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(text) = call.get(*key).and_then(|v| v.as_str()) {
+            if !text.trim().is_empty() {
+                return Some(text.to_string());
+            }
+        }
+    }
+    None
+}
+
+// The room of the chat, followed through its links.
+fn room(workdir: &Path) -> PathBuf {
+    workdir.canonicalize().unwrap_or_else(|_| workdir.to_path_buf())
+}
+
+// True when a place stands inside a room. Both of them are places that have
+// already been followed through their links.
+fn under(the_room: &Path, place: &Path) -> bool {
+    place.starts_with(the_room)
+}
+
+// The front parts of a name taken off, when the name comes from another program
+// and its files stood under a folder of one of those names. The rest of the name
+// is the name of the file here.
+fn habit(name: &str) -> &str {
+    for prefix in HABIT_PREFIXES {
+        if let Some(rest) = name.strip_prefix(prefix) {
+            if rest.is_empty() || rest.starts_with('/') {
+                return rest.trim_start_matches('/');
+            }
+        }
+    }
+    name
+}
+
+// True when a name leads into the folder the records of the attachments of the
+// chat stand in. Those files belong to the chat and to the reader, and a tool
+// has no business with them.
+fn in_shelf(path: &Path) -> bool {
+    let wanted = Component::Normal(std::ffi::OsStr::new(attach::FOLDER));
+    path.components().any(|part| part == wanted)
+}
+
+// The longest front part of a place that stands on the disk, followed through
+// its links. The parts of the name that are not there yet are put back after
+// it, so a file that is to be made is judged by the room it will stand in.
+fn as_far_as_stands(path: &Path) -> PathBuf {
+    let mut behind: Vec<std::ffi::OsString> = Vec::new();
+    let mut walked = path.to_path_buf();
+    while !walked.as_os_str().is_empty() {
+        if let Ok(real) = walked.canonicalize() {
+            let mut out = real;
+            for part in behind.iter().rev() {
+                out.push(part);
+            }
+            return out;
+        }
+        match walked.file_name() {
+            Some(part) => behind.push(part.to_os_string()),
+            None => break,
+        }
+        if !walked.pop() {
+            break;
+        }
+    }
+    path.to_path_buf()
+}
+
+// The name of a file of the chat. A name with a road that goes up out of a
+// folder is refused, and so is a name that leads into the records of the
+// attachments. The place that comes back has been followed through its links,
+// so it cannot be led out of the room by a link planted inside it.
+pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err(String::from("the name of the file is asked for"));
+    }
+    let the_room = room(workdir);
+    let cut = habit(name);
+    let joined = if Path::new(cut).is_absolute() {
+        PathBuf::from(cut)
+    } else {
+        the_room.join(cut)
+    };
+    for part in joined.components() {
+        if part == Component::ParentDir {
+            return Err(format!(
+                "'{}' leads up out of the room of the chat. That room is the only place the file tools work, so name the file from it, as '{}'.",
+                name,
+                last(&joined)
+            ));
+        }
+    }
+    if in_shelf(&joined) {
+        return Err(format!(
+            "'{}' leads into the folder of the records of the attachments of the chat. Those files are not for a tool.",
+            name
+        ));
+    }
+    let checked = as_far_as_stands(&joined);
+    if !under(&the_room, &checked) {
+        return Err(format!(
+            "'{}' is outside the room of the chat, which is the only place the file tools work. Name the file from that room, as '{}'.",
+            name,
+            last(&joined)
+        ));
+    }
+    Ok(checked)
+}
+
+// The name of a file, for a word to the model.
+fn last(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+// The words of a file, made to plain new lines. The marks of how its lines ended
+// and the mark of a byte order at its front are kept, so the file is written
+// back as it stood.
+fn read_words(place: &Path) -> Result<Standing, String> {
+    let name = last(place);
+    let bytes = match std::fs::read(place) {
+        Ok(made) => made,
+        Err(_) => {
+            return Err(format!(
+                "'{}' was not there to be read. Make it with create_file, or read the room of the chat to see what is there.",
+                name
+            ))
+        }
+    };
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(format!(
+            "'{}' holds more bytes than a file tool may read, which is {}.",
+            name, MAX_FILE_BYTES
+        ));
+    }
+    let mut text = match String::from_utf8(bytes.clone()) {
+        Ok(words) => words,
+        Err(_) => return Err(format!("'{}' is not words, so no file tool can change it.", name)),
+    };
+    let mut bom = String::new();
+    if let Some(rest) = text.strip_prefix('\u{feff}') {
+        bom = String::from('\u{feff}');
+        text = rest.to_string();
+    }
+    if text.contains('\0') {
+        return Err(format!("'{}' is a file of bytes, not words, so no file tool can change it.", name));
+    }
+    let lines = text.matches('\n').count();
+    let ends = text.matches("\r\n").count();
+    let newline = if ends > 0 && ends * 2 >= lines { "\r\n" } else { "\n" };
+    Ok(Standing {
+        words: text.replace("\r\n", "\n"),
+        newline: newline.to_string(),
+        bom,
+        bytes,
+    })
+}
+
+// A place beside a file, for a new version of it. The name holds the id of this
+// running program and a count, so two writes never take one place.
+fn side_file(place: &Path) -> PathBuf {
+    static TURN: AtomicUsize = AtomicUsize::new(0);
+    let name = last(place);
+    let mark = format!(
+        ".{}.natter-{:x}-{}",
+        name,
+        std::process::id(),
+        TURN.fetch_add(1, Ordering::SeqCst)
+    );
+    place.with_file_name(mark)
+}
+
+// The marks of a file are put back on its words, so an edit of a file that ends
+// its lines the Windows way leaves them that way.
+fn payload(standing: &Standing) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::new();
+    if !standing.bom.is_empty() {
+        out.extend_from_slice(standing.bom.as_bytes());
+    }
+    if standing.newline == "\r\n" {
+        for (number, part) in standing.words.split('\n').enumerate() {
+            if number > 0 {
+                out.extend_from_slice(b"\r\n");
+            }
+            out.extend_from_slice(part.as_bytes());
+        }
+    } else {
+        out.extend_from_slice(standing.words.as_bytes());
+    }
+    out
+}
+
+// The marks a file stood with, kept for the new version of it, so an edit does
+// not take the executable mark away.
+#[cfg(unix)]
+fn keep_mode(from: &Path, to: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(from) {
+        let mode = meta.permissions().mode();
+        let _ = std::fs::set_permissions(to, std::fs::Permissions::from_mode(mode));
+    }
+}
+
+#[cfg(not(unix))]
+fn keep_mode(_from: &Path, _to: &Path) {}
+
+// The first bytes of a file, and no more than one more than were asked for. A
+// file that grew is told apart by that one byte.
+fn head_bytes(place: &Path, want: usize) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let file = std::fs::File::open(place).ok()?;
+    let mut out: Vec<u8> = Vec::new();
+    file.take((want + 1) as u64)
+        .read_to_end(&mut out)
+        .ok()?;
+    Some(out)
+}
+
+// Write the words of a file again. The new version is made beside the old one
+// and then put in its place, so a write that does not finish never leaves a file
+// half changed. Three things are looked at just before the place is taken: that
+// the file is still in the room of the chat, that it is still the file the
+// changes were worked out of, and that nothing of the road was changed for a
+// link while the words were being made ready.
+fn write_words(the_room: &Path, place: &Path, standing: &Standing, as_it_was: &[u8]) -> Result<(), String> {
+    let name = last(place);
+    let made = payload(standing);
+    if made.len() > MAX_FILE_BYTES {
+        return Err(format!(
+            "the new '{}' holds more bytes than a file tool may write, which is {}.",
+            name, MAX_FILE_BYTES
+        ));
+    }
+    if let Some(parent) = place.parent() {
+        if let Err(problem) = std::fs::create_dir_all(parent) {
+            return Err(format!("the folder for '{}' could not be made: {}", name, problem));
+        }
+    }
+    let side = side_file(place);
+    if let Err(problem) = std::fs::write(&side, &made) {
+        return Err(format!("'{}' could not be written: {}", name, problem));
+    }
+    keep_mode(place, &side);
+    let gone = |problem: String| -> String {
+        let _ = std::fs::remove_file(&side);
+        problem
+    };
+    if !under(the_room, &as_far_as_stands(place)) {
+        return Err(gone(format!(
+            "'{}' moved out of the room of the chat while this call was making it ready, so nothing was written.",
+            name
+        )));
+    }
+    if let Some(now) = head_bytes(place, as_it_was.len()) {
+        if now != as_it_was {
+            return Err(gone(format!(
+                "'{}' changed while this call was making it ready, so nothing was written. Read the file again and work the changes out on the words that stand in it now.",
+                name
+            )));
+        }
+    }
+    if let Err(problem) = std::fs::rename(&side, place) {
+        return Err(gone(format!("'{}' could not be put in its place: {}", name, problem)));
+    }
+    Ok(())
+}
+
+// `replace_all`, read strictly. A model writes the word false between quotes as
+// often as not, and reading that word as it were true would change every place
+// in the file when the model asked for one place.
+fn strict_bool(value: Option<&Value>) -> Option<bool> {
+    match value {
+        None => Some(false),
+        Some(Value::Null) => Some(false),
+        Some(Value::Bool(on)) => Some(*on),
+        Some(Value::String(word)) => {
+            let word = word.trim().to_ascii_lowercase();
+            match word.as_str() {
+                "true" | "1" | "yes" => Some(true),
+                "false" | "0" | "no" | "" => Some(false),
+                _ => None,
+            }
+        }
+        Some(Value::Number(n)) => n.as_i64().map(|number| number != 0),
+        Some(_) => None,
+    }
+}
+
+// The changes of a call, read and made ready. Every one of them is looked at
+// before anything is written.
+fn parse_changes(call: &Value) -> Result<Vec<Change>, String> {
+    let items = call
+        .get("edits")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| String::from(
+            "'edits' is asked for, as a list of {old_string, new_string}. Put every change to this file in that list.",
+        ))?;
+    if items.is_empty() {
+        return Err(String::from(
+            "'edits' has nothing in it. Say which words of the file are to be changed.",
+        ));
+    }
+    if items.len() > MAX_EDITS {
+        return Err(format!(
+            "{} changes in one call is over the limit of {}. Nothing was written. Send them in runs of {} at a time, and write one run before the next.",
+            items.len(),
+            MAX_EDITS,
+            MAX_EDITS
+        ));
+    }
+    let mut out: Vec<Change> = Vec::new();
+    for (number, item) in items.iter().enumerate() {
+        let index = number + 1;
+        let entry = item.as_object().ok_or_else(|| {
+            format!("change {} is not a thing with old_string and new_string in it", index)
+        })?;
+        let before = entry.get("old_string").and_then(|v| v.as_str()).ok_or_else(|| {
+            format!("change {} needs old_string and new_string to both be words", index)
+        })?;
+        let after = entry.get("new_string").and_then(|v| v.as_str()).ok_or_else(|| {
+            format!("change {} needs old_string and new_string to both be words", index)
+        })?;
+        let everywhere = strict_bool(entry.get("replace_all")).ok_or_else(|| {
+            format!("change {} needs replace_all to be true or false", index)
+        })?;
+        if before.is_empty() {
+            return Err(format!(
+                "change {} has no words to take out. An empty old_string is not a way to make a file: use create_file for that.",
+                index
+            ));
+        }
+        out.push(Change {
+            before: before.replace("\r\n", "\n"),
+            after: after.replace("\r\n", "\n"),
+            everywhere,
+        });
+    }
+    Ok(out)
+}
+
+// How many places words stand in a text. Words that stand in one another are
+// not counted twice.
+fn count_of(text: &str, needle: &str) -> usize {
+    if needle.is_empty() {
+        return 0;
+    }
+    let mut made = 0usize;
+    let mut from = 0usize;
+    while let Some(at) = text[from..].find(needle) {
+        made += 1;
+        from += at + needle.len();
+    }
+    made
+}
+
+// Every change of the call, worked out against the words as they stood before
+// the call. The places are found first, and two of them that cover the same
+// words are a fault of the call. The changes are then made from the back of the
+// file forward, so the places before them keep their numbers.
+fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, String> {
+    // Where a change stands, what it puts there, and which change it was.
+    let mut places: Vec<(usize, usize, &str, usize)> = Vec::new();
+    for (number, change) in changes.iter().enumerate() {
+        let index = number + 1;
+        let found = count_of(before, &change.before);
+        if found == 0 {
+            return Err(format!(
+                "change {} found nothing to take out in '{}'. The words must stand in the file word for word, spacing included. Read the file and copy the words out of it.",
+                index, name
+            ));
+        }
+        if found > 1 && !change.everywhere {
+            return Err(format!(
+                "change {} matches {} places in '{}'. Take more of the lines about those words, so they match one place, or set replace_all on that change to change all {} of them.",
+                index, found, name, found
+            ));
+        }
+        // One change over the whole file needs no places worked out at all:
+        // nothing else is there to cover the same words with it.
+        if change.everywhere && changes.len() == 1 {
+            let first = before.find(&change.before).unwrap_or(0);
+            return Ok(Made {
+                after: before.replace(&change.before, &change.after),
+                count: found,
+                first,
+                taken: change.before.clone(),
+                put: change.after.clone(),
+            });
+        }
+        if change.everywhere && found > MAX_MATCHES {
+            return Err(format!(
+                "change {} stands in {} places of '{}', over the limit of {} for one change of a batch. Nothing was written. Send it in a call of its own, or take longer words for it.",
+                index, found, name, MAX_MATCHES
+            ));
+        }
+        let mut at = before.find(&change.before);
+        while let Some(place) = at {
+            places.push((place, place + change.before.len(), change.after.as_str(), index));
+            if !change.everywhere {
+                break;
+            }
+            let rest = place + change.before.len();
+            at = before[rest..].find(&change.before).map(|later| rest + later);
+        }
+    }
+    places.sort_by_key(|place| place.0);
+    for (one, next) in places.iter().zip(places[1..].iter()) {
+        if next.0 < one.1 {
+            return Err(format!(
+                "change {} and change {} cover the same words of '{}'. Every old_string is matched against the file as it stood before this call, so two changes cannot cover one place. Put the two of them in one change.",
+                one.3, next.3, name
+            ));
+        }
+    }
+    let mut out = String::with_capacity(before.len());
+    let mut cursor = 0usize;
+    for (start, end, words, _) in &places {
+        out.push_str(&before[cursor..*start]);
+        out.push_str(words);
+        cursor = *end;
+    }
+    out.push_str(&before[cursor..]);
+    let (start, end, _, index) = places[0];
+    let _ = index;
+    Ok(Made {
+        after: out,
+        count: places.len(),
+        first: start,
+        taken: before[start..end].to_string(),
+        put: places[0].2.to_string(),
+    })
+}
+
+// How many lines words make, said the way a line of the answer says it. A file
+// of nothing at all has no line in it.
+fn line_words(lines: usize) -> String {
+    if lines == 1 {
+        return String::from("one line");
+    }
+    format!("{} lines", lines)
+}
+
+// A run of words made one line, and cut short. The receipt of a call is a word
+// to the model about what changed, and not a copy of the file.
+fn clip(text: &str) -> String {
+    let mut one = String::new();
+    for ch in text.chars() {
+        match ch {
+            '\n' => one.push_str(r"\n"),
+            '\t' => one.push_str(r"\t"),
+            '\r' => {}
+            other => one.push(other),
+        }
+    }
+    if one.chars().count() <= EXCERPT_CHARS {
+        return one;
+    }
+    let mut out: String = one.chars().take(EXCERPT_CHARS).collect();
+    out.push_str(" ...");
+    out
+}
+
+// The line of the file a place of it stands on. The first line is line one.
+fn line_of(words: &str, at: usize) -> usize {
+    words[..at.min(words.len())].matches('\n').count() + 1
+}
+
+// What a call that went well tells the model: how much was changed, on which
+// line the first change stands, and a few words of what went out and what came
+// in. No marks of a difference are made here, for a model reads these words
+// better than it reads a patch, and the file itself is the whole of the story.
+fn receipt(name: &str, before: &str, made: &Made) -> String {
+    let line = line_of(before, made.first);
+    let places = if made.count == 1 {
+        String::from("one place")
+    } else {
+        format!("{} places", made.count)
+    };
+    format!(
+        "Edited '{}'. {} changed, the first of them on line {}.\nTaken out: {}\nPut in: {}",
+        name,
+        places,
+        line,
+        clip(&made.taken),
+        clip(&made.put)
+    )
+}
+
+// The words a call of no shape is answered with. The model is told the shape,
+// for a call that is refused for its shape is often meant well.
+fn wrong_shape(edit_tool: bool) -> String {
+    if edit_tool {
+        return String::from(
+            "the call needs the name of a file and a list of changes, as {\"path\": \"notes.txt\", \"edits\": [{\"old_string\": \"the words now\", \"new_string\": \"the words after\"}]}",
+        );
+    }
+    String::from(
+        "the call needs the name of a file and the words for it, as {\"path\": \"notes.txt\", \"text\": \"the whole of the file\"}",
+    )
+}
+
+// Change a file of the chat. Every change of the call is made, or none of them
+// is, and the answer says which of the two happened.
+pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
+    let failed = |output: String| tools::Report {
+        ok: false,
+        output,
+    };
+    let Some(call) = object(raw) else {
+        return failed(wrong_shape(true));
+    };
+    let Some(name) = first_of(&call, &["path", "file_path", "file"]) else {
+        return failed(String::from("the name of the file is asked for"));
+    };
+    let changes = match parse_changes(&call) {
+        Ok(made) => made,
+        Err(problem) => return failed(problem),
+    };
+    let place = match place_in(workdir, &name) {
+        Ok(place) => place,
+        Err(problem) => return failed(problem),
+    };
+    let standing = match read_words(&place) {
+        Ok(words) => words,
+        Err(problem) => return failed(problem),
+    };
+    let short = last(&place);
+    let made = match apply_all(&standing.words, &changes, &short) {
+        Ok(made) => made,
+        Err(problem) => return failed(problem),
+    };
+    let after = Standing {
+        words: made.after.clone(),
+        newline: standing.newline.clone(),
+        bom: standing.bom.clone(),
+        bytes: Vec::new(),
+    };
+    let the_room = room(workdir);
+    match write_words(&the_room, &place, &after, &standing.bytes) {
+        Ok(()) => tools::Report {
+            ok: true,
+            output: receipt(&short, &standing.words, &made),
+        },
+        Err(problem) => failed(problem),
+    }
+}
+
+// Make a new file in the room of the chat. A file that stands there with words
+// in it is left as it is. The one exception is a file of nothing at all, for no
+// change can match nothing, and such a file would else never be filled.
+pub fn create(workdir: &Path, raw: &str) -> tools::Report {
+    let failed = |output: String| tools::Report {
+        ok: false,
+        output,
+    };
+    let Some(call) = object(raw) else {
+        return failed(wrong_shape(false));
+    };
+    let Some(name) = first_of(&call, &["path", "file_path", "file"]) else {
+        return failed(String::from("the name of the file is asked for"));
+    };
+    let mut words = String::new();
+    let mut given = false;
+    for key in ["text", "content", "body", "new_string"] {
+        if let Some(text) = call.get(key).and_then(|v| v.as_str()) {
+            words = text.replace("\r\n", "\n");
+            given = true;
+            break;
+        }
+    }
+    if !given {
+        return failed(format!(
+            "the words for '{}' are asked for. A file of nothing at all is made with the words empty.",
+            name
+        ));
+    }
+    if words.len() > MAX_FILE_BYTES {
+        return failed(format!(
+            "the words for '{}' hold more bytes than a file tool may write, which is {}.",
+            name, MAX_FILE_BYTES
+        ));
+    }
+    let place = match place_in(workdir, &name) {
+        Ok(place) => place,
+        Err(problem) => return failed(problem),
+    };
+    let the_room = room(workdir);
+    if let Some(parent) = place.parent() {
+        if let Err(problem) = std::fs::create_dir_all(parent) {
+            return failed(format!(
+                "the folder for '{}' could not be made: {}",
+                name, problem
+            ));
+        }
+    }
+    // The room is looked at again, for a folder of the road may have been
+    // changed for a link while the folders on the way were being made.
+    if !under(&the_room, &as_far_as_stands(&place)) {
+        return failed(format!(
+            "'{}' moved out of the room of the chat while it was being made ready, so nothing was written.",
+            name
+        ));
+    }
+    // The lines of the file, counted the way a line of words ends: a mark of a
+    // new line at the end closes the last line and does not open another.
+    let lines = if words.is_empty() {
+        0usize
+    } else {
+        words.matches('\n').count() + if words.ends_with('\n') { 0 } else { 1 }
+    };
+    let stood = std::fs::symlink_metadata(&place).ok();
+    if let Some(meta) = stood {
+        if meta.len() > 0 {
+            return failed(format!(
+                "'{}' already stands there with {} bytes in it. create_file makes a new file and never writes over one; to change this file, use edit_file.",
+                name,
+                meta.len()
+            ));
+        }
+        // The file is empty, so it is filled instead of made again.
+        if let Err(problem) = std::fs::write(&place, words.as_bytes()) {
+            return failed(format!("'{}' could not be written: {}", name, problem));
+        }
+        return tools::Report {
+            ok: true,
+            output: format!(
+                "Created '{}'. {}, {} bytes.",
+                name,
+                line_words(lines),
+                words.len()
+            ),
+        };
+    }
+    use std::io::Write;
+    let opened = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&place);
+    match opened {
+        Ok(mut file) => {
+            if let Err(problem) = file.write_all(words.as_bytes()) {
+                drop(file);
+                let _ = std::fs::remove_file(&place);
+                return failed(format!(
+                    "'{}' could not be written, so it was taken away again: {}",
+                    name, problem
+                ));
+            }
+            tools::Report {
+                ok: true,
+                output: format!(
+                    "Created '{}'. {}, {} bytes.",
+                    name,
+                    line_words(lines),
+                    words.len()
+                ),
+            }
+        }
+        Err(problem) => failed(format!("'{}' could not be made: {}", name, problem)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The room of a chat, made for one test and taken away again. The tests take
+    // turns through a count, so two of them never work in one room.
+    static TURN_OF_TEST: AtomicUsize = AtomicUsize::new(0);
+
+    fn room_of(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "autumn-natter-file-tools-{}-{}",
+            std::process::id(),
+            TURN_OF_TEST.fetch_add(1, Ordering::SeqCst)
+        ));
+        let place = root.join(name);
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&place).expect("the room of the chat could not be made");
+        place
+    }
+
+    // The shape of both calls. No part of either of them stands for other words:
+    // there is no place holder, no mark of a file put behind the answer, and
+    // nothing to fill in with a name that is not a name.
+    #[test]
+    fn no_part_of_a_file_call_stands_for_another_part() {
+        let made = edit_definition();
+        let call = made.get("function").expect("the tool is a function");
+        assert_eq!(call.get("name").and_then(|v| v.as_str()), Some(EDIT_NAME));
+        let mut keys: Vec<String> = call
+            .get("parameters")
+            .and_then(|p| p.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("the parts of a call are listed")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        assert_eq!(keys, vec![String::from("edits"), String::from("path")]);
+        let want = call
+            .get("parameters")
+            .and_then(|p| p.get("required"))
+            .and_then(|r| r.as_array())
+            .expect("the parts that must come are listed");
+        assert_eq!(want, &vec![String::from("path"), String::from("edits")][..]);
+
+        let made = create_definition();
+        let call = made.get("function").expect("the tool is a function");
+        assert_eq!(call.get("name").and_then(|v| v.as_str()), Some(CREATE_NAME));
+        let mut keys: Vec<String> = call
+            .get("parameters")
+            .and_then(|p| p.get("properties"))
+            .and_then(|p| p.as_object())
+            .expect("the parts of a call are listed")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        assert_eq!(keys, vec![String::from("path"), String::from("text")]);
+
+        // Nothing of a place holder stands in the words handed to the model.
+        for made in [edit_definition(), create_definition()] {
+            let words = made.to_string().to_lowercase();
+            for forbidden in ["placeholder", "place holder", "sentinel", "__", "<file>", "todo: fill"] {
+                assert!(!words.contains(forbidden), "the call offers {}: {}", forbidden, made);
+            }
+        }
+    }
+
+    // Every change is matched against the file as it stood before the call. A
+    // change that could match what an earlier change of the same call brought
+    // in would land in words the model never read.
+    #[test]
+    fn every_change_is_matched_against_the_file_as_it_stood() {
+        let before = "one\ntwo\nthree\n";
+        let changes = vec![
+            Change { before: "one".into(), after: "uno".into(), everywhere: false },
+            // The mark of the first change is not in the file as it stood.
+            Change { before: "un".into(), after: "un".into(), everywhere: false },
+        ];
+        let made = apply_all(before, &changes, "notes.txt");
+        assert!(made.is_err());
+        assert!(made.unwrap_err().contains("found nothing to take out"));
+    }
+
+    // Two changes of one call cannot cover one place.
+    #[test]
+    fn two_changes_that_cover_one_place_are_refused() {
+        let before = "alpha beta\n";
+        let changes = vec![
+            Change { before: "alpha".into(), after: "aleph".into(), everywhere: false },
+            Change { before: "alpha beta".into(), after: "bet".into(), everywhere: false },
+        ];
+        let made = apply_all(before, &changes, "notes.txt");
+        assert!(made.is_err());
+        assert!(made.unwrap_err().contains("cover the same words"));
+    }
+
+    // Words that stand in more than one place need the change marked for every
+    // place, or the call is refused with the number of the places in it.
+    #[test]
+    fn words_in_several_places_need_replace_all() {
+        let before = "xa xa xa\n";
+        // The one change, asked for one place.
+        let changes = vec![Change {
+            before: "xa".into(),
+            after: "xb".into(),
+            everywhere: false,
+        }];
+        let made = apply_all(before, &changes, "many.txt");
+        let problem = made.unwrap_err();
+        assert!(problem.contains("3 places"), "{}", problem);
+        // The same change, marked for every place.
+        let changes = vec![Change {
+            before: "xa".into(),
+            after: "xb".into(),
+            everywhere: true,
+        }];
+        let made = apply_all(before, &changes, "many.txt").expect("every place is changed");
+        assert_eq!(made.after, "xb xb xb\n");
+        assert_eq!(made.count, 3);
+        assert_eq!(made.first, 0);
+        // A batch of two: the places of both are worked out, and the count holds
+        // every place that was changed.
+        let changes = vec![
+            Change { before: "xa".into(), after: "xb".into(), everywhere: true },
+            Change { before: "\n".into(), after: "!\n".into(), everywhere: false },
+        ];
+        let made = apply_all(before, &changes, "many.txt").expect("the batch is written");
+        assert_eq!(made.after, "xb xb xb!\n");
+        assert_eq!(made.count, 4);
+    }
+
+    // A name of a file is a place in the room of the chat, and nowhere else. A
+    // road that goes up out of a folder, a place of the machine named whole, a
+    // link that leads out of the room, and the records of the attachments are
+    // all refused.
+    #[test]
+    fn a_name_is_kept_inside_the_room_of_the_chat() {
+        let root = room_of("chat");
+        assert!(place_in(&root, "notes.txt").is_ok());
+        assert!(place_in(&root, "src/parse.rs").is_ok());
+        for outside in ["../elsewhere", "notes/../../x", "/etc/passwd", ".attachments/ab12cd.json"]
+        {
+            let refused = place_in(&root, outside);
+            assert!(refused.is_err(), "{} was let through", outside);
+        }
+        // A name a model brought over from another program keeps its last part,
+        // and that part stands in the room of the chat.
+        let habit = place_in(&root, "/mnt/data/notes/plan.txt").expect("the habit name is a file name");
+        assert_eq!(last(&habit), "plan.txt");
+        assert!(under(&room(&root), &habit));
+        // A link standing in the room and pointing out of it.
+        #[cfg(unix)]
+        {
+            let secret = root.parent().expect("the room has a folder above it");
+            let outside = secret.join("secret.txt");
+            std::fs::write(&outside, "NOT-FOR-A-TOOL").unwrap();
+            std::os::unix::fs::symlink(&outside, root.join("link.txt")).unwrap();
+            let refused = place_in(&root, "link.txt");
+            assert!(refused.is_err(), "a link out of the room was let through");
+            // The room itself may be named whole, which is how a model names a
+            // file it read out of a listing.
+            let whole = room(&root).join("notes.txt").display().to_string();
+            assert!(place_in(&root, &whole).is_ok());
+        }
+    }
+
+    // A batch is written all at once, or not at all, and the answer says what
+    // was changed and where.
+    #[test]
+    fn a_batch_of_changes_is_written_once_or_not_at_all() {
+        let root = room_of("chat");
+        let notes = root.join("notes.txt");
+        std::fs::write(&notes, "one\ntwo\nthree\n").unwrap();
+        // The second change names words that are not in the file.
+        let half = r#"{"path":"notes.txt","edits":[{"old_string":"one","new_string":"uno"},{"old_string":"four","new_string":"done"}]}"#;
+        let out = edit(&root, half);
+        assert!(!out.ok, "{}", out.output);
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "one\ntwo\nthree\n");
+        // The same call with the words mended writes both changes.
+        let whole = r#"{"path":"notes.txt","edits":[{"old_string":"one","new_string":"uno"},{"old_string":"three","new_string":"tri"}]}"#;
+        let out = edit(&root, whole);
+        assert!(out.ok, "{}", out.output);
+        assert_eq!(std::fs::read_to_string(&notes).unwrap(), "uno\ntwo\ntri\n");
+        assert!(out.output.contains("2 places"), "{}", out.output);
+        assert!(out.output.contains("line 1"), "{}", out.output);
+        // The first change of a later call is not on the first line.
+        let next = r#"{"path":"notes.txt","edits":[{"old_string":"two","new_string":"deux"}]}"#;
+        let out = edit(&root, next);
+        assert!(out.output.contains("line 2"), "{}", out.output);
+        assert!(out.output.contains("Taken out: two"), "{}", out.output);
+        assert!(out.output.contains("Put in: deux"), "{}", out.output);
+    }
+
+    // A file that ends its lines the Windows way is read through that and
+    // written back the same way, so an edit does not change every line of it.
+    #[test]
+    fn the_lines_of_a_file_keep_the_marks_they_had() {
+        let root = room_of("chat");
+        let place = root.join("lines.txt");
+        std::fs::write(&place, b"one\r\ntwo\r\n").unwrap();
+        let out = edit(
+            &root,
+            r#"{"path":"lines.txt","edits":[{"old_string":"two","new_string":"deux"}]}"#,
+        );
+        assert!(out.ok, "{}", out.output);
+        assert_eq!(std::fs::read(&place).unwrap(), b"one\r\ndeux\r\n");
+    }
+
+    // A new file is made, folders on the way are made with it, and a file that
+    // stands there with words in it is left as it is.
+    #[test]
+    fn a_new_file_is_made_and_one_that_stands_is_left() {
+        let root = room_of("chat");
+        let made = create(&root, r#"{"path":"notes/hello.txt","text":"hello\n"}"#);
+        assert!(made.ok, "{}", made.output);
+        assert_eq!(std::fs::read_to_string(root.join("notes/hello.txt")).unwrap(), "hello\n");
+        assert!(made.output.contains("one line"), "{}", made.output);
+        let again = create(&root, r#"{"path":"notes/hello.txt","text":"other"}"#);
+        assert!(!again.ok, "{}", again.output);
+        assert!(again.output.contains("edit_file"), "{}", again.output);
+        assert_eq!(std::fs::read_to_string(root.join("notes/hello.txt")).unwrap(), "hello\n");
+        // A file of nothing is filled, for no change can match nothing.
+        std::fs::write(root.join("empty.txt"), "").unwrap();
+        assert!(create(&root, r#"{"path":"empty.txt","text":"filled\n"}"#).ok);
+        assert_eq!(std::fs::read_to_string(root.join("empty.txt")).unwrap(), "filled\n");
+        // A name out of the room makes nothing, neither the file nor the folders
+        // on the way to it.
+        assert!(!create(&root, r#"{"path":"../escape.txt","text":"x"}"#).ok);
+        assert!(!root.parent().unwrap().join("escape.txt").exists());
+        assert!(!create(&root, r#"{"path":".attachments/ab12cd.json","text":"x"}"#).ok);
+    }
+
+    // The words of the file of a call that is not finished yet. The reader
+    // watches the name of the file come in, as the reader watches a command.
+    #[test]
+    fn the_name_of_the_file_is_read_while_the_call_is_written() {
+        assert_eq!(partial_words(""), String::new());
+        assert_eq!(partial_words("{"), String::new());
+        assert_eq!(partial_words(r#"{"path":"no"#), "no");
+        assert_eq!(
+            partial_words(r#"{"path":"notes/todo.txt","edits":[{"old_string":"x"#),
+            "notes/todo.txt"
+        );
+        assert_eq!(file_of(r#"{"path":"notes/todo.txt","edits":[]}"#), "notes/todo.txt");
+        // A call with no name of a file in it yet gives nothing.
+        assert_eq!(file_of(r#"{"edits":[]}"#), String::new());
+    }
+
+    // `replace_all` is read strictly. The word false between quotes is off, and
+    // a word that is neither of the two is refused rather than read as on.
+    #[test]
+    fn replace_all_is_read_strictly() {
+        assert_eq!(strict_bool(None), Some(false));
+        assert_eq!(strict_bool(Some(&json!(true))), Some(true));
+        assert_eq!(strict_bool(Some(&json!("false"))), Some(false));
+        assert_eq!(strict_bool(Some(&json!("true"))), Some(true));
+        assert_eq!(strict_bool(Some(&json!(1))), Some(true));
+        assert_eq!(strict_bool(Some(&json!("maybe"))), None);
+        assert_eq!(strict_bool(Some(&json!([]))), None);
+        // A call that gives the word between quotes is not read as a change of
+        // every place in the file.
+        let root = room_of("chat");
+        let place = root.join("many.txt");
+        std::fs::write(&place, "xa xa xa\n").unwrap();
+        let out = edit(
+            &root,
+            r#"{"path":"many.txt","edits":[{"old_string":"xa","new_string":"xb","replace_all":"false"}]}"#,
+        );
+        assert!(!out.ok, "{}", out.output);
+        assert_eq!(std::fs::read_to_string(&place).unwrap(), "xa xa xa\n");
+    }
+
+    // A file that changed while the call was making itself ready is not set back
+    // to the words of the call, and a write that is refused leaves no other
+    // version of the file standing beside it.
+    #[test]
+    fn a_file_changed_in_the_middle_is_left_alone() {
+        let root = room_of("chat");
+        let place = root.join("race.txt");
+        std::fs::write(&place, "one\n").unwrap();
+        let standing = Standing {
+            words: "two\n".into(),
+            newline: String::from("\n"),
+            bom: String::new(),
+            bytes: Vec::new(),
+        };
+        let the_room = room(&root);
+        // The words the change was worked out of are still the words of the file.
+        assert!(write_words(&the_room, &place, &standing, b"one\n").is_ok());
+        assert_eq!(std::fs::read_to_string(&place).unwrap(), "two\n");
+        // Now they are not, so this write is refused.
+        let out = write_words(&the_room, &place, &standing, b"different\n");
+        assert!(out.is_err());
+        assert!(out.unwrap_err().contains("nothing was written"));
+        assert_eq!(std::fs::read_to_string(&place).unwrap(), "two\n");
+        let left: Vec<String> = std::fs::read_dir(&root)
+            .expect("the room can be read")
+            .filter_map(|entry| entry.ok().map(|e| e.file_name().to_string_lossy().to_string()))
+            .collect();
+        assert!(
+            !left.iter().any(|name| name.contains("natter")),
+            "a refused write left a file behind: {:?}",
+            left
+        );
+    }
+
+    // A file of bytes, and a file that is not there, are said plainly.
+    #[test]
+    fn a_file_of_bytes_is_not_changed() {
+        let root = room_of("chat");
+        std::fs::write(root.join("bytes.bin"), [b'a', 0, b'b']).unwrap();
+        let out = edit(&root, r#"{"path":"bytes.bin","edits":[{"old_string":"a","new_string":"b"}]}"#);
+        assert!(!out.ok);
+        assert!(out.output.contains("bytes"), "{}", out.output);
+        let out = edit(&root, r#"{"path":"gone.txt","edits":[{"old_string":"a","new_string":"b"}]}"#);
+        assert!(!out.ok);
+        assert!(out.output.contains("create_file"), "{}", out.output);
+        // A call of no shape at all is answered with the shape.
+        let out = edit(&root, "notes.txt");
+        assert!(!out.ok);
+        assert!(out.output.contains("edits"), "{}", out.output);
+    }
+}

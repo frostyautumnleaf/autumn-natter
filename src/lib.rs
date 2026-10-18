@@ -15,6 +15,7 @@
 
 pub mod attach;
 pub mod config;
+pub mod editfile;
 pub mod engine;
 pub mod gguf;
 pub mod gpu;

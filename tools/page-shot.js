@@ -109,6 +109,20 @@ const FULL = [
   said(5, 'Note', 'cannot reach the model: connection refused', { failed: true }),
   said(6, 'Tool', 'bwrap --die-with-parent ls -1 /nope',
     { tool: 'exit 1: no such file', failed: true }),
+  // A file the model changed, and a file it tried to make and did not. The head
+  // of each block says which tool it was, and the mark beside the head is that
+  // tool's own.
+  said(7, 'Tool', 'notes/plan.md', {
+    tool_name: 'edit_file',
+    tool: "Edited 'notes/plan.md'. 2 places changed, the first of them on line 4.\n"
+      + 'Taken out: flush the paragraph\nPut in: close the paragraph, and open the list'
+  }),
+  said(8, 'Tool', 'notes/todo.txt', {
+    tool_name: 'create_file',
+    tool: "Error: 'notes/todo.txt' already stands there. create_file makes a new file "
+      + 'and never writes over one; to change it, use edit_file.',
+    failed: true
+  })
 ];
 
 const TALK = [
@@ -146,6 +160,10 @@ const PARTS = [
     ]
   }),
 ];
+
+// The name of a file a model writes in the `writing` scene, for the tool that
+// works on a file. AN_TOOL names the tool; without it the scene writes a command.
+const WRITING_NAMES = { edit_file: 'notes/plan.md', create_file: 'notes/todo.txt' };
 
 // The command the model writes in the `writing` scene, and the reason it gives
 // for it. AN_WRITE counts the characters of both, one after the other.
@@ -291,14 +309,30 @@ function scene(name, dark) {
       start.live = WRITING_SAYS.slice(0, Math.min(WRITING_SAYS.length, told));
     }
     start.reasoning = 'Look in the folder first, then say what stands in it.';
-    var have = process.env.AN_WRITE === undefined ? 12
+    var tool = process.env.AN_TOOL || 'run_terminal';
+    var named = WRITING_NAMES[tool] !== undefined;
+    var full = named ? WRITING_NAMES[tool] : WRITING;
+    // A name of a file is short, so the whole of it stands unless the number of
+    // characters was asked for.
+    var have = process.env.AN_WRITE === undefined ? (named ? full.length : 12)
       : Math.max(0, Number(process.env.AN_WRITE) || 0);
     start.live_tools = [{
-      name: 'run_terminal',
-      command: WRITING.slice(0, have),
-      // The reason comes after the command, as the model writes it.
-      purpose: have > WRITING.length ? WRITING_WHY.slice(0, have - WRITING.length) : ''
+      name: tool,
+      command: full.slice(0, have),
+      // The reason comes after the command, as the model writes it. A tool that
+      // works on a file never asked for a reason.
+      purpose: !named && have > WRITING.length
+        ? WRITING_WHY.slice(0, have - WRITING.length) : ''
     }];
+    if (named) {
+      // A reader of the picture should not wonder why the chat box asks for a
+      // command over the block of a file tool.
+      start.messages = [said(1, 'You',
+        'Put the plan in a file of the chat, and tell me what you changed.')];
+      start.status = tool === 'edit_file'
+        ? 'editing a file: ' + full.slice(0, have)
+        : 'making a file: ' + full.slice(0, have);
+    }
     start.context = { used: '1,180', total: '8,192', ratio: 0.14 };
   }
   if (name === 'streaming') {

@@ -1932,23 +1932,59 @@ function thinkingBox(m) {
   return made.panel;
 }
 
-// One run of the terminal tool. The head says which command runs, or has run,
-// and what became of it. The body keeps the command and the output under their
-// own small labels, each cut off at a height. A run with no output yet keeps
-// the panel, so the wait shows.
+// The mark beside the head of a tool block, the words that stand before the
+// name in the head, and the two words the body of the block gives its parts.
+// Every tool has a mark of its own, so the reader knows which one it is by the
+// shape at the left of the head. The mark of the terminal tool is the box it has
+// always had.
+var TOOL_SHAPES = {
+  run_terminal: {
+    mark: 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2',
+    head: '', word: 'command', end: 'output',
+    empty: 'a command with no words', begun: 'a command, begun'
+  },
+  edit_file: {
+    mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
+    head: 'Editing file: ', word: 'file', end: 'result',
+    empty: 'no name of a file', begun: 'a file, begun'
+  },
+  create_file: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
+    head: 'Creating file: ', word: 'file', end: 'result',
+    empty: 'no name of a file', begun: 'a file, begun'
+  }
+};
+
+// The shape of one tool. A name the page does not know is drawn as a run of the
+// terminal tool, for that is the shape the reader knows best.
+function toolShape(name) {
+  return TOOL_SHAPES[name] || TOOL_SHAPES.run_terminal;
+}
+
+// The words of the head of a block: the words of the tool, and after them the
+// one thing its call named. A call that named nothing yet says what is still
+// coming, and a call that is over says that nothing was named.
+function headWords(shape, named, over) {
+  var words = named && named.trim() ? named : (over ? shape.empty : shape.begun);
+  return (shape.head || '') + words;
+}
+
+// One run of a tool. The head says which tool it is, what it was pointed at, and
+// what became of it. The body keeps what the call named and what came back under
+// their own small labels, each cut off at a height. A run with no result yet
+// keeps the panel, so the wait shows.
 function toolBox(m) {
   var running = m.tool === 'running ...';
+  var shape = toolShape(m.tool_name);
   // The Chatting settings say whether a command starts folded up.
   var panel = make('div', 'tool' + (m.failed ? ' bad' : '')
     + (chatting.tools ? ' closed' : ''));
 
   var head = make('button', 'thead');
   head.type = 'button';
-  head.appendChild(mark(running
-    ? 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2'
-    : 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2'));
+  head.appendChild(mark(shape.mark));
   var cmd = make('span', 'cmd');
-  cmd.textContent = firstLine(m.body) || 'a command with no words';
+  cmd.textContent = headWords(shape, firstLine(m.body), true);
   head.appendChild(cmd);
   var state = make('span', 'state' + (running ? ' run' : '') + (m.failed ? ' fail' : ''));
   state.textContent = running ? 'running' : (m.failed ? 'failed' : 'done');
@@ -1961,11 +1997,11 @@ function toolBox(m) {
   body.appendChild(make('span', 'rail'));
   var space = make('div', 'tspace');
   var labOne = make('div', 'lab');
-  labOne.textContent = 'command';
+  labOne.textContent = shape.word;
   var commandText = make('pre', 'cmd-text');
   commandText.textContent = m.body;
   var labTwo = make('div', 'lab');
-  labTwo.textContent = 'output';
+  labTwo.textContent = shape.end;
   var output = make('pre', 'out' + (running ? ' live' : ''));
   output.textContent = m.tool;
   space.appendChild(labOne);
@@ -1993,13 +2029,14 @@ function toolBox(m) {
 // a run that is over: what the reader is asked to look at here is the command
 // itself, and a fold would hide the writing.
 function writeBox(one) {
+  var shape = toolShape(one.name);
   var panel = make('div', 'tool write');
 
   var head = make('button', 'thead');
   head.type = 'button';
-  head.appendChild(mark('M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2'));
+  head.appendChild(mark(shape.mark));
   var cmd = make('span', 'cmd');
-  cmd.textContent = firstLine(one.command) || 'a command, begun';
+  cmd.textContent = headWords(shape, firstLine(one.command), false);
   head.appendChild(cmd);
   var state = make('span', 'state write');
   state.textContent = 'writing';
@@ -2012,7 +2049,7 @@ function writeBox(one) {
   body.appendChild(make('span', 'rail'));
   var space = make('div', 'tspace');
   var lab = make('div', 'lab');
-  lab.textContent = 'command';
+  lab.textContent = shape.word;
   var text = make('pre', 'cmd-text');
   var words = document.createTextNode('');
   var caret = make('span', 'caret');
@@ -2026,7 +2063,7 @@ function writeBox(one) {
   panel.appendChild(head);
   panel.appendChild(body);
   return { panel: panel, head: head, cmd: cmd, text: text, words: words,
-    caret: caret, space: space, why: null };
+    caret: caret, space: space, why: null, shape: shape };
 }
 
 // The reason of the command, put under the command itself. It comes after the
@@ -2101,7 +2138,7 @@ function feedWrite(list) {
         box.text.scrollTop = box.text.scrollHeight;
       }
     }
-    var line = firstLine(one.command) || 'a command, begun';
+    var line = headWords(box.shape, firstLine(one.command), false);
     if (box.cmd.textContent !== line) { box.cmd.textContent = line; }
     if (one.purpose) {
       if (!box.why) { addWhy(box); }

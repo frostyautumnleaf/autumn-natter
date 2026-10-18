@@ -1,6 +1,9 @@
 // The terminal tool, and the bubblewrap jail around it.
 //
-// One tool is defined today. More tools come later.
+// The file tools, the search and the picture live in modules of their own, and
+// every tool answers with one of the two shapes here: `Outcome` for a command
+// that ran as a program of the machine, and `Report` for a call the program did
+// itself.
 //
 // The jail starts from an empty root, so a command sees nothing of this
 // machine. Three things are put into it: the programs of the system, read
@@ -139,6 +142,13 @@ pub fn chapter_name(raw: &str) -> String {
         name.push_str(word);
     }
     name.chars().take(MAX_CHAPTER_NAME).collect::<String>().trim().to_string()
+}
+
+// What one call of a tool the program does itself produced: the words the model
+// is given back, and whether the call went well.
+pub struct Report {
+    pub ok: bool,
+    pub output: String,
 }
 
 // What one run produced.
@@ -681,8 +691,9 @@ pub fn partial_arguments(raw: &str) -> (String, String) {
 // The words of one named part of an object that may not be finished. The name
 // is looked for, and the text behind it is read to the closing mark, or to the
 // end of what has come in so far. A part this page does not know, or a number
-// where a text was looked for, gives nothing.
-fn partial_text(text: &str, wanted: &str) -> String {
+// where a text was looked for, gives nothing. Every tool that lets the reader
+// watch a call being written reads its own part out with this.
+pub fn partial_text(text: &str, wanted: &str) -> String {
     let key = format!("\"{}\"", wanted);
     let Some(at) = text.find(&key) else {
         return String::new();
@@ -738,7 +749,7 @@ fn partial_text(text: &str, wanted: &str) -> String {
 }
 
 // Return the part between the first brace and the matching one.
-fn extract_object(text: &str) -> Option<&str> {
+pub fn extract_object(text: &str) -> Option<&str> {
     let start = text.find('{')?;
     let bytes = text.as_bytes();
     let mut depth = 0i32;
