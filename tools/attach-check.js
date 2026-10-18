@@ -97,16 +97,51 @@ async function main() {
       };
       return;
     }
+    // The calls of the page, so a check can see which road was taken, and the
+    // events of the window, so a check can send one.
+    window.__asked = [];
+    window.__events = {};
+    window.__send__ = function (name, payload) {
+      var made = window.__events[name] || [];
+      for (var n = 0; n < made.length; n++) { made[n]({ event: name, payload: payload }); }
+    };
     window.__TAURI__ = {
       core: {
-        invoke: function (command) {
+        invoke: function (command, args) {
           if (command === 'get_state') { return Promise.resolve(state); }
           if (command === 'get_config') { return Promise.resolve({}); }
           if (command === 'get_attachment') {
             return Promise.resolve({ name: 'swatch.png', mime: 'image/png',
               data: 'data:image/png;base64,iVBORw0KGgo=', text: '' });
           }
+          // The window reads a file of the machine by its place: a picture of
+          // one ending comes as a data URL, the rest as words.
+          if (command === 'take_files') {
+            window.__asked.push('take_files:' + ((args && args.paths) || []).join(','));
+            var made = ((args && args.paths) || []).map(function (place) {
+              var name = String(place).split('/').pop();
+              var picture = /\.png$/i.test(name);
+              return { name: name, mime: picture ? 'image/png' : 'text/plain',
+                kind: picture ? 'image' : 'text',
+                data: picture ? 'data:image/png;base64,iVBORw0KGgo=' : '',
+                text: picture ? '' : 'the words of the file' };
+            });
+            return Promise.resolve({ files: made });
+          }
+          // The clipboard of the machine, which holds a picture of the screen.
+          if (command === 'clipboard_take') {
+            window.__asked.push('clipboard_take');
+            return Promise.resolve({ files: [{ name: 'pasted-picture.png',
+              mime: 'image/png', kind: 'image',
+              data: 'data:image/png;base64,iVBORw0KGgo=', text: '' }], road: 'machine' });
+          }
           return Promise.resolve({ ok: true });
+        }
+      },
+      event: {
+        listen: function (name, handler) {
+          (window.__events[name] = window.__events[name] || []).push(handler);
+          return Promise.resolve(function () {});
         }
       }
     };
@@ -219,7 +254,73 @@ async function main() {
   }
 
   if (IS_WINDOW) {
-    // Seven: a field of the sheet keeps its paste. A heap of words pasted into
+    // Seven: the road of the window itself. The web view of the system on Linux
+    // never brings a file let go down to the page, so the program says so from
+    // the side of the window - that a drag stands over it, and that a file was
+    // let go, with the places of the files. The page then asks the window to
+    // read them, and lets a drop of its own kind alone, so nothing lands twice.
+    await page.evaluate(function () { window.__send__('window-drop', { kind: 'over' }); });
+    const over = await page.evaluate(function () {
+      return document.getElementById('box').className;
+    });
+    if (over.indexOf('drop') < 0) {
+      faults.push('the window said a drag stands over it, and the box says nothing'
+        + ' of the kind: ' + over);
+    }
+    await page.evaluate(function () {
+      window.__send__('window-drop',
+        { kind: 'down', paths: ['/home/reader/one.png', '/home/reader/note.md'] });
+    });
+    await new Promise(function (r) { setTimeout(r, 300); });
+    held = await page.evaluate(readHeld);
+    if (held.names.slice(-2).join(',') !== 'one.png,note.md') {
+      faults.push('a file let go over the window left ' + JSON.stringify(held.names)
+        + ', and two places were given to the window');
+    }
+    const afterDown = await page.evaluate(function () {
+      return document.getElementById('box').className;
+    });
+    if (afterDown.indexOf('drop') >= 0) {
+      faults.push('the box still says a file may be let go, after the window took it: '
+        + afterDown);
+    }
+    // The same file let go over the page now must not be hung on a second time.
+    await page.evaluate(function () {
+      var transfer = new DataTransfer();
+      transfer.items.add(new File(['bytes'], 'twice.png', { type: 'image/png' }));
+      document.getElementById('box').dispatchEvent(
+        new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+    });
+    await new Promise(function (r) { setTimeout(r, 200); });
+    held = await page.evaluate(readHeld);
+    if (held.names.filter(function (n) { return n === 'twice.png'; }).length > 0) {
+      faults.push('a file the window had taken was hung on the message a second time: '
+        + JSON.stringify(held.names));
+    }
+
+    // Eight: a paste that brought nothing asks the clipboard of the machine,
+    // which the window reads through the toolkit of the system. A picture of
+    // the clipboard is a picture, and not a file of bytes with no ending.
+    await page.evaluate(function () {
+      var ev = new Event('paste', { bubbles: true, cancelable: true });
+      ev.clipboardData = { files: [], items: [], getData: function () { return ''; } };
+      document.getElementById('draft').dispatchEvent(ev);
+    });
+    await new Promise(function (r) { setTimeout(r, 300); });
+    held = await page.evaluate(readHeld);
+    if (held.names.indexOf('pasted-picture.png') < 0) {
+      faults.push('a paste of nothing at all did not ask the clipboard of the machine: '
+        + JSON.stringify(held.names));
+    }
+    const asked = await page.evaluate(function () { return window.__asked; });
+    if (asked.indexOf('clipboard_take') < 0) {
+      faults.push('the paste asked the web view of the window instead of the machine');
+    }
+    if (asked.filter(function (a) { return a.indexOf('take_files:') === 0; }).length === 0) {
+      faults.push('the drop of the window never asked for the files of its places');
+    }
+
+    // Nine: a field of the sheet keeps its paste. A heap of words pasted into
     // a field of the sheet must stand in the field, and not hang a block on the
     // message of the chat.
     await page.evaluate(function () {
@@ -261,7 +362,8 @@ async function main() {
     process.exit(1);
   }
   console.log('the chat box took the file let go, the file pasted, the file of the'
-    + ' items list only, and the paste of many words');
+    + ' items list only, and the paste of many words'
+    + (IS_WINDOW ? ', and the window took its own drop and its own clipboard' : ''));
 }
 
 main();

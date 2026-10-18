@@ -41,6 +41,11 @@ pub const MAX_TEXT_CHARS: usize = 200_000;
 // The longest file name kept. A name longer than this is cut at the end.
 pub const MAX_NAME_CHARS: usize = 200;
 
+// The words that stand after a file of words the model was not given whole.
+// The same words stand wherever a file is cut, so the model is never told a
+// whole file was given when it was not.
+pub const CUT_NOTE: &str = "(the file was cut here, for it held more words than this program sends)";
+
 // The most bytes one attachment may hold, counted in the base64 form the
 // page sends. A file larger than this has no business standing in a chat.
 pub const MAX_DATA_CHARS: usize = 24 * 1024 * 1024;
@@ -210,6 +215,47 @@ pub fn is_text(mime: &str, name: &str) -> bool {
         )
 }
 
+// Which of the three kinds a file is, said in the word the page and the
+// window both use for a block over the chat box: a picture, a file of words,
+// or a file that can only be named.
+pub fn kind_of(name: &str, mime: &str) -> &'static str {
+    if is_image(mime, name) {
+        "image"
+    } else if is_text(mime, name) {
+        "text"
+    } else {
+        "file"
+    }
+}
+
+// The kind of file the ending of its name says it is. The window needs this
+// when it takes a file from the machine by its place, for a place on the disk
+// carries no kind of its own. A name with no ending, or an ending this
+// program does not know, stands as a stream of bytes.
+pub fn mime_of(name: &str) -> &'static str {
+    match ending(name).as_deref() {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("tif") | Some("tiff") => "image/tiff",
+        Some("svg") => "image/svg+xml",
+        Some("txt") | Some("log") => "text/plain",
+        Some("md") | Some("markdown") => "text/markdown",
+        Some("html") | Some("htm") => "text/html",
+        Some("css") => "text/css",
+        Some("csv") => "text/csv",
+        Some("js") | Some("mjs") => "text/javascript",
+        Some("json") => "application/json",
+        Some("toml") => "application/toml",
+        Some("yaml") | Some("yml") => "application/x-yaml",
+        Some("xml") => "application/xml",
+        Some("sh") | Some("bash") => "application/x-sh",
+        _ => "application/octet-stream",
+    }
+}
+
 // The ending of a file name, in lower case. A name with no ending gives
 // nothing.
 fn ending(name: &str) -> Option<String> {
@@ -324,10 +370,7 @@ fn stored_text_at(place: &Path, id: &str) -> String {
                     .map(|(at, _)| at)
                     .unwrap_or(words.len());
                 words = &words[..cut];
-                return format!(
-                    "{}\n(the file was cut here, for it held more words than this program sends)",
-                    words
-                );
+                return format!("{}\n{}", words, CUT_NOTE);
             }
             words.to_string()
         }
@@ -725,5 +768,21 @@ mod tests {
         assert!(find_in(&[rooms.clone()], "0000000000").is_none());
         assert!(find_in(&[rooms.clone()], "../outside").is_none());
         let _ = fs::remove_dir_all(&rooms);
+    }
+
+    // A place on the disk carries no kind of its own, so the window is given
+    // one from the ending of the name, and the three kinds of block follow.
+    #[test]
+    fn a_place_on_disk_is_named_by_its_ending() {
+        assert_eq!(mime_of("photo.png"), "image/png");
+        assert_eq!(mime_of("photo.JPG"), "image/jpeg");
+        assert_eq!(mime_of("notes.md"), "text/markdown");
+        assert_eq!(mime_of("no-ending"), "application/octet-stream");
+        assert_eq!(kind_of("photo.png", mime_of("photo.png")), "image");
+        assert_eq!(kind_of("notes.md", mime_of("notes.md")), "text");
+        assert_eq!(kind_of("model.bin", mime_of("model.bin")), "file");
+        // A kind of its own outranks the ending, for the machine that handed
+        // the file over knows better than a name.
+        assert_eq!(kind_of("copy", "image/png"), "image");
     }
 }

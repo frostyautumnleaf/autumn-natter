@@ -3371,36 +3371,100 @@ function addFiles(files) {
   grow();
 }
 
-// The clipboard of the machine, asked from the page. The window gives the page
-// leave to read it, in enable_clipboard_access of src-tauri/src/desktop.rs, and
-// a paste that brought nothing of its own asks it here. A word of the box is
-// never lost this way: the clipboard is asked only when the paste brought
-// neither a file nor a word, and a clipboard with nothing of the kind on it
-// answers with nothing. This road stands in the window alone, for a browser
-// page is not given the clipboard of the machine.
+// Files the window read from the machine, of a drop or of the clipboard. They
+// come already read - the whole name, the kind of file, the data URL of a
+// picture or the words of a file of words - so they stand over the box as they
+// are, and are not read a second time.
+function addTaken(list) {
+  var took = 0;
+  for (var n = 0; n < list.length; n++) {
+    if (heldFiles.length >= MOST_FILES) { break; }
+    var one = list[n];
+    if (!one || !one.name) { continue; }
+    var kind = one.kind === 'image' || one.kind === 'text' ? one.kind : 'file';
+    heldFiles.push({
+      name: freeName(one.name),
+      mime: one.mime || '',
+      kind: kind,
+      data: one.data || '',
+      text: one.text || '',
+      url: kind === 'image' ? (one.data || '') : ''
+    });
+    took++;
+  }
+  if (took > 0) { drawParts(); grow(); }
+}
+
+// The clipboard of the machine, asked for a paste that brought nothing of its
+// own. The window asks the machine itself, for the web view of the system on
+// Linux reports the clipboard as the toolkit of the system names its kinds, and
+// a picture of the clipboard is none of those names: a pasted picture came in
+// as a file of bytes with no ending, and a file copied from the file manager as
+// a handful of addresses. The window reads the clipboard through the toolkit
+// instead, which gives a picture, or a file with its whole name. Where that
+// road is not there - the other systems, or a thread the window is not worked
+// on - the page asks the web view itself, and names what it gets by its kind.
+//
+// A word of the box is never lost this way: the clipboard is asked only when
+// the paste brought neither a file nor a word, and a clipboard with nothing of
+// the kind on it answers with nothing.
 function askClipboard() {
   if (!inWindow) { return; }
+  invoke('clipboard_take').then(function (answer) {
+    addTaken((answer && answer.files) || []);
+  }, function () { askTheWebView(); });
+}
+
+// The clipboard as the web view of the system reports it, which is the road of
+// the other systems.
+function askTheWebView() {
   if (!window.navigator || !navigator.clipboard || !navigator.clipboard.read) { return; }
   navigator.clipboard.read().then(function (items) {
     for (var n = 0; n < items.length; n++) {
-      var types = items[n].types || [];
-      var ofKind = '';
-      for (var k = 0; k < types.length; k++) {
-        // The words of the clipboard are the business of the box, and the file
-        // a page was copied with is worth more than its marks.
-        if (types[k] === 'text/plain' || types[k] === 'text/html') { continue; }
-        ofKind = types[k];
-        break;
-      }
-      if (!ofKind || !items[n].getType) { continue; }
+      var kind = kindOfClipboard(items[n].types || []);
+      if (!kind || !items[n].getType) { continue; }
       (function (item, type) {
         item.getType(type).then(function (blob) {
-          var name = type.indexOf('image/') === 0 ? 'image.png' : 'clipboard-file.bin';
-          addFiles([new File([blob], name, { type: type })]);
+          addFiles([new File([blob], takenName(type), { type: type })]);
         }, function () {});
-      })(items[n], ofKind);
+      })(items[n], kind);
     }
   }, function () {});
+}
+
+// The kinds a clipboard of the system reports that stand for words, or for the
+// marks of the clipboard itself rather than for a file of any kind. The words
+// are the business of the box, which was given them by the paste itself.
+var CLIPBOARD_MARKS = ['text/plain', 'text/html', 'text/uri-list', 'utf8_string',
+  'utf-8-string', 'cstring', 'text', 'targets', 'timestamp', 'multiple',
+  'save_targets', 'delete_targets', 'incr', 'application/x-moz-url'];
+
+// The kind of one thing of the clipboard: a picture before anything else, for
+// it is the file a reader pastes most often, and then any kind that is neither
+// words nor a mark of the clipboard.
+function kindOfClipboard(types) {
+  var any = '';
+  for (var n = 0; n < types.length; n++) {
+    var type = String(types[n]).toLowerCase();
+    if (type.indexOf('image/') === 0) { return types[n]; }
+    if (!any && CLIPBOARD_MARKS.indexOf(type) < 0) { any = types[n]; }
+  }
+  return any;
+}
+
+// A name for what the clipboard gave as a kind of file rather than as a file
+// with a name of its own. The ending is what matters, for the kind of block and
+// the words the model is given both follow the ending.
+function takenName(type) {
+  var kind = String(type).toLowerCase();
+  var endings = {
+    'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif',
+    'image/webp': '.webp', 'image/bmp': '.bmp', 'image/tiff': '.tif',
+    'text/plain': '.txt', 'text/html': '.html', 'text/css': '.css',
+    'text/csv': '.csv', 'application/json': '.json'
+  };
+  return (kind.indexOf('image/') === 0 ? 'pasted-picture' : 'pasted-file')
+    + (endings[kind] || '.bin');
 }
 
 // A paste of many words becomes a file of its own. What is held has the same
@@ -3625,9 +3689,38 @@ document.addEventListener('dragover', function (e) { e.preventDefault(); });
 document.addEventListener('drop', function (e) {
   e.preventDefault();
   el.box.classList.remove('drop');
+  // The window has said something of this drag itself, so it has taken the
+  // file, or will: the page does not take it a second time.
+  if (nativeDrops) { return; }
   var files = filesFrom(e.dataTransfer);
   if (files.length > 0) { addFiles(files); }
 });
+
+// The window of the program is told of a file let go over it by the program
+// itself, for the web view of the system on Linux never brings such a drop down
+// to the page: see watch_the_drop in src-tauri/src/desktop.rs. The window says
+// when a drag stands over it, when the drag has gone away, and when a file was
+// let go with the places of the files; the files are then read by take_files on
+// the side of the window. Once the window has said anything at all of a drag,
+// the drop of the page above is let alone.
+var nativeDrops = false;
+function watchTheWindow() {
+  var E = window.__TAURI__ && window.__TAURI__.event;
+  if (!inWindow || !E || !E.listen) { return; }
+  E.listen('window-drop', function (event) {
+    var made = event && event.payload;
+    var kind = made && made.kind;
+    if (kind === 'away') { el.box.classList.remove('drop'); return; }
+    if (kind !== 'over' && kind !== 'down') { return; }
+    nativeDrops = true;
+    el.box.classList.toggle('drop', kind === 'over');
+    if (kind !== 'down' || !made.paths || made.paths.length === 0) { return; }
+    invoke('take_files', { paths: made.paths }).then(function (answer) {
+      addTaken((answer && answer.files) || []);
+    }, function () {});
+  });
+}
+watchTheWindow();
 // The box says that a file let go there would land in it.
 el.box.addEventListener('dragover', function (e) {
   e.preventDefault();

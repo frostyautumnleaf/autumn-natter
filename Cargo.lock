@@ -93,6 +93,9 @@ name = "autumn-natter"
 version = "0.1.0"
 dependencies = [
  "autumn-natter-core",
+ "base64 0.22.1",
+ "gtk",
+ "percent-encoding",
  "serde",
  "serde_json",
  "tauri",
