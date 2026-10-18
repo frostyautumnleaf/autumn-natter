@@ -307,6 +307,17 @@ impl State {
             .unwrap_or(self.new_preserve)
     }
 
+    // Whether the thoughts of the turns before the last answer go back to the
+    // model with the words of the chat. The flag of the server only says that
+    // the template may keep them; the thoughts themselves live in the words
+    // sent, for the template reads them out of each answer and out of nowhere
+    // else. So a chat that keeps them is not enough: the thinking of an answer
+    // has to travel with it, and a model whose template cannot keep any does
+    // not get the words either.
+    fn kept_thinking(&self) -> bool {
+        self.thinking.has_preserve && self.preserve_of_open()
+    }
+
     fn set_status(&mut self, text: &str) {
         self.status = text.to_string();
         self.touch();
@@ -481,6 +492,8 @@ impl State {
         // its own room, so that is where their words and pictures are looked
         // for.
         let shelf = self.attach_place_for(chat);
+        // The thoughts that may go back with the answers of the chat.
+        let keep_thinking = self.kept_thinking();
         for message in &chat.messages {
             match message.role.as_str() {
                 // The words of the reader, and the attachments that hang on
@@ -490,10 +503,20 @@ impl State {
                     "role": "user",
                     "content": attach::content_at(&shelf, &message.body, &message.attachments, vision_on),
                 })),
-                "Assistant" => out.push(json!({
-                    "role": "assistant",
-                    "content": message.body,
-                })),
+                "Assistant" => {
+                    let mut entry = json!({
+                        "role": "assistant",
+                        "content": message.body,
+                    });
+                    // The thinking of the answer rides beside its words, so the
+                    // template may put it back where it stood. An answer that
+                    // thought nothing sends nothing, for the empty block of a
+                    // turn is not worth the room.
+                    if keep_thinking && !message.reasoning.trim().is_empty() {
+                        entry["reasoning_content"] = json!(message.reasoning);
+                    }
+                    out.push(entry);
+                }
                 // A tool run and a chapter are both a call the model made and
                 // an answer it got back. Only the run is shown to the reader.
                 "Tool" | "Chapter" => {
@@ -507,7 +530,7 @@ impl State {
                     };
                     // One stored message stands for the call and for its
                     // result, so it becomes two entries here.
-                    out.push(json!({
+                    let mut call = json!({
                         "role": "assistant",
                         "content": Value::Null,
                         "tool_calls": [{
@@ -515,7 +538,13 @@ impl State {
                             "type": "function",
                             "function": { "name": name, "arguments": message.tool_args }
                         }]
-                    }));
+                    });
+                    // The thinking of a turn that asked for a command stands
+                    // with the command, so it goes back the same way.
+                    if keep_thinking && !message.reasoning.trim().is_empty() {
+                        call["reasoning_content"] = json!(message.reasoning);
+                    }
+                    out.push(call);
                     out.push(json!({
                         "role": "tool",
                         "tool_call_id": message.call_id,
@@ -2559,6 +2588,89 @@ mod tests {
             .snapshot()
             .status
             .contains("no switch for keeping the thinking"));
+    }
+
+    // The choice to keep the thinking is not only a flag of the server. The
+    // template of a model reads the thoughts of an answer out of the words it
+    // is sent, so the thoughts have to travel with the answer they came from -
+    // otherwise there is nothing there to keep, and the model is left with no
+    // memory of its own reasoning. A chat that drops them, and a model whose
+    // template cannot keep them, send no thoughts at all.
+    #[test]
+    fn the_kept_thinking_travels_with_the_answers() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.thinking = markdown::ThinkingOptions {
+                has_thinking: true,
+                has_effort: false,
+                efforts: Vec::new(),
+                has_preserve: true,
+            };
+            state.open_blank_chat();
+            if let Some(chat) = state.chat_mut() {
+                chat.messages.push(Message {
+                    role: String::from("You"),
+                    body: String::from("what is two plus two?"),
+                    ..Default::default()
+                });
+                chat.messages.push(Message {
+                    role: String::from("Assistant"),
+                    body: String::from("four"),
+                    reasoning: String::from("two and two make four"),
+                    ..Default::default()
+                });
+                // A turn that thought and then asked for a command leaves its
+                // thinking with the command, so it must travel the same road.
+                chat.messages.push(Message {
+                    role: String::from("Tool"),
+                    body: String::from("ls"),
+                    reasoning: String::from("let me look first"),
+                    tool: String::from("one file"),
+                    call_id: String::from("call-one"),
+                    tool_name: String::from(tools::TOOL_NAME),
+                    tool_args: String::from("{\"command\":\"ls\"}"),
+                    ..Default::default()
+                });
+            }
+            let said = state.build_history();
+            let list = said.as_array().expect("the history is a list");
+            assert_eq!(list.len(), 4);
+            // The words of the reader carry no thoughts of their own.
+            assert!(list[0].get("reasoning_content").is_none());
+            assert_eq!(
+                list[1]["reasoning_content"].as_str().unwrap(),
+                "two and two make four"
+            );
+            assert_eq!(
+                list[2]["reasoning_content"].as_str().unwrap(),
+                "let me look first"
+            );
+            assert!(list[3].get("reasoning_content").is_none());
+        }
+        // A chat that drops the thinking sends the answers bare.
+        engine.set_preserve(false);
+        {
+            let state = engine.state.lock().unwrap();
+            let said = state.build_history();
+            let list = said.as_array().expect("the history is a list");
+            assert!(list.iter().all(|m| m.get("reasoning_content").is_none()));
+        }
+        // A model whose template cannot keep its thinking is sent none either,
+        // whatever the chat chooses.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.thinking = markdown::ThinkingOptions::default();
+            state.new_preserve = true;
+            if let Some(chat) = state.chat_mut() {
+                chat.meta.preserve_thinking = true;
+            }
+            let said = state.build_history();
+            let list = said.as_array().expect("the history is a list");
+            assert!(list.iter().all(|m| m.get("reasoning_content").is_none()));
+        }
     }
 
     // A chapter stands where the model asked for it. The marks are given to the
