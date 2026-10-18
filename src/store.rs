@@ -200,6 +200,26 @@ impl Default for ChatMeta {
     }
 }
 
+// One attachment hanging on a message. The bytes of the attachment stand in
+// a record of their own under the attachments folder of the data directory.
+// The message keeps the way to it, the whole file name with its ending, and
+// what kind of file it is, so a window can draw a block for the attachment
+// without carrying the file about.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Attachment {
+    pub id: String,
+    // The whole file name, ending included, as the reader knew it.
+    pub name: String,
+    // The kind of the file, as the page named it. Empty when the page could
+    // not tell.
+    #[serde(default)]
+    pub mime: String,
+    // True when the attachment is a picture. The window draws a picture
+    // block, and the program sends it to the model as a picture.
+    #[serde(default)]
+    pub image: bool,
+}
+
 // One message. The role is "You", "Assistant", "Tool", "Note" or "Chapter".
 // A chapter is a mark the model made of where a part of the talk begins: it
 // holds its place among the messages below, and is never drawn as a message.
@@ -208,6 +228,10 @@ pub struct Message {
     pub id: String,
     pub role: String,
     pub body: String,
+    // The files the reader hung on the message, in the order the reader
+    // hung them. Only a message of the reader carries any.
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
     // The model's reasoning, streamed before the answer. Empty for most models.
     #[serde(default)]
     pub reasoning: String,
@@ -321,7 +345,22 @@ impl Chat {
         }
         out
     }
+
+    // The marks of every attachment the messages of this chat carry. The
+    // records of them stand in the folder of the chat.
+    pub fn attachment_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = Vec::new();
+        for message in &self.messages {
+            for held in &message.attachments {
+                if !ids.contains(&held.id) {
+                    ids.push(held.id.clone());
+                }
+            }
+        }
+        ids
+    }
 }
+
 
 // Reads and writes the data on disk.
 pub struct Store {

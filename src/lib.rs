@@ -13,6 +13,7 @@
 //
 // Run the program with --help to see the arguments.
 
+pub mod attach;
 pub mod config;
 pub mod engine;
 pub mod gguf;

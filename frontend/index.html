@@ -39,6 +39,11 @@
   --hover: #f7ebd9; --tint: #fbe6d1; --on-accent: #fffaf2;
 
   --bubble: #fbe6d1; --bubble-line: #f0d2b0;
+  /* A file that has been sent stands on the bubble, so it needs a ground of
+     its own: a wash lighter than the bubble, and a hairline of light. */
+  --plate: rgba(255, 253, 248, .66); --plate-line: rgba(255, 255, 255, .9);
+  --plate-mark: rgba(124, 84, 44, .12);
+  --plate-shadow: 0 1px 3px rgba(70, 40, 12, .10);
   --code-bg: #f6ecdc; --code-line: #e8d7bf;
   --think-bg: #f8eedf; --tool-bg: #f7eee0;
   --scrim: rgba(38, 26, 15, .46);
@@ -60,6 +65,9 @@ body.dark {
   --hover: #262422; --tint: #2c1d10; --on-accent: #fff8ef;
 
   --bubble: #2b1c10; --bubble-line: #4a3626;
+  --plate: rgba(255, 255, 255, .075); --plate-line: rgba(255, 255, 255, .15);
+  --plate-mark: rgba(255, 255, 255, .10);
+  --plate-shadow: 0 1px 3px rgba(0, 0, 0, .38);
   --code-bg: #201d1a; --code-line: #37312a;
   --think-bg: #221e1a; --tool-bg: #211e1b;
   --scrim: rgba(8, 7, 6, .6);
@@ -631,6 +639,67 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
   overflow-y: auto; scrollbar-width: thin;
 }
 #draft::placeholder { color: var(--faint); }
+/* The files that hang on a message: held in the chat box before the message
+   goes out, and shown under the words of the reader after it. A block is a
+   chip: the picture or a mark of the file, its whole name with the ending,
+   and, in the box, a mark to take the file away again. */
+.parts { display: flex; flex-wrap: wrap; gap: 6px; padding: 9px 10px 0 12px; }
+.parts.hidden { display: none; }
+.part {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 250px; min-width: 0;
+  padding: 4px 5px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--surface-2); color: var(--text-2); font-size: 12px; line-height: 1.3;
+}
+.part .pic {
+  width: 26px; height: 26px; flex: 0 0 auto; display: block; object-fit: cover;
+  border-radius: 6px; background: var(--surface-3); border: 1px solid var(--line);
+}
+.part .mark { display: inline-flex; flex: 0 0 auto; width: 26px; height: 26px;
+  align-items: center; justify-content: center; }
+.part .mark .svg { width: 16px; height: 16px; stroke: var(--dim); }
+.part .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.part .x {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; padding: 0; border: 0; border-radius: 6px; background: none;
+}
+.part .x:hover { background: var(--hover); }
+.part .x .svg { width: 10px; height: 10px; stroke: var(--dim); stroke-width: 2.2; }
+.part .x:hover .svg { stroke: var(--ink); }
+/* The box says that a file let go there would land in it. */
+.box.drop { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line); }
+/* The files that hang on a message the reader has sent stand under its words,
+   inside the bubble, on the reader's side. They are not chips: a chip is a
+   thing in the chat box that may still be thrown away. Here the file has gone
+   out, so a picture is laid out as a plate — the picture, and under it its
+   whole name with the ending — and a file of words is a card no taller than
+   the name it carries. Nothing stretches to the height of its neighbour, which
+   is what made a row of blocks look like a shelf of holes of one size. */
+.bubble .parts { display: flex; flex-wrap: wrap; align-items: flex-start;
+  justify-content: flex-end; gap: 9px; padding: 4px 0 1px; white-space: normal; }
+.bubble .part { flex: 0 0 auto; min-width: 0; max-width: 100%; padding: 0; border: 0;
+  border-radius: 0; background: none; color: var(--text-2); font-size: 11.5px; }
+/* A picture: the plate, and the whole name of it under the plate. */
+.bubble .part.image { flex-direction: column; align-items: center; gap: 5px; width: 120px; }
+.bubble .part.image .pic { display: block; width: 120px; height: 120px; border-radius: 11px;
+  border: 1px solid var(--plate-line); background: var(--surface-3);
+  box-shadow: var(--plate-shadow); }
+/* A picture that has just been read in comes over the ground of its plate
+   rather than standing on it of a sudden. */
+img.pic { animation: plate-in 180ms ease-out; }
+@keyframes plate-in { from { opacity: 0; } to { opacity: 1; } }
+/* A message of files and no words carries no line of its own, so the bubble
+   keeps no room above the blocks for words that were never written. */
+.body:empty { display: none; }
+.bubble .part.image .nm { display: block; width: 120px; text-align: center; color: var(--dim);
+  font-size: 10.5px; line-height: 1.3; }
+/* A file with no picture in it: a card with the mark of a file beside its name. */
+.bubble .part.file { flex: 0 1 auto; align-items: center; gap: 8px; max-width: 218px;
+  padding: 6px 11px 6px 6px; border: 1px solid var(--plate-line); border-radius: 10px;
+  background: var(--plate); box-shadow: var(--plate-shadow); }
+.bubble .part.file .mark { width: 28px; height: 28px; border-radius: 8px;
+  background: var(--plate-mark); }
+.bubble .part.file .mark .svg { width: 15px; height: 15px; }
+.bubble .part.file .nm { font-size: 12px; }
 .dock-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px 10px; }
 .badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .badge {
@@ -831,6 +900,7 @@ pre.code.line {
   .turn.in { animation: none; }
   .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
   .gauge .spin { animation: none; }
+  img.pic { animation: none; }
 }
 </style>
 </head>
@@ -949,6 +1019,10 @@ pre.code.line {
         </span>
         <span class="what" id="gaugeText">Processing text...</span>
       </div>
+      <!-- The files the reader has hung on the message that has not gone out
+           yet. A block stands over the words for each of them, and the mark
+           on a block takes that file away again. -->
+      <div class="parts hidden" id="parts"></div>
       <textarea id="draft" rows="1" spellcheck="false"
         placeholder="Write a message for the model"></textarea>
       <div class="dock-row">
@@ -1064,6 +1138,9 @@ pre.code.line {
         <div class="fld"><span class="lbl">Steps in one answer</span>
           <span class="sub">How many turns of the model one answer may take. A turn is asked again after every command, so a long talk with many parts needs room here. -1 leaves no limit, and the answer then ends only when the model stops by itself.</span>
           <div class="ctl"><input id="fAnswerSteps" type="number" min="-1" max="1000000" step="1" placeholder="-1"><span class="unit">turns, -1 for no limit</span></div></div>
+        <div class="fld"><span class="lbl">A paste of words becomes a file</span>
+          <span class="sub">When a paste into the chat box holds more characters than this, the words turn into a file hung on the message instead of standing in the box. The least is 100.</span>
+          <div class="ctl"><input id="fPasteLimit" type="number" min="100" max="1000000" step="1" placeholder="6000"><span class="unit">characters</span></div></div>
       </div>
 
       <div class="pane hidden" id="paneModel">
@@ -1228,6 +1305,11 @@ var invoke = (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core
   ? window.__TAURI__.core.invoke
   : function (name) { return Promise.reject(new Error('no ' + name + ' in this window')); };
 
+// True in the window of the program, and false on the page of the remote mode.
+// The two take their files the same way, but the window has one road more: the
+// clipboard of the machine, which the browser page is not given.
+var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
+
 // The parts of the page that stay in place. Their words are written again on
 // every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', 'where',
@@ -1236,7 +1318,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', '
   'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'hint',
   'newchat', 'chatsbtn', 'settingsbtn', 'modelbtn', 'chapters',
   'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
-  'thinkmenu', 'draft', 'send',
+  'thinkmenu', 'draft', 'send', 'parts',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
@@ -1256,7 +1338,9 @@ var cur = null;        // the last state
 // Chatting. The two switches of the Chatting section of the settings, as the
 // engine gives them. A panel that is folded as it comes in stands closed from
 // the first look, and the reader opens it with a click on its head.
-var chatting = { thinking: true, tools: true, highlight: true, chapters: true };
+// The number of characters where a paste of words into the chat box turns
+// into a file of its own. It stands in the Chatting section of the settings.
+var chatting = { thinking: true, tools: true, highlight: true, chapters: true, paste: 6000 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -1318,8 +1402,9 @@ function draw(s) {
   el.newchat.style.display = s.generating ? 'none' : '';
 
   // The round mark. It is dull while there is nothing to send, and it turns
-  // into the stop mark while an answer comes in.
-  var live = !!s.generating || el.draft.value !== '';
+  // into the stop mark while an answer comes in. The files hung on the
+  // message count as something to send, words or no words.
+  var live = !!s.generating || anythingToSend();
   el.send.className = 'send' + (s.generating ? ' stop' : '') + (live ? ' live' : '');
   el.send.title = s.generating ? 'Stop the answer' : 'Send the message';
 
@@ -1337,6 +1422,7 @@ function readChatting(s) {
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
   chatting.chapters = chat.chapters !== false;
+  chatting.paste = chat.paste_limit || 6000;
 }
 
 // The numbers of the meter are written with a comma in the place of a
@@ -3016,6 +3102,11 @@ function fill(turn, m) {
       var said = make('div', 'body');
       said.textContent = m.body;
       words.appendChild(said);
+      // The files that hung on the message keep their blocks under the
+      // words, in the order the reader hung them.
+      if (m.attachments && m.attachments.length) {
+        words.appendChild(sentParts(m));
+      }
     } else {
       var made = blocks(m.body);
       for (var n = 0; n < made.length; n++) { words.appendChild(blockNode(made[n])); }
@@ -3031,7 +3122,49 @@ function fill(turn, m) {
 
 function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
-    (m.tool || '').length, m.tool === 'running ...' ? 1 : 0, m.when || ''].join('#');
+    (m.tool || '').length, m.tool === 'running ...' ? 1 : 0, m.when || '',
+    m.attachments ? m.attachments.length : 0].join('#');
+}
+
+// The blocks of the files that hang on a message of the reader. A picture
+// asks for its bytes once, through the bridge of this page, and keeps them;
+// the block of a file of words needs nothing beyond its name.
+var attPics = {};    // the data URL of a picture, once it has been read
+
+function attachmentWords(id) {
+  return invoke('get_attachment', { id: id });
+}
+
+function sentParts(m) {
+  var row = make('div', 'parts');
+  for (var n = 0; n < m.attachments.length; n++) {
+    var one = m.attachments[n];
+    var shown = {
+      name: one.name,
+      kind: one.image ? 'image' : 'file',
+      url: attPics[one.id] || ''
+    };
+    var block = partBlock(shown);
+    row.appendChild(block);
+    if (one.image && !attPics[one.id]) {
+      (function (id, block) {
+        attachmentWords(id).then(function (record) {
+          var url = record && record.data ? String(record.data) : '';
+          if (!url) { return; }
+          attPics[id] = url;
+          var place = block.querySelector('.pic');
+          if (!place) { return; }
+          if (place.tagName !== 'IMG') {
+            var img = make('img', 'pic');
+            block.replaceChild(img, place);
+            place = img;
+          }
+          place.src = url;
+        }, function () {});
+      })(one.id, block);
+    }
+  }
+  return row;
 }
 
 // The chat box holds one turn for every message. A turn is made once and then
@@ -3587,11 +3720,258 @@ document.addEventListener('keydown', function (event) {
 //
 // The box grows with the words, up to a height. The round mark knows whether
 // there is anything to send, and turns into the stop mark while an answer comes.
+
+// The files the reader has hung on the message that has not gone out yet.
+// A block stands over the words of the box for each of them. The order of
+// this list is the order of the blocks, and it goes out with the message, so
+// the model can be told which attachment it meant by its number.
+var heldFiles = [];
+
+// What kind of file this is, as the program reads it: a picture the model
+// can be shown, a file of words the model can read, or a file that can only
+// be named. The same rules stand on the Rust side.
+var TEXT_ENDINGS = 'txt md markdown rs py js ts jsx tsx json toml yaml yml ini cfg conf '
+  + 'sh bash csv log sql html css c h cpp hpp go java';
+function fileKind(name, mime) {
+  mime = (mime || '').toLowerCase();
+  var dot = name.lastIndexOf('.');
+  var end = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  if (mime === 'image/svg+xml' || end === 'svg') { return 'text'; }
+  if (mime.indexOf('image/') === 0) { return 'image'; }
+  if (TEXT_ENDINGS.split(' ').indexOf(end) >= 0) { return 'text'; }
+  if (mime.indexOf('text/') === 0) { return 'text'; }
+  if (mime === 'application/json' || mime === 'application/x-sh' ||
+      mime === 'application/javascript' || mime === 'application/typescript' ||
+      mime === 'application/xml' || mime === 'application/x-yaml' ||
+      mime === 'application/toml') { return 'text'; }
+  return 'file';
+}
+
+// A name for a file that comes without one, as a pasted picture often does.
+// A name that stands already takes a number behind it, so no two blocks of
+// one message read the same.
+function freeName(base) {
+  var taken = {};
+  for (var n = 0; n < heldFiles.length; n++) { taken[heldFiles[n].name] = true; }
+  if (!taken[base]) { return base; }
+  var dot = base.lastIndexOf('.');
+  var stem = dot > 0 ? base.slice(0, dot) : base;
+  var tail = dot > 0 ? base.slice(dot) : '';
+  for (var k = 2; ; k++) {
+    var candidate = stem + '-' + k + tail;
+    if (!taken[candidate]) { return candidate; }
+  }
+}
+
+// Hold one file: its name, its kind, and its words or its data URL as soon
+// as it has been read. The block stands at once, so the reader sees the file
+// even while it is coming in.
+function holdFile(file) {
+  var name = freeName(file.name || (file.type && file.type.indexOf('image/') === 0
+    ? 'image.png' : 'attachment.bin'));
+  var kind = fileKind(name, file.type);
+  var held = { name: name, mime: file.type || '', kind: kind, data: '', text: '', url: '' };
+  heldFiles.push(held);
+  if (kind === 'image') {
+    var reader = new FileReader();
+    reader.onload = function () {
+      held.data = String(reader.result);
+      held.url = held.data;
+      drawParts();
+    };
+    reader.readAsDataURL(file);
+  } else if (kind === 'text') {
+    var words = new FileReader();
+    words.onload = function () { held.text = String(words.result); };
+    words.readAsText(file);
+  }
+}
+
+// The most files one message may carry. The Rust side keeps the same number.
+var MOST_FILES = 16;
+function addFiles(files) {
+  for (var n = 0; n < files.length; n++) {
+    if (heldFiles.length >= MOST_FILES) { break; }
+    holdFile(files[n]);
+  }
+  drawParts();
+  grow();
+}
+
+// Files the window read from the machine, of a drop or of the clipboard. They
+// come already read - the whole name, the kind of file, the data URL of a
+// picture or the words of a file of words - so they stand over the box as they
+// are, and are not read a second time.
+function addTaken(list) {
+  var took = 0;
+  for (var n = 0; n < list.length; n++) {
+    if (heldFiles.length >= MOST_FILES) { break; }
+    var one = list[n];
+    if (!one || !one.name) { continue; }
+    var kind = one.kind === 'image' || one.kind === 'text' ? one.kind : 'file';
+    heldFiles.push({
+      name: freeName(one.name),
+      mime: one.mime || '',
+      kind: kind,
+      data: one.data || '',
+      text: one.text || '',
+      url: kind === 'image' ? (one.data || '') : ''
+    });
+    took++;
+  }
+  if (took > 0) { drawParts(); grow(); }
+}
+
+// The clipboard of the machine, asked for a paste that brought nothing of its
+// own. The window asks the machine itself, for the web view of the system on
+// Linux reports the clipboard as the toolkit of the system names its kinds, and
+// a picture of the clipboard is none of those names: a pasted picture came in
+// as a file of bytes with no ending, and a file copied from the file manager as
+// a handful of addresses. The window reads the clipboard through the toolkit
+// instead, which gives a picture, or a file with its whole name. Where that
+// road is not there - the other systems, or a thread the window is not worked
+// on - the page asks the web view itself, and names what it gets by its kind.
+//
+// A word of the box is never lost this way: the clipboard is asked only when
+// the paste brought neither a file nor a word, and a clipboard with nothing of
+// the kind on it answers with nothing.
+function askClipboard() {
+  if (!inWindow) { return; }
+  invoke('clipboard_take').then(function (answer) {
+    addTaken((answer && answer.files) || []);
+  }, function () { askTheWebView(); });
+}
+
+// The clipboard as the web view of the system reports it, which is the road of
+// the other systems.
+function askTheWebView() {
+  if (!window.navigator || !navigator.clipboard || !navigator.clipboard.read) { return; }
+  navigator.clipboard.read().then(function (items) {
+    for (var n = 0; n < items.length; n++) {
+      var kind = kindOfClipboard(items[n].types || []);
+      if (!kind || !items[n].getType) { continue; }
+      (function (item, type) {
+        item.getType(type).then(function (blob) {
+          addFiles([new File([blob], takenName(type), { type: type })]);
+        }, function () {});
+      })(items[n], kind);
+    }
+  }, function () {});
+}
+
+// The kinds a clipboard of the system reports that stand for words, or for the
+// marks of the clipboard itself rather than for a file of any kind. The words
+// are the business of the box, which was given them by the paste itself.
+var CLIPBOARD_MARKS = ['text/plain', 'text/html', 'text/uri-list', 'utf8_string',
+  'utf-8-string', 'cstring', 'text', 'targets', 'timestamp', 'multiple',
+  'save_targets', 'delete_targets', 'incr', 'application/x-moz-url'];
+
+// The kind of one thing of the clipboard: a picture before anything else, for
+// it is the file a reader pastes most often, and then any kind that is neither
+// words nor a mark of the clipboard.
+function kindOfClipboard(types) {
+  var any = '';
+  for (var n = 0; n < types.length; n++) {
+    var type = String(types[n]).toLowerCase();
+    if (type.indexOf('image/') === 0) { return types[n]; }
+    if (!any && CLIPBOARD_MARKS.indexOf(type) < 0) { any = types[n]; }
+  }
+  return any;
+}
+
+// A name for what the clipboard gave as a kind of file rather than as a file
+// with a name of its own. The ending is what matters, for the kind of block and
+// the words the model is given both follow the ending.
+function takenName(type) {
+  var kind = String(type).toLowerCase();
+  var endings = {
+    'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif',
+    'image/webp': '.webp', 'image/bmp': '.bmp', 'image/tiff': '.tif',
+    'text/plain': '.txt', 'text/html': '.html', 'text/css': '.css',
+    'text/csv': '.csv', 'application/json': '.json'
+  };
+  return (kind.indexOf('image/') === 0 ? 'pasted-picture' : 'pasted-file')
+    + (endings[kind] || '.bin');
+}
+
+// A paste of many words becomes a file of its own. What is held has the same
+// shape as a file taken from the disk, so the words ride to the model as a
+// text attachment with its own number and its whole name, ending included.
+function holdWords(words) {
+  if (heldFiles.length >= MOST_FILES) { return; }
+  heldFiles.push({
+    name: freeName('pasted-text.txt'),
+    mime: 'text/plain',
+    kind: 'text',
+    data: '',
+    text: words,
+    url: ''
+  });
+  drawParts();
+  grow();
+}
+
+// One block of the box, or of a sent message. A place to drop from makes it
+// a block of the box, with the mark that takes the file away again.
+function partBlock(one, place) {
+  // A block of a picture and a block of a file are cut differently once they
+  // stand under a sent message, so each carries word of what it is.
+  var part = make('div', 'part ' + (one.kind === 'image' ? 'image' : 'file'));
+  part.title = one.name;
+  if (one.kind === 'image' && one.url) {
+    var pic = make('img', 'pic');
+    pic.src = one.url;
+    pic.alt = one.name;
+    part.appendChild(pic);
+  } else if (one.kind === 'image') {
+    part.appendChild(make('span', 'pic'));
+  } else {
+    var mark = make('span', 'mark');
+    mark.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true">'
+      + '<path d="M9.3 2.2H4.6a1.4 1.4 0 0 0-1.4 1.4v8.8a1.4 1.4 0 0 0 1.4 1.4h6.8'
+      + 'a1.4 1.4 0 0 0 1.4-1.4V5.6z"/><path d="M9.2 2.2v3.4h3.6"/></svg>';
+    part.appendChild(mark);
+  }
+  var nm = make('span', 'nm');
+  nm.textContent = one.name;
+  part.appendChild(nm);
+  if (place !== undefined) {
+    var x = make('button', 'x');
+    x.type = 'button';
+    x.title = 'Take this file away';
+    x.setAttribute('aria-label', 'Take ' + one.name + ' away from the message');
+    x.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true">'
+      + '<path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    x.addEventListener('click', function () {
+      heldFiles.splice(place, 1);
+      drawParts();
+      grow();
+    });
+    part.appendChild(x);
+  }
+  return part;
+}
+
+// The row of blocks over the words of the box.
+function drawParts() {
+  el.parts.innerHTML = '';
+  el.parts.classList.toggle('hidden', heldFiles.length === 0);
+  for (var n = 0; n < heldFiles.length; n++) {
+    el.parts.appendChild(partBlock(heldFiles[n], n));
+  }
+}
+
+// The round mark knows about the files as well as the words: a message of
+// files and no words is a message.
+function anythingToSend() {
+  return heldFiles.length > 0 || el.draft.value !== '';
+}
+
 function grow() {
   el.draft.style.height = 'auto';
   el.draft.style.height = Math.min(el.draft.scrollHeight, window.innerHeight * 0.4) + 'px';
   if (cur) {
-    var live = el.draft.value !== '' || !!cur.generating;
+    var live = anythingToSend() || !!cur.generating;
     el.send.classList.toggle('live', live && !cur.generating);
     el.hint.innerHTML = hintFor(cur);
   }
@@ -3599,10 +3979,20 @@ function grow() {
 
 function send() {
   var text = el.draft.value.trim();
-  if (!text) { return; }
+  if (!text && heldFiles.length === 0) { return; }
+  var body = { text: text };
+  if (heldFiles.length > 0) {
+    // The files go out in the order of the blocks over the box, each with
+    // its whole name, ending included.
+    body.attachments = heldFiles.map(function (one) {
+      return { name: one.name, mime: one.mime, data: one.data, text: one.text };
+    });
+  }
   el.draft.value = '';
+  heldFiles = [];
+  drawParts();
   grow();
-  post('/api/send', { text: text });
+  post('/api/send', body);
 }
 
 el.send.addEventListener('click', function () {
@@ -3657,6 +4047,114 @@ el.draft.addEventListener('keydown', function (e) {
     }
     post('/api/cancel');
   }
+});
+
+// The files a drag or a paste carries. The files of the transfer are the first
+// place they stand. Some web views fill the list of items only, so that list is
+// looked at too, and gives the same files back.
+function filesFrom(transfer) {
+  var out = [];
+  if (!transfer) { return out; }
+  var files = transfer.files;
+  if (files && files.length > 0) {
+    for (var n = 0; n < files.length; n++) { out.push(files[n]); }
+    return out;
+  }
+  var items = transfer.items;
+  if (!items || !items.length) { return out; }
+  for (var k = 0; k < items.length; k++) {
+    if (items[k].kind !== 'file') { continue; }
+    var one = items[k].getAsFile ? items[k].getAsFile() : null;
+    if (one) { out.push(one); }
+  }
+  return out;
+}
+
+// A file on the clipboard becomes an attachment, and nothing of it is
+// written into the words of the box. A paste of words above the set number
+// becomes a file too, so the box keeps its shape.
+function takePaste(e) {
+  var data = e.clipboardData;
+  var files = filesFrom(data);
+  if (files.length > 0) {
+    e.preventDefault();
+    addFiles(files);
+    return;
+  }
+  var words = data && data.getData ? data.getData('text/plain') : '';
+  if (words && words.length > chatting.paste) {
+    e.preventDefault();
+    holdWords(words);
+    return;
+  }
+  if (!words) { askClipboard(); }
+}
+
+// True when a paste belongs to the chat box: the box itself, or a part of the
+// window that is no field of its own. A field of the sheet keeps its paste, so
+// a path or an address stands where the reader put it.
+function pasteForTheBox(e) {
+  var from = e.target;
+  if (!from || from === el.draft || from === document.body) { return true; }
+  var tag = from.tagName;
+  return tag !== 'INPUT' && tag !== 'TEXTAREA' && !from.isContentEditable;
+}
+
+// The paste is taken from the whole window, as the file let go is: a Ctrl+V
+// over the chat, over the row of previews or over the bar hangs its files on
+// the message, and the reader need not find the box first.
+document.addEventListener('paste', function (e) {
+  if (!pasteForTheBox(e)) { return; }
+  takePaste(e);
+});
+
+// A file let go anywhere over the window lands in the chat box. Without the
+// guard below the web view would leave the chat for the file itself. The window
+// keeps no handler of its own for a drop, so the event comes to this page;
+// see dragDropEnabled in src-tauri/tauri.conf.json.
+document.addEventListener('dragover', function (e) { e.preventDefault(); });
+document.addEventListener('drop', function (e) {
+  e.preventDefault();
+  el.box.classList.remove('drop');
+  // The window has said something of this drag itself, so it has taken the
+  // file, or will: the page does not take it a second time.
+  if (nativeDrops) { return; }
+  var files = filesFrom(e.dataTransfer);
+  if (files.length > 0) { addFiles(files); }
+});
+
+// The window of the program is told of a file let go over it by the program
+// itself, for the web view of the system on Linux never brings such a drop down
+// to the page: see watch_the_drop in src-tauri/src/desktop.rs. The window says
+// when a drag stands over it, when the drag has gone away, and when a file was
+// let go with the places of the files; the files are then read by take_files on
+// the side of the window. Once the window has said anything at all of a drag,
+// the drop of the page above is let alone.
+var nativeDrops = false;
+function watchTheWindow() {
+  var E = window.__TAURI__ && window.__TAURI__.event;
+  if (!inWindow || !E || !E.listen) { return; }
+  E.listen('window-drop', function (event) {
+    var made = event && event.payload;
+    var kind = made && made.kind;
+    if (kind === 'away') { el.box.classList.remove('drop'); return; }
+    if (kind !== 'over' && kind !== 'down') { return; }
+    nativeDrops = true;
+    el.box.classList.toggle('drop', kind === 'over');
+    if (kind !== 'down' || !made.paths || made.paths.length === 0) { return; }
+    invoke('take_files', { paths: made.paths }).then(function (answer) {
+      addTaken((answer && answer.files) || []);
+    }, function () {});
+  });
+}
+watchTheWindow();
+// The box says that a file let go there would land in it.
+el.box.addEventListener('dragover', function (e) {
+  e.preventDefault();
+  el.box.classList.add('drop');
+});
+el.box.addEventListener('dragleave', function (e) {
+  if (!el.box.contains(e.relatedTarget)) { el.box.classList.remove('drop'); }
 });
 
 function roll(step) { post('/api/roll', { step: step }); }
@@ -3722,6 +4220,7 @@ function loadProgram() {
     byId('fChapters').checked = cfg.chat_chapters !== false;
     byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
+    byId('fPasteLimit').value = pasteLimitOf(cfg.pasted_text_char_limit);
     // The note is what the program found when it asked its own jail whether it
     // keeps what it promises.
     byId('fSandbox').textContent = (cur && cur.sandbox_note)
@@ -3904,6 +4403,14 @@ function stepsOf(value) {
 }
 function selIndex(id) { var v = parseInt(byId(id).value, 10); return isNaN(v) ? 0 : v; }
 
+// The number of characters where a paste of words into the chat box turns
+// into a file. An empty place in the sheet keeps the number the program
+// starts with. The engine keeps the number inside its own two bounds.
+function pasteLimitOf(value) {
+  var v = parseInt(value, 10);
+  return isNaN(v) ? 6000 : v;
+}
+
 // Read the command line again, but not on every keystroke.
 function refreshPreview() {
   if (!mdl) { return; }
@@ -3932,6 +4439,7 @@ function saveSheet() {
     cfg.chat_chapters = byId('fChapters').checked;
     cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
     cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
+    cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
     invoke('save_config', { config: cfg }).then(function () { poll(); closeSettings(); },
       function () { poll(); closeSettings(); });
   } else {

@@ -11,6 +11,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
+use serde_json::json;
 use tiny_http::{Header, Request, Response, Server};
 
 use crate::config::Config;
@@ -118,6 +119,27 @@ fn handle(engine: &Engine, mut request: Request) {
             let value = web::state(&snap, query_u64(&query, "since"));
             let _ = request.respond(json_response(&value));
         }
+        // One attachment of a message, for the block the page draws. The
+        // words of a file and the bytes of a picture come back under the
+        // same three words: name, kind, data.
+        ("GET", "/api/attachment") => {
+            let id = query_value(&query, "id");
+            match engine.attachment(&id) {
+                Some(record) => {
+                    let value = json!({
+                        "name": record.name,
+                        "mime": record.mime,
+                        "data": record.data,
+                        "text": record.text,
+                    });
+                    let _ = request.respond(json_response(&value));
+                }
+                None => {
+                    let _ = request
+                        .respond(json_status(404, "that attachment is not here"));
+                }
+            }
+        }
         ("POST", _) => {
             let mut body = String::new();
             // A call with no body is allowed, so a read error is not a problem.
@@ -156,6 +178,21 @@ fn split_url(url: &str) -> (String, String) {
         Some((path, query)) => (path.to_string(), query.to_string()),
         None => (url.to_string(), String::new()),
     }
+}
+
+// A text from the query of the page, for example id=ab12cd34ef. A missing
+// text gives an empty string, and the code behind it answers for that.
+fn query_value(query: &str, key: &str) -> String {
+    for pair in query.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        if parts.next() == Some(key) {
+            return parts
+                .next()
+                .map(|value| urlencoding::decode(value).unwrap_or_default().into_owned())
+                .unwrap_or_default();
+        }
+    }
+    String::new()
 }
 
 // A number from the query of the page, for example since=41.
