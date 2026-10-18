@@ -171,6 +171,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "available": snap.thinking_available,
             // The modes the badge offers, for the drop-down of the badge.
             "modes": &snap.thinking_modes,
+            // Whether the thinking of the turns before the last answer goes
+            // back to the model, and whether this model offers the choice.
+            "preserve": snap.thinking_preserve,
+            "preserve_available": snap.thinking_preserve_available,
         },
         "context": {
             "used": util::count(snap.context_used),
@@ -265,6 +269,10 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/thinking" | "thinking" => {
             engine.set_thinking(&text_field(&value, "mode"));
+            done()
+        }
+        "/api/preserve" | "preserve" => {
+            engine.set_preserve(flag(&value, "on"));
             done()
         }
         "/api/new_chat" | "new_chat" => {

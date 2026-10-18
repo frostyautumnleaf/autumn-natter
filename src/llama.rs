@@ -152,6 +152,9 @@ pub struct Server {
     pub model_id: String,
     // The thinking mode the server was started with. A change needs a restart.
     pub thinking_mode: String,
+    // Whether the server was started to keep the thinking of the turns before
+    // the last answer. Nothing is kept when the template has no switch for it.
+    pub preserve_thinking: Option<bool>,
     // Whether the server was started with tool support. A tool coming or going
     // needs a restart as well, for the server reads the chat template once.
     pub tools_on: bool,
@@ -190,6 +193,7 @@ impl Server {
         gpus: &[Gpu],
         use_tools: bool,
         thinking_mode: &str,
+        preserve_thinking: Option<bool>,
     ) -> Result<Server, String> {
         let port = util::free_port().ok_or("no free port on this machine")?;
         let mut notes = Vec::new();
@@ -201,6 +205,7 @@ impl Server {
             port,
             use_tools,
             thinking_mode,
+            preserve_thinking,
             &mut notes,
         );
 
@@ -233,6 +238,7 @@ impl Server {
                 ctx_total: settings.ctx_size as u64,
                 model_id: model.id(),
                 thinking_mode: thinking_mode.to_string(),
+                preserve_thinking,
                 tools_on: use_tools,
                 notes: notes.clone(),
             };
@@ -266,6 +272,7 @@ impl Server {
                             port,
                             false,
                             thinking_mode,
+                            preserve_thinking,
                             &mut notes,
                         );
                         server.stop_now();
@@ -360,6 +367,7 @@ pub fn build_args(
     port: u16,
     use_tools: bool,
     thinking_mode: &str,
+    preserve_thinking: Option<bool>,
     notes: &mut Vec<String>,
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![
@@ -539,6 +547,18 @@ pub fn build_args(
             args.push(thinking_mode.to_string());
         }
         _ => {}
+    }
+
+    // The thinking of the turns before the last answer. llama.cpp keeps it on
+    // its own for a template that can, so the flag stays away when the template
+    // of the model has no switch for it. The two flags of llama.cpp are the
+    // plain way to say the same thing; the older spelling, a template keyword
+    // of the json of --chat-template-kwargs, is now looked at and pointed at
+    // these two.
+    match preserve_thinking {
+        Some(true) => args.push("--reasoning-preserve".into()),
+        Some(false) => args.push("--no-reasoning-preserve".into()),
+        None => {}
     }
 
     // Speculative decoding.
@@ -935,6 +955,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         let find = |flag: &str| -> String {
@@ -960,6 +981,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "--temp"), "0.7");
@@ -988,6 +1010,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "--ctx-checkpoints"), "4");
@@ -1002,6 +1025,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "--ctx-checkpoints"), "32");
@@ -1021,6 +1045,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert!(args.iter().any(|a| a == "--cache-prompt"));
@@ -1037,6 +1062,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--cache-prompt"));
@@ -1061,6 +1087,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "--image-min-tokens"), "256");
@@ -1075,6 +1102,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--image-min-tokens"));
@@ -1091,6 +1119,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--image-min-tokens"));
@@ -1110,6 +1139,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "-fa"), "on");
@@ -1128,6 +1158,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--no-context-shift"));
@@ -1143,6 +1174,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert!(args.iter().any(|a| a == "--no-context-shift"));
@@ -1161,6 +1193,7 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--no-mmproj-offload"));
@@ -1177,9 +1210,63 @@ mod tests {
             8080,
             false,
             "off",
+            None,
             &mut notes,
         );
         assert!(args.iter().any(|a| a == "--no-mmproj-offload"));
+    }
+
+    // The choice to keep the thinking of the turns before the last answer sends
+    // one of the two flags of llama.cpp for it. A model whose template has no
+    // switch for it gets neither, and the server then does as it likes.
+    #[test]
+    fn the_kept_thinking_sends_its_flag() {
+        let holds = |args: &Vec<String>, flag: &str| args.iter().any(|a| a == flag);
+
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "on",
+            None,
+            &mut notes,
+        );
+        assert!(!holds(&args, "--reasoning-preserve"));
+        assert!(!holds(&args, "--no-reasoning-preserve"));
+
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "on",
+            Some(true),
+            &mut notes,
+        );
+        assert!(holds(&args, "--reasoning-preserve"));
+        assert!(!holds(&args, "--no-reasoning-preserve"));
+
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            false,
+            "off",
+            Some(false),
+            &mut notes,
+        );
+        assert!(holds(&args, "--no-reasoning-preserve"));
+        assert!(!holds(&args, "--reasoning-preserve"));
     }
 
     // The server answers a request for the state of the prompt work with a

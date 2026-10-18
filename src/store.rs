@@ -178,8 +178,18 @@ pub struct ChatMeta {
     // Thinking mode: "auto", "off", "on", "low", "medium", "high", "xhigh".
     #[serde(default)]
     pub thinking_mode: String,
+    // Keep the thinking of the turns before the last answer in the words the
+    // model is sent. llama.cpp keeps it by default, so a chat written before
+    // the switch existed reads as kept.
+    #[serde(default = "preserve_thinking_on")]
+    pub preserve_thinking: bool,
     // Tokens used by the last answer.
     pub context_used: u64,
+}
+
+// The switch for keeping the thinking of the earlier turns stands on.
+fn preserve_thinking_on() -> bool {
+    true
 }
 
 impl Default for ChatMeta {
@@ -195,6 +205,7 @@ impl Default for ChatMeta {
             // The sandbox is on unless the user turns it off.
             sandbox_enabled: true,
             thinking_mode: String::from("auto"),
+            preserve_thinking: true,
             context_used: 0,
         }
     }
@@ -549,4 +560,28 @@ fn human_name(dir_name: &str) -> String {
         _ => dir_name,
     };
     stem.replace('-', " ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A chat written before the switch for keeping the thinking of the earlier
+    // turns existed reads with the thinking kept, which is what llama.cpp does
+    // for a template that can keep it.
+    #[test]
+    fn an_older_chat_keeps_the_thinking_of_the_earlier_turns() {
+        let older = r#"{"id":"a","title":"t","repo_id":"","model_id":"m","created":1,
+            "updated":2,"code_enabled":false,"sandbox_enabled":true,
+            "thinking_mode":"off","context_used":10}"#;
+        let meta: ChatMeta = serde_json::from_str(older).expect("the older chat is read");
+        assert!(meta.preserve_thinking);
+        assert_eq!(meta.thinking_mode, "off");
+        // A chat that says it dropped the thinking keeps saying so.
+        let dropped = r#"{"id":"a","title":"t","repo_id":"","model_id":"m","created":1,
+            "updated":2,"code_enabled":false,"sandbox_enabled":true,
+            "thinking_mode":"off","preserve_thinking":false,"context_used":10}"#;
+        let meta: ChatMeta = serde_json::from_str(dropped).expect("the chat is read");
+        assert!(!meta.preserve_thinking);
+    }
 }

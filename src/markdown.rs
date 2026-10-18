@@ -214,7 +214,20 @@ pub struct ThinkingOptions {
     pub has_effort: bool,
     /// The effort levels the template names, in display order.
     pub efforts: Vec<String>,
+    /// True if the template can keep the thinking of the turns before the last
+    /// answer, so the model may work on its own thoughts again.
+    pub has_preserve: bool,
 }
+
+/// The words a template reads when it is told to keep or to drop the thinking
+/// of the earlier turns. llama.cpp sets all of them from the one switch, so a
+/// template that names any of them offers the choice.
+pub const PRESERVE_KEYS: [&str; 4] = [
+    "preserve_thinking",
+    "clear_thinking",
+    "truncate_history_thinking",
+    "drop_thinking",
+];
 
 impl ThinkingOptions {
     /// The modes the badge of the chat offers, in the order they are listed.
@@ -252,6 +265,10 @@ pub fn analyze_template(template: &str) -> ThinkingOptions {
     options.has_thinking = template.contains("enable_thinking");
     // The effort level comes in through the reasoning_effort keyword.
     options.has_effort = template.contains("reasoning_effort");
+    // The choice to keep the thinking of the earlier turns is taken from the
+    // same look at the template: one of the words for it stands in the template
+    // when the model can do the thing.
+    options.has_preserve = PRESERVE_KEYS.iter().any(|key| template.contains(key));
     if options.has_effort {
         // A level counts when the template compares the effort against it.
         // The comparison quotes the level, so a word like "following" does
@@ -373,6 +390,27 @@ mod tests {
         let options = analyze_template(template);
         assert!(options.has_effort);
         assert!(options.efforts.is_empty());
+    }
+
+    // A template that reads the word for keeping the thinking of the earlier
+    // turns offers the choice, and one that does not read it does not.
+    #[test]
+    fn the_choice_to_keep_the_thinking_of_history_is_seen() {
+        let template = "{%- if preserve_thinking is true %}A{% endif %}{{ enable_thinking }}";
+        let options = analyze_template(template);
+        assert!(options.has_preserve);
+        assert!(options.has_thinking);
+        // The choice is not a mode, so the list of modes stays the two.
+        assert_eq!(options.modes(), vec!["off", "on"]);
+
+        let plain = "{%- if enable_thinking %}A{% endif %}B";
+        let options = analyze_template(plain);
+        assert!(options.has_thinking);
+        assert!(!options.has_preserve);
+
+        // The other words for the same switch count as well.
+        let cleared = "{{ clear_thinking }}{{ truncate_history_thinking }}{{ drop_thinking }}";
+        assert!(analyze_template(cleared).has_preserve);
     }
 
     #[test]
