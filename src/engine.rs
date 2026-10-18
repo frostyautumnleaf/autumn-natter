@@ -464,7 +464,7 @@ impl State {
         // The records of the attachments of this chat stand in a folder of
         // its own room, so that is where their words and pictures are looked
         // for.
-        let shelf = self.attach_place_for(&chat);
+        let shelf = self.attach_place_for(chat);
         for message in &chat.messages {
             match message.role.as_str() {
                 // The words of the reader, and the attachments that hang on
