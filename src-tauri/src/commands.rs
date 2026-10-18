@@ -176,6 +176,10 @@ pub async fn preview_command(
         0,
         snap.code_enabled,
         snap.thinking_mode.as_str(),
+        // The line shown in the window is the line of the chat in hand, so the
+        // choice of keeping the thinking of the earlier turns stands in it too.
+        snap.thinking_preserve_available
+            .then(|| snap.thinking_preserve),
         &mut notes,
     );
     let mut line = String::from("llama-server ");

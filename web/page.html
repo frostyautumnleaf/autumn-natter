@@ -731,6 +731,22 @@ img.pic { animation: plate-in 180ms ease-out; }
 .menu .tick { width: 12px; height: 12px; flex: 0 0 auto; stroke: var(--accent);
   opacity: 0; }
 .menu button.now .tick { opacity: 1; }
+/* A line of the menu that turns one thing on or off, rather than being chosen
+   from a set. A rule keeps it apart from the lines one may choose, and the
+   switch stands at the end of the line. */
+.menu .sep { height: 1px; margin: 4px 6px; background: var(--line-strong); }
+.menu button.toggle { color: var(--text-2); }
+.menu button.toggle:hover { color: var(--ink); }
+.menu button.toggle.on { color: var(--ink); }
+.menu .sw { flex: 0 0 auto; width: 22px; height: 13px; margin-left: auto;
+  border-radius: 999px; background: var(--line-strong); position: relative;
+  transition: background .16s ease; }
+.menu .sw::after { content: ''; position: absolute; top: 2px; left: 2px;
+  width: 9px; height: 9px; border-radius: 999px; background: var(--surface);
+  transition: transform .16s ease; }
+.menu button.toggle.on .sw { background: var(--accent); }
+.menu button.toggle.on .sw::after { transform: translateX(9px);
+  background: var(--on-accent); }
 .badge .down { width: 11px; height: 11px; margin-left: 1px; opacity: .65; }
 .keys { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
@@ -1244,8 +1260,17 @@ function thinkWords(mode) {
   return THINK_WORDS[mode] || String(mode || '');
 }
 
+// The words over the switch that keeps the thinking of the earlier turns.
+var PRESERVE_TIP = 'Keep the thinking of the turns before the last answer in ' +
+  'the words the model is sent, so it may work on its own thoughts again. It ' +
+  'costs tokens, so turn it off when the room is small. A click turns it on or off.';
+
 // The menu of the thinking badge: one line for every mode the model offers,
 // with a mark against the mode the chat stands on. A line chooses that mode.
+// Under them stands the choice to keep the thinking of the turns before the
+// last answer, when the template of the model offers it. That choice is not a
+// mode, so a rule keeps it apart from the modes and it turns on or off instead
+// of being chosen.
 function fillThinkMenu(s) {
   var menu = el.thinkmenu;
   if (!menu) { return; }
@@ -1268,10 +1293,29 @@ function fillThinkMenu(s) {
     }(modes[n]));
     menu.appendChild(line);
   }
+  if (!thinking.preserve_available) { return; }
+  menu.appendChild(make('div', 'sep'));
+  var keep = make('button', 'toggle' + (thinking.preserve ? ' on' : ''));
+  keep.type = 'button';
+  keep.title = PRESERVE_TIP;
+  var keepWord = make('span');
+  keepWord.textContent = 'Preserve thinking';
+  keep.appendChild(keepWord);
+  keep.appendChild(make('span', 'sw'));
+  keep.addEventListener('click', function (event) {
+    // The menu stays open, so the switch is seen to move. The rest of the page
+    // is asked to leave the menu standing.
+    event.stopPropagation();
+    post('/api/preserve', { on: !thinking.preserve });
+  });
+  menu.appendChild(keep);
 }
 
 function openThinkMenu() {
-  if (!cur || !cur.thinking || !cur.thinking.available) { return; }
+  if (!cur || !cur.thinking) { return; }
+  // The menu is worth opening for the choice of keeping the thinking alone, so
+  // a model with that choice and no mode of thinking still answers a click.
+  if (!cur.thinking.available && !cur.thinking.preserve_available) { return; }
   fillThinkMenu(cur);
   el.thinkmenu.classList.remove('hidden');
 }
@@ -1295,7 +1339,9 @@ function drawBadges(s) {
   el.think.classList.toggle('on', thinking.available && thinking.mode !== 'off');
   el.think.title = thinking.available
     ? 'The thinking the model shows before its answer. A click chooses another.'
-    : 'The template of this model has no switch for thinking.';
+    : (thinking.preserve_available
+        ? 'The template of this model has no switch for thinking, but it may keep the thinking of the earlier turns. A click opens the choice.'
+        : 'The template of this model has no switch for thinking.');
   // The menu is filled again while it stands open, so a new model or a new
   // chat does not leave it standing with the old lines.
   if (!el.thinkmenu.classList.contains('hidden')) { fillThinkMenu(s); }

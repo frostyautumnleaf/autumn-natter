@@ -193,7 +193,10 @@ function scene(name, dark) {
     chapters: [],
     thinking: {
       mode: 'off', available: true,
-      modes: ['off', 'low', 'medium', 'high', 'xhigh']
+      modes: ['off', 'low', 'medium', 'high', 'xhigh'],
+      // The model of these scenes can keep the thinking of the earlier turns,
+      // and the choice stands on, as it does for a new chat.
+      preserve: true, preserve_available: true
     },
     chatting: { collapse_thinking: true, collapse_tools: true, highlight: true,
                 chapters: true },
@@ -446,6 +449,14 @@ async function main() {
   if (process.env.AN_HL === '0') {
     state.chatting.highlight = false;
     CONFIG.chat_highlight = false;
+  }
+  // AN_PRESERVE=0 takes the choice to keep the thinking of the earlier turns
+  // away from the model, so the switch of the menu can be looked at off, and
+  // AN_NOPRESERVE=1 leaves the model without the choice at all.
+  if (process.env.AN_PRESERVE === '0') { state.thinking.preserve = false; }
+  if (process.env.AN_NOPRESERVE === '1') {
+    state.thinking.preserve_available = false;
+    delete state.thinking.preserve;
   }
   // AN_PROGRESS=<0..100> puts the gauge above the chat box at that number, and
   // AN_WHAT says what the program is working on: text, image or images.
