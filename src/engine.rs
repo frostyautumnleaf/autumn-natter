@@ -1073,7 +1073,11 @@ impl Engine {
         self.cancel.store(true, Ordering::SeqCst);
     }
 
-    // The terminal tool for the open chat.
+    // The tools of the open chat: the terminal tool, and the tools that work on
+    // the files of the chat. One switch stands over all of them, for a reader who
+    // does not want the model reaching the machine does not want it reaching the
+    // files either. The name of the switch stays `code`, which is the name the
+    // chat carries on disk and the name the pages send.
     pub fn set_code(&self, enabled: bool) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -1086,9 +1090,9 @@ impl Engine {
         }
         state.persist();
         state.set_status(if enabled {
-            "the model may use the terminal tool"
+            "the model may use the tools of the program"
         } else {
-            "the terminal tool is off"
+            "the tools of the program are off"
         });
     }
 
@@ -1868,19 +1872,8 @@ fn run_turn(
             // only when it has stopped.
             "timings_per_token": true,
         });
-        if use_tools {
-            let mut offered: Vec<Value> = Vec::new();
-            if code_on {
-                // The terminal tool and the two file tools stand and fall
-                // together, for all three change what is on the machine.
-                offered.push(tools::definition());
-                offered.push(editfile::edit_definition());
-                offered.push(editfile::create_definition());
-            }
-            if chapters_on {
-                offered.push(tools::chapter_definition());
-            }
-            body["tools"] = Value::Array(offered);
+        if let Some(list) = offered(code_on, chapters_on) {
+            body["tools"] = list;
             body["tool_choice"] = json!("auto");
         }
 
@@ -2190,6 +2183,27 @@ fn run_turn(
         let Ok(mut guard) = state.lock() else { return };
         guard.set_status("the model reads the tool result");
     }
+}
+
+// The tools the model is offered for one step, or nothing at all when it is
+// offered none. The terminal tool and the tools that work on the files stand and
+// fall together with the badge of the tools, for all of them change what is on
+// the machine. The mark of a chapter stands on a switch of its own, for it runs
+// nothing.
+fn offered(code_on: bool, chapters_on: bool) -> Option<Value> {
+    if !(code_on || chapters_on) {
+        return None;
+    }
+    let mut list: Vec<Value> = Vec::new();
+    if code_on {
+        list.push(tools::definition());
+        list.push(editfile::edit_definition());
+        list.push(editfile::create_definition());
+    }
+    if chapters_on {
+        list.push(tools::chapter_definition());
+    }
+    Some(Value::Array(list))
 }
 
 // One run of the terminal tool. The block stands in the chat before the command
@@ -3064,6 +3078,34 @@ mod tests {
         let made = watched(std::slice::from_ref(&grown));
         assert_eq!(made[0].command, "cargo test --release mark");
         assert!(made[0].purpose.is_empty());
+    }
+
+    // The badge of the tools is the door to every tool that can reach the
+    // machine: with it off the model is offered no command and no tool that works
+    // on a file. A mark of a chapter stands on a switch of its own.
+    #[test]
+    fn no_badge_of_the_tools_opens_no_tool_at_all() {
+        let names = |list: &Value| {
+            list.as_array()
+                .unwrap()
+                .iter()
+                .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                .collect::<Vec<_>>()
+        };
+        // Nothing is switched on, so the call carries no tools at all.
+        assert!(offered(false, false).is_none());
+        // The marks alone, which is what a chat with the badge off and the marks
+        // on is offered.
+        let marks = offered(false, true).unwrap();
+        assert_eq!(names(&marks), vec![tools::CHAPTER_TOOL_NAME.to_string()]);
+        // The badge on: every tool of the program stands there, and the mark is
+        // not among them.
+        let open = offered(true, false).unwrap();
+        let words = names(&open);
+        assert!(words.contains(&tools::TOOL_NAME.to_string()));
+        assert!(words.contains(&editfile::EDIT_NAME.to_string()));
+        assert!(words.contains(&editfile::CREATE_NAME.to_string()));
+        assert!(!words.contains(&tools::CHAPTER_TOOL_NAME.to_string()));
     }
 
     // The head of a block, and the block of a call being written, take the one
