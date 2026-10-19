@@ -3311,6 +3311,37 @@ mod tests {
             arguments: String::from("{\"path\":\"notes/todo.txt\"}"),
         };
         assert_eq!(watched(std::slice::from_ref(&strange))[0].command, "notes/todo.txt");
+        // A model that writes the halves of a call in the order it likes, and not
+        // in the order the shape of the call asks for them, is shown as far as
+        // each of them has come. The words of the change stand in the body from
+        // the first of them, so the block is not blank while the call is written.
+        let backwards = ToolCall {
+            id: String::from("call-backwards"),
+            name: String::from(editfile::EDIT_NAME),
+            arguments: String::from("{\"edits\":[{\"new_string\":\"un"),
+        };
+        let read = watched(std::slice::from_ref(&backwards));
+        assert_eq!(read[0].command, "> un");
+        assert_eq!(read[0].target, String::new());
+        let half_read = ToolCall {
+            id: String::from("call-half-read"),
+            name: String::from(editfile::EDIT_NAME),
+            arguments: String::from("{\"edits\":[{\"new_string\":\"uno\",\"old_string\":\"on"),
+        };
+        assert_eq!(watched(std::slice::from_ref(&half_read))[0].command, "on\n> uno");
+        // The name of the file is the head of the block whichever half of the
+        // call it stands in, so a model that writes the changes first names the
+        // file as soon as the name begins.
+        let named_last = ToolCall {
+            id: String::from("call-named-last"),
+            name: String::from(editfile::EDIT_NAME),
+            arguments: String::from(
+                "{\"edits\":[{\"new_string\":\"uno\",\"old_string\":\"one\"}],\"path\":\"notes/to",
+            ),
+        };
+        let read = watched(std::slice::from_ref(&named_last));
+        assert_eq!(read[0].target, "notes/to");
+        assert_eq!(read[0].command, "one\n> uno");
     }
 
     // The calls being written stand in the snapshot, and go away with the step

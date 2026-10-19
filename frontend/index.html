@@ -2277,15 +2277,18 @@ var TOOL_SHAPES = {
     head: '', word: 'command', end: 'output',
     empty: 'a command with no words', begun: 'a command, begun'
   },
+  // A file tool is named for a file and for nothing else, so its head waits
+  // for the name of one instead of borrowing words from the body. The `file`
+  // mark says as much, and headName reads it.
   edit_file: {
     mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
     head: 'Editing file: ', done: 'Edited file: ', word: 'file', end: 'result',
-    empty: 'no name of a file', begun: 'a file, begun'
+    empty: 'no name of a file', begun: 'a file, begun', file: true
   },
   create_file: {
     mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
     head: 'Creating file: ', done: 'Created file: ', word: 'file', end: 'result',
-    empty: 'no name of a file', begun: 'a file, begun'
+    empty: 'no name of a file', begun: 'a file, begun', file: true
   },
   // The web search. The head names what the call asked for: the words to look
   // for, or the address that is being read. The answer is short words of each
@@ -2323,11 +2326,17 @@ function headWords(shape, named, over) {
   return head + words;
 }
 
-// The one thing the head of a call being written names: the file a file tool
-// works on, or the first line of the words the call is making when it names no
-// file of its own, as a run of the terminal tool does.
-function headName(one) {
-  return one.target && one.target.trim() ? one.target : firstLine(one.command);
+// The one thing the head of a call being written names. A file tool is named
+// for the file it works on, and the reader must wait for that name: the words of
+// a change are not a name of a file, and a head that reads 'Editing file:
+// .marquee {' says something that is not true. A model that writes the changes
+// before the name of the file is answered with 'a file, begun' until the name
+// comes, which is what the head has always said when there was no name to read.
+// The other tools name the words themselves - a command, the words to look for -
+// so the first line of what has come in is the thing they name.
+function headName(one, shape) {
+  if (one.target && one.target.trim()) { return one.target; }
+  return shape && shape.file ? '' : firstLine(one.command);
 }
 
 // One run of a tool. The head says which tool it is, what it was pointed at, and
@@ -2400,7 +2409,7 @@ function writeBox(one) {
   head.type = 'button';
   head.appendChild(mark(shape.mark));
   var cmd = make('span', 'cmd');
-  cmd.textContent = headWords(shape, headName(one), false);
+  cmd.textContent = headWords(shape, headName(one, shape), false);
   head.appendChild(cmd);
   var state = make('span', 'state write');
   state.textContent = 'writing';
@@ -2503,7 +2512,7 @@ function feedWrite(list) {
         box.text.scrollTop = box.text.scrollHeight;
       }
     }
-    var line = headWords(box.shape, headName(one), false);
+    var line = headWords(box.shape, headName(one, box.shape), false);
     if (box.cmd.textContent !== line) { box.cmd.textContent = line; }
     if (one.purpose) {
       if (!box.why) { addWhy(box); }

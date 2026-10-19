@@ -133,17 +133,30 @@ pub fn create_definition() -> Value {
     })
 }
 
-// The name of the file a call asks for. Nothing is made up of words that have
-// not come in yet.
+// The part of a call that holds the name of the file, under the few names a
+// model may have chosen for it, in the order they are worth looking at. The
+// same few names are read wherever the name of the file is wanted, so a head
+// does not lose a file because the model spelled its part another way.
+const PATH_KEYS: [&str; 3] = ["path", "file_path", "file"];
+
+// The name of the file a call asks for, as far as it has come in. Nothing is
+// made up of words that have not come in yet.
 pub fn partial_words(raw: &str) -> String {
-    tools::partial_text(raw.trim_start(), "path")
+    let text = raw.trim_start();
+    for key in PATH_KEYS {
+        let words = tools::partial_text(text, key);
+        if !words.is_empty() {
+            return words;
+        }
+    }
+    String::new()
 }
 
 // The name of the file of a call that is finished. The reader sees this in the
 // head of the block, so the whole name is worth having.
 pub fn file_of(raw: &str) -> String {
     match object(raw) {
-        Some(call) => first_of(&call, &["path", "file_path", "file"]).unwrap_or_default(),
+        Some(call) => first_of(&call, &PATH_KEYS).unwrap_or_default(),
         None => partial_words(raw),
     }
 }
@@ -164,24 +177,44 @@ pub fn live_params(name: &str, raw: &str) -> (String, String) {
 // The words of the changes of a call that is still being written, in the order
 // they stand. Each change is shown as the words that go out and the words that
 // come in, one line of a mark between the two, so the reader sees the change as
-// it is made. A change that has no words of its own yet is left out, for a mark
-// over nothing says nothing.
+// it is made.
+//
+// The two halves of a change are read side by side and not one inside the other,
+// for a model writes them in the order it likes. One that puts the words to come
+// in first is read as it comes: the mark of the change stands over those words
+// until the words to take out arrive, and the reader is not held looking at an
+// empty block while the call is written. A change whose two halves are both
+// still nothing is left out, for a mark over nothing says nothing. The words to
+// take out are only worth a line when they are really words, since an empty
+// mark of a change is a call that will be refused anyway.
 fn edit_params(raw: &str) -> String {
     let text = raw.trim_start();
     let olds = all_values(text, "old_string");
     let news = all_values(text, "new_string");
     let mut out = String::new();
-    for (number, old) in olds.iter().enumerate() {
-        if old.trim().is_empty() {
+    // The longer of the two lists says how many changes have been begun, for a
+    // model may have written either half of the last one first.
+    for number in 0..olds.len().max(news.len()) {
+        let old = olds.get(number).filter(|one| !one.trim().is_empty());
+        // The words to put in count as come in when the model has written the
+        // mark that opens them, so the mark of a change shows the reader that
+        // the words behind it are on their way.
+        let new = news.get(number);
+        if old.is_none() && new.is_none() {
             continue;
         }
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str(old);
-        if let Some(new) = news.get(number) {
-            out.push_str("\n> ");
-            out.push_str(new);
+        if let Some(words) = old {
+            out.push_str(words);
+        }
+        if let Some(words) = new {
+            if old.is_some() {
+                out.push('\n');
+            }
+            out.push_str("> ");
+            out.push_str(words);
         }
     }
     out
@@ -1002,7 +1035,7 @@ pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
     let Some(call) = object(raw) else {
         return failed(wrong_shape(true));
     };
-    let Some(name) = first_of(&call, &["path", "file_path", "file"]) else {
+    let Some(name) = first_of(&call, &PATH_KEYS) else {
         return failed(String::from("the name of the file is asked for"));
     };
     let changes = match parse_changes(&call) {
@@ -1049,7 +1082,7 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
     let Some(call) = object(raw) else {
         return failed(wrong_shape(false));
     };
-    let Some(name) = first_of(&call, &["path", "file_path", "file"]) else {
+    let Some(name) = first_of(&call, &PATH_KEYS) else {
         return failed(String::from("the name of the file is asked for"));
     };
     let mut words = String::new();
@@ -1448,6 +1481,135 @@ mod tests {
         assert_eq!(file_of(r#"{"path":"notes/todo.txt","edits":[]}"#), "notes/todo.txt");
         // A call with no name of a file in it yet gives nothing.
         assert_eq!(file_of(r#"{"edits":[]}"#), String::new());
+        // The name of the file is read wherever the model put it, so a call that
+        // writes the changes first and the name last is named as soon as the name
+        // begins.
+        assert_eq!(file_of(r#"{"edits":[],"path":"notes/to"}"#), "notes/to");
+        assert_eq!(
+            file_of(r#"{"edits":[{"old_string":"one"}],"path":"notes/to"#),
+            "notes/to"
+        );
+        // A model that spelled its part another way is read the same way while
+        // the call is written as it is read when the call is over.
+        assert_eq!(partial_words(r#"{"file_path":"notes/to"#), "notes/to");
+        assert_eq!(partial_words(r#"{"file":"notes/to"#), "notes/to");
+        assert_eq!(file_of(r#"{"file":"notes/todo.txt"}"#), "notes/todo.txt");
+    }
+
+    // The two halves of a change are read in the order they come in, and not only
+    // in the order the shape of the call asks for them. A model that writes the
+    // words to put in before the words to take out is read while it writes, so
+    // the reader of the block is not left looking at an empty body until the two
+    // halves happen to meet.
+    #[test]
+    fn the_two_halves_of_a_change_are_read_in_the_order_they_come() {
+        // The order the shape of the call asks for, which is the order most
+        // models keep to: the words to take out come first, and the words to put
+        // in join them when their mark is written.
+        assert_eq!(
+            edit_params(r#"{"path":"notes/todo.txt","edits":[{"old_string":"one","new_string":"u"#),
+            "one\n> u"
+        );
+        // The other way about. The mark of the change stands over the words that
+        // have come, and the words to take out walk in front of them when they
+        // arrive.
+        assert_eq!(edit_params(r#"{"edits":[{"new_string":"un"#), "> un");
+        assert_eq!(
+            edit_params(r#"{"edits":[{"new_string":"uno","old_string":"o"#),
+            "o\n> uno"
+        );
+        // The mark of a change is shown as soon as it has a half of its own, for
+        // a reader watching a block wants to see it move.
+        assert_eq!(edit_params(r#"{"edits":[{"new_string":""#), "> ");
+        assert_eq!(
+            edit_params(r#"{"edits":[{"old_string":"one","new_string":""#),
+            "one\n> "
+        );
+        // Two changes written the other way about are read side by side, so each
+        // half of each change stands where it belongs.
+        assert_eq!(
+            edit_params(
+                r#"{"edits":[{"new_string":"uno","old_string":"one"},{"new_string":"dos","old_string":"tw"#),
+            "one\n> uno\ntw\n> dos"
+        );
+        // A change with no words at all in it is left out, and so is a change of
+        // nothing but a space between the words to take out, for a mark over
+        // nothing says nothing.
+        assert_eq!(edit_params(""), String::new());
+        assert_eq!(edit_params(r#"{"path":"notes/todo.txt","edits":[{#), String::new());
+        assert_eq!(edit_params(r#"{"edits":[{"old_string":"  "#), String::new());
+        // The whole of a call is read the same way as half of one.
+        assert_eq!(
+            edit_params(
+                r#"{"edits":[{"new_string":"uno","old_string":"one"}],"path":"notes/todo.txt"}"#
+            ),
+            "one\n> uno"
+        );
+        // Both halves of a call that is still being written: the name of the file
+        // in the head, and the words of the change in the body, each as far as it
+        // has come.
+        let (body, name) = live_params(EDIT_NAME, r#"{"edits":[{"new_string":"un"#);
+        assert_eq!(body, "> un");
+        assert_eq!(name, String::new());
+        let (body, name) = live_params(EDIT_NAME, r#"{"edits":[],"path":"notes/to"#);
+        assert_eq!(body, String::new());
+        assert_eq!(name, "notes/to");
+    }
+
+    // A whole call written the other way about - the words to put in before the
+    // words to take out, and the name of the file after both - walked a character
+    // at a time, as the stream of an answer hands it out. Two things are looked
+    // at over every one of those looks: the body of the block never stands over
+    // nothing once a half of a change has begun, and the name of the file is read
+    // from the character it begins at, whichever half of the call it stands in.
+    #[test]
+    fn a_call_written_backwards_is_read_a_character_at_a_time() {
+        let call = String::from(concat!(
+            r#"{"edits":[{"new_string":"uno","old_string":"one"},"#,
+            r#"{"new_string":"dos","old_string":"two"}],"path":"notes/todo.txt"}"#,
+        ));
+        let opened = r#""new_string":""#;
+        let named = r#""path":""#;
+        // The body and the name of the file at every length of the call, from
+        // nothing at all to the whole of it.
+        let mut bodies: Vec<String> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
+        for cut in 0..=call.len() {
+            let (body, name) = live_params(EDIT_NAME, &call[..cut]);
+            bodies.push(body);
+            names.push(name);
+        }
+        // The whole of the call reads as the whole of any other call does.
+        assert_eq!(bodies[call.len()].as_str(), "one\n> uno\ntwo\n> dos");
+        assert_eq!(names[call.len()].as_str(), "notes/todo.txt");
+        // From the first character after the mark that opens the words to put in,
+        // every look holds a word of the change. This is the stretch the reader
+        // used to sit out: the block stood blank, and the words of the change
+        // popped in whole when the two halves of it happened to meet.
+        let begun = call.find(opened).expect("the call opens its first words");
+        for (cut, body) in bodies.iter().enumerate().skip(begun + opened.len()) {
+            assert!(
+                !body.is_empty(),
+                "the body of the block stood blank {} characters into the call",
+                cut
+            );
+        }
+        // The name of the file is nothing until it is begun, and then every
+        // character of it as far as it has come, which is how a command of the
+        // terminal tool is read.
+        let at = call.find(named).expect("the call names its file at the last") + named.len();
+        for (cut, name) in names.iter().enumerate().take(at) {
+            assert!(
+                name.is_empty(),
+                "a file was named before its name began: {} characters in",
+                cut
+            );
+        }
+        let whole = "notes/todo.txt";
+        for (come, name) in names.iter().enumerate().skip(at) {
+            let gone = (come - at).min(whole.len());
+            assert_eq!(name.as_str(), &whole[..gone], "the name of the file fell behind");
+        }
     }
 
     // `replace_all` is read strictly. The word false between quotes is off, and
