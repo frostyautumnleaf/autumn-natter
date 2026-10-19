@@ -187,6 +187,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "generating": snap.generating,
         "busy": snap.busy,
         "code": snap.code_enabled,
+        "search": snap.search_enabled,
         "sandbox": snap.sandbox_enabled,
         "sandbox_available": snap.sandbox_available,
         "sandbox_note": snap.sandbox_note,
@@ -264,6 +265,10 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/code" | "code" => {
             engine.set_code(flag(&value, "on"));
+            done()
+        }
+        "/api/search" | "search" => {
+            engine.set_search(flag(&value, "on"));
             done()
         }
         "/api/sandbox" | "sandbox" => {

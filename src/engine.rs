@@ -21,6 +21,7 @@ use crate::editfile;
 use crate::gpu::{self, Gpu};
 use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
+use crate::search;
 use crate::store::{self, Chat, Message, Repo};
 use crate::tools;
 
@@ -97,6 +98,9 @@ fn words_of(name: &str, raw: &str) -> (String, String) {
     match name {
         tools::TOOL_NAME => tools::partial_arguments(raw),
         editfile::EDIT_NAME | editfile::CREATE_NAME => (editfile::file_of(raw), String::new()),
+        // A look about the web is named by the words to look for, or by the
+        // address that is to be read.
+        search::NAME => (search::partial_words(raw), String::new()),
         // A name the program does not offer, and a name that came in pieces: the
         // words of a file are the best guess of what the model is naming.
         _ => (editfile::partial_words(raw), String::new()),
@@ -162,6 +166,8 @@ pub struct Snap {
     pub generating: bool,
     pub busy: bool,
     pub code_enabled: bool,
+    // The switch of the web search of the open chat.
+    pub search_enabled: bool,
     pub sandbox_enabled: bool,
     pub sandbox_available: bool,
     // The thinking mode of the open chat.
@@ -296,6 +302,7 @@ pub struct State {
     // The chat settings a new chat starts with. They matter while no chat is
     // open, where a badge has no chat to change.
     pub new_code: bool,
+    pub new_search: bool,
     pub new_sandbox: bool,
     pub new_thinking: String,
     pub new_preserve: bool,
@@ -635,6 +642,7 @@ impl State {
             None => chat.meta.sandbox_enabled = self.new_sandbox,
         }
         chat.meta.code_enabled = self.new_code;
+        chat.meta.search_enabled = self.new_search;
         chat.meta.thinking_mode = self.new_thinking.clone();
         chat.meta.preserve_thinking = self.new_preserve;
         self.chats.insert(0, chat);
@@ -865,6 +873,9 @@ impl State {
             generating: self.generating,
             busy: self.busy,
             code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(self.new_code),
+            search_enabled: chat
+                .map(|c| c.meta.search_enabled)
+                .unwrap_or(self.new_search),
             sandbox_enabled: chat
                 .map(|c| c.meta.sandbox_enabled)
                 .unwrap_or(self.new_sandbox),
@@ -981,6 +992,7 @@ impl Engine {
             pending_blank: None,
             overview: false,
             new_code: false,
+            new_search: false,
             new_sandbox: true,
             new_thinking: String::from("off"),
             // llama.cpp keeps the thinking of the earlier turns on its own, so
@@ -1093,6 +1105,29 @@ impl Engine {
             "the model may use the tools of the program"
         } else {
             "the tools of the program are off"
+        });
+    }
+
+    // The web search of the open chat. It stands on a switch of its own and not
+    // behind the badge of the tools, for it reads the web out of the program: a
+    // command of the terminal tool cannot reach the web at all, since the jail of
+    // it has no network. The name of the switch is `search` on every road it
+    // travels on.
+    pub fn set_search(&self, enabled: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if let Some(chat) = state.chat_mut() {
+            chat.meta.search_enabled = enabled;
+        } else {
+            // No chat is open, so the choice is kept for the next one.
+            state.new_search = enabled;
+        }
+        state.persist();
+        state.set_status(if enabled {
+            "the model may look a thing up on the web"
+        } else {
+            "the web search of the program is off"
         });
     }
 
@@ -1470,6 +1505,7 @@ impl Snap {
             generating: false,
             busy: false,
             code_enabled: false,
+            search_enabled: false,
             sandbox_enabled: true,
             sandbox_available: false,
             thinking_mode: String::from("off"),
@@ -1848,16 +1884,20 @@ fn run_turn(
     let mut marks = 0usize;
     loop {
         steps += 1;
-        let (history, code_on, chapters_on) = {
+        let (history, code_on, search_on, chapters_on) = {
             let Ok(guard) = state.lock() else { return };
             (
                 guard.build_history(),
                 guard.chat().map(|c| c.meta.code_enabled).unwrap_or(false),
+                guard
+                    .chat()
+                    .map(|c| c.meta.search_enabled)
+                    .unwrap_or(false),
                 guard.cfg.chat_chapters,
             )
         };
         // Any of the tools is enough to let the model ask for one.
-        let use_tools = code_on || chapters_on;
+        let use_tools = code_on || search_on || chapters_on;
         let mut body = json!({
             "messages": history,
             "stream": true,
@@ -1872,7 +1912,7 @@ fn run_turn(
             // only when it has stopped.
             "timings_per_token": true,
         });
-        if let Some(list) = offered(code_on, chapters_on) {
+        if let Some(list) = offered(code_on, search_on, chapters_on) {
             body["tools"] = list;
             body["tool_choice"] = json!("auto");
         }
@@ -2188,10 +2228,11 @@ fn run_turn(
 // The tools the model is offered for one step, or nothing at all when it is
 // offered none. The terminal tool and the tools that work on the files stand and
 // fall together with the badge of the tools, for all of them change what is on
-// the machine. The mark of a chapter stands on a switch of its own, for it runs
-// nothing.
-fn offered(code_on: bool, chapters_on: bool) -> Option<Value> {
-    if !(code_on || chapters_on) {
+// the machine. The web search stands on a switch of its own, for it reads the web
+// out of the program and never the machine. The mark of a chapter stands on a
+// switch of its own as well, for it runs nothing.
+fn offered(code_on: bool, search_on: bool, chapters_on: bool) -> Option<Value> {
+    if !(code_on || search_on || chapters_on) {
         return None;
     }
     let mut list: Vec<Value> = Vec::new();
@@ -2199,6 +2240,9 @@ fn offered(code_on: bool, chapters_on: bool) -> Option<Value> {
         list.push(tools::definition());
         list.push(editfile::edit_definition());
         list.push(editfile::create_definition());
+    }
+    if search_on {
+        list.push(search::definition());
     }
     if chapters_on {
         list.push(tools::chapter_definition());
@@ -2268,6 +2312,7 @@ fn run_program_tool(
     let doing = match call.name.as_str() {
         editfile::EDIT_NAME => "editing a file",
         editfile::CREATE_NAME => "making a file",
+        search::NAME => "looking a thing up",
         _ => "a tool of the program",
     };
     let message_id = {
@@ -2280,6 +2325,9 @@ fn run_program_tool(
     let report = match call.name.as_str() {
         editfile::EDIT_NAME => editfile::edit(workdir, &call.arguments),
         editfile::CREATE_NAME => editfile::create(workdir, &call.arguments),
+        // The web search needs no room of the chat: it reads what stands on the
+        // web, and nothing of the machine.
+        search::NAME => search::run(&call.arguments),
         other => tools::Report {
             ok: false,
             output: format!(
@@ -2308,11 +2356,11 @@ fn ensure_server(
         let binary = state
             .server_binary()
             .ok_or("llama-server was not found in the folder from the settings")?;
-        // Either tool is enough to ask the server for tool support: the chapter
-        // is wanted even in a chat that never runs a command.
+        // Any tool is enough to ask the server for tool support: the chapter and
+        // the web search are wanted even in a chat that never runs a command.
         let tools_wanted = state
             .chat()
-            .map(|c| c.meta.code_enabled)
+            .map(|c| c.meta.code_enabled || c.meta.search_enabled)
             .unwrap_or(false)
             || state.cfg.chat_chapters;
         (
@@ -3080,9 +3128,28 @@ mod tests {
         assert!(made[0].purpose.is_empty());
     }
 
+    // The badge of the web search works as the badge of the tools does: with no
+    // chat open the choice waits for the next one, and the two switches stand
+    // apart, so opening one does not open the other.
+    #[test]
+    fn the_web_search_switch_is_kept_for_the_next_chat() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        // No chat is open, so the choice is kept for the chat that comes next.
+        engine.set_search(true);
+        assert!(engine.snapshot().search_enabled);
+        assert!(!engine.snapshot().code_enabled);
+        engine.new_chat();
+        assert!(engine.snapshot().search_enabled);
+        engine.set_search(false);
+        assert!(!engine.snapshot().search_enabled);
+    }
+
     // The badge of the tools is the door to every tool that can reach the
     // machine: with it off the model is offered no command and no tool that works
-    // on a file. A mark of a chapter stands on a switch of its own.
+    // on a file. The web search and the mark of a chapter stand on switches of
+    // their own, and either of them alone is enough to carry tools with the call.
     #[test]
     fn no_badge_of_the_tools_opens_no_tool_at_all() {
         let names = |list: &Value| {
@@ -3093,19 +3160,29 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Nothing is switched on, so the call carries no tools at all.
-        assert!(offered(false, false).is_none());
-        // The marks alone, which is what a chat with the badge off and the marks
+        assert!(offered(false, false, false).is_none());
+        // The marks alone, which is what a chat with both badges off and the marks
         // on is offered.
-        let marks = offered(false, true).unwrap();
+        let marks = offered(false, false, true).unwrap();
         assert_eq!(names(&marks), vec![tools::CHAPTER_TOOL_NAME.to_string()]);
         // The badge on: every tool of the program stands there, and the mark is
         // not among them.
-        let open = offered(true, false).unwrap();
+        let open = offered(true, false, false).unwrap();
         let words = names(&open);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&editfile::EDIT_NAME.to_string()));
         assert!(words.contains(&editfile::CREATE_NAME.to_string()));
         assert!(!words.contains(&tools::CHAPTER_TOOL_NAME.to_string()));
+        assert!(!words.contains(&search::NAME.to_string()));
+        // The badge of the web search alone: the search is offered, and none of
+        // the tools that can reach the machine is offered with it.
+        let looked = offered(false, true, false).unwrap();
+        assert_eq!(names(&looked), vec![search::NAME.to_string()]);
+        // Both badges stand open, so both doors are open at once.
+        let both = offered(true, true, false).unwrap();
+        let words = names(&both);
+        assert!(words.contains(&tools::TOOL_NAME.to_string()));
+        assert!(words.contains(&search::NAME.to_string()));
     }
 
     // The head of a block, and the block of a call being written, take the one

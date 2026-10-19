@@ -173,6 +173,11 @@ pub struct ChatMeta {
     pub updated: i64,
     // The terminal tool may be used when this is true.
     pub code_enabled: bool,
+    // The web search tool may be used when this is true. It stands on a switch of
+    // its own, for it reaches the web out of the program and never the machine.
+    // A chat written before the switch existed starts with it off.
+    #[serde(default)]
+    pub search_enabled: bool,
     // Run the tool inside bubblewrap when this is true.
     pub sandbox_enabled: bool,
     // Thinking mode: "auto", "off", "on", "low", "medium", "high", "xhigh".
@@ -202,6 +207,7 @@ impl Default for ChatMeta {
             created: 0,
             updated: 0,
             code_enabled: false,
+            search_enabled: false,
             // The sandbox is on unless the user turns it off.
             sandbox_enabled: true,
             thinking_mode: String::from("auto"),
@@ -583,5 +589,22 @@ mod tests {
             "thinking_mode":"off","preserve_thinking":false,"context_used":10}"#;
         let meta: ChatMeta = serde_json::from_str(dropped).expect("the chat is read");
         assert!(!meta.preserve_thinking);
+    }
+
+    // A chat written before the switch of the web search existed reads with the
+    // switch off, which is what a new chat starts with as well.
+    #[test]
+    fn an_older_chat_leaves_the_web_search_off() {
+        let older = r#"{"id":"a","title":"t","repo_id":"","model_id":"m","created":1,
+            "updated":2,"code_enabled":true,"sandbox_enabled":true,
+            "thinking_mode":"off","context_used":10}"#;
+        let meta: ChatMeta = serde_json::from_str(older).expect("the older chat is read");
+        assert!(!meta.search_enabled);
+        assert!(meta.code_enabled);
+        let turned_on = r#"{"id":"a","title":"t","repo_id":"","model_id":"m","created":1,
+            "updated":2,"code_enabled":false,"search_enabled":true,"sandbox_enabled":true,
+            "thinking_mode":"off","context_used":10}"#;
+        let meta: ChatMeta = serde_json::from_str(turned_on).expect("the chat is read");
+        assert!(meta.search_enabled);
     }
 }

@@ -23,6 +23,7 @@ pub mod greet;
 pub mod llama;
 pub mod markdown;
 pub mod remote;
+pub mod search;
 pub mod store;
 pub mod tools;
 pub mod upnp;

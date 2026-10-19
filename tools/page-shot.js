@@ -122,6 +122,19 @@ const FULL = [
     tool: "Error: 'notes/todo.txt' already stands there. create_file makes a new file "
       + 'and never writes over one; to change it, use edit_file.',
     failed: true
+  }),
+  // A look about the web. The head says what was asked for, and the answer is
+  // short words of each place, so the block has no whole page in it.
+  said(9, 'Tool', 'largest lake in Africa by volume', {
+    tool_name: 'web_search',
+    tool: 'Title: Lake Victoria - Wikipedia\nURL: https://en.wikipedia.org/wiki/Lake_Victoria\n'
+      + 'Words: Lake Victoria is the largest lake in Africa by area, and the second-largest '
+      + 'freshwater lake by area after Lake Superior.\n\n---\n\n'
+      + 'Title: Lake Tanganyika - Wikipedia\nURL: https://en.wikipedia.org/wiki/Lake_Tanganyika\n'
+      + 'Words: Lake Tanganyika is the largest tropical freshwater lake by volume, and the '
+      + 'second oldest and second deepest lake in the world.\n\n---\n\n'
+      + 'These are short words of each place. To read a whole page, ask again with the '
+      + 'address of it, as {"url": "https://..."}.'
   })
 ];
 
@@ -163,7 +176,19 @@ const PARTS = [
 
 // The name of a file a model writes in the `writing` scene, for the tool that
 // works on a file. AN_TOOL names the tool; without it the scene writes a command.
-const WRITING_NAMES = { edit_file: 'notes/plan.md', create_file: 'notes/todo.txt' };
+const WRITING_NAMES = {
+  edit_file: 'notes/plan.md',
+  create_file: 'notes/todo.txt',
+  web_search: 'largest lake in Africa by volume'
+};
+
+// The words under the chat box while one of these tools is being written. They
+// are the words the engine puts there, so the picture does not invent its own.
+const WRITING_DOING = {
+  edit_file: 'editing a file: ',
+  create_file: 'making a file: ',
+  web_search: 'looking a thing up: '
+};
 
 // The command the model writes in the `writing` scene, and the reason it gives
 // for it. AN_WRITE counts the characters of both, one after the other.
@@ -219,7 +244,7 @@ function scene(name, dark) {
     chatting: { collapse_thinking: true, collapse_tools: true, highlight: true,
                 chapters: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
-    generating: false, busy: false, code: false, sandbox: false,
+    generating: false, busy: false, code: false, search: false, sandbox: false,
     sandbox_available: true,
     sandbox_note: 'bubblewrap (bwrap) was found, so the tool can be kept inside a jail.',
     status: 'Ready', dark: !!dark, data_dir: '/home/user/.local/share/autumn-natter'
@@ -255,6 +280,7 @@ function scene(name, dark) {
     if (process.env.AN_NOCHAPTERS === '1') { start.chatting.chapters = false; }
     start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
     start.code = name === 'rich';
+    start.search = name === 'rich';
     start.sandbox = name === 'rich';
   }
   if (name === 'streaming-code') {
@@ -311,6 +337,9 @@ function scene(name, dark) {
     start.reasoning = 'Look in the folder first, then say what stands in it.';
     var tool = process.env.AN_TOOL || 'run_terminal';
     var named = WRITING_NAMES[tool] !== undefined;
+    // The badge of the web search stands on for a search, and the badge of the
+    // tools stands on for the tools that can reach the machine.
+    start.search = tool === 'web_search';
     var full = named ? WRITING_NAMES[tool] : WRITING;
     // A name of a file is short, so the whole of it stands unless the number of
     // characters was asked for.
@@ -326,12 +355,12 @@ function scene(name, dark) {
     }];
     if (named) {
       // A reader of the picture should not wonder why the chat box asks for a
-      // command over the block of a file tool.
-      start.messages = [said(1, 'You',
-        'Put the plan in a file of the chat, and tell me what you changed.')];
-      start.status = tool === 'edit_file'
-        ? 'editing a file: ' + full.slice(0, have)
-        : 'making a file: ' + full.slice(0, have);
+      // command over the block of a file tool, nor why a look about the web
+      // stands under a word about files.
+      start.messages = [said(1, 'You', tool === 'web_search'
+        ? 'Look up how large the largest lake in Africa is, and tell me what you found.'
+        : 'Put the plan in a file of the chat, and tell me what you changed.')];
+      start.status = (WRITING_DOING[tool] || WRITING_DOING.create_file) + full.slice(0, have);
     }
     start.context = { used: '1,180', total: '8,192', ratio: 0.14 };
   }
