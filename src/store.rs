@@ -245,8 +245,10 @@ pub struct Message {
     pub id: String,
     pub role: String,
     pub body: String,
-    // The files the reader hung on the message, in the order the reader
-    // hung them. Only a message of the reader carries any.
+    // The files the reader hung on the message, in the order the reader hung
+    // them. A message of the reader carries the files it sent. A message of a
+    // tool run carries the pictures that run opened, which is how a picture is
+    // shown to the model again when the talk is asked again.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
     // The model's reasoning, streamed before the answer. Empty for most models.

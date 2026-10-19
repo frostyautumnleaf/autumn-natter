@@ -514,6 +514,41 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
     Value::Array(parts)
 }
 
+// The words of a tool answer, with the pictures that hang on the same message
+// after them. A tool that opened a picture gives the words of its receipt here
+// and the picture itself as a part, so that the model is shown the picture and
+// not a run of base64 written out in words. Without the switch for pictures, or
+// without a picture on the message, these are the plain words, as they were
+// before the tool of pictures came.
+pub fn parts_at(
+    place: &Path,
+    words: &str,
+    attachments: &[store::Attachment],
+    vision_on: bool,
+) -> Value {
+    let pictures: Vec<&store::Attachment> = attachments.iter().filter(|one| one.image).collect();
+    if !vision_on || pictures.is_empty() {
+        return json!(words);
+    }
+    let mut parts = vec![json!({ "type": "text", "text": words })];
+    for one in pictures {
+        match read_at(place, &one.id) {
+            Some(record) if !record.data.is_empty() => parts.push(json!({
+                "type": "image_url",
+                "image_url": { "url": record.data },
+            })),
+            _ => parts.push(json!({
+                "type": "text",
+                "text": format!(
+                    "The picture named {} was not there when the model was asked again.",
+                    one.name
+                )
+            })),
+        }
+    }
+    Value::Array(parts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

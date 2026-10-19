@@ -28,4 +28,5 @@ pub mod store;
 pub mod tools;
 pub mod upnp;
 pub mod util;
+pub mod viewimage;
 pub mod web;

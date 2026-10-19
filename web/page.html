@@ -1965,6 +1965,14 @@ var TOOL_SHAPES = {
     mark: 'M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6',
     head: 'Searching the web: ', word: 'query', end: 'result',
     empty: 'nothing to look for', begun: 'the words to look for'
+  },
+  // A picture handed over to the model. The words are the name of the picture,
+  // and the result is the receipt of the run: the block never carries the
+  // picture, only the line that says what was read of it.
+  view_image: {
+    mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
+    head: 'Looking at a picture: ', word: 'picture', end: 'result',
+    empty: 'nothing to look at', begun: 'the picture to look at'
   }
 };
 

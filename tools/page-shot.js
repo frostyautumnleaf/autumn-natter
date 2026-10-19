@@ -135,6 +135,14 @@ const FULL = [
       + 'second oldest and second deepest lake in the world.\n\n---\n\n'
       + 'These are short words of each place. To read a whole page, ask again with the '
       + 'address of it, as {"url": "https://..."}.'
+  }),
+  // A picture handed to the model. The block carries the receipt of the run and
+  // never the picture itself: the bytes go to the model alone.
+  said(10, 'Tool', 'notes/cat.png', {
+    tool_name: 'view_image',
+    tool: 'Opened a picture: notes/cat.png (PNG, 1024 by 768 pixels, 188 KiB). '
+      + 'The picture itself goes to the model with these words, for this model '
+      + 'can look at pictures.'
   })
 ];
 
@@ -179,7 +187,8 @@ const PARTS = [
 const WRITING_NAMES = {
   edit_file: 'notes/plan.md',
   create_file: 'notes/todo.txt',
-  web_search: 'largest lake in Africa by volume'
+  web_search: 'largest lake in Africa by volume',
+  view_image: 'notes/cat.png'
 };
 
 // The words under the chat box while one of these tools is being written. They
@@ -187,7 +196,8 @@ const WRITING_NAMES = {
 const WRITING_DOING = {
   edit_file: 'editing a file: ',
   create_file: 'making a file: ',
-  web_search: 'looking a thing up: '
+  web_search: 'looking a thing up: ',
+  view_image: 'looking at a picture: '
 };
 
 // The command the model writes in the `writing` scene, and the reason it gives
@@ -340,6 +350,9 @@ function scene(name, dark) {
     // The badge of the web search stands on for a search, and the badge of the
     // tools stands on for the tools that can reach the machine.
     start.search = tool === 'web_search';
+    // The badge of the tools stands on for every tool that can reach the
+    // machine, which is all of them but the look about the web.
+    start.code = tool !== 'web_search';
     var full = named ? WRITING_NAMES[tool] : WRITING;
     // A name of a file is short, so the whole of it stands unless the number of
     // characters was asked for.
@@ -357,9 +370,12 @@ function scene(name, dark) {
       // A reader of the picture should not wonder why the chat box asks for a
       // command over the block of a file tool, nor why a look about the web
       // stands under a word about files.
-      start.messages = [said(1, 'You', tool === 'web_search'
-        ? 'Look up how large the largest lake in Africa is, and tell me what you found.'
-        : 'Put the plan in a file of the chat, and tell me what you changed.')];
+      var asked = {
+        web_search: 'Look up how large the largest lake in Africa is, and tell me what you found.',
+        view_image: 'Look at the picture of the cat in the chat, and tell me what stands in it.'
+      };
+      start.messages = [said(1, 'You', asked[tool] ||
+        'Put the plan in a file of the chat, and tell me what you changed.')];
       start.status = (WRITING_DOING[tool] || WRITING_DOING.create_file) + full.slice(0, have);
     }
     start.context = { used: '1,180', total: '8,192', ratio: 0.14 };

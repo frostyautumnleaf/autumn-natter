@@ -24,6 +24,7 @@ use crate::markdown;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
 use crate::tools;
+use crate::viewimage;
 
 // Longest wait for one terminal command.
 const TOOL_TIMEOUT: Duration = Duration::from_secs(120);
@@ -101,6 +102,7 @@ fn words_of(name: &str, raw: &str) -> (String, String) {
         // A look about the web is named by the words to look for, or by the
         // address that is to be read.
         search::NAME => (search::partial_words(raw), String::new()),
+        viewimage::NAME => (viewimage::partial_words(raw), String::new()),
         // A name the program does not offer, and a name that came in pieces: the
         // words of a file are the best guess of what the model is naming.
         _ => (editfile::partial_words(raw), String::new()),
@@ -481,10 +483,26 @@ impl State {
 
     // Write the output of a tool run into its message.
     fn finish_tool(&mut self, id: &str, output: &str, ok: bool) {
+        self.finish_tool_with(id, output, ok, Vec::new());
+    }
+
+    // The same, with the records of the pictures the run opened hanging on the
+    // message as well. A tool that hands a picture to the model keeps the bytes
+    // of it out of the words the reader is given, so the picture stands where the
+    // pictures of a chat stand: in the folder of the records, named by the
+    // message that opened it.
+    fn finish_tool_with(
+        &mut self,
+        id: &str,
+        output: &str,
+        ok: bool,
+        pictures: Vec<Attachment>,
+    ) {
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
                 message.tool = output.to_string();
                 message.failed = !ok;
+                message.attachments = pictures;
             }
         }
         self.persist();
@@ -568,10 +586,24 @@ impl State {
                         call["reasoning_content"] = json!(message.reasoning);
                     }
                     out.push(call);
+                    // The words of the receipt, and after them the picture a tool
+                    // opened, when there is one and this model can be shown a
+                    // picture. With neither the entry is the plain words, as it
+                    // always was.
+                    let content = if message.attachments.is_empty() {
+                        Value::String(message.tool.clone())
+                    } else {
+                        attach::parts_at(
+                            &shelf,
+                            &message.tool,
+                            &message.attachments,
+                            vision_on,
+                        )
+                    };
                     out.push(json!({
                         "role": "tool",
                         "tool_call_id": message.call_id,
-                        "content": message.tool,
+                        "content": content,
                     }));
                 }
                 // A note is only for the window.
@@ -801,6 +833,11 @@ impl State {
     // for it works in the same room.
     fn attach_place_for(&self, chat: &Chat) -> PathBuf {
         attach::shelf(&self.workdir_for(chat))
+    }
+
+    // The folder of the records of the open chat, for a picture a tool opened.
+    fn attach_place(&self) -> Option<PathBuf> {
+        self.chat().map(|chat| self.attach_place_for(chat))
     }
 
     // The records of the attachments used to stand in one flat folder under
@@ -2240,6 +2277,7 @@ fn offered(code_on: bool, search_on: bool, chapters_on: bool) -> Option<Value> {
         list.push(tools::definition());
         list.push(editfile::edit_definition());
         list.push(editfile::create_definition());
+        list.push(viewimage::definition());
     }
     if search_on {
         list.push(search::definition());
@@ -2313,6 +2351,7 @@ fn run_program_tool(
         editfile::EDIT_NAME => "editing a file",
         editfile::CREATE_NAME => "making a file",
         search::NAME => "looking a thing up",
+        viewimage::NAME => "looking at a picture",
         _ => "a tool of the program",
     };
     let message_id = {
@@ -2322,6 +2361,38 @@ fn run_program_tool(
         guard.set_status(&text);
         id
     };
+    // A picture is read here and kept out of the words the reader sees. The
+    // receipt of the run is the block in the chat; the picture rides on the same
+    // message as an attachment of the chat, and goes to the model with the words
+    // of the receipt when the history is made again.
+    if call.name == viewimage::NAME {
+        let vision = {
+            let Ok(guard) = state.lock() else { return };
+            guard.pictures_can_go()
+        };
+        let made = viewimage::open(workdir, &call.arguments, vision);
+        let records = match &made.picture {
+            Some(picture) => {
+                let Ok(guard) = state.lock() else { return };
+                match guard.attach_place() {
+                    Some(place) => attach::save_at(
+                        &place,
+                        &[attach::Incoming {
+                            name: picture.name.clone(),
+                            mime: picture.mime.clone(),
+                            data: picture.data.clone(),
+                            text: String::new(),
+                        }],
+                    ),
+                    None => Vec::new(),
+                }
+            }
+            None => Vec::new(),
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool_with(&message_id, &made.report.output, made.report.ok, records);
+        return;
+    }
     let report = match call.name.as_str() {
         editfile::EDIT_NAME => editfile::edit(workdir, &call.arguments),
         editfile::CREATE_NAME => editfile::create(workdir, &call.arguments),
@@ -3172,6 +3243,7 @@ mod tests {
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&editfile::EDIT_NAME.to_string()));
         assert!(words.contains(&editfile::CREATE_NAME.to_string()));
+        assert!(words.contains(&viewimage::NAME.to_string()));
         assert!(!words.contains(&tools::CHAPTER_TOOL_NAME.to_string()));
         assert!(!words.contains(&search::NAME.to_string()));
         // The badge of the web search alone: the search is offered, and none of
