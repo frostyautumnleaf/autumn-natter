@@ -44,9 +44,20 @@ const MAX_EDITS: usize = 100;
 // of them stands in, so one change of a short mark could fill the room alone.
 const MAX_MATCHES: usize = 10_000;
 
-// The longest run of words of one part of the receipt. The receipt says what
-// changed and where; the file itself is where the whole of it is read again.
-const EXCERPT_CHARS: usize = 160;
+// The bounds of the difference the receipt shows. The receipt is a word to the
+// model about what changed, and not a copy of the file: the difference is cut
+// to a window about the first change, and the window is cut again at a few
+// bounds, so a file of a million lines costs the same as one of ten.
+const DIFF_WINDOW_LINES: usize = 120;
+const DIFF_CONTEXT: usize = 2;
+const DIFF_LINES: usize = 40;
+const DIFF_LINE_CHARS: usize = 200;
+const DIFF_CHARS: usize = 4000;
+// The most lines the window may hold. The difference is worked out by a table
+// the size of the window times itself, so a window of a million lines would
+// hold the program for minutes. The change stands in the front of the window,
+// so a cap this high keeps it whole for every change the file tools may make.
+const MAX_DIFF_WINDOW_LINES: usize = 2000;
 
 // The front parts of a name a model brings over from another program, where its
 // files stood under a folder of that name.
@@ -135,6 +146,131 @@ pub fn file_of(raw: &str) -> String {
         Some(call) => first_of(&call, &["path", "file_path", "file"]).unwrap_or_default(),
         None => partial_words(raw),
     }
+}
+
+// The words of a call that are still being written, as the reader is given
+// them. The reader sees the words of the call come in, as the reader watches a
+// command: the head names the file the call works on, and the body holds the
+// words the call is making. Nothing is made up of words that have not come in
+// yet.
+pub fn live_params(name: &str, raw: &str) -> (String, String) {
+    match name {
+        CREATE_NAME => (tools::partial_text(raw.trim_start(), "text"), file_of(raw)),
+        EDIT_NAME => (edit_params(raw), file_of(raw)),
+        _ => (String::new(), String::new()),
+    }
+}
+
+// The words of the changes of a call that is still being written, in the order
+// they stand. Each change is shown as the words that go out and the words that
+// come in, one line of a mark between the two, so the reader sees the change as
+// it is made. A change that has no words of its own yet is left out, for a mark
+// over nothing says nothing.
+fn edit_params(raw: &str) -> String {
+    let text = raw.trim_start();
+    let olds = all_values(text, "old_string");
+    let news = all_values(text, "new_string");
+    let mut out = String::new();
+    for (number, old) in olds.iter().enumerate() {
+        if old.trim().is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(old);
+        if let Some(new) = news.get(number) {
+            out.push_str("\n> ");
+            out.push_str(new);
+        }
+    }
+    out
+}
+
+// Every value of one named part of an object that may not be finished, in the
+// order they stand. The values are the words between the marks of a quote, and
+// the marks of an escape are read as the character they stand for. A value that
+// is not closed yet gives what has come, and the look stops there, for what
+// comes after it cannot be read.
+fn all_values(text: &str, key: &str) -> Vec<String> {
+    let needle = format!("\"{}\"", key);
+    let mut out: Vec<String> = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(rel) = text[search_from..].find(&needle) {
+        let abs_at = search_from + rel;
+        // The value stands after the mark of a colon, and the mark that opens
+        // it is the first mark of a quote after it.
+        let rest = &text[abs_at + needle.len()..];
+        let Some(colon) = rest.find(':') else {
+            break;
+        };
+        let after_colon = &rest[colon + 1..];
+        let Some(open) = after_colon.find('"') else {
+            break;
+        };
+        let open_pos = abs_at + needle.len() + colon + 1 + open;
+        let (value, next, closed) = value_at(text, open_pos);
+        out.push(value);
+        if !closed {
+            break;
+        }
+        search_from = next;
+    }
+    out
+}
+
+// The words of a value that stands at `open`, the position of the mark that
+// opens it, read to the mark that closes it. The answer is the words, the
+// position after the closing mark, and whether the value is closed. A value of
+// nothing at all, and a mark of an escape with no word behind it, give what has
+// come and say the value is not closed.
+fn value_at(text: &str, open: usize) -> (String, usize, bool) {
+    let mut out = String::new();
+    let mut byte_pos = open;
+    let mut closed = false;
+    let mut chars = text[open..].chars();
+    let _ = chars.next();
+    byte_pos += 1;
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            closed = true;
+            byte_pos += 1;
+            break;
+        }
+        if ch != '\\' {
+            out.push(ch);
+            byte_pos += ch.len_utf8();
+            continue;
+        }
+        let Some(next) = chars.next() else {
+            break;
+        };
+        byte_pos += 1 + next.len_utf8();
+        match next {
+            'n' => out.push('\n'),
+            't' => out.push('\t'),
+            'r' => out.push('\r'),
+            'b' | 'f' => {}
+            'u' => {
+                let mut hex = String::new();
+                for _ in 0..4 {
+                    match chars.next() {
+                        Some(digit) if digit.is_ascii_hexdigit() => {
+                            hex.push(digit);
+                            byte_pos += 1;
+                        }
+                        _ => return (out, byte_pos, false),
+                    }
+                }
+                match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                    Some(letter) => out.push(letter),
+                    None => return (out, byte_pos, false),
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    (out, byte_pos, closed)
 }
 
 // One change of a call.
@@ -628,50 +764,219 @@ fn line_words(lines: usize) -> String {
     format!("{} lines", lines)
 }
 
-// A run of words made one line, and cut short. The receipt of a call is a word
-// to the model about what changed, and not a copy of the file.
-fn clip(text: &str) -> String {
-    let mut one = String::new();
-    for ch in text.chars() {
-        match ch {
-            '\n' => one.push_str(r"\n"),
-            '\t' => one.push_str(r"\t"),
-            '\r' => {}
-            other => one.push(other),
+// The offsets of a window of `lines` lines either side of `index`, in a text.
+// A window that runs past the front of the text starts at the front, and one
+// that runs past the back of it ends at the back.
+fn diff_window(text: &str, index: usize, lines: usize) -> (usize, usize) {
+    let mut start = index;
+    for _ in 0..lines {
+        match text[..start].rfind('\n') {
+            Some(newline) => start = newline,
+            None => {
+                start = 0;
+                break;
+            }
         }
     }
-    if one.chars().count() <= EXCERPT_CHARS {
-        return one;
+    if start > 0 && text.as_bytes()[start] == b'\n' {
+        start += 1;
     }
-    let mut out: String = one.chars().take(EXCERPT_CHARS).collect();
-    out.push_str(" ...");
+    let mut end = index;
+    for _ in 0..lines {
+        match text[end..].find('\n') {
+            Some(newline) => end += newline + 1,
+            None => {
+                end = text.len();
+                break;
+            }
+        }
+    }
+    (start, end.max(index))
+}
+
+// The lines of a unified difference between two texts, with a few lines of
+// context about each change. The two texts are cut to a window already, so the
+// table of the difference stays small. The line numbers are given against the
+// whole file, through `offset`, which is the line of the front of the window
+// minus one, so the difference points at the file and not at the window. A run
+// of one line is numbered without a count, as a difference of the usual kind
+// is.
+fn difference(before: &[&str], after: &[&str], context: usize, offset: usize) -> Vec<String> {
+    let n = before.len();
+    let m = after.len();
+    // The table of the longest common run, read from the back of both texts.
+    let width = m + 1;
+    let mut table = vec![0u32; (n + 1) * width];
+    for i in (0..n).rev() {
+        let row = i * width;
+        let next_row = (i + 1) * width;
+        for j in (0..m).rev() {
+            let value = if before[i] == after[j] {
+                table[next_row + j + 1] + 1
+            } else {
+                table[next_row + j].max(table[row + j + 1])
+            };
+            table[row + j] = value;
+        }
+    }
+    // Each line as it stands in the two texts: a line that stands in both is
+    // context, a line that stands in the first alone is taken out, and a line
+    // that stands in the second alone is put in.
+    let mut marks: Vec<(char, &str)> = Vec::with_capacity(n + m);
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < n && j < m {
+        if before[i] == after[j] {
+            marks.push((' ', before[i]));
+            i += 1;
+            j += 1;
+        } else if table[(i + 1) * width + j] >= table[i * width + j + 1] {
+            marks.push(('-', before[i]));
+            i += 1;
+        } else {
+            marks.push(('+', after[j]));
+            j += 1;
+        }
+    }
+    while i < n {
+        marks.push(('-', before[i]));
+        i += 1;
+    }
+    while j < m {
+        marks.push(('+', after[j]));
+        j += 1;
+    }
+    // The line of the first text each mark stands on, and of the second, given
+    // against the whole file. A mark that stands in one text alone has no line
+    // of its own in the other, and stands after the line before it there.
+    let mut old_line = vec![0usize; marks.len()];
+    let mut new_line = vec![0usize; marks.len()];
+    let (mut o, mut nw) = (1usize, 1usize);
+    for k in 0..marks.len() {
+        old_line[k] = o + offset;
+        new_line[k] = nw + offset;
+        if marks[k].0 != '+' {
+            o += 1;
+        }
+        if marks[k].0 != '-' {
+            nw += 1;
+        }
+    }
+    // The lines a reader needs to see: each change, and the context about it.
+    let mut want = vec![false; marks.len()];
+    for (k, (mark, _)) in marks.iter().enumerate() {
+        if *mark == ' ' {
+            continue;
+        }
+        let lo = k.saturating_sub(context);
+        let hi = (k + context + 1).min(marks.len());
+        for wanted in &mut want[lo..hi] {
+            *wanted = true;
+        }
+    }
+    // The runs of wanted lines, each of which is a hunk of the difference.
+    let mut out: Vec<String> = Vec::new();
+    let mut from: Option<usize> = None;
+    let close = |out: &mut Vec<String>, from: usize, to: usize| {
+        let mut old_count = 0usize;
+        let mut new_count = 0usize;
+        for (mark, _) in &marks[from..to] {
+            if *mark != '+' {
+                old_count += 1;
+            }
+            if *mark != '-' {
+                new_count += 1;
+            }
+        }
+        let old_part = if old_count > 1 {
+            format!("{},{}", old_line[from], old_count)
+        } else {
+            old_line[from].to_string()
+        };
+        let new_part = if new_count > 1 {
+            format!("{},{}", new_line[from], new_count)
+        } else {
+            new_line[from].to_string()
+        };
+        out.push(format!("@@ -{} +{} @@", old_part, new_part));
+        for (mark, line) in &marks[from..to] {
+            out.push(format!("{}{}", mark, line));
+        }
+    };
+    for (k, wanted) in want.iter().enumerate() {
+        if *wanted && from.is_none() {
+            from = Some(k);
+        }
+        if !wanted && from.is_some() {
+            let f = from.unwrap();
+            from = None;
+            close(&mut out, f, k);
+        }
+    }
+    if let Some(f) = from {
+        close(&mut out, f, marks.len());
+    }
     out
 }
 
-// The line of the file a place of it stands on. The first line is line one.
-fn line_of(words: &str, at: usize) -> usize {
-    words[..at.min(words.len())].matches('\n').count() + 1
-}
-
-// What a call that went well tells the model: how much was changed, on which
-// line the first change stands, and a few words of what went out and what came
-// in. No marks of a difference are made here, for a model reads these words
-// better than it reads a patch, and the file itself is the whole of the story.
+// What a call that went well tells the model: how many places were changed, and
+// the difference, cut to a window about the first change and numbered against
+// the whole file. The file itself is where the whole of it is read again.
 fn receipt(name: &str, before: &str, made: &Made) -> String {
-    let line = line_of(before, made.first);
-    let places = if made.count == 1 {
-        String::from("one place")
-    } else {
-        format!("{} places", made.count)
-    };
-    format!(
-        "Edited '{}'. {} changed, the first of them on line {}.\nTaken out: {}\nPut in: {}",
-        name,
-        places,
-        line,
-        clip(&made.taken),
-        clip(&made.put)
-    )
+    let plural = if made.count == 1 { "" } else { "s" };
+    let head = format!("Edited {} ({} replacement{})", name, made.count, plural);
+    // The window about the first change, kept wide enough to hold the change
+    // whole, and cut again at a bound of lines so the table of the difference
+    // stays small for a change that runs long.
+    let (start, end) = diff_window(before, made.first, DIFF_WINDOW_LINES);
+    let end = end.max(made.first + made.taken.len());
+    let mut lines = 0usize;
+    let mut probe = start;
+    while probe < end && lines < MAX_DIFF_WINDOW_LINES {
+        match before[probe..].find('\n') {
+            Some(newline) => {
+                probe += newline + 1;
+                lines += 1;
+            }
+            None => {
+                probe = end;
+                break;
+            }
+        }
+    }
+    let end = probe.min(end);
+    let before_window = &before[start..end];
+    // The front of the window was kept wide enough to hold the change whole, so
+    // the words of it stand in the window, and the replacement is replayed on
+    // what stands there.
+    let after_window = before_window.replace(&made.taken, &made.put);
+    // The line of the file the front of the window stands on, so the difference
+    // is numbered against the file and not against the window.
+    let first_line = before[..start].matches('\n').count() + 1;
+    let before_lines: Vec<&str> = before_window.split('\n').collect();
+    let after_lines: Vec<&str> = after_window.split('\n').collect();
+    let mut diff = difference(&before_lines, &after_lines, DIFF_CONTEXT, first_line - 1);
+    if diff.is_empty() {
+        return head;
+    }
+    if diff.len() > DIFF_LINES {
+        let mut cut: Vec<String> = diff[..DIFF_LINES].to_vec();
+        cut.push(String::from("... (more diff lines)"));
+        diff = cut;
+    }
+    for line in diff.iter_mut() {
+        let count = line.chars().count();
+        if count > DIFF_LINE_CHARS {
+            let mut kept: String = line.chars().take(DIFF_LINE_CHARS).collect();
+            kept.push_str(&format!("... (+{} chars)", count - DIFF_LINE_CHARS));
+            *line = kept;
+        }
+    }
+    let mut body = diff.join("\n");
+    if body.len() > DIFF_CHARS {
+        body.truncate(DIFF_CHARS);
+        body.push_str("\n... (receipt truncated)");
+    }
+    format!("{}\n{}", head, body)
 }
 
 // The words a call of no shape is answered with. The model is told the shape,
@@ -1016,7 +1321,7 @@ mod tests {
     }
 
     // A batch is written all at once, or not at all, and the answer says what
-    // was changed and where.
+    // was changed, as a difference numbered against the file.
     #[test]
     fn a_batch_of_changes_is_written_once_or_not_at_all() {
         let root = room_of("chat");
@@ -1027,19 +1332,67 @@ mod tests {
         let out = edit(&root, half);
         assert!(!out.ok, "{}", out.output);
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "one\ntwo\nthree\n");
-        // The same call with the words mended writes both changes.
+        // The same call with the words mended writes both changes, and the
+        // answer counts them and shows the difference of the first.
         let whole = r#"{"path":"notes.txt","edits":[{"old_string":"one","new_string":"uno"},{"old_string":"three","new_string":"tri"}]}"#;
         let out = edit(&root, whole);
         assert!(out.ok, "{}", out.output);
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "uno\ntwo\ntri\n");
-        assert!(out.output.contains("2 places"), "{}", out.output);
-        assert!(out.output.contains("line 1"), "{}", out.output);
-        // The first change of a later call is not on the first line.
+        assert!(out.output.starts_with("Edited notes.txt (2 replacements)"), "{}", out.output);
+        assert!(out.output.contains("@@ -1,3 +1,3 @@"), "{}", out.output);
+        assert!(out.output.contains("-one"), "{}", out.output);
+        assert!(out.output.contains("+uno"), "{}", out.output);
+        // A change that is not on the first line is numbered against the file,
+        // and the words that went out and came in stand in the difference.
         let next = r#"{"path":"notes.txt","edits":[{"old_string":"two","new_string":"deux"}]}"#;
         let out = edit(&root, next);
-        assert!(out.output.contains("line 2"), "{}", out.output);
-        assert!(out.output.contains("Taken out: two"), "{}", out.output);
-        assert!(out.output.contains("Put in: deux"), "{}", out.output);
+        assert!(out.output.starts_with("Edited notes.txt (1 replacement)"), "{}", out.output);
+        assert!(out.output.contains("-two"), "{}", out.output);
+        assert!(out.output.contains("+deux"), "{}", out.output);
+    }
+
+    // The difference is numbered against the whole file, and not against the
+    // window it was cut from, so a change in the middle of a long file points
+    // at the line it stands on.
+    #[test]
+    fn the_difference_is_numbered_against_the_file() {
+        let root = room_of("chat");
+        let place = root.join("mid.txt");
+        let words: Vec<String> = (1..=9001).map(|n| format!("line{}", n)).collect();
+        std::fs::write(&place, words.join("\n") + "\n").unwrap();
+        let out = edit(
+            &root,
+            r#"{"path":"mid.txt","edits":[{"old_string":"line8000\n","new_string":"CHANGED\n"}]}"#,
+        );
+        assert!(out.ok, "{}", out.output);
+        assert!(out.output.contains("@@ -7998"), "{}", out.output);
+        assert!(out.output.contains("+CHANGED"), "{}", out.output);
+        assert!(out.output.contains("-line8000"), "{}", out.output);
+    }
+
+    // A change that adds a line is numbered for the line it grows, and a change
+    // in the first lines still numbers from one.
+    #[test]
+    fn the_difference_counts_the_lines_it_grows() {
+        let root = room_of("chat");
+        let place = root.join("grow.txt");
+        let words: Vec<String> = (1..=401).map(|n| format!("line{}", n)).collect();
+        std::fs::write(&place, words.join("\n") + "\n").unwrap();
+        let out = edit(
+            &root,
+            r#"{"path":"grow.txt","edits":[{"old_string":"line200\n","new_string":"A\nB\n"}]}"#,
+        );
+        assert!(out.ok, "{}", out.output);
+        assert!(out.output.contains("@@ -198,5 +198,6 @@"), "{}", out.output);
+        let top = root.join("top.txt");
+        let words: Vec<String> = (1..=200).map(|n| format!("line{}", n)).collect();
+        std::fs::write(&top, words.join("\n") + "\n").unwrap();
+        let out = edit(
+            &root,
+            r#"{"path":"top.txt","edits":[{"old_string":"line2\n","new_string":"TOP\n"}]}"#,
+        );
+        assert!(out.ok, "{}", out.output);
+        assert!(out.output.contains("@@ -1"), "{}", out.output);
     }
 
     // A file that ends its lines the Windows way is read through that and

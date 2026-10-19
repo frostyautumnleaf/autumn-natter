@@ -111,6 +111,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "name": one.name,
                 "command": one.command,
                 "purpose": one.purpose,
+                "target": one.target,
             })
         })
         .collect();

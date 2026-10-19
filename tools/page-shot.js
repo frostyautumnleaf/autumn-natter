@@ -114,8 +114,12 @@ const FULL = [
   // tool's own.
   said(7, 'Tool', 'notes/plan.md', {
     tool_name: 'edit_file',
-    tool: "Edited 'notes/plan.md'. 2 places changed, the first of them on line 4.\n"
-      + 'Taken out: flush the paragraph\nPut in: close the paragraph, and open the list'
+    tool: "Edited notes/plan.md (2 replacements)\n"
+      + '@@ -2,5 +2,5 @@\n'
+      + ' the first line of the plan\n'
+      + '-flush the paragraph\n'
+      + '+close the paragraph, and open the list\n'
+      + ' the last line of the plan'
   }),
   said(8, 'Tool', 'notes/todo.txt', {
     tool_name: 'create_file',
@@ -189,6 +193,14 @@ const WRITING_NAMES = {
   create_file: 'notes/todo.txt',
   web_search: 'largest lake in Africa by volume',
   view_image: 'notes/cat.png'
+};
+
+// The words a file tool is making, as the reader is given them while the call
+// is written. The head of the block names the file, and the body holds these
+// words, so the reader sees the change as it is made.
+const WRITING_WORDS = {
+  edit_file: 'the old words of the plan\n> the new words of the plan',
+  create_file: 'a short plan of the day, written down so it is not lost'
 };
 
 // The words under the chat box while one of these tools is being written. They
@@ -347,13 +359,19 @@ function scene(name, dark) {
     start.reasoning = 'Look in the folder first, then say what stands in it.';
     var tool = process.env.AN_TOOL || 'run_terminal';
     var named = WRITING_NAMES[tool] !== undefined;
+    // A file tool names its file in the head of the block, and makes its words
+    // in the body, so the two stand apart here as they do in the engine.
+    var fileTool = tool === 'edit_file' || tool === 'create_file';
     // The badge of the web search stands on for a search, and the badge of the
     // tools stands on for the tools that can reach the machine.
     start.search = tool === 'web_search';
     // The badge of the tools stands on for every tool that can reach the
     // machine, which is all of them but the look about the web.
     start.code = tool !== 'web_search';
-    var full = named ? WRITING_NAMES[tool] : WRITING;
+    var name = named ? WRITING_NAMES[tool] : '';
+    // The words the call is making: the words of a file tool, the name of the
+    // thing another tool looks at, or the command of a run.
+    var full = fileTool ? WRITING_WORDS[tool] : (named ? name : WRITING);
     // A name of a file is short, so the whole of it stands unless the number of
     // characters was asked for.
     var have = process.env.AN_WRITE === undefined ? (named ? full.length : 12)
@@ -361,6 +379,7 @@ function scene(name, dark) {
     start.live_tools = [{
       name: tool,
       command: full.slice(0, have),
+      target: fileTool ? name : '',
       // The reason comes after the command, as the model writes it. A tool that
       // works on a file never asked for a reason.
       purpose: !named && have > WRITING.length
@@ -376,7 +395,7 @@ function scene(name, dark) {
       };
       start.messages = [said(1, 'You', asked[tool] ||
         'Put the plan in a file of the chat, and tell me what you changed.')];
-      start.status = (WRITING_DOING[tool] || WRITING_DOING.create_file) + full.slice(0, have);
+      start.status = (WRITING_DOING[tool] || WRITING_DOING.create_file) + name;
     }
     start.context = { used: '1,180', total: '8,192', ratio: 0.14 };
   }

@@ -1950,12 +1950,12 @@ var TOOL_SHAPES = {
   },
   edit_file: {
     mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
-    head: 'Editing file: ', word: 'file', end: 'result',
+    head: 'Editing file: ', done: 'Edited file: ', word: 'file', end: 'result',
     empty: 'no name of a file', begun: 'a file, begun'
   },
   create_file: {
     mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
-    head: 'Creating file: ', word: 'file', end: 'result',
+    head: 'Creating file: ', done: 'Created file: ', word: 'file', end: 'result',
     empty: 'no name of a file', begun: 'a file, begun'
   },
   // The web search. The head names what the call asked for: the words to look
@@ -1987,7 +1987,18 @@ function toolShape(name) {
 // coming, and a call that is over says that nothing was named.
 function headWords(shape, named, over) {
   var words = named && named.trim() ? named : (over ? shape.empty : shape.begun);
-  return (shape.head || '') + words;
+  // A call that is over says what it did in the past, and one that is still
+  // coming says what it is doing now. A tool without a past name of its own
+  // keeps the one it has been saying all along.
+  var head = over ? (shape.done || shape.head || '') : (shape.head || '');
+  return head + words;
+}
+
+// The one thing the head of a call being written names: the file a file tool
+// works on, or the first line of the words the call is making when it names no
+// file of its own, as a run of the terminal tool does.
+function headName(one) {
+  return one.target && one.target.trim() ? one.target : firstLine(one.command);
 }
 
 // One run of a tool. The head says which tool it is, what it was pointed at, and
@@ -2005,7 +2016,10 @@ function toolBox(m) {
   head.type = 'button';
   head.appendChild(mark(shape.mark));
   var cmd = make('span', 'cmd');
-  cmd.textContent = headWords(shape, firstLine(m.body), true);
+  // The head says what the tool is doing while it runs, and what it did when
+  // it is over, so the block reads as it changes from one to the other.
+  // A run that failed did not do the thing, so it keeps the name of the trying.
+  cmd.textContent = headWords(shape, firstLine(m.body), !running && !m.failed);
   head.appendChild(cmd);
   var state = make('span', 'state' + (running ? ' run' : '') + (m.failed ? ' fail' : ''));
   state.textContent = running ? 'running' : (m.failed ? 'failed' : 'done');
@@ -2057,7 +2071,7 @@ function writeBox(one) {
   head.type = 'button';
   head.appendChild(mark(shape.mark));
   var cmd = make('span', 'cmd');
-  cmd.textContent = headWords(shape, firstLine(one.command), false);
+  cmd.textContent = headWords(shape, headName(one), false);
   head.appendChild(cmd);
   var state = make('span', 'state write');
   state.textContent = 'writing';
@@ -2135,7 +2149,8 @@ function feedWrite(list) {
   var key = '';
   for (var n = 0; n < made.length; n++) {
     key += made[n].name + '#' + (made[n].command || '').length
-        + '#' + (made[n].purpose || '').length + '|';
+        + '#' + (made[n].purpose || '').length
+        + '#' + (made[n].target || '').length + '|';
   }
   if (key === ink.toolKey) { return; }
   ink.toolKey = key;
@@ -2159,7 +2174,7 @@ function feedWrite(list) {
         box.text.scrollTop = box.text.scrollHeight;
       }
     }
-    var line = headWords(box.shape, firstLine(one.command), false);
+    var line = headWords(box.shape, headName(one), false);
     if (box.cmd.textContent !== line) { box.cmd.textContent = line; }
     if (one.purpose) {
       if (!box.why) { addWhy(box); }

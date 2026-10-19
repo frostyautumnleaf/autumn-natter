@@ -83,11 +83,17 @@ pub struct Chapter {
 pub struct LiveTool {
     // The name of the tool, as the model wrote it.
     pub name: String,
-    // The command so far. It is read out of the words of the call, which are
+    // The words of the call so far, as the reader is given them. For a run of
+    // the terminal tool it is the command, and for a file tool it is the words
+    // the call is making. It is read out of the words of the call, which are
     // often not finished.
     pub command: String,
-    // The reason the model gave for the command, as far as it has come.
+    // The reason the model gave for the command, as far as it has come. It is
+    // the terminal tool alone that ever asked for one.
     pub purpose: String,
+    // The one thing the head of the block names: the file a file tool works on.
+    // The command of a run names itself, so it stands empty there.
+    pub target: String,
 }
 
 // The words of a call that the reader is given: the command of a terminal run,
@@ -95,17 +101,23 @@ pub struct LiveTool {
 // block of a call being written both come from here, so the two cannot say
 // different things about one call. The reason the model gave rides along for the
 // terminal tool, which is the only tool that ever asked for one.
-fn words_of(name: &str, raw: &str) -> (String, String) {
+fn words_of(name: &str, raw: &str) -> (String, String, String) {
     match name {
-        tools::TOOL_NAME => tools::partial_arguments(raw),
-        editfile::EDIT_NAME | editfile::CREATE_NAME => (editfile::file_of(raw), String::new()),
+        tools::TOOL_NAME => {
+            let (command, purpose) = tools::partial_arguments(raw);
+            (command, purpose, String::new())
+        }
+        editfile::EDIT_NAME | editfile::CREATE_NAME => {
+            let (command, target) = editfile::live_params(name, raw);
+            (command, String::new(), target)
+        }
         // A look about the web is named by the words to look for, or by the
         // address that is to be read.
-        search::NAME => (search::partial_words(raw), String::new()),
-        viewimage::NAME => (viewimage::partial_words(raw), String::new()),
+        search::NAME => (search::partial_words(raw), String::new(), String::new()),
+        viewimage::NAME => (viewimage::partial_words(raw), String::new(), String::new()),
         // A name the program does not offer, and a name that came in pieces: the
         // words of a file are the best guess of what the model is naming.
-        _ => (editfile::partial_words(raw), String::new()),
+        _ => (editfile::partial_words(raw), String::new(), String::new()),
     }
 }
 
@@ -119,11 +131,12 @@ fn watched(calls: &[ToolCall]) -> Vec<LiveTool> {
         if tools::CHAPTER_TOOL_NAME.starts_with(call.name.as_str()) {
             continue;
         }
-        let (command, purpose) = words_of(&call.name, &call.arguments);
+        let (command, purpose, target) = words_of(&call.name, &call.arguments);
         out.push(LiveTool {
             name: call.name.clone(),
             command,
             purpose,
+            target,
         });
     }
     out
@@ -2346,7 +2359,10 @@ fn run_program_tool(
 ) {
     // The words of the call, and the words of the state line, are settled first:
     // the block has to stand in the chat before the work begins.
-    let shown = words_of(&call.name, &call.arguments).0;
+    let (shown, _, target) = words_of(&call.name, &call.arguments);
+    // The head of the block names the file a file tool works on, and the
+    // one thing another tool names when it has no file of its own.
+    let shown = if target.is_empty() { shown } else { target };
     let doing = match call.name.as_str() {
         editfile::EDIT_NAME => "editing a file",
         editfile::CREATE_NAME => "making a file",
@@ -3271,16 +3287,22 @@ mod tests {
         };
         let made = watched(std::slice::from_ref(&edit));
         assert_eq!(made.len(), 1);
-        assert_eq!(made[0].command, "notes/todo.txt");
+        // The head names the file the call works on, and the body holds the
+        // words of the change the call is making.
+        assert_eq!(made[0].target, "notes/todo.txt");
+        assert_eq!(made[0].command, "one\n> two");
         assert!(made[0].purpose.is_empty(), "{}", made[0].purpose);
         // A name of a file that is still coming in is shown as far as it has
-        // come, as a command is.
+        // come, as a command is, and the words of a new file stand in the body
+        // as they come.
         let half = ToolCall {
             id: String::from("call-half"),
             name: String::from(editfile::CREATE_NAME),
-            arguments: String::from("{\"path\":\"notes/plan"),
+            arguments: String::from("{\"path\":\"notes/plan.txt\",\"text\":\"hello\"}"),
         };
-        assert_eq!(watched(std::slice::from_ref(&half))[0].command, "notes/plan");
+        let half_made = watched(std::slice::from_ref(&half));
+        assert_eq!(half_made[0].target, "notes/plan.txt");
+        assert_eq!(half_made[0].command, "hello");
         // A name the program does not offer is shown with the file it names, so
         // the reader is not left looking at an empty block.
         let strange = ToolCall {
