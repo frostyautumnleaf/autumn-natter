@@ -1043,9 +1043,13 @@ pre.code.line {
         placeholder="Write a message for the model"></textarea>
       <div class="dock-row">
         <div class="badges">
-          <button class="badge" id="code" title="Let the model run one terminal command per step. Every command runs in the sandbox when the sandbox is on.">
+          <button class="badge" id="code" title="Let the model use the tools of the program: the terminal tool, and the tools that work on the files of the chat. A command runs in the sandbox when the sandbox is on. The file tools reach the room of the chat and nothing beyond it.">
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
-            <span id="codetext">Code</span>
+            <span id="codetext">Tools</span>
+          </button>
+          <button class="badge" id="search" title="Let the model look a thing up on the web, and read a page of it. The search runs in the program, and not in the jail of a command: a command has no road to the web at all. The search touches no file of the machine, and nothing of what was read is kept.">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
+            <span id="searchtext">Search</span>
           </button>
           <button class="badge" id="sandbox" title="Run every terminal command inside a bubblewrap jail. A command sees only the working directory, and it has no network. Inside a repository, the commands start in the repository directory.">
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
@@ -1333,7 +1337,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', '
   'stage', 'thread', 'col', 'turnL', 'turnR',
   'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'hint',
   'newchat', 'chatsbtn', 'settingsbtn', 'modelbtn', 'chapters',
-  'code', 'codetext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
+  'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
 var el = {};
@@ -1655,6 +1659,7 @@ function closeThinkMenu() {
 
 function drawBadges(s) {
   el.code.classList.toggle('on', !!s.code);
+  el.search.classList.toggle('on', !!s.search);
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
   el.sandbox.title = s.sandbox_available
@@ -2261,23 +2266,98 @@ function thinkingBox(m) {
   return made.panel;
 }
 
-// One run of the terminal tool. The head says which command runs, or has run,
-// and what became of it. The body keeps the command and the output under their
-// own small labels, each cut off at a height. A run with no output yet keeps
-// the panel, so the wait shows.
+// The mark beside the head of a tool block, the words that stand before the
+// name in the head, and the two words the body of the block gives its parts.
+// Every tool has a mark of its own, so the reader knows which one it is by the
+// shape at the left of the head. The mark of the terminal tool is the box it has
+// always had.
+var TOOL_SHAPES = {
+  run_terminal: {
+    mark: 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2',
+    head: '', word: 'command', end: 'output',
+    empty: 'a command with no words', begun: 'a command, begun'
+  },
+  // A file tool is named for a file and for nothing else, so its head waits
+  // for the name of one instead of borrowing words from the body. The `file`
+  // mark says as much, and headName reads it.
+  edit_file: {
+    mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
+    head: 'Editing file: ', done: 'Edited file: ', word: 'file', end: 'result',
+    empty: 'no name of a file', begun: 'a file, begun', file: true
+  },
+  create_file: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
+    head: 'Creating file: ', done: 'Created file: ', word: 'file', end: 'result',
+    empty: 'no name of a file', begun: 'a file, begun', file: true
+  },
+  // The web search. The head names what the call asked for: the words to look
+  // for, or the address that is being read. The answer is short words of each
+  // place, cut already, and the block cuts it again at a height.
+  web_search: {
+    mark: 'M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6',
+    head: 'Searching the web: ', word: 'query', end: 'result',
+    empty: 'nothing to look for', begun: 'the words to look for'
+  },
+  // A picture handed over to the model. The words are the name of the picture,
+  // and the result is the receipt of the run: the block never carries the
+  // picture, only the line that says what was read of it.
+  view_image: {
+    mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
+    head: 'Looking at a picture: ', word: 'picture', end: 'result',
+    empty: 'nothing to look at', begun: 'the picture to look at'
+  }
+};
+
+// The shape of one tool. A name the page does not know is drawn as a run of the
+// terminal tool, for that is the shape the reader knows best.
+function toolShape(name) {
+  return TOOL_SHAPES[name] || TOOL_SHAPES.run_terminal;
+}
+
+// The words of the head of a block: the words of the tool, and after them the
+// one thing its call named. A call that named nothing yet says what is still
+// coming, and a call that is over says that nothing was named.
+function headWords(shape, named, over) {
+  var words = named && named.trim() ? named : (over ? shape.empty : shape.begun);
+  // A call that is over says what it did in the past, and one that is still
+  // coming says what it is doing now. A tool without a past name of its own
+  // keeps the one it has been saying all along.
+  var head = over ? (shape.done || shape.head || '') : (shape.head || '');
+  return head + words;
+}
+
+// The one thing the head of a call being written names. A file tool is named
+// for the file it works on, and the reader must wait for that name: the words of
+// a change are not a name of a file, and a head that reads 'Editing file:
+// .marquee {' says something that is not true. A model that writes the changes
+// before the name of the file is answered with 'a file, begun' until the name
+// comes, which is what the head has always said when there was no name to read.
+// The other tools name the words themselves - a command, the words to look for -
+// so the first line of what has come in is the thing they name.
+function headName(one, shape) {
+  if (one.target && one.target.trim()) { return one.target; }
+  return shape && shape.file ? '' : firstLine(one.command);
+}
+
+// One run of a tool. The head says which tool it is, what it was pointed at, and
+// what became of it. The body keeps what the call named and what came back under
+// their own small labels, each cut off at a height. A run with no result yet
+// keeps the panel, so the wait shows.
 function toolBox(m) {
   var running = m.tool === 'running ...';
+  var shape = toolShape(m.tool_name);
   // The Chatting settings say whether a command starts folded up.
   var panel = make('div', 'tool' + (m.failed ? ' bad' : '')
     + (chatting.tools ? ' closed' : ''));
 
   var head = make('button', 'thead');
   head.type = 'button';
-  head.appendChild(mark(running
-    ? 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2'
-    : 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2'));
+  head.appendChild(mark(shape.mark));
   var cmd = make('span', 'cmd');
-  cmd.textContent = firstLine(m.body) || 'a command with no words';
+  // The head says what the tool is doing while it runs, and what it did when
+  // it is over, so the block reads as it changes from one to the other. A run
+  // that failed did not do the thing, so it keeps the name of the trying.
+  cmd.textContent = headWords(shape, firstLine(m.body), !running && !m.failed);
   head.appendChild(cmd);
   var state = make('span', 'state' + (running ? ' run' : '') + (m.failed ? ' fail' : ''));
   state.textContent = running ? 'running' : (m.failed ? 'failed' : 'done');
@@ -2290,11 +2370,11 @@ function toolBox(m) {
   body.appendChild(make('span', 'rail'));
   var space = make('div', 'tspace');
   var labOne = make('div', 'lab');
-  labOne.textContent = 'command';
+  labOne.textContent = shape.word;
   var commandText = make('pre', 'cmd-text');
   commandText.textContent = m.body;
   var labTwo = make('div', 'lab');
-  labTwo.textContent = 'output';
+  labTwo.textContent = shape.end;
   var output = make('pre', 'out' + (running ? ' live' : ''));
   output.textContent = m.tool;
   space.appendChild(labOne);
@@ -2322,13 +2402,14 @@ function toolBox(m) {
 // a run that is over: what the reader is asked to look at here is the command
 // itself, and a fold would hide the writing.
 function writeBox(one) {
+  var shape = toolShape(one.name);
   var panel = make('div', 'tool write');
 
   var head = make('button', 'thead');
   head.type = 'button';
-  head.appendChild(mark('M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2'));
+  head.appendChild(mark(shape.mark));
   var cmd = make('span', 'cmd');
-  cmd.textContent = firstLine(one.command) || 'a command, begun';
+  cmd.textContent = headWords(shape, headName(one, shape), false);
   head.appendChild(cmd);
   var state = make('span', 'state write');
   state.textContent = 'writing';
@@ -2341,7 +2422,7 @@ function writeBox(one) {
   body.appendChild(make('span', 'rail'));
   var space = make('div', 'tspace');
   var lab = make('div', 'lab');
-  lab.textContent = 'command';
+  lab.textContent = shape.word;
   var text = make('pre', 'cmd-text');
   var words = document.createTextNode('');
   var caret = make('span', 'caret');
@@ -2355,7 +2436,7 @@ function writeBox(one) {
   panel.appendChild(head);
   panel.appendChild(body);
   return { panel: panel, head: head, cmd: cmd, text: text, words: words,
-    caret: caret, space: space, why: null };
+    caret: caret, space: space, why: null, shape: shape };
 }
 
 // The reason of the command, put under the command itself. It comes after the
@@ -2406,7 +2487,8 @@ function feedWrite(list) {
   var key = '';
   for (var n = 0; n < made.length; n++) {
     key += made[n].name + '#' + (made[n].command || '').length
-        + '#' + (made[n].purpose || '').length + '|';
+        + '#' + (made[n].purpose || '').length
+        + '#' + (made[n].target || '').length + '|';
   }
   if (key === ink.toolKey) { return; }
   ink.toolKey = key;
@@ -2430,7 +2512,7 @@ function feedWrite(list) {
         box.text.scrollTop = box.text.scrollHeight;
       }
     }
-    var line = firstLine(one.command) || 'a command, begun';
+    var line = headWords(box.shape, headName(one, box.shape), false);
     if (box.cmd.textContent !== line) { box.cmd.textContent = line; }
     if (one.purpose) {
       if (!box.why) { addWhy(box); }
@@ -4060,6 +4142,7 @@ el.model.addEventListener('change', function (e) { post('/api/select_model', { i
 el.repo.addEventListener('change', function (e) { post('/api/select_repository', { id: e.target.value }); });
 el.newrepo.addEventListener('click', function () { openSettings('program'); byId('fNewRepo').focus(); });
 el.code.addEventListener('click', function () { if (cur) { post('/api/code', { on: !cur.code }); } });
+el.search.addEventListener('click', function () { if (cur) { post('/api/search', { on: !cur.search }); } });
 el.sandbox.addEventListener('click', function () { if (cur) { post('/api/sandbox', { on: !cur.sandbox }); } });
 // The thinking badge is a drop-down, for a mode is chosen and not cycled
 // through: the reader must be able to see what is on offer.

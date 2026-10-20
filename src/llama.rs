@@ -922,6 +922,7 @@ fn server_message(code: u16, body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editfile;
     use std::path::PathBuf;
 
     // One model file, and no devices, for the argument tests.
@@ -1341,6 +1342,120 @@ mod tests {
         let call = answer.tool_calls.first().expect("one call was written");
         assert_eq!(call.name, "run_terminal");
         assert_eq!(call.id, "call-one");
+    }
+
+    // A call of a file tool, streamed in the order a model likes rather than in
+    // the order the shape of the call asks for: the words to put in first, the
+    // words to take out after them, and the name of the file last of all. The
+    // words the reader of the chat is handed move with every piece of the stream,
+    // so the block of the call holds the change from the first word of it, and is
+    // never left blank while the model is still writing.
+    #[test]
+    fn a_file_call_streamed_the_other_way_about_shows_its_words_as_they_come() {
+        let arguments = concat!(
+            r#"{"edits":[{"new_string":"uno","old_string":"one"}],"#,
+            r#""path":"notes/todo.txt"}"#,
+        );
+        // One piece of the stream, as the server sends it. The first piece names
+        // the tool and carries the mark that opens the words of the call.
+        let piece = |words: &str, named: bool| -> String {
+            let mut part = json!({ "index": 0, "function": { "arguments": words } });
+            if named {
+                part["id"] = json!("call-edit");
+                part["type"] = json!("function");
+                part["function"]["name"] = json!(editfile::EDIT_NAME);
+            }
+            json!({ "choices": [{ "index": 0, "delta": { "tool_calls": [part] } }] }).to_string()
+        };
+        let mut answer = Answer::default();
+        // The body of the block and the name of the file in the head, as the
+        // reader was handed them after every piece.
+        let mut read: Vec<(String, String)> = Vec::new();
+        let mut told = |made: &[ToolCall]| {
+            read.push(editfile::live_params(editfile::EDIT_NAME, &made[0].arguments));
+        };
+        apply_event(
+            &piece("{", true),
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut told,
+        );
+        // The rest of the words come four characters at a time, which is about
+        // what a piece of an answer carries.
+        let mut rest = &arguments[1..];
+        while !rest.is_empty() {
+            let end = rest
+                .char_indices()
+                .nth(4)
+                .map(|(at, _)| at)
+                .unwrap_or(rest.len());
+            let (head, tail) = rest.split_at(end);
+            apply_event(
+                &piece(head, false),
+                &mut answer,
+                &mut |_| {},
+                &mut |_| {},
+                &mut |_| {},
+                &mut |_| {},
+                &mut told,
+            );
+            rest = tail;
+        }
+        // The whole of the call reads as the whole of any other call does.
+        assert_eq!(
+            read.last(),
+            Some(&(
+                String::from("one\n> uno"),
+                String::from("notes/todo.txt")
+            ))
+        );
+        // The words of the change stood in the block while the file was still
+        // unnamed, and they never fell back to nothing after they had begun.
+        let words = read
+            .iter()
+            .position(|(body, _)| !body.is_empty())
+            .expect("a word of the change came to the block");
+        // The first word the block was given stood under the mark of a change,
+        // which is what a call written the other way about has to give: the words
+        // to put in are the only words that have come so far. A block that waited
+        // for the words to take out would show them first, over a mark.
+        assert!(
+            read[words].0.starts_with("> "),
+            "the block first showed {:?}, and not a word under the mark of a change",
+            read[words].0
+        );
+        let named = read
+            .iter()
+            .position(|(_, name)| !name.is_empty())
+            .expect("the file was named");
+        assert!(
+            words < named,
+            "the change came to the block at {} and the name of the file at {}",
+            words,
+            named
+        );
+        for (number, (body, _)) in read.iter().enumerate() {
+            assert!(
+                number < words || !body.is_empty(),
+                "the block went blank again at piece {}",
+                number
+            );
+        }
+        // The body of the block moved more than once, so the reader watched the
+        // change being written instead of waiting for the end of it.
+        let moves = read
+            .windows(2)
+            .filter(|pair| pair[0].0 != pair[1].0)
+            .count();
+        assert!(
+            moves > 3,
+            "the body of the block moved {} times over {} pieces",
+            moves,
+            read.len()
+        );
     }
 
     // A piece of an answer is not a piece of a call, so it says nothing about

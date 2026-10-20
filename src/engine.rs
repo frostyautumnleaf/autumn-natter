@@ -17,11 +17,14 @@ use serde_json::{json, Value};
 use crate::attach;
 use crate::store::Attachment;
 use crate::config::{self, Config, ModelSettings};
+use crate::editfile;
 use crate::gpu::{self, Gpu};
 use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
+use crate::search;
 use crate::store::{self, Chat, Message, Repo};
 use crate::tools;
+use crate::viewimage;
 
 // Longest wait for one terminal command.
 const TOOL_TIMEOUT: Duration = Duration::from_secs(120);
@@ -80,11 +83,42 @@ pub struct Chapter {
 pub struct LiveTool {
     // The name of the tool, as the model wrote it.
     pub name: String,
-    // The command so far. It is read out of the words of the call, which are
+    // The words of the call so far, as the reader is given them. For a run of
+    // the terminal tool it is the command, and for a file tool it is the words
+    // the call is making. It is read out of the words of the call, which are
     // often not finished.
     pub command: String,
-    // The reason the model gave for the command, as far as it has come.
+    // The reason the model gave for the command, as far as it has come. It is
+    // the terminal tool alone that ever asked for one.
     pub purpose: String,
+    // The one thing the head of the block names: the file a file tool works on.
+    // The command of a run names itself, so it stands empty there.
+    pub target: String,
+}
+
+// The words of a call that the reader is given: the command of a terminal run,
+// or the one thing another tool names. The head of the block of a run and the
+// block of a call being written both come from here, so the two cannot say
+// different things about one call. The reason the model gave rides along for the
+// terminal tool, which is the only tool that ever asked for one.
+fn words_of(name: &str, raw: &str) -> (String, String, String) {
+    match name {
+        tools::TOOL_NAME => {
+            let (command, purpose) = tools::partial_arguments(raw);
+            (command, purpose, String::new())
+        }
+        editfile::EDIT_NAME | editfile::CREATE_NAME => {
+            let (command, target) = editfile::live_params(name, raw);
+            (command, String::new(), target)
+        }
+        // A look about the web is named by the words to look for, or by the
+        // address that is to be read.
+        search::NAME => (search::partial_words(raw), String::new(), String::new()),
+        viewimage::NAME => (viewimage::partial_words(raw), String::new(), String::new()),
+        // A name the program does not offer, and a name that came in pieces: the
+        // words of a file are the best guess of what the model is naming.
+        _ => (editfile::partial_words(raw), String::new(), String::new()),
+    }
 }
 
 // The calls the reader may watch being written. A mark of a chapter is not
@@ -97,11 +131,12 @@ fn watched(calls: &[ToolCall]) -> Vec<LiveTool> {
         if tools::CHAPTER_TOOL_NAME.starts_with(call.name.as_str()) {
             continue;
         }
-        let (command, purpose) = tools::partial_arguments(&call.arguments);
+        let (command, purpose, target) = words_of(&call.name, &call.arguments);
         out.push(LiveTool {
             name: call.name.clone(),
             command,
             purpose,
+            target,
         });
     }
     out
@@ -146,6 +181,8 @@ pub struct Snap {
     pub generating: bool,
     pub busy: bool,
     pub code_enabled: bool,
+    // The switch of the web search of the open chat.
+    pub search_enabled: bool,
     pub sandbox_enabled: bool,
     pub sandbox_available: bool,
     // The thinking mode of the open chat.
@@ -280,6 +317,7 @@ pub struct State {
     // The chat settings a new chat starts with. They matter while no chat is
     // open, where a badge has no chat to change.
     pub new_code: bool,
+    pub new_search: bool,
     pub new_sandbox: bool,
     pub new_thinking: String,
     pub new_preserve: bool,
@@ -458,10 +496,26 @@ impl State {
 
     // Write the output of a tool run into its message.
     fn finish_tool(&mut self, id: &str, output: &str, ok: bool) {
+        self.finish_tool_with(id, output, ok, Vec::new());
+    }
+
+    // The same, with the records of the pictures the run opened hanging on the
+    // message as well. A tool that hands a picture to the model keeps the bytes
+    // of it out of the words the reader is given, so the picture stands where the
+    // pictures of a chat stand: in the folder of the records, named by the
+    // message that opened it.
+    fn finish_tool_with(
+        &mut self,
+        id: &str,
+        output: &str,
+        ok: bool,
+        pictures: Vec<Attachment>,
+    ) {
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
                 message.tool = output.to_string();
                 message.failed = !ok;
+                message.attachments = pictures;
             }
         }
         self.persist();
@@ -545,10 +599,24 @@ impl State {
                         call["reasoning_content"] = json!(message.reasoning);
                     }
                     out.push(call);
+                    // The words of the receipt, and after them the picture a tool
+                    // opened, when there is one and this model can be shown a
+                    // picture. With neither the entry is the plain words, as it
+                    // always was.
+                    let content = if message.attachments.is_empty() {
+                        Value::String(message.tool.clone())
+                    } else {
+                        attach::parts_at(
+                            &shelf,
+                            &message.tool,
+                            &message.attachments,
+                            vision_on,
+                        )
+                    };
                     out.push(json!({
                         "role": "tool",
                         "tool_call_id": message.call_id,
-                        "content": message.tool,
+                        "content": content,
                     }));
                 }
                 // A note is only for the window.
@@ -619,6 +687,7 @@ impl State {
             None => chat.meta.sandbox_enabled = self.new_sandbox,
         }
         chat.meta.code_enabled = self.new_code;
+        chat.meta.search_enabled = self.new_search;
         chat.meta.thinking_mode = self.new_thinking.clone();
         chat.meta.preserve_thinking = self.new_preserve;
         self.chats.insert(0, chat);
@@ -779,6 +848,11 @@ impl State {
         attach::shelf(&self.workdir_for(chat))
     }
 
+    // The folder of the records of the open chat, for a picture a tool opened.
+    fn attach_place(&self) -> Option<PathBuf> {
+        self.chat().map(|chat| self.attach_place_for(chat))
+    }
+
     // The records of the attachments used to stand in one flat folder under
     // the data directory, with nothing in it to say which chat held them. When
     // such a folder stands, the records are moved into the room of the chat
@@ -849,6 +923,9 @@ impl State {
             generating: self.generating,
             busy: self.busy,
             code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(self.new_code),
+            search_enabled: chat
+                .map(|c| c.meta.search_enabled)
+                .unwrap_or(self.new_search),
             sandbox_enabled: chat
                 .map(|c| c.meta.sandbox_enabled)
                 .unwrap_or(self.new_sandbox),
@@ -965,6 +1042,7 @@ impl Engine {
             pending_blank: None,
             overview: false,
             new_code: false,
+            new_search: false,
             new_sandbox: true,
             new_thinking: String::from("off"),
             // llama.cpp keeps the thinking of the earlier turns on its own, so
@@ -1057,7 +1135,11 @@ impl Engine {
         self.cancel.store(true, Ordering::SeqCst);
     }
 
-    // The terminal tool for the open chat.
+    // The tools of the open chat: the terminal tool, and the tools that work on
+    // the files of the chat. One switch stands over all of them, for a reader who
+    // does not want the model reaching the machine does not want it reaching the
+    // files either. The name of the switch stays `code`, which is the name the
+    // chat carries on disk and the name the pages send.
     pub fn set_code(&self, enabled: bool) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -1070,9 +1152,32 @@ impl Engine {
         }
         state.persist();
         state.set_status(if enabled {
-            "the model may use the terminal tool"
+            "the model may use the tools of the program"
         } else {
-            "the terminal tool is off"
+            "the tools of the program are off"
+        });
+    }
+
+    // The web search of the open chat. It stands on a switch of its own and not
+    // behind the badge of the tools, for it reads the web out of the program: a
+    // command of the terminal tool cannot reach the web at all, since the jail of
+    // it has no network. The name of the switch is `search` on every road it
+    // travels on.
+    pub fn set_search(&self, enabled: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if let Some(chat) = state.chat_mut() {
+            chat.meta.search_enabled = enabled;
+        } else {
+            // No chat is open, so the choice is kept for the next one.
+            state.new_search = enabled;
+        }
+        state.persist();
+        state.set_status(if enabled {
+            "the model may look a thing up on the web"
+        } else {
+            "the web search of the program is off"
         });
     }
 
@@ -1450,6 +1555,7 @@ impl Snap {
             generating: false,
             busy: false,
             code_enabled: false,
+            search_enabled: false,
             sandbox_enabled: true,
             sandbox_available: false,
             thinking_mode: String::from("off"),
@@ -1828,16 +1934,20 @@ fn run_turn(
     let mut marks = 0usize;
     loop {
         steps += 1;
-        let (history, code_on, chapters_on) = {
+        let (history, code_on, search_on, chapters_on) = {
             let Ok(guard) = state.lock() else { return };
             (
                 guard.build_history(),
                 guard.chat().map(|c| c.meta.code_enabled).unwrap_or(false),
+                guard
+                    .chat()
+                    .map(|c| c.meta.search_enabled)
+                    .unwrap_or(false),
                 guard.cfg.chat_chapters,
             )
         };
-        // Either tool is enough to let the model ask for one.
-        let use_tools = code_on || chapters_on;
+        // Any of the tools is enough to let the model ask for one.
+        let use_tools = code_on || search_on || chapters_on;
         let mut body = json!({
             "messages": history,
             "stream": true,
@@ -1852,15 +1962,8 @@ fn run_turn(
             // only when it has stopped.
             "timings_per_token": true,
         });
-        if use_tools {
-            let mut offered: Vec<Value> = Vec::new();
-            if code_on {
-                offered.push(tools::definition());
-            }
-            if chapters_on {
-                offered.push(tools::chapter_definition());
-            }
-            body["tools"] = Value::Array(offered);
+        if let Some(list) = offered(code_on, search_on, chapters_on) {
+            body["tools"] = list;
             body["tool_choice"] = json!("auto");
         }
 
@@ -2133,10 +2236,14 @@ fn run_turn(
         // the talk in the order the model asked for them.
         take_marks(state, &step_marks, &mut marks);
         for call in step_runs.iter() {
+            // Only a command of the terminal tool eats the room for commands.
+            // The other tools work in the room of the chat in the program
+            // itself, and the setting that holds the room speaks of commands.
+            let terminal = call.name == tools::TOOL_NAME;
             // The room for commands is spent. The call is still answered, so
             // the model hears why and can go on with its talk instead of
             // asking again for a command that never runs.
-            if command_room.is_some_and(|room| commands >= room) {
+            if terminal && command_room.is_some_and(|room| commands >= room) {
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
@@ -2145,45 +2252,17 @@ fn run_turn(
                 guard.finish_tool(&id, note, false);
                 continue;
             }
-            commands += 1;
-            let (command, purpose) = tools::parse_arguments(&call.arguments);
-            let shown = if purpose.trim().is_empty() {
-                command.clone()
-            } else {
-                format!("{}\nwhy: {}", command, purpose)
-            };
-            // The first command the reader sees takes the thoughts of the turn,
+            if terminal {
+                commands += 1;
+            }
+            // The first call the reader is shown takes the thoughts of the turn,
             // and no other one does.
             let thinking = std::mem::take(&mut thoughts);
-            let message_id = {
-                let Ok(mut guard) = state.lock() else {
-                    continue;
-                };
-                let id = guard.begin_tool(call, &shown, &thinking, thought_ms);
-                let text = format!("running a command: {}", first_line(&command));
-                guard.set_status(&text);
-                id
-            };
-            let outcome = tools::run(&command, &workdir, sandbox_on, TOOL_TIMEOUT);
-            let mut output = outcome.summary();
-            // The chat asked for the sandbox, so say when it was not used. The
-            // run itself already says why, and it did not run at all then.
-            if sandbox_on && !outcome.sandboxed {
-                output = format!(
-                    "{}\n(the command did not run, for the sandbox was not to be had)",
-                    output
-                );
+            if terminal {
+                run_command(call, &thinking, thought_ms, state, &workdir, sandbox_on);
+            } else {
+                run_program_tool(call, &thinking, thought_ms, state, &workdir);
             }
-            if !sandbox_on {
-                output = format!(
-                    "{}\n(not sandboxed: this command could reach the whole machine)",
-                    output
-                );
-            }
-            let Ok(mut guard) = state.lock() else {
-                continue;
-            };
-            guard.finish_tool(&message_id, &output, outcome.ok);
         }
         if !thoughts.is_empty() {
             // The turn asked for marks and for nothing a reader could look at,
@@ -2194,6 +2273,158 @@ fn run_turn(
         let Ok(mut guard) = state.lock() else { return };
         guard.set_status("the model reads the tool result");
     }
+}
+
+// The tools the model is offered for one step, or nothing at all when it is
+// offered none. The terminal tool and the tools that work on the files stand and
+// fall together with the badge of the tools, for all of them change what is on
+// the machine. The web search stands on a switch of its own, for it reads the web
+// out of the program and never the machine. The mark of a chapter stands on a
+// switch of its own as well, for it runs nothing.
+fn offered(code_on: bool, search_on: bool, chapters_on: bool) -> Option<Value> {
+    if !(code_on || search_on || chapters_on) {
+        return None;
+    }
+    let mut list: Vec<Value> = Vec::new();
+    if code_on {
+        list.push(tools::definition());
+        list.push(editfile::edit_definition());
+        list.push(editfile::create_definition());
+        list.push(viewimage::definition());
+    }
+    if search_on {
+        list.push(search::definition());
+    }
+    if chapters_on {
+        list.push(tools::chapter_definition());
+    }
+    Some(Value::Array(list))
+}
+
+// One run of the terminal tool. The block stands in the chat before the command
+// starts, and says what became of it when it is over.
+fn run_command(
+    call: &ToolCall,
+    thinking: &str,
+    thought_ms: u64,
+    state: &Arc<Mutex<State>>,
+    workdir: &Path,
+    sandbox_on: bool,
+) {
+    let (command, purpose) = tools::parse_arguments(&call.arguments);
+    // The reason the model gave is not asked for any more, but a model that
+    // gives one of its own is still shown.
+    let shown = if purpose.trim().is_empty() {
+        command.clone()
+    } else {
+        format!("{}\nwhy: {}", command, purpose)
+    };
+    let message_id = {
+        let Ok(mut guard) = state.lock() else { return };
+        let id = guard.begin_tool(call, &shown, thinking, thought_ms);
+        let text = format!("running a command: {}", first_line(&command));
+        guard.set_status(&text);
+        id
+    };
+    let outcome = tools::run(&command, workdir, sandbox_on, TOOL_TIMEOUT);
+    let mut output = outcome.summary();
+    // The chat asked for the sandbox, so say when it was not used. The run
+    // itself already says why, and it did not run at all then.
+    if sandbox_on && !outcome.sandboxed {
+        output = format!(
+            "{}\n(the command did not run, for the sandbox was not to be had)",
+            output
+        );
+    }
+    if !sandbox_on {
+        output = format!(
+            "{}\n(not sandboxed: this command could reach the whole machine)",
+            output
+        );
+    }
+    let Ok(mut guard) = state.lock() else { return };
+    guard.finish_tool(&message_id, &output, outcome.ok);
+}
+
+// One call of a tool the program does itself. None of these starts a shell, so
+// none of them needs the jail: a chat whose jail cannot be had has them still.
+// The file tools reach the room of the chat and nothing past it, which is the
+// one room the jail may be written in.
+fn run_program_tool(
+    call: &ToolCall,
+    thinking: &str,
+    thought_ms: u64,
+    state: &Arc<Mutex<State>>,
+    workdir: &Path,
+) {
+    // The words of the call, and the words of the state line, are settled first:
+    // the block has to stand in the chat before the work begins.
+    let (shown, _, target) = words_of(&call.name, &call.arguments);
+    // The head of the block names the file a file tool works on, and the
+    // one thing another tool names when it has no file of its own.
+    let shown = if target.is_empty() { shown } else { target };
+    let doing = match call.name.as_str() {
+        editfile::EDIT_NAME => "editing a file",
+        editfile::CREATE_NAME => "making a file",
+        search::NAME => "looking a thing up",
+        viewimage::NAME => "looking at a picture",
+        _ => "a tool of the program",
+    };
+    let message_id = {
+        let Ok(mut guard) = state.lock() else { return };
+        let id = guard.begin_tool(call, &shown, thinking, thought_ms);
+        let text = format!("{}: {}", doing, first_line(&shown));
+        guard.set_status(&text);
+        id
+    };
+    // A picture is read here and kept out of the words the reader sees. The
+    // receipt of the run is the block in the chat; the picture rides on the same
+    // message as an attachment of the chat, and goes to the model with the words
+    // of the receipt when the history is made again.
+    if call.name == viewimage::NAME {
+        let vision = {
+            let Ok(guard) = state.lock() else { return };
+            guard.pictures_can_go()
+        };
+        let made = viewimage::open(workdir, &call.arguments, vision);
+        let records = match &made.picture {
+            Some(picture) => {
+                let Ok(guard) = state.lock() else { return };
+                match guard.attach_place() {
+                    Some(place) => attach::save_at(
+                        &place,
+                        &[attach::Incoming {
+                            name: picture.name.clone(),
+                            mime: picture.mime.clone(),
+                            data: picture.data.clone(),
+                            text: String::new(),
+                        }],
+                    ),
+                    None => Vec::new(),
+                }
+            }
+            None => Vec::new(),
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool_with(&message_id, &made.report.output, made.report.ok, records);
+        return;
+    }
+    let report = match call.name.as_str() {
+        editfile::EDIT_NAME => editfile::edit(workdir, &call.arguments),
+        editfile::CREATE_NAME => editfile::create(workdir, &call.arguments),
+        // The web search needs no room of the chat: it reads what stands on the
+        // web, and nothing of the machine.
+        search::NAME => search::run(&call.arguments),
+        other => tools::Report {
+            ok: false,
+            output: format!(
+                "the model asked for {}, which this program does not offer",
+                first_line(other)
+            ),
+        },
+    };
+    let Ok(mut guard) = state.lock() else { return };
+    guard.finish_tool(&message_id, &report.output, report.ok);
 }
 
 // Start llama-server when none runs yet, or when another model is wanted. The
@@ -2212,11 +2443,11 @@ fn ensure_server(
         let binary = state
             .server_binary()
             .ok_or("llama-server was not found in the folder from the settings")?;
-        // Either tool is enough to ask the server for tool support: the chapter
-        // is wanted even in a chat that never runs a command.
+        // Any tool is enough to ask the server for tool support: the chapter and
+        // the web search are wanted even in a chat that never runs a command.
         let tools_wanted = state
             .chat()
-            .map(|c| c.meta.code_enabled)
+            .map(|c| c.meta.code_enabled || c.meta.search_enabled)
             .unwrap_or(false)
             || state.cfg.chat_chapters;
         (
@@ -2982,6 +3213,135 @@ mod tests {
         let made = watched(std::slice::from_ref(&grown));
         assert_eq!(made[0].command, "cargo test --release mark");
         assert!(made[0].purpose.is_empty());
+    }
+
+    // The badge of the web search works as the badge of the tools does: with no
+    // chat open the choice waits for the next one, and the two switches stand
+    // apart, so opening one does not open the other.
+    #[test]
+    fn the_web_search_switch_is_kept_for_the_next_chat() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        // No chat is open, so the choice is kept for the chat that comes next.
+        engine.set_search(true);
+        assert!(engine.snapshot().search_enabled);
+        assert!(!engine.snapshot().code_enabled);
+        engine.new_chat();
+        assert!(engine.snapshot().search_enabled);
+        engine.set_search(false);
+        assert!(!engine.snapshot().search_enabled);
+    }
+
+    // The badge of the tools is the door to every tool that can reach the
+    // machine: with it off the model is offered no command and no tool that works
+    // on a file. The web search and the mark of a chapter stand on switches of
+    // their own, and either of them alone is enough to carry tools with the call.
+    #[test]
+    fn no_badge_of_the_tools_opens_no_tool_at_all() {
+        let names = |list: &Value| {
+            list.as_array()
+                .unwrap()
+                .iter()
+                .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                .collect::<Vec<_>>()
+        };
+        // Nothing is switched on, so the call carries no tools at all.
+        assert!(offered(false, false, false).is_none());
+        // The marks alone, which is what a chat with both badges off and the marks
+        // on is offered.
+        let marks = offered(false, false, true).unwrap();
+        assert_eq!(names(&marks), vec![tools::CHAPTER_TOOL_NAME.to_string()]);
+        // The badge on: every tool of the program stands there, and the mark is
+        // not among them.
+        let open = offered(true, false, false).unwrap();
+        let words = names(&open);
+        assert!(words.contains(&tools::TOOL_NAME.to_string()));
+        assert!(words.contains(&editfile::EDIT_NAME.to_string()));
+        assert!(words.contains(&editfile::CREATE_NAME.to_string()));
+        assert!(words.contains(&viewimage::NAME.to_string()));
+        assert!(!words.contains(&tools::CHAPTER_TOOL_NAME.to_string()));
+        assert!(!words.contains(&search::NAME.to_string()));
+        // The badge of the web search alone: the search is offered, and none of
+        // the tools that can reach the machine is offered with it.
+        let looked = offered(false, true, false).unwrap();
+        assert_eq!(names(&looked), vec![search::NAME.to_string()]);
+        // Both badges stand open, so both doors are open at once.
+        let both = offered(true, true, false).unwrap();
+        let words = names(&both);
+        assert!(words.contains(&tools::TOOL_NAME.to_string()));
+        assert!(words.contains(&search::NAME.to_string()));
+    }
+
+    // The head of a block, and the block of a call being written, take the one
+    // thing the call names: the command of a run, or the file a file tool works
+    // on. A reason of the call rides along for the terminal tool alone.
+    #[test]
+    fn every_tool_shows_the_one_thing_it_names() {
+        let edit = ToolCall {
+            id: String::from("call-edit"),
+            name: String::from(editfile::EDIT_NAME),
+            arguments: String::from(
+                "{\"path\":\"notes/todo.txt\",\"edits\":[{\"old_string\":\"one\",\"new_string\":\"two\"}]}",
+            ),
+        };
+        let made = watched(std::slice::from_ref(&edit));
+        assert_eq!(made.len(), 1);
+        // The head names the file the call works on, and the body holds the
+        // words of the change the call is making.
+        assert_eq!(made[0].target, "notes/todo.txt");
+        assert_eq!(made[0].command, "one\n> two");
+        assert!(made[0].purpose.is_empty(), "{}", made[0].purpose);
+        // A name of a file that is still coming in is shown as far as it has
+        // come, as a command is, and the words of a new file stand in the body
+        // as they come.
+        let half = ToolCall {
+            id: String::from("call-half"),
+            name: String::from(editfile::CREATE_NAME),
+            arguments: String::from("{\"path\":\"notes/plan.txt\",\"text\":\"hello\"}"),
+        };
+        let half_made = watched(std::slice::from_ref(&half));
+        assert_eq!(half_made[0].target, "notes/plan.txt");
+        assert_eq!(half_made[0].command, "hello");
+        // A name the program does not offer is shown with the file it names, so
+        // the reader is not left looking at an empty block.
+        let strange = ToolCall {
+            id: String::from("call-strange"),
+            name: String::from("rewrite"),
+            arguments: String::from("{\"path\":\"notes/todo.txt\"}"),
+        };
+        assert_eq!(watched(std::slice::from_ref(&strange))[0].command, "notes/todo.txt");
+        // A model that writes the halves of a call in the order it likes, and not
+        // in the order the shape of the call asks for them, is shown as far as
+        // each of them has come. The words of the change stand in the body from
+        // the first of them, so the block is not blank while the call is written.
+        let backwards = ToolCall {
+            id: String::from("call-backwards"),
+            name: String::from(editfile::EDIT_NAME),
+            arguments: String::from("{\"edits\":[{\"new_string\":\"un"),
+        };
+        let read = watched(std::slice::from_ref(&backwards));
+        assert_eq!(read[0].command, "> un");
+        assert_eq!(read[0].target, String::new());
+        let half_read = ToolCall {
+            id: String::from("call-half-read"),
+            name: String::from(editfile::EDIT_NAME),
+            arguments: String::from("{\"edits\":[{\"new_string\":\"uno\",\"old_string\":\"on"),
+        };
+        assert_eq!(watched(std::slice::from_ref(&half_read))[0].command, "on\n> uno");
+        // The name of the file is the head of the block whichever half of the
+        // call it stands in, so a model that writes the changes first names the
+        // file as soon as the name begins.
+        let named_last = ToolCall {
+            id: String::from("call-named-last"),
+            name: String::from(editfile::EDIT_NAME),
+            arguments: String::from(
+                "{\"edits\":[{\"new_string\":\"uno\",\"old_string\":\"one\"}],\"path\":\"notes/to",
+            ),
+        };
+        let read = watched(std::slice::from_ref(&named_last));
+        assert_eq!(read[0].target, "notes/to");
+        assert_eq!(read[0].command, "one\n> uno");
     }
 
     // The calls being written stand in the snapshot, and go away with the step

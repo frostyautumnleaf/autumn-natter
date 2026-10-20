@@ -142,10 +142,84 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
     feedWrite([{ name: 'run_terminal', command: 'uname -a', purpose: '' }]);
     if (ink.tools[0].panel !== first) { faults.push('the block was made again for no new word'); }
     if (first.parentNode === null) { faults.push('the block left the page'); }
+
+    // The same block, driven with the states of a file tool. A model writes the
+    // two halves of a change, and the name of the file, in the order it likes.
+    // The states below are the ones a call hands out that puts the words to come
+    // in before the words to take out, and the name of the file after both.
+    // Two things the reader sees are looked at: a word of the change stands in
+    // the body as soon as there is one, and the head names a file, or says a
+    // file is begun, but never wears a word of the change as a name of a file.
+    var CALLS = [
+      { name: 'edit_file', said: 'I will change the file.', states: [
+        { target: '', command: '' },
+        { target: '', command: '> ' },
+        { target: '', command: '> un' },
+        { target: '', command: '> uno' },
+        { target: '', command: 'on\n> uno' },
+        { target: '', command: 'one\n> uno' },
+        { target: 'notes', command: 'one\n> uno' },
+        { target: 'notes/todo.txt', command: 'one\n> uno' },
+        { target: 'notes/todo.txt', command: 'one\n> uno\ntwo\n> dos' }
+      ] },
+      { name: 'create_file', said: 'I will make the file.', states: [
+        { target: '', command: '' },
+        { target: '', command: '# gr' },
+        { target: 'greet', command: '# greeting' },
+        { target: 'greet.md', command: '# greeting\n' }
+      ] }
+    ];
+    for (var c = 0; c < CALLS.length; c++) {
+      var call = CALLS[c];
+      var words = call.name === 'edit_file' ? 'Editing file: ' : 'Creating file: ';
+      var seen = [];
+      for (var t = 0; t < call.states.length; t++) {
+        var part = call.states[t];
+        var half = { name: call.name, target: part.target, command: part.command,
+          purpose: '' };
+        var where = call.name + ' at ' + t;
+        if (t === 0) {
+          fillLive(host, { body: call.said, reasoning: '', reasoning_ms: 0,
+            reasoning_done: true, tools: [half] });
+        } else {
+          feedWrite([half]);
+        }
+        var found = host.querySelectorAll('.tool.write');
+        if (found.length !== 1) {
+          faults.push('the block of the file call is there ' + found.length + ' times ' + where);
+          break;
+        }
+        var partBox = ink.tools[0];
+        if (partBox.words.nodeValue !== half.command) {
+          faults.push('the body of the file block is ' + JSON.stringify(partBox.words.nodeValue)
+            + ' and not the words of the change ' + where);
+        }
+        // A half of a change that has come in stands to be read. The block was
+        // once blank until the two halves of a change happened to meet.
+        if (half.command.trim() && !partBox.text.textContent.trim()) {
+          faults.push('the body of the file block was blank over words that had come ' + where);
+        }
+        var head = found[0].querySelector('.cmd').textContent;
+        var named = words + (part.target.trim() ? part.target : 'a file, begun');
+        if (head !== named) {
+          faults.push('the head of the file block is ' + JSON.stringify(head)
+            + ' and not ' + JSON.stringify(named) + ' ' + where);
+        }
+        if (seen.indexOf(head) === -1) { seen.push(head); }
+      }
+      // The head of the block moved from the file begun to the file named, and
+      // nothing else. A head that read out a word of the change would be here.
+      if (seen.length < 2) {
+        faults.push('the head of the ' + call.name + ' block never named the file');
+      }
+    }
     return faults;
   });
   await browser.close();
   if (bad.length) { console.log('FAULTS\n' + bad.slice(0, 8).join('\n')); process.exit(1); }
   console.log('the command was written to the page a few words at a time: one mark beat, '
-    + 'and the block stood under the words of the answer with room and a rule');
+    + 'and the block stood under the words of the answer with room and a rule;\n'
+    + 'the halves of a file call came in the order the model liked, and the body of the '
+    + 'block showed a word of the change as it came while the head named the file, '
+    + 'or said a file was begun');
 })();

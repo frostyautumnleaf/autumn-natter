@@ -15,6 +15,7 @@
 
 pub mod attach;
 pub mod config;
+pub mod editfile;
 pub mod engine;
 pub mod gguf;
 pub mod gpu;
@@ -22,8 +23,10 @@ pub mod greet;
 pub mod llama;
 pub mod markdown;
 pub mod remote;
+pub mod search;
 pub mod store;
 pub mod tools;
 pub mod upnp;
 pub mod util;
+pub mod viewimage;
 pub mod web;

@@ -194,6 +194,31 @@ pub fn split_args(text: &str) -> Vec<String> {
     out
 }
 
+// The sixty four characters base64 writes with, in the order of the table.
+const B64_TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Bytes turned into base64, as a data URL of a picture wants them. Three bytes
+// go out as four characters, and the last two of those stand for nothing when
+// the run of three was short. No crate is added for this: the program keeps the
+// weight of its binary down, and twenty lines of it are cheaper than a part.
+pub fn b64(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for part in bytes.chunks(3) {
+        let one = part[0];
+        let two = *part.get(1).unwrap_or(&0);
+        let three = *part.get(2).unwrap_or(&0);
+        let joined = ((one as u32) << 16) | ((two as u32) << 8) | three as u32;
+        let pick = |shift: u32| B64_TABLE[(joined as usize >> shift) & 63] as char;
+        out.push(pick(18));
+        out.push(pick(12));
+        // A short run of two bytes says so with a mark, and one of one byte with
+        // two of them.
+        out.push(if part.len() > 1 { pick(6) } else { '=' });
+        out.push(if part.len() > 2 { pick(0) } else { '=' });
+    }
+    out
+}
+
 // Tokens with a comma every three digits, like 64,763. Both windows show the
 // context size this way.
 pub fn count(value: u64) -> String {
@@ -225,4 +250,26 @@ pub fn lan_address() -> Option<std::net::IpAddr> {
     socket.connect("10.255.255.255:1").ok()?;
     let addr = socket.local_addr().ok()?;
     Some(addr.ip())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Bytes turned into base64, of the shapes a run of three bytes can come in.
+    // The words of a picture that goes to the model are made this way, so the
+    // table and the marks at the end must both be right.
+    #[test]
+    fn bytes_are_turned_into_base64() {
+        assert_eq!(b64(b""), "");
+        assert_eq!(b64(b"f"), "Zg==");
+        assert_eq!(b64(b"fo"), "Zm8=");
+        assert_eq!(b64(b"foo"), "Zm9v");
+        assert_eq!(b64(b"foobar"), "Zm9vYmFy");
+        assert_eq!(b64(&[0xff, 0xef, 0xbe]), "/+++");
+        assert_eq!(b64(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), "AAECAwQFBgcICQ==");
+        // A character of more than one byte is bytes, and not a character, to
+        // the table.
+        assert_eq!(b64("\u{e9}".as_bytes()), "w6k=");
+    }
 }

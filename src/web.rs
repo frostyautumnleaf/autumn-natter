@@ -91,6 +91,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // How long that thinking took, in milliseconds.
                 "reasoning_ms": m.reasoning_ms,
                 "tool": m.tool,
+                // Which tool this run was: the page puts the mark and the words
+                // of that tool on the head of the block.
+                "tool_name": m.tool_name,
                 "mono": m.mono,
                 "failed": m.failed,
                 "when": store::format_clock(m.when),
@@ -108,6 +111,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "name": one.name,
                 "command": one.command,
                 "purpose": one.purpose,
+                "target": one.target,
             })
         })
         .collect();
@@ -184,6 +188,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "generating": snap.generating,
         "busy": snap.busy,
         "code": snap.code_enabled,
+        "search": snap.search_enabled,
         "sandbox": snap.sandbox_enabled,
         "sandbox_available": snap.sandbox_available,
         "sandbox_note": snap.sandbox_note,
@@ -261,6 +266,10 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/code" | "code" => {
             engine.set_code(flag(&value, "on"));
+            done()
+        }
+        "/api/search" | "search" => {
+            engine.set_search(flag(&value, "on"));
             done()
         }
         "/api/sandbox" | "sandbox" => {
