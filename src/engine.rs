@@ -242,6 +242,20 @@ fn handoff_marks(chat: &Chat, writing: bool) -> Vec<Handoff> {
     out
 }
 
+// True when the words are not a saying of the model at all, but a call of a tool
+// that was cut short: the mark of a call at the front, and no closing mark,
+// because the room gave out in the middle of it. Such words are not a summary,
+// and the next model would read them as one.
+fn call_of_a_tool(text: &str) -> bool {
+    let open = String::from("<") + "|";
+    let close = String::from("|") + ">";
+    let Some(at) = text.find(open.as_str()) else {
+        return false;
+    };
+    let rest = &text[at + open.len()..];
+    !rest.contains(close.as_str()) && rest.trim_start().starts_with("im_start|tool")
+}
+
 // A little of a handoff summary, for the card of a node on the timeline. The
 // marks of the writing are taken off, for a node has a small room to be read in.
 fn summary_snippet(text: &str) -> String {
@@ -353,6 +367,13 @@ pub fn clean_summary(text: &str) -> String {
         lines.pop();
     }
     unwrap(&mut lines);
+    // A model that answers the ask with a call of a tool, rather than with the
+    // summary, has written nothing that the next model can use. The words of a
+    // call that the room cut short are thrown away here, so the ask is made again
+    // rather than a call of a tool standing in the place of a summary.
+    if call_of_a_tool(text) {
+        return String::new();
+    }
     // Two blank lines one behind the other say nothing, and the next model pays
     // for every one of them.
     let mut out = String::new();
@@ -2184,6 +2205,94 @@ fn stop_server(server: &mut Option<Server>) {
     }
 }
 
+// The words added to the handoff prompt of the reader. The talk being
+// summarised is full of the calls of tools, for that is what a working session
+// is made of, and a model that reads them again is minded to make one of its
+// own. The server of a model whose template knows tools then tries to read such
+// a call out of the words as they come, and gives up when the room cuts the call
+// short -- which leaves a fault of the server standing where the summary should
+// have stood. So the ask says out loud that there is nothing to be called.
+pub const SUMMARY_GUARD: &str = " Answer in plain text, in words of the summary alone. No tool is offered to you here and no call of a tool is wanted: write the summary itself, never a call, and never the mark of one.";
+
+// The least room a handoff summary is given to be written in, and the most. The
+// least, because a summary of fewer words than that is not worth the ask. The
+// most, because a summary of more words than that is the length of the talk it
+// stands for, and the room of the next answer is wanted too.
+const LEAST_SUMMARY_ROOM: u64 = 512;
+const GREATEST_SUMMARY_ROOM: u64 = 4096;
+
+// Take the pictures out of a talk that is being read and not answered. The bytes
+// of a picture cost a great deal of room, and a handoff summary is written of
+// the words of the session: what a picture was is told by the words of the run
+// that opened it, and the ask for it is already carrying the whole of the talk.
+pub fn words_only(items: &mut Vec<Value>) {
+    for item in items.iter_mut() {
+        let Some(parts) = item.get_mut("content").and_then(|c| c.as_array_mut()) else {
+            continue;
+        };
+        let had = std::mem::take(parts);
+        let mut kept: Vec<Value> = Vec::new();
+        for part in had {
+            let kind = part
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("text")
+                .to_string();
+            if kind == "text" {
+                kept.push(part);
+            } else {
+                kept.push(json!({ "type": "text", "text": "[a picture stood here in the talk]" }));
+            }
+        }
+        *parts = kept;
+    }
+}
+
+// The ask for a handoff summary: the talk as it stands, the prompt of the
+// reader, and the room the window gives. The pictures go out of it, the room to
+// write in is bounded, and the server is asked not to look for a call of a tool
+// in the answer.
+//
+// The bound matters. The ask carries the whole of the talk that is to be
+// summarised, so the room left for the summary is only what is over after those
+// words; left without a ceiling, the server writes on until the window is full,
+// which is the very thing the summarisation was called in to mend.
+pub fn summary_ask(history: &Value, prompt: &str, total: u64) -> Value {
+    let mut items: Vec<Value> = history.as_array().cloned().unwrap_or_default();
+    words_only(&mut items);
+    let mut said = String::from(prompt);
+    said.push_str(SUMMARY_GUARD);
+    items.push(json!({ "role": "user", "content": said }));
+    let asked = estimate_tokens(&json!(items));
+    let room = if total == 0 {
+        // Nothing is known of the window, so the ask is given the most a summary
+        // is ever given, and the server clips it to what it has.
+        GREATEST_SUMMARY_ROOM
+    } else {
+        // A tenth of the words of the ask is held back over them, for the
+        // estimate of a number of words is a guess and the server's number is
+        // often a little above it.
+        let spare = asked + asked / 10;
+        let left = total.saturating_sub(spare.min(total));
+        left.max(LEAST_SUMMARY_ROOM).min(GREATEST_SUMMARY_ROOM)
+    };
+    json!({
+        "messages": Value::Array(items),
+        "stream": true,
+        "stream_options": { "include_usage": true },
+        // And the server says on every piece how far it is with the words it was
+        // sent, so the gauge above the chat box has numbers before an answer.
+        "return_progress": true,
+        "timings_per_token": true,
+        // A server of a model whose template knows tools can read a call of a
+        // tool out of the answer whether or not the ask offered one. This asks it
+        // not to. A server that does not know the word passes it by, as it does
+        // the rest of this body.
+        "parse_tool_calls": false,
+        "max_tokens": room as i64,
+    })
+}
+
 // Ask the model for the handoff summary of the chat that is open, and write it
 // into the mark of the summarisation. After this the words before the mark are
 // not sent to the model again: the first message of the reader, the summary, and
@@ -2235,11 +2344,12 @@ fn run_handoff(
     // A server that went away is started again, as in an answer. The lock of the
     // state is not held while the model is being loaded.
     let ready = ensure_server(state, server, &model, &settings, cancel);
-    match ready {
+    let total = match ready {
         Ok(total) => {
             let Ok(mut guard) = state.lock() else { return };
             guard.busy = false;
             guard.ctx_total = total;
+            total
         }
         Err(problem) => {
             let Ok(mut guard) = state.lock() else { return };
@@ -2253,47 +2363,43 @@ fn run_handoff(
             );
             return;
         }
-    }
+    };
 
     let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
     // The talk as it stands, with the ask for the summary after it. No tool is
     // offered: a summary is words, and a model that asked for a command in the
     // middle of writing one would spend the room it was given on it.
-    let mut ask = history;
-    if let Some(items) = ask.as_array_mut() {
-        items.push(json!({ "role": "user", "content": prompt }));
-    }
+    let body = summary_ask(&history, &prompt, total);
     // The gauge above the chat box stands for this ask alone. The words under the
     // number follow the pictures the talk carries, for the server has none of them
     // and the count is read from the words that go out.
     {
         let Ok(mut guard) = state.lock() else { return };
         guard.progress = 0;
-        guard.progress_images = pending_images(&ask);
+        guard.progress_images = pending_images(&body["messages"]);
         guard.progress_on = true;
         guard.thought_start = None;
         guard.thought_end = None;
         guard.live_thought_ms = 0;
         guard.live_thought_done = false;
     }
-    let body = json!({
-        "messages": ask,
-        "stream": true,
-        "stream_options": { "include_usage": true },
-        "return_progress": true,
-        "timings_per_token": true,
-    });
     // The words of the summary go into the live text, so the reader watches the
     // summary coming in as an answer is watched. The gauge above the chat box
     // and the meter of the talk are moved by the same numbers as always.
-    let stream_state = state.clone();
-    let progress_state = state.clone();
-    let context_state = state.clone();
-    let mut text_update = Instant::now();
-    let answer = llama::stream_chat(
-        &base_url,
-        &body,
-        cancel,
+    //
+    // A long talk can trip the server over one ask and not over the next, so a
+    // fault that leaves no words at all is asked once more before the reader is
+    // told. A stop of the reader's own is never asked again.
+    let mut answer = llama::Answer::default();
+    for ask_again in 0..2 {
+        let stream_state = state.clone();
+        let progress_state = state.clone();
+        let context_state = state.clone();
+        let mut text_update = Instant::now();
+        answer = llama::stream_chat(
+            &base_url,
+            &body,
+            cancel,
         &mut |piece: &str| {
             if let Ok(mut guard) = stream_state.lock() {
                 guard.live_text.push_str(piece);
@@ -2329,8 +2435,21 @@ fn run_handoff(
         },
         // A summary is not written with a command, so the words of a call are
         // passed by.
-        &mut |_made: &[ToolCall]| {},
-    );
+            &mut |_made: &[ToolCall]| {},
+        );
+        if answer.error.is_none() || cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        if ask_again + 1 < 2 {
+            let Ok(mut guard) = state.lock() else { return };
+            // The words of the ask that faulted are wiped, so the second ask
+            // stands on its own and the reader is not shown two of them laid over
+            // one another.
+            guard.live_text = String::new();
+            guard.live_reasoning = String::new();
+            guard.set_status("the summary did not come. Asking once more");
+        }
+    }
 
     let Ok(mut guard) = state.lock() else { return };
     guard.generating = false;
@@ -2379,6 +2498,15 @@ fn run_handoff(
     let kept = answer.error.is_none() && !answer.stopped && !summary.trim().is_empty();
     if !kept {
         guard.finish_summary(&id, "", before, 0, &why);
+        // The meter goes back to what the talk of itself costs. The ask that
+        // faulted was carrying the whole of the window, and the words of the
+        // summary that never came are not kept, so the number of that ask says
+        // nothing of the chat that still stands there.
+        let made = estimate_tokens(&guard.build_history());
+        guard.ctx_used = made;
+        if let Some(chat) = guard.chat_mut() {
+            chat.meta.context_used = made;
+        }
         guard.set_status("the handoff summary was not written. Start it again on the line of the summarisations");
         guard.persist();
         return;
@@ -4565,6 +4693,104 @@ mod tests {
             .messages
             .iter()
             .any(|m| m.role == "Summary" && m.context_before == 6964));
+    }
+
+    // A model that answers the ask for a summary with a call of a tool, cut short
+    // by the room, has written nothing the next model can use. Those words are
+    // thrown away, so that the ask is made again rather than a call of a tool
+    // standing in the place of a summary.
+    #[test]
+    fn a_call_of_a_tool_is_no_summary() {
+        let cut = "Done: the page was written.\n\n<|im_start|toolcall\n{\"name\": \"web_search\", \"arguments\": {\"query\": \"Helluva Boss plot summary I.M.P assassin business Stolas romance Goet";
+        assert!(clean_summary(cut).is_empty());
+        // Words that shut their mark again are a saying of the model after all, and
+        // are kept as they were written.
+        let told = "Done: the page was written. Next: nothing.";
+        assert_eq!(clean_summary(told), told);
+    }
+
+    // The ask for a handoff summary carries the whole of the talk, so the room
+    // the summary is written in has to be what is left over. Without a ceiling the
+    // server writes until the window is full, which is the thing the summarisation
+    // was called in to mend.
+    #[test]
+    fn the_ask_for_a_summary_leaves_room_for_the_summary() {
+        let talk = json!([
+            { "role": "user", "content": "the first prompt" },
+            { "role": "assistant", "content": "an answer of some length" },
+        ]);
+        // A talk with room to spare is given the most a summary may take.
+        let ask = summary_ask(&talk, "Summarise it.", 16384);
+        assert_eq!(ask["max_tokens"], json!(GREATEST_SUMMARY_ROOM as i64));
+        // A talk that has eaten the window is given the least, and no more.
+        let huge = "x".repeat(4 * 16000);
+        let ask = summary_ask(&json!([{ "role": "user", "content": huge }]), "Summarise it.", 16384);
+        assert_eq!(ask["max_tokens"], json!(LEAST_SUMMARY_ROOM as i64));
+        // In between, the room is exactly what is left over after the words of the
+        // ask and the tenth held back for the guess the estimate is.
+        let middling = "y".repeat(4 * 13000);
+        let ask = summary_ask(
+            &json!([{ "role": "user", "content": middling }]),
+            "Summarise it.",
+            16384,
+        );
+        let asked = estimate_tokens(&ask["messages"]);
+        let room = ask["max_tokens"].as_i64().expect("a number of tokens");
+        let room = room as u64;
+        assert_eq!(room, 16384 - (asked + asked / 10));
+        assert!(room > LEAST_SUMMARY_ROOM && room < GREATEST_SUMMARY_ROOM);
+        // A server that has said nothing about its window is given the most too,
+        // rather than a room of nothing.
+        let ask = summary_ask(&talk, "Summarise it.", 0);
+        assert_eq!(ask["max_tokens"], json!(GREATEST_SUMMARY_ROOM as i64));
+    }
+
+    // A model that reads a session full of tool calls again is minded to make one,
+    // and a server that reads calls out of the answer faults when the room cuts a
+    // call short. The ask says twice that there is nothing to be called: in the
+    // words, and in the word the server reads.
+    #[test]
+    fn the_ask_for_a_summary_says_there_is_nothing_to_call() {
+        let talk = json!([{ "role": "user", "content": "the first prompt" }]);
+        let ask = summary_ask(&talk, "Write a handoff summary.", 8192);
+        let items = ask["messages"].as_array().expect("a list of the talk");
+        let last = items[items.len() - 1]["content"]
+            .as_str()
+            .expect("the words of the ask");
+        // The words of the reader stand as they wrote them, and the guard rides
+        // after them.
+        assert!(last.starts_with("Write a handoff summary."));
+        assert!(last.contains("no call of a tool is wanted"));
+        assert_eq!(ask["parse_tool_calls"], json!(false));
+        // The first message of the reader is still the first message, for the
+        // server keeps the work it did on those words.
+        assert_eq!(items[0]["content"], json!("the first prompt"));
+        assert_eq!(ask["stream"], json!(true));
+    }
+
+    // The bytes of a picture cost a great deal of room, and a handoff summary is
+    // written of the words of the session. The words the picture stood among are
+    // kept; the picture is named in words in its place.
+    #[test]
+    fn the_ask_for_a_summary_is_written_of_words_only() {
+        let talk = json!([
+            { "role": "user", "content": "the first prompt" },
+            { "role": "user", "content": [ { "type": "text", "text": "look at this" },
+                                            { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAA=" } } ] },
+        ]);
+        let ask = summary_ask(&talk, "Summarise it.", 8192);
+        let items = ask["messages"].as_array().expect("a list of the talk");
+        let parts = items[1]["content"].as_array().expect("the parts of the message");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["text"], json!("look at this"));
+        assert_eq!(parts[1]["type"], json!("text"));
+        assert!(parts[1]["text"]
+            .as_str()
+            .expect("words")
+            .contains("a picture stood here"));
+        // The ask is the shorter for it: the four thousand tokens a picture stands
+        // for are not in the words that go out.
+        assert!(estimate_tokens(&ask["messages"]) < estimate_tokens(&talk));
     }
 
     // A chat that was cut for a handoff summary and never got one does not go on

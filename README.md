@@ -47,6 +47,18 @@ line holds one node for every summarisation, the oldest at the top; a node says
 which summarisation it is and shows a little of what it says, and a click takes
 you there. The line is a switch in the same section.
 
+The ask for a summary is bounded on purpose, for it carries the whole of the talk.
+The room the summary is written in is only what is left in the window, between 512
+and 4096 tokens; the pictures of the talk are turned into words and left out, for
+a summary is written of words and a picture costs a great deal of room; the prompt
+carries a guard that says no tool is offered and none is wanted; and the body says
+not to read a call of a tool out of the answer, for a model that answers a session
+full of tool calls with a tool call of its own, cut short by the window, makes the
+server fault where the summary should have stood. An ask that comes back with a
+fault is made once more before the reader is told, and a failed ask leaves the
+meter of the talk at what the words of the chat cost of themselves, not at the
+window that ask filled.
+
 A summary that never came — the server went away, the answer was stopped, or the
 model gave no words — leaves its mark empty. The node turns the colour of a
 fault, the chat holds every word it had, and no message goes out over a talk that
