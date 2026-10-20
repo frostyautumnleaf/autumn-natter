@@ -155,8 +155,10 @@ pub struct Server {
     // Whether the server was started to keep the thinking of the turns before
     // the last answer. Nothing is kept when the template has no switch for it.
     pub preserve_thinking: Option<bool>,
-    // Whether the server was started with tool support. A tool coming or going
-    // needs a restart as well, for the server reads the chat template once.
+    // Whether the server was started with tool support. A tool coming needs a
+    // restart, for the server reads the chat template once and one started
+    // without the flag reads no tool call. A tool going needs nothing: such a
+    // server answers a chat that asks for none as plain words.
     pub tools_on: bool,
     // Notes for the user, for example a missing vision projector.
     pub notes: Vec<String>,

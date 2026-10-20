@@ -55,10 +55,39 @@ enum Job {
     ModelChanged,
     // Settings changed, so a server must not stay with the old values.
     SettingsChanged,
-    // The thinking mode changed, so the server must go with its old flags.
+    // The thinking mode or the choice of keeping the thinking moved, so the
+    // server must go with its old flags. A choice that did not move never
+    // sends this, and the model on the server stays loaded.
     ThinkingChanged,
     // Leave the process, after the model is unloaded.
     Shutdown,
+}
+
+// The flags a llama-server wears: the ones it was started with, and the ones
+// the chat in hand asks for. A running server that wears what the chat asks
+// for stands, and the model it loaded stands with it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ServerWants {
+    model_id: String,
+    thinking_mode: String,
+    preserve: Option<bool>,
+    tools: bool,
+}
+
+impl ServerWants {
+    // Whether a server started with `run` may answer a chat that asks for
+    // `wants`. The thinking mode and the choice of keeping the thinking are
+    // flags of the server itself, so a change of either sends it away. Tool
+    // support only has to cover the chat, and not match it: a server started
+    // with it answers a chat that asks for none as plain words, while a server
+    // started without it reads no tool call at all. This is what keeps the
+    // model loaded between chats, and across the tools badge going on.
+    fn covers(run: &ServerWants, wants: &ServerWants) -> bool {
+        run.model_id == wants.model_id
+            && run.thinking_mode == wants.thinking_mode
+            && run.preserve == wants.preserve
+            && (run.tools || !wants.tools)
+    }
 }
 
 // One chapter of a chat, as the window needs it. A chapter is kept in the chat
@@ -333,6 +362,50 @@ impl State {
     fn touch_structure(&mut self) {
         self.structure_rev += 1;
         self.rev += 1;
+    }
+
+    // The thinking mode of the chat in hand. With no chat open, the mode the
+    // badge holds for the next chat is used, so the badge and the flags of the
+    // server cannot drift apart.
+    fn thinking_of_open(&self) -> String {
+        self.chat()
+            .map(|c| c.meta.thinking_mode.clone())
+            .unwrap_or_else(|| self.new_thinking.clone())
+    }
+
+    // What a server has to wear for the chat in hand: the thinking mode, the
+    // choice of keeping the thinking, and whether it must be able to read tool
+    // calls. The running server is compared against these, so a chat that
+    // stands where the one before it stood asks for the same server the one
+    // before it ran on, and the model on it stays loaded.
+    fn server_wants(&self) -> ServerWants {
+        ServerWants {
+            model_id: self.current_model_id(),
+            thinking_mode: self.thinking_of_open(),
+            preserve: self.thinking.has_preserve.then(|| self.preserve_of_open()),
+            tools: self.tools_for_open(),
+        }
+    }
+
+    // The flags the running server stands on, in the same shape as the ones a
+    // chat asks for, so the two can be weighed against each other.
+    fn server_wears(running: &Server) -> ServerWants {
+        ServerWants {
+            model_id: running.model_id.clone(),
+            thinking_mode: running.thinking_mode.clone(),
+            preserve: running.preserve_thinking,
+            tools: running.tools_on,
+        }
+    }
+
+    // Whether the chat in hand wants a server that can read tool calls. Any
+    // tool is enough: the chapters and the web search are wanted even in a chat
+    // that never runs a command. With no chat open, the badges decide.
+    fn tools_for_open(&self) -> bool {
+        self.chat()
+            .map(|c| c.meta.code_enabled || c.meta.search_enabled)
+            .unwrap_or(self.new_code || self.new_search)
+            || self.cfg.chat_chapters
     }
 
     // The choice to keep the thinking of the turns before the last answer, for
@@ -678,18 +751,28 @@ impl State {
         }
         let model_id = self.current_model_id();
         let mut chat = Chat::blank(&self.scope_repo, &model_id);
-        // A blank chat keeps the sandbox choice of the chat that was at the
-        // front. With nothing at the front, the choice the badges hold for the
-        // next chat is used. The terminal tool starts off unless it was asked
-        // for while no chat was open.
+        // A new chat stands where the reader left the chat before it: the two
+        // badges, the sandbox, the thinking mode and the choice of keeping the
+        // thinking all come from the chat that was at the front. The reader
+        // goes on with the same talk on the same server, so nothing that needs
+        // the model to load again moves on the way. With nothing at the front,
+        // the choices the badges hold for the next chat stand in their place.
         match self.chats.first() {
-            Some(previous) => chat.meta.sandbox_enabled = previous.meta.sandbox_enabled,
-            None => chat.meta.sandbox_enabled = self.new_sandbox,
+            Some(previous) => {
+                chat.meta.sandbox_enabled = previous.meta.sandbox_enabled;
+                chat.meta.code_enabled = previous.meta.code_enabled;
+                chat.meta.search_enabled = previous.meta.search_enabled;
+                chat.meta.thinking_mode = previous.meta.thinking_mode.clone();
+                chat.meta.preserve_thinking = previous.meta.preserve_thinking;
+            }
+            None => {
+                chat.meta.sandbox_enabled = self.new_sandbox;
+                chat.meta.code_enabled = self.new_code;
+                chat.meta.search_enabled = self.new_search;
+                chat.meta.thinking_mode = self.new_thinking.clone();
+                chat.meta.preserve_thinking = self.new_preserve;
+            }
         }
-        chat.meta.code_enabled = self.new_code;
-        chat.meta.search_enabled = self.new_search;
-        chat.meta.thinking_mode = self.new_thinking.clone();
-        chat.meta.preserve_thinking = self.new_preserve;
         self.chats.insert(0, chat);
         self.use_blank_front();
     }
@@ -1146,10 +1229,9 @@ impl Engine {
         };
         if let Some(chat) = state.chat_mut() {
             chat.meta.code_enabled = enabled;
-        } else {
-            // No chat is open, so the choice is kept for the next one.
-            state.new_code = enabled;
         }
+        // The same choice opens the next chat too, whatever stands open now.
+        state.new_code = enabled;
         state.persist();
         state.set_status(if enabled {
             "the model may use the tools of the program"
@@ -1169,10 +1251,9 @@ impl Engine {
         };
         if let Some(chat) = state.chat_mut() {
             chat.meta.search_enabled = enabled;
-        } else {
-            // No chat is open, so the choice is kept for the next one.
-            state.new_search = enabled;
         }
+        // The same choice opens the next chat too, whatever stands open now.
+        state.new_search = enabled;
         state.persist();
         state.set_status(if enabled {
             "the model may look a thing up on the web"
@@ -1193,9 +1274,9 @@ impl Engine {
         }
         if let Some(chat) = state.chat_mut() {
             chat.meta.sandbox_enabled = enabled;
-        } else {
-            state.new_sandbox = enabled;
         }
+        // The same choice opens the next chat too, whatever stands open now.
+        state.new_sandbox = enabled;
         state.persist();
         state.set_status(if enabled {
             "tool runs are sandboxed"
@@ -1217,17 +1298,24 @@ impl Engine {
         if !state.thinking.modes().contains(&mode) {
             return;
         }
+        // The mode the chat in hand stands on, or the one the next chat would
+        // open with. A choice that did not move changes nothing, and the
+        // running server keeps its flags and its loaded model with it.
+        let changed = state.thinking_of_open() != mode;
         if let Some(chat) = state.chat_mut() {
             chat.meta.thinking_mode = mode.to_string();
-        } else {
-            state.new_thinking = mode.to_string();
         }
+        // The same choice opens the next chat too, whatever stands open now.
+        state.new_thinking = mode.to_string();
         state.persist();
         state.set_status(&format!("thinking is {}", mode));
         state.touch();
         drop(state);
-        // The flags are server level, so the running server goes with them.
-        let _ = self.jobs.send(Job::ThinkingChanged);
+        if changed {
+            // The flag is server level, so the running server goes with it. A
+            // mode the chat wore already leaves the server, and the model, be.
+            let _ = self.jobs.send(Job::ThinkingChanged);
+        }
     }
 
     // Turn the keeping of the thinking of the earlier turns on or off, for the
@@ -1262,7 +1350,8 @@ impl Engine {
         state.touch();
         drop(state);
         // The flag stands in the command line of the server, so the running
-        // server goes with it. A choice that did not move leaves the server be.
+        // server goes with it. A choice that did not move leaves the server,
+        // and the model on it, be.
         if changed {
             let _ = self.jobs.send(Job::ThinkingChanged);
         }
@@ -2436,44 +2525,24 @@ fn ensure_server(
     settings: &ModelSettings,
     cancel: &Arc<AtomicBool>,
 ) -> Result<u64, String> {
-    let (binary, gpus, tools_wanted, thinking_mode, preserve) = {
+    let (binary, gpus, wants) = {
         let Ok(state) = state.lock() else {
             return Err("the state is gone".to_string());
         };
         let binary = state
             .server_binary()
             .ok_or("llama-server was not found in the folder from the settings")?;
-        // Any tool is enough to ask the server for tool support: the chapter and
-        // the web search are wanted even in a chat that never runs a command.
-        let tools_wanted = state
-            .chat()
-            .map(|c| c.meta.code_enabled || c.meta.search_enabled)
-            .unwrap_or(false)
-            || state.cfg.chat_chapters;
-        (
-            binary,
-            state.gpus.clone(),
-            tools_wanted,
-            state
-                .chat()
-                .map(|c| c.meta.thinking_mode.clone())
-                .unwrap_or_else(|| String::from("off")),
-            state.thinking.has_preserve.then(|| state.preserve_of_open()),
-        )
+        let wants = state.server_wants();
+        (binary, state.gpus.clone(), wants)
     };
-    // A server for the same model, thinking mode, choice of keeping the
-    // thinking, and tool support is kept, so the model loads only once. Each of
-    // the three needs flags of its own, and so does a tool that came or went
-    // since the model was loaded.
+    let (thinking_mode, preserve, tools_wanted) =
+        (wants.thinking_mode.clone(), wants.preserve, wants.tools);
+    // The model loads once and stays loaded between the chats that ask the
+    // same things of the server: see `ServerWants::covers` for the whole rule.
     let reusable = server.as_mut().map(|s| s.alive()).unwrap_or(false)
         && server
             .as_ref()
-            .map(|s| {
-                s.model_id == model.id()
-                    && s.thinking_mode == thinking_mode
-                    && s.preserve_thinking == preserve
-                    && s.tools_on == tools_wanted
-            })
+            .map(|s| ServerWants::covers(&State::server_wears(s), &wants))
             .unwrap_or(false);
     if reusable {
         let total = server
@@ -2573,6 +2642,132 @@ mod tests {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
+    }
+
+    // The reader works in one chat with the tools on and a level of thinking
+    // picked, and opens a new chat directly after. The new chat stands where
+    // the one before it stood, so the server it asks for is the server that
+    // already runs, and the model on it stays loaded.
+    #[test]
+    fn a_new_chat_stands_where_the_chat_before_it_stood() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.thinking = markdown::ThinkingOptions {
+                has_thinking: true,
+                has_effort: true,
+                efforts: vec![String::from("low"), String::from("medium")],
+                has_preserve: false,
+            };
+            state.open_blank_chat();
+        }
+        engine.set_thinking("medium");
+        engine.set_code(true);
+        engine.set_search(true);
+        engine.set_sandbox(false);
+        let before = {
+            let mut state = engine.state.lock().unwrap();
+            // A word of the talk, so the chat before is a real one.
+            state.chat_mut().unwrap().messages.push(Message {
+                role: String::from("You"),
+                body: String::from("test"),
+                ..Default::default()
+            });
+            state.server_wants()
+        };
+        assert_eq!(before.thinking_mode, "medium");
+        assert!(before.tools);
+        engine.new_chat();
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the new chat stands open");
+        assert_eq!(chat.meta.thinking_mode, "medium");
+        assert!(chat.meta.code_enabled);
+        assert!(chat.meta.search_enabled);
+        assert!(!chat.meta.sandbox_enabled);
+        assert!(chat.meta.preserve_thinking);
+        // The new chat asks for the same server the chat before it ran on, so
+        // the worker keeps it and the model on it.
+        assert_eq!(state.server_wants(), before);
+    }
+
+    // A mode the chat wears already is not a change: the badge says the same
+    // thing again, and the running server keeps its flags, its model and its
+    // loaded words with it. Only a mode that moved sends the server away.
+    #[test]
+    fn a_thinking_mode_that_did_not_move_moves_nothing() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.thinking = markdown::ThinkingOptions {
+                has_thinking: true,
+                has_effort: true,
+                efforts: vec![String::from("low"), String::from("medium")],
+                has_preserve: false,
+            };
+            state.open_blank_chat();
+        }
+        engine.set_thinking("medium");
+        let state = engine.state.lock().unwrap();
+        assert_eq!(state.thinking_of_open(), "medium");
+        drop(state);
+        // The same mode again: the chat stands where it stood, and the choice
+        // for the next chat stands there too, so the new chat asks for the
+        // server that is already up.
+        engine.set_thinking("medium");
+        let state = engine.state.lock().unwrap();
+        assert_eq!(state.thinking_of_open(), "medium");
+        assert_eq!(state.new_thinking, "medium");
+    }
+
+    // The whole rule of keeping a server, without a process behind it. The two
+    // thinking flags move the server; the tool flag only has to cover the chat,
+    // so a chat with the tools off sits on a server that was started with them
+    // and pays no load for it.
+    #[test]
+    fn only_the_thinking_flags_and_a_tool_that_came_move_the_server() {
+        let running = ServerWants {
+            model_id: String::from("one"),
+            thinking_mode: String::from("medium"),
+            preserve: None,
+            tools: true,
+        };
+        let wants = ServerWants {
+            model_id: String::from("one"),
+            thinking_mode: String::from("medium"),
+            preserve: None,
+            tools: true,
+        };
+        // The chat the server was started for sits on it, of course.
+        assert!(ServerWants::covers(&running, &wants));
+        // A chat that wants none of the tools sits on this server as it is.
+        let quiet = ServerWants { tools: false, ..wants.clone() };
+        assert!(ServerWants::covers(&running, &quiet));
+        // A chat that wants tools does not sit on a server started without
+        // them, for such a server reads no tool call.
+        let bare = ServerWants { tools: false, ..running.clone() };
+        assert!(!ServerWants::covers(&bare, &wants));
+        // A chat that wants none of them does, and pays no load for it.
+        assert!(ServerWants::covers(&bare, &quiet));
+        // The two thinking flags move the server, and so does another model.
+        let other = ServerWants {
+            thinking_mode: String::from("low"),
+            ..wants.clone()
+        };
+        assert!(!ServerWants::covers(&running, &other));
+        let kept_on = ServerWants {
+            preserve: Some(true),
+            ..wants.clone()
+        };
+        assert!(!ServerWants::covers(&running, &kept_on));
+        let second = ServerWants {
+            model_id: String::from("two"),
+            ..running.clone()
+        };
+        assert!(!ServerWants::covers(&second, &wants));
     }
 
     // A chat with one message, written on disk.
