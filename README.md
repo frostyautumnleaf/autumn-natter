@@ -15,6 +15,50 @@ The program is a workspace of two crates.
 - `src-tauri` is the desktop window. Rust on the back, and an HTML page under
   `frontend/` drawn by the web view of the system.
 
+## Compaction
+
+A chat goes on for ever once the room of the talk is made again on the way. The
+Compaction section of the settings says how that is done.
+
+- `Nothing` leaves the chat alone until the room is gone.
+- `Handoff summary` (the default) asks the model, between two answers, for a
+  summary of the talk. The words before that summary are then left out of what
+  goes back to the model, and the summary rides in their place.
+
+The summarisation is set going either at a share of the room of the model (the
+default, 85 per cent) or when the room left over falls under a number of tokens
+(the default, 10240). One line in `src/config.rs` owns the rule, so the fields
+of the window and the check of the worker cannot drift apart.
+
+The first message you sent is never dropped. It stands at the front of the
+prompt as it always did, word for word, so the server keeps the work it did on
+those words and on the pictures hung on them: the summary is added after it, and
+only the summary is worked through anew. The text the model is asked to write is
+yours to change in the settings (the prompt of the program is given back when the
+field is left empty, and it is cut at 4096 characters).
+
+What the model wrote is kept in the chat as a mark of its own, so nothing of the
+talk is thrown away: the reader still sees all of it. In the talk the mark stands
+as `Summarised #N` — a hairline with the count of it in the middle, for a
+handoff summary is not a saying of the model to the reader. Hover over it and the
+card says the day and the hour it stood, the tokens the talk took before it, and
+the tokens the summary itself takes. Beside the chat, at the right, a vertical
+line holds one node for every summarisation, the oldest at the top; a node says
+which summarisation it is and shows a little of what it says, and a click takes
+you there. The line is a switch in the same section.
+
+A summary that never came — the server went away, the answer was stopped, or the
+model gave no words — leaves its mark empty. The node turns the colour of a
+fault, the chat holds every word it had, and no message goes out over a talk that
+no longer fits: the card of the mark offers `Write the summary again`, which
+starts the summary from the place the chat was cut. A summary that the room cut
+short while it was written is kept, and said so, for the room was full when it
+was asked for.
+
+The rule lives in `compaction_wanted` in `src/config.rs`, the work in
+`run_handoff` and `maybe_compact` in `src/engine.rs`, and the line and the marks
+in the two pages.
+
 ## Build
 
 The window needs the web view of the system.

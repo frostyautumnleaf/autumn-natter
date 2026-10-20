@@ -51,6 +51,18 @@ pub fn format_when(secs: i64) -> String {
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
+// Turn seconds into the day and the clock time of it, such as
+// 2026-10-20, 14:32. The heading of a summarisation is looked at days after it
+// stood, so the hour of it alone would not say which day it was.
+pub fn format_day_clock(secs: i64) -> String {
+    if secs <= 0 {
+        return String::new();
+    }
+    let days = secs.div_euclid(86400);
+    let (y, m, d) = civil_from_days(days);
+    format!("{:04}-{:02}-{:02}, {}", y, m, d, format_clock(secs))
+}
+
 // Turn seconds into a clock time such as 14:32.
 pub fn format_clock(secs: i64) -> String {
     if secs <= 0 {
@@ -237,9 +249,12 @@ pub struct Attachment {
     pub image: bool,
 }
 
-// One message. The role is "You", "Assistant", "Tool", "Note" or "Chapter".
-// A chapter is a mark the model made of where a part of the talk begins: it
-// holds its place among the messages below, and is never drawn as a message.
+// One message. The role is "You", "Assistant", "Tool", "Note", "Chapter" or
+// "Summary". A chapter is a mark the model made of where a part of the talk
+// begins: it holds its place among the messages below, and is never drawn as a
+// message. A summary is the handoff summary of a compaction: it holds its place
+// too, it is drawn as the heading of the summarisation, and it is the mark past
+// which the words of the talk are left out of what goes back to the model.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
@@ -276,6 +291,14 @@ pub struct Message {
     // Arguments of the tool call, as the model wrote them.
     #[serde(default)]
     pub tool_args: String,
+    // A message of the role "Summary" only. The room the talk took when the
+    // handoff summary was asked for, in tokens.
+    #[serde(default)]
+    pub context_before: u64,
+    // A message of the role "Summary" only. The room the handoff summary itself
+    // takes, in tokens.
+    #[serde(default)]
+    pub context_after: u64,
 }
 
 // A chat with its messages.
@@ -295,9 +318,14 @@ pub struct Chat {
 // for the soft picture of a chat at the side of the window.
 pub fn preview(messages: &[Message]) -> String {
     // A mark of a chapter is not a word of the talk, so it says nothing about
-    // what the chat is about either. The newest message that was really said is
-    // the one to show.
-    let last = match messages.iter().rev().find(|m| m.role != "Chapter") {
+    // what the chat is about either. A handoff summary is a whole standing text
+    // of its own, and its first line would fill the soft picture on its own.
+    // The newest message that was really said is the one to show.
+    let last = match messages
+        .iter()
+        .rev()
+        .find(|m| m.role != "Chapter" && m.role != "Summary")
+    {
         Some(message) => message,
         None => return String::from("Nothing written yet"),
     };
@@ -363,6 +391,16 @@ impl Chat {
             out.push('…');
         }
         out
+    }
+
+    // True when a handoff summary of this chat was asked for and never came
+    // back. The mark of the summarisation stands in the talk with nothing in
+    // it, which is what a summary the server never finished leaves behind. The
+    // reader is asked to start it again before the chat goes on.
+    pub fn handoff_owed(&self) -> bool {
+        self.messages
+            .iter()
+            .any(|m| m.role == "Summary" && m.body.trim().is_empty())
     }
 
     // The marks of every attachment the messages of this chat carry. The
@@ -591,6 +629,76 @@ mod tests {
             "thinking_mode":"off","preserve_thinking":false,"context_used":10}"#;
         let meta: ChatMeta = serde_json::from_str(dropped).expect("the chat is read");
         assert!(!meta.preserve_thinking);
+    }
+
+    // A message written before a handoff summary was kept reads with the two
+    // numbers of the room at nought, and the marks of the summarisations are
+    // never the soft picture of a chat.
+    #[test]
+    fn an_older_message_keeps_nothing_of_the_summarisation() {
+        let older = r#"{"id":"a","role":"Assistant","body":"the words of the answer"}"#;
+        let message: Message = serde_json::from_str(older).expect("an older message reads");
+        assert_eq!(message.context_before, 0);
+        assert_eq!(message.context_after, 0);
+        // A handoff summary holds the two numbers of the room, and is written
+        // and read back whole.
+        let summary = Message {
+            id: "s1".to_string(),
+            role: "Summary".to_string(),
+            body: "the handoff summary of the talk".to_string(),
+            context_before: 6964,
+            context_after: 412,
+            ..Default::default()
+        };
+        let chat = Chat {
+            meta: ChatMeta {
+                id: "c1".to_string(),
+                ..Default::default()
+            },
+            messages: vec![
+                Message {
+                    id: "m1".to_string(),
+                    role: "You".to_string(),
+                    body: "the first prompt".to_string(),
+                    ..Default::default()
+                },
+                summary,
+            ],
+            transient: false,
+        };
+        let text = serde_json::to_string(&chat).expect("the chat is written");
+        let back: Chat = serde_json::from_str(&text).expect("the chat is read");
+        assert_eq!(back.messages[1].context_before, 6964);
+        assert_eq!(back.messages[1].context_after, 412);
+        // The soft picture of the chat is the first prompt, and never the first
+        // line of a handoff summary.
+        assert_eq!(preview(&back.messages), "the first prompt");
+    }
+
+    // A handoff summary that was asked for and never came back leaves the chat
+    // waiting, and a chat with the summary in it is not waiting.
+    #[test]
+    fn a_chat_waits_while_its_handoff_summary_is_missing() {
+        let mark = |body: &str| Message {
+            id: "s1".to_string(),
+            role: "Summary".to_string(),
+            body: body.to_string(),
+            ..Default::default()
+        };
+        let waiting = Chat {
+            meta: ChatMeta {
+                id: "c1".to_string(),
+                ..Default::default()
+            },
+            messages: vec![mark("")],
+            transient: false,
+        };
+        assert!(waiting.handoff_owed());
+        let written = Chat {
+            messages: vec![mark("the handoff summary of the talk")],
+            ..waiting
+        };
+        assert!(!written.handoff_owed());
     }
 
     // A chat written before the switch of the web search existed reads with the

@@ -23,6 +23,49 @@ fn on_by_default() -> bool {
     true
 }
 
+// ------------------------------------------------------------ compaction
+//
+// A chat goes on for ever once the room of the talk is made again on the way.
+// The compaction says how that is done: either nothing at all, or a handoff
+// summary. The summary is written by the model itself when the talk nears the
+// end of its room, and the words before it are then left out of what goes back
+// to the model. Only the first message of the reader and the newest summary go
+// on, beside the words that came after the summary.
+
+// No compaction. The chat is sent whole until the room is gone.
+pub const COMPACTION_OFF: &str = "off";
+// The handoff summary. This is what a new set of settings stands on.
+pub const COMPACTION_HANDOFF: &str = "handoff";
+
+// The summarisation is set going by a share of the room of the talk.
+pub const COMPACT_BY_PERCENT: &str = "percent";
+// The summarisation is set going by the least room that must be left over.
+pub const COMPACT_BY_TOKENS: &str = "tokens";
+
+// The most characters the handoff prompt may hold. The prompt is sent with the
+// whole of the talk, so a prompt of a novel would cost room of its own.
+pub const GREATEST_HANDOFF_PROMPT: usize = 4096;
+
+// The prompt that is given to the model when it is asked for the handoff
+// summary. The reader may write another one in the settings.
+pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a very detailed but concise handoff summary for AI consumption (no styling) that can be given to an AI to continue working from the current state of the session. Include full context of the session. You must include what has been done so far and what needs to be done. The AI will only receive the first initial prompt that the user sent, along with this handoff summary. If applicable, include a list of file paths that are relevant to the session / tasks / project with a short explanation of what each file is used for.";
+
+// The share of the room of the talk at which the handoff summary is asked for.
+fn default_compact_percent() -> u32 {
+    85
+}
+
+// The least room that must be left over, in tokens. This is the number the
+// second way of setting the summarisation going works from.
+fn default_compact_reserve() -> u32 {
+    10240
+}
+
+// The handoff prompt of a new set of settings.
+fn default_handoff_prompt() -> String {
+    String::from(DEFAULT_HANDOFF_PROMPT)
+}
+
 // The room for steps of one answer, as the engine wants it. The setting is -1
 // for no limit, so the answer is None. A number below -1 is read as no limit
 // too, for a ceiling of minus five means nothing. The engine crate keeps this
@@ -189,6 +232,109 @@ pub struct Config {
     // paste of a word or two always stays a paste.
     #[serde(default = "default_pasted_text_char_limit")]
     pub pasted_text_char_limit: u32,
+    // Compaction. Either "off", which leaves the chat alone until the room is
+    // gone, or "handoff", which asks the model for a handoff summary before
+    // the room is gone. A new set of settings stands on the handoff summary.
+    #[serde(default = "default_compaction")]
+    pub chat_compaction: String,
+    // Which way the summarisation is set going: "percent" for a share of the
+    // room of the talk, "tokens" for the least room that must be left over.
+    #[serde(default = "default_compact_by")]
+    pub chat_compact_by: String,
+    // The share of the room of the talk at which the summary is asked for.
+    #[serde(default = "default_compact_percent")]
+    pub chat_compact_percent: u32,
+    // The least room that must be left over, in tokens. When the room left is
+    // this small or smaller, the summary is asked for.
+    #[serde(default = "default_compact_reserve")]
+    pub chat_compact_reserve: u32,
+    // The prompt that is sent to the model when it is asked for the handoff
+    // summary. No longer than GREATEST_HANDOFF_PROMPT characters.
+    #[serde(default = "default_handoff_prompt")]
+    pub chat_compact_prompt: String,
+    // The vertical timeline of the summarisations, at the right of the chat.
+    #[serde(default = "on_by_default")]
+    pub chat_timeline: bool,
+}
+
+// The compaction of a new set of settings.
+fn default_compaction() -> String {
+    String::from(COMPACTION_HANDOFF)
+}
+
+// Which way a new set of settings sets the summarisation going.
+fn default_compact_by() -> String {
+    String::from(COMPACT_BY_PERCENT)
+}
+
+// The compaction of a word the window sent. A word that is neither of the two
+// gives the handoff summary, which is what a new set of settings stands on.
+pub fn sanitize_compaction(value: &str) -> String {
+    match value.trim() {
+        COMPACTION_OFF => String::from(COMPACTION_OFF),
+        _ => String::from(COMPACTION_HANDOFF),
+    }
+}
+
+// The way of setting the summarisation going. A word that is neither of the
+// two gives the share of the room, which is what a new set of settings stands
+// on.
+pub fn sanitize_compact_by(value: &str) -> String {
+    match value.trim() {
+        COMPACT_BY_TOKENS => String::from(COMPACT_BY_TOKENS),
+        _ => String::from(COMPACT_BY_PERCENT),
+    }
+}
+
+// The share of the room of the talk. One per cent is the least, so a setting
+// of nought does not ask for a summary on every message; a hundred per cent
+// asks for one when the room is full.
+pub fn sanitize_compact_percent(value: i64) -> u32 {
+    value.clamp(1, 100) as u32
+}
+
+// The least room that must be left over. One token is the least, and a number
+// over a million is a mistake rather than a setting.
+pub fn sanitize_compact_reserve(value: i64) -> u32 {
+    value.clamp(1, 1_000_000) as u32
+}
+
+// The handoff prompt, kept inside the ceiling of its length. A field left
+// empty gives the prompt of the program again, for a chat without a prompt
+// would ask the model for nothing at all.
+pub fn sanitize_handoff_prompt(value: &str) -> String {
+    let text = value.trim();
+    if text.is_empty() {
+        return String::from(DEFAULT_HANDOFF_PROMPT);
+    }
+    if text.chars().count() <= GREATEST_HANDOFF_PROMPT {
+        return text.to_string();
+    }
+    text.chars().take(GREATEST_HANDOFF_PROMPT).collect()
+}
+
+// Whether the talk of a chat has reached the point the settings set for the
+// handoff summary. `used` is the room the talk takes and `total` the room the
+// server gives. The rule stands here and nowhere else, so the field of the
+// window and the check of the worker cannot drift apart.
+pub fn compaction_wanted(cfg: &Config, used: u64, total: u64) -> bool {
+    if sanitize_compaction(&cfg.chat_compaction) != COMPACTION_HANDOFF {
+        return false;
+    }
+    // Nothing is known of the room, so nothing can be said about running out.
+    if total == 0 {
+        return false;
+    }
+    // A talk that stands over the room is past any threshold there can be.
+    if used >= total {
+        return true;
+    }
+    if sanitize_compact_by(&cfg.chat_compact_by) == COMPACT_BY_TOKENS {
+        let reserve = cfg.chat_compact_reserve.max(1) as u64;
+        return total - used <= reserve;
+    }
+    let percent = cfg.chat_compact_percent.clamp(1, 100) as u64;
+    used * 100 >= total * percent
 }
 
 // The least a paste limit may be set to. Smaller numbers are lifted to it.
@@ -232,6 +378,14 @@ impl Default for Config {
             chat_max_tool_steps: -1,
             chat_max_answer_steps: -1,
             pasted_text_char_limit: default_pasted_text_char_limit(),
+            // The handoff summary stands between the first message of the
+            // reader and the end of the room, so a chat can go on for ever.
+            chat_compaction: default_compaction(),
+            chat_compact_by: default_compact_by(),
+            chat_compact_percent: default_compact_percent(),
+            chat_compact_reserve: default_compact_reserve(),
+            chat_compact_prompt: default_handoff_prompt(),
+            chat_timeline: true,
         }
     }
 }
@@ -448,6 +602,108 @@ mod tests {
         assert_eq!(sanitize_pasted_text_limit(9), 100);
         assert_eq!(sanitize_pasted_text_limit(5000), 5000);
         assert_eq!(sanitize_pasted_text_limit(2_000_000), 1_000_000);
+    }
+
+    // The Compaction section of the settings. A new set of settings asks for
+    // the handoff summary, by the share of the room, at 85 per cent, with the
+    // prompt of the program in the text box, and with the timeline of the
+    // summarisations standing beside the chat.
+    #[test]
+    fn the_handoff_summary_is_the_default_compaction() {
+        let cfg = Config::default();
+        assert_eq!(cfg.chat_compaction, COMPACTION_HANDOFF);
+        assert_eq!(cfg.chat_compact_by, COMPACT_BY_PERCENT);
+        assert_eq!(cfg.chat_compact_percent, 85);
+        assert_eq!(cfg.chat_compact_reserve, 10240);
+        assert!(cfg.chat_timeline);
+        assert_eq!(cfg.chat_compact_prompt, DEFAULT_HANDOFF_PROMPT);
+        // The prompt of the program is a text a model can be sent, and it is
+        // short enough to fit the ceiling of the field.
+        assert!(cfg.chat_compact_prompt.starts_with("Write a very detailed"));
+        assert!(cfg.chat_compact_prompt.chars().count() <= GREATEST_HANDOFF_PROMPT);
+    }
+
+    // A settings file written before the Compaction section existed still reads,
+    // and it reads with the handoff summary asked for rather than with nothing.
+    #[test]
+    fn an_old_settings_file_asks_for_the_handoff_summary() {
+        let old = "{\"llama_dir\":\"\",\"models_dir\":\"\",\"repositories_dir\":\"\",\
+                   \"dark_mode\":false,\"remote_port\":8723,\"upnp_enabled\":false,\
+                   \"model_id\":\"\",\"model_settings\":{}}";
+        let read: Config = serde_json::from_str(old).expect("an old settings file reads");
+        assert_eq!(read.chat_compaction, COMPACTION_HANDOFF);
+        assert_eq!(read.chat_compact_by, COMPACT_BY_PERCENT);
+        assert_eq!(read.chat_compact_percent, 85);
+        assert_eq!(read.chat_compact_reserve, 10240);
+        assert_eq!(read.chat_compact_prompt, DEFAULT_HANDOFF_PROMPT);
+        assert!(read.chat_timeline);
+    }
+
+    // The fields of the Compaction section are kept inside their bounds. A word
+    // that is neither of the two compactions gives the handoff summary, and a
+    // prompt left empty gives the prompt of the program again.
+    #[test]
+    fn the_compaction_fields_are_kept_inside_their_bounds() {
+        assert_eq!(sanitize_compaction("off"), COMPACTION_OFF);
+        assert_eq!(sanitize_compaction("handoff"), COMPACTION_HANDOFF);
+        assert_eq!(sanitize_compaction("a word of the reader"), COMPACTION_HANDOFF);
+        assert_eq!(sanitize_compact_by("tokens"), COMPACT_BY_TOKENS);
+        assert_eq!(sanitize_compact_by("percent"), COMPACT_BY_PERCENT);
+        assert_eq!(sanitize_compact_by(""), COMPACT_BY_PERCENT);
+        assert_eq!(sanitize_compact_percent(0), 1);
+        assert_eq!(sanitize_compact_percent(72), 72);
+        assert_eq!(sanitize_compact_percent(400), 100);
+        assert_eq!(sanitize_compact_reserve(0), 1);
+        assert_eq!(sanitize_compact_reserve(10240), 10240);
+        assert_eq!(sanitize_compact_reserve(9_000_000), 1_000_000);
+        // The prompt of the reader is kept, and a long one is cut at the ceiling
+        // rather than refused.
+        assert_eq!(sanitize_handoff_prompt("say something short"), "say something short");
+        let long = "x".repeat(GREATEST_HANDOFF_PROMPT + 500);
+        assert_eq!(
+            sanitize_handoff_prompt(&long).chars().count(),
+            GREATEST_HANDOFF_PROMPT
+        );
+        assert_eq!(sanitize_handoff_prompt("   "), DEFAULT_HANDOFF_PROMPT);
+    }
+
+    // The rule that sets the summarisation going. The share of the room works
+    // from the talk in hand, the room left works from what is over, and a talk
+    // past the room is past either threshold.
+    #[test]
+    fn the_summarisation_starts_at_the_share_asked_for_or_at_the_room_left() {
+        let by_percent = Config {
+            chat_compact_by: String::from(COMPACT_BY_PERCENT),
+            chat_compact_percent: 85,
+            ..Config::default()
+        };
+        assert!(!compaction_wanted(&by_percent, 4096, 8192));
+        assert!(!compaction_wanted(&by_percent, 6962, 8192));
+        assert!(compaction_wanted(&by_percent, 6964, 8192));
+        assert!(compaction_wanted(&by_percent, 8192, 8192));
+        assert!(compaction_wanted(&by_percent, 9000, 8192));
+        // Nothing is known of the room, so nothing is said about running out.
+        assert!(!compaction_wanted(&by_percent, 4000, 0));
+
+        let by_tokens = Config {
+            chat_compact_by: String::from(COMPACT_BY_TOKENS),
+            chat_compact_reserve: 10240,
+            ..Config::default()
+        };
+        // A room of 32 768 with 10 000 left over is past the least left over.
+        assert!(compaction_wanted(&by_tokens, 22768, 32768));
+        // With 12 000 left over there is still room for the next answer.
+        assert!(!compaction_wanted(&by_tokens, 20768, 32768));
+        // The number of the share does not matter on this road.
+        assert!(compaction_wanted(&by_tokens, 7000, 8192));
+
+        // No compaction at all, whatever the talk.
+        let off = Config {
+            chat_compaction: String::from(COMPACTION_OFF),
+            ..Config::default()
+        };
+        assert!(!compaction_wanted(&off, 9000, 8192));
+        assert!(!compaction_wanted(&off, 8192, 8192));
     }
 }
 

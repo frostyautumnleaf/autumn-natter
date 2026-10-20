@@ -18,6 +18,12 @@
 //   AN_CLICK='#think' node page-shot.js chat p.png
 //   AN_CHAPTERS=12 node page-shot.js rich p.png   # that many marks on the line
 //   AN_NOCHAPTERS=1 node page-shot.js rich p.png  # the Chatting switch turned off
+//   AN_SUMMARIES=6 node page-shot.js rich p.png   # that many handoff summaries
+//   AN_NOTIMELINE=1 node page-shot.js rich p.png  # the line turned off
+//   AN_BROKEN=1 node page-shot.js rich p.png      # the newest one never written
+//   AN_FIELD=fCompactPrompt node page-shot.js sheet-program p.png
+//     brings another field of the sheet into the picture
+//   AN_SUMMARIES, AN_NOTIMELINE and AN_BROKEN stand for the Compaction section.
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
 //
 // The scenes: home, chat, rich, markdown, streaming, streaming-code, writing,
@@ -57,6 +63,38 @@ function aPicture(where) {
 
 const ATT_PIC = aPicture(process.env.AN_PICFILE);
 const ATT_TALL = aPicture(process.env.AN_PICFILE2 || process.env.AN_PICFILE);
+
+// The handoff summaries of a talk. `count` of them are spread over the messages,
+// each with the two numbers of the room, the day it stood, and a little of what
+// it says: the head in the talk, the card over it, and the node on the line at
+// the right are all made of these.
+function addSummaries(state, count) {
+  var messages = state.messages.slice();
+  var handoffs = [];
+  for (var n = 0; n < count; n++) {
+    var at = messages.length ? Math.floor((n + 1) * messages.length / (count + 1)) : 0;
+    var id = 200 + n;
+    var before = 6964 + n * 438;
+    var after = 412 - n * 7;
+    var when = '2026-10-' + (12 + n) + ', 0' + (n % 6) + ':' + (10 + n);
+    var said2 = 'Done: part ' + (n + 1) + ' of the talk was finished, and the tests '
+      + 'of it stood up. Next: the part that comes after it, and the height of the '
+      + 'bar beside a heading. Files: src/markdown.rs holds the parser, and '
+      + 'frontend/index.html holds the page of the window.';
+    messages.splice(at, 0, {
+      id: id, role: 'Summary', body: said2, reasoning: '', reasoning_ms: 0,
+      tool: '', mono: false, failed: false, when: '09:4' + (n % 10),
+      when_full: when, context_before: before, context_after: after,
+      attachments: []
+    });
+    handoffs.push({
+      id: id, number: n + 1, state: 'done', when: when, before: before, after: after,
+      snippet: said2.slice(0, 160) + '…', why: ''
+    });
+  }
+  state.messages = messages;
+  state.handoffs = handoffs;
+}
 
 // One message of the talk.
 function said(id, role, body, extra) {
@@ -256,6 +294,14 @@ function scene(name, dark) {
     // chat box stands on these three.
     progress: { percent: 0, active: false, what: 'text' },
     chapters: [],
+    // The summarisations of the chat, and the Compaction section of the settings.
+    handoffs: [],
+    compaction: {
+      type: 'handoff', by: 'percent', percent: 85, reserve: 10240, timeline: true,
+      prompt: 'Write a very detailed but concise handoff summary for AI consumption '
+        + '(no styling) that can be given to an AI to continue working from the '
+        + 'current state of the session.'
+    },
     thinking: {
       mode: 'off', available: true,
       modes: ['off', 'low', 'medium', 'high', 'xhigh'],
@@ -284,6 +330,33 @@ function scene(name, dark) {
          { id: 'ch2', name: 'Running the tests', after: 3 },
          { id: 'ch3', name: 'The bar beside a list', after: 4 }]
       : [];
+    // The handoff summaries the model wrote when the talk came near the end of
+    // its room. They stand among the words as the head of the summarisation, and
+    // on the line at the right of the chat.
+    if (name === 'rich') {
+      addSummaries(start, 2);
+    }
+    // AN_SUMMARIES=N puts that many summarisations in the talk, so the line can
+    // be looked at when a chat has been summarised many times. AN_NOTIMELINE=1
+    // turns the switch of the Compaction section off, and AN_BROKEN=1 leaves the
+    // newest summarisation with no words, which is what a server that went away
+    // in the middle of a summary leaves behind.
+    if (process.env.AN_SUMMARIES !== undefined) {
+      addSummaries(start, Number(process.env.AN_SUMMARIES) || 0);
+    }
+    if (process.env.AN_NOTIMELINE === '1') { start.compaction.timeline = false; }
+    if (process.env.AN_BROKEN === '1' && start.handoffs.length) {
+      var lastCut = start.handoffs[start.handoffs.length - 1];
+      lastCut.state = 'owed';
+      lastCut.snippet = '';
+      lastCut.why = 'the server went away while the summary was written. Start it again';
+      for (var k = 0; k < start.messages.length; k++) {
+        if (start.messages[k].id === lastCut.id) {
+          start.messages[k].body = '';
+          start.messages[k].tool = lastCut.why;
+        }
+      }
+    }
     // AN_CHAPTERS=N puts that many marks on the line, spread over the talk, so
     // the line can be looked at when a chat has more chapters than room. Zero
     // means no chapter at all. AN_NOCHAPTERS=1 leaves the marks in the chat but
@@ -497,7 +570,22 @@ const CONFIG = {
   chat_max_tool_steps: -1,
   chat_max_answer_steps: -1,
   // A paste of many words becomes a file at six thousand characters.
-  pasted_text_char_limit: 6000
+  pasted_text_char_limit: 6000,
+  // Compaction: the handoff summary, at a share of the room, with the line of
+  // the summarisations standing at the right of the chat.
+  chat_compaction: 'handoff',
+  chat_compact_by: 'percent',
+  chat_compact_percent: 85,
+  chat_compact_reserve: 10240,
+  chat_compact_prompt: 'Write a very detailed but concise handoff summary for AI '
+    + 'consumption (no styling) that can be given to an AI to continue working from '
+    + 'the current state of the session. Include full context of the session. You '
+    + 'must include what has been done so far and what needs to be done. The AI will '
+    + 'only receive the first initial prompt that the user sent, along with this '
+    + 'handoff summary. If applicable, include a list of file paths that are '
+    + 'relevant to the session / tasks / project with a short explanation of what '
+    + 'each file is used for.',
+  chat_timeline: true
 };
 
 const MODEL = {
@@ -697,12 +785,14 @@ async function main() {
       if (b) { b.click(); }
     });
     await new Promise(function (r) { setTimeout(r, 600); });
-    // The sheet is taller than the window, so bring the last field of the
-    // Chatting section into the picture.
-    await view.evaluate(function () {
-      var f = document.getElementById('fPasteLimit');
+    // The sheet is taller than the window, so bring a field of it into the
+    // picture: the last field of the Chatting section, or the field named by
+    // AN_FIELD, which is how the Compaction section is looked at.
+    var field = process.env.AN_FIELD || 'fPasteLimit';
+    await view.evaluate(function (which) {
+      var f = document.getElementById(which);
       if (f) { f.scrollIntoView({ block: 'center' }); }
-    });
+    }, field);
     await new Promise(function (r) { setTimeout(r, 300); });
   }
   if (name === 'sheet-model') {
