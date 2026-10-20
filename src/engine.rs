@@ -909,6 +909,39 @@ impl State {
         };
     }
 
+    // Stand the thinking on a mode the model in hand offers. A model with
+    // levels and a model with a switch do not offer the same words, so the
+    // mode of a chat may mean nothing to the model that comes after it. A
+    // mode the new model does not offer is put at "off", which every model
+    // stands for: the badge then shows what the server will really be given,
+    // and no word the template cannot read reaches its flags.
+    fn normalize_thinking(&mut self) {
+        let modes = self.thinking.modes();
+        if modes.is_empty() {
+            // A model with nothing to offer stands with the thinking off, and
+            // sends no flag of it either way.
+            self.set_thinking_everywhere("off");
+            return;
+        }
+        if let Some(chat) = self.chat_mut() {
+            if !modes.contains(&chat.meta.thinking_mode.as_str()) {
+                chat.meta.thinking_mode = String::from("off");
+            }
+        }
+        if !modes.contains(&self.new_thinking.as_str()) {
+            self.new_thinking = String::from("off");
+        }
+    }
+
+    // Put one mode on the chat in hand and on the next chat alike. A model
+    // with no thinking at all takes both to "off".
+    fn set_thinking_everywhere(&mut self, mode: &str) {
+        if let Some(chat) = self.chat_mut() {
+            chat.meta.thinking_mode = String::from(mode);
+        }
+        self.new_thinking = String::from(mode);
+    }
+
     // Directory a tool run starts in. A repository chat works inside its
     // repository, and a loose chat gets its own folder.
     fn workdir_for(&self, chat: &Chat) -> PathBuf {
@@ -1558,6 +1591,14 @@ impl Engine {
             state.persist();
         }
         let _ = config::save(&state.cfg);
+        // The new model reads its own template, so the thinking may stand on
+        // a word the new model has never heard of: a level gives place to the
+        // switch, and the switch to a level. The badge is moved to a mode the
+        // new model offers before the worker has even seen this call, so the
+        // reader never sees a mark against a mode that is not there.
+        state.refresh_thinking();
+        state.normalize_thinking();
+        state.persist();
         state.touch_structure();
         let _ = self.jobs.send(Job::ModelChanged);
     }
@@ -1712,6 +1753,10 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                 if let Ok(mut state) = state.lock() {
                     state.ctx_total = 0;
                     state.refresh_thinking();
+                    // The modes of the new model are known by now, so a mode
+                    // the chat wore that the model cannot read is put at "off"
+                    // before the next answer asks for the flags of the server.
+                    state.normalize_thinking();
                     let name = state
                         .model()
                         .map(|m| m.name)
@@ -2975,6 +3020,70 @@ mod tests {
         }
         engine.set_thinking("off");
         assert_eq!(engine.snapshot().thinking_mode, "high");
+    }
+
+    // A model with levels and a model with a switch do not offer the same
+    // words. Switching from one to the other moves the thinking to a mode the
+    // new model offers, so the badge never stands on a word the new template
+    // cannot read, and the flags of the server agree with the badge.
+    #[test]
+    fn a_thinking_mode_the_new_model_lacks_gives_place_to_off() {
+        let _guard = config::test_turn();
+        setup();
+        let levels = String::from(
+            "{% if reasoning_effort == 'low' %}low{% elif reasoning_effort == 'medium' %}medium{% elif reasoning_effort == 'high' %}high{% endif %}",
+        );
+        let switch_on = String::from("{% if enable_thinking %}think{% endif %}");
+        let mut settings = std::collections::BTreeMap::new();
+        settings.insert(
+            String::from("model-a"),
+            ModelSettings {
+                chat_template: levels,
+                ..Default::default()
+            },
+        );
+        settings.insert(
+            String::from("model-b"),
+            ModelSettings {
+                chat_template: switch_on,
+                ..Default::default()
+            },
+        );
+        let cfg = Config {
+            model_id: String::from("model-a"),
+            model_settings: settings,
+            ..Config::default()
+        };
+        let engine = Engine::start(cfg);
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.refresh_thinking();
+            state.open_blank_chat();
+        }
+        // Model A offers the levels, and the reader stands on medium.
+        assert!(engine
+            .snapshot()
+            .thinking_modes
+            .contains(&String::from("medium")));
+        engine.set_thinking("medium");
+        assert_eq!(engine.snapshot().thinking_mode, "medium");
+        // Model B knows no levels. The badge moves to off, the chat moves with
+        // it, and the server is asked for what the badge shows.
+        engine.select_model(String::from("model-b"));
+        let snap = engine.snapshot();
+        assert_eq!(snap.thinking_mode, "off");
+        assert!(!snap.thinking_modes.contains(&String::from("medium")));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat stands open");
+        assert_eq!(chat.meta.thinking_mode, "off");
+        assert_eq!(state.server_wants().thinking_mode, "off");
+        drop(state);
+        // Back to the levels: off is a mode both models offer, so it stands,
+        // and nothing moves on its own.
+        engine.select_model(String::from("model-a"));
+        assert_eq!(engine.snapshot().thinking_mode, "off");
+        engine.set_thinking("medium");
+        assert_eq!(engine.snapshot().thinking_mode, "medium");
     }
 
     // The choice to keep the thinking of the turns before the last answer
