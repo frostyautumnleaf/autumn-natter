@@ -691,6 +691,9 @@ pub struct State {
     // two together are the length of it.
     thought_start: Option<Instant>,
     thought_end: Option<Instant>,
+    // The moment the meter of the context last moved. The meter is paced, so it
+    // does not write a new number on every piece of the answer.
+    ctx_at: Option<Instant>,
     pub generating: bool,
     // True while the program is writing a handoff summary. The words of a
     // summary are never shown, so the window draws no live answer while this
@@ -1663,6 +1666,9 @@ impl Engine {
             live_tools: Vec::new(),
             thought_start: None,
             thought_end: None,
+            // The meter of the context moves at most twice a second, so the
+            // moment it last moved stands here.
+            ctx_at: None,
             generating: false,
             summarising: false,
             busy: false,
@@ -2596,7 +2602,7 @@ fn ask_summary(
         },
         &mut |made: llama::Context| {
             if let Ok(mut guard) = context_state.lock() {
-                if climb_context(&mut guard, made.used()) {
+                if climb_context_paced(&mut guard, made.used(), Instant::now()) {
                     guard.touch();
                 }
             }
@@ -2974,6 +2980,33 @@ fn climb_context(state: &mut State, made: u64) -> bool {
     true
 }
 
+// How often the meter of the context may move while an answer comes in. The
+// server speaks of the talk on every piece of it, which is a great deal oftener
+// than a reader can read a number, and a number written again and again reads as
+// a shake rather than as a fill. Half a second shows the talk filling often
+// enough, and the number the server gives at the end of the answer stands
+// whatever the pace, so nothing of it is lost.
+const LEAST_CONTEXT_STEP: Duration = Duration::from_millis(500);
+
+// The same rule as the climb above, for the pieces that come in during an
+// answer: the number is put in only when the half second of the meter is over.
+// `now` is the moment of the piece, so the rule can be tried without waiting for
+// the half second. A number that is turned away is not kept back either: the
+// next piece that comes after the half second brings the talk up to date at once.
+fn climb_context_paced(state: &mut State, made: u64, now: Instant) -> bool {
+    if made == 0 || made <= state.ctx_used {
+        return false;
+    }
+    if let Some(begun) = state.ctx_at {
+        if now.duration_since(begun) < LEAST_CONTEXT_STEP {
+            return false;
+        }
+    }
+    state.ctx_at = Some(now);
+    state.ctx_used = made;
+    true
+}
+
 // How many pictures the message that is being worked through carries. That is
 // the last thing that goes out with the request. The program sends words today,
 // so the answer is nothing. The count is taken from the words that go out, and
@@ -3150,6 +3183,9 @@ fn run_turn(
         state.live_text = String::new();
         state.live_reasoning = String::new();
         state.live_tools = Vec::new();
+        // The meter of the context is paced, and the pace begins anew with this
+        // answer, so the first number of a new answer is stood on at once.
+        state.ctx_at = None;
         state.set_status("the model is getting ready");
         let settings = state.settings_for(&model);
         (model, settings, workdir, sandbox_on)
@@ -3332,7 +3368,7 @@ fn run_turn(
                 // only when it grew, so a piece that says nothing new costs the
                 // window nothing.
                 if let Ok(mut guard) = context_state.lock() {
-                    if climb_context(&mut guard, made.used()) {
+                    if climb_context_paced(&mut guard, made.used(), Instant::now()) {
                         guard.touch();
                     }
                     // The limit of the summarisation is looked at here, with the
@@ -5039,6 +5075,37 @@ mod tests {
         // The window draws the number of the meter from the snapshot, so the
         // number of the live answer reaches the top bar.
         assert_eq!(engine.snapshot().context_used, 900);
+    }
+
+    // The meter of the context moves at most twice a second. The server speaks
+    // of the talk on every piece of the answer, which is a great deal oftener
+    // than the reader can read a number. A number that is turned away is not
+    // lost: the next piece after the half second brings the talk up to date, and
+    // a number that goes back is turned away at any moment.
+    #[test]
+    fn the_meter_of_the_context_moves_every_half_second() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.new_chat();
+        let begun = Instant::now();
+        let mut state = engine.state.lock().unwrap();
+        state.ctx_used = 0;
+        state.ctx_at = None;
+        // The first number of the answer is put in at once.
+        assert!(climb_context_paced(&mut state, 100, begun));
+        assert_eq!(state.ctx_used, 100);
+        // Within the half second the meter stands where it stood.
+        assert!(!climb_context_paced(&mut state, 120, begun + Duration::from_millis(120)));
+        assert!(!climb_context_paced(&mut state, 138, begun + Duration::from_millis(499)));
+        assert_eq!(state.ctx_used, 100);
+        // Past the half second the newest number is stood on, and the pieces
+        // that were turned away are not asked for again.
+        assert!(climb_context_paced(&mut state, 140, begun + Duration::from_millis(501)));
+        assert_eq!(state.ctx_used, 140);
+        // A number that goes back never moves the meter, pace or no pace.
+        assert!(!climb_context_paced(&mut state, 90, begun + Duration::from_secs(5)));
+        assert_eq!(state.ctx_used, 140);
     }
 
     // ------------------------------------------------------------ compaction
