@@ -191,10 +191,18 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "percent": snap.chat_compact_percent,
             "reserve": snap.chat_compact_reserve,
             "prompt": snap.chat_compact_prompt,
+            // The prompt of the second ask, the one that leans towards a short
+            // summary when the first ran to the end of the room.
+            "prompt_short": snap.chat_compact_prompt_short,
             "timeline": snap.chat_timeline,
         },
         // Text the model wrote since the last message was stored.
         "live": snap.live_text,
+        // True while the program is writing a handoff summary. The words of a
+        // summary are never shown, so the page draws no live answer while this
+        // stands: the heading of the summarisation and the status line say that
+        // the program is at work.
+        "summarising": snap.summarising,
         // The calls the model is writing at this moment, in the order it writes
         // them. The window shows them as blocks of a command being written, so
         // the reader sees the words of it and does not wait for the run.

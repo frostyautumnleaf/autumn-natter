@@ -21,9 +21,12 @@
 //   AN_SUMMARIES=6 node page-shot.js rich p.png   # that many handoff summaries
 //   AN_NOTIMELINE=1 node page-shot.js rich p.png  # the line turned off
 //   AN_BROKEN=1 node page-shot.js rich p.png      # the newest one never written
+//   AN_SUMMARISING=1 node page-shot.js rich p.png # a summary being written,
+//     which is written out of sight: no live answer stands in the chat
 //   AN_FIELD=fCompactPrompt node page-shot.js sheet-program p.png
 //     brings another field of the sheet into the picture
-//   AN_SUMMARIES, AN_NOTIMELINE and AN_BROKEN stand for the Compaction section.
+//   AN_SUMMARIES, AN_NOTIMELINE, AN_BROKEN and AN_SUMMARISING stand for the
+//   Compaction section.
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
 //
 // The scenes: home, chat, rich, markdown, streaming, streaming-code, writing,
@@ -287,6 +290,9 @@ function scene(name, dark) {
     chats: [], home: true, greeting: 'Still here, still ready.', overview: false,
     carousel: { index: 0, count: 0, blank: true },
     messages: [], live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
+    // True while the program is writing a handoff summary. The words of one are
+    // never shown, so the page draws no live answer while it stands.
+    summarising: false,
     // The calls of a tool the model is writing right now. A block of a command
     // being written is made of these.
     live_tools: [],
@@ -300,7 +306,10 @@ function scene(name, dark) {
       type: 'handoff', by: 'percent', percent: 85, reserve: 10240, timeline: true,
       prompt: 'Write a very detailed but concise handoff summary for AI consumption '
         + '(no styling) that can be given to an AI to continue working from the '
-        + 'current state of the session.'
+        + 'current state of the session.',
+      prompt_short: 'Write a very short handoff summary for AI consumption (no '
+        + 'styling). The room of the model is nearly full, so the whole summary '
+        + 'must come to an end within a few hundred words.'
     },
     thinking: {
       mode: 'off', available: true,
@@ -356,6 +365,29 @@ function scene(name, dark) {
           start.messages[k].tool = lastCut.why;
         }
       }
+    }
+    // AN_SUMMARISING=1 puts the chat in the state the engine stands in while a
+    // handoff summary is being written: an answer is on the way, the mark of the
+    // summarisation stands at the end of the talk with no words in it, and the
+    // words of the summary are not shown. The window has no live answer to draw.
+    if (process.env.AN_SUMMARISING === '1') {
+      start.generating = true;
+      start.summarising = true;
+      start.live = '';
+      start.reasoning = '';
+      start.live_tools = [];
+      start.status = 'The handoff summary is being written';
+      var writing = (start.handoffs || []).length + 1;
+      start.messages = start.messages.concat([{
+        id: 399, role: 'Summary', body: '', reasoning: '', reasoning_ms: 0,
+        tool: 'the handoff summary is being written ...', mono: false, failed: false,
+        when: '11:02', when_full: '2026-10-21, 11:02',
+        context_before: 6964, context_after: 0, attachments: []
+      }]);
+      start.handoffs = (start.handoffs || []).concat([{
+        id: 399, number: writing, state: 'writing', when: '2026-10-21, 11:02',
+        before: 6964, after: 0, snippet: '', why: ''
+      }]);
     }
     // AN_CHAPTERS=N puts that many marks on the line, spread over the talk, so
     // the line can be looked at when a chat has more chapters than room. Zero
@@ -585,6 +617,11 @@ const CONFIG = {
     + 'handoff summary. If applicable, include a list of file paths that are '
     + 'relevant to the session / tasks / project with a short explanation of what '
     + 'each file is used for.',
+  chat_compact_prompt_short: 'Write a very short handoff summary for AI consumption '
+    + '(no styling). The room of the model is nearly full, so the whole summary must '
+    + 'come to an end within a few hundred words. Say what was done, what stands in '
+    + 'hand right now, and what must be done next. Name the files that matter with '
+    + 'one short line each.',
   chat_timeline: true
 };
 
@@ -817,6 +854,18 @@ async function main() {
     });
     await new Promise(function (r) { setTimeout(r, 250); });
   }
+  // AN_HOVER=selector puts the mouse over one thing, so a look that only
+  // shows when the reader hovers over it can be seen. It comes before AN_CLICK,
+  // so a click may land on a thing that stands in a card under the pointer.
+  // AN_PICK=selector draws a picture of each thing that matches, of its own,
+  // instead of the page.
+  if (process.env.AN_HOVER) {
+    const over = await view.$(process.env.AN_HOVER);
+    if (over) {
+      await over.hover();
+      await new Promise(function (r) { setTimeout(r, 400); });
+    }
+  }
   // AN_CLICK=selector clicks one thing, so a menu that opens on a click can
   // be seen open. The chat glides when a chapter is picked, so the wait is
   // long enough for the glide to come to rest.
@@ -825,16 +874,6 @@ async function main() {
     if (hit) {
       await hit.click();
       await new Promise(function (r) { setTimeout(r, 700); });
-    }
-  }
-  // AN_HOVER=selector puts the mouse over one thing, so a look that only
-  // shows when the reader hovers over it can be seen. AN_PICK=selector draws a
-  // picture of each thing that matches, of its own, instead of the page.
-  if (process.env.AN_HOVER) {
-    const over = await view.$(process.env.AN_HOVER);
-    if (over) {
-      await over.hover();
-      await new Promise(function (r) { setTimeout(r, 400); });
     }
   }
   // AN_MEASURE=selector prints where the things that match stand, in the

@@ -50,6 +50,13 @@ pub const GREATEST_HANDOFF_PROMPT: usize = 4096;
 // summary. The reader may write another one in the settings.
 pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a very detailed but concise handoff summary for AI consumption (no styling) that can be given to an AI to continue working from the current state of the session. Include full context of the session. You must include what has been done so far and what needs to be done. The AI will only receive the first initial prompt that the user sent, along with this handoff summary. If applicable, include a list of file paths that are relevant to the session / tasks / project with a short explanation of what each file is used for.";
 
+// The second ask for a handoff summary. The first is given all the room that
+// stands over after the words of the talk, and a model with a great deal to say
+// can fill that room to the end and stop in the middle of a sentence. The
+// second ask carries the same talk and a prompt that leans hard the other way,
+// so the words come to an end inside the room that is left.
+pub const DEFAULT_HANDOFF_PROMPT_SHORT: &str = "Write a very short handoff summary for AI consumption (no styling). The room of the model is nearly full, so the whole summary must come to an end within a few hundred words. Keep only what an AI needs in order to go on with the work from this point: what has been done, what stands half done, and what has to be done next. Name the files that matter with one short line each. Do not repeat the talk, do not look back over work that is finished, and do not add detail that is not needed to continue.";
+
 // The share of the room of the talk at which the handoff summary is asked for.
 fn default_compact_percent() -> u32 {
     85
@@ -64,6 +71,11 @@ fn default_compact_reserve() -> u32 {
 // The handoff prompt of a new set of settings.
 fn default_handoff_prompt() -> String {
     String::from(DEFAULT_HANDOFF_PROMPT)
+}
+
+// The handoff prompt of the second ask, of a new set of settings.
+fn default_handoff_prompt_short() -> String {
+    String::from(DEFAULT_HANDOFF_PROMPT_SHORT)
 }
 
 // The room for steps of one answer, as the engine wants it. The setting is -1
@@ -252,6 +264,11 @@ pub struct Config {
     // summary. No longer than GREATEST_HANDOFF_PROMPT characters.
     #[serde(default = "default_handoff_prompt")]
     pub chat_compact_prompt: String,
+    // The prompt of the second ask: the one that is made when the first ran to
+    // the end of the room. It leans towards a short summary, so the words come
+    // to an end. No longer than GREATEST_HANDOFF_PROMPT characters.
+    #[serde(default = "default_handoff_prompt_short")]
+    pub chat_compact_prompt_short: String,
     // The vertical timeline of the summarisations, at the right of the chat.
     #[serde(default = "on_by_default")]
     pub chat_timeline: bool,
@@ -306,6 +323,19 @@ pub fn sanitize_handoff_prompt(value: &str) -> String {
     let text = value.trim();
     if text.is_empty() {
         return String::from(DEFAULT_HANDOFF_PROMPT);
+    }
+    if text.chars().count() <= GREATEST_HANDOFF_PROMPT {
+        return text.to_string();
+    }
+    text.chars().take(GREATEST_HANDOFF_PROMPT).collect()
+}
+
+// The prompt of the second ask, kept inside the same ceiling. A field left
+// empty gives the short prompt of the program again.
+pub fn sanitize_handoff_prompt_short(value: &str) -> String {
+    let text = value.trim();
+    if text.is_empty() {
+        return String::from(DEFAULT_HANDOFF_PROMPT_SHORT);
     }
     if text.chars().count() <= GREATEST_HANDOFF_PROMPT {
         return text.to_string();
@@ -385,6 +415,7 @@ impl Default for Config {
             chat_compact_percent: default_compact_percent(),
             chat_compact_reserve: default_compact_reserve(),
             chat_compact_prompt: default_handoff_prompt(),
+            chat_compact_prompt_short: default_handoff_prompt_short(),
             chat_timeline: true,
         }
     }
@@ -621,6 +652,15 @@ mod tests {
         // short enough to fit the ceiling of the field.
         assert!(cfg.chat_compact_prompt.starts_with("Write a very detailed"));
         assert!(cfg.chat_compact_prompt.chars().count() <= GREATEST_HANDOFF_PROMPT);
+        // The second ask has a prompt of its own, and it leans towards a short
+        // summary rather than a long one.
+        assert_eq!(cfg.chat_compact_prompt_short, DEFAULT_HANDOFF_PROMPT_SHORT);
+        assert!(cfg.chat_compact_prompt_short.starts_with("Write a very short"));
+        assert!(cfg
+            .chat_compact_prompt_short
+            .chars()
+            .count()
+            <= GREATEST_HANDOFF_PROMPT);
     }
 
     // A settings file written before the Compaction section existed still reads,
@@ -636,6 +676,10 @@ mod tests {
         assert_eq!(read.chat_compact_percent, 85);
         assert_eq!(read.chat_compact_reserve, 10240);
         assert_eq!(read.chat_compact_prompt, DEFAULT_HANDOFF_PROMPT);
+        assert_eq!(
+            read.chat_compact_prompt_short,
+            DEFAULT_HANDOFF_PROMPT_SHORT
+        );
         assert!(read.chat_timeline);
     }
 
@@ -665,6 +709,20 @@ mod tests {
             GREATEST_HANDOFF_PROMPT
         );
         assert_eq!(sanitize_handoff_prompt("   "), DEFAULT_HANDOFF_PROMPT);
+        // The prompt of the second ask is kept by the same rule, and a field
+        // left empty gives the short prompt of the program again.
+        assert_eq!(
+            sanitize_handoff_prompt_short("say very little"),
+            "say very little"
+        );
+        assert_eq!(
+            sanitize_handoff_prompt_short(&long).chars().count(),
+            GREATEST_HANDOFF_PROMPT
+        );
+        assert_eq!(
+            sanitize_handoff_prompt_short("  "),
+            DEFAULT_HANDOFF_PROMPT_SHORT
+        );
     }
 
     // The rule that sets the summarisation going. The share of the room works
