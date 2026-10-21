@@ -2593,8 +2593,12 @@ function writeBox(one) {
   var cmd = make('span', 'cmd');
   cmd.textContent = headWords(shape, headName(one, shape), false);
   head.appendChild(cmd);
-  var state = make('span', 'state write');
-  state.textContent = 'writing';
+  // The pill says 'writing' while the words of the call come in, and 'written'
+  // as soon as the model has moved on: it is thinking again, or writing words of
+  // its own. A block that went on saying it was being written while the thinking
+  // went over it read as a fault of the program.
+  var state = make('span', 'state' + (one.done ? ' wrote' : ' write'));
+  state.textContent = one.done ? 'written' : 'writing';
   head.appendChild(state);
   head.appendChild(mark('M4 6.4 8 10.4 12 6.4', 'fold'));
   // The fold is of this block alone, as it is of a run.
@@ -2617,7 +2621,7 @@ function writeBox(one) {
   body.appendChild(space);
   panel.appendChild(head);
   panel.appendChild(body);
-  return { panel: panel, head: head, cmd: cmd, text: text, words: words,
+  return { panel: panel, head: head, cmd: cmd, state: state, text: text, words: words,
     caret: caret, space: space, why: null, shape: shape };
 }
 
@@ -2661,7 +2665,11 @@ function feedWrite(list) {
   // The block of the writing carries the mark of the beat here, so the mark of
   // the answer stands aside while a call is written, and comes back when the
   // call is gone. Two of them in one turn read as a fault.
-  if (ink.caret) { ink.caret.classList.toggle('held', made.length > 0); }
+  // The mark of the answer stands aside while a call is being written, and comes
+  // back when the model has moved on from it.
+  var growing = false;
+  for (var g = 0; g < made.length; g++) { if (!made[g].done) { growing = true; } }
+  if (ink.caret) { ink.caret.classList.toggle('held', growing); }
   // The room and the rule between the words of the answer and the blocks of the
   // call. A rule over nothing says nothing, so it stands only while a block
   // stands, and only while words of the answer stand above it.
@@ -2670,7 +2678,8 @@ function feedWrite(list) {
   for (var n = 0; n < made.length; n++) {
     key += made[n].name + '#' + (made[n].command || '').length
         + '#' + (made[n].purpose || '').length
-        + '#' + (made[n].target || '').length + '|';
+        + '#' + (made[n].target || '').length
+        + '#' + (made[n].done ? 'written' : 'writing') + '|';
   }
   if (key === ink.toolKey) { return; }
   ink.toolKey = key;
@@ -2696,6 +2705,14 @@ function feedWrite(list) {
     }
     var line = headWords(box.shape, headName(one, box.shape), false);
     if (box.cmd.textContent !== line) { box.cmd.textContent = line; }
+    // The pill follows the state of the call: writing while the words come, and
+    // written when the model has moved on from them.
+    if (box.state) {
+      var word = one.done ? 'written' : 'writing';
+      if (box.state.textContent !== word) { box.state.textContent = word; }
+      box.state.classList.toggle('wrote', !!one.done);
+      box.state.classList.toggle('write', !one.done);
+    }
     if (one.purpose) {
       if (!box.why) { addWhy(box); }
       if (box.why.words.nodeValue !== one.purpose) {
