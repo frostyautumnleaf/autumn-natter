@@ -593,6 +593,8 @@ pub struct Snap {
     pub chat_collapse_tools: bool,
     // Whether a thinking panel grows with its words instead of stopping at a height.
     pub chat_grow_thinking: bool,
+    // Whether a tool block called while thinking stands inside the thinking panel.
+    pub chat_tools_in_thinking: bool,
     // Whether a block of code takes the colours of the kinds of word in it.
     pub chat_highlight: bool,
     // Whether the model may mark the chapters of a chat, and whether the
@@ -1603,6 +1605,7 @@ impl State {
             sandbox_note: self.sandbox_note.clone(),
             chat_collapse_thinking: self.cfg.chat_collapse_thinking,
             chat_grow_thinking: self.cfg.chat_grow_thinking,
+            chat_tools_in_thinking: self.cfg.chat_tools_in_thinking,
             chat_collapse_tools: self.cfg.chat_collapse_tools,
             chat_highlight: self.cfg.chat_highlight,
             chat_chapters: self.cfg.chat_chapters,
@@ -2314,6 +2317,7 @@ impl Snap {
             sandbox_note: String::new(),
             chat_collapse_thinking: true,
             chat_grow_thinking: true,
+            chat_tools_in_thinking: true,
             chat_collapse_tools: true,
             chat_highlight: true,
             chat_chapters: true,

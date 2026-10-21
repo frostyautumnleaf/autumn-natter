@@ -226,6 +226,10 @@ pub struct Config {
     // always had.
     #[serde(default = "on_by_default")]
     pub chat_grow_thinking: bool,
+    // Let a tool block that the model calls while thinking stand inside the
+    // thinking panel of that turn, instead of under it.
+    #[serde(default = "on_by_default")]
+    pub chat_tools_in_thinking: bool,
     // Fold a tool panel up while its command runs.
     #[serde(default = "on_by_default")]
     pub chat_collapse_tools: bool,
@@ -434,6 +438,7 @@ impl Default for Config {
             model_settings: BTreeMap::new(),
             chat_collapse_thinking: true,
             chat_grow_thinking: true,
+            chat_tools_in_thinking: true,
             chat_collapse_tools: true,
             chat_highlight: true,
             chat_chapters: true,
@@ -576,6 +581,7 @@ mod tests {
         let cfg = Config::default();
         assert!(cfg.chat_collapse_thinking);
         assert!(cfg.chat_grow_thinking);
+        assert!(cfg.chat_tools_in_thinking);
         assert!(cfg.chat_collapse_tools);
         assert!(cfg.chat_highlight);
         assert!(cfg.chat_chapters);
@@ -645,6 +651,7 @@ mod tests {
         let read: Config = serde_json::from_str(old).expect("an old settings file reads");
         assert!(read.chat_collapse_thinking);
         assert!(read.chat_grow_thinking);
+        assert!(read.chat_tools_in_thinking);
         assert!(read.chat_collapse_tools);
         assert!(read.chat_highlight);
         assert!(read.chat_chapters);
