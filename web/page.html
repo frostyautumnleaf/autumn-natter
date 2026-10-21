@@ -383,6 +383,27 @@ body.home .stage { display: none; }
   cursor: pointer;
 }
 .sumhead .sbtn:hover { border-color: var(--accent); color: var(--accent); }
+/* The whole of a handoff summary, over the chat. The words of a summary are never
+   written among the turns, so the reader asks for them from the card over the
+   heading: they stand in a sheet of their own, read the way the words of the model
+   are read. */
+.overlay { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
+  display: flex; align-items: center; justify-content: center; padding: 22px; }
+.overlay.hidden { display: none; }
+.sumview { width: min(720px, 100%); max-height: 100%; display: flex; flex-direction: column;
+  background: var(--surface); color: var(--text); border: 1px solid var(--line);
+  border-radius: var(--r-l); box-shadow: var(--shadow-2); overflow: hidden; }
+.sumview .vhead { display: flex; align-items: flex-start; gap: 14px; padding: 12px 14px;
+  border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.sumview .vhead .x { margin-left: auto; }
+.sumview .shead { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sumview .stitle { font-size: 13.5px; font-weight: 650; color: var(--text); }
+.sumview .smeta { font-size: 11.5px; color: var(--faint); }
+.sumview .smeta b { color: var(--dim); font-weight: 600; }
+.sumview .sbody { overflow: auto; padding: 6px 20px 18px; scrollbar-width: thin;
+  font-size: 13.5px; line-height: 1.6; color: var(--text); }
+.sumview .sbody .h { font-size: 13.5px; }
+.sumview .sbody .none { color: var(--faint); font-style: italic; }
 .thread::-webkit-scrollbar { width: 8px; }
 .thread::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 999px;
   border: 2px solid transparent; background-clip: padding-box; }
@@ -1096,6 +1117,24 @@ img.pic { animation: plate-in 180ms ease-out; }
 
 </div>
 
+<!-- The whole of a handoff summary, asked for from the card over the heading of a
+     summarisation. The words of a summary are never written in the chat, so this
+     is the one place the reader can read them. -->
+<div class="overlay hidden" id="sumOverlay">
+  <div class="sumview" role="dialog" aria-modal="true" aria-label="The handoff summary">
+    <div class="vhead">
+      <div class="shead">
+        <span class="stitle" id="sumTitle">The handoff summary</span>
+        <span class="smeta" id="sumMeta"></span>
+      </div>
+      <button class="mark-btn x" id="sumClose" type="button" title="Close" aria-label="Close">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+    </div>
+    <div class="sbody" id="sumWords"></div>
+  </div>
+</div>
+
 <script>'use strict';
 
 // The page talks to the engine over the small HTTP server of the remote mode.
@@ -1118,7 +1157,8 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', '
   'newchat', 'chatsbtn', 'darkbtn', 'chapters', 'timeline',
   'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
-  'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
+  'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
+  'sumOverlay', 'sumTitle', 'sumMeta', 'sumWords', 'sumClose'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
 
@@ -3036,6 +3076,7 @@ function fill(turn, m) {
       : 'Nothing was written for the summary yet.');
     if (!words) { said.classList.add('none'); }
     card.appendChild(said);
+    var full = String(m.body || '').trim();
     if (owed) {
       var again = make('button', 'sbtn');
       again.type = 'button';
@@ -3043,6 +3084,15 @@ function fill(turn, m) {
       again.title = 'Ask the model for this handoff summary again, from the place the chat was cut';
       again.addEventListener('click', function () { post('/api/handoff', {}); });
       card.appendChild(again);
+    } else if (full) {
+      // The words of a summary are never written in the chat, so the reader is
+      // asked for them here: the whole of it comes up over the chat.
+      var look = make('button', 'sbtn');
+      look.type = 'button';
+      look.textContent = 'Show summary';
+      look.title = 'Read the whole handoff summary';
+      look.addEventListener('click', function () { showSummary(one, full); });
+      card.appendChild(look);
     }
     cut.appendChild(card);
     turn.appendChild(cut);
@@ -3131,7 +3181,9 @@ function roleStamp(m) {
 function drawThread(s) {
   var box = el.col;
   var items = s.messages.slice();
-  if (s.generating) {
+  // A handoff summary is written out of sight: nothing of it is put on the page
+  // while it grows, so no live answer stands while the program is at one.
+  if (s.generating && !s.summarising) {
     items.push({
       id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
       reasoning_ms: s.reasoning_ms || 0, reasoning_done: !!s.reasoning_done,
@@ -3448,6 +3500,55 @@ function drawTimeline(s) {
     box.appendChild(node);
   }
 }
+
+// The whole of a handoff summary, over the chat. The words of a summary are never
+// written among the turns, so this sheet is the one place they can be read. The
+// marks of the writing are read the way the words of the model are read, for a
+// handoff summary is kept as it was written.
+function showSummary(one, text) {
+  el.sumTitle.textContent = (one && one.number)
+    ? 'Summarised #' + one.number : 'The handoff summary';
+  var when = (one && one.when) || '';
+  var line = when ? 'Summarised on ' + when : '';
+  if (one && one.before) {
+    line += (line ? ' - ' : '') + '<b>' + commas(one.before)
+      + '</b> of the talk stood for <b>' + commas(one.after || 0) + '</b> in the summary';
+  }
+  el.sumMeta.innerHTML = line || 'The hour of it is not known';
+  el.sumWords.innerHTML = '';
+  var made = blocks(text || '');
+  if (!made.length) {
+    var none = make('div', 'none');
+    none.textContent = 'Nothing was written for the summary.';
+    el.sumWords.appendChild(none);
+  } else {
+    for (var n = 0; n < made.length; n++) { el.sumWords.appendChild(blockNode(made[n])); }
+  }
+  el.sumOverlay.classList.remove('hidden');
+  // The sheet stands over the chat, so the reading of it begins at the top.
+  el.sumClose.focus();
+}
+
+function closeSummary() {
+  el.sumOverlay.classList.add('hidden');
+}
+
+function summaryOpen() {
+  return el.sumOverlay && !el.sumOverlay.classList.contains('hidden');
+}
+
+el.sumClose.addEventListener('click', closeSummary);
+el.sumOverlay.addEventListener('click', function (e) {
+  if (e.target === el.sumOverlay) { closeSummary(); }
+});
+
+// Escape puts the whole of a summary away, and the key goes no further: the chat
+// box behind the sheet must not stop an answer with it. Alt is left alone, so the
+// row of previews still comes up over the sheet when the reader asks for it.
+document.addEventListener('keydown', function (e) {
+  if (!summaryOpen()) { return; }
+  if (e.key === 'Escape') { closeSummary(); e.preventDefault(); e.stopPropagation(); }
+}, true);
 
 // Take the chat to the hairline of one summarisation. The chat stops following
 // the answer, for the reader has gone looking somewhere else.

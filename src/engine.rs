@@ -47,6 +47,29 @@ struct SentMessage {
     files: Vec<attach::Incoming>,
 }
 
+// What the worker is to do with the chat. A turn either answers a message of the
+// reader, or goes on with the work from where the talk stands. The second is what
+// follows a handoff summary: the summary is written so that the model may carry
+// on, and nothing is added to the chat for the model to read, for the handoff
+// block that names the summary already tells it to go on.
+enum Turn {
+    // A message of the reader, with the files beside it.
+    Sent(SentMessage),
+    // Go on from the talk as it stands.
+    Continue,
+}
+
+// What an answer of the model came to, so the worker knows whether the work may
+// be gone on with after the room was made.
+#[derive(PartialEq, Eq)]
+enum Ended {
+    // The model came to an end of its own answer.
+    Done,
+    // Nothing to go on from: the reader stopped the answer, the stream faulted,
+    // the room was come to again and the answer gave up, or the turn never began.
+    Halted,
+}
+
 // Work for the worker thread.
 enum Job {
     // The user asked something, with the files of the message beside it.
@@ -532,6 +555,9 @@ pub struct Snap {
     pub context_used: u64,
     pub context_total: u64,
     pub generating: bool,
+    // True while the program is writing a handoff summary, whose words are never
+    // shown to the reader.
+    pub summarising: bool,
     pub busy: bool,
     pub code_enabled: bool,
     // The switch of the web search of the open chat.
@@ -598,6 +624,8 @@ pub struct Snap {
     pub chat_compact_percent: u32,
     pub chat_compact_reserve: u32,
     pub chat_compact_prompt: String,
+    // The prompt of the second ask, the one that leans towards a short summary.
+    pub chat_compact_prompt_short: String,
     pub chat_timeline: bool,
     // Text the model is writing right now, while an answer comes in.
     pub live_text: String,
@@ -664,6 +692,11 @@ pub struct State {
     thought_start: Option<Instant>,
     thought_end: Option<Instant>,
     pub generating: bool,
+    // True while the program is writing a handoff summary. The words of a
+    // summary are never shown, so the window draws no live answer while this
+    // stands; the heading of the summarisation and the status line say that the
+    // program is at work.
+    pub summarising: bool,
     // The model is loading, so the window shows a spinner.
     pub busy: bool,
     pub status: String,
@@ -1509,6 +1542,7 @@ impl State {
             context_used: self.ctx_used,
             context_total,
             generating: self.generating,
+            summarising: self.summarising,
             busy: self.busy,
             code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(self.new_code),
             search_enabled: chat
@@ -1541,6 +1575,7 @@ impl State {
             chat_compact_percent: self.cfg.chat_compact_percent,
             chat_compact_reserve: self.cfg.chat_compact_reserve,
             chat_compact_prompt: self.cfg.chat_compact_prompt.clone(),
+            chat_compact_prompt_short: self.cfg.chat_compact_prompt_short.clone(),
             chat_timeline: self.cfg.chat_timeline,
             models: self.models.clone(),
             model_id: self.current_model_id(),
@@ -1629,6 +1664,7 @@ impl Engine {
             thought_start: None,
             thought_end: None,
             generating: false,
+            summarising: false,
             busy: false,
             status: String::from("ready"),
             ctx_total: 0,
@@ -2149,6 +2185,8 @@ impl Engine {
         cfg.chat_compact_percent = config::sanitize_compact_percent(cfg.chat_compact_percent as i64);
         cfg.chat_compact_reserve = config::sanitize_compact_reserve(cfg.chat_compact_reserve as i64);
         cfg.chat_compact_prompt = config::sanitize_handoff_prompt(&cfg.chat_compact_prompt);
+        cfg.chat_compact_prompt_short =
+            config::sanitize_handoff_prompt_short(&cfg.chat_compact_prompt_short);
         state.cfg = cfg;
         let _ = config::save(&state.cfg);
         state.store = store::Store::new(config::repositories_dir(&state.cfg));
@@ -2254,6 +2292,8 @@ impl Snap {
             chat_compact_percent: 85,
             chat_compact_reserve: 10240,
             chat_compact_prompt: crate::config::DEFAULT_HANDOFF_PROMPT.to_string(),
+            chat_compact_prompt_short: crate::config::DEFAULT_HANDOFF_PROMPT_SHORT.to_string(),
+            summarising: false,
             chat_timeline: true,
             live_text: String::new(),
             live_reasoning: String::new(),
@@ -2311,14 +2351,44 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                 stop_server(&mut server);
             }
             Job::Prompt(sent) => {
-                run_turn(&state, &mut server, &cancel, sent);
-                // The answer is in the chat and the room it took is known, so
-                // this is the moment a handoff summary is asked for, if the talk
-                // has come that far.
-                maybe_compact(&state, &mut server, &cancel);
+                let mut turn = Turn::Sent(sent);
+                // How many times the model has been asked to go on with its work
+                // after a handoff summary of this one send.
+                let mut goings_on = 0usize;
+                loop {
+                    let ended = run_turn(&state, &mut server, &cancel, turn);
+                    // The answer is in the chat and the room it took is known, so
+                    // this is the moment a handoff summary is asked for, if the
+                    // talk has come that far. It is asked for whatever the answer
+                    // came to, for a chat left past the limit is only stopped
+                    // again on the next message.
+                    let made_room = maybe_compact(&state, &mut server, &cancel);
+                    // A summary the program asked for is written so that the work
+                    // goes on, and so it does: the model is put back to its talk
+                    // with the first prompt of the reader and the summary in front
+                    // of it, and none of the words the summary stands for. An
+                    // answer the reader stopped, or one the stream broke, is not
+                    // gone on with.
+                    if !made_room
+                        || ended != Ended::Done
+                        || goings_on >= CONTINUE_ROOF
+                        || cancel.load(Ordering::Relaxed)
+                    {
+                        break;
+                    }
+                    goings_on += 1;
+                    turn = Turn::Continue;
+                }
             }
             Job::Handoff => {
-                run_handoff(&state, &mut server, &cancel);
+                // The reader asked for a summary that never came to be written
+                // again. When it comes, the model is put back to work, for that is
+                // what a handoff summary is written for, and the chat was left
+                // standing at the mark of it.
+                let made = run_handoff(&state, &mut server, &cancel);
+                if made && !cancel.load(Ordering::Relaxed) {
+                    run_turn(&state, &mut server, &cancel, Turn::Continue);
+                }
             }
         }
     }
@@ -2339,12 +2409,15 @@ fn stop_server(server: &mut Option<Server>) {
 // have stood. So the ask says out loud that there is nothing to be called.
 pub const SUMMARY_GUARD: &str = " Answer in plain text, in words of the summary alone. No tool is offered to you here and no call of a tool is wanted: write the summary itself, never a call, and never the mark of one.";
 
-// The least room a handoff summary is given to be written in, and the most. The
-// least, because a summary of fewer words than that is not worth the ask. The
-// most, because a summary of more words than that is the length of the talk it
-// stands for, and the room of the next answer is wanted too.
-const LEAST_SUMMARY_ROOM: u64 = 512;
-const GREATEST_SUMMARY_ROOM: u64 = 4096;
+// The ask for a summary carries no ceiling of its own. A summary is the making
+// of the room and not the spending of it, so the model is given all of the room
+// that stands over after the words of the talk and may write as long as it
+// likes. What the ceiling did before was to keep the ask inside the window, and
+// the window is kept by other means: the words of the pictures go out of the
+// ask, and an ask that runs to the end of the window is made again for a shorter
+// summary. The number is sent as -1 on purpose, for a `--n-predict` out of the
+// settings of the model would else cut the summary short as well.
+pub const NO_SUMMARY_CEILING: i64 = -1;
 
 // Take the pictures out of a talk that is being read and not answered. The bytes
 // of a picture cost a great deal of room, and a handoff summary is written of
@@ -2373,34 +2446,16 @@ pub fn words_only(items: &mut Vec<Value>) {
     }
 }
 
-// The ask for a handoff summary: the talk as it stands, the prompt of the
-// reader, and the room the window gives. The pictures go out of it, the room to
-// write in is bounded, and the server is asked not to look for a call of a tool
-// in the answer.
-//
-// The bound matters. The ask carries the whole of the talk that is to be
-// summarised, so the room left for the summary is only what is over after those
-// words; left without a ceiling, the server writes on until the window is full,
-// which is the very thing the summarisation was called in to mend.
-pub fn summary_ask(history: &Value, prompt: &str, total: u64) -> Value {
+// The ask for a handoff summary: the talk as it stands, and the prompt the
+// model is to be given. The pictures go out of it, the server is asked not to
+// look for a call of a tool in the answer, and no ceiling is set over the words
+// the model may write.
+pub fn summary_ask(history: &Value, prompt: &str) -> Value {
     let mut items: Vec<Value> = history.as_array().cloned().unwrap_or_default();
     words_only(&mut items);
     let mut said = String::from(prompt);
     said.push_str(SUMMARY_GUARD);
     items.push(json!({ "role": "user", "content": said }));
-    let asked = estimate_tokens(&json!(items));
-    let room = if total == 0 {
-        // Nothing is known of the window, so the ask is given the most a summary
-        // is ever given, and the server clips it to what it has.
-        GREATEST_SUMMARY_ROOM
-    } else {
-        // A tenth of the words of the ask is held back over them, for the
-        // estimate of a number of words is a guess and the server's number is
-        // often a little above it.
-        let spare = asked + asked / 10;
-        let left = total.saturating_sub(spare.min(total));
-        left.max(LEAST_SUMMARY_ROOM).min(GREATEST_SUMMARY_ROOM)
-    };
     json!({
         "messages": Value::Array(items),
         "stream": true,
@@ -2414,92 +2469,89 @@ pub fn summary_ask(history: &Value, prompt: &str, total: u64) -> Value {
         // not to. A server that does not know the word passes it by, as it does
         // the rest of this body.
         "parse_tool_calls": false,
-        "max_tokens": room as i64,
+        // The model may write as long as it wants. A ceiling here cut the
+        // summary short in the middle of a sentence, which is what the second
+        // ask is there to mend.
+        "max_tokens": NO_SUMMARY_CEILING,
     })
 }
 
-// Ask the model for the handoff summary of the chat that is open, and write it
-// into the mark of the summarisation. After this the words before the mark are
-// not sent to the model again: the first message of the reader, the summary, and
-// the words that come after the mark are the whole of the talk as far as the
-// model is concerned. The reader still sees all of the talk, and the line at the
-// right of the chat keeps one node for every summarisation of it.
+// One ask of the server for a handoff summary, and what came of it.
+struct SummaryShot {
+    // The words of the answer as they came in, before the envelope of them was
+    // taken off.
+    text: String,
+    // Why the server stopped writing. "length" says that the room ran full under
+    // the summary, which is the moment the second ask is made.
+    finish: String,
+    // The reader stopped the ask with their own hand.
+    stopped: bool,
+    // The fault of the stream, when there was one.
+    error: Option<String>,
+    // How many words the model gave.
+    written: u64,
+}
+
+// The mark that says the program is writing a handoff summary. It is taken off
+// on the way out of the ask, whichever way out that is, so no fault of a server
+// leaves the window waiting for words that are never shown.
+struct SummaryWriting {
+    state: Arc<Mutex<State>>,
+}
+
+impl Drop for SummaryWriting {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.state.lock() {
+            guard.summarising = false;
+            guard.touch();
+        }
+    }
+}
+
+// Whether the handoff summary has to be asked again for a short one. The room
+// ran full under it, so its last sentence stops in the middle of itself, and the
+// model is asked once more with the short prompt of the settings. A stop of the
+// reader's own and a fault of the stream are never asked again for a shorter
+// summary: the first has nothing to shorten, and the other is told to the reader.
+fn summary_too_long(shot: &SummaryShot) -> bool {
+    shot.error.is_none() && !shot.stopped && shot.finish == "length"
+}
+
+// Say a word to the reader about the summary, from outside the lock.
+fn tell(state: &Arc<Mutex<State>>, words: &str) {
+    if let Ok(mut guard) = state.lock() {
+        guard.set_status(words);
+        guard.touch();
+    }
+}
+
+// Ask the server for a handoff summary once, with the words the model is to be
+// given, and gather what it writes.
 //
-// The mark goes into the chat before the ask, for a server that goes away in the
-// middle of a summary must leave a sign of it: the mark stands with nothing in
-// it and the reason beside it, and the reader starts the summary again from the
-// point it stood at.
-fn run_handoff(
+// None of it is shown. The words of a summary are not a saying of the model to
+// the reader: they are read by the next model, and a wall of words laid over the
+// talk is nothing to read. So nothing goes into the live text the window draws.
+// The gauge above the chat box and the meter of the talk still move, for they
+// say that the program is at work without saying a word of what it wrote.
+fn ask_summary(
     state: &Arc<Mutex<State>>,
-    server: &mut Option<Server>,
+    base_url: &str,
+    body: &Value,
     cancel: &Arc<AtomicBool>,
-) {
-    // Take the order. An answer and a summary cannot both be on the way, for
-    // both write into the same chat.
-    let (model, settings, prompt, before, history, id) = {
-        let Ok(mut guard) = state.lock() else { return };
-        if guard.generating {
-            return;
-        }
-        let Some(model) = guard.model().clone() else {
-            guard.set_status("pick a model in the top bar first");
-            return;
-        };
-        if guard.chat().is_none() {
-            return;
-        }
-        let prompt = config::sanitize_handoff_prompt(&guard.cfg.chat_compact_prompt);
-        let before = guard.ctx_used;
-        let history = guard.build_history();
-        guard.generating = true;
-        guard.busy = true;
-        // Both live buffers start empty, so the words of an older answer do not
-        // stand under the mark of the summarisation.
-        guard.live_text = String::new();
-        guard.live_reasoning = String::new();
-        guard.live_tools = Vec::new();
-        guard.progress = 0;
-        guard.progress_on = false;
-        let id = guard.begin_summary();
-        guard.set_status("the handoff summary is being written");
-        let wants = guard.settings_for(&model);
-        (model, wants, prompt, before, history, id)
-    };
-
-    // A server that went away is started again, as in an answer. The lock of the
-    // state is not held while the model is being loaded.
-    let ready = ensure_server(state, server, &model, &settings, cancel);
-    let total = match ready {
-        Ok(total) => {
-            let Ok(mut guard) = state.lock() else { return };
-            guard.busy = false;
-            guard.ctx_total = total;
-            total
-        }
-        Err(problem) => {
-            let Ok(mut guard) = state.lock() else { return };
-            guard.busy = false;
-            guard.generating = false;
-            // The mark keeps nothing of its own, and the reason stands beside it,
-            // so the reader can start the summary again.
-            guard.finish_summary(&id, "", before, 0, &problem);
-            guard.set_status(
-                "the handoff summary was not written. Start it again on the line of the summarisations",
-            );
-            return;
-        }
-    };
-
-    let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
-    // The talk as it stands, with the ask for the summary after it. No tool is
-    // offered: a summary is words, and a model that asked for a command in the
-    // middle of writing one would spend the room it was given on it.
-    let body = summary_ask(&history, &prompt, total);
-    // The gauge above the chat box stands for this ask alone. The words under the
-    // number follow the pictures the talk carries, for the server has none of them
-    // and the count is read from the words that go out.
+) -> SummaryShot {
     {
-        let Ok(mut guard) = state.lock() else { return };
+        let Ok(mut guard) = state.lock() else {
+            return SummaryShot {
+                text: String::new(),
+                finish: String::new(),
+                stopped: true,
+                error: Some(String::from("the state is gone")),
+                written: 0,
+            };
+        };
+        // The gauge stands for this ask alone. The words under the number follow
+        // the pictures the talk carries, for the server has none of them and the
+        // count is read from the words that go out.
         guard.progress = 0;
         guard.progress_images = pending_images(&body["messages"]);
         guard.progress_on = true;
@@ -2508,48 +2560,33 @@ fn run_handoff(
         guard.live_thought_ms = 0;
         guard.live_thought_done = false;
     }
-    // The words of the summary go into the live text, so the reader watches the
-    // summary coming in as an answer is watched. The gauge above the chat box
-    // and the meter of the talk are moved by the same numbers as always.
-    //
-    // A long talk can trip the server over one ask and not over the next, so a
-    // fault that leaves no words at all is asked once more before the reader is
-    // told. A stop of the reader's own is never asked again.
-    let mut answer = llama::Answer::default();
-    // A summary is asked for with the room it is given and no hand from the
-    // program over it: it is the making of the room, not the spending of it, and
-    // to stop a summary at the limit would be to cut off the very words the limit
-    // was come to.
+    // A summary is asked for with no hand from the program over it: it is the
+    // making of the room and not the spending of it, and to stop a summary at the
+    // limit would be to cut off the very words the limit was come to.
     let no_cut = std::sync::atomic::AtomicBool::new(false);
-    for ask_again in 0..2 {
-        let stream_state = state.clone();
-        let progress_state = state.clone();
-        let context_state = state.clone();
-        let mut text_update = Instant::now();
-        answer = llama::stream_chat(
-            &base_url,
-            &body,
-            cancel,
-            &no_cut,
+    // The words of the summary are gathered here, out of the sight of the window.
+    let mut said = String::new();
+    let gauge_state = state.clone();
+    let context_state = state.clone();
+    let answer = llama::stream_chat(
+        base_url,
+        body,
+        cancel,
+        &no_cut,
         &mut |piece: &str| {
-            if let Ok(mut guard) = stream_state.lock() {
-                guard.live_text.push_str(piece);
+            said.push_str(piece);
+            // The first word is here, so the words that were sent are worked
+            // through and the gauge above the chat box has nothing left to say.
+            if let Ok(mut guard) = gauge_state.lock() {
                 if finish_progress(&mut guard) {
                     guard.touch();
                 }
-                if text_update.elapsed() > Duration::from_millis(60) {
-                    text_update = Instant::now();
-                    guard.touch();
-                }
             }
         },
-        &mut |piece: &str| {
-            if let Ok(mut guard) = stream_state.lock() {
-                guard.live_reasoning.push_str(piece);
-            }
-        },
+        // The thinking of a summary is hidden with the rest of it.
+        &mut |_piece: &str| {},
         &mut |made: llama::Progress| {
-            if let Ok(mut guard) = progress_state.lock() {
+            if let Ok(mut guard) = gauge_state.lock() {
                 let percent = (made.part() * 100.0).round() as u32;
                 if percent != guard.progress {
                     guard.progress = percent;
@@ -2566,59 +2603,179 @@ fn run_handoff(
         },
         // A summary is not written with a command, so the words of a call are
         // passed by.
-            &mut |_made: &[ToolCall]| {},
-        );
-        if answer.error.is_none() || cancel.load(Ordering::Relaxed) {
-            break;
+        &mut |_made: &[ToolCall]| {},
+    );
+    // Both hold the words the model gave. The longer of the two is the safer.
+    let text = if answer.text.chars().count() >= said.chars().count() {
+        answer.text.clone()
+    } else {
+        said
+    };
+    SummaryShot {
+        text,
+        finish: answer.finish.clone(),
+        stopped: answer.stopped,
+        error: answer.error.clone(),
+        written: answer.completion_tokens,
+    }
+}
+
+// Ask the model for the handoff summary of the chat that is open, and write it
+// into the mark of the summarisation. After this the words before the mark are
+// not sent to the model again: the first message of the reader, the summary, and
+// the words that come after the mark are the whole of the talk as far as the
+// model is concerned. The reader still sees all of the talk, and the line at the
+// right of the chat keeps one node for every summarisation of it.
+//
+// The mark goes into the chat before the ask, for a server that goes away in the
+// middle of a summary must leave a sign of it: the mark stands with nothing in
+// it and the reason beside it, and the reader starts the summary again from the
+// point it stood at.
+//
+// None of the writing is shown to the reader, and the model is not stopped at the
+// limit of the summarisation while it writes: the summary is given all of the
+// room that stands over after the words of the talk. When the room runs full
+// under the first summary it is asked again for a short one, of the second prompt
+// of the settings. True is given back when the summary was kept, which is the
+// word that the room was made and the work may be gone on with.
+fn run_handoff(
+    state: &Arc<Mutex<State>>,
+    server: &mut Option<Server>,
+    cancel: &Arc<AtomicBool>,
+) -> bool {
+    // Take the order. An answer and a summary cannot both be on the way, for
+    // both write into the same chat.
+    let (model, settings, prompt, short, before, history, id) = {
+        let Ok(mut guard) = state.lock() else {
+            return false;
+        };
+        if guard.generating {
+            return false;
         }
-        if ask_again + 1 < 2 {
-            let Ok(mut guard) = state.lock() else { return };
-            // The words of the ask that faulted are wiped, so the second ask
-            // stands on its own and the reader is not shown two of them laid over
-            // one another.
-            guard.live_text = String::new();
-            guard.live_reasoning = String::new();
-            guard.set_status("the summary did not come. Asking once more");
+        let Some(model) = guard.model().clone() else {
+            guard.set_status("pick a model in the top bar first");
+            return false;
+        };
+        if guard.chat().is_none() {
+            return false;
+        }
+        let prompt = config::sanitize_handoff_prompt(&guard.cfg.chat_compact_prompt);
+        let short = config::sanitize_handoff_prompt_short(&guard.cfg.chat_compact_prompt_short);
+        let before = guard.ctx_used;
+        let history = guard.build_history();
+        guard.generating = true;
+        guard.busy = true;
+        // The words of the summary are written out of sight of the reader.
+        guard.summarising = true;
+        // Both live buffers start empty, so the words of an older answer do not
+        // stand under the mark of the summarisation.
+        guard.live_text = String::new();
+        guard.live_reasoning = String::new();
+        guard.live_tools = Vec::new();
+        guard.progress = 0;
+        guard.progress_on = false;
+        let id = guard.begin_summary();
+        guard.set_status("the handoff summary is being written");
+        let wants = guard.settings_for(&model);
+        (model, wants, prompt, short, before, history, id)
+    };
+    // From here to the end of the ask the window is told that a summary is being
+    // written, and it draws no live answer.
+    let _writing = SummaryWriting {
+        state: state.clone(),
+    };
+
+    // A server that went away is started again, as in an answer. The lock of the
+    // state is not held while the model is being loaded.
+    match ensure_server(state, server, &model, &settings, cancel) {
+        Ok(total) => {
+            let Ok(mut guard) = state.lock() else {
+                return false;
+            };
+            guard.busy = false;
+            guard.ctx_total = total;
+        }
+        Err(problem) => {
+            let Ok(mut guard) = state.lock() else {
+                return false;
+            };
+            guard.busy = false;
+            guard.generating = false;
+            // The mark keeps nothing of its own, and the reason stands beside it,
+            // so the reader can start the summary again.
+            guard.finish_summary(&id, "", before, 0, &problem);
+            guard.set_status(
+                "the handoff summary was not written. Start it again on the line of the summarisations",
+            );
+            return false;
         }
     }
 
-    let Ok(mut guard) = state.lock() else { return };
+    let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
+    // The talk as it stands, with the ask for the summary after it. No tool is
+    // offered: a summary is words, and a model that asked for a command in the
+    // middle of writing one would spend the room it was given on it.
+    let mut shot = ask_summary(state, &base_url, &summary_ask(&history, &prompt), cancel);
+    // A long talk can trip the server over one ask and not over the next, so a
+    // fault that leaves no words at all is asked once more before the reader is
+    // told. A stop of the reader's own is never asked again.
+    if shot.error.is_some() && !shot.stopped && !cancel.load(Ordering::Relaxed) {
+        tell(state, "the summary did not come. Asking once more");
+        shot = ask_summary(state, &base_url, &summary_ask(&history, &prompt), cancel);
+    }
+    let mut summary = clean_summary(&shot.text);
+    // The room ran full under the first summary, so its last sentence stops in
+    // the middle of itself. It is asked again, this time for a short one, which
+    // has a far better chance of coming to an end in the room that is left. The
+    // second ask carries the talk and nothing of the first answer, so it has all
+    // of the room the first one had. The long summary is kept for all that it
+    // stops short when the short one does not come at all.
+    if summary_too_long(&shot) {
+        tell(
+            state,
+            "the summary ran to the end of the room. Asking again for a shorter one",
+        );
+        let again = ask_summary(state, &base_url, &summary_ask(&history, &short), cancel);
+        let cleaned = clean_summary(&again.text);
+        if !cleaned.trim().is_empty() {
+            shot = again;
+            summary = cleaned;
+        }
+    }
+
+    let Ok(mut guard) = state.lock() else {
+        return false;
+    };
     guard.generating = false;
     guard.busy = false;
     finish_progress(&mut guard);
-    // The words the model gave. The live text is the same words as they came, so
-    // one of the two that holds the more of them is the summary.
-    let said = if answer.text.trim().is_empty() {
-        std::mem::take(&mut guard.live_text)
-    } else {
-        answer.text.clone()
-    };
+    // The summary is never shown, so the live buffers are emptied rather than
+    // read. What the model gave stands in the mark of the summarisation alone.
     guard.live_text = String::new();
     guard.live_reasoning = String::new();
-    let summary = clean_summary(&said);
     // The room the summary itself takes. The server gives the number with the
     // answer; when nothing came back the words are measured as well as they can
     // be, which is what the meter of the talk is made of elsewhere too.
-    let after = if answer.completion_tokens > 0 {
-        answer.completion_tokens
+    let after = if shot.written > 0 {
+        shot.written
     } else {
         estimate_tokens(&json!([{ "role": "user", "content": &summary }]))
     };
     // What became of the ask. A summary that never came, that was stopped, or
     // whose server went away, is no summary at all: the mark is left empty, the
     // chat keeps every word it had, and the reader starts it again. A summary
-    // that the room cut short is kept for all that, for the room was full when
-    // it was asked for and a full chat cannot wait for a better one.
-    let why = if answer.error.is_some() {
+    // that the room cut short, twice, is kept for all that, for the room was full
+    // when it was asked for and a full chat cannot wait for a better one.
+    let why = if shot.error.is_some() {
         format!(
             "the summary was not written: {}",
-            answer.error.as_deref().unwrap_or("the server went away")
+            shot.error.as_deref().unwrap_or("the server went away")
         )
-    } else if answer.stopped {
+    } else if shot.stopped {
         String::from("the summary was stopped before it was written. Start it again")
     } else if summary.trim().is_empty() {
         String::from("the model gave no words for the summary. Start it again")
-    } else if answer.finish == "length" {
+    } else if shot.finish == "length" {
         String::from("the room ran full while the summary was written, so the end of it is missing")
     } else {
         String::new()
@@ -2626,7 +2783,7 @@ fn run_handoff(
     // The words are kept only when the ask itself came off: no fault of the
     // stream, no stop of the reader's, and words that are not nothing. The line
     // above says what happened, and this says whether anything was won by it.
-    let kept = answer.error.is_none() && !answer.stopped && !summary.trim().is_empty();
+    let kept = shot.error.is_none() && !shot.stopped && !summary.trim().is_empty();
     if !kept {
         guard.finish_summary(&id, "", before, 0, &why);
         // The meter goes back to what the talk of itself costs. The ask that
@@ -2640,7 +2797,7 @@ fn run_handoff(
         }
         guard.set_status("the handoff summary was not written. Start it again on the line of the summarisations");
         guard.persist();
-        return;
+        return false;
     }
     guard.finish_summary(&id, &summary, before, after, &why);
     // The room the talk takes now. The words the summary stands for are no part
@@ -2658,19 +2815,22 @@ fn run_handoff(
         count, made
     ));
     guard.persist();
+    true
 }
 
 // Whether the room of the talk calls for a handoff summary now, and if it does,
 // ask for one. The check is made when an answer is over, and once only behind a
 // message: a summary that did not make enough room is not asked for twice, for
-// the model would spend its room on summaries of summaries.
+// the model would spend its room on summaries of summaries. True when a summary
+// was kept, which the worker reads as the room being made and the work being
+// gone on with.
 fn maybe_compact(
     state: &Arc<Mutex<State>>,
     server: &mut Option<Server>,
     cancel: &Arc<AtomicBool>,
-) {
+) -> bool {
     let wanted = {
-        let Ok(guard) = state.lock() else { return };
+        let Ok(guard) = state.lock() else { return false };
         if guard.generating || guard.busy || guard.chat().is_none() {
             false
         } else if guard.handoff_owed() {
@@ -2686,8 +2846,9 @@ fn maybe_compact(
         }
     };
     if wanted {
-        run_handoff(state, server, cancel);
+        return run_handoff(state, server, cancel);
     }
+    false
 }
 
 // Make the room in the middle of an answer, and say whether it was made. The
@@ -2716,7 +2877,7 @@ fn make_room(
         guard.generating = false;
         guard.busy = false;
     }
-    maybe_compact(state, server, cancel);
+    let _ = maybe_compact(state, server, cancel);
     let Ok(guard) = state.lock() else { return false };
     !guard.handoff_owed() && !config::compaction_wanted(&guard.cfg, guard.ctx_used, guard.ctx_total)
 }
@@ -2726,6 +2887,13 @@ fn make_room(
 // has the room made for it, and is asked again; stopped a third time, it is
 // writing something no room will hold, and the reader has to hear so.
 const CUT_ROOF: usize = 3;
+
+// The most the model is asked to go on with its work after a handoff summary of
+// one send of the chat box. Once is enough. An answer that filled the room again
+// after the summary made for it is a talk the reader has to send a word to, and a
+// model asked again and again on its own would spend the room on summaries of
+// itself.
+const CONTINUE_ROOF: usize = 1;
 
 // What one answer of the model leaves in the chat.
 #[derive(Debug, PartialEq, Eq)]
@@ -2872,12 +3040,23 @@ fn kept_of(
 // runs and the model is asked again with the result. The files the reader
 // hung on the message are written to disk first, and the message of the
 // reader carries their marks, in the order the reader hung them.
+//
+// A turn that only goes on with the work adds no message of the reader: the
+// newest handoff summary stands at the end of the talk already, and the words
+// that name it tell the model to carry on from there. What the answer came to
+// goes back to the worker, so it knows whether the work may be gone on with
+// after the room has been made.
 fn run_turn(
     state: &Arc<Mutex<State>>,
     server: &mut Option<Server>,
     cancel: &Arc<AtomicBool>,
-    sent: SentMessage,
-) {
+    turn: Turn,
+) -> Ended {
+    let going_on = matches!(turn, Turn::Continue);
+    let (text, files) = match turn {
+        Turn::Sent(sent) => (sent.text, sent.files),
+        Turn::Continue => (String::new(), Vec::new()),
+    };
     // The files wait in the folder of the chat that carries them, so the
     // model can be asked again about them after a restart of the program, and
     // a command of the tool can read them in the room it works in.
@@ -2886,25 +3065,24 @@ fn run_turn(
         .ok()
         .and_then(|keeper| keeper.chat().map(|chat| keeper.attach_place_for(chat)));
     let kept: Vec<Attachment> = match &shelf {
-        Some(place) => attach::save_at(place, &sent.files),
+        Some(place) => attach::save_at(place, &files),
         // No chat to carry them, so there is no room to keep them in.
         None => Vec::new(),
     };
-    let lost = sent.files.len().saturating_sub(kept.len());
-    let text = sent.text;
+    let lost = files.len().saturating_sub(kept.len());
     // Take the work order first, so two answers cannot mix.
     let (model, settings, workdir, sandbox_on) = {
-        let Ok(mut state) = state.lock() else { return };
+        let Ok(mut state) = state.lock() else { return Ended::Halted };
         if state.generating {
-            return;
+            return Ended::Halted;
         }
         let Some(model) = state.model() else {
             state.set_status("pick a model first");
-            return;
+            return Ended::Halted;
         };
         if state.chat_mut().is_none() {
             state.set_status("start a new chat first");
-            return;
+            return Ended::Halted;
         }
         // What the chat asks for, and nothing else. Whether the jail really
         // works on this machine is looked at by the tool itself, which refuses
@@ -2919,17 +3097,24 @@ fn run_turn(
             .map(|c| state.workdir_for(&c.clone()))
             .unwrap_or_else(|| config::paths().data);
         // The question goes into the chat at once, with its attachments
-        // hanging on it in the order the reader hung them.
+        // hanging on it in the order the reader hung them. A turn that only goes
+        // on with the work after a handoff summary adds nothing: the mark of the
+        // summarisation is the last thing in the chat, and the model is asked
+        // again from behind it.
         if let Some(chat) = state.chat_mut() {
-            chat.messages.push(Message {
-                id: store::new_id(),
-                role: "You".to_string(),
-                body: text.clone(),
-                attachments: kept.clone(),
-                when: store::now_secs(),
-                ..Default::default()
-            });
-            if chat.meta.title == "New chat" {
+            if !going_on {
+                chat.messages.push(Message {
+                    id: store::new_id(),
+                    role: "You".to_string(),
+                    body: text.clone(),
+                    attachments: kept.clone(),
+                    when: store::now_secs(),
+                    ..Default::default()
+                });
+            }
+            if going_on {
+                chat.meta.updated = store::now_secs();
+            } else if chat.meta.title == "New chat" {
                 // A message of files and no words takes its name from the
                 // first file, so the chat is not left nameless.
                 let naming = if text.trim().is_empty() {
@@ -2975,18 +3160,18 @@ fn run_turn(
     let ready = ensure_server(state, server, &model, &settings, cancel);
     match ready {
         Ok(total) => {
-            let Ok(mut state) = state.lock() else { return };
+            let Ok(mut state) = state.lock() else { return Ended::Halted };
             state.busy = false;
             state.ctx_total = total;
             state.set_status("thinking");
         }
         Err(problem) => {
-            let Ok(mut state) = state.lock() else { return };
+            let Ok(mut state) = state.lock() else { return Ended::Halted };
             state.busy = false;
             state.generating = false;
             state.push_note(&problem, true);
             state.set_status("the model did not start");
-            return;
+            return Ended::Halted;
         }
     }
 
@@ -2996,7 +3181,7 @@ fn run_turn(
     // answer then ends when the model stops by itself, and a model may run as
     // many commands as it wants. A mark of a chapter eats neither room.
     let (command_room, answer_room) = {
-        let Ok(guard) = state.lock() else { return };
+        let Ok(guard) = state.lock() else { return Ended::Halted };
         (
             config::engine_steps(guard.cfg.chat_max_tool_steps).map(|n| n.max(LEAST_TOOL_STEPS)),
             config::engine_steps(guard.cfg.chat_max_answer_steps)
@@ -3016,7 +3201,7 @@ fn run_turn(
     // limit, and looked at by the stream after every piece.
     let mut cuts = 0usize;
     let room_cut = Arc::new(AtomicBool::new(false));
-    loop {
+    let outcome = loop {
         steps += 1;
         // The hand is let go again for every step: the step that is going to come
         // now is to be written out, unless the talk comes to the limit again under
@@ -3024,7 +3209,7 @@ fn run_turn(
         room_cut.store(false, Ordering::Relaxed);
         let cut_flag = room_cut.clone();
         let (history, code_on, search_on, chapters_on) = {
-            let Ok(guard) = state.lock() else { return };
+            let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 guard.build_history(),
                 guard.chat().map(|c| c.meta.code_enabled).unwrap_or(false),
@@ -3177,7 +3362,7 @@ fn run_turn(
             },
         );
 
-        let Ok(mut guard) = state.lock() else { return };
+        let Ok(mut guard) = state.lock() else { return Ended::Halted };
         // A step that ended without a word leaves no gauge standing behind.
         guard.progress_on = false;
         let live = std::mem::take(&mut guard.live_text);
@@ -3272,7 +3457,7 @@ fn run_turn(
             // reader is not to be made to start a summary by hand for a fault of
             // the room.
             let room = make_room(state, server, cancel);
-            let Ok(mut guard) = state.lock() else { return };
+            let Ok(mut guard) = state.lock() else { return Ended::Halted };
             // How much of the words of the stopped call the room that was made can
             // carry. A call whose whole of words were sent back would fill the
             // room again, and the model would be stopped before it had a word.
@@ -3316,7 +3501,7 @@ fn run_turn(
                     "the summarisation made no room, so the answer ends here"
                 };
                 guard.set_status(text);
-                break;
+                break Ended::Halted;
             }
             if cuts >= CUT_ROOF {
                 // A model stopped at the limit again and again is writing something
@@ -3326,7 +3511,7 @@ fn run_turn(
                 guard.set_status(
                     "the writing came to the limit again and again, so the answer ends here. Ask for the work in pieces small enough for the room, or give the model a larger room",
                 );
-                break;
+                break Ended::Halted;
             }
             // The room is made and the model has the words of what it was stopped
             // at, so it is asked again: it goes on from where it stood instead of
@@ -3442,7 +3627,14 @@ fn run_turn(
             if !finished {
                 take_marks(state, &step_marks, &mut marks);
             }
-            break;
+            // The worker is told what the answer came to. One that stopped on the
+            // hand of the reader, or on a fault of the stream, is not gone on
+            // with; one that came to its end, or to the ceiling of its steps, is.
+            break if finished {
+                Ended::Halted
+            } else {
+                Ended::Done
+            };
         }
         // Keep the lock free while a mark is made and while a command runs.
         drop(guard);
@@ -3488,12 +3680,13 @@ fn run_turn(
         if !thoughts.is_empty() {
             // The turn asked for marks and for nothing a reader could look at,
             // so the thoughts stand above the marks as a panel of their own.
-            let Ok(mut guard) = state.lock() else { return };
+            let Ok(mut guard) = state.lock() else { return Ended::Halted };
             guard.push_message("Assistant", "", &thoughts, thought_ms, false);
         }
-        let Ok(mut guard) = state.lock() else { return };
+        let Ok(mut guard) = state.lock() else { return Ended::Halted };
         guard.set_status("the model reads the tool result");
-    }
+    };
+    outcome
 }
 
 // The tools the model is offered for one step, or nothing at all when it is
@@ -4970,6 +5163,19 @@ mod tests {
         assert_eq!(before.as_array().map(|v| v.len()), Some(3));
         let mark = state.begin_summary();
         state.finish_summary(&mark, "Done: the parser. Next: the bar.", 6964, 412, "");
+        // A chat that ends on a summarisation asks the model from behind it: the
+        // handoff block is the last word of the talk, which is what the model is
+        // put back to work on when the summary is written, and the first message
+        // of the reader is still the first thing in front of it.
+        let stood_there = state.build_history();
+        let stood = stood_there.as_array().expect("a list of the talk");
+        assert_eq!(stood.len(), 2);
+        assert_eq!(stood[0]["content"], json!("the first prompt"));
+        assert_eq!(stood[1]["role"], json!("user"));
+        assert!(stood[1]["content"]
+            .as_str()
+            .expect("words")
+            .contains("The session was compacted"));
         add_message(&mut state, "You", "and the next thing");
         add_message(&mut state, "Assistant", "the answer after the summary");
         let after = state.build_history();
@@ -5000,10 +5206,37 @@ mod tests {
         drop(state);
         let snap = engine.snapshot();
         assert_eq!(snap.messages.len(), 6);
+        // No summary is being written here, so the window is free to draw a live
+        // answer. While a summary is written it draws none.
+        assert!(!snap.summarising);
         assert!(snap
             .messages
             .iter()
             .any(|m| m.role == "Summary" && m.context_before == 6964));
+    }
+
+    // The room ran full under a summary, so it stops in the middle of itself and
+    // is asked again for a short one. A stop of the reader's own and a fault of
+    // the stream are not: the first has nothing to shorten, and the other is told
+    // to the reader, who starts the summary again.
+    #[test]
+    fn a_summary_that_ran_to_the_end_of_the_room_is_asked_again_for_a_short_one() {
+        let shot = |finish: &str, stopped: bool, error: Option<&str>| SummaryShot {
+            text: String::from("a summary that stops in the middle of a senten"),
+            finish: String::from(finish),
+            stopped,
+            error: error.map(String::from),
+            written: 4096,
+        };
+        // The room ran full: ask again, of the short prompt.
+        assert!(summary_too_long(&shot("length", false, None)));
+        // The model stopped of its own accord, so the summary is whole.
+        assert!(!summary_too_long(&shot("stop", false, None)));
+        assert!(!summary_too_long(&shot("", false, None)));
+        // The reader stopped the ask, and the stream broke: neither is asked
+        // again for a shorter one.
+        assert!(!summary_too_long(&shot("length", true, None)));
+        assert!(!summary_too_long(&shot("length", false, Some("the server went away"))));
     }
 
     // A model that answers the ask for a summary with a call of a tool, cut short
@@ -5020,40 +5253,31 @@ mod tests {
         assert_eq!(clean_summary(told), told);
     }
 
-    // The ask for a handoff summary carries the whole of the talk, so the room
-    // the summary is written in has to be what is left over. Without a ceiling the
-    // server writes until the window is full, which is the thing the summarisation
-    // was called in to mend.
+    // The ask for a handoff summary sets no ceiling over the words the model may
+    // write. A summary is the making of the room and not the spending of it, so a
+    // ceiling of 4096 in the middle of a long summary cut it off in the middle of
+    // a sentence; the model now writes as long as it likes, and an ask that runs
+    // to the end of the room is made again for a shorter summary. The number sent
+    // is -1, which also lifts a `--n-predict` out of the settings of the model.
     #[test]
-    fn the_ask_for_a_summary_leaves_room_for_the_summary() {
+    fn the_ask_for_a_summary_sets_no_ceiling_over_the_words() {
         let talk = json!([
             { "role": "user", "content": "the first prompt" },
             { "role": "assistant", "content": "an answer of some length" },
         ]);
-        // A talk with room to spare is given the most a summary may take.
-        let ask = summary_ask(&talk, "Summarise it.", 16384);
-        assert_eq!(ask["max_tokens"], json!(GREATEST_SUMMARY_ROOM as i64));
-        // A talk that has eaten the window is given the least, and no more.
+        let ask = summary_ask(&talk, "Summarise it.");
+        assert_eq!(ask["max_tokens"], json!(NO_SUMMARY_CEILING));
+        assert_eq!(ask["max_tokens"].as_i64(), Some(-1));
+        // The same for a talk that has eaten the whole window: the ask is not
+        // clipped to a room of its own, and it is not grown either.
         let huge = "x".repeat(4 * 16000);
-        let ask = summary_ask(&json!([{ "role": "user", "content": huge }]), "Summarise it.", 16384);
-        assert_eq!(ask["max_tokens"], json!(LEAST_SUMMARY_ROOM as i64));
-        // In between, the room is exactly what is left over after the words of the
-        // ask and the tenth held back for the guess the estimate is.
-        let middling = "y".repeat(4 * 13000);
-        let ask = summary_ask(
-            &json!([{ "role": "user", "content": middling }]),
-            "Summarise it.",
-            16384,
-        );
-        let asked = estimate_tokens(&ask["messages"]);
-        let room = ask["max_tokens"].as_i64().expect("a number of tokens");
-        let room = room as u64;
-        assert_eq!(room, 16384 - (asked + asked / 10));
-        assert!(room > LEAST_SUMMARY_ROOM && room < GREATEST_SUMMARY_ROOM);
-        // A server that has said nothing about its window is given the most too,
-        // rather than a room of nothing.
-        let ask = summary_ask(&talk, "Summarise it.", 0);
-        assert_eq!(ask["max_tokens"], json!(GREATEST_SUMMARY_ROOM as i64));
+        let ask = summary_ask(&json!([{ "role": "user", "content": huge }]), "Summarise it.");
+        assert_eq!(ask["max_tokens"], json!(NO_SUMMARY_CEILING));
+        // The words of the talk all ride with the ask, and the ask of the
+        // summary is the last message of them.
+        let items = ask["messages"].as_array().expect("a list of the talk");
+        assert_eq!(items.len(), 2);
+        assert_eq!(ask["stream"], json!(true));
     }
 
     // A model that reads a session full of tool calls again is minded to make one,
@@ -5063,7 +5287,7 @@ mod tests {
     #[test]
     fn the_ask_for_a_summary_says_there_is_nothing_to_call() {
         let talk = json!([{ "role": "user", "content": "the first prompt" }]);
-        let ask = summary_ask(&talk, "Write a handoff summary.", 8192);
+        let ask = summary_ask(&talk, "Write a handoff summary.");
         let items = ask["messages"].as_array().expect("a list of the talk");
         let last = items[items.len() - 1]["content"]
             .as_str()
@@ -5089,7 +5313,7 @@ mod tests {
             { "role": "user", "content": [ { "type": "text", "text": "look at this" },
                                             { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAA=" } } ] },
         ]);
-        let ask = summary_ask(&talk, "Summarise it.", 8192);
+        let ask = summary_ask(&talk, "Summarise it.");
         let items = ask["messages"].as_array().expect("a list of the talk");
         let parts = items[1]["content"].as_array().expect("the parts of the message");
         assert_eq!(parts.len(), 2);
