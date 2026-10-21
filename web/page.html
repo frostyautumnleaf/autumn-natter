@@ -618,6 +618,10 @@ pre.code .t-p { color: var(--t-pun); }
 .state.run, .state.write { color: var(--ink); border-color: var(--accent-line);
   background: var(--accent-soft); animation: beat 1.4s ease-in-out infinite; }
 .state.fail { color: var(--ink-fail); border-color: var(--ink-fail); }
+/* A call the room gave out under never ran, and never failed at its work: the
+   writing of it was stopped in the middle. The pill says so in the colour of a
+   fault, with a line broken like the words of the call were. */
+.state.cut { color: var(--ink-fail); border-color: var(--ink-fail); border-style: dashed; }
 .thead .fold { margin-left: 4px; transition: transform 180ms; stroke: var(--faint); }
 .tool.closed .fold { transform: rotate(-90deg); }
 .tbody { display: flex; gap: 12px; padding: 2px 12px 12px 13px; }
@@ -2119,6 +2123,10 @@ function headName(one, shape) {
 // keeps the panel, so the wait shows.
 function toolBox(m) {
   var running = m.tool === 'running ...';
+  // A call the room gave out under. The tool never ran, for the model was stopped
+  // while it was still writing the call, so the block says what was stopped and
+  // not what went wrong.
+  var cut = !!m.cancelled;
   var shape = toolShape(m.tool_name);
   // The Chatting settings say whether a command starts folded up.
   var panel = make('div', 'tool' + (m.failed ? ' bad' : '')
@@ -2131,10 +2139,11 @@ function toolBox(m) {
   // The head says what the tool is doing while it runs, and what it did when
   // it is over, so the block reads as it changes from one to the other.
   // A run that failed did not do the thing, so it keeps the name of the trying.
-  cmd.textContent = headWords(shape, firstLine(m.body), !running && !m.failed);
+  cmd.textContent = headWords(shape, firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
-  var state = make('span', 'state' + (running ? ' run' : '') + (m.failed ? ' fail' : ''));
-  state.textContent = running ? 'running' : (m.failed ? 'failed' : 'done');
+  var state = make('span', 'state' + (running ? ' run' : '')
+    + (cut ? ' cut' : (m.failed ? ' fail' : '')));
+  state.textContent = running ? 'running' : (cut ? 'cancelled' : (m.failed ? 'failed' : 'done'));
   head.appendChild(state);
   head.appendChild(mark('M4 6.4 8 10.4 12 6.4', 'fold'));
   // The fold is of this panel alone, so it is lost when the row is made again.
@@ -2148,7 +2157,9 @@ function toolBox(m) {
   var commandText = make('pre', 'cmd-text');
   commandText.textContent = m.body;
   var labTwo = make('div', 'lab');
-  labTwo.textContent = shape.end;
+  // A call that was stopped was never run, so what stands under the second label
+  // is not a result of the tool but the word of what became of the call.
+  labTwo.textContent = cut ? 'what became of it' : shape.end;
   var output = make('pre', 'out' + (running ? ' live' : ''));
   output.textContent = m.tool;
   space.appendChild(labOne);
@@ -3110,7 +3121,8 @@ function attachmentWords(id) {
 function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
     (m.tool || '').length, m.tool === 'running ...' ? 1 : 0,
-    m.attachments ? m.attachments.length : 0, m.when || ''].join('#');
+    m.attachments ? m.attachments.length : 0, m.when || '',
+    m.cancelled ? 'cut' : ''].join('#');
 }
 
 // The chat box holds one turn for every message. A turn is made once and then

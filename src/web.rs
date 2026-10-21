@@ -120,6 +120,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "tool_name": m.tool_name,
                 "mono": m.mono,
                 "failed": m.failed,
+                // A call the room gave out under. The block of it says what the
+                // tool was for, and this tells the page that the writing of it was
+                // stopped rather than the running of it failed.
+                "cancelled": m.cancelled,
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is
