@@ -291,6 +291,12 @@ pub struct Message {
     // Arguments of the tool call, as the model wrote them.
     #[serde(default)]
     pub tool_args: String,
+    // True of a tool call the room gave out under, before the model had written
+    // the whole of it. Such a call never ran, and its words are not whole, so
+    // they go back to the model as the words of a turn and never as a call: a
+    // server that read the broken words as arguments would fault over them.
+    #[serde(default)]
+    pub cancelled: bool,
     // A message of the role "Summary" only. The room the talk took when the
     // handoff summary was asked for, in tokens.
     #[serde(default)]
@@ -640,6 +646,19 @@ mod tests {
         let message: Message = serde_json::from_str(older).expect("an older message reads");
         assert_eq!(message.context_before, 0);
         assert_eq!(message.context_after, 0);
+        // A call the room gave out under is a thing a chat learned of later, so a
+        // message written before it is not one.
+        assert!(!message.cancelled);
+        // A call that was cut off keeps its mark when it is written and read
+        // again, for whether the words of it go back as a call or as the words of
+        // a turn rests on the mark alone.
+        let cut = r#"{"id":"b","role":"Tool","body":"a file","tool_name":"edit_file","tool_args":"{\"path\": \"a","cancelled":true}"#;
+        let cut: Message = serde_json::from_str(cut).expect("a cut-off call reads");
+        assert!(cut.cancelled);
+        assert_eq!(cut.tool_args, "{\"path\": \"a");
+        let again = serde_json::to_string(&cut).expect("the cut-off call is written");
+        let back: Message = serde_json::from_str(&again).expect("and read");
+        assert!(back.cancelled);
         // A handoff summary holds the two numbers of the room, and is written
         // and read back whole.
         let summary = Message {

@@ -67,9 +67,30 @@ starts the summary from the place the chat was cut. A summary that the room cut
 short while it was written is kept, and said so, for the room was full when it
 was asked for.
 
+The limit is looked at while the model is writing, and not only between two
+answers. A model with a tool call bigger than the room it has never stops of
+itself: it writes on until the room is gone, which is the very thing the limit was
+set aside to prevent. So the stream is cut off at the piece of the answer the talk
+came to the limit under — `stream_chat` in `src/llama.rs` is given a hand of the
+program's own to stop it, beside the stop that is the reader's. What the model had
+written stands in the chat, and the call it was writing is written down after the
+summarisation with a `cancelled` mark on it, so the block says what the tool was
+pointed at and the reader sees a call that never ran. The words of the call that
+had come so far go back to the model as the words of a turn and never as a call,
+for a server set to read arguments out of one would fault over words that stop in
+the middle of a string; only the head of a long call is sent, bounded by the room
+the summarisation left over (`cut_bound`, at most 4000 characters), since the
+whole of a file the model was writing out would eat up the room again and have the
+model stopped before it had a word. The
+model is told the call was cancelled and what it had written, and is asked again,
+so the answer goes on from where it stood rather than beginning afresh. A writing
+stopped at the limit three times in one answer is writing something no room will
+hold, and the reader hears so.
+
 The rule lives in `compaction_wanted` in `src/config.rs`, the work in
-`run_handoff` and `maybe_compact` in `src/engine.rs`, and the line and the marks
-in the two pages.
+`run_handoff`, `maybe_compact` and `make_room` in `src/engine.rs`, the words of a
+cut-off call in `cut_words` there too, and the line and the marks in the two
+pages.
 
 ## Build
 

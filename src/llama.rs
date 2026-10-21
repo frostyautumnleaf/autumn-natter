@@ -695,6 +695,12 @@ pub struct Answer {
     pub progress: Progress,
     // The user stopped the answer.
     pub stopped: bool,
+    // The program stopped the answer itself, because the talk came to the room it
+    // was given. The words of the answer, and of a tool call that was being
+    // written, are kept up to the moment of the cut: the model is still holding
+    // its pen in the middle of a word, and what it had written so far is all the
+    // program has of the thought.
+    pub interrupted: bool,
     // A transport problem, or the message from the server.
     pub error: Option<String>,
 }
@@ -707,11 +713,21 @@ pub struct Answer {
 // written, so the reader can see the words of a command as the model puts them
 // down. The stream has a hand for everything the window shows at once, so the
 // call is a flat list of them.
+//
+// Two hands stop the stream. `cancel` is the reader's, and `interrupt` is the
+// program's own: it is put up when the talk has come to the room the program
+// meant to keep, and the stream is cut off at the next piece of the answer. The
+// one cannot wait for the other, for a model writing a tool call bigger than the
+// room it has writes until the room is gone, and the room being gone is what the
+// program was trying to avoid. Nothing of what came before the cut is lost: the
+// words of the answer and the words of the unfinished call stand in the answer
+// that is given back, with `interrupted` said of them.
 #[allow(clippy::too_many_arguments)]
 pub fn stream_chat(
     base_url: &str,
     body: &Value,
     cancel: &AtomicBool,
+    interrupt: &AtomicBool,
     on_text: &mut dyn FnMut(&str),
     on_reasoning: &mut dyn FnMut(&str),
     on_progress: &mut dyn FnMut(Progress),
@@ -742,7 +758,12 @@ pub fn stream_chat(
     let mut reader = response.into_reader();
     let mut pending: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4096];
-    loop {
+    // The pieces of one read are worked through one after another, and the room of
+    // the talk may come to an end under any one of them. So the program's hand is
+    // looked at after every piece, and not only after every read: a whole tool
+    // call can come in one read, and the call has to be cut off at the piece the
+    // room gave out under, which is the piece the talk was spoken of in.
+    'answer: loop {
         if cancel.load(Ordering::Relaxed) {
             answer.stopped = true;
             break;
@@ -768,6 +789,17 @@ pub fn stream_chat(
                             // The stream told us it is finished.
                             pending.clear();
                             break;
+                        }
+                        // The room gave out under this piece. The words of it are
+                        // already in the answer, and the rest of the stream goes
+                        // with the connection. A piece that brought the word the
+                        // model ends an answer with is not cut at all: the answer
+                        // came to its end of itself, and the last thing a stream
+                        // speaks is often the number that moves the meter, which
+                        // would else be read as a call broken in the middle.
+                        if answer.finish.is_empty() && interrupt.load(Ordering::Relaxed) {
+                            answer.interrupted = true;
+                            break 'answer;
                         }
                     }
                 }
@@ -1344,6 +1376,60 @@ mod tests {
         let call = answer.tool_calls.first().expect("one call was written");
         assert_eq!(call.name, "run_terminal");
         assert_eq!(call.id, "call-one");
+    }
+
+    // A stream cut off at the limit of the room leaves the words of a call in the
+    // middle of them. Those words are all the program has of what the model was
+    // put to, so they stand in the answer that is given back. And the answer has
+    // spoken no finishing word: that is how the stream knows an answer that was
+    // stopped from one that came to its end under the very piece that moved the
+    // meter of the talk, which is a number the limit is looked at by.
+    #[test]
+    fn the_words_of_a_stopped_call_stand_in_the_answer() {
+        let mut answer = Answer::default();
+        let mut seen: Vec<String> = Vec::new();
+        let pieces = [
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-edit","type":"function","function":{"name":"edit_file","arguments":"{\"path\":\"notes.md\""}}]}}]}"#,
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":",\"edits\":[{\"old_string\":\"th"}}]}}]}"#,
+        ];
+        for piece in pieces {
+            apply_event(
+                piece,
+                &mut answer,
+                &mut |_| {},
+                &mut |_| {},
+                &mut |_| {},
+                &mut |_| {},
+                &mut |made: &[ToolCall]| seen.push(made[0].arguments.clone()),
+            );
+        }
+        // The words of the call stand whole up to the piece the stream stopped at,
+        // and they are the words a server could not read as arguments: the string
+        // the model was writing was never shut.
+        assert_eq!(
+            answer.tool_calls[0].arguments,
+            r#"{"path":"notes.md","edits":[{"old_string":"th"#
+        );
+        let given = seen.last().map(String::as_str);
+        assert_eq!(given, Some(r#"{"path":"notes.md","edits":[{"old_string":"th"#));
+        assert_eq!(answer.tool_calls[0].name, editfile::EDIT_NAME);
+        // No finishing word, so a hand over the stream that stops it is the cut
+        // off of an answer, and not the end of one.
+        assert!(answer.finish.is_empty());
+        assert!(!answer.stopped);
+        assert!(!answer.interrupted);
+        // The word the model ends an answer with is told by the piece that brings
+        // it, and no piece after it can be read as a call broken in the middle.
+        apply_event(
+            r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+        );
+        assert_eq!(answer.finish, "stop");
     }
 
     // A call of a file tool, streamed in the order a model likes rather than in
