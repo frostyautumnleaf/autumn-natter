@@ -505,6 +505,55 @@ pub fn cut_words(name: &str, args: &str) -> String {
     )
 }
 
+// The words the Chatting settings can put before the model, so it knows the day
+// and the clock time it works on. They stand in a message of the role `user` of
+// their own, just before the message of the reader they date. The words of the
+// reader are then sent as they were written, and nothing of the line is shown
+// among the words of the chat: it is a saying of the program on the way to the
+// model, as the handoff block is.
+pub const DATE_HEAD: &str = "[Program note: ";
+
+// One line of the day and the clock time. The moment it names is the moment the
+// message it dates went out, so the line never moves afterwards and the server
+// keeps the work it did on the words that follow it. A message with no moment of
+// its own takes the moment the history is made, so the line always says a true
+// day rather than nothing at all.
+fn date_line(secs: i64) -> String {
+    let named = if secs > 0 { secs } else { store::now_secs() };
+    format!(
+        "{}the date and the time on this machine are {}. The reader did not write this line.]",
+        DATE_HEAD,
+        store::format_date_clock(named)
+    )
+}
+
+// Which of the messages of the reader carry a line of the day and the clock
+// time, and which moment each line names. `readers` holds the messages of the
+// reader that really go out, in the order they stand, each with the moment it
+// was sent.
+//
+// The first of them carries the line when the switch for a new chat stands on.
+// The moment it names is the moment that message went out, which is the start of
+// the talk the model is sent: no line of its own is needed for the switch, and
+// the line never moves while the chat goes on. Every other message carries the
+// line only when the switch for every message stands on. A place is named once
+// each, so the first message of a chat never carries the line twice, whatever
+// the two switches say.
+pub fn dated_places(cfg: &Config, readers: &[(usize, i64)]) -> Vec<(usize, i64)> {
+    readers
+        .iter()
+        .enumerate()
+        .filter(|(first, _)| {
+            if *first == 0 {
+                cfg.chat_date_new_chat || cfg.chat_date_every_message
+            } else {
+                cfg.chat_date_every_message
+            }
+        })
+        .map(|(_, line)| *line)
+        .collect()
+}
+
 // Where the newest handoff summary that was really written stands among the
 // messages of a chat. None means the chat was never summarised.
 fn last_summary_place(chat: &Chat) -> Option<usize> {
@@ -595,6 +644,10 @@ pub struct Snap {
     pub chat_grow_thinking: bool,
     // Whether a tool block called while thinking stands inside the thinking panel.
     pub chat_tools_in_thinking: bool,
+    // Whether the day and the hour go before the model at the start of a chat.
+    pub chat_date_new_chat: bool,
+    // Whether the day and the hour go before the model with every message.
+    pub chat_date_every_message: bool,
     // Whether a block of code takes the colours of the kinds of word in it.
     pub chat_highlight: bool,
     // Whether the model may mark the chapters of a chat, and whether the
@@ -1133,6 +1186,24 @@ impl State {
         // work it did on them, which is why the summary rides after that first
         // message rather than in the place of it.
         let cut = last_summary_place(chat);
+        // The messages of the reader that really go out, and which of them carry
+        // the line of the day and the hour. Counted over the messages that go,
+        // so a chat whose start a summary stands for still carries the date at
+        // its first sent message.
+        let readers: Vec<(usize, i64)> = chat
+            .messages
+            .iter()
+            .enumerate()
+            .filter(|(place, message)| {
+                message.role == "You"
+                    && match cut {
+                        Some(where_it_stands) => *place == 0 || *place >= where_it_stands,
+                        None => true,
+                    }
+            })
+            .map(|(place, message)| (place, message.when))
+            .collect();
+        let dated = dated_places(&self.cfg, &readers);
         for (place, message) in chat.messages.iter().enumerate() {
             // The first message of the reader always goes; the words a summary
             // stands for do not.
@@ -1156,11 +1227,21 @@ impl State {
                 }
                 // The words of the reader, and the attachments that hang on
                 // them. Without attachments this is the plain words, as it
-                // always was.
-                "You" => out.push(json!({
-                    "role": "user",
-                    "content": attach::content_at(&shelf, &message.body, &message.attachments, vision_on),
-                })),
+                // always was. Where the settings ask for the day and the clock
+                // time, the program says them in a message of its own just
+                // before this one, so these words go out as they were written.
+                "You" => {
+                    if let Some((_, named)) = dated.iter().find(|(dated, _)| *dated == place) {
+                        out.push(json!({
+                            "role": "user",
+                            "content": date_line(*named),
+                        }));
+                    }
+                    out.push(json!({
+                        "role": "user",
+                        "content": attach::content_at(&shelf, &message.body, &message.attachments, vision_on),
+                    }));
+                }
                 "Assistant" => {
                     let mut entry = json!({
                         "role": "assistant",
@@ -1607,6 +1688,8 @@ impl State {
             chat_grow_thinking: self.cfg.chat_grow_thinking,
             chat_tools_in_thinking: self.cfg.chat_tools_in_thinking,
             chat_collapse_tools: self.cfg.chat_collapse_tools,
+            chat_date_new_chat: self.cfg.chat_date_new_chat,
+            chat_date_every_message: self.cfg.chat_date_every_message,
             chat_highlight: self.cfg.chat_highlight,
             chat_chapters: self.cfg.chat_chapters,
             chat_paste_limit: self.cfg.pasted_text_char_limit,
@@ -2319,6 +2402,8 @@ impl Snap {
             chat_grow_thinking: true,
             chat_tools_in_thinking: true,
             chat_collapse_tools: true,
+            chat_date_new_chat: true,
+            chat_date_every_message: false,
             chat_highlight: true,
             chat_chapters: true,
             chat_paste_limit: 6000,
@@ -4588,8 +4673,9 @@ mod tests {
                     ..Default::default()
                 });
             }
-            let said = state.build_history();
-            let list = said.as_array().expect("the history is a list");
+            // The line of the day and the clock time that goes before the first
+            // message of the chat is not one of the messages this test counts.
+            let list = undated(&state.build_history());
             assert_eq!(list.len(), 4);
             // The words of the reader carry no thoughts of their own.
             assert!(list[0].get("reasoning_content").is_none());
@@ -4844,8 +4930,9 @@ mod tests {
                 ..Default::default()
             });
         }
-        let history = state.build_history();
-        let items = history.as_array().expect("the history is a list");
+        // The line of the day and the clock time is not one of the messages of
+        // the talk this test counts.
+        let items = undated(&state.build_history());
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["role"], json!("user"));
         let parts = items[0]["content"]
@@ -5442,16 +5529,17 @@ mod tests {
         add_message(&mut state, "You", "the first prompt");
         add_message(&mut state, "Assistant", "the old answer, which was long");
         add_message(&mut state, "You", "an older question");
-        let before = state.build_history();
-        assert_eq!(before.as_array().map(|v| v.len()), Some(3));
+        // The line of the day and the clock time that stands before the first
+        // message of the chat is not one of the messages of the talk here.
+        let before = undated(&state.build_history());
+        assert_eq!(before.len(), 3);
         let mark = state.begin_summary();
         state.finish_summary(&mark, "Done: the parser. Next: the bar.", 6964, 412, "");
         // A chat that ends on a summarisation asks the model from behind it: the
         // handoff block is the last word of the talk, which is what the model is
         // put back to work on when the summary is written, and the first message
         // of the reader is still the first thing in front of it.
-        let stood_there = state.build_history();
-        let stood = stood_there.as_array().expect("a list of the talk");
+        let stood = undated(&state.build_history());
         assert_eq!(stood.len(), 2);
         assert_eq!(stood[0]["content"], json!("the first prompt"));
         assert_eq!(stood[1]["role"], json!("user"));
@@ -5461,13 +5549,12 @@ mod tests {
             .contains("The session was compacted"));
         add_message(&mut state, "You", "and the next thing");
         add_message(&mut state, "Assistant", "the answer after the summary");
-        let after = state.build_history();
-        let items = after.as_array().expect("a list of the talk");
+        let items = undated(&state.build_history());
         // The first message of the reader keeps the place it had, and the words
         // of it are the same words, byte for byte. The server worked them
         // through once and keeps that work, which is why the summary rides after
         // that message instead of in the place of it.
-        assert_eq!(items[0], before.as_array().unwrap()[0]);
+        assert_eq!(items[0], before[0]);
         assert_eq!(items[0]["role"], json!("user"));
         assert_eq!(items[0]["content"], json!("the first prompt"));
         // The summary stands second, wrapped in the words that name it.
@@ -5481,8 +5568,24 @@ mod tests {
         assert_eq!(items[2]["content"], json!("and the next thing"));
         assert_eq!(items[3]["role"], json!("assistant"));
         assert_eq!(items.len(), 4);
-        assert!(!after.to_string().contains("the old answer"));
-        assert!(!after.to_string().contains("an older question"));
+        assert!(!json!(items).to_string().contains("the old answer"));
+        assert!(!json!(items).to_string().contains("an older question"));
+        // The line of the day and the clock time still stands at the head of the
+        // talk after the compaction, before the first message of the reader, and
+        // the first message is still sent word for word.
+        let said = state.build_history();
+        let lines = date_lines(&said);
+        assert_eq!(lines.len(), 1, "one line of the day: {:?}", lines);
+        let head = said
+            .as_array()
+            .expect("a list of the talk")
+            .first()
+            .expect("the talk is not empty");
+        assert!(head["content"]
+            .as_str()
+            .expect("a line of the day first")
+            .starts_with(DATE_HEAD));
+        assert_eq!(undated(&said)[0]["content"], json!("the first prompt"));
         // The reader still sees the whole of the talk: a summarisation is a mark
         // in it, and no word is thrown away. The lock of the state is let go
         // first, for the snapshot takes it and a lock is not taken twice.
@@ -5658,6 +5761,201 @@ mod tests {
         }
     }
 
+    // ------------------------------------------- the day before the model
+    //
+    // The Chatting settings can put the day and the clock time before the model:
+    // at the start of a chat, and with every message of the reader. A line stands
+    // in a message of its own just before the message it dates, so the words of
+    // the reader go out as they were written, and the chat on disk and the page
+    // know nothing of the line.
+    fn dated_chat(state: &mut State, cfg: &Config) {
+        state.cfg = cfg.clone();
+        state.open_blank_chat();
+        add_message(state, "You", "the first prompt");
+        add_message(state, "Assistant", "the first answer");
+        add_message(state, "You", "the second prompt");
+        add_message(state, "Assistant", "the second answer");
+        add_message(state, "You", "the third prompt");
+    }
+
+    // The talk without the lines of the day and the clock time, so a test about
+    // another rule counts the words of the reader and the model as they were.
+    fn undated(history: &Value) -> Vec<Value> {
+        history
+            .as_array()
+            .expect("a list of the talk")
+            .iter()
+            .filter(|message| {
+                !message["content"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .starts_with(DATE_HEAD)
+            })
+            .cloned()
+            .collect()
+    }
+
+    // The lines of the day and the clock time of a talk, in the order they stand.
+    fn date_lines(history: &Value) -> Vec<String> {
+        history
+            .as_array()
+            .expect("a list of the talk")
+            .iter()
+            .filter_map(|message| match message["content"].as_str() {
+                Some(words) if words.starts_with(DATE_HEAD) => Some(words.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_day_stands_before_the_first_message_of_a_chat_and_nowhere_else() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        dated_chat(&mut state, &Config::default());
+        let history = state.build_history();
+        // One line, and it stands at the head of the talk, before the first
+        // message of the reader.
+        let lines = date_lines(&history);
+        assert_eq!(lines.len(), 1, "one line of the day: {:?}", lines);
+        let items = history.as_array().expect("a list of the talk");
+        assert!(items[0]["content"]
+            .as_str()
+            .expect("a line of the day first")
+            .starts_with(DATE_HEAD));
+        // The words of the reader are sent as they were written: the line is a
+        // message of its own and not a word added to them.
+        assert_eq!(items[1]["content"], json!("the first prompt"));
+        assert_eq!(undated(&history).len(), 5);
+    }
+
+    #[test]
+    fn the_day_stands_with_every_message_of_the_reader_when_asked() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        let mut cfg = Config::default();
+        cfg.chat_date_every_message = true;
+        dated_chat(&mut state, &cfg);
+        let history = state.build_history();
+        // One line before every message of the reader: three of them, and the
+        // first message is not dated twice.
+        let lines = date_lines(&history);
+        assert_eq!(lines.len(), 3, "one line each: {:?}", lines);
+        let items = history.as_array().expect("a list of the talk");
+        for (place, message) in items.iter().enumerate() {
+            let words = message["content"].as_str().expect("words");
+            if words.starts_with(DATE_HEAD) {
+                continue;
+            }
+            // An answer carries nothing of the line. A message of the reader
+            // stands directly behind a line.
+            if message["role"] == json!("assistant") {
+                assert!(!words.contains(DATE_HEAD), "an answer carries the line: {}", words);
+            }
+            if place > 0 && message["role"] == json!("user") {
+                let before = items[place - 1]["content"].as_str().expect("words");
+                assert!(
+                    before.starts_with(DATE_HEAD),
+                    "the message of the reader at {} stands undated",
+                    place
+                );
+            }
+        }
+        // The words of the reader are still the words that were written.
+        assert_eq!(undated(&history).len(), 5);
+        assert_eq!(undated(&history)[0]["content"], json!("the first prompt"));
+    }
+
+    #[test]
+    fn the_day_can_stand_away_altogether() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        let mut cfg = Config::default();
+        cfg.chat_date_new_chat = false;
+        cfg.chat_date_every_message = false;
+        dated_chat(&mut state, &cfg);
+        let history = state.build_history();
+        assert!(date_lines(&history).is_empty());
+        assert_eq!(history.as_array().expect("a list of the talk").len(), 5);
+    }
+
+    // The line of a message names the moment that message went out, and not the
+    // moment the talk is made up again. A line that moved would make the server
+    // work the words after it through again on every send.
+    #[test]
+    fn the_day_of_a_message_names_the_moment_that_message_went_out() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        let mut cfg = Config::default();
+        cfg.chat_date_every_message = true;
+        state.cfg = cfg.clone();
+        state.open_blank_chat();
+        let now = store::now_secs();
+        let older = now - 3 * 86400;
+        {
+            let chat = state.chat_mut().expect("a blank chat stands open");
+            chat.messages.push(Message {
+                id: store::new_id(),
+                role: "You".to_string(),
+                body: "three days back".to_string(),
+                when: older,
+                ..Default::default()
+            });
+            chat.messages.push(Message {
+                id: store::new_id(),
+                role: "You".to_string(),
+                body: "just now".to_string(),
+                when: now,
+                ..Default::default()
+            });
+        }
+        let lines = date_lines(&state.build_history());
+        assert_eq!(lines.len(), 2, "one line each: {:?}", lines);
+        assert!(
+            lines[0].contains(&store::format_date_clock(older)),
+            "the day of the first message: {:?}",
+            lines[0]
+        );
+        assert!(
+            lines[1].contains(&store::format_date_clock(now)),
+            "the day of the second message: {:?}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn the_rule_of_the_day_places_never_names_one_place_twice() {
+        let readers = [(0usize, 10i64), (2, 20), (4, 30)];
+        let cfg = Config::default();
+        // The two switches as they stand for a new set of settings: the first
+        // message of the reader, and no more.
+        assert_eq!(dated_places(&cfg, &readers), vec![(0, 10)]);
+        // Both switches on: every message of the reader, and the first of them
+        // named once, so the start of a chat never carries the line twice.
+        let mut both = Config::default();
+        both.chat_date_every_message = true;
+        assert_eq!(dated_places(&both, &readers), vec![(0, 10), (2, 20), (4, 30)]);
+        assert_eq!(dated_places(&both, &[(0, 10)]), vec![(0, 10)]);
+        // Only every message: all of them, and no place named twice.
+        let mut only = Config::default();
+        only.chat_date_new_chat = false;
+        only.chat_date_every_message = true;
+        assert_eq!(dated_places(&only, &readers), vec![(0, 10), (2, 20), (4, 30)]);
+        // Neither switch: nothing to date, and nothing to date among nothing.
+        let mut none = Config::default();
+        none.chat_date_new_chat = false;
+        assert_eq!(dated_places(&none, &readers), Vec::<(usize, i64)>::new());
+        assert_eq!(dated_places(&both, &[]), Vec::<(usize, i64)>::new());
+    }
+
     #[test]
     fn a_tool_call_cut_short_goes_back_as_words_and_not_as_a_call() {
         let _guard = config::test_turn();
@@ -5671,8 +5969,8 @@ mod tests {
             "{\"path\":\"notes.md\",\"edits\":[{\"old_string\":\"the pl",
         );
         state.push_cancelled(&cut, "the thinking of the turn", 120, GREATEST_CUT_ARGS);
-        let history = state.build_history();
-        let items = history.as_array().expect("a list of the talk");
+        // The line of the day and the clock time is not one of the messages here.
+        let items = undated(&state.build_history());
         // The call goes back as the words of the turn it stood in. A server set
         // to read arguments out of a call would fault over words that stop in the
         // middle of a string, which is the very fault the summarisation is meant
@@ -5691,7 +5989,7 @@ mod tests {
         assert!(text.contains("stop in the middle"));
         // And nothing of it is a call, nor a receipt of one: the talk that goes
         // out has no tool entry of any kind in it.
-        let told = history.to_string();
+        let told = json!(items).to_string();
         assert!(!told.contains("tool_calls"));
         assert!(!told.contains("tool_call_id"));
         // The reader sees the block of the call, named for the file the model was
