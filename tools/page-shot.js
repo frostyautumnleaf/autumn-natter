@@ -129,7 +129,14 @@ const FULL = [
     { reasoning: 'The user wants a **plan**. The fault is in `markdown.rs`, and not '
       + 'in the view. Two things to check first:\n\n'
       + '- the order the blocks come out in\n- the height of the bar beside a heading\n\n'
-      + '```rust\nif list {\n    flush_para();\n}\n```',
+      + 'The parser keeps a paragraph open until a line cannot stand in it. A list '
+      + 'is such a line, so the paragraph must be closed when the list begins, or '
+      + 'the list comes out before the words that stood before it.\n\n'
+      + 'The bar beside a heading takes its height from the words beside it, and '
+      + 'not from a fixed number, so a heading of two lines keeps the whole bar.\n\n'
+      + '```rust\nif list {\n    flush_para();\n}\n```\n\n'
+      + 'The tests of the parser cover the order now, and the order is the whole '
+      + 'of the fault: nothing else moved.',
       // How long the model thought for, as the head of the panel says it.
       reasoning_ms: 80000 }),
   said(3, 'Tool', 'cargo test --release markdown',
@@ -318,8 +325,8 @@ function scene(name, dark) {
       // and the choice stands on, as it does for a new chat.
       preserve: true, preserve_available: true
     },
-    chatting: { collapse_thinking: true, collapse_tools: true, highlight: true,
-                chapters: true },
+    chatting: { collapse_thinking: true, grow_thinking: true, collapse_tools: true,
+                highlight: true, chapters: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
     generating: false, busy: false, code: false, search: false, sandbox: false,
     sandbox_available: true,
@@ -407,6 +414,10 @@ function scene(name, dark) {
     if (process.env.AN_NOCHAPTERS === '1') { start.chatting.chapters = false; }
     // The width of the chat, as the Chatting section of the settings gives it.
     if (process.env.AN_CHATWIDTH) { start.chatting.width = parseInt(process.env.AN_CHATWIDTH, 10) || 780; }
+    if (process.env.AN_NOTHINKGROW === '1') {
+      start.chatting.grow_thinking = false;
+      CONFIG.chat_grow_thinking = false;
+    }
     start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
     start.code = name === 'rich';
     start.search = name === 'rich';
@@ -597,6 +608,7 @@ const CONFIG = {
   upnp_enabled: false,
   dark_mode: false,
   chat_collapse_thinking: true,
+  chat_grow_thinking: true,
   chat_collapse_tools: true,
   chat_highlight: true,
   chat_chapters: true,
