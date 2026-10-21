@@ -59,6 +59,30 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             })
         })
         .collect();
+    // The summarisations of the open chat. The heading in the talk and the
+    // timeline at the right of the chat are made of these: the number of the
+    // summarisation, what became of it, and a little of what it says.
+    let handoffs: Vec<Value> = snap
+        .handoffs
+        .iter()
+        .map(|one| {
+            json!({
+                // The message that holds the summarisation. The heading stands
+                // there in the talk, and a node is tied to it.
+                "id": one.id,
+                // "Summarised #N" is written from this.
+                "number": one.number,
+                // "writing", "done", or "owed" for a summary that was never
+                // written and can be started again.
+                "state": one.state,
+                "when": store::format_day_clock(one.when),
+                "before": one.before,
+                "after": one.after,
+                "snippet": one.snippet,
+                "why": one.why,
+            })
+        })
+        .collect();
     let messages: Vec<Value> = snap
         .messages
         .iter()
@@ -97,6 +121,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "mono": m.mono,
                 "failed": m.failed,
                 "when": store::format_clock(m.when),
+                // A summarisation carries the two numbers of the room it stood
+                // for, and the day as well as the hour, for the card of it is
+                // read long after the talk was cut.
+                "context_before": m.context_before,
+                "context_after": m.context_after,
+                "when_full": if m.role == "Summary" {
+                    store::format_day_clock(m.when)
+                } else {
+                    String::new()
+                },
             })
         })
         .collect();
@@ -142,6 +176,19 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // The chapters the model marked, in the order it marked them. The line
         // beside the chat is made of these, and of nothing else.
         "chapters": chapters,
+        // The summarisations of the open chat, oldest first. The line at the
+        // right of the chat is made of these, and of nothing else.
+        "handoffs": handoffs,
+        // Compaction. How the room of the talk is kept short, and whether the
+        // line of the summarisations stands beside the chat.
+        "compaction": {
+            "type": snap.chat_compaction,
+            "by": snap.chat_compact_by,
+            "percent": snap.chat_compact_percent,
+            "reserve": snap.chat_compact_reserve,
+            "prompt": snap.chat_compact_prompt,
+            "timeline": snap.chat_timeline,
+        },
         // Text the model wrote since the last message was stored.
         "live": snap.live_text,
         // The calls the model is writing at this moment, in the order it writes
@@ -262,6 +309,12 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/cancel" | "cancel" => {
             engine.cancel();
+            done()
+        }
+        // Start the handoff summary of this chat again. The button for it stands
+        // on the heading of a summarisation that was never written.
+        "/api/handoff" | "handoff" => {
+            engine.restart_handoff();
             done()
         }
         "/api/code" | "code" => {

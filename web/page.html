@@ -284,6 +284,105 @@ body.home .stage { display: none; }
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 .chapter .cprev.none { font-style: italic; opacity: .8; }
+
+/* ------------------------------------------------------- summarisation line */
+/* A chat that has been summarised makes room at the right, and the line of the
+   summarisations stands there: one node for one summarisation, always the same
+   distance apart, the oldest at the top. A chat that was never summarised has no
+   line at all, and in a narrow window the line goes away and the chat takes the
+   whole of the room again. */
+.stage.withtimeline .thread { padding-right: var(--railr, 92px); }
+@media (max-width: 860px) {
+  .stage.withtimeline .thread { padding-right: 0; }
+  .timeline { display: none; }
+}
+.timeline {
+  position: absolute; right: var(--railro, 64px); top: 50%;
+  transform: translate(50%, -50%);
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--tgap, 21px); z-index: 14;
+}
+.timeline::before {
+  content: ""; position: absolute; left: 50%; top: -13px; bottom: -13px; width: 2px;
+  transform: translateX(-50%); border-radius: 2px; background: var(--line-strong);
+}
+.tnode {
+  position: relative; width: 11px; height: 11px; padding: 0; border: 2px solid var(--surface);
+  border-radius: 50%; background: var(--dim); box-shadow: 0 0 0 1px var(--line-strong);
+  transition: transform 140ms, background 140ms;
+}
+/* A summarisation that was never written is said with the colour of a fault, for
+   the chat stands at that place until the words come. While the words are coming
+   the node wears the accent, so the reader sees the program at work. */
+.tnode.writing { background: var(--accent); }
+.tnode.owed { background: var(--ink-fail); }
+.tnode:hover, .tnode:focus-visible { background: var(--accent); transform: scale(1.35); outline: none; }
+.tnode.owed:hover, .tnode.owed:focus-visible { background: var(--ink-fail); }
+/* The card of a node stands to the left of the line, for the line stands at the
+   right of the chat. */
+.tnode .card {
+  position: absolute; right: 21px; top: 50%; transform: translateY(-50%); width: 252px;
+  padding: 9px 11px; background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 10px; box-shadow: var(--shadow); opacity: 0; visibility: hidden;
+  text-align: left; transition: opacity 140ms, visibility 140ms;
+}
+.tnode:hover .card, .tnode:focus-visible .card { opacity: 1; visibility: visible; }
+.tnode .tname { font-size: 12px; font-weight: 650; color: var(--ink); }
+.tnode .twhen, .tnode .troom { font-size: 11px; color: var(--faint); margin-top: 3px; }
+.tnode .troom b { color: var(--dim); font-weight: 600; }
+.tnode .cprev {
+  margin-top: 5px; font-size: 11.5px; line-height: 1.45; color: var(--dim);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tnode .cprev.none { font-style: italic; opacity: .8; }
+
+/* ------------------------------------------------------------ summarisation */
+/* A handoff summary is not a saying of the model to the reader, so it stands
+   among the words with none of the marks of a turn: a hairline with the count of
+   the summarisation in the middle. Everything else of it is read on the card that
+   comes up when the reader hovers over the hairline: the day and the hour it
+   stood, the room of the talk before it and the room the summary itself takes,
+   and a little of what it says. */
+/* The hairline and the count of it stand in a row: the line gives way to the
+   words, so it never runs through them, however long the count of the
+   summarisation is. */
+.sumhead {
+  position: relative; display: flex; align-items: center; gap: 12px;
+  margin: 22px 4px; min-height: 18px;
+}
+.sumhead::before, .sumhead::after {
+  content: ""; flex: 1 1 0; height: 1px; background: var(--line-strong);
+}
+/* The count of the summarisation is only words: no plate behind them and no
+   mark round them, for the hairline is the one thing this heading is made of. */
+.sumhead .slabel {
+  flex: 0 0 auto; font-size: 11px; font-weight: 650; white-space: nowrap;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--faint);
+}
+.sumhead.owed .slabel { color: var(--ink-fail); }
+/* The card of the heading hangs under the hairline. The mark to start a summary
+   again stands in it, so it is kept while the heading has the mouse over it. */
+.sumhead .scard {
+  position: absolute; left: 50%; top: 24px; transform: translateX(-50%); width: 320px;
+  padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 11px; box-shadow: var(--shadow); text-align: left; z-index: 16;
+  opacity: 0; visibility: hidden; transition: opacity 140ms, visibility 140ms;
+}
+.sumhead:hover .scard, .sumhead:focus-within .scard { opacity: 1; visibility: visible; }
+.sumhead .twhen, .sumhead .troom { font-size: 11.5px; color: var(--faint); }
+.sumhead .troom { margin-top: 4px; }
+.sumhead .troom b { color: var(--dim); font-weight: 600; }
+.sumhead .cprev {
+  margin-top: 7px; font-size: 11.5px; line-height: 1.5; color: var(--dim);
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sumhead .cprev.none { font-style: italic; opacity: .85; }
+.sumhead .sbtn {
+  margin-top: 8px; padding: 4px 9px; font: inherit; font-size: 11.5px; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 999px;
+  cursor: pointer;
+}
+.sumhead .sbtn:hover { border-color: var(--accent); color: var(--accent); }
 .thread::-webkit-scrollbar { width: 8px; }
 .thread::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 999px;
   border: 2px solid transparent; background-clip: padding-box; }
@@ -898,6 +997,9 @@ img.pic { animation: plate-in 180ms ease-out; }
     <!-- The chapters the model marked. They stand out of the words, on a line
          at the left of the chat: one node for the start of one chapter. -->
     <div class="chapters hidden" id="chapters"></div>
+    <!-- The summarisations of the chat. They stand out of the words, on a line at
+         the right of the chat: one node for one time the talk was made short. -->
+    <div class="timeline hidden" id="timeline"></div>
     <div class="thread" id="thread">
       <div class="col" id="col"></div>
     </div>
@@ -1009,7 +1111,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', '
   'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
   'stage', 'thread', 'col', 'turnL', 'turnR',
   'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'hint',
-  'newchat', 'chatsbtn', 'darkbtn', 'chapters',
+  'newchat', 'chatsbtn', 'darkbtn', 'chapters', 'timeline',
   'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
@@ -1101,6 +1203,7 @@ function draw(s) {
 
   drawThread(s);
   drawChapters(s);
+  drawTimeline(s);
   if (ov.on) { rowCount(s); buildPreviews(ov.pos); placePreviews(); }
 }
 
@@ -2201,6 +2304,7 @@ function roleClass(m) {
   if (m.role === 'You') { return 't-you'; }
   if (m.role === 'Tool') { return 't-tool'; }
   if (m.role === 'Note') { return 't-note'; }
+  if (m.role === 'Summary') { return 't-sum'; }
   return 't-ai';
 }
 
@@ -2884,6 +2988,55 @@ function fill(turn, m) {
     turn.appendChild(note);
     return;
   }
+  if (m.role === 'Summary') {
+    // The handoff summary of a compaction. It is not a saying of the model to the
+    // reader, so it stands with none of the marks of a turn: a hairline with the
+    // count of the summarisation in the middle. The rest of it is read on the card
+    // that comes up when the reader hovers over the hairline, and the mark to
+    // start a summary that was never written stands in that card.
+    var cut = make('div', 'sumhead');
+    var one = handoffOf(m.id);
+    var number = one ? one.number : 1;
+    var owed = !!one && one.state === 'owed';
+    var writing = !!one && one.state === 'writing';
+    if (owed) { cut.classList.add('owed'); }
+    var label = make('span', 'slabel');
+    label.textContent = owed ? 'Summarisation #' + number + ' not written'
+      : (writing ? 'Summarisation #' + number + ' being written'
+         : 'Summarised #' + number);
+    cut.appendChild(label);
+    var card = make('div', 'scard');
+    var when = make('div', 'twhen');
+    var hour = (one && one.when) || m.when_full || '';
+    when.textContent = hour ? 'Summarised on ' + hour : 'The hour of it is not known';
+    card.appendChild(when);
+    var room = make('div', 'troom');
+    if (one && one.before) {
+      room.innerHTML = '<b>' + commas(one.before) + '</b> of the talk stood for <b>'
+        + commas(one.after || 0) + '</b> in the summary';
+    } else {
+      room.textContent = 'The room of the talk is not known';
+    }
+    card.appendChild(room);
+    var said = make('div', 'cprev');
+    var words = (one && one.snippet) || String(m.body || '').replace(/\s+/g, ' ').trim();
+    said.textContent = words || (owed
+      ? (m.tool || 'The summary was never written.')
+      : 'Nothing was written for the summary yet.');
+    if (!words) { said.classList.add('none'); }
+    card.appendChild(said);
+    if (owed) {
+      var again = make('button', 'sbtn');
+      again.type = 'button';
+      again.textContent = 'Write the summary again';
+      again.title = 'Ask the model for this handoff summary again, from the place the chat was cut';
+      again.addEventListener('click', function () { post('/api/handoff', {}); });
+      card.appendChild(again);
+    }
+    cut.appendChild(card);
+    turn.appendChild(cut);
+    return;
+  }
   if (m.role === 'Tool' && m.tool !== '') {
     // A turn that only asked for a command has no words of its own. Its
     // thinking stands above the command it led to.
@@ -3180,6 +3333,114 @@ function gotoChapter(chapter) {
     var before = el.col.querySelector('[data-mid="' + chapter.after + '"]');
     node = (before && before.nextElementSibling) || before;
   }
+  if (!node) { return; }
+  var view = el.thread.getBoundingClientRect();
+  var here = node.getBoundingClientRect();
+  stick = false;
+  el.thread.scrollTo({
+    top: el.thread.scrollTop + (here.top - view.top) - 16,
+    behavior: reduce ? 'auto' : 'smooth'
+  });
+}
+
+// -------------------------------------------------------- summarisation line
+//
+// Every time the talk was made short a node stands on a line at the right of the
+// chat, the oldest at the top. A node the reader hovers over says which
+// summarisation it is, when it stood, what the talk cost before it and what the
+// handoff summary costs, and shows a little of what the summary says. A click on
+// a node takes the chat to the hairline of that summarisation.
+
+var timelineMark = '';      // what the line was made of last
+
+// What the line is made of, so it is only built again when a summarisation came
+// in, or one of them changed from being written to written.
+function timelineSignature(list) {
+  var parts = [];
+  for (var n = 0; n < list.length; n++) {
+    parts.push(list[n].id + ':' + list[n].state + ':' + list[n].number);
+  }
+  return parts.join('|');
+}
+
+// The summarisation one message holds, or nothing when the message is not the
+// mark of a summarisation. The number of it and what became of it come with the
+// state, beside the words of the chat.
+function handoffOf(id) {
+  var list = (cur && cur.handoffs) || [];
+  for (var n = 0; n < list.length; n++) {
+    if (list[n].id === id) { return list[n]; }
+  }
+  return null;
+}
+
+// The distance two nodes keep between them. As with the chapters, two nodes and
+// forty keep the same distance, until a chat has more summarisations than the
+// window is tall for: then the distance is made less, so the last node can still
+// be reached.
+function fitTimeline(box, stage, count) {
+  var gap = CHAPTER_GAP;
+  var room = stage ? stage.clientHeight : 0;
+  if (count > 1 && room > 0) {
+    var fits = Math.floor((room - 16 - CHAPTER_ENDS - count * CHAPTER_NODE) / (count - 1));
+    if (fits < gap) { gap = fits > 1 ? fits : 1; }
+  }
+  box.style.setProperty('--tgap', gap + 'px');
+}
+
+// The line at the right of the chat, made again when a summarisation came in.
+function drawTimeline(s) {
+  var box = el.timeline;
+  if (!box) { return; }
+  var comp = s.compaction || {};
+  var list = (comp.timeline === false || !s.handoffs) ? [] : s.handoffs;
+  var stage = el.stage || document.body;
+  stage.classList.toggle('withtimeline', list.length > 0);
+  fitTimeline(box, stage, list.length);
+  var mark = timelineSignature(list);
+  if (mark === timelineMark) { return; }
+  timelineMark = mark;
+  box.innerHTML = '';
+  box.classList.toggle('hidden', list.length === 0);
+  for (var n = 0; n < list.length; n++) {
+    var one = list[n];
+    var node = make('button', 'tnode');
+    node.type = 'button';
+    if (one.state !== 'done') { node.classList.add(one.state); }
+    node.setAttribute('aria-label', 'The summarisation ' + one.number + ' of this chat');
+    var card = make('div', 'card');
+    var name = make('div', 'tname');
+    name.textContent = one.state === 'owed' ? 'Summarisation #' + one.number + ' not written'
+      : (one.state === 'writing' ? 'Summarisation #' + one.number + ' being written'
+         : 'Summarised #' + one.number);
+    card.appendChild(name);
+    var when = make('div', 'twhen');
+    when.textContent = one.when ? 'Summarised on ' + one.when : 'The hour of it is not known';
+    card.appendChild(when);
+    var room = make('div', 'troom');
+    if (one.before) {
+      room.innerHTML = '<b>' + commas(one.before) + '</b> of the talk stood for <b>'
+        + commas(one.after || 0) + '</b> in the summary';
+    } else {
+      room.textContent = 'The room of the talk is not known';
+    }
+    card.appendChild(room);
+    var words = make('div', 'cprev');
+    words.textContent = one.snippet || (one.why || 'Nothing was written for the summary yet.');
+    if (!one.snippet) { words.classList.add('none'); }
+    card.appendChild(words);
+    node.appendChild(card);
+    node.addEventListener('click', function (cut) {
+      return function () { gotoSummary(cut); };
+    }(one));
+    box.appendChild(node);
+  }
+}
+
+// Take the chat to the hairline of one summarisation. The chat stops following
+// the answer, for the reader has gone looking somewhere else.
+function gotoSummary(one) {
+  var node = el.col.querySelector('[data-mid="' + one.id + '"]');
   if (!node) { return; }
   var view = el.thread.getBoundingClientRect();
   var here = node.getBoundingClientRect();
