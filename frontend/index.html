@@ -409,7 +409,7 @@ body.home .stage { display: none; }
   border: 2px solid transparent; background-clip: padding-box; }
 .thread::-webkit-scrollbar-thumb:hover { background: var(--dim); background-clip: padding-box; }
 .thread::-webkit-scrollbar-track { background: transparent; }
-.col { max-width: var(--col); margin: 0 auto; padding: 0 26px; }
+.col { max-width: var(--colw, var(--col)); margin: 0 auto; padding: 0 26px; }
 .empty { color: var(--faint); font-size: 13.5px; padding: 26px 4px; text-align: center; }
 .empty b { display: block; color: var(--dim); font-weight: 600; margin-bottom: 4px; }
 
@@ -1288,6 +1288,9 @@ pre.code.line {
         <div class="fld"><span class="lbl">A paste of words becomes a file</span>
           <span class="sub">When a paste into the chat box holds more characters than this, the words turn into a file hung on the message instead of standing in the box. The least is 100.</span>
           <div class="ctl"><input id="fPasteLimit" type="number" min="100" max="1000000" step="1" placeholder="6000"><span class="unit">characters</span></div></div>
+        <div class="fld"><span class="lbl">Width of the chat</span>
+          <span class="sub">How wide the column of the chat may be. 780 pixels is the width the chat always had, and it is the least. The chat never grows past 80 per cent of the width of the window, and it keeps clear of the line of the chapters, the line of the summarisations and the arrows of the chat.</span>
+          <div class="ctl"><input id="fChatWidth" type="number" min="780" max="4000" step="10" placeholder="780"><span class="unit">pixels</span></div></div>
 
         <div class="sec">Compaction</div>
         <div class="fld"><span class="lbl">Compaction</span>
@@ -1534,7 +1537,8 @@ var cur = null;        // the last state
 // the first look, and the reader opens it with a click on its head.
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
-var chatting = { thinking: true, tools: true, highlight: true, chapters: true, paste: 6000 };
+var chatting = { thinking: true, tools: true, highlight: true, chapters: true, paste: 6000,
+  width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -1567,6 +1571,23 @@ function schedule(fast) {
 function tight() { return (document.documentElement.clientWidth || 640) < 860; }
 
 // ---------------------------------------------------------------- draw
+// The width of the chat. The width the chat always had is the least it can be,
+// and the setting of the Chatting section makes it wider. The chat never runs
+// past 80 per cent of the width of the window, and never takes the room the line
+// of the chapters, the line of the summarisations and the arrows of the chat
+// stand in. The two lines are looked at where they stand, so a chat that has
+// neither keeps the whole of the room again.
+function setChatWidth() {
+  var wide = window.innerWidth || document.documentElement.clientWidth || 640;
+  var room = wide - 48;
+  if (el.stage && el.stage.classList.contains('withchapters')) { room -= 116; }
+  if (el.stage && el.stage.classList.contains('withtimeline')) { room -= 92; }
+  var cap = Math.max(CHAT_LEAST, Math.min(Math.floor(wide * 0.8), room));
+  var want = Math.min(Math.max(Number(chatting.width) || CHAT_LEAST, CHAT_LEAST), cap);
+  document.documentElement.style.setProperty('--colw', want + 'px');
+}
+var CHAT_LEAST = 780;
+
 function draw(s) {
   cur = s;
   document.body.classList.toggle('dark', !!s.dark);
@@ -1618,6 +1639,8 @@ function readChatting(s) {
   chatting.highlight = chat.highlight !== false;
   chatting.chapters = chat.chapters !== false;
   chatting.paste = chat.paste_limit || 6000;
+  chatting.width = Number(chat.width) || CHAT_LEAST;
+  setChatWidth();
 }
 
 // The numbers of the meter are written with a comma in the place of a
@@ -4525,8 +4548,10 @@ el.turnL.addEventListener('click', function () { roll(-1); });
 el.turnR.addEventListener('click', function () { roll(1); });
 el.pgL.addEventListener('click', function () { roll(-1); });
 el.pgR.addEventListener('click', function () { roll(1); });
-// A new window size changes the shape of the bar and the width of the row.
+// A new window size changes the shape of the bar, the width of the row, and the
+// room the chat has for itself.
 window.addEventListener('resize', function () {
+  setChatWidth();
   if (cur) { draw(cur); }
   if (ov.on) { buildPreviews(ov.pos); placePreviews(); }
 });
@@ -4742,6 +4767,7 @@ function loadProgram() {
     byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
     byId('fPasteLimit').value = pasteLimitOf(cfg.pasted_text_char_limit);
+    byId('fChatWidth').value = chatWidthOf(cfg.chat_width);
     byId('fCompaction').value = cfg.chat_compaction || 'handoff';
     byId('fCompactBy').value = cfg.chat_compact_by || 'percent';
     byId('fCompactPercent').value = cfg.chat_compact_percent || 85;
@@ -4939,6 +4965,15 @@ function pasteLimitOf(value) {
   return isNaN(v) ? 6000 : v;
 }
 
+// The width of the chat keeps inside its two bounds: the width the chat always
+// had is the least, and 4000 pixels is the most the field may hold. The page
+// keeps the chat within 80 per cent of the window as well.
+function chatWidthOf(value) {
+  var v = parseInt(value, 10);
+  if (isNaN(v)) { return 780; }
+  return Math.min(Math.max(v, 780), 4000);
+}
+
 // Read the command line again, but not on every keystroke.
 function refreshPreview() {
   if (!mdl) { return; }
@@ -4968,6 +5003,7 @@ function saveSheet() {
     cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
     cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
     cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
+    cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
     cfg.chat_compaction = byId('fCompaction').value;
     cfg.chat_compact_by = byId('fCompactBy').value;
     var percent = parseInt(byId('fCompactPercent').value, 10);

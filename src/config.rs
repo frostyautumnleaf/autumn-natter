@@ -244,6 +244,13 @@ pub struct Config {
     // paste of a word or two always stays a paste.
     #[serde(default = "default_pasted_text_char_limit")]
     pub pasted_text_char_limit: u32,
+    // How wide the chat may be, in pixels. The width the chat always had is the
+    // least it can be set to. The page keeps the chat within 80 per cent of the
+    // width of the window, and within the room that stands over after the line
+    // of the chapters, the line of the summarisations and the arrows of the chat
+    // have taken their room.
+    #[serde(default = "default_chat_width")]
+    pub chat_width: u32,
     // Compaction. Either "off", which leaves the chat alone until the room is
     // gone, or "handoff", which asks the model for a handoff summary before
     // the room is gone. A new set of settings stands on the handoff summary.
@@ -384,6 +391,25 @@ pub fn sanitize_pasted_text_limit(value: u32) -> u32 {
     value.clamp(LEAST_PASTE_LIMIT, GREATEST_PASTE_LIMIT)
 }
 
+// The width the chat always had, and the least it can be set to. A chat no
+// narrower than this is as readable as the chat always was.
+pub const LEAST_CHAT_WIDTH: u32 = 780;
+
+// The most the field of the window may hold, in pixels. The page keeps the chat
+// within 80 per cent of the window as well, so a number above the width of the
+// window is answered with the room the window has.
+pub const GREATEST_CHAT_WIDTH: u32 = 4000;
+
+// The width of the chat of the program, which is the least of it too.
+fn default_chat_width() -> u32 {
+    LEAST_CHAT_WIDTH
+}
+
+// Keep the width of the chat inside the two bounds above.
+pub fn sanitize_chat_width(value: u32) -> u32 {
+    value.clamp(LEAST_CHAT_WIDTH, GREATEST_CHAT_WIDTH)
+}
+
 // A number of steps with no ceiling. The Chatting settings hold -1 for it, and
 // llama.cpp uses the same number for "as much as the model can think of".
 fn no_limit() -> i64 {
@@ -408,6 +434,7 @@ impl Default for Config {
             chat_max_tool_steps: -1,
             chat_max_answer_steps: -1,
             pasted_text_char_limit: default_pasted_text_char_limit(),
+            chat_width: default_chat_width(),
             // The handoff summary stands between the first message of the
             // reader and the end of the room, so a chat can go on for ever.
             chat_compaction: default_compaction(),
@@ -633,6 +660,23 @@ mod tests {
         assert_eq!(sanitize_pasted_text_limit(9), 100);
         assert_eq!(sanitize_pasted_text_limit(5000), 5000);
         assert_eq!(sanitize_pasted_text_limit(2_000_000), 1_000_000);
+    }
+
+    // The width of the chat. The width the chat always had is the default and
+    // the least, so a settings file written before this setting stood keeps the
+    // chat as wide as it always was. The field cannot go below that width, and
+    // cannot ask for a chat wider than a wall.
+    #[test]
+    fn the_width_of_the_chat_keeps_inside_its_bounds() {
+        assert_eq!(Config::default().chat_width, LEAST_CHAT_WIDTH);
+        let old = "{\"llama_dir\":\"\",\"models_dir\":\"\",\"repositories_dir\":\"\",\
+                   \"dark_mode\":false,\"remote_port\":8723,\"upnp_enabled\":false,\
+                   \"model_id\":\"\",\"model_settings\":{}}";
+        let read: Config = serde_json::from_str(old).expect("an old settings file reads");
+        assert_eq!(read.chat_width, LEAST_CHAT_WIDTH);
+        assert_eq!(sanitize_chat_width(400), LEAST_CHAT_WIDTH);
+        assert_eq!(sanitize_chat_width(1100), 1100);
+        assert_eq!(sanitize_chat_width(9000), GREATEST_CHAT_WIDTH);
     }
 
     // The Compaction section of the settings. A new set of settings asks for
