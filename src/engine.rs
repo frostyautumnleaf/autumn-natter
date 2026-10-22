@@ -5205,22 +5205,39 @@ mod tests {
         assert_eq!(state.handoffs()[1].number, 2);
         assert_eq!(state.handoffs()[1].state, "done");
         // A mark of long ago that was never written must not be written into for
-        // a new summarisation. The newest mark is the one the reader was told to
-        // start again; a fresh summarisation is a fresh mark.
+        // a new summarisation. Only the newest mark is started again, and a fresh
+        // summarisation is a fresh mark. The old mark is put before the mark that
+        // came off, so it is not the newest thing in the talk.
         if let Some(chat) = state.chat_mut() {
-            chat.messages.push(Message {
-                id: String::from("s-old"),
-                role: String::from("Summary"),
-                body: String::new(),
-                ..Default::default()
-            });
+            let at = chat
+                .messages
+                .iter()
+                .rposition(|m| m.role == "Summary")
+                .unwrap_or(0);
+            chat.messages.insert(
+                at,
+                Message {
+                    id: String::from("s-old"),
+                    role: String::from("Summary"),
+                    body: String::new(),
+                    ..Default::default()
+                },
+            );
         }
+        // The newest mark holds words, so the chat is free again.
+        assert!(!state.handoff_owed());
         let third = state.begin_summary();
         assert_ne!(third, "s-old");
         // The two marks of the talk, the mark of long ago, and this new one.
-        assert_eq!(state.handoffs().len(), 4);
-        assert_eq!(state.handoffs()[2].number, 3);
-        // The chat takes its message again.
+        let marks = state.handoffs();
+        assert_eq!(marks.len(), 4);
+        assert_eq!(marks[1].id, "s-old");
+        assert_eq!(marks[1].state, "owed");
+        assert_eq!(marks[3].id, third);
+        assert_eq!(marks[3].number, 4);
+        // The new mark holds the chat until its words come, and no longer after.
+        assert!(state.handoff_owed());
+        state.finish_summary(&third, "Done: nothing left to do.", 7000, 64, "");
         assert!(!state.handoff_owed());
     }
 
