@@ -23,11 +23,6 @@ fn on_by_default() -> bool {
     true
 }
 
-// A switch of the Chatting section that stands off until the user turns it on.
-fn off_by_default() -> bool {
-    false
-}
-
 // ------------------------------------------------------------ compaction
 //
 // A chat goes on for ever once the room of the talk is made again on the way.
@@ -238,14 +233,11 @@ pub struct Config {
     // Fold a tool panel up while its command runs.
     #[serde(default = "on_by_default")]
     pub chat_collapse_tools: bool,
-    // Put the day and the hour before the model at the start of a new chat, so
-    // it knows the date it works on. The line is not shown in the chat.
+    // Tell the model the day and the clock time of this machine once, in a
+    // message of the role `system` at the start of the talk. The line is not
+    // shown in the chat.
     #[serde(default = "on_by_default")]
     pub chat_date_new_chat: bool,
-    // Put the day and the hour before the model with every message of the
-    // reader after the first. Off, only the start of the chat carries it.
-    #[serde(default = "off_by_default")]
-    pub chat_date_every_message: bool,
     // Give the words of a block of code the colours of their kind.
     #[serde(default = "on_by_default")]
     pub chat_highlight: bool,
@@ -454,7 +446,6 @@ impl Default for Config {
             chat_tools_in_thinking: true,
             chat_collapse_tools: true,
             chat_date_new_chat: true,
-            chat_date_every_message: false,
             chat_highlight: true,
             chat_chapters: true,
             chat_max_tool_steps: -1,
@@ -599,7 +590,6 @@ mod tests {
         assert!(cfg.chat_tools_in_thinking);
         assert!(cfg.chat_collapse_tools);
         assert!(cfg.chat_date_new_chat);
-        assert!(!cfg.chat_date_every_message);
         assert!(cfg.chat_highlight);
         assert!(cfg.chat_chapters);
         assert_eq!(cfg.chat_max_tool_steps, -1);
@@ -671,7 +661,6 @@ mod tests {
         assert!(read.chat_tools_in_thinking);
         assert!(read.chat_collapse_tools);
         assert!(read.chat_date_new_chat);
-        assert!(!read.chat_date_every_message);
         assert!(read.chat_highlight);
         assert!(read.chat_chapters);
         // The two rooms for steps were not in the file either, so they read as

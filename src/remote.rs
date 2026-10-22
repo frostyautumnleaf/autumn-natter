@@ -140,6 +140,19 @@ fn handle(engine: &Engine, mut request: Request) {
                 }
             }
         }
+        // The sheet of settings. The page of the remote mode reads the same
+        // settings the window of the program reads, and writes them back with a
+        // call of its own.
+        ("GET", "/api/config") => {
+            let _ = request.respond(json_response(&web::config_value(engine)));
+        }
+        ("GET", "/api/repositories") => {
+            let _ = request.respond(json_response(&web::repositories_value(engine)));
+        }
+        ("GET", "/api/model_settings") => {
+            let id = query_value(&query, "id");
+            let _ = request.respond(json_response(&web::model_settings_value(engine, &id)));
+        }
         ("POST", _) => {
             let mut body = String::new();
             // A call with no body is allowed, so a read error is not a problem.
