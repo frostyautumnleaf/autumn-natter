@@ -13,6 +13,12 @@
 //
 // Run the program with --help to see the arguments.
 
+// The state of the page is one great json! call in web.rs. Every part of it is
+// a step of the macro, and the calls of the chatting settings came near the
+// limit the compiler goes by. The limit is raised for the crate so the state
+// can grow without the compiler stopping over it.
+#![recursion_limit = "256"]
+
 pub mod attach;
 pub mod config;
 pub mod editfile;

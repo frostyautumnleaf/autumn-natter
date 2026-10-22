@@ -584,6 +584,10 @@ pre.code .t-p { color: var(--t-pun); }
 .think .words { padding: 0 13px 10px 15px; font-size: 13px; line-height: 1.5; color: var(--dim);
   overflow-wrap: anywhere; max-height: 190px; overflow-y: auto; scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent; }
+/* The Chatting setting for a thinking panel that grows. With it on the panel
+   holds all of the thoughts and the chat moves instead of a rail inside the
+   panel. With it off the fixed height above stands, as it always did. */
+.think.grow .words { max-height: none; overflow-y: visible; }
 .think.closed .words { display: none; }
 /* The thoughts are markdown, so a heading, a list or a block of code can stand
    inside the panel. They stand small, so the panel stays a look inside the
@@ -1180,7 +1184,7 @@ var cur = null;        // the last state
 // stands closed from the first look, and the reader opens it with a click.
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
-var chatting = { thinking: true, tools: true, highlight: true, chapters: true, paste: 6000,
+var chatting = { thinking: true, grow: true, tools: true, highlight: true, chapters: true, paste: 6000,
   width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
@@ -1275,6 +1279,7 @@ function draw(s) {
 function readChatting(s) {
   var chat = s.chatting || {};
   chatting.thinking = chat.collapse_thinking !== false;
+  chatting.grow = chat.grow_thinking !== false;
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
   chatting.chapters = chat.chapters !== false;
@@ -2081,7 +2086,8 @@ function thinkHead() {
 // The Chatting settings say whether it starts closed, and a click on the head
 // of one panel changes that panel alone.
 function thinkPanel() {
-  var panel = make('div', 'think' + (chatting.thinking ? ' closed' : ''));
+  var panel = make('div', 'think' + (chatting.thinking ? ' closed' : '') +
+    (chatting.grow === false ? '' : ' grow'));
   var head = thinkHead();
   var words = make('div', 'words');
   head.head.addEventListener('click', function () { panel.classList.toggle('closed'); });

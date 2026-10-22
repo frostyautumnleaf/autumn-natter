@@ -584,6 +584,10 @@ pre.code .t-p { color: var(--t-pun); }
 .think .words { padding: 0 13px 10px 15px; font-size: 13px; line-height: 1.5; color: var(--dim);
   overflow-wrap: anywhere; max-height: 190px; overflow-y: auto; scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent; }
+/* The Chatting setting for a thinking panel that grows. With it on the panel
+   holds all of the thoughts and the chat moves instead of a rail inside the
+   panel. With it off the fixed height above stands, as it always did. */
+.think.grow .words { max-height: none; overflow-y: visible; }
 .think.closed .words { display: none; }
 /* The thoughts are markdown, so a heading, a list or a block of code can stand
    inside the panel. They stand small, so the panel stays a look inside the
@@ -1270,6 +1274,9 @@ pre.code.line {
         <div class="fld"><span class="lbl">Fold the thoughts as they come in</span>
           <span class="sub">The head of a thinking block stands on its own while the model thinks, and the words of it stay out of the way. Turn it off to read the thoughts as they arrive. A click on the head of one block opens or folds that block.</span>
           <div class="ctl"><input id="fFoldThink" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Thinking panels grow with their words</span>
+          <span class="sub">A thinking panel holds all of the thoughts and the chat moves to read them. Turn this off to keep every thinking panel at a fixed height with a rail of its own.</span>
+          <div class="ctl"><input id="fGrowThink" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Fold a command as it runs</span>
           <span class="sub">The head of a tool block stands on its own while its command runs. A click on the head of one block opens or folds that block.</span>
           <div class="ctl"><input id="fFoldTools" type="checkbox"></div></div>
@@ -1537,7 +1544,7 @@ var cur = null;        // the last state
 // the first look, and the reader opens it with a click on its head.
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
-var chatting = { thinking: true, tools: true, highlight: true, chapters: true, paste: 6000,
+var chatting = { thinking: true, grow: true, tools: true, highlight: true, chapters: true, paste: 6000,
   width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
@@ -1635,6 +1642,7 @@ function draw(s) {
 function readChatting(s) {
   var chat = s.chatting || {};
   chatting.thinking = chat.collapse_thinking !== false;
+  chatting.grow = chat.grow_thinking !== false;
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
   chatting.chapters = chat.chapters !== false;
@@ -2441,7 +2449,8 @@ function thinkHead() {
 // The Chatting settings say whether it starts closed, and a click on the head
 // of one panel changes that panel alone.
 function thinkPanel() {
-  var panel = make('div', 'think' + (chatting.thinking ? ' closed' : ''));
+  var panel = make('div', 'think' + (chatting.thinking ? ' closed' : '') +
+    (chatting.grow === false ? '' : ' grow'));
   var head = thinkHead();
   var words = make('div', 'words');
   head.head.addEventListener('click', function () { panel.classList.toggle('closed'); });
@@ -4779,6 +4788,7 @@ function loadProgram() {
     byId('fDark').checked = !!(cur && cur.dark);
     byId('fFoldThink').checked = cfg.chat_collapse_thinking !== false;
     byId('fFoldTools').checked = cfg.chat_collapse_tools !== false;
+    byId('fGrowThink').checked = cfg.chat_grow_thinking !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
     byId('fChapters').checked = cfg.chat_chapters !== false;
     byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
@@ -5015,6 +5025,7 @@ function saveSheet() {
     cfg.dark_mode = byId('fDark').checked;
     cfg.chat_collapse_thinking = byId('fFoldThink').checked;
     cfg.chat_collapse_tools = byId('fFoldTools').checked;
+    cfg.chat_grow_thinking = byId('fGrowThink').checked;
     cfg.chat_highlight = byId('fHighlight').checked;
     cfg.chat_chapters = byId('fChapters').checked;
     cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
