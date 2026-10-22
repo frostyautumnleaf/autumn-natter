@@ -149,6 +149,11 @@ pub struct LiveTool {
     // The one thing the head of the block names: the file a file tool works on.
     // The command of a run names itself, so it stands empty there.
     pub target: String,
+    // True when the model has moved on from this call: it is thinking again, or
+    // writing words of its own, so nothing more comes of the words being
+    // written. The block says so, and the run of the tool stands in the chat in
+    // its place when the step of the answer is over.
+    pub done: bool,
 }
 
 // The words of a call that the reader is given: the command of a terminal run,
@@ -192,6 +197,7 @@ fn watched(calls: &[ToolCall]) -> Vec<LiveTool> {
             command,
             purpose,
             target,
+            done: false,
         });
     }
     out
@@ -2984,15 +2990,60 @@ fn finish_progress(state: &mut State) -> bool {
 // the reader sees the command grow. True when the window has something new to
 // draw.
 fn write_calls(state: &mut State, calls: &[ToolCall]) -> bool {
-    let made = watched(calls);
+    let mut made = watched(calls);
     // The gauge leaves for a mark of a chapter too. Such a call gives the
     // reader no block, but the model wrote it after the words it was sent.
     let gauge = finish_progress(state);
+    // A call that stands where it stood is not being written any more, so the
+    // word that says so is kept. A call whose words grew is being written again,
+    // and says so too. Without this a call that was marked as written while the
+    // model thought would stand under the block of its own words for the rest of
+    // the answer.
+    for (n, one) in made.iter_mut().enumerate() {
+        if let Some(before) = state.live_tools.get(n) {
+            if !one.words_moved(before) {
+                one.done = before.done;
+            }
+        }
+    }
     let grew = made != state.live_tools;
     if grew {
         state.live_tools = made;
     }
     gauge || grew
+}
+
+impl LiveTool {
+    // True when the words of this call are not the words of the call that stood
+    // in its place. The name, the words, the reason and the thing it is pointed
+    // at are looked at, and not the word that says whether the model is done
+    // with it.
+    fn words_moved(&self, before: &LiveTool) -> bool {
+        self.name != before.name
+            || self.command != before.command
+            || self.purpose != before.purpose
+            || self.target != before.target
+    }
+}
+
+// The model has moved on from the calls it was writing: it thinks again, or it
+// writes words of its own. The blocks of those calls are no longer being
+// written, and say so, until the run of the tool stands in the chat in their
+// place. True when a block changed, so the caller says that the state changed.
+//
+// This is the whole of the fault of a block that would not leave off saying it
+// was being written. A model that thinks, writes a call, and then thinks again
+// leaves the call finished long before the step of the answer comes to an end,
+// and the block stood on 'writing' the whole while, with no word of a result.
+fn end_writing_calls(state: &mut State) -> bool {
+    let mut changed = false;
+    for one in state.live_tools.iter_mut() {
+        if !one.done {
+            one.done = true;
+            changed = true;
+        }
+    }
+    changed
 }
 
 // The meter of the context while an answer comes in. The server says how many
@@ -3351,6 +3402,12 @@ fn run_turn(
                     if guard.thought_start.is_some() {
                         guard.live_thought_done = true;
                     }
+                    // Words of the answer have come, so the model has moved on
+                    // from any call it was writing. The block of that call says
+                    // so now, instead of going on saying it is being written.
+                    if end_writing_calls(&mut guard) {
+                        guard.touch();
+                    }
                     if text_update.elapsed() > Duration::from_millis(60) {
                         text_update = Instant::now();
                         guard.touch();
@@ -3372,6 +3429,13 @@ fn run_turn(
                     // A thought is a word of the answer as well: the words that
                     // were sent are worked through by now.
                     if finish_progress(&mut guard) {
+                        guard.touch();
+                    }
+                    // The model thinks again, so whatever call it was writing is
+                    // written: nothing more comes of those words, and the block
+                    // of it must stop saying it is being written while the
+                    // thinking goes on over it.
+                    if end_writing_calls(&mut guard) {
                         guard.touch();
                     }
                     if reason_update.elapsed() > Duration::from_millis(60) {
@@ -5019,6 +5083,49 @@ mod tests {
             state.live_tools.clear();
         }
         assert!(engine.snapshot().live_tools.is_empty());
+    }
+
+    // A model that thinks, writes a call, and then thinks again has finished the
+    // words of that call long before the step of the answer comes to an end. The
+    // block of it must stop saying it is being written, and must keep saying it
+    // is written while nothing new comes of those words. Words that grow again
+    // are being written again, and say so.
+    #[test]
+    fn a_call_the_model_moved_on_from_says_it_is_written() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.new_chat();
+        let mut state = engine.state.lock().unwrap();
+        let half = ToolCall {
+            id: String::from("c1"),
+            name: String::from(tools::TOOL_NAME),
+            arguments: String::from("{\"command\":\"uname -a"),
+        };
+        let whole = ToolCall {
+            id: String::from("c1"),
+            name: String::from(tools::TOOL_NAME),
+            arguments: String::from("{\"command\":\"uname -a -s\"}"),
+        };
+        // The words of the call are coming in.
+        write_calls(&mut state, std::slice::from_ref(&half));
+        assert_eq!(state.live_tools.len(), 1);
+        assert!(!state.live_tools[0].done);
+        // The model thinks again, so the call is written.
+        assert!(end_writing_calls(&mut state));
+        assert!(state.live_tools[0].done);
+        // A piece that brings nothing new does not start the writing again.
+        write_calls(&mut state, std::slice::from_ref(&half));
+        assert!(state.live_tools[0].done);
+        // Words that grew are being written again.
+        write_calls(&mut state, std::slice::from_ref(&whole));
+        assert!(!state.live_tools[0].done);
+        // Nothing stood written, so ending the writing is a change the window
+        // has to hear about.
+        assert!(end_writing_calls(&mut state));
+        assert!(state.live_tools[0].done);
+        // The same word again is nothing to tell.
+        assert!(!end_writing_calls(&mut state));
     }
 
     // The gauge above the chat box stood while the server worked the words it

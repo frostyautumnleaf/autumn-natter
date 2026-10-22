@@ -150,6 +150,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "command": one.command,
                 "purpose": one.purpose,
                 "target": one.target,
+                // The model has moved on from this call, so its words are all
+                // in and the block is no longer being written.
+                "done": one.done,
             })
         })
         .collect();
