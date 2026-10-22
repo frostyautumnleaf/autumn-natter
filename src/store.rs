@@ -399,14 +399,22 @@ impl Chat {
         out
     }
 
-    // True when a handoff summary of this chat was asked for and never came
-    // back. The mark of the summarisation stands in the talk with nothing in
-    // it, which is what a summary the server never finished leaves behind. The
-    // reader is asked to start it again before the chat goes on.
+    // True when the newest summarisation of this chat was asked for and never
+    // came back. The mark of it stands in the talk with nothing in it, which is
+    // what a summary the server never finished leaves behind. The reader is
+    // asked to start it again before the chat goes on.
+    //
+    // Only the newest mark is looked at. An older mark that was written later
+    // must not hold the chat: a chat whose last summarisation came off has room
+    // to be used again, and a chat that waits on a mark of long ago could never
+    // be sent to at all.
     pub fn handoff_owed(&self) -> bool {
         self.messages
             .iter()
-            .any(|m| m.role == "Summary" && m.body.trim().is_empty())
+            .rev()
+            .find(|m| m.role == "Summary")
+            .map(|m| m.body.trim().is_empty())
+            .unwrap_or(false)
     }
 
     // The marks of every attachment the messages of this chat carry. The
@@ -718,6 +726,42 @@ mod tests {
             ..waiting
         };
         assert!(!written.handoff_owed());
+    }
+
+    // A summarisation that was never written holds the chat. One that was
+    // written after it lets the chat go, for the newest mark is the mark the
+    // chat waits on. A chat with an old mark of long ago behind it must still
+    // take a message, or it would be shut for ever.
+    #[test]
+    fn an_older_unwritten_summarisation_does_not_hold_the_chat() {
+        let mark = |id: &str, body: &str| Message {
+            id: id.to_string(),
+            role: "Summary".to_string(),
+            body: body.to_string(),
+            ..Default::default()
+        };
+        let chat = Chat {
+            meta: ChatMeta {
+                id: "c1".to_string(),
+                ..Default::default()
+            },
+            messages: vec![
+                mark("s1", ""),
+                mark("s2", "the handoff summary of the talk, written the second time"),
+            ],
+            transient: false,
+        };
+        assert!(!chat.handoff_owed());
+        // The other way round the chat still waits, for the newest mark holds
+        // nothing.
+        let back = Chat {
+            messages: vec![
+                mark("s1", "a summary that came off"),
+                mark("s2", ""),
+            ],
+            ..chat
+        };
+        assert!(back.handoff_owed());
     }
 
     // A chat written before the switch of the web search existed reads with the

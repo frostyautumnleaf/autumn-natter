@@ -906,7 +906,31 @@ impl State {
     // is asked for. The mark keeps its place whether the words come or not: the
     // reader sees where the talk was cut, and a summary the server never
     // finished is a mark with nothing in it, which the reader can start again.
+    //
+    // A mark with nothing in it is started again in the place it stands, and is
+    // not copied. The reader is told to write that summarisation again, so a
+    // second heading with a new number would say the chat was summarised twice
+    // when it was not: the retried mark keeps its number and its place, and only
+    // its words and its hour are put again.
     fn begin_summary(&mut self) -> String {
+        if let Some(chat) = self.chat_mut() {
+            if let Some(mark) = chat
+                .messages
+                .iter_mut()
+                .rev()
+                .find(|m| m.role == "Summary")
+                .filter(|m| m.body.trim().is_empty())
+            {
+                mark.tool = String::from("the handoff summary is being written ...");
+                mark.when = store::now_secs();
+                mark.context_before = 0;
+                mark.context_after = 0;
+                let again = mark.id.clone();
+                self.persist();
+                self.touch();
+                return again;
+            }
+        }
         let id = store::new_id();
         if let Some(chat) = self.chat_mut() {
             chat.messages.push(Message {
@@ -5144,6 +5168,77 @@ mod tests {
         let marks = state.handoffs();
         assert_eq!(marks[1].state, "done");
         assert_eq!(marks[1].before, 7000);
+    }
+
+    // A summarisation that was never written is started again in the place it
+    // stands. The reader was told to write that one again, so a new heading with
+    // a new number would say the chat was summarised twice when it was not. The
+    // mark keeps its number, and the chat is not held by an empty mark of its own
+    // once the words come.
+    #[test]
+    fn a_summarisation_started_again_keeps_its_mark_and_number() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.open_blank_chat();
+        add_message(&mut state, "You", "the first prompt");
+        add_message(&mut state, "Assistant", "the old answer");
+        let first = state.begin_summary();
+        state.finish_summary(&first, "Done: the parser. Next: the bar.", 6964, 412, "");
+        // The second summarisation was asked for and never written.
+        let second = state.begin_summary();
+        state.finish_summary(&second, "", 7000, 0, "the server went away");
+        assert!(state.handoff_owed());
+        assert_eq!(state.handoffs().len(), 2);
+        // Started again: the same mark, the same number, and no third heading.
+        let again = state.begin_summary();
+        assert_eq!(again, second);
+        let marks = state.handoffs();
+        assert_eq!(marks.len(), 2);
+        assert_eq!(marks[1].number, 2);
+        state.generating = true;
+        assert_eq!(state.handoffs()[1].state, "writing");
+        state.generating = false;
+        state.finish_summary(&again, "Done: the bar. Next: nothing.", 7000, 96, "");
+        assert_eq!(state.handoffs().len(), 2);
+        assert_eq!(state.handoffs()[1].number, 2);
+        assert_eq!(state.handoffs()[1].state, "done");
+        // A mark of long ago that was never written must not be written into for
+        // a new summarisation. Only the newest mark is started again, and a fresh
+        // summarisation is a fresh mark. The old mark is put before the mark that
+        // came off, so it is not the newest thing in the talk.
+        if let Some(chat) = state.chat_mut() {
+            let at = chat
+                .messages
+                .iter()
+                .rposition(|m| m.role == "Summary")
+                .unwrap_or(0);
+            chat.messages.insert(
+                at,
+                Message {
+                    id: String::from("s-old"),
+                    role: String::from("Summary"),
+                    body: String::new(),
+                    ..Default::default()
+                },
+            );
+        }
+        // The newest mark holds words, so the chat is free again.
+        assert!(!state.handoff_owed());
+        let third = state.begin_summary();
+        assert_ne!(third, "s-old");
+        // The two marks of the talk, the mark of long ago, and this new one.
+        let marks = state.handoffs();
+        assert_eq!(marks.len(), 4);
+        assert_eq!(marks[1].id, "s-old");
+        assert_eq!(marks[1].state, "owed");
+        assert_eq!(marks[3].id, third);
+        assert_eq!(marks[3].number, 4);
+        // The new mark holds the chat until its words come, and no longer after.
+        assert!(state.handoff_owed());
+        state.finish_summary(&third, "Done: nothing left to do.", 7000, 64, "");
+        assert!(!state.handoff_owed());
     }
 
     // A chat that was summarised sends the first message of the reader, the
