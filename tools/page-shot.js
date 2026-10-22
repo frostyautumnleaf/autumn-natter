@@ -325,7 +325,8 @@ function scene(name, dark) {
       // and the choice stands on, as it does for a new chat.
       preserve: true, preserve_available: true
     },
-    chatting: { collapse_thinking: true, grow_thinking: true, collapse_tools: true,
+    chatting: { collapse_thinking: true, grow_thinking: true,
+                tools_in_thinking: true, collapse_tools: true,
                 highlight: true, chapters: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
     generating: false, busy: false, code: false, search: false, sandbox: false,
@@ -417,6 +418,10 @@ function scene(name, dark) {
     if (process.env.AN_NOTHINKGROW === '1') {
       start.chatting.grow_thinking = false;
       CONFIG.chat_grow_thinking = false;
+    }
+    if (process.env.AN_NOTOOLSTHINK === '1') {
+      start.chatting.tools_in_thinking = false;
+      CONFIG.chat_tools_in_thinking = false;
     }
     start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
     start.code = name === 'rich';
@@ -609,6 +614,7 @@ const CONFIG = {
   dark_mode: false,
   chat_collapse_thinking: true,
   chat_grow_thinking: true,
+  chat_tools_in_thinking: true,
   chat_collapse_tools: true,
   chat_highlight: true,
   chat_chapters: true,
