@@ -322,7 +322,7 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
                 value.get("attachments").cloned().unwrap_or(serde_json::Value::Null),
             );
             if text.trim().is_empty() && files.is_empty() {
-                return refused("nothing was written");
+                return refused("Nothing was written");
             }
             engine.prompt(text, files);
             done()
@@ -395,7 +395,7 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.set_dark_mode(flag(&value, "on"));
             done()
         }
-        other => refused(&format!("the caller may not use {}", other)),
+        other => refused(&format!("The caller may not use {}", other)),
     }
 }
 

@@ -597,10 +597,10 @@ impl Store {
             path: path.clone(),
         };
         if path.join("repo.json").is_file() {
-            return Err("a repository with that name already exists".to_string());
+            return Err("A repository with that name already exists".to_string());
         }
         fs::create_dir_all(&path)
-            .map_err(|e| format!("cannot create {}: {}", path.display(), e))?;
+            .map_err(|e| format!("Cannot create {}: {}", path.display(), e))?;
         fs::create_dir_all(path.join("chats")).map_err(|e| e.to_string())?;
         let text = serde_json::to_string_pretty(&repo).unwrap_or_else(|_| String::from("{}"));
         fs::write(path.join("repo.json"), text).map_err(|e| e.to_string())?;

@@ -46,7 +46,7 @@ pub fn run(cfg: Config) -> Result<(), String> {
         .setup(|app| {
             let windows = app.config().app.windows.clone();
             let Some(shape) = windows.first() else {
-                return Err("no window in the settings of the program".into());
+                return Err("No window in the settings of the program".into());
             };
             let window = tauri::WebviewWindowBuilder::from_config(app.handle(), shape)?
                 .enable_clipboard_access()
@@ -55,7 +55,7 @@ pub fn run(cfg: Config) -> Result<(), String> {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .map_err(|problem| format!("the window could not be opened: {}", problem))?;
+        .map_err(|problem| format!("The window could not be opened: {}", problem))?;
 
     app.run(|app_handle, event| {
         // The window is going away, so the model must leave the memory with it.

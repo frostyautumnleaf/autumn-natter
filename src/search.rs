@@ -40,10 +40,10 @@ const MAX_PLACES: usize = 6;
 // The words between two places of the answer, and the words at the end that tell
 // the model what to do with an address it likes.
 const BETWEEN: &str = "\n\n---\n\n";
-const LAST: &str = "\n\n---\n\nThese are short words of each place. To read a whole page, ask again with the address of it, as {\"url\": \"https://...\"}.";
+const LAST: &str = "\n\n---\n\nThese are short summaries of each result. To read a whole page, call again with its address, as {\"url\": \"https://...\"}.";
 
 // The words that stand after a page of more words than this program sends.
-const CUT: &str = "(the words of the page were cut here, for the page held more than this program sends)";
+const CUT: &str = "(the text of the page was cut here, because the page was longer than this program sends)";
 
 // The engines, in the order they are worth asking. Two of the well known engines
 // answer this machine with a test to prove that it is not a house of robots, so
@@ -75,17 +75,17 @@ pub fn definition() -> Value {
         "type": "function",
         "function": {
             "name": NAME,
-            "description": "Look a thing up on the web, and read a page of it. With words to look for it gives back the titles, the addresses and the short words of the places it found. With an address it reads that page and gives back its words, so use the address of a place you liked rather than guess at it. The answer of an engine is short words only, so a second call with the address of it is often the better part of the work. Nothing is kept of what was read.",
+            "description": "Search the web, and read a page of it. With words to search for it returns the titles, the addresses and the short summaries of the results. With an address it reads that page and returns its text, so use the address of a result you want instead of guessing at it. The answer of a search engine is a short summary only, so a second call with the address of the page is often the better part of the work. Nothing that is read is stored.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The words to look for."
+                        "description": "The words to search for."
                     },
                     "url": {
                         "type": "string",
-                        "description": "The address of a page to read, instead of looking about."
+                        "description": "The address of a page to read, instead of searching."
                     }
                 },
                 "required": []
@@ -139,7 +139,7 @@ pub fn run(raw: &str) -> tools::Report {
         return tools::Report {
             ok: false,
             output: String::from(
-                "the call needs words to look for, or the address of a page to read",
+                "The call needs words to search for, or the address of a page to read",
             ),
         };
     }
@@ -160,7 +160,7 @@ pub fn run(raw: &str) -> tools::Report {
     tools::Report {
         ok: false,
         output: format!(
-            "nothing was found for \"{}\". {}",
+            "Nothing was found for \"{}\". {}",
             first_words(wanted, 120),
             trouble.join("; ")
         ),
@@ -182,7 +182,7 @@ fn told(places: Vec<Place>, encyclopedia: bool) -> tools::Report {
     let mut output = parts.join(BETWEEN);
     if encyclopedia {
         output = format!(
-            "The engines of the web could not be reached, or found nothing usable. These are words of the encyclopedia, which is not the news of today.\n\n{}",
+            "The web engines could not be reached, or found nothing usable. The text below is from the encyclopedia, which is not current news.\n\n{}",
             output
         );
     }
@@ -202,7 +202,7 @@ fn read_page(address: &str) -> tools::Report {
         return tools::Report {
             ok: false,
             output: format!(
-                "\"{}\" is not an address to read. An address starts with http:// or https://",
+                "\"{}\" is not an address that can be read. An address starts with http:// or https://",
                 first_words(address, 120)
             ),
         };
@@ -222,12 +222,12 @@ fn read_page(address: &str) -> tools::Report {
             if words.trim().is_empty() {
                 return tools::Report {
                     ok: false,
-                    output: format!("the page at {} held no words to read", address),
+                    output: format!("the page at {} held no text to read", address),
                 };
             }
             tools::Report {
                 ok: true,
-                output: format!("The words of {}:\n\n{}", address, words),
+                output: format!("The text of {}:\n\n{}", address, words),
             }
         }
     }
@@ -806,7 +806,7 @@ mod tests {
     fn the_call_needs_one_of_the_two_things() {
         let out = run("{}");
         assert!(!out.ok);
-        assert!(out.output.contains("words to look for"));
+        assert!(out.output.contains("words to search for"));
     }
 
     #[test]

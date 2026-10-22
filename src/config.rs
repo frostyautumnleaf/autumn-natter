@@ -60,7 +60,7 @@ pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a very detailed but concise hand
 // can fill that room to the end and stop in the middle of a sentence. The
 // second ask carries the same talk and a prompt that leans hard the other way,
 // so the words come to an end inside the room that is left.
-pub const DEFAULT_HANDOFF_PROMPT_SHORT: &str = "Write a very short handoff summary for AI consumption (no styling). The room of the model is nearly full, so the whole summary must come to an end within a few hundred words. Keep only what an AI needs in order to go on with the work from this point: what has been done, what stands half done, and what has to be done next. Name the files that matter with one short line each. Do not repeat the talk, do not look back over work that is finished, and do not add detail that is not needed to continue.";
+pub const DEFAULT_HANDOFF_PROMPT_SHORT: &str = "Write a very short handoff summary for AI consumption (no styling). The context window of the model is nearly full, so the whole summary must end within a few hundred words. Keep only what an AI needs to continue the work from this point: what is done, what is half done, and what to do next. Name the files that matter, one short line each. Do not repeat the conversation, do not review finished work, and do not add detail that is not needed to continue.";
 
 // The share of the room of the talk at which the handoff summary is asked for.
 fn default_compact_percent() -> u32 {

@@ -86,13 +86,13 @@ pub fn definition() -> Value {
         "type": "function",
         "function": {
             "name": TOOL_NAME,
-            "description": "Run one shell command and return what it printed. The command starts in the working directory of the chat. When the sandbox is on, the command sees only that directory and the programs of the machine: every other file of the machine, the home folder included, is not there, there is no network, and nothing is left of the command in the next one.",
+            "description": "Run one shell command and return its output. The command runs in the working directory of the chat. When the sandbox is on, the command can see only that directory and the programs of the machine: no other file of the machine is visible, the home folder included, there is no network access, and a file left by one command is not seen by the next.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "The shell command to run, in one line."
+                        "description": "The shell command to run, as one line of text."
                     }
                 },
                 "required": ["command"]
@@ -107,13 +107,13 @@ pub fn chapter_definition() -> Value {
         "type": "function",
         "function": {
             "name": CHAPTER_TOOL_NAME,
-            "description": "Mark the start of a new chapter of this chat. Call it whenever a new part of the work begins: a new task, a new question, a new phase, or the next chapter of a story you are writing. You may call it as often as you like, and in the middle of your work: call it for a part just before you write that part, then go straight on writing. After the call you are told only that the mark was taken, and you go on where you left off. The name is a few words that say what the part is about. Do not call it twice for the same part, do not speak of this call, and do not mention chapters in your answer.",
+            "description": "Mark the start of a new chapter in this chat. Call it when a new part of the work begins: a new task, a new question, a new phase, or the next chapter of a story you are writing. You may call it as often as you like, including in the middle of your work. Call it just before you write the part it marks, then continue writing. The result only confirms that the marker was added, and you continue where you stopped. The name is a short phrase that says what the part is about. Do not mark the same part twice, do not describe this call, and do not mention chapters in your answer.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "The name of the chapter, in a few words, no longer than 50 characters."
+                        "description": "The name of the chapter, as a short phrase of at most 50 characters."
                     }
                 },
                 "required": ["name"]
@@ -164,7 +164,7 @@ impl Outcome {
     // Text for the tool block in the chat window.
     pub fn summary(&self) -> String {
         if self.timed_out {
-            return "the command ran out of time and was stopped".to_string();
+            return "The command timed out and was stopped".to_string();
         }
         self.output.clone()
     }
@@ -351,7 +351,7 @@ pub fn run(command: &str, workdir: &Path, sandbox: bool, timeout: Duration) -> O
     if command.trim().is_empty() {
         return Outcome {
             ok: false,
-            output: "the model asked for an empty command".to_string(),
+            output: "The model asked for an empty command".to_string(),
             sandboxed: false,
             timed_out: false,
         };
@@ -375,10 +375,10 @@ pub fn run(command: &str, workdir: &Path, sandbox: bool, timeout: Duration) -> O
         if sandbox {
             let reason = jail_check()
                 .err()
-                .unwrap_or_else(|| String::from("there is no bubblewrap on this system"));
+                .unwrap_or_else(|| String::from("bubblewrap is not available on this system"));
             return Outcome {
                 ok: false,
-                output: format!("the sandbox did not run this command: {}", reason),
+                output: format!("The sandbox did not run this command: {}", reason),
                 sandboxed: false,
                 timed_out: false,
             };
@@ -396,7 +396,7 @@ pub fn run(command: &str, workdir: &Path, sandbox: bool, timeout: Duration) -> O
             let _ = timeout;
             Outcome {
                 ok: false,
-                output: "no shell is available on this system".to_string(),
+                output: "No shell is available on this system".to_string(),
                 sandboxed: false,
                 timed_out: false,
             }
@@ -406,7 +406,7 @@ pub fn run(command: &str, workdir: &Path, sandbox: bool, timeout: Duration) -> O
     {
         Outcome {
             ok: false,
-            output: "no shell is available on this system".to_string(),
+            output: "No shell is available on this system".to_string(),
             sandboxed: false,
             timed_out: false,
         }
@@ -420,7 +420,7 @@ pub fn run(command: &str, workdir: &Path, sandbox: bool, timeout: Duration) -> O
 fn run_jailed(command: &str, workdir: &Path, timeout: Duration) -> Outcome {
     let failed = |reason: String| Outcome {
         ok: false,
-        output: format!("the sandbox did not run this command: {}", reason),
+        output: format!("The sandbox did not run this command: {}", reason),
         sandboxed: false,
         timed_out: false,
     };
@@ -457,7 +457,7 @@ fn finish(capture: util::Capture, sandboxed: bool) -> Outcome {
         output = if capture.ok {
             "(no output)".to_string()
         } else {
-            format!("the command failed with code {}", capture.code)
+            format!("The command failed with exit code {}", capture.code)
         };
     }
     Outcome {
@@ -482,7 +482,7 @@ fn trim_output(text: &str) -> String {
         .iter()
         .rev()
         .collect();
-    format!("{}\n... output cut in the middle ...\n{}", head, tail)
+    format!("{}\n... output truncated in the middle ...\n{}", head, tail)
 }
 
 // A place put into a line of the shell. A mark of quoting inside a folder name
@@ -508,7 +508,7 @@ pub fn jail_check() -> Result<(), String> {
 fn probe_the_jail() -> Result<(), String> {
     let Some(bwrap) = bwrap_path() else {
         return Err(String::from(
-            "bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.",
+            "bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox.",
         ));
     };
     static TURN: AtomicUsize = AtomicUsize::new(0);
@@ -520,7 +520,7 @@ fn probe_the_jail() -> Result<(), String> {
     let workdir = root.join("work");
     if std::fs::create_dir_all(&workdir).is_err() {
         return Err(String::from(
-            "the check of the sandbox could not make a folder to work in",
+            "the sandbox check could not create a working directory",
         ));
     }
     // A file beside the working directory, which no command inside may read.
@@ -560,10 +560,10 @@ fn probe_the_jail() -> Result<(), String> {
     let capture = util::capture_in(&program, &args, Some(&workdir), Duration::from_secs(20));
     let _ = std::fs::remove_dir_all(&root);
     if capture.timed_out {
-        return Err(String::from("bubblewrap did not answer the check of the sandbox"));
+        return Err(String::from("bubblewrap did not answer the sandbox check"));
     }
     if let Some(problem) = jail_failure(&capture) {
-        return Err(format!("bubblewrap could not start a jail: {}", problem));
+        return Err(format!("bubblewrap could not start the sandbox: {}", problem));
     }
     let problems = check_lines(&capture.all());
     if problems.is_empty() {
@@ -589,12 +589,12 @@ fn check_lines(text: &str) -> Vec<String> {
     // of them: keeping it out is what the sandbox is there for.
     if !holds("hidden=yes") {
         problems.push(String::from(
-            "a file outside the working directory could still be read from inside",
+            "a file outside the working directory was readable inside the sandbox",
         ));
     }
     if !holds("writable=yes") {
         problems.push(String::from(
-            "the working directory could not be written inside the jail",
+            "the working directory was not writable inside the sandbox",
         ));
     }
     // Either of the two parts of the host root standing inside says the same
@@ -602,11 +602,11 @@ fn check_lines(text: &str) -> Vec<String> {
     // the window says it once.
     if !holds("accounts=hidden") || !holds("logs=hidden") {
         problems.push(String::from(
-            "the root of the machine is visible inside the jail",
+            "the root of the machine is visible inside the sandbox",
         ));
     }
     if !holds("net=off") {
-        problems.push(String::from("the network is not cut off inside the jail"));
+        problems.push(String::from("the network is not blocked inside the sandbox"));
     }
     problems
 }

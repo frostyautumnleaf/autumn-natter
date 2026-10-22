@@ -70,31 +70,31 @@ pub fn edit_definition() -> Value {
         "type": "function",
         "function": {
             "name": EDIT_NAME,
-            "description": "Change a file of the chat by putting exact words in the place of other exact words. Prefer this over writing a whole file out again with the terminal tool, for only what changes is sent. Copy each old_string word for word out of the file, spacing included. Put every change to one file in the same call, and not in several calls. Every old_string is matched against the file as it stood before this call, and no two of them may cover the same words. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. An old_string is never empty: use create_file for a new file. The file stands in the room of the chat, which is the only place this tool works, and the tool runs in the program, so it works the same whether the sandbox is on or off. A call that went well means the file now holds what was sent, so read it again only when you must.",
+            "description": "Change a file in the chat by replacing exact text with other exact text. Prefer this over writing a whole file again with the terminal tool, because only the changed part is sent. Copy each old_string exactly from the file, spacing included. Put every change to one file in the same call, not in several calls. Every old_string is matched against the file as it was before this call, and no two of them may cover the same text. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. An old_string is never empty: use create_file for a new file. The file is in the working directory of the chat, which is the only place this tool works, and the tool runs in the program, so it works the same whether the sandbox is on or off. A call that succeeded means the file now holds what was sent, so read it again only when you must.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file to change, named from the room of the chat, as 'notes.txt' or 'src/parse.rs'."
+                        "description": "The file to change. The name is relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'."
                     },
                     "edits": {
                         "type": "array",
-                        "description": "The changes to make together. Each one names the words to take out and the words to put in their place.",
+                        "description": "The changes to apply in one call. Each change gives the text to replace and the text to put in its place.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "old_string": {
                                     "type": "string",
-                                    "description": "The words to take out, copied out of the file. Never empty."
+                                    "description": "The text to replace, copied from the file. Never empty."
                                 },
                                 "new_string": {
                                     "type": "string",
-                                    "description": "The words to put in their place."
+                                    "description": "The text to put in its place."
                                 },
                                 "replace_all": {
                                     "type": "boolean",
-                                    "description": "Change every place these words stand, instead of asking that they stand in one place. Off when it is not given."
+                                    "description": "Replace every place this text appears, instead of requiring that it appears once. Off when it is not given."
                                 }
                             },
                             "required": ["old_string", "new_string"]
@@ -114,17 +114,17 @@ pub fn create_definition() -> Value {
         "type": "function",
         "function": {
             "name": CREATE_NAME,
-            "description": "Make a new file in the room of the chat, with the words given for it. A file that already stands there is left as it is, for this tool never writes over one: use edit_file to change a file. Folders on the way to the file are made. The whole file is written at once, so words that go on growing are better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
+            "description": "Create a new file in the working directory of the chat, with the text given for it. A file that already exists is left unchanged, because this tool never overwrites one: use edit_file to change a file. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file to make, named from the room of the chat, as 'notes.txt' or 'src/parse.rs'."
+                        "description": "The file to create. The name is relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'."
                     },
                     "text": {
                         "type": "string",
-                        "description": "The whole of the file, as it is to stand on the disk. A file of nothing at all is made with the words empty."
+                        "description": "The whole content of the new file. An empty string makes an empty file."
                     }
                 },
                 "required": ["path", "text"]
@@ -428,7 +428,7 @@ fn as_far_as_stands(path: &Path) -> PathBuf {
 pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
     let name = raw.trim();
     if name.is_empty() {
-        return Err(String::from("the name of the file is asked for"));
+        return Err(String::from("The name of the file is required"));
     }
     let the_room = room(workdir);
     let cut = habit(name);
@@ -440,7 +440,7 @@ pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
     for part in joined.components() {
         if part == Component::ParentDir {
             return Err(format!(
-                "'{}' leads up out of the room of the chat. That room is the only place the file tools work, so name the file from it, as '{}'.",
+                "'{}' points outside the working directory of the chat. That directory is the only place the file tools work, so give a name relative to it, as '{}'.",
                 name,
                 last(&joined)
             ));
@@ -448,14 +448,14 @@ pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
     }
     if in_shelf(&joined) {
         return Err(format!(
-            "'{}' leads into the folder of the records of the attachments of the chat. Those files are not for a tool.",
+            "'{}' points into the attachment store of the chat. Tool calls cannot read or write those files.",
             name
         ));
     }
     let checked = as_far_as_stands(&joined);
     if !under(&the_room, &checked) {
         return Err(format!(
-            "'{}' is outside the room of the chat, which is the only place the file tools work. Name the file from that room, as '{}'.",
+            "'{}' is outside the working directory of the chat, which is the only place the file tools work. Give a name relative to it, as '{}'.",
             name,
             last(&joined)
         ));
@@ -479,20 +479,20 @@ fn read_words(place: &Path) -> Result<Standing, String> {
         Ok(made) => made,
         Err(_) => {
             return Err(format!(
-                "'{}' was not there to be read. Make it with create_file, or read the room of the chat to see what is there.",
+                "'{}' does not exist. Create it with create_file, or list the working directory of the chat to see what is there.",
                 name
             ))
         }
     };
     if bytes.len() > MAX_FILE_BYTES {
         return Err(format!(
-            "'{}' holds more bytes than a file tool may read, which is {}.",
+            "'{}' is larger than the {} bytes a file tool may read.",
             name, MAX_FILE_BYTES
         ));
     }
     let mut text = match String::from_utf8(bytes.clone()) {
         Ok(words) => words,
-        Err(_) => return Err(format!("'{}' is not words, so no file tool can change it.", name)),
+        Err(_) => return Err(format!("'{}' is not text, so a file tool cannot change it.", name)),
     };
     let mut bom = String::new();
     if let Some(rest) = text.strip_prefix('\u{feff}') {
@@ -500,7 +500,7 @@ fn read_words(place: &Path) -> Result<Standing, String> {
         text = rest.to_string();
     }
     if text.contains('\0') {
-        return Err(format!("'{}' is a file of bytes, not words, so no file tool can change it.", name));
+        return Err(format!("'{}' is a binary file, not text, so a file tool cannot change it.", name));
     }
     let lines = text.matches('\n').count();
     let ends = text.matches("\r\n").count();
@@ -584,13 +584,13 @@ fn write_words(the_room: &Path, place: &Path, standing: &Standing, as_it_was: &[
     let made = payload(standing);
     if made.len() > MAX_FILE_BYTES {
         return Err(format!(
-            "the new '{}' holds more bytes than a file tool may write, which is {}.",
+            "the new '{}' is larger than the {} bytes a file tool may write.",
             name, MAX_FILE_BYTES
         ));
     }
     if let Some(parent) = place.parent() {
         if let Err(problem) = std::fs::create_dir_all(parent) {
-            return Err(format!("the folder for '{}' could not be made: {}", name, problem));
+            return Err(format!("the folder for '{}' could not be created: {}", name, problem));
         }
     }
     let side = side_file(place);
@@ -604,20 +604,20 @@ fn write_words(the_room: &Path, place: &Path, standing: &Standing, as_it_was: &[
     };
     if !under(the_room, &as_far_as_stands(place)) {
         return Err(gone(format!(
-            "'{}' moved out of the room of the chat while this call was making it ready, so nothing was written.",
+            "'{}' moved outside the working directory of the chat while this call was prepared, so nothing was written.",
             name
         )));
     }
     if let Some(now) = head_bytes(place, as_it_was.len()) {
         if now != as_it_was {
             return Err(gone(format!(
-                "'{}' changed while this call was making it ready, so nothing was written. Read the file again and work the changes out on the words that stand in it now.",
+                "'{}' changed while this call was prepared, so nothing was written. Read the file again and apply the changes to the text it holds now.",
                 name
             )));
         }
     }
     if let Err(problem) = std::fs::rename(&side, place) {
-        return Err(gone(format!("'{}' could not be put in its place: {}", name, problem)));
+        return Err(gone(format!("'{}' could not be replaced: {}", name, problem)));
     }
     Ok(())
 }
@@ -650,16 +650,16 @@ fn parse_changes(call: &Value) -> Result<Vec<Change>, String> {
         .get("edits")
         .and_then(|v| v.as_array())
         .ok_or_else(|| String::from(
-            "'edits' is asked for, as a list of {old_string, new_string}. Put every change to this file in that list.",
+            "'edits' is required, as a list of {old_string, new_string}. Put every change to this file in that list.",
         ))?;
     if items.is_empty() {
         return Err(String::from(
-            "'edits' has nothing in it. Say which words of the file are to be changed.",
+            "'edits' is empty. Say which text of the file is to be changed.",
         ));
     }
     if items.len() > MAX_EDITS {
         return Err(format!(
-            "{} changes in one call is over the limit of {}. Nothing was written. Send them in runs of {} at a time, and write one run before the next.",
+            "{} changes in one call is over the limit of {}. Nothing was written. Send them in groups of {} at a time, and write one group before the next.",
             items.len(),
             MAX_EDITS,
             MAX_EDITS
@@ -669,20 +669,20 @@ fn parse_changes(call: &Value) -> Result<Vec<Change>, String> {
     for (number, item) in items.iter().enumerate() {
         let index = number + 1;
         let entry = item.as_object().ok_or_else(|| {
-            format!("change {} is not a thing with old_string and new_string in it", index)
+            format!("change {} is not an object with old_string and new_string in it", index)
         })?;
         let before = entry.get("old_string").and_then(|v| v.as_str()).ok_or_else(|| {
-            format!("change {} needs old_string and new_string to both be words", index)
+            format!("change {} needs old_string and new_string to both be text", index)
         })?;
         let after = entry.get("new_string").and_then(|v| v.as_str()).ok_or_else(|| {
-            format!("change {} needs old_string and new_string to both be words", index)
+            format!("change {} needs old_string and new_string to both be text", index)
         })?;
         let everywhere = strict_bool(entry.get("replace_all")).ok_or_else(|| {
             format!("change {} needs replace_all to be true or false", index)
         })?;
         if before.is_empty() {
             return Err(format!(
-                "change {} has no words to take out. An empty old_string is not a way to make a file: use create_file for that.",
+                "change {} has no text to replace. An empty old_string does not create a file: use create_file for that.",
                 index
             ));
         }
@@ -722,13 +722,13 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
         let found = count_of(before, &change.before);
         if found == 0 {
             return Err(format!(
-                "change {} found nothing to take out in '{}'. The words must stand in the file word for word, spacing included. Read the file and copy the words out of it.",
+                "change {} found no text to replace in '{}'. The text must match the file exactly, spacing included. Read the file and copy the text from it.",
                 index, name
             ));
         }
         if found > 1 && !change.everywhere {
             return Err(format!(
-                "change {} matches {} places in '{}'. Take more of the lines about those words, so they match one place, or set replace_all on that change to change all {} of them.",
+                "change {} matches {} places in '{}'. Include more of the surrounding lines, so that it matches one place, or set replace_all on that change to change all {} of them.",
                 index, found, name, found
             ));
         }
@@ -746,7 +746,7 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
         }
         if change.everywhere && found > MAX_MATCHES {
             return Err(format!(
-                "change {} stands in {} places of '{}', over the limit of {} for one change of a batch. Nothing was written. Send it in a call of its own, or take longer words for it.",
+                "change {} matches {} places of '{}', over the limit of {} for one change in a batch. Nothing was written. Send it in a call of its own, or use a longer match.",
                 index, found, name, MAX_MATCHES
             ));
         }
@@ -764,7 +764,7 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
     for (one, next) in places.iter().zip(places[1..].iter()) {
         if next.0 < one.1 {
             return Err(format!(
-                "change {} and change {} cover the same words of '{}'. Every old_string is matched against the file as it stood before this call, so two changes cannot cover one place. Put the two of them in one change.",
+                "change {} and change {} cover the same text of '{}'. Every old_string is matched against the file as it was before this call, so two changes cannot cover one place. Put the two of them in one change.",
                 one.3, next.3, name
             ));
         }
@@ -1007,7 +1007,7 @@ fn receipt(name: &str, before: &str, made: &Made) -> String {
     let mut body = diff.join("\n");
     if body.len() > DIFF_CHARS {
         body.truncate(DIFF_CHARS);
-        body.push_str("\n... (receipt truncated)");
+        body.push_str("\n... (result truncated)");
     }
     format!("{}\n{}", head, body)
 }
@@ -1017,11 +1017,11 @@ fn receipt(name: &str, before: &str, made: &Made) -> String {
 fn wrong_shape(edit_tool: bool) -> String {
     if edit_tool {
         return String::from(
-            "the call needs the name of a file and a list of changes, as {\"path\": \"notes.txt\", \"edits\": [{\"old_string\": \"the words now\", \"new_string\": \"the words after\"}]}",
+            "The call needs the name of a file and a list of changes, as {\"path\": \"notes.txt\", \"edits\": [{\"old_string\": \"the words now\", \"new_string\": \"the words after\"}]}",
         );
     }
     String::from(
-        "the call needs the name of a file and the words for it, as {\"path\": \"notes.txt\", \"text\": \"the whole of the file\"}",
+        "The call needs the name of a file and the text for it, as {\"path\": \"notes.txt\", \"text\": \"the whole of the file\"}",
     )
 }
 
@@ -1036,7 +1036,7 @@ pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
         return failed(wrong_shape(true));
     };
     let Some(name) = first_of(&call, &PATH_KEYS) else {
-        return failed(String::from("the name of the file is asked for"));
+        return failed(String::from("The name of the file is required"));
     };
     let changes = match parse_changes(&call) {
         Ok(made) => made,
@@ -1083,7 +1083,7 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
         return failed(wrong_shape(false));
     };
     let Some(name) = first_of(&call, &PATH_KEYS) else {
-        return failed(String::from("the name of the file is asked for"));
+        return failed(String::from("The name of the file is required"));
     };
     let mut words = String::new();
     let mut given = false;
@@ -1096,13 +1096,13 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
     }
     if !given {
         return failed(format!(
-            "the words for '{}' are asked for. A file of nothing at all is made with the words empty.",
+            "the text for '{}' is required. An empty string makes an empty file.",
             name
         ));
     }
     if words.len() > MAX_FILE_BYTES {
         return failed(format!(
-            "the words for '{}' hold more bytes than a file tool may write, which is {}.",
+            "the text for '{}' is larger than the {} bytes a file tool may write.",
             name, MAX_FILE_BYTES
         ));
     }
@@ -1114,7 +1114,7 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
     if let Some(parent) = place.parent() {
         if let Err(problem) = std::fs::create_dir_all(parent) {
             return failed(format!(
-                "the folder for '{}' could not be made: {}",
+                "the folder for '{}' could not be created: {}",
                 name, problem
             ));
         }
@@ -1123,7 +1123,7 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
     // changed for a link while the folders on the way were being made.
     if !under(&the_room, &as_far_as_stands(&place)) {
         return failed(format!(
-            "'{}' moved out of the room of the chat while it was being made ready, so nothing was written.",
+            "'{}' moved outside the working directory of the chat while it was prepared, so nothing was written.",
             name
         ));
     }
@@ -1138,7 +1138,7 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
     if let Some(meta) = stood {
         if meta.len() > 0 {
             return failed(format!(
-                "'{}' already stands there with {} bytes in it. create_file makes a new file and never writes over one; to change this file, use edit_file.",
+                "'{}' already exists with {} bytes in it. create_file makes a new file and never overwrites one; to change this file, use edit_file.",
                 name,
                 meta.len()
             ));
@@ -1168,7 +1168,7 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
                 drop(file);
                 let _ = std::fs::remove_file(&place);
                 return failed(format!(
-                    "'{}' could not be written, so it was taken away again: {}",
+                    "'{}' could not be written, so it was removed again: {}",
                     name, problem
                 ));
             }
@@ -1182,7 +1182,7 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
                 ),
             }
         }
-        Err(problem) => failed(format!("'{}' could not be made: {}", name, problem)),
+        Err(problem) => failed(format!("'{}' could not be created: {}", name, problem)),
     }
 }
 
@@ -1202,7 +1202,7 @@ mod tests {
         ));
         let place = root.join(name);
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&place).expect("the room of the chat could not be made");
+        std::fs::create_dir_all(&place).expect("the working directory of the chat could not be created");
         place
     }
 
@@ -1267,7 +1267,7 @@ mod tests {
         ];
         let made = apply_all(before, &changes, "notes.txt");
         assert!(made.is_err());
-        assert!(made.unwrap_err().contains("found nothing to take out"));
+        assert!(made.unwrap_err().contains("found no text to replace"));
     }
 
     // Two changes of one call cannot cover one place.
@@ -1280,7 +1280,7 @@ mod tests {
         ];
         let made = apply_all(before, &changes, "notes.txt");
         assert!(made.is_err());
-        assert!(made.unwrap_err().contains("cover the same words"));
+        assert!(made.unwrap_err().contains("cover the same text"));
     }
 
     // Words that stand in more than one place need the change marked for every

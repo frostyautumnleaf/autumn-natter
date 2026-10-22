@@ -52,7 +52,7 @@ pub async fn get_attachment(engine: State<'_, Engine>, id: String) -> Result<Val
             "data": record.data,
             "text": record.text,
         })),
-        None => Err("that attachment is not here".to_string()),
+        None => Err("That attachment is not here".to_string()),
     }
 }
 
@@ -71,7 +71,7 @@ pub async fn save_config(engine: State<'_, Engine>, config: Value) -> Result<Val
             Ok(web::done())
         }
         Err(problem) => Ok(web::refused(&format!(
-            "the settings could not be read: {}",
+            "The settings could not be read: {}",
             problem
         ))),
     }
@@ -138,7 +138,7 @@ pub async fn save_model_settings(
             Ok(web::done())
         }
         Err(problem) => Ok(web::refused(&format!(
-            "the model settings could not be read: {}",
+            "The model settings could not be read: {}",
             problem
         ))),
     }

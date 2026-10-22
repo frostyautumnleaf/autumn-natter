@@ -181,21 +181,21 @@ const FULL = [
   said(9, 'Tool', 'largest lake in Africa by volume', {
     tool_name: 'web_search',
     tool: 'Title: Lake Victoria - Wikipedia\nURL: https://en.wikipedia.org/wiki/Lake_Victoria\n'
-      + 'Words: Lake Victoria is the largest lake in Africa by area, and the second-largest '
+      + 'Text: Lake Victoria is the largest lake in Africa by area, and the second-largest '
       + 'freshwater lake by area after Lake Superior.\n\n---\n\n'
       + 'Title: Lake Tanganyika - Wikipedia\nURL: https://en.wikipedia.org/wiki/Lake_Tanganyika\n'
-      + 'Words: Lake Tanganyika is the largest tropical freshwater lake by volume, and the '
+      + 'Text: Lake Tanganyika is the largest tropical freshwater lake by volume, and the '
       + 'second oldest and second deepest lake in the world.\n\n---\n\n'
-      + 'These are short words of each place. To read a whole page, ask again with the '
-      + 'address of it, as {"url": "https://..."}.'
+      + 'These are short summaries of each result. To read a whole page, call again '
+      + 'with its address, as {"url": "https://..."}.'
   }),
   // A picture handed to the model. The block carries the receipt of the run and
   // never the picture itself: the bytes go to the model alone.
   said(10, 'Tool', 'notes/cat.png', {
     tool_name: 'view_image',
-    tool: 'Opened a picture: notes/cat.png (PNG, 1024 by 768 pixels, 188 KiB). '
-      + 'The picture itself goes to the model with these words, for this model '
-      + 'can look at pictures.'
+    tool: 'Opened an image: notes/cat.png (PNG, 1024 by 768 pixels, 188 KiB). '
+      + 'The image itself is sent to the model with this text, so you may be '
+      + 'asked what it shows.'
   })
 ];
 
@@ -255,10 +255,10 @@ const WRITING_WORDS = {
 // The words under the chat box while one of these tools is being written. They
 // are the words the engine puts there, so the picture does not invent its own.
 const WRITING_DOING = {
-  edit_file: 'editing a file: ',
-  create_file: 'making a file: ',
-  web_search: 'looking a thing up: ',
-  view_image: 'looking at a picture: '
+  edit_file: 'Editing a file: ',
+  create_file: 'Creating a file: ',
+  web_search: 'Searching the web: ',
+  view_image: 'Looking at an image: '
 };
 
 // The command the model writes in the `writing` scene, and the reason it gives
@@ -316,8 +316,8 @@ function scene(name, dark) {
         + '(no styling) that can be given to an AI to continue working from the '
         + 'current state of the session.',
       prompt_short: 'Write a very short handoff summary for AI consumption (no '
-        + 'styling). The room of the model is nearly full, so the whole summary '
-        + 'must come to an end within a few hundred words.'
+        + 'styling). The context window of the model is nearly full, so the '
+        + 'whole summary must end within a few hundred words.'
     },
     thinking: {
       mode: 'off', available: true,
@@ -332,7 +332,8 @@ function scene(name, dark) {
     context: { used: '0', total: '8,192', ratio: 0.0 },
     generating: false, busy: false, code: false, search: false, sandbox: false,
     sandbox_available: true,
-    sandbox_note: 'bubblewrap (bwrap) was found, so the tool can be kept inside a jail.',
+    sandbox_note: 'bubblewrap works. A command sees only the working directory of '
+      + 'the chat, and it has no network.',
     status: 'Ready', dark: !!dark, data_dir: '/home/user/.local/share/autumn-natter'
   };
   if (name === 'chat' || name === 'rich' || name === 'parts' || name === 'streaming'
@@ -351,7 +352,7 @@ function scene(name, dark) {
         return Object.assign({}, m, {
           cancelled: true,
           failed: true,
-          tool: 'the call was cancelled: you stopped the answer while the call was '
+          tool: 'The call was cancelled: you stopped the answer while the call was '
             + 'being written, so the writing was stopped and the tool never ran',
           tool_args: '{"path":"notes/plan.md","edits":[{"old_string":"the fi'
         });
@@ -404,7 +405,7 @@ function scene(name, dark) {
       var writing = (start.handoffs || []).length + 1;
       start.messages = start.messages.concat([{
         id: 399, role: 'Summary', body: '', reasoning: '', reasoning_ms: 0,
-        tool: 'the handoff summary is being written ...', mono: false, failed: false,
+        tool: 'The handoff summary is being written ...', mono: false, failed: false,
         when: '11:02', when_full: '2026-10-21, 11:02',
         context_before: 6964, context_after: 0, attachments: []
       }]);
@@ -486,7 +487,7 @@ function scene(name, dark) {
       said(1, 'You', 'What stands in the folder of the chat? Run a command and tell me.'),
     ];
     start.generating = true;
-    start.status = 'the model writes a command';
+    start.status = 'The model writes a command';
     // The words of the answer are nothing by default: the model spends them on
     // the call. AN_SAYS=<n> puts that many words of an answer before the call,
     // so the room between them and the block of the command can be looked at.

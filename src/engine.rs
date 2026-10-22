@@ -430,7 +430,7 @@ pub fn clean_summary(text: &str) -> String {
 // that it is there to go on with the work and not to begin it again.
 pub fn handoff_block(summary: &str) -> String {
     format!(
-        "[The session was compacted. The words of the talk between the first message of the user and this point were dropped, so that the talk could go on inside the room of the model. What follows is a handoff summary written by an AI at that point, to let the session be continued seamlessly. Read it as the state the session stood in, and go on with the work from it. Do not greet the user, do not repeat this summary, and do not start the work again.]\n\n{}",
+        "[The session was compacted. The messages between the first user message and this point were removed, so that the conversation could continue inside the context window of the model. The text below is a handoff summary written by an AI at that point, so that the session can continue. Read it as the state the session was in, and continue the work from it. Do not greet the user, do not repeat this summary, and do not start the work again.]\n\n{}",
         summary
     )
 }
@@ -438,11 +438,11 @@ pub fn handoff_block(summary: &str) -> String {
 // The line that stands under a tool call which was stopped where the model was
 // still writing it. The head of the block says what the tool was for; this says
 // what became of it, in words the reader does not have to be a model to follow.
-pub const CANCELLED_WORDS: &str = "the call was cancelled: the talk came to the limit set for the summarisation while the call was being written, so the writing was stopped and the tool never ran";
+pub const CANCELLED_WORDS: &str = "The call was cancelled. The conversation reached the summarisation limit while the call was being written, so the program stopped the writing and the tool never ran";
 
 // The same line, for a call the reader stopped with their own hand. Nothing of
 // the room stands behind it: the reader pressed stop, and the tool never ran.
-pub const STOPPED_WORDS: &str = "the call was cancelled: you stopped the answer while the call was being written, so the writing was stopped and the tool never ran";
+pub const STOPPED_WORDS: &str = "The call was cancelled: you stopped the answer while the call was being written, so the writing was stopped and the tool never ran";
 
 // The most of the words of a cut-off tool call that go back to the model. The
 // words of such a call are seldom short: a model writing a file out has the
@@ -493,7 +493,7 @@ fn head_chars(text: &str, wanted: usize) -> String {
 // hear either way.
 pub fn cut_words(name: &str, args: &str) -> String {
     format!(
-        "[A tool call was cancelled. The talk came to the limit set for the summarisation while the model was still writing the call, so the program stopped the writing and the tool never ran: nothing of what the call asked for was done. The room has since been made by a handoff summary, and the talk goes on. The call as it stood when it was stopped is given below -- if the work still needs this, write the call again from the start, in pieces small enough to be written inside the room the model has.\n{}\nwords of the call written before it was stopped:\n{}\n{}]",
+        "[A tool call was cancelled. The conversation reached the summarisation limit while the model was still writing the call, so the program stopped the writing and the tool never ran: nothing of what the call asked for was done. Space has since been made by a handoff summary, and the conversation continues. The call as it was when the writing stopped is given below. If the work still needs this, write the call again from the start, in parts small enough to fit in the context the model has.\n{}\nText of the call written before it was stopped:\n{}\n{}]",
         named_call(name),
         args,
         words_as_they_stood(args)
@@ -506,7 +506,7 @@ pub fn cut_words(name: &str, args: &str) -> String {
 // is to know what it was put to when the reader asks it for the work again.
 pub fn stopped_words(name: &str, args: &str) -> String {
     format!(
-        "[A tool call was cancelled. The reader stopped the answer while the model was still writing the call, so the program stopped the writing and the tool never ran: nothing of what the call asked for was done. The answer is over, and the room of the model was not touched. The call as it stood when it was stopped is given below. If this work is taken up again, write the call again from the start, in pieces small enough to be written inside the room the model has.\n{}\nwords of the call written before it was stopped:\n{}\n{}]",
+        "[A tool call was cancelled. The reader stopped the answer while the model was still writing the call, so the program stopped the writing and the tool never ran: nothing of what the call asked for was done. The answer is over, and the context window was not touched. The call as it was when the writing stopped is given below. If this work is taken up again, write the call again from the start, in parts small enough to fit in the context the model has.\n{}\nText of the call written before it was stopped:\n{}\n{}]",
         named_call(name),
         args,
         words_as_they_stood(args)
@@ -517,7 +517,7 @@ pub fn stopped_words(name: &str, args: &str) -> String {
 // written.
 fn named_call(name: &str) -> String {
     if name.trim().is_empty() {
-        String::from("the name of the tool was not written yet")
+        String::from("the model had not written the name of the tool yet")
     } else {
         format!("tool: {}", name)
     }
@@ -529,9 +529,9 @@ fn named_call(name: &str) -> String {
 // which is what the model has to hear either way.
 fn words_as_they_stood(args: &str) -> String {
     if serde_json::from_str::<Value>(args).is_ok() {
-        String::from("(the words of the call stand as the model wrote them. It was stopped all the same, and the tool never ran)")
+        String::from("(the text of the call is kept as the model wrote it. The writing was stopped, and the tool never ran)")
     } else {
-        String::from("(the words of the call stop in the middle: the model had written no further when the writing was stopped, and what it had in mind past this point is not known)")
+        String::from("(the text of the call ends in the middle: the model had written no further when the writing stopped, so what it intended after this point is not known)")
     }
 }
 
@@ -984,9 +984,9 @@ impl State {
     // none.
     fn add_chapter(&mut self, call: &ToolCall, name: &str) {
         let answer = if name.is_empty() {
-            "the chapter needs a name, so it was not marked"
+            "The chapter needs a name, so it was not marked"
         } else {
-            "the chapter was marked"
+            "The chapter was marked"
         };
         let Some(chat) = self.chat_mut() else {
             // The chat was put away between the call and the mark, so there is
@@ -1042,7 +1042,7 @@ impl State {
             chat.messages.push(Message {
                 id: id.clone(),
                 role: "Summary".to_string(),
-                tool: String::from("the handoff summary is being written ..."),
+                tool: String::from("The handoff summary is being written ..."),
                 when: store::now_secs(),
                 ..Default::default()
             });
@@ -1105,7 +1105,7 @@ impl State {
                 body: shown.to_string(),
                 reasoning: thinking.to_string(),
                 reasoning_ms: thinking_ms,
-                tool: String::from("running ..."),
+                tool: String::from("Running ..."),
                 mono: true,
                 call_id: call.id.clone(),
                 tool_name: call.name.clone(),
@@ -1191,7 +1191,7 @@ impl State {
         // A call stopped before it had a name has no words to show, and a block
         // with nothing under its head reads as a fault of the program.
         let shown = if shown.trim().is_empty() {
-            String::from("(the call was stopped before the model had written anything of it)")
+            String::from("(the call was stopped before the model had written any of it)")
         } else {
             shown
         };
@@ -1489,7 +1489,7 @@ impl State {
         self.current = front;
         self.ctx_used = 0;
         self.pending_blank = None;
-        self.set_status("a blank chat. Write in it, or turn the carousel and it goes away");
+        self.set_status("A new chat. Write in it, or switch chats and it is removed");
         self.touch_structure();
     }
 
@@ -1553,7 +1553,7 @@ impl State {
 
     // Point at a model when nothing sensible is picked yet. A model that was
     // picked is kept. Without this the top bar shows a model that no chat uses,
-    // and a message then fails with "pick a model in the top bar first".
+    // and a message then fails with "Choose a model in the top bar first".
     fn adopt_default_model(&mut self) {
         let wanted = self.cfg.model_id.clone();
         let known = self.models.iter().any(|m| m.id() == wanted);
@@ -1874,7 +1874,7 @@ impl Engine {
             generating: false,
             summarising: false,
             busy: false,
-            status: String::from("ready"),
+            status: String::from("Ready"),
             ctx_total: 0,
             ctx_used: 0,
             ctx_fresh: false,
@@ -1947,11 +1947,11 @@ impl Engine {
             return;
         };
         if text.trim().is_empty() && files.is_empty() {
-            state.set_status("nothing was written");
+            state.set_status("Nothing was written");
             return;
         }
         if state.generating {
-            state.set_status("an answer is still coming");
+            state.set_status("An answer is still being generated");
             return;
         }
         // A message sent from the first screen opens a chat of this place. The
@@ -1968,16 +1968,16 @@ impl Engine {
         // a talk it cannot hold.
         if state.handoff_owed() {
             state.set_status(
-                "the handoff summary of this chat was never written. Start it again on the line of the summarisations",
+                "The handoff summary of this chat was never written. Start it again from the summarisation timeline",
             );
             return;
         }
         if state.model().is_none() {
-            state.set_status("pick a model in the top bar first");
+            state.set_status("Choose a model in the top bar first");
             return;
         }
         if state.server_binary().is_none() {
-            state.set_status("llama-server was not found, set its folder in settings");
+            state.set_status("llama-server was not found. Set its folder in the settings");
             return;
         }
         drop(state);
@@ -1996,7 +1996,7 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("an answer is still coming");
+            state.set_status("An answer is still being generated");
             return;
         }
         // The word of the waiting chat comes first, so a reader who pressed the
@@ -2004,11 +2004,11 @@ impl Engine {
         // sent to look at the model. The model is looked at after it, for the
         // worker says the same thing when it has nothing to ask.
         if !state.handoff_owed() {
-            state.set_status("no handoff summary is waiting on this chat");
+            state.set_status("No handoff summary is waiting for this chat");
             return;
         }
         if state.model().is_none() {
-            state.set_status("pick a model in the top bar first");
+            state.set_status("Choose a model in the top bar first");
             return;
         }
         drop(state);
@@ -2037,9 +2037,9 @@ impl Engine {
         state.new_code = enabled;
         state.persist();
         state.set_status(if enabled {
-            "the model may use the tools of the program"
+            "The model may use the tools of the program"
         } else {
-            "the tools of the program are off"
+            "The tools of the program are off"
         });
     }
 
@@ -2059,9 +2059,9 @@ impl Engine {
         state.new_search = enabled;
         state.persist();
         state.set_status(if enabled {
-            "the model may look a thing up on the web"
+            "The model may search the web"
         } else {
-            "the web search of the program is off"
+            "Web search is off"
         });
     }
 
@@ -2082,9 +2082,9 @@ impl Engine {
         state.new_sandbox = enabled;
         state.persist();
         state.set_status(if enabled {
-            "tool runs are sandboxed"
+            "Tool runs are sandboxed"
         } else {
-            "tool runs are not sandboxed"
+            "Tool runs are not sandboxed"
         });
     }
 
@@ -2095,7 +2095,7 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         if !state.thinking.modes().contains(&mode) {
@@ -2111,7 +2111,7 @@ impl Engine {
         // The same choice opens the next chat too, whatever stands open now.
         state.new_thinking = mode.to_string();
         state.persist();
-        state.set_status(&format!("thinking is {}", mode));
+        state.set_status(&format!("Thinking: {}", mode));
         state.touch();
         drop(state);
         if changed {
@@ -2131,11 +2131,11 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         if !state.thinking.has_preserve {
-            state.set_status("this model has no switch for keeping the thinking");
+            state.set_status("This model has no setting for keeping the thinking");
             return;
         }
         let changed = state.preserve_of_open() != on;
@@ -2146,9 +2146,9 @@ impl Engine {
         }
         state.persist();
         state.set_status(if on {
-            "the thinking of the earlier turns is kept"
+            "The thinking of the earlier turns is kept"
         } else {
-            "the thinking of the earlier turns is dropped"
+            "The thinking of the earlier turns is dropped"
         });
         state.touch();
         drop(state);
@@ -2166,7 +2166,7 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         if id == state.scope_repo {
@@ -2176,7 +2176,7 @@ impl Engine {
         state.current = None;
         if let Some(mut repo) = state.repositories.iter().find(|r| r.id == id).cloned() {
             state.store.touch_repo(&mut repo);
-            state.status = format!("repository {}", repo.name);
+            state.status = format!("Repository {}", repo.name);
         }
         state.repositories = state.store.scan_repos();
         state.reload_chats();
@@ -2189,12 +2189,12 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         let name = name.trim().to_string();
         if name.is_empty() {
-            state.set_status("a repository needs a name");
+            state.set_status("A repository needs a name");
             return;
         }
         let made = state.store.create_repo(&name);
@@ -2204,7 +2204,7 @@ impl Engine {
                 state.current = None;
                 state.repositories = state.store.scan_repos();
                 state.reload_chats();
-                let text = format!("repository {} is ready", repo.name);
+                let text = format!("Repository {} is ready", repo.name);
                 state.set_status(&text);
             }
             Err(problem) => {
@@ -2248,7 +2248,7 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         // The new chat is wanted in full, so the previews are put away.
@@ -2264,7 +2264,7 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         if state.chats.is_empty() {
@@ -2283,9 +2283,9 @@ impl Engine {
         };
         if target == here {
             state.set_status(if step < 0 {
-                "this is the first chat of this place"
+                "This is the first chat here"
             } else {
-                "this is the last chat of this place"
+                "This is the last chat here"
             });
             return;
         }
@@ -2307,7 +2307,7 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         if state.overview == on {
@@ -2327,7 +2327,7 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         if !state.chats.iter().any(|c| c.meta.id == id) {
@@ -2352,7 +2352,7 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         state.cfg.model_id = id.clone();
@@ -2379,7 +2379,7 @@ impl Engine {
             return;
         };
         if state.generating {
-            state.set_status("wait for the answer to finish");
+            state.set_status("Wait for the answer to finish");
             return;
         }
         let mut cfg = cfg;
@@ -2402,7 +2402,7 @@ impl Engine {
         state.store = store::Store::new(config::repositories_dir(&state.cfg));
         state.refresh_lists();
         state.reload_chats();
-        state.set_status("settings saved");
+        state.set_status("Settings saved");
         let _ = self.jobs.send(Job::SettingsChanged);
     }
 
@@ -2555,7 +2555,7 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                     let name = state
                         .model()
                         .map(|m| m.name)
-                        .unwrap_or_else(|| String::from("the model"));
+                        .unwrap_or_else(|| String::from("The model"));
                     let text = format!("{} loads with the next message", name);
                     state.set_status(&text);
                 }
@@ -2622,7 +2622,7 @@ fn stop_server(server: &mut Option<Server>) {
 // a call out of the words as they come, and gives up when the room cuts the call
 // short -- which leaves a fault of the server standing where the summary should
 // have stood. So the ask says out loud that there is nothing to be called.
-pub const SUMMARY_GUARD: &str = " Answer in plain text, in words of the summary alone. No tool is offered to you here and no call of a tool is wanted: write the summary itself, never a call, and never the mark of one.";
+pub const SUMMARY_GUARD: &str = " Answer in plain text, with the summary itself only. No tool is offered here and no tool call is wanted: write the summary, never a call and never the marker of one.";
 
 // The ask for a summary carries no ceiling of its own. A summary is the making
 // of the room and not the spending of it, so the model is given all of the room
@@ -2654,7 +2654,7 @@ pub fn words_only(items: &mut Vec<Value>) {
             if kind == "text" {
                 kept.push(part);
             } else {
-                kept.push(json!({ "type": "text", "text": "[a picture stood here in the talk]" }));
+                kept.push(json!({ "type": "text", "text": "[an image was here in the conversation]" }));
             }
         }
         *parts = kept;
@@ -2760,7 +2760,7 @@ fn ask_summary(
                 text: String::new(),
                 finish: String::new(),
                 stopped: true,
-                error: Some(String::from("the state is gone")),
+                error: Some(String::from("The program state is gone")),
                 written: 0,
             };
         };
@@ -2868,7 +2868,7 @@ fn run_handoff(
             return false;
         }
         let Some(model) = guard.model().clone() else {
-            guard.set_status("pick a model in the top bar first");
+            guard.set_status("Choose a model in the top bar first");
             return false;
         };
         if guard.chat().is_none() {
@@ -2890,7 +2890,7 @@ fn run_handoff(
         guard.progress = 0;
         guard.progress_on = false;
         let id = guard.begin_summary();
-        guard.set_status("the handoff summary is being written");
+        guard.set_status("The handoff summary is being written");
         let wants = guard.settings_for(&model);
         (model, wants, prompt, short, before, history, id)
     };
@@ -2920,7 +2920,7 @@ fn run_handoff(
             // so the reader can start the summary again.
             guard.finish_summary(&id, "", before, 0, &problem);
             guard.set_status(
-                "the handoff summary was not written. Start it again on the line of the summarisations",
+                "The handoff summary was not written. Start it again from the summarisation timeline",
             );
             return false;
         }
@@ -2935,7 +2935,7 @@ fn run_handoff(
     // fault that leaves no words at all is asked once more before the reader is
     // told. A stop of the reader's own is never asked again.
     if shot.error.is_some() && !shot.stopped && !cancel.load(Ordering::Relaxed) {
-        tell(state, "the summary did not come. Asking once more");
+        tell(state, "The summary did not arrive. Asking once more");
         shot = ask_summary(state, &base_url, &summary_ask(&history, &prompt), cancel);
     }
     let mut summary = clean_summary(&shot.text);
@@ -2948,7 +2948,7 @@ fn run_handoff(
     if summary_too_long(&shot) {
         tell(
             state,
-            "the summary ran to the end of the room. Asking again for a shorter one",
+            "The summary filled the context. Asking again for a shorter one",
         );
         let again = ask_summary(state, &base_url, &summary_ask(&history, &short), cancel);
         let cleaned = clean_summary(&again.text);
@@ -2983,15 +2983,15 @@ fn run_handoff(
     // when it was asked for and a full chat cannot wait for a better one.
     let why = if shot.error.is_some() {
         format!(
-            "the summary was not written: {}",
-            shot.error.as_deref().unwrap_or("the server went away")
+            "The summary was not written: {}",
+            shot.error.as_deref().unwrap_or("The server closed the connection")
         )
     } else if shot.stopped {
-        String::from("the summary was stopped before it was written. Start it again")
+        String::from("The summary was stopped before it was written. Start it again")
     } else if summary.trim().is_empty() {
-        String::from("the model gave no words for the summary. Start it again")
+        String::from("The model gave no text for the summary. Start it again")
     } else if shot.finish == "length" {
-        String::from("the room ran full while the summary was written, so the end of it is missing")
+        String::from("The context filled while the summary was written, so the end of it is missing")
     } else {
         String::new()
     };
@@ -3010,7 +3010,7 @@ fn run_handoff(
         if let Some(chat) = guard.chat_mut() {
             chat.meta.context_used = made;
         }
-        guard.set_status("the handoff summary was not written. Start it again on the line of the summarisations");
+        guard.set_status("The handoff summary was not written. Start it again from the summarisation timeline");
         guard.persist();
         return false;
     }
@@ -3026,7 +3026,7 @@ fn run_handoff(
     }
     let count = guard.handoffs().len();
     guard.set_status(&format!(
-        "summarised #{} of the chat. The talk now takes {}",
+        "Summarised #{} of the chat. The conversation now takes {}",
         count, made
     ));
     guard.persist();
@@ -3397,11 +3397,11 @@ fn run_turn(
             return Ended::Halted;
         }
         let Some(model) = state.model() else {
-            state.set_status("pick a model first");
+            state.set_status("Choose a model first");
             return Ended::Halted;
         };
         if state.chat_mut().is_none() {
-            state.set_status("start a new chat first");
+            state.set_status("Start a new chat first");
             return Ended::Halted;
         }
         // What the chat asks for, and nothing else. Whether the jail really
@@ -3448,7 +3448,7 @@ fn run_turn(
         }
         if lost > 0 {
             let text = format!(
-                "{} of the attachments were too big, or the disk would not have them, so they did not go",
+                "{} attachments were too large, or could not be stored, so they were not sent",
                 lost
             );
             state.push_note(&text, true);
@@ -3458,7 +3458,7 @@ fn run_turn(
         let pictures = kept.iter().filter(|a| a.image).count();
         if pictures > 0 && !state.pictures_can_go() {
             state.push_note(
-                "the pictures of this message cannot be shown to this model: turn vision on in the settings of the model, and send the message again",
+                "The images of this message cannot be shown to this model: turn vision on in the model settings, then send the message again",
                 true,
             );
         }
@@ -3473,7 +3473,7 @@ fn run_turn(
         // The meter of the context is paced, and the pace begins anew with this
         // answer, so the first number of a new answer is stood on at once.
         state.ctx_at = None;
-        state.set_status("the model is getting ready");
+        state.set_status("The model is loading");
         let settings = state.settings_for(&model);
         (model, settings, workdir, sandbox_on)
     };
@@ -3486,14 +3486,14 @@ fn run_turn(
             let Ok(mut state) = state.lock() else { return Ended::Halted };
             state.busy = false;
             state.ctx_total = total;
-            state.set_status("thinking");
+            state.set_status("Thinking");
         }
         Err(problem) => {
             let Ok(mut state) = state.lock() else { return Ended::Halted };
             state.busy = false;
             state.generating = false;
             state.push_note(&problem, true);
-            state.set_status("the model did not start");
+            state.set_status("The model did not start");
             return Ended::Halted;
         }
     }
@@ -3782,11 +3782,11 @@ fn run_turn(
             // under the other.
             let told = if cut.is_empty() {
                 String::from(
-                    "the talk came to the limit set for the summarisation while the answer was being written, so the writing was stopped; the room is being made, and the model goes on with the answer",
+                    "The conversation reached the summarisation limit while the answer was being written, so the writing stopped. Space is being made, and the model continues the answer",
                 )
             } else {
                 String::from(
-                    "the talk came to the limit set for the summarisation while a tool call was being written, so the writing was stopped and the call cancelled; the room is being made, and the model is asked to write the call again",
+                    "The conversation reached the summarisation limit while a tool call was being written, so the writing stopped and the call was cancelled. Space is being made, and the model is asked to write the call again",
                 )
             };
             guard.push_note(&told, false);
@@ -3835,11 +3835,11 @@ fn run_turn(
                 // stopped again at once on the first word of the next ask.
                 guard.generating = false;
                 let text = if guard.handoff_owed() {
-                    "the handoff summary was not written. Start it again on the line of the summarisations"
+                    "The handoff summary was not written. Start it again from the summarisation timeline"
                 } else if still_full {
-                    "the room is still past the limit set for the summarisation, so the answer ends here. Ask for the work in pieces small enough for the room, or give the model a larger room"
+                    "The context is still over the summarisation limit, so the answer ends here. Ask for the work in parts small enough for the context, or give the model a larger context"
                 } else {
-                    "the summarisation made no room, so the answer ends here"
+                    "The summarisation made no space, so the answer ends here"
                 };
                 guard.set_status(text);
                 break Ended::Halted;
@@ -3850,7 +3850,7 @@ fn run_turn(
                 // watch the same room be made and spent for ever.
                 guard.generating = false;
                 guard.set_status(
-                    "the writing came to the limit again and again, so the answer ends here. Ask for the work in pieces small enough for the room, or give the model a larger room",
+                    "The writing reached the limit again and again, so the answer ends here. Ask for the work in parts small enough for the context, or give the model a larger context",
                 );
                 break Ended::Halted;
             }
@@ -3858,7 +3858,7 @@ fn run_turn(
             // at, so it is asked again: it goes on from where it stood instead of
             // beginning the work afresh.
             guard.generating = true;
-            guard.set_status("the room was made. The model is going on with the answer");
+            guard.set_status("Space was made. The model is continuing the answer");
             continue;
         }
 
@@ -3932,7 +3932,7 @@ fn run_turn(
             // command. This happens when the context ran full.
             Kept::Note => {
                 let note = if answer.finish == "length" {
-                    String::from("(the context ran full before the model could answer)")
+                    String::from("(the context was full before the model could answer)")
                 } else {
                     String::from("(the model gave no answer)")
                 };
@@ -3981,15 +3981,15 @@ fn run_turn(
         if finished || !use_tools || nothing_left || no_room_left {
             guard.generating = false;
             let text = if answer.stopped {
-                "stopped"
+                "Stopped"
             } else if !finished && !nothing_left {
                 if no_room_left {
-                    "the answer stopped at the room for steps of the Chatting settings"
+                    "The answer stopped at the step limit in the Chatting settings"
                 } else {
-                    "the model asked for more than one answer could hold"
+                    "The model asked for more steps than one answer allows"
                 }
             } else {
-                "ready"
+                "Ready"
             };
             guard.set_status(text);
             // A mark costs nothing, so the marks of a step that ran clean are
@@ -4033,7 +4033,7 @@ fn run_turn(
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
-                let note = "the room for commands in this answer is spent, so the command did not run";
+                let note = "The command limit for this answer is reached, so the command did not run";
                 let id = guard.begin_tool(call, note, "", 0);
                 guard.finish_tool(&id, note, false);
                 continue;
@@ -4057,7 +4057,7 @@ fn run_turn(
             guard.push_message("Assistant", "", &thoughts, thought_ms, false);
         }
         let Ok(mut guard) = state.lock() else { return Ended::Halted };
-        guard.set_status("the model reads the tool result");
+        guard.set_status("The model is reading the tool result");
     };
     outcome
 }
@@ -4111,12 +4111,12 @@ fn run_command(
     let shown = if purpose.trim().is_empty() {
         command.clone()
     } else {
-        format!("{}\nwhy: {}", command, purpose)
+        format!("{}\nreason: {}", command, purpose)
     };
     let message_id = {
         let Ok(mut guard) = state.lock() else { return };
         let id = guard.begin_tool(call, &shown, thinking, thought_ms);
-        let text = format!("running a command: {}", first_line(&command));
+        let text = format!("Running a command: {}", first_line(&command));
         guard.set_status(&text);
         id
     };
@@ -4126,13 +4126,13 @@ fn run_command(
     // itself already says why, and it did not run at all then.
     if sandbox_on && !outcome.sandboxed {
         output = format!(
-            "{}\n(the command did not run, for the sandbox was not to be had)",
+            "{}\n(The command did not run, because the sandbox was not available)",
             output
         );
     }
     if !sandbox_on {
         output = format!(
-            "{}\n(not sandboxed: this command could reach the whole machine)",
+            "{}\n(Not sandboxed: this command could reach the whole machine)",
             output
         );
     }
@@ -4158,11 +4158,11 @@ fn run_program_tool(
     // one thing another tool names when it has no file of its own.
     let shown = if target.is_empty() { shown } else { target };
     let doing = match call.name.as_str() {
-        editfile::EDIT_NAME => "editing a file",
-        editfile::CREATE_NAME => "making a file",
-        search::NAME => "looking a thing up",
-        viewimage::NAME => "looking at a picture",
-        _ => "a tool of the program",
+        editfile::EDIT_NAME => "Editing a file",
+        editfile::CREATE_NAME => "Creating a file",
+        search::NAME => "Searching the web",
+        viewimage::NAME => "Looking at an image",
+        _ => "A tool of the program",
     };
     let message_id = {
         let Ok(mut guard) = state.lock() else { return };
@@ -4212,7 +4212,7 @@ fn run_program_tool(
         other => tools::Report {
             ok: false,
             output: format!(
-                "the model asked for {}, which this program does not offer",
+                "The model asked for {}, which this program does not offer",
                 first_line(other)
             ),
         },
@@ -4232,7 +4232,7 @@ fn ensure_server(
 ) -> Result<u64, String> {
     let (binary, gpus, wants) = {
         let Ok(state) = state.lock() else {
-            return Err("the state is gone".to_string());
+            return Err("The program state is gone".to_string());
         };
         let binary = state
             .server_binary()
@@ -4258,7 +4258,7 @@ fn ensure_server(
     }
     stop_server(server);
     if cancel.load(Ordering::Relaxed) {
-        return Err("stopped before the model loaded".to_string());
+        return Err("Stopped before the model loaded".to_string());
     }
     match llama::Server::start(
         &binary,
@@ -4782,7 +4782,7 @@ mod tests {
         assert!(engine
             .snapshot()
             .status
-            .contains("no switch for keeping the thinking"));
+            .contains("no setting for keeping the thinking"));
     }
 
     // The choice to keep the thinking is not only a flag of the server. The
@@ -5109,7 +5109,7 @@ mod tests {
         let words = parts
             .iter()
             .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-            .find(|t| t.starts_with("The words of attachment 2"))
+            .find(|t| t.starts_with("The text of attachment 2"))
             .expect("the words of the second attachment");
         assert!(words.contains("notes.txt"));
         assert!(words.contains("the words of the note"));
@@ -5838,7 +5838,7 @@ mod tests {
         // The words of the reader stand as they wrote them, and the guard rides
         // after them.
         assert!(last.starts_with("Write a handoff summary."));
-        assert!(last.contains("no call of a tool is wanted"));
+        assert!(last.contains("no tool call is wanted"));
         assert_eq!(ask["parse_tool_calls"], json!(false));
         // The first message of the reader is still the first message, for the
         // server keeps the work it did on those words.
@@ -5865,7 +5865,7 @@ mod tests {
         assert!(parts[1]["text"]
             .as_str()
             .expect("words")
-            .contains("a picture stood here"));
+            .contains("an image was here"));
         // The ask is the shorter for it: the four thousand tokens a picture stands
         // for are not in the words that go out.
         assert!(estimate_tokens(&ask["messages"]) < estimate_tokens(&talk));
@@ -5897,7 +5897,7 @@ mod tests {
         engine.restart_handoff();
         // The summary of this chat is waiting, and no model stands in the top
         // bar, so the word of the model is what the reader is given.
-        assert!(engine.snapshot().status.contains("pick a model"));
+        assert!(engine.snapshot().status.contains("Choose a model"));
     }
 
     // ------------------------------------------------- a call cut short
@@ -6143,7 +6143,7 @@ mod tests {
         assert!(text.contains("again"), "the model was not told to write it over");
         // The words stop in the middle, and the model hears so: the string it was
         // writing was never shut.
-        assert!(text.contains("stop in the middle"));
+        assert!(text.contains("ends in the middle"));
         // And nothing of it is a call, nor a receipt of one: the talk that goes
         // out has no tool entry of any kind in it.
         let told = json!(items).to_string();
@@ -6199,7 +6199,7 @@ mod tests {
         assert!(!text.contains("handoff"), "a room was told of: {}", text);
         assert!(text.contains(editfile::EDIT_NAME));
         assert!(text.contains("the pl"), "the words so far were lost");
-        assert!(text.contains("stop in the middle"));
+        assert!(text.contains("ends in the middle"));
         assert!(!history.to_string().contains("tool_calls"));
         assert!(!history.to_string().contains("tool_call_id"));
         // The reader sees the block of the call, named for the file the model was
@@ -6342,7 +6342,7 @@ mod tests {
         assert_eq!(last.body, "notes/big.md");
         // And the words the model is given say that they stop in the middle.
         let told = history.to_string();
-        assert!(told.contains("stop in the middle"));
+        assert!(told.contains("ends in the middle"));
         // The last of the words the model had written is not there: only the head
         // of the file it was writing out went back with the telling.
         let last_part = format!("part-{:0>3}-", 3 * (GREATEST_CUT_ARGS / 400 + 4) - 1);
@@ -6352,12 +6352,12 @@ mod tests {
         // is not said to stop anywhere -- though it is still said never to have
         // run, which is the thing that matters.
         let whole = cut_words(editfile::CREATE_NAME, "{\"path\":\"small.md\"}");
-        assert!(!whole.contains("stop in the middle"));
+        assert!(!whole.contains("ends in the middle"));
         assert!(whole.contains("never ran"));
         // A call stopped before it had a name still says what became of it.
         let nameless = cut_words("", "");
         assert!(nameless.contains("cancelled"));
-        assert!(nameless.contains("the name of the tool was not written yet"));
+        assert!(nameless.contains("the model had not written the name of the tool yet"));
     }
 
     // The words that stand before a summarisation go back to the model no more.

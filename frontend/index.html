@@ -686,7 +686,7 @@ pre.code .t-p { color: var(--t-pun); }
 /* ------------------------------------------------- the row of previews */
 /* Alt turns the chats of this place into a row of small previews. The row is a
    second look at the same carousel: the middle preview is the chat in use, a
-   click opens it, and Escape or Alt puts the row away. */
+   click opens it, and Escape or Alt closes the row. */
 .veil { position: absolute; inset: 0; z-index: 8; display: none; }
 .veil.on { display: block; }
 .veil::before { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: 1; }
@@ -1071,14 +1071,14 @@ pre.code.line {
   </div>
   <span class="rule"></span>
 
-  <label class="field" title="The model that answers. The settings of this model stand behind the chip mark at the right.">
+  <label class="field" title="The model that answers. The chip at the right opens the settings of this model.">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="2"/><path d="M6.4 1.9v2.3M9.6 1.9v2.3M6.4 11.8v2.3M9.6 11.8v2.3M1.9 6.4h2.3M1.9 9.6h2.3M11.8 6.4h2.3M11.8 9.6h2.3"/></svg>
     <select id="model" aria-label="Model"></select>
     <span class="tag" id="kind"></span>
     <svg class="svg arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
   </label>
 
-  <label class="field" title="The place the chats of this window belong to. A command of the tool starts in that folder.">
+  <label class="field" title="The repository the chats of this window belong to. A tool command starts in that folder.">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.9 4.4c0-.6.4-1 1-1h3.3l1.4 1.8h5.5c.6 0 1 .4 1 1v5.3c0 .6-.4 1-1 1H2.9c-.6 0-1-.4-1-1z"/></svg>
     <select id="repo" aria-label="Repository"></select>
     <svg class="svg arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
@@ -1108,7 +1108,7 @@ pre.code.line {
     <span class="meter"><i id="ctxfill"></i></span>
   </div>
   <span class="rule"></span>
-  <button class="mark-btn" id="chatsbtn" title="Show the chats of this place (Alt)" aria-label="Show the chats">
+  <button class="mark-btn" id="chatsbtn" title="Show all the chats of this list (Alt)" aria-label="Show the chats">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="2.2" width="4.8" height="4.8" rx="1.2"/><rect x="9" y="2.2" width="4.8" height="4.8" rx="1.2"/><rect x="2.2" y="9" width="4.8" height="4.8" rx="1.2"/><rect x="9" y="9" width="4.8" height="4.8" rx="1.2"/></svg>
   </button>
   <button class="mark-btn" id="modelbtn" title="Settings of this model" aria-label="Settings of this model">
@@ -1155,7 +1155,7 @@ pre.code.line {
     <div class="row-head" id="pcount"></div>
     <div class="row-foot">
       Click a card to open it. Drag, arrows, WASD or the wheel move along the row.
-      <kbd>Escape</kbd> or <kbd>Alt</kbd> puts the row away.
+      <kbd>Escape</kbd> or <kbd>Alt</kbd> closes the row.
     </div>
   </div>
 
@@ -1186,20 +1186,20 @@ pre.code.line {
         placeholder="Write a message for the model"></textarea>
       <div class="dock-row">
         <div class="badges">
-          <button class="badge" id="code" title="Let the model use the tools of the program: the terminal tool, and the tools that work on the files of the chat. A command runs in the sandbox when the sandbox is on. The file tools reach the room of the chat and nothing beyond it.">
+          <button class="badge" id="code" title="Let the model use the tools of the program: the terminal tool and the file tools. A command runs in the sandbox when the sandbox is on. The file tools can reach only the working directory of the chat.">
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
             <span id="codetext">Tools</span>
           </button>
-          <button class="badge" id="search" title="Let the model look a thing up on the web, and read a page of it. The search runs in the program, and not in the jail of a command: a command has no road to the web at all. The search touches no file of the machine, and nothing of what was read is kept.">
+          <button class="badge" id="search" title="Let the model search the web and read a page of it. Search runs in the program, not in the sandbox of a command: a command has no network access. Search touches no file of the machine, and nothing that is read is stored.">
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
             <span id="searchtext">Search</span>
           </button>
-          <button class="badge" id="sandbox" title="Run every terminal command inside a bubblewrap jail. A command sees only the working directory, and it has no network. Inside a repository, the commands start in the repository directory.">
+          <button class="badge" id="sandbox" title="Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.">
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
             <span id="sandboxtext">Sandbox</span>
           </button>
           <div class="menuwrap" id="thinkwrap">
-            <button class="badge" id="think" title="The thinking the model shows before its answer. A click chooses another.">
+            <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
               <span id="thinktext">Thinking: Disabled</span>
               <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
@@ -1221,7 +1221,7 @@ pre.code.line {
       <span class="pulse" id="dot"></span>
       <span class="status" id="status"></span>
       <span class="grow"></span>
-      <button class="quiet" id="newchat" title="Start a chat in this place">
+      <button class="quiet" id="newchat" title="Start a new chat here">
         <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
         New chat
       </button>
@@ -1238,53 +1238,53 @@ pre.code.line {
         <button class="on" id="tabProgram" type="button">Program</button>
         <button id="tabModel" type="button">Model</button>
       </div>
-      <span class="sub" id="sheetSub">The program on this machine</span>
+      <span class="sub" id="sheetSub">The settings of this program</span>
       <button class="mark-btn x" id="sheetClose" type="button" title="Close" aria-label="Close">
         <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
       </button>
     </div>
     <div class="sheet-body">
       <div class="pane" id="paneProgram">
-        <div class="sec">Places</div>
+        <div class="sec">Folders</div>
         <div class="fld wide"><span class="lbl">Data directory</span>
-          <span class="sub">Where Autumn Natter keeps the settings, the chats and the data of the repositories.</span>
+          <span class="sub">Where Autumn Natter stores the settings, the chats and the repository data.</span>
           <div class="ctl"><span class="ro" id="fData"></span></div></div>
         <div class="fld"><span class="lbl">llama.cpp folder</span>
-          <span class="sub">The folder that holds llama-server. The program starts that file for every answer.</span>
+          <span class="sub">The folder that contains llama-server. The program starts that file for every answer.</span>
           <div class="ctl"><input class="txt" id="fLlama" type="text" placeholder="the folder of llama.cpp"></div></div>
         <div class="fld"><span class="lbl">Models folder</span>
           <span class="sub">The folder the model files are read from.</span>
           <div class="ctl"><input class="txt" id="fModels" type="text" placeholder="the folder of the models"></div></div>
         <div class="fld"><span class="lbl">Repositories folder</span>
-          <span class="sub">The folder the places of the chats are kept in. Empty means the usual place.</span>
+          <span class="sub">The folder that holds the repositories. Leave it empty to use the default location.</span>
           <div class="ctl"><input class="txt" id="fRepos" type="text" placeholder="the usual place"></div></div>
 
-        <div class="sec">Places of the chats</div>
+        <div class="sec">Repositories</div>
         <div class="fld"><span class="lbl">New repository</span>
-          <span class="sub">Make a folder for one project. A chat inside a repository runs its terminal commands in that folder.</span>
+          <span class="sub">Create a folder for one project. A chat in a repository runs its terminal commands in that folder.</span>
           <div class="ctl"><input class="txt" id="fNewRepo" type="text" placeholder="name of the repository"><button class="btn" id="createRepo" type="button">Create</button></div></div>
         <div class="fld"><span class="lbl">Open repository</span>
-          <span class="sub">Pick the repository the chats of this window belong to. The folder on disk is named name_id.</span>
+          <span class="sub">Choose the repository the chats of this window belong to. The folder on disk is named name_id.</span>
           <div class="ctl"><select id="fOpenRepo"></select></div></div>
         <div class="fld wide"><span class="lbl">Sandbox</span>
           <span class="sub" id="fSandbox"></span></div>
 
         <div class="sec">Network</div>
         <div class="fld"><span class="lbl">Port</span>
-          <span class="sub">The number the page of the browser listens on.</span>
+          <span class="sub">The port the browser page listens on.</span>
           <div class="ctl"><input id="fPort" type="number" min="1" max="65535" placeholder="8723"></div></div>
-        <div class="fld"><span class="lbl">Offer on the network</span>
-          <span class="sub">The page can then be opened from other machines of the same network.</span>
+        <div class="fld"><span class="lbl">Share on the network</span>
+          <span class="sub">The page can then be opened from other computers on the same network.</span>
           <div class="ctl"><input id="fUpnp" type="checkbox"></div></div>
 
-        <div class="sec">Look</div>
-        <div class="fld"><span class="lbl">Dark colours</span>
-          <span class="sub">The warm dark skin, instead of the pale one. It changes at once.</span>
+        <div class="sec">Appearance</div>
+        <div class="fld"><span class="lbl">Dark mode</span>
+          <span class="sub">Use the dark colour scheme instead of the light one. It changes at once.</span>
           <div class="ctl"><input id="fDark" type="checkbox"></div></div>
 
         <div class="sec">Chatting</div>
-        <div class="fld"><span class="lbl">Fold the thoughts as they come in</span>
-          <span class="sub">The head of a thinking block stands on its own while the model thinks, and the words of it stay out of the way. Turn it off to read the thoughts as they arrive. A click on the head of one block opens or folds that block.</span>
+        <div class="fld"><span class="lbl">Collapse thinking while it arrives</span>
+          <span class="sub">A thinking block shows only its head while the model is thinking. Turn this off to read the thoughts as they arrive. Clicking the head of a block opens or closes that block.</span>
           <div class="ctl"><input id="fFoldThink" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Thinking panels grow with their words</span>
           <span class="sub">A thinking panel holds all of the thoughts and the chat moves to read them. Turn this off to keep every thinking panel at a fixed height with a rail of its own.</span>
@@ -1292,23 +1292,23 @@ pre.code.line {
         <div class="fld"><span class="lbl">Tool blocks inside the thinking panel</span>
           <span class="sub">A tool the model calls while thinking stands inside the thinking panel that led to it, so the thought and its tool read as one part. Turn this off to keep the tool block under the thinking panel, as it was.</span>
           <div class="ctl"><input id="fToolsInThink" type="checkbox"></div></div>
-        <div class="fld"><span class="lbl">Fold a command as it runs</span>
-          <span class="sub">The head of a tool block stands on its own while its command runs. A click on the head of one block opens or folds that block.</span>
+        <div class="fld"><span class="lbl">Collapse a command while it runs</span>
+          <span class="sub">A tool block shows only its head while its command runs. Clicking the head of a block opens or closes that block.</span>
           <div class="ctl"><input id="fFoldTools" type="checkbox"></div></div>
-        <div class="fld"><span class="lbl">Colours of a code block</span>
-          <span class="sub">The words of a block of code take the colour of their kind: a comment, a word of the language, a word in quotes, a number. Turn it off to read a block in one colour.</span>
+        <div class="fld"><span class="lbl">Colour code blocks</span>
+          <span class="sub">Text in a code block is coloured by kind: comment, keyword, string, number. Turn this off to show a block in one colour.</span>
           <div class="ctl"><input id="fHighlight" type="checkbox"></div></div>
-        <div class="fld"><span class="lbl">The chapters of a chat</span>
-          <span class="sub">The model may mark where a new part of the chat begins. The marks stand on a line at the left of the chat, and a click on one of them takes you there. Turn this off to hide the line, and the model is no longer offered the marks.</span>
+        <div class="fld"><span class="lbl">Chapter markers</span>
+          <span class="sub">The model may mark where a new part of the chat begins. The markers appear on a line at the left of the chat, and clicking one scrolls there. Turn this off to hide the line; the model is then not offered the tool.</span>
           <div class="ctl"><input id="fChapters" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Commands in one answer</span>
-          <span class="sub">How many terminal commands the model may run inside one answer. -1 leaves no limit, so the model may run a command as often as it wants. A mark of a chapter is not a command and eats none of this room.</span>
-          <div class="ctl"><input id="fToolSteps" type="number" min="-1" max="1000000" step="1" placeholder="-1"><span class="unit">runs, -1 for no limit</span></div></div>
+          <span class="sub">How many terminal commands the model may run in one answer. -1 means no limit, so the model may run as many commands as it wants. A chapter marker is not a command and does not use this limit.</span>
+          <div class="ctl"><input id="fToolSteps" type="number" min="-1" max="1000000" step="1" placeholder="-1"><span class="unit">commands, -1 for no limit</span></div></div>
         <div class="fld"><span class="lbl">Steps in one answer</span>
-          <span class="sub">How many turns of the model one answer may take. A turn is asked again after every command, so a long talk with many parts needs room here. -1 leaves no limit, and the answer then ends only when the model stops by itself.</span>
+          <span class="sub">How many turns of the model one answer may take. Each command is followed by another turn, so a long task needs room here. -1 means no limit: the answer ends only when the model stops by itself.</span>
           <div class="ctl"><input id="fAnswerSteps" type="number" min="-1" max="1000000" step="1" placeholder="-1"><span class="unit">turns, -1 for no limit</span></div></div>
-        <div class="fld"><span class="lbl">A paste of words becomes a file</span>
-          <span class="sub">When a paste into the chat box holds more characters than this, the words turn into a file hung on the message instead of standing in the box. The least is 100.</span>
+        <div class="fld"><span class="lbl">A long paste becomes a file</span>
+          <span class="sub">When a paste into the chat box is longer than this, the text is attached to the message as a file instead of being written in the box. The least is 100.</span>
           <div class="ctl"><input id="fPasteLimit" type="number" min="100" max="1000000" step="1" placeholder="6000"><span class="unit">characters</span></div></div>
         <div class="fld"><span class="lbl">Width of the chat</span>
           <span class="sub">How wide the column of the chat may be. 780 pixels is the width the chat always had, and it is the least. The chat never grows past 80 per cent of the width of the window, and it keeps clear of the line of the chapters, the line of the summarisations and the arrows of the chat.</span>
@@ -1323,31 +1323,31 @@ pre.code.line {
 
         <div class="sec">Compaction</div>
         <div class="fld"><span class="lbl">Compaction</span>
-          <span class="sub">How the room of the talk is made again when it runs out. The handoff summary asks the model, without your being asked anything, for a summary of the talk when the room nears its end: the words before that summary are then left out of what goes back to the model, so a chat may go on for ever. The first message you sent is always kept, and the summary rides after it. Nothing leaves the chat alone until the room is gone.</span>
+          <span class="sub">How the context is made again when it fills up. The handoff summary asks the model, without asking you anything, for a summary of the conversation when the context nears its end. The messages before that summary are then left out of what is sent back to the model, so a chat can go on for ever. The first message you sent is always kept, and the summary follows it. Nothing is removed from the chat you see.</span>
           <div class="ctl"><select id="fCompaction">
             <option value="handoff">Handoff summary</option>
-            <option value="off">Nothing</option>
+            <option value="off">Off</option>
           </select></div></div>
-        <div class="fld"><span class="lbl">Start the summarisation</span>
-          <span class="sub">Either when the talk holds so great a share of the room of the model, or when the room left over has fallen under a number of tokens.</span>
+        <div class="fld"><span class="lbl">Start a summarisation</span>
+          <span class="sub">Either when the conversation uses a given share of the context window of the model, or when the space left has fallen under a number of tokens.</span>
           <div class="ctl"><select id="fCompactBy">
-            <option value="percent">At a share of the room</option>
-            <option value="tokens">When little room is left</option>
+            <option value="percent">At a share of the context</option>
+            <option value="tokens">When little space is left</option>
           </select></div></div>
-        <div class="fld"><span class="lbl">The share of the room</span>
-          <span class="sub">The talk is summarised when it holds this share of the room the model was given.</span>
+        <div class="fld"><span class="lbl">Share of the context</span>
+          <span class="sub">The conversation is summarised when it uses this share of the context window of the model.</span>
           <div class="ctl"><input id="fCompactPercent" type="number" min="1" max="100" step="1" placeholder="85"><span class="unit">per cent</span></div></div>
-        <div class="fld"><span class="lbl">The room to leave over</span>
-          <span class="sub">The talk is summarised when the room left over is this small or smaller, so the next answer has room to be written.</span>
+        <div class="fld"><span class="lbl">Space to keep free</span>
+          <span class="sub">The conversation is summarised when the space left is this small or smaller, so the next answer has room to be written.</span>
           <div class="ctl"><input id="fCompactReserve" type="number" min="1" max="1000000" step="1" placeholder="10240"><span class="unit">tokens</span></div></div>
-        <div class="fld wide"><span class="lbl">The handoff prompt</span>
-          <span class="sub">What the model is told to write when the summary is asked for. Leave it empty and the prompt of the program is used again. No longer than 4096 characters.</span>
+        <div class="fld wide"><span class="lbl">Handoff prompt</span>
+          <span class="sub">What the model is told to write when a summary is asked for. Leave it empty to use the prompt of the program. At most 4096 characters.</span>
           <div class="ctl"><textarea id="fCompactPrompt" rows="6" maxlength="4096" spellcheck="false" placeholder="Write a very detailed but concise handoff summary"></textarea></div></div>
-        <div class="fld wide"><span class="lbl">The short handoff prompt</span>
-          <span class="sub">The first summary is given all of the room that is left and may be as long as it likes. When it fills that room and stops in the middle of itself, the model is asked again with these words, which lean towards a very short summary. Leave it empty and the prompt of the program is used again. No longer than 4096 characters.</span>
+        <div class="fld wide"><span class="lbl">Short handoff prompt</span>
+          <span class="sub">The first summary is given all the space left and may be as long as it likes. When it fills that space and stops in the middle, the model is asked again with these words, which ask for a very short summary. Leave it empty to use the prompt of the program. At most 4096 characters.</span>
           <div class="ctl"><textarea id="fCompactPromptShort" rows="6" maxlength="4096" spellcheck="false" placeholder="Write a very short handoff summary"></textarea></div></div>
-        <div class="fld"><span class="lbl">The line of the summarisations</span>
-          <span class="sub">A vertical line at the right of the chat, with one node for every time the talk was made short. A node says which summarisation it is and shows a little of it; a click takes you there.</span>
+        <div class="fld"><span class="lbl">Summarisation timeline</span>
+          <span class="sub">A vertical line at the right of the chat with one node for every summarisation. A node says which summarisation it is and shows part of it; clicking one scrolls there.</span>
           <div class="ctl"><input id="fTimeline" type="checkbox"></div></div>
       </div>
 
@@ -1360,109 +1360,109 @@ pre.code.line {
         </div>
         <div id="mForm">
         <div class="sec">Sizing</div>
-        <div class="fld"><span class="lbl">Memory of the talk</span>
-          <span class="sub">How much of the talk the model keeps in mind at once. More costs more memory.</span>
+        <div class="fld"><span class="lbl">Context size</span>
+          <span class="sub">How much of the conversation the model keeps in mind at once. More uses more memory.</span>
           <div class="ctl"><input id="mCtx" type="number" min="256" max="2097152" step="256"><span class="unit">tokens</span></div></div>
-        <div class="fld"><span class="lbl">Numbers kept for the talk</span>
-          <span class="sub">Fewer numbers make the memory of the talk smaller, but the answers a little rougher.</span>
+        <div class="fld"><span class="lbl">KV cache type</span>
+          <span class="sub">Lower precision uses less memory for the conversation, and makes answers slightly worse.</span>
           <div class="ctl"><select id="mKv"></select></div></div>
-        <div class="fld"><span class="lbl">How the file is read</span>
-          <span class="sub">Keeps the model in the memory of the machine, on the disk, or in both.</span>
+        <div class="fld"><span class="lbl">Model load mode</span>
+          <span class="sub">Loads the model into memory, from disk, or both.</span>
           <div class="ctl"><select id="mLoad"></select></div></div>
         <details class="adv" id="advSizing">
           <summary>Advanced</summary>
           <div class="adv-body">
             <div class="fld"><span class="lbl">Checkpoints</span>
-              <span class="sub">The most points of the talk the server saves, so it can go back to one and reuse the work done before it. 0 turns the checkpoints off.</span>
+              <span class="sub">The most points of the conversation the server saves, so it can return to one and reuse the work done before it. 0 turns checkpoints off.</span>
               <div class="ctl"><input id="mCheckpoints" type="number" min="0" max="1024" step="1"><span class="unit">0 for off</span></div></div>
             <div class="fld"><span class="lbl">Cache ram</span>
-              <span class="sub">The ceiling of the memory the talk may take, in mebibytes. 0 turns the cache off, and -1 lifts the limit.</span>
+              <span class="sub">The most memory the conversation may use, in mebibytes. 0 turns the cache off, and -1 removes the limit.</span>
               <div class="ctl"><input id="mCacheRam" type="number" min="-1" max="131072" step="128"><span class="unit">MiB, -1 for no limit</span></div></div>
             <div class="fld"><span class="lbl">Cache prompt</span>
-              <span class="sub">The server keeps the work of the words already sent, and reuses it on the next turn. Turn it off to pay the work again on every turn.</span>
+              <span class="sub">The server keeps the work done on text already sent and reuses it on the next turn. Turn this off to pay that work again on every turn.</span>
               <div class="ctl"><input id="mCachePrompt" type="checkbox"></div></div>
             <div class="fld"><span class="lbl">No context shift</span>
-              <span class="sub">When the talk overflows the room, the server shifts the old words out and keeps going. Turn this on to stop the shift, and the answer stops at the edge of the room. Good to use when coding.</span>
+              <span class="sub">When the conversation overflows the context, the server drops the old text and keeps going. Turn this on to stop that, so the answer stops at the edge of the context. Useful when coding.</span>
               <div class="ctl"><input id="mNoShift" type="checkbox"></div></div>
           </div>
         </details>
 
         <div class="sec">Sampling</div>
         <div class="fld"><span class="lbl">Temperature</span>
-          <span class="sub">How freely the model picks from the words it can say. A low value reads safe, and a high value reads loose.</span>
+          <span class="sub">How freely the model chooses from the words it can say. A low value is safer, and a high value is looser.</span>
           <div class="ctl"><input id="mTemp" type="number" min="0" max="5" step="0.05"><span class="unit">0 to 5</span></div></div>
         <div class="fld"><span class="lbl">Top p</span>
-          <span class="sub">The model picks from the words that hold this share of the chance. 1 keeps every word.</span>
+          <span class="sub">The model chooses from the words that hold this share of the probability. 1 keeps every word.</span>
           <div class="ctl"><input id="mTopP" type="number" min="0" max="1" step="0.01"><span class="unit">0 to 1</span></div></div>
         <div class="fld"><span class="lbl">Top k</span>
-          <span class="sub">The model picks from the k most likely words. 0 keeps every word.</span>
+          <span class="sub">The model chooses from the k most likely words. 0 keeps every word.</span>
           <div class="ctl"><input id="mTopK" type="number" min="0" max="1000" step="1"><span class="unit">words</span></div></div>
         <div class="fld"><span class="lbl">Min p</span>
-          <span class="sub">A word that is less likely than this share of the top word is left out. 0 keeps every word.</span>
+          <span class="sub">A word less likely than this share of the top word is dropped. 0 keeps every word.</span>
           <div class="ctl"><input id="mMinP" type="number" min="0" max="1" step="0.01"><span class="unit">0 to 1</span></div></div>
         <details class="adv" id="advSampling">
           <summary>Advanced</summary>
           <div class="adv-body">
             <div class="fld"><span class="lbl">Repetition penalty</span>
-              <span class="sub">Words that came up before are pushed down. 1 leaves the penalty off.</span>
+              <span class="sub">Words that appeared before are made less likely. 1 turns the penalty off.</span>
               <div class="ctl"><input id="mRepeatPen" type="number" min="0" max="2" step="0.05"><span class="unit">1 for off</span></div></div>
             <div class="fld"><span class="lbl">Presence penalty</span>
-              <span class="sub">Every word that came up before is pushed down once. 0 leaves the penalty off.</span>
+              <span class="sub">Every word that appeared before is made less likely once. 0 turns the penalty off.</span>
               <div class="ctl"><input id="mPresencePen" type="number" min="-2" max="2" step="0.05"><span class="unit">0 for off</span></div></div>
             <div class="fld"><span class="lbl">Max tokens</span>
-              <span class="sub">The most tokens one answer may give. -1 leaves the answer without a limit.</span>
+              <span class="sub">The most tokens one answer may produce. -1 means no limit.</span>
               <div class="ctl"><input id="mMaxTokens" type="number" min="-1" max="2097152" step="1"><span class="unit">-1 for no limit</span></div></div>
             <div class="fld"><span class="lbl">Seed</span>
-              <span class="sub">The start of the random draw. -1 draws a new one on every start. A fixed seed gives the same answer for the same words.</span>
+              <span class="sub">The start of the random choice. -1 draws a new one on every start. A fixed seed gives the same answer for the same text.</span>
               <div class="ctl"><input id="mSeed" type="number" min="-1" max="9223372036854775807" step="1"><span class="unit">-1 for random</span></div></div>
           </div>
         </details>
 
-        <div class="sec">Guessing ahead</div>
-        <div class="fld"><span class="lbl">Way of guessing</span>
+        <div class="sec">Speculative decoding</div>
+        <div class="fld"><span class="lbl">Speculation type</span>
           <span class="sub">The model may guess a few words ahead and then check them.</span>
           <div class="ctl"><select id="mSpec"></select></div></div>
         <div class="fld wide"><span class="lbl">Draft model</span>
-          <span class="sub">The file of the small model that guesses words ahead. Empty guesses from the chat.</span>
+          <span class="sub">The file of the small model that guesses words ahead. Leave it empty to guess from the chat.</span>
           <div class="ctl"><input class="txt" id="mDraft" type="text" placeholder="no draft model"></div></div>
-        <div class="fld"><span class="lbl">Words guessed at once</span>
+        <div class="fld"><span class="lbl">Draft tokens</span>
           <span class="sub">How many words the model tries ahead before it checks them.</span>
           <div class="ctl"><input id="mDraftTokens" type="number" min="1" max="32"><span class="unit">words</span></div></div>
 
         <div class="sec">Working</div>
-        <div class="fld"><span class="lbl">Chats at once</span>
-          <span class="sub">How many talks the server may serve at the same time.</span>
+        <div class="fld"><span class="lbl">Parallel chats</span>
+          <span class="sub">How many conversations the server may serve at the same time.</span>
           <div class="ctl"><input id="mParallel" type="number" min="1" max="32"><span class="unit">chats</span></div></div>
-        <div class="fld"><span class="lbl">Words at a time</span>
+        <div class="fld"><span class="lbl">Batch size</span>
           <span class="sub">The size of one batch of words handed to the model.</span>
           <div class="ctl"><input id="mBatch" type="number" min="16" max="65536"><span class="unit">words</span></div></div>
-        <div class="fld"><span class="lbl">Words in a piece</span>
-          <span class="sub">The part of a batch a card works on at once.</span>
+        <div class="fld"><span class="lbl">Micro-batch size</span>
+          <span class="sub">The part of a batch a graphics card works on at once.</span>
           <div class="ctl"><input id="mUbatch" type="number" min="8" max="65536"><span class="unit">words</span></div></div>
-        <div class="fld"><span class="lbl">Pictures</span>
-          <span class="sub">Read the pictures of a chat, when the model can look at them.</span>
+        <div class="fld"><span class="lbl">Read images</span>
+          <span class="sub">Read the images of a chat, when the model can look at them.</span>
           <div class="ctl"><input id="mVision" type="checkbox"></div></div>
         <details class="adv" id="advWorking">
           <summary>Advanced</summary>
           <div class="adv-body">
             <div class="fld"><span class="lbl">Image minimum tokens</span>
-              <span class="sub">The least tokens one image may take, for a model that can look at pictures. 0 keeps the value inside the model file.</span>
+              <span class="sub">The least tokens one image may use, for a model that can look at images. 0 keeps the value stored in the model file.</span>
               <div class="ctl"><input id="mImgMin" type="number" min="0" max="100000" step="1"><span class="unit">0 for the model value</span></div></div>
             <div class="fld"><span class="lbl">Image maximum tokens</span>
-              <span class="sub">The most tokens one image may take, for a model that can look at pictures. 0 keeps the value inside the model file.</span>
+              <span class="sub">The most tokens one image may use, for a model that can look at images. 0 keeps the value stored in the model file.</span>
               <div class="ctl"><input id="mImgMax" type="number" min="0" max="100000" step="1"><span class="unit">0 for the model value</span></div></div>
             <div class="fld"><span class="lbl">Offload vision to CPU</span>
-              <span class="sub">The projector that reads the pictures works on the card, by default. Turn this on to move it to the CPU, and leave the card free for the model.</span>
+              <span class="sub">The projector that reads images runs on the graphics card by default. Turn this on to run it on the CPU and leave the card free for the model.</span>
               <div class="ctl"><input id="mMmprojCpu" type="checkbox"></div></div>
           </div>
         </details>
 
-        <div class="sec">Thoughts</div>
-        <div class="fld"><span class="lbl">Room for the thoughts</span>
+        <div class="sec">Thinking</div>
+        <div class="fld"><span class="lbl">Thinking budget</span>
           <span class="sub">How many words a model may spend on thinking before it answers. -1 leaves it to the model.</span>
           <div class="ctl"><input id="mBudget" type="number" min="-1" max="2097152"><span class="unit">words</span></div></div>
-        <div class="fld wide"><span class="lbl">Words when the room is gone</span>
-          <span class="sub">The words the server adds when the model has spent all the room for thinking.</span>
+        <div class="fld wide"><span class="lbl">Message when the budget is gone</span>
+          <span class="sub">The text the server adds when the model has used all the room for thinking.</span>
           <div class="ctl"><input class="txt" id="mReasonMsg" type="text" placeholder="nothing"></div></div>
 
         <div class="sec">Cards</div>
@@ -1476,23 +1476,23 @@ pre.code.line {
           </div>
         </details>
 
-        <div class="sec">Memory of the cards</div>
+        <div class="sec">Graphics cards</div>
         <div class="fld wide"><span class="lbl">VRAM budget</span>
-          <span class="sub">How much of the cards is spent on the model. The whole of it uses every card fully.</span>
+          <span class="sub">How much of the cards is used for the model. Using all of it fills every card.</span>
           <div class="ctl"><input id="mVram" type="range" min="0" max="1" step="128" value="0"><span class="unit" id="mVramText">0 MiB</span></div></div>
 
-        <div class="sec">Words of the talk</div>
-        <div class="fld wide"><span class="lbl">Template of the talk</span>
-          <span class="sub">Leave it empty to use the one inside the model file.</span>
+        <div class="sec">Template</div>
+        <div class="fld wide"><span class="lbl">Chat template</span>
+          <span class="sub">Leave it empty to use the template inside the model file.</span>
           <div class="ctl"><textarea id="mTemplate" placeholder="the template inside the model"></textarea></div></div>
         <div class="sec">Extra arguments</div>
         <div class="fld wide"><span class="lbl">Extra arguments</span>
-          <span class="sub">Arguments given to llama-server as they stand. They win over the fields above.</span>
+          <span class="sub">Arguments given to llama-server as they stand. They take priority over the fields above.</span>
           <div class="ctl"><textarea id="mExtra" placeholder="extra arguments"></textarea></div></div>
 
-        <div class="sec">The command line</div>
-        <div class="fld wide" style="border-bottom:0"><span class="lbl">What the next answer will run</span>
-          <span class="sub">Read again whenever a field of this tab moves. Nothing is started here.</span>
+        <div class="sec">Command line</div>
+        <div class="fld wide" style="border-bottom:0"><span class="lbl">The command the next answer will run</span>
+          <span class="sub">Updated whenever a field of this tab changes. Nothing is started here.</span>
           <div class="ctl"><pre class="code line" id="mPreview"></pre></div></div>
         </div>
       </div>
@@ -1777,7 +1777,7 @@ function drawContext(s) {
   el.ctx.classList.toggle('near', ratio > 0.9);
   el.ctx.title = 'Tokens the model keeps in mind for this chat: '
     + s.context.used + ' of ' + s.context.total
-    + (ratio > 0.9 ? '. The room is nearly full.' : '.');
+    + (ratio > 0.9 ? ' The context is nearly full.' : '.');
 }
 
 // The ring of the gauge, in the units of the drawing: the circle is 19 wide and
@@ -1823,9 +1823,9 @@ function thinkWords(mode) {
 }
 
 // The words over the switch that keeps the thinking of the earlier turns.
-var PRESERVE_TIP = 'Keep the thinking of the turns before the last answer in ' +
-  'the words the model is sent, so it may work on its own thoughts again. It ' +
-  'costs tokens, so turn it off when the room is small. A click turns it on or off.';
+var PRESERVE_TIP = 'Keep the thinking of the turns before the last answer in the ' +
+  'text the model is sent, so it can work on its own thoughts again. It costs ' +
+  'tokens, so turn it off when the context is small. Click to turn it on or off.';
 
 // The menu of the thinking badge: one line for every mode the model offers,
 // with a mark against the mode the chat stands on. A line chooses that mode.
@@ -1892,8 +1892,8 @@ function drawBadges(s) {
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
   el.sandbox.title = s.sandbox_available
-    ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory, and it has no network. Inside a repository, the commands start in the repository directory.'
-    : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.');
+    ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.'
+    : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox.');
   var thinking = s.thinking || { mode: 'off', available: false, modes: [] };
   // The badge says what the model will do, in the words of this page. The
   // short names stay between the page and the server.
@@ -1901,10 +1901,10 @@ function drawBadges(s) {
     ? 'Thinking: ' + thinkWords(thinking.mode) : 'No thinking modes';
   el.think.classList.toggle('on', thinking.available && thinking.mode !== 'off');
   el.think.title = thinking.available
-    ? 'The thinking the model shows before its answer. A click chooses another.'
+    ? 'The thinking shown by the model before its answer. Click to choose a different mode.'
     : (thinking.preserve_available
-        ? 'The template of this model has no switch for thinking, but it may keep the thinking of the earlier turns. A click opens the choice.'
-        : 'The template of this model has no switch for thinking.');
+        ? 'The template of this model has no thinking modes, but it may keep the thinking of the earlier turns. Click to open the choice.'
+        : 'The template of this model has no thinking modes.');
   // The menu is filled again while it stands open, so a new model or a new
   // chat does not leave it standing with the old lines.
   if (!el.thinkmenu.classList.contains('hidden')) { fillThinkMenu(s); }
@@ -1987,7 +1987,7 @@ function drawHomeNote(s) {
   el.homenote.innerHTML = '';
   addNoteBit(el.homenote, s.model.name, true);
   addNoteBit(el.homenote, s.model.kind, false);
-  addNoteBit(el.homenote, s.context.total + ' tokens of room', false);
+  addNoteBit(el.homenote, s.context.total + ' tokens of context', false);
   addNoteBit(el.homenote, s.repository.id ? s.repository.name : 'loose chats', false);
 }
 function addNoteBit(box, text, first) {
@@ -2521,7 +2521,7 @@ var TOOL_SHAPES = {
   run_terminal: {
     mark: 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2',
     head: '', word: 'command', end: 'output',
-    empty: 'a command with no words', begun: 'a command, begun'
+    empty: 'a command with no text', begun: 'a command, started'
   },
   // A file tool is named for a file and for nothing else, so its head waits
   // for the name of one instead of borrowing words from the body. The `file`
@@ -2529,12 +2529,12 @@ var TOOL_SHAPES = {
   edit_file: {
     mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
     head: 'Editing file: ', done: 'Edited file: ', word: 'file', end: 'result',
-    empty: 'no name of a file', begun: 'a file, begun', file: true
+    empty: 'no file name', begun: 'a file, started', file: true
   },
   create_file: {
     mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
     head: 'Creating file: ', done: 'Created file: ', word: 'file', end: 'result',
-    empty: 'no name of a file', begun: 'a file, begun', file: true
+    empty: 'no file name', begun: 'a file, started', file: true
   },
   // The web search. The head names what the call asked for: the words to look
   // for, or the address that is being read. The answer is short words of each
@@ -2542,15 +2542,15 @@ var TOOL_SHAPES = {
   web_search: {
     mark: 'M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6',
     head: 'Searching the web: ', word: 'query', end: 'result',
-    empty: 'nothing to look for', begun: 'the words to look for'
+    empty: 'nothing to search for', begun: 'the search words'
   },
   // A picture handed over to the model. The words are the name of the picture,
   // and the result is the receipt of the run: the block never carries the
   // picture, only the line that says what was read of it.
   view_image: {
     mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
-    head: 'Looking at a picture: ', word: 'picture', end: 'result',
-    empty: 'nothing to look at', begun: 'the picture to look at'
+    head: 'Looking at an image: ', word: 'image', end: 'result',
+    empty: 'nothing to look at', begun: 'the image to look at'
   }
 };
 
@@ -2576,7 +2576,7 @@ function headWords(shape, named, over) {
 // for the file it works on, and the reader must wait for that name: the words of
 // a change are not a name of a file, and a head that reads 'Editing file:
 // .marquee {' says something that is not true. A model that writes the changes
-// before the name of the file is answered with 'a file, begun' until the name
+// before the name of the file is answered with 'a file, started' until the name
 // comes, which is what the head has always said when there was no name to read.
 // The other tools name the words themselves - a command, the words to look for -
 // so the first line of what has come in is the thing they name.
@@ -2590,7 +2590,7 @@ function headName(one, shape) {
 // their own small labels, each cut off at a height. A run with no result yet
 // keeps the panel, so the wait shows.
 function toolBox(m) {
-  var running = m.tool === 'running ...';
+  var running = /^running \.\.\.$/i.test(m.tool);
   // A call the room gave out under. The tool never ran, for the model was stopped
   // while it was still writing the call, so the block says what was stopped and
   // not what went wrong.
@@ -2627,7 +2627,7 @@ function toolBox(m) {
   var labTwo = make('div', 'lab');
   // A call that was stopped was never run, so what stands under the second label
   // is not a result of the tool but the word of what became of the call.
-  labTwo.textContent = cut ? 'what became of it' : shape.end;
+  labTwo.textContent = cut ? 'what happened' : shape.end;
   var output = make('pre', 'out' + (running ? ' live' : ''));
   output.textContent = m.tool;
   space.appendChild(labOne);
@@ -3543,21 +3543,21 @@ function fill(turn, m) {
     var card = make('div', 'scard');
     var when = make('div', 'twhen');
     var hour = (one && one.when) || m.when_full || '';
-    when.textContent = hour ? 'Summarised on ' + hour : 'The hour of it is not known';
+    when.textContent = hour ? 'Summarised on ' + hour : 'The time is not known';
     card.appendChild(when);
     var room = make('div', 'troom');
     if (one && one.before) {
-      room.innerHTML = '<b>' + commas(one.before) + '</b> of the talk stood for <b>'
+      room.innerHTML = '<b>' + commas(one.before) + '</b> tokens of the conversation became <b>'
         + commas(one.after || 0) + '</b> in the summary';
     } else {
-      room.textContent = 'The room of the talk is not known';
+      room.textContent = 'The size of the conversation is not known';
     }
     card.appendChild(room);
     var said = make('div', 'cprev');
     var words = (one && one.snippet) || String(m.body || '').replace(/\s+/g, ' ').trim();
     said.textContent = words || (owed
       ? (m.tool || 'The summary was never written.')
-      : 'Nothing was written for the summary yet.');
+      : 'Nothing has been written for the summary yet.');
     if (!words) { said.classList.add('none'); }
     card.appendChild(said);
     var full = String(m.body || '').trim();
@@ -3565,7 +3565,7 @@ function fill(turn, m) {
       var again = make('button', 'sbtn');
       again.type = 'button';
       again.textContent = 'Write the summary again';
-      again.title = 'Ask the model for this handoff summary again, from the place the chat was cut';
+      again.title = 'Ask the model to write this handoff summary again, from the point where the chat was cut';
       again.addEventListener('click', function () { post('/api/handoff', {}); });
       card.appendChild(again);
     } else if (full) {
@@ -3631,7 +3631,7 @@ function fill(turn, m) {
 
 function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
-    (m.tool || '').length, m.tool === 'running ...' ? 1 : 0, m.when || '',
+    (m.tool || '').length, /^running \.\.\.$/i.test(m.tool) ? 1 : 0, m.when || '',
     m.attachments ? m.attachments.length : 0, m.cancelled ? 'cut' : ''].join('#');
 }
 
@@ -3821,8 +3821,8 @@ function drawThread(s) {
       var strong = make('b');
       strong.textContent = 'Nothing written yet';
       var rest = make('span');
-      rest.textContent = 'Write below and press Enter. A chat with nothing in it '
-        + 'goes away when you turn the carousel.';
+      rest.textContent = 'Write below and press Enter. An empty chat is removed '
+        + 'when you switch chats.';
       blank.appendChild(strong);
       blank.appendChild(rest);
       box.appendChild(blank);
@@ -4016,7 +4016,7 @@ function drawChapters(s) {
     name.textContent = chapters[n].name;
     var words = make('div', 'cprev');
     var preview = chapterWords(places[n][0], places[n][1]);
-    words.textContent = preview || 'Nothing written there yet.';
+    words.textContent = preview || 'Nothing was written there yet.';
     if (!preview) { words.classList.add('none'); }
     card.appendChild(name);
     card.appendChild(words);
@@ -4121,18 +4121,18 @@ function drawTimeline(s) {
          : 'Summarised #' + one.number);
     card.appendChild(name);
     var when = make('div', 'twhen');
-    when.textContent = one.when ? 'Summarised on ' + one.when : 'The hour of it is not known';
+    when.textContent = one.when ? 'Summarised on ' + one.when : 'The time is not known';
     card.appendChild(when);
     var room = make('div', 'troom');
     if (one.before) {
-      room.innerHTML = '<b>' + commas(one.before) + '</b> of the talk stood for <b>'
+      room.innerHTML = '<b>' + commas(one.before) + '</b> tokens of the conversation became <b>'
         + commas(one.after || 0) + '</b> in the summary';
     } else {
-      room.textContent = 'The room of the talk is not known';
+      room.textContent = 'The size of the conversation is not known';
     }
     card.appendChild(room);
     var words = make('div', 'cprev');
-    words.textContent = one.snippet || (one.why || 'Nothing was written for the summary yet.');
+    words.textContent = one.snippet || (one.why || 'Nothing has been written for the summary yet.');
     if (!one.snippet) { words.classList.add('none'); }
     card.appendChild(words);
     node.appendChild(card);
@@ -4157,9 +4157,9 @@ function showSummary(one, text) {
   var line = when ? 'Summarised on ' + when : '';
   if (one && one.before) {
     line += (line ? ' - ' : '') + '<b>' + commas(one.before)
-      + '</b> of the talk stood for <b>' + commas(one.after || 0) + '</b> in the summary';
+      + '</b> tokens of the conversation became <b>' + commas(one.after || 0) + '</b> in the summary';
   }
-  meta.innerHTML = line || 'The hour of it is not known';
+  meta.innerHTML = line || 'The time is not known';
   body.innerHTML = '';
   var made = blocks(text || '');
   if (!made.length) {
@@ -4286,12 +4286,12 @@ function rowCount(s) {
   el.pcount.innerHTML = '';
   var strong = make('b');
   var n = s.chats.length;
-  strong.textContent = n === 0 ? 'This place holds no chat yet'
+  strong.textContent = n === 0 ? 'There is no chat here yet'
     : n + ' ' + (n === 1 ? 'chat' : 'chats');
   el.pcount.appendChild(strong);
   if (n > 0) {
     var at = make('span', 'at');
-    at.textContent = ' in ' + (s.repository.id ? s.repository.name : 'the loose chats of this machine')
+    at.textContent = (s.repository.id ? ' in ' + s.repository.name : ' with no repository')
       + '. ' + (chatIndex() + 1) + ' is open.';
     el.pcount.appendChild(at);
   }
@@ -4738,8 +4738,8 @@ function partBlock(one, place) {
   if (place !== undefined) {
     var x = make('button', 'x');
     x.type = 'button';
-    x.title = 'Take this file away';
-    x.setAttribute('aria-label', 'Take ' + one.name + ' away from the message');
+    x.title = 'Remove this file';
+    x.setAttribute('aria-label', 'Remove ' + one.name + ' from the message');
     x.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true">'
       + '<path d="M4 4l8 8M12 4l-8 8"/></svg>';
     x.addEventListener('click', function () {
@@ -4968,7 +4968,7 @@ function openChat(id) { post('/api/open_chat', { id: id }); }
 //
 // The two tabs stand in one sheet over the window. The Program tab reads the
 // settings and the list of repositories, and the Model tab reads the settings of
-// one model with the cards of the machine. The command line under the Model tab
+// one model with the cards of the machine. Command line under the Model tab
 // is read again whenever a field of that tab moves.
 
 var setTab = 'program';
@@ -4999,7 +4999,7 @@ function showSetTab(tab) {
   byId('paneProgram').classList.toggle('hidden', tab !== 'program');
   byId('paneModel').classList.toggle('hidden', tab !== 'model');
   byId('sheetSub').textContent = tab === 'program'
-    ? 'The program on this machine' : 'One model, and the server line it will use';
+    ? 'The settings of this program' : 'One model, and the command line it will use';
   byId('sheetNote').textContent = tab === 'program'
     ? 'The folders are read again the next time the program looks.'
     : 'Saving stops a running server, because it was started with the old values.';
@@ -5039,7 +5039,7 @@ function loadProgram() {
     // The note is what the program found when it asked its own jail whether it
     // keeps what it promises.
     byId('fSandbox').textContent = (cur && cur.sandbox_note)
-      || 'The sandbox was not looked at.';
+      || 'The sandbox was not checked.';
     var sel = byId('fOpenRepo'); sel.innerHTML = '';
     sel.appendChild(setOption('No repository', ''));
     for (var i = 0; i < repos.length; i++) { sel.appendChild(setOption(repos[i].name, repos[i].id)); }
