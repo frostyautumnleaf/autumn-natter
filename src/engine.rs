@@ -440,6 +440,10 @@ pub fn handoff_block(summary: &str) -> String {
 // what became of it, in words the reader does not have to be a model to follow.
 pub const CANCELLED_WORDS: &str = "the call was cancelled: the talk came to the limit set for the summarisation while the call was being written, so the writing was stopped and the tool never ran";
 
+// The same line, for a call the reader stopped with their own hand. Nothing of
+// the room stands behind it: the reader pressed stop, and the tool never ran.
+pub const STOPPED_WORDS: &str = "the call was cancelled: you stopped the answer while the call was being written, so the writing was stopped and the tool never ran";
+
 // The most of the words of a cut-off tool call that go back to the model. The
 // words of such a call are seldom short: a model writing a file out has the
 // whole of the file in them, and the room the summarisation just made is eaten
@@ -488,21 +492,47 @@ fn head_chars(text: &str, wanted: usize) -> String {
 // and a call with a string left open in it is not, which is what the model has to
 // hear either way.
 pub fn cut_words(name: &str, args: &str) -> String {
-    let whole = serde_json::from_str::<Value>(args).is_ok();
-    let shown = if whole {
-        String::from("(the words of the call stand as the model wrote them. It was stopped all the same, and the tool never ran)")
-    } else {
-        String::from("(the words of the call stop in the middle: the model had written no further when the writing was stopped, and what it had in mind past this point is not known)")
-    };
-    let named = if name.trim().is_empty() {
+    format!(
+        "[A tool call was cancelled. The talk came to the limit set for the summarisation while the model was still writing the call, so the program stopped the writing and the tool never ran: nothing of what the call asked for was done. The room has since been made by a handoff summary, and the talk goes on. The call as it stood when it was stopped is given below -- if the work still needs this, write the call again from the start, in pieces small enough to be written inside the room the model has.\n{}\nwords of the call written before it was stopped:\n{}\n{}]",
+        named_call(name),
+        args,
+        words_as_they_stood(args)
+    )
+}
+
+// The words of a tool call the reader stopped. Two things differ from a call the
+// room gave out under: nobody made room after it, and the answer is over, so
+// nothing is asked of the model now. The call is still told back, for the model
+// is to know what it was put to when the reader asks it for the work again.
+pub fn stopped_words(name: &str, args: &str) -> String {
+    format!(
+        "[A tool call was cancelled. The reader stopped the answer while the model was still writing the call, so the program stopped the writing and the tool never ran: nothing of what the call asked for was done. The answer is over, and the room of the model was not touched. The call as it stood when it was stopped is given below. If this work is taken up again, write the call again from the start, in pieces small enough to be written inside the room the model has.\n{}\nwords of the call written before it was stopped:\n{}\n{}]",
+        named_call(name),
+        args,
+        words_as_they_stood(args)
+    )
+}
+
+// The tool the call was pointed at, or the words that say its name was never
+// written.
+fn named_call(name: &str) -> String {
+    if name.trim().is_empty() {
         String::from("the name of the tool was not written yet")
     } else {
         format!("tool: {}", name)
-    };
-    format!(
-        "[A tool call was cancelled. The talk came to the limit set for the summarisation while the model was still writing the call, so the program stopped the writing and the tool never ran: nothing of what the call asked for was done. The room has since been made by a handoff summary, and the talk goes on. The call as it stood when it was stopped is given below -- if the work still needs this, write the call again from the start, in pieces small enough to be written inside the room the model has.\n{}\nwords of the call written before it was stopped:\n{}\n{}]",
-        named, args, shown
-    )
+    }
+}
+
+// What the words of a stopped call say about themselves. Whether they stop in the
+// middle is told by the words themselves: a call that shut all its marks is whole
+// as far as anyone can tell, and a call with a string left open in it is not,
+// which is what the model has to hear either way.
+fn words_as_they_stood(args: &str) -> String {
+    if serde_json::from_str::<Value>(args).is_ok() {
+        String::from("(the words of the call stand as the model wrote them. It was stopped all the same, and the tool never ran)")
+    } else {
+        String::from("(the words of the call stop in the middle: the model had written no further when the writing was stopped, and what it had in mind past this point is not known)")
+    }
 }
 
 // The words the Chatting settings can put before the model, so it knows the day
@@ -771,6 +801,13 @@ pub struct State {
     pub status: String,
     pub ctx_total: u64,
     pub ctx_used: u64,
+    // The first number of the talk that the server gives for a new ask is taken
+    // where it stands, and after that the meter only climbs. The number left over
+    // from the ask before may count words that were never kept in the chat -- an
+    // answer the reader stopped leaves the words the model had written out of the
+    // talk again -- and a meter that only climbs would stand still for the whole
+    // of the answer that followed, for ever after.
+    pub ctx_fresh: bool,
     pub sandbox_available: bool,
     pub sandbox_note: String,
     // What the chat template of the current model can do with thinking.
@@ -1116,6 +1153,35 @@ impl State {
     // whole of them rides on the message, so the model can be told what it had
     // been put to when it is asked again after the room was made.
     fn push_cancelled(&mut self, call: &ToolCall, thinking: &str, thinking_ms: u64, bound: usize) {
+        self.push_stopped_call(call, thinking, thinking_ms, bound, false);
+    }
+
+    // A tool call the reader stopped with their own hand, while the model was
+    // still writing it. The block of the words being written goes with the answer,
+    // so what the reader stopped still stands in the chat: an answer that ends
+    // with the model's last work hidden reads as though the program had thrown it
+    // away.
+    fn push_stopped_by_reader(
+        &mut self,
+        call: &ToolCall,
+        thinking: &str,
+        thinking_ms: u64,
+        bound: usize,
+    ) {
+        self.push_stopped_call(call, thinking, thinking_ms, bound, true);
+    }
+
+    // The two roads above meet here. `by_reader` tells the call the reader stopped
+    // from the call the room gave out under, in the chat and in what goes back to
+    // the model.
+    fn push_stopped_call(
+        &mut self,
+        call: &ToolCall,
+        thinking: &str,
+        thinking_ms: u64,
+        bound: usize,
+        by_reader: bool,
+    ) {
         // The words of the call are kept to what the room left over can carry, and
         // the block the reader is shown is made from the same words: what the
         // reader sees and what the model is told cannot then differ.
@@ -1136,10 +1202,15 @@ impl State {
                 body: shown,
                 reasoning: thinking.to_string(),
                 reasoning_ms: thinking_ms,
-                tool: String::from(CANCELLED_WORDS),
+                tool: String::from(if by_reader {
+                    STOPPED_WORDS
+                } else {
+                    CANCELLED_WORDS
+                }),
                 mono: true,
                 failed: true,
                 cancelled: true,
+                reader_stopped: by_reader,
                 call_id: call.id.clone(),
                 tool_name: call.name.clone(),
                 tool_args: args,
@@ -1259,17 +1330,25 @@ impl State {
                 // A tool run and a chapter are both a call the model made and
                 // an answer it got back. Only the run is shown to the reader.
                 "Tool" | "Chapter" => {
-                    // A call the room gave out under is not a call. The words of
-                    // it stop in the middle, and a server set to read arguments
-                    // out of them would fault over the broken JSON, as it faults
-                    // over a call the room cut short in an answer. So the call
-                    // goes back as the words of the turn it stood in, and the
-                    // model is told in plain words that the call was cancelled
-                    // and what it had written when it was stopped.
+                    // A call that was stopped before the model had written the
+                    // whole of it is not a call. The words of it stop in the
+                    // middle, and a server set to read arguments out of them would
+                    // fault over the broken JSON, as it faults over a call the room
+                    // cut short in an answer. So the call goes back as the words of
+                    // the turn it stood in, and the model is told in plain words
+                    // that the call was cancelled and what it had written when it
+                    // was stopped. Whether the room or the reader stopped it is
+                    // told too, for one had its room made after it and the other
+                    // had nothing after it at all.
                     if message.cancelled {
+                        let told = if message.reader_stopped {
+                            stopped_words(&message.tool_name, &message.tool_args)
+                        } else {
+                            cut_words(&message.tool_name, &message.tool_args)
+                        };
                         out.push(json!({
                             "role": "assistant",
-                            "content": cut_words(&message.tool_name, &message.tool_args),
+                            "content": told,
                         }));
                         continue;
                     }
@@ -1798,6 +1877,7 @@ impl Engine {
             status: String::from("ready"),
             ctx_total: 0,
             ctx_used: 0,
+            ctx_fresh: false,
             sandbox_available,
             sandbox_note,
             thinking: markdown::ThinkingOptions::default(),
@@ -3147,7 +3227,22 @@ fn end_writing_calls(state: &mut State) -> bool {
 // may be smaller, for a stop takes words away. True when the number moved, so
 // the caller says that the messages changed.
 fn climb_context(state: &mut State, made: u64) -> bool {
-    if made == 0 || made <= state.ctx_used {
+    if made == 0 {
+        return false;
+    }
+    // The first number of a new ask is the measure of the talk as the server has
+    // it now, so it is taken where it stands. A number kept from an answer that
+    // was stopped is not a measure of anything: the words it counted went out of
+    // the talk with the answer.
+    if state.ctx_fresh {
+        state.ctx_fresh = false;
+        if made == state.ctx_used {
+            return false;
+        }
+        state.ctx_used = made;
+        return true;
+    }
+    if made <= state.ctx_used {
         return false;
     }
     state.ctx_used = made;
@@ -3162,23 +3257,41 @@ fn climb_context(state: &mut State, made: u64) -> bool {
 // whatever the pace, so nothing of it is lost.
 const LEAST_CONTEXT_STEP: Duration = Duration::from_millis(500);
 
-// The same rule as the climb above, for the pieces that come in during an
-// answer: the number is put in only when the half second of the meter is over.
-// `now` is the moment of the piece, so the rule can be tried without waiting for
-// the half second. A number that is turned away is not kept back either: the
-// next piece that comes after the half second brings the talk up to date at once.
+// The pace for the pieces that come in during an answer: the climb above, with
+// the half second between the numbers. The first number of a new ask is taken
+// where it stands, pace or no pace, for it is the measure of the talk as the
+// server has it now, and a number kept from an answer that was stopped is not a
+// measure of anything. `now` is the moment of the piece, so the rule can be
+// tried without waiting for the half second. A number that is turned away is not
+// kept back either: the next piece that comes after the half second brings the
+// talk up to date at once.
 fn climb_context_paced(state: &mut State, made: u64, now: Instant) -> bool {
-    if made == 0 || made <= state.ctx_used {
-        return false;
-    }
-    if let Some(begun) = state.ctx_at {
-        if now.duration_since(begun) < LEAST_CONTEXT_STEP {
-            return false;
+    if !state.ctx_fresh {
+        if let Some(begun) = state.ctx_at {
+            if now.duration_since(begun) < LEAST_CONTEXT_STEP {
+                return false;
+            }
         }
     }
-    state.ctx_at = Some(now);
-    state.ctx_used = made;
-    true
+    let moved = climb_context(state, made);
+    if moved {
+        state.ctx_at = Some(now);
+    }
+    moved
+}
+
+// The number of the talk at the end of an answer. The number the server gives
+// with the last piece is the number that stands. When none came back -- the
+// reader stopped the answer, or the server could not be reached -- the meter is
+// read again from the talk that stands in the chat now, and the live number of
+// the answer is not kept over it. A stopped answer takes the words the model had
+// written out of the talk again, so the live number is a number of a talk that no
+// longer exists, and a meter that held it could not climb away from it.
+fn used_after(usage: u64, history: &Value) -> u64 {
+    if usage > 0 {
+        return usage;
+    }
+    estimate_tokens(history)
 }
 
 // How many pictures the message that is being worked through carries. That is
@@ -3383,6 +3496,13 @@ fn run_turn(
             state.set_status("the model did not start");
             return Ended::Halted;
         }
+    }
+
+    // The measure of the talk begins anew with this ask: the first number the
+    // server gives is taken where it stands, so a number left over from an answer
+    // that was stopped cannot hold the meter still. See `climb_context`.
+    if let Ok(mut guard) = state.lock() {
+        guard.ctx_fresh = true;
     }
 
     let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
@@ -3638,9 +3758,7 @@ fn run_turn(
             let cut: Vec<ToolCall> = answer
                 .tool_calls
                 .iter()
-                .filter(|call| {
-                    !call.name.trim().is_empty() || !call.arguments.trim().is_empty()
-                })
+                .filter(|call| is_writing(call))
                 .cloned()
                 .collect();
             // The words the model had given of its own answer stand in the chat, as
@@ -3768,16 +3886,38 @@ fn run_turn(
         let asked_for_tool =
             use_tools && (!step_runs.is_empty() || !step_marks.is_empty());
         let no_words = answer_text.trim().is_empty();
-        let turn_thinking = if no_words && asked_for_tool {
+        // The calls the reader stopped with their own hand while the model was
+        // still writing them. A mark of a chapter is not one of them: it runs
+        // nothing, the reader is never shown a block of it, and a block for it
+        // would read as a command that never ran.
+        let stopped_runs: Vec<ToolCall> = if answer.stopped && use_tools {
+            let writing: Vec<ToolCall> = answer
+                .tool_calls
+                .iter()
+                .filter(|call| is_writing(call))
+                .cloned()
+                .collect();
+            split_calls(writing).1
+        } else {
+            Vec::new()
+        };
+        // A turn that stopped in the middle of a call has a block the reader is
+        // shown, so its thinking stands with that block, and no line is written
+        // about an answer that was never meant to come.
+        let stopped_call = !stopped_runs.is_empty();
+        let turn_thinking = if no_words && (asked_for_tool || stopped_call) {
             answer_thinking.as_str()
         } else {
             ""
         };
+        // A turn stopped in the middle of a call asked for something, and the
+        // block of that call is what the reader is shown of it: a turn that asked
+        // for a tool writes no line of its own about a missing answer.
         match kept_of(
             &answer_text,
             &answer_thinking,
             answer.stopped,
-            asked_for_tool,
+            asked_for_tool || stopped_call,
             answer.error.is_some(),
         ) {
             // The words are kept as they came in, also when the reader
@@ -3801,18 +3941,28 @@ fn run_turn(
             Kept::Nothing => {}
         }
 
+        // The calls the reader stopped stand in the chat. The tool never ran, and
+        // the block of the words being written goes with the answer instead of
+        // vanishing with it: the reader stopped a thing they could see being
+        // written, and it has to stay where they can still read it. Each call goes
+        // back to the model as the words of a turn, as a call the room gave out
+        // under does, for its words are not whole.
+        let mut stopped_thoughts = turn_thinking.to_string();
+        for call in stopped_runs.iter() {
+            // The thinking of the turn stands with the first block, as it does
+            // with a run.
+            let thinking = std::mem::take(&mut stopped_thoughts);
+            guard.push_stopped_by_reader(call, &thinking, thought_ms, GREATEST_CUT_ARGS);
+        }
+
         // Tokens for the context meter. The number the server gives at the end
-        // is the number that stands, and it is kept over the live number of the
-        // answer, for the answer is over and the server knows best.
+        // is the number that stands. When none came back, the meter is read again
+        // from the talk that stands in the chat now: an answer the reader stopped
+        // leaves the words the model had written out of that talk again, so the
+        // live number of the answer counts a talk that no longer exists.
         let used = answer.prompt_tokens + answer.completion_tokens;
-        guard.ctx_used = if used > 0 {
-            used
-        } else {
-            // Nothing came back, for the answer was stopped or the server could
-            // not be reached. The meter already holds the words the server said
-            // it had worked through, so they are kept over the guess.
-            guard.ctx_used.max(estimate_tokens(&history))
-        };
+        let told = guard.build_history();
+        guard.ctx_used = used_after(used, &told);
         let used_now = guard.ctx_used;
         if let Some(chat) = guard.chat_mut() {
             chat.meta.context_used = used_now;
@@ -3910,6 +4060,13 @@ fn run_turn(
         guard.set_status("the model reads the tool result");
     };
     outcome
+}
+
+// True of a call the model had begun to write: it has a name of its own, or
+// words of its arguments, or both. A call stopped before either came is nothing
+// the reader was shown, and nothing to tell the model about.
+fn is_writing(call: &ToolCall) -> bool {
+    !call.name.trim().is_empty() || !call.arguments.trim().is_empty()
 }
 
 // The tools the model is offered for one step, or nothing at all when it is
@@ -6005,6 +6162,140 @@ mod tests {
         // The whole of the words of the call rides on the message, so the model
         // is given what it wrote and not a summary of it.
         assert_eq!(last.tool_args, cut.arguments);
+    }
+
+    // A call the reader stopped with their own hand. The block stays in the chat,
+    // for the reader stopped a thing they could see being written, and the model is
+    // told the reader stopped it. Nothing of the room stands in the telling, for
+    // the room was never come to and no room was made.
+    #[test]
+    fn a_call_stopped_by_the_reader_stands_in_the_chat_and_goes_back_as_words() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.open_blank_chat();
+        add_message(&mut state, "You", "the first prompt");
+        let stopped = cut_call(
+            editfile::EDIT_NAME,
+            "{\"path\":\"notes.md\",\"edits\":[{\"old_string\":\"the pl",
+        );
+        state.push_stopped_by_reader(&stopped, "the thinking of the turn", 120, GREATEST_CUT_ARGS);
+        let history = state.build_history();
+        // The line of the day and the clock time stands at the head of the talk,
+        // so the words of the talk are counted without it.
+        let items = undated(&history);
+        // The call goes back as the words of the turn it stood in, as a call the
+        // room gave out under does: a server set to read arguments out of words
+        // that stop in the middle of a string would fault over them.
+        assert_eq!(items[1]["role"], json!("assistant"));
+        assert!(items[1].get("tool_calls").is_none());
+        let text = items[1]["content"].as_str().expect("words");
+        assert!(text.contains("cancelled"));
+        // The reader is named as the hand that stopped it, and nothing of a room
+        // is told, for the room was not come to.
+        assert!(text.contains("reader stopped"), "the reader was not named: {}", text);
+        assert!(!text.contains("summarisation"), "a room was told of: {}", text);
+        assert!(!text.contains("handoff"), "a room was told of: {}", text);
+        assert!(text.contains(editfile::EDIT_NAME));
+        assert!(text.contains("the pl"), "the words so far were lost");
+        assert!(text.contains("stop in the middle"));
+        assert!(!history.to_string().contains("tool_calls"));
+        assert!(!history.to_string().contains("tool_call_id"));
+        // The reader sees the block of the call, named for the file the model was
+        // writing into, with the word of what became of it: their own stop, and not
+        // a fault of the tool.
+        drop(state);
+        let snap = engine.snapshot();
+        let last = snap.messages.last().expect("a message stands last");
+        assert_eq!(last.role, "Tool");
+        assert!(last.cancelled);
+        assert!(last.reader_stopped);
+        assert!(last.failed);
+        assert_eq!(last.body, "notes.md");
+        assert_eq!(last.tool, STOPPED_WORDS);
+        // A call the room gave out under keeps its own words, and does not borrow
+        // the stop of the reader. The two hands cannot be mistaken for one another
+        // in the chat, nor in what goes back to the model.
+        let mut state = engine.state.lock().unwrap();
+        let room = cut_call(tools::TOOL_NAME, "{\"command\":\"ls -");
+        state.push_cancelled(&room, "", 0, GREATEST_CUT_ARGS);
+        drop(state);
+        let snap = engine.snapshot();
+        let last = snap.messages.last().expect("a message stands last");
+        assert!(last.cancelled);
+        assert!(!last.reader_stopped);
+        assert_eq!(last.tool, CANCELLED_WORDS);
+        let told = stopped_words(editfile::EDIT_NAME, "{\"path\":\"a");
+        let room_told = cut_words(editfile::EDIT_NAME, "{\"path\":\"a");
+        assert!(told.contains("reader stopped") && !room_told.contains("reader stopped"));
+        assert!(room_told.contains("summarisation") && !told.contains("summarisation"));
+    }
+
+    // The meter of the context is read again when the server gave no number at the
+    // end of an answer. An answer the reader stopped leaves the words the model had
+    // written out of the talk again, so the live number of that answer is the
+    // number of a talk that no longer exists, and a meter that held it could never
+    // climb away from it again.
+    #[test]
+    fn the_meter_is_read_again_when_no_number_came_back() {
+        let talk = json!([
+            { "role": "user", "content": "the first prompt" },
+            { "role": "assistant", "content": "the answer of it" },
+        ]);
+        // The server spoke the number of the whole answer: that stands.
+        assert_eq!(used_after(4321, &talk), 4321);
+        // Nothing came back, so the talk that stands in the chat is measured.
+        assert_eq!(used_after(0, &talk), estimate_tokens(&talk));
+
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.open_blank_chat();
+        add_message(&mut state, "You", "the first prompt");
+        // The meter climbed while the model wrote a call, as it does. The reader
+        // stopped, and the words the number counted are not in the chat.
+        state.ctx_used = 900_000;
+        let told = state.build_history();
+        state.ctx_used = used_after(0, &told);
+        assert_eq!(
+            state.ctx_used,
+            estimate_tokens(&told),
+            "the number of a talk that is gone was kept over the chat"
+        );
+    }
+
+    // The first number of the talk that a new ask brings is taken where it stands.
+    // After that the meter only climbs, as it always did.
+    #[test]
+    fn the_meter_of_a_new_ask_is_taken_where_it_stands() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.new_chat();
+        let mut state = engine.state.lock().unwrap();
+        // A number left over from an answer the reader stopped: the words it
+        // counted went out of the talk with the answer.
+        state.ctx_used = 5000;
+        state.ctx_fresh = true;
+        assert!(
+            climb_context(&mut state, 1200),
+            "the first number of the ask was refused, and the meter would stand still"
+        );
+        assert_eq!(state.ctx_used, 1200);
+        // The rest of the answer climbs as it always did: the words of an answer
+        // that is still coming are not taken back.
+        assert!(!climb_context(&mut state, 900));
+        assert_eq!(state.ctx_used, 1200);
+        assert!(climb_context(&mut state, 1500));
+        assert_eq!(state.ctx_used, 1500);
+        // A number of nothing says nothing of the talk, so it is taken by nobody,
+        // and the ask is still fresh for the first number that does say something.
+        state.ctx_fresh = true;
+        assert!(!climb_context(&mut state, 0));
+        assert!(state.ctx_fresh, "a number of nothing spent the freshness");
+        assert_eq!(state.ctx_used, 1500);
     }
 
     // The room the summarisation made is spent on the words of a stopped call as

@@ -352,6 +352,13 @@ pub struct Message {
     // server that read the broken words as arguments would fault over them.
     #[serde(default)]
     pub cancelled: bool,
+    // True of a tool call the reader stopped with their own hand while the model
+    // was still writing it. It never ran either, and its words go back the same
+    // way. The two are told apart, for a call the room gave out under had its
+    // room made after it by a handoff summary, and a call the reader stopped had
+    // nothing after it at all.
+    #[serde(default)]
+    pub reader_stopped: bool,
     // A message of the role "Summary" only. The room the talk took when the
     // handoff summary was asked for, in tokens.
     #[serde(default)]
@@ -754,6 +761,18 @@ mod tests {
         let again = serde_json::to_string(&cut).expect("the cut-off call is written");
         let back: Message = serde_json::from_str(&again).expect("and read");
         assert!(back.cancelled);
+        // Such a call was not stopped by the reader, and a chat written before the
+        // two were told apart reads the same way: the room gave out under it.
+        assert!(!back.reader_stopped);
+        // A call the reader stopped keeps a mark of its own, so the words that go
+        // back to the model tell which of the two hands stopped it.
+        let stopped = r#"{"id":"c","role":"Tool","body":"a file","tool_name":"edit_file","cancelled":true,"reader_stopped":true}"#;
+        let stopped: Message = serde_json::from_str(stopped).expect("a call the reader stopped reads");
+        assert!(stopped.cancelled);
+        assert!(stopped.reader_stopped);
+        let again = serde_json::to_string(&stopped).expect("it is written");
+        let back: Message = serde_json::from_str(&again).expect("and read again");
+        assert!(back.reader_stopped);
         // A handoff summary holds the two numbers of the room, and is written
         // and read back whole.
         let summary = Message {

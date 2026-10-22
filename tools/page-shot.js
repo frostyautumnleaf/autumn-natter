@@ -21,6 +21,7 @@
 //   AN_SUMMARIES=6 node page-shot.js rich p.png   # that many handoff summaries
 //   AN_NOTIMELINE=1 node page-shot.js rich p.png  # the line turned off
 //   AN_BROKEN=1 node page-shot.js rich p.png      # the newest one never written
+//   AN_CUT=1 node page-shot.js rich p.png         # a tool call the reader stopped
 //   AN_SUMMARISING=1 node page-shot.js rich p.png # a summary being written,
 //     which is written out of sight: no live answer stands in the chat
 //   AN_FIELD=fCompactPrompt node page-shot.js sheet-program p.png
@@ -341,6 +342,21 @@ function scene(name, dark) {
     start.chats = chats(name === 'previews' ? 9 : 3, 1);
     start.carousel = { index: 1, count: start.chats.length, blank: false };
     start.messages = name === 'rich' ? FULL : name === 'parts' ? PARTS : TALK;
+    // AN_CUT=1 turns the run of the file tool into a call the reader stopped with
+    // their own hand. The block stays in the chat, its pill says 'cancelled', and
+    // under the second label stands the word of the stop and not a result.
+    if (process.env.AN_CUT === '1') {
+      start.messages = start.messages.map(function (m) {
+        if (m.tool_name !== 'edit_file') { return m; }
+        return Object.assign({}, m, {
+          cancelled: true,
+          failed: true,
+          tool: 'the call was cancelled: you stopped the answer while the call was '
+            + 'being written, so the writing was stopped and the tool never ran',
+          tool_args: '{"path":"notes/plan.md","edits":[{"old_string":"the fi'
+        });
+      });
+    }
     // The chapters the model marked, tied to the message each begins after.
     start.chapters = name === 'rich'
       ? [{ id: 'ch1', name: 'The plan for the parser', after: 1 },
