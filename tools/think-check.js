@@ -1,12 +1,13 @@
 // Check the thinking panels of a turn that asks for a tool. The page is loaded
 // as it stands, with no bridge and no engine: the thread is driven by hand with
 // the states the engine hands out while a model thinks, asks for a tool, and
-// then thinks again. Four things are looked at. A tool block that stands inside
-// a thinking panel must be to be seen while the thoughts are folded. A train of
-// thought that runs over a run of tools must stand in one panel, and not in a
-// row of them. More than one tool call must fit inside one thinking block. And
-// with the Chatting setting off the old shape must stand, so nothing is taken
-// away from a reader who does not want it.
+// then thinks again. A tool block that stands inside a thinking panel must be to
+// be seen while the panel is open. A train of thought that runs over a run of
+// tools must stand in one panel, and not in a row of them. More than one tool
+// call must fit inside one thinking block. A panel that the reader folded must
+// put its whole body away, the runs among the thoughts as well. And with the
+// Chatting setting off the old shape must stand, so nothing is taken away from a
+// reader who does not want it.
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
@@ -68,10 +69,12 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     ];
 
     // One: a call being written while the model thinks. The block must stand on
-    // the page, folded thoughts or no thoughts.
+    // the page, inside the panel of the thought that led to it. The panel stands
+    // open for this look; a folded panel is looked at last.
     where = 'a call being written under the thoughts';
     var one = { messages: head, generating: true, summarising: false, live: '',
       reasoning: 'I must run a command first.', reasoning_ms: 900, reasoning_done: false,
+      chatting: { collapse_thinking: false, tools_in_thinking: true },
       live_tools: [{ name: 'run_terminal', command: 'uname -a', purpose: '', target: '',
         done: false }] };
     var box = look(one);
@@ -196,16 +199,22 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (allTools.length !== 0) {
       faults.push('with the setting off ' + allTools.length + ' runs still stand inside a thinking panel, ' + where);
     }
-    // The fold of the thoughts must still leave the run of a tool to be seen.
+    // Seven: the fold. A panel the reader closed puts the whole of its body
+    // away: the thoughts, and the blocks of the runs that stand among them. A
+    // run that stayed to be seen under a closed head read as a fault of the
+    // fold. The head is all that is left, and it opens the panel again.
+    where = 'a folded thinking panel';
     var seven = JSON.parse(JSON.stringify(two));
     seven.chatting = { collapse_thinking: true, tools_in_thinking: true };
     box = look(seven);
     turns = box.querySelectorAll('.turn');
     var folded = turns[turns.length - 1];
     var foldedTool = folded.querySelector('.tool');
-    if (!shown(foldedTool)) { faults.push('a run inside a folded thinking panel cannot be seen, ' + where); }
+    if (shown(foldedTool)) { faults.push('a run inside a folded thinking panel is to be seen, ' + where); }
     var foldedThought = folded.querySelector('.thought');
     if (shown(foldedThought)) { faults.push('the thoughts of a folded panel stand open, ' + where); }
+    var foldedHead = folded.querySelector('.think > .thead');
+    if (!shown(foldedHead)) { faults.push('the head of a folded panel cannot be seen, ' + where); }
 
     return faults;
   });
@@ -215,5 +224,6 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     process.exit(1);
   }
   console.log('a train of thought stands in one panel, the runs inside it are to'
-    + ' be seen with the thoughts folded, and the setting off brings the old shape back');
+    + ' be seen while the panel is open and are put away when it is folded, and the'
+    + ' setting off brings the old shape back');
 })().catch((e) => { console.error(e); process.exit(1); });
