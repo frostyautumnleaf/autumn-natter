@@ -686,7 +686,7 @@ pre.code .t-p { color: var(--t-pun); }
 /* ------------------------------------------------- the row of previews */
 /* Alt turns the chats of this place into a row of small previews. The row is a
    second look at the same carousel: the middle preview is the chat in use, a
-   click opens it, and Escape or Alt puts the row away. */
+   click opens it, and Escape or Alt closes the row. */
 .veil { position: absolute; inset: 0; z-index: 8; display: none; }
 .veil.on { display: block; }
 .veil::before { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: 1; }
@@ -977,14 +977,14 @@ img.pic { animation: plate-in 180ms ease-out; }
   </div>
   <span class="rule"></span>
 
-  <label class="field" title="The model that answers. The settings of this model stand behind the chip mark at the right.">
+  <label class="field" title="The model that answers. The chip at the right opens the settings of this model.">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="2"/><path d="M6.4 1.9v2.3M9.6 1.9v2.3M6.4 11.8v2.3M9.6 11.8v2.3M1.9 6.4h2.3M1.9 9.6h2.3M11.8 6.4h2.3M11.8 9.6h2.3"/></svg>
     <select id="model" aria-label="Model"></select>
     <span class="tag" id="kind"></span>
     <svg class="svg arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
   </label>
 
-  <label class="field" title="The place the chats of this window belong to. A command of the tool starts in that folder.">
+  <label class="field" title="The repository the chats of this window belong to. A tool command starts in that folder.">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.9 4.4c0-.6.4-1 1-1h3.3l1.4 1.8h5.5c.6 0 1 .4 1 1v5.3c0 .6-.4 1-1 1H2.9c-.6 0-1-.4-1-1z"/></svg>
     <select id="repo" aria-label="Repository"></select>
     <svg class="svg arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
@@ -1014,7 +1014,7 @@ img.pic { animation: plate-in 180ms ease-out; }
     <span class="meter"><i id="ctxfill"></i></span>
   </div>
   <span class="rule"></span>
-  <button class="mark-btn" id="chatsbtn" title="Show the chats of this place (Alt)" aria-label="Show the chats">
+  <button class="mark-btn" id="chatsbtn" title="Show all the chats of this list (Alt)" aria-label="Show the chats">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="2.2" width="4.8" height="4.8" rx="1.2"/><rect x="9" y="2.2" width="4.8" height="4.8" rx="1.2"/><rect x="2.2" y="9" width="4.8" height="4.8" rx="1.2"/><rect x="9" y="9" width="4.8" height="4.8" rx="1.2"/></svg>
   </button>
   <button class="mark-btn" id="darkbtn" title="Switch to the dark colours" aria-label="Switch the colours">
@@ -1058,7 +1058,7 @@ img.pic { animation: plate-in 180ms ease-out; }
     <div class="row-head" id="pcount"></div>
     <div class="row-foot">
       Click a card to open it. Drag, arrows, WASD or the wheel move along the row.
-      <kbd>Escape</kbd> or <kbd>Alt</kbd> puts the row away.
+      <kbd>Escape</kbd> or <kbd>Alt</kbd> closes the row.
     </div>
   </div>
 
@@ -1089,20 +1089,20 @@ img.pic { animation: plate-in 180ms ease-out; }
         placeholder="Write a message for the model"></textarea>
       <div class="dock-row">
         <div class="badges">
-          <button class="badge" id="code" title="Let the model use the tools of the program: the terminal tool, and the tools that work on the files of the chat. A command runs in the sandbox when the sandbox is on. The file tools reach the room of the chat and nothing beyond it.">
+          <button class="badge" id="code" title="Let the model use the tools of the program: the terminal tool and the file tools. A command runs in the sandbox when the sandbox is on. The file tools can reach only the working directory of the chat.">
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
             <span id="codetext">Tools</span>
           </button>
-          <button class="badge" id="search" title="Let the model look a thing up on the web, and read a page of it. The search runs in the program, and not in the jail of a command: a command has no road to the web at all. The search touches no file of the machine, and nothing of what was read is kept.">
+          <button class="badge" id="search" title="Let the model search the web and read a page of it. Search runs in the program, not in the sandbox of a command: a command has no network access. Search touches no file of the machine, and nothing that is read is stored.">
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
             <span id="searchtext">Search</span>
           </button>
-          <button class="badge" id="sandbox" title="Run every terminal command inside a bubblewrap jail. A command sees only the working directory, and it has no network. Inside a repository, the commands start in the repository directory.">
+          <button class="badge" id="sandbox" title="Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.">
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
             <span id="sandboxtext">Sandbox</span>
           </button>
           <div class="menuwrap" id="thinkwrap">
-            <button class="badge" id="think" title="The thinking the model shows before its answer. A click chooses another.">
+            <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
               <span id="thinktext">Thinking: Disabled</span>
               <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
@@ -1124,7 +1124,7 @@ img.pic { animation: plate-in 180ms ease-out; }
       <span class="pulse" id="dot"></span>
       <span class="status" id="status"></span>
       <span class="grow"></span>
-      <button class="quiet" id="newchat" title="Start a chat in this place">
+      <button class="quiet" id="newchat" title="Start a new chat here">
         <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
         New chat
       </button>
@@ -1404,7 +1404,7 @@ function drawContext(s) {
   el.ctx.classList.toggle('near', ratio > 0.9);
   el.ctx.title = 'Tokens the model keeps in mind for this chat: '
     + s.context.used + ' of ' + s.context.total
-    + (ratio > 0.9 ? '. The room is nearly full.' : '.');
+    + (ratio > 0.9 ? ' The context is nearly full.' : '.');
 }
 
 // The ring of the gauge, in the units of the drawing: the circle is 19 wide and
@@ -1450,9 +1450,9 @@ function thinkWords(mode) {
 }
 
 // The words over the switch that keeps the thinking of the earlier turns.
-var PRESERVE_TIP = 'Keep the thinking of the turns before the last answer in ' +
-  'the words the model is sent, so it may work on its own thoughts again. It ' +
-  'costs tokens, so turn it off when the room is small. A click turns it on or off.';
+var PRESERVE_TIP = 'Keep the thinking of the turns before the last answer in the ' +
+  'text the model is sent, so it can work on its own thoughts again. It costs ' +
+  'tokens, so turn it off when the context is small. Click to turn it on or off.';
 
 // The menu of the thinking badge: one line for every mode the model offers,
 // with a mark against the mode the chat stands on. A line chooses that mode.
@@ -1519,8 +1519,8 @@ function drawBadges(s) {
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
   el.sandbox.title = s.sandbox_available
-    ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory, and it has no network. Inside a repository, the commands start in the repository directory.'
-    : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to sandbox the terminal tool.');
+    ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.'
+    : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox.');
   var thinking = s.thinking || { mode: 'off', available: false, modes: [] };
   // The badge says what the model will do, in the words of this page. The
   // short names stay between the page and the server.
@@ -1528,10 +1528,10 @@ function drawBadges(s) {
     ? 'Thinking: ' + thinkWords(thinking.mode) : 'No thinking modes';
   el.think.classList.toggle('on', thinking.available && thinking.mode !== 'off');
   el.think.title = thinking.available
-    ? 'The thinking the model shows before its answer. A click chooses another.'
+    ? 'The thinking shown by the model before its answer. Click to choose a different mode.'
     : (thinking.preserve_available
-        ? 'The template of this model has no switch for thinking, but it may keep the thinking of the earlier turns. A click opens the choice.'
-        : 'The template of this model has no switch for thinking.');
+        ? 'The template of this model has no thinking modes, but it may keep the thinking of the earlier turns. Click to open the choice.'
+        : 'The template of this model has no thinking modes.');
   // The menu is filled again while it stands open, so a new model or a new
   // chat does not leave it standing with the old lines.
   if (!el.thinkmenu.classList.contains('hidden')) { fillThinkMenu(s); }
@@ -1614,7 +1614,7 @@ function drawHomeNote(s) {
   el.homenote.innerHTML = '';
   addNoteBit(el.homenote, s.model.name, true);
   addNoteBit(el.homenote, s.model.kind, false);
-  addNoteBit(el.homenote, s.context.total + ' tokens of room', false);
+  addNoteBit(el.homenote, s.context.total + ' tokens of context', false);
   addNoteBit(el.homenote, s.repository.id ? s.repository.name : 'loose chats', false);
 }
 function addNoteBit(box, text, first) {
@@ -2148,7 +2148,7 @@ var TOOL_SHAPES = {
   run_terminal: {
     mark: 'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2',
     head: '', word: 'command', end: 'output',
-    empty: 'a command with no words', begun: 'a command, begun'
+    empty: 'a command with no text', begun: 'a command, started'
   },
   // A file tool is named for a file and for nothing else, so its head waits
   // for the name of one instead of borrowing words from the body. The `file`
@@ -2156,12 +2156,12 @@ var TOOL_SHAPES = {
   edit_file: {
     mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
     head: 'Editing file: ', done: 'Edited file: ', word: 'file', end: 'result',
-    empty: 'no name of a file', begun: 'a file, begun', file: true
+    empty: 'no file name', begun: 'a file, started', file: true
   },
   create_file: {
     mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
     head: 'Creating file: ', done: 'Created file: ', word: 'file', end: 'result',
-    empty: 'no name of a file', begun: 'a file, begun', file: true
+    empty: 'no file name', begun: 'a file, started', file: true
   },
   // The web search. The head names what the call asked for: the words to look
   // for, or the address that is being read. The answer is short words of each
@@ -2169,15 +2169,15 @@ var TOOL_SHAPES = {
   web_search: {
     mark: 'M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6',
     head: 'Searching the web: ', word: 'query', end: 'result',
-    empty: 'nothing to look for', begun: 'the words to look for'
+    empty: 'nothing to search for', begun: 'the search words'
   },
   // A picture handed over to the model. The words are the name of the picture,
   // and the result is the receipt of the run: the block never carries the
   // picture, only the line that says what was read of it.
   view_image: {
     mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
-    head: 'Looking at a picture: ', word: 'picture', end: 'result',
-    empty: 'nothing to look at', begun: 'the picture to look at'
+    head: 'Looking at an image: ', word: 'image', end: 'result',
+    empty: 'nothing to look at', begun: 'the image to look at'
   }
 };
 
@@ -2203,7 +2203,7 @@ function headWords(shape, named, over) {
 // for the file it works on, and the reader must wait for that name: the words of
 // a change are not a name of a file, and a head that reads 'Editing file:
 // .marquee {' says something that is not true. A model that writes the changes
-// before the name of the file is answered with 'a file, begun' until the name
+// before the name of the file is answered with 'a file, started' until the name
 // comes, which is what the head has always said when there was no name to read.
 // The other tools name the words themselves - a command, the words to look for -
 // so the first line of what has come in is the thing they name.
@@ -2217,7 +2217,7 @@ function headName(one, shape) {
 // their own small labels, each cut off at a height. A run with no result yet
 // keeps the panel, so the wait shows.
 function toolBox(m) {
-  var running = m.tool === 'running ...';
+  var running = /^running \.\.\.$/i.test(m.tool);
   // A call the room gave out under. The tool never ran, for the model was stopped
   // while it was still writing the call, so the block says what was stopped and
   // not what went wrong.
@@ -2254,7 +2254,7 @@ function toolBox(m) {
   var labTwo = make('div', 'lab');
   // A call that was stopped was never run, so what stands under the second label
   // is not a result of the tool but the word of what became of the call.
-  labTwo.textContent = cut ? 'what became of it' : shape.end;
+  labTwo.textContent = cut ? 'what happened' : shape.end;
   var output = make('pre', 'out' + (running ? ' live' : ''));
   output.textContent = m.tool;
   space.appendChild(labOne);
@@ -3170,21 +3170,21 @@ function fill(turn, m) {
     var card = make('div', 'scard');
     var when = make('div', 'twhen');
     var hour = (one && one.when) || m.when_full || '';
-    when.textContent = hour ? 'Summarised on ' + hour : 'The hour of it is not known';
+    when.textContent = hour ? 'Summarised on ' + hour : 'The time is not known';
     card.appendChild(when);
     var room = make('div', 'troom');
     if (one && one.before) {
-      room.innerHTML = '<b>' + commas(one.before) + '</b> of the talk stood for <b>'
+      room.innerHTML = '<b>' + commas(one.before) + '</b> tokens of the conversation became <b>'
         + commas(one.after || 0) + '</b> in the summary';
     } else {
-      room.textContent = 'The room of the talk is not known';
+      room.textContent = 'The size of the conversation is not known';
     }
     card.appendChild(room);
     var said = make('div', 'cprev');
     var words = (one && one.snippet) || String(m.body || '').replace(/\s+/g, ' ').trim();
     said.textContent = words || (owed
       ? (m.tool || 'The summary was never written.')
-      : 'Nothing was written for the summary yet.');
+      : 'Nothing has been written for the summary yet.');
     if (!words) { said.classList.add('none'); }
     card.appendChild(said);
     var full = String(m.body || '').trim();
@@ -3192,7 +3192,7 @@ function fill(turn, m) {
       var again = make('button', 'sbtn');
       again.type = 'button';
       again.textContent = 'Write the summary again';
-      again.title = 'Ask the model for this handoff summary again, from the place the chat was cut';
+      again.title = 'Ask the model to write this handoff summary again, from the point where the chat was cut';
       again.addEventListener('click', function () { post('/api/handoff', {}); });
       card.appendChild(again);
     } else if (full) {
@@ -3414,7 +3414,7 @@ function attachmentWords(id) {
 
 function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
-    (m.tool || '').length, m.tool === 'running ...' ? 1 : 0,
+    (m.tool || '').length, /^running \.\.\.$/i.test(m.tool) ? 1 : 0,
     m.attachments ? m.attachments.length : 0, m.when || '',
     m.cancelled ? 'cut' : ''].join('#');
 }
@@ -3443,8 +3443,8 @@ function drawThread(s) {
       var strong = make('b');
       strong.textContent = 'Nothing written yet';
       var rest = make('span');
-      rest.textContent = 'Write below and press Enter. A chat with nothing in it '
-        + 'goes away when you turn the carousel.';
+      rest.textContent = 'Write below and press Enter. An empty chat is removed '
+        + 'when you switch chats.';
       blank.appendChild(strong);
       blank.appendChild(rest);
       box.appendChild(blank);
@@ -3638,7 +3638,7 @@ function drawChapters(s) {
     name.textContent = chapters[n].name;
     var words = make('div', 'cprev');
     var preview = chapterWords(places[n][0], places[n][1]);
-    words.textContent = preview || 'Nothing written there yet.';
+    words.textContent = preview || 'Nothing was written there yet.';
     if (!preview) { words.classList.add('none'); }
     card.appendChild(name);
     card.appendChild(words);
@@ -3743,18 +3743,18 @@ function drawTimeline(s) {
          : 'Summarised #' + one.number);
     card.appendChild(name);
     var when = make('div', 'twhen');
-    when.textContent = one.when ? 'Summarised on ' + one.when : 'The hour of it is not known';
+    when.textContent = one.when ? 'Summarised on ' + one.when : 'The time is not known';
     card.appendChild(when);
     var room = make('div', 'troom');
     if (one.before) {
-      room.innerHTML = '<b>' + commas(one.before) + '</b> of the talk stood for <b>'
+      room.innerHTML = '<b>' + commas(one.before) + '</b> tokens of the conversation became <b>'
         + commas(one.after || 0) + '</b> in the summary';
     } else {
-      room.textContent = 'The room of the talk is not known';
+      room.textContent = 'The size of the conversation is not known';
     }
     card.appendChild(room);
     var words = make('div', 'cprev');
-    words.textContent = one.snippet || (one.why || 'Nothing was written for the summary yet.');
+    words.textContent = one.snippet || (one.why || 'Nothing has been written for the summary yet.');
     if (!one.snippet) { words.classList.add('none'); }
     card.appendChild(words);
     node.appendChild(card);
@@ -3776,9 +3776,9 @@ function showSummary(one, text) {
   var line = when ? 'Summarised on ' + when : '';
   if (one && one.before) {
     line += (line ? ' - ' : '') + '<b>' + commas(one.before)
-      + '</b> of the talk stood for <b>' + commas(one.after || 0) + '</b> in the summary';
+      + '</b> tokens of the conversation became <b>' + commas(one.after || 0) + '</b> in the summary';
   }
-  el.sumMeta.innerHTML = line || 'The hour of it is not known';
+  el.sumMeta.innerHTML = line || 'The time is not known';
   el.sumWords.innerHTML = '';
   var made = blocks(text || '');
   if (!made.length) {
@@ -3917,12 +3917,12 @@ function rowCount(s) {
   el.pcount.innerHTML = '';
   var strong = make('b');
   var n = s.chats.length;
-  strong.textContent = n === 0 ? 'This place holds no chat yet'
+  strong.textContent = n === 0 ? 'There is no chat here yet'
     : n + ' ' + (n === 1 ? 'chat' : 'chats');
   el.pcount.appendChild(strong);
   if (n > 0) {
     var at = make('span', 'at');
-    at.textContent = ' in ' + (s.repository.id ? s.repository.name : 'the loose chats of this machine')
+    at.textContent = (s.repository.id ? ' in ' + s.repository.name : ' with no repository')
       + '. ' + (chatIndex() + 1) + ' is open.';
     el.pcount.appendChild(at);
   }
@@ -4273,8 +4273,8 @@ function partBlock(one, place) {
   if (place !== undefined) {
     var x = make('button', 'x');
     x.type = 'button';
-    x.title = 'Take this file away';
-    x.setAttribute('aria-label', 'Take ' + one.name + ' away from the message');
+    x.title = 'Remove this file';
+    x.setAttribute('aria-label', 'Remove ' + one.name + ' from the message');
     x.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true">'
       + '<path d="M4 4l8 8M12 4l-8 8"/></svg>';
     x.addEventListener('click', function () {

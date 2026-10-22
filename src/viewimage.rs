@@ -49,17 +49,17 @@ pub fn definition() -> Value {
         "type": "function",
         "function": {
             "name": NAME,
-            "description": "Hand a picture to yourself, so that you can be asked about it. Give the name of a file of the chat, as \"notes/cat.png\", or the address of a picture on the web, as \"https://example.org/cat.png\". One picture goes in one call; to look at two, ask twice. The picture must be of a kind the projector reads: PNG, JPEG, GIF or BMP, and no more than twelve megabytes. A picture can only be shown while vision is turned on for the model; without it the call says so and nothing is read. The picture is not kept after the talk.",
+            "description": "Send an image to yourself, so that you can be asked about it. Give the name of a file in the chat, as \"notes/cat.png\", or the address of an image on the web, as \"https://example.org/cat.png\". One image goes in one call; to look at two, call twice. The image must be of a kind the projector reads: PNG, JPEG, GIF or BMP, and no more than twelve megabytes. An image can only be shown while vision is turned on for the model; without it the call says so and nothing is read. The image is not stored after the conversation.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The name of a file of the chat, named from the room of the chat."
+                        "description": "The name of a file in the chat, relative to the working directory of the chat."
                     },
                     "url": {
                         "type": "string",
-                        "description": "The address of a picture on the web, instead of a file of the chat."
+                        "description": "The address of an image on the web, instead of a file in the chat."
                     }
                 },
                 "required": []
@@ -119,7 +119,7 @@ pub fn open(workdir: &Path, raw: &str, vision_on: bool) -> Opening {
     let (wanted_path, wanted_url) = parts_of(raw);
     if wanted_path.trim().is_empty() && wanted_url.trim().is_empty() {
         return refused(
-            "the call needs the name of a file of the chat, or the address of a picture on the web",
+            "The call needs the name of a file in the chat, or the address of an image on the web",
         );
     }
     // With nothing to hand a picture to there is no work to do, so no byte is
@@ -127,7 +127,7 @@ pub fn open(workdir: &Path, raw: &str, vision_on: bool) -> Opening {
     // whether to ask again of another model or to say what the picture was for.
     if !vision_on {
         return refused(
-            "the picture cannot be shown, for this model has no vision: turn the vision switch of the model settings on and let a projector file stand next to the model, or say in words what you need from the picture",
+            "the image cannot be shown, because this model has no vision: turn the vision setting of the model on and put a projector file next to the model, or describe in words what you need from the image",
         );
     }
     let read = if wanted_path.trim().is_empty() {
@@ -143,7 +143,7 @@ pub fn open(workdir: &Path, raw: &str, vision_on: bool) -> Opening {
         Some(kind) => kind,
         None => {
             return refused(&format!(
-                "'{}' is no picture this program can hand over. The projector reads PNG, JPEG, GIF and BMP, and the kind is read from the bytes at the front of the file and not from the end of its name.",
+                "'{}' is not an image this program can send. The projector reads PNG, JPEG, GIF and BMP. The type is read from the first bytes of the file, not from the end of its name.",
                 short(&name)
             ));
         }
@@ -152,7 +152,7 @@ pub fn open(workdir: &Path, raw: &str, vision_on: bool) -> Opening {
     if let Some((wide, high)) = size {
         if wide.saturating_mul(high) > MOST_PIXELS {
             return refused(&format!(
-                "'{}' holds {} by {} pixels, which is more than this program hands over ({} pixels at the most). The picture would fill the room of the talk and the projector would use little of it.",
+                "'{}' is {} by {} pixels, which is more than this program sends ({} pixels at the most). The image would fill the context window and the projector would use little of it.",
                 short(&name),
                 util::count(wide),
                 util::count(high),
@@ -174,7 +174,7 @@ pub fn open(workdir: &Path, raw: &str, vision_on: bool) -> Opening {
         report: tools::Report {
             ok: true,
             output: format!(
-                "Opened a picture: {} ({}). The picture itself goes to the model with these words, so you may be asked what stands in it.",
+                "Opened an image: {} ({}). The image itself is sent to the model with this text, so you may be asked what it shows.",
                 name, said
             ),
         },
@@ -204,7 +204,7 @@ fn from_room(workdir: &Path, name: &str) -> Result<(String, Vec<u8>), String> {
         Ok(made) => made,
         Err(_) => {
             return Err(format!(
-                "'{}' was not there to be looked at. Name the picture from the room of the chat, or give the address of one on the web.",
+                "'{}' does not exist. Give the name of an image in the working directory of the chat, or the address of one on the web.",
                 short(&label)
             ));
         }
@@ -242,7 +242,7 @@ fn fetch(address: &str) -> Result<Vec<u8>, String> {
         .call();
     let response = match made {
         Ok(response) => response,
-        Err(problem) => return Err(format!("the picture at {} could not be had: {}", address, first_words(&problem.to_string(), 200))),
+        Err(problem) => return Err(format!("the image at {} could not be read: {}", address, first_words(&problem.to_string(), 200))),
     };
     let mut bytes: Vec<u8> = Vec::new();
     let mut reader = response.into_reader();
@@ -263,7 +263,7 @@ fn over_the_ceiling(name: &str, bytes: usize) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "'{}' holds more than the {} of one picture. Name a smaller picture.",
+        "'{}' is larger than the {} limit for one image. Use a smaller image.",
         short(name),
         weight(MAX_PICTURE_BYTES)
     ))
@@ -276,12 +276,12 @@ fn name_of_address(address: &str) -> String {
     let road = address.split(['?', '#']).next().unwrap_or(address);
     let last = road.rsplit('/').next().unwrap_or("").trim();
     if last.is_empty() {
-        return String::from("a picture of the web");
+        return String::from("an image from the web");
     }
     let cut = urlencoding::decode(last).unwrap_or(std::borrow::Cow::Borrowed(last));
     let name = first_words(cut.trim(), 200);
     if name.is_empty() {
-        String::from("a picture of the web")
+        String::from("an image from the web")
     } else {
         name
     }
@@ -500,7 +500,7 @@ mod tests {
         ));
         let place = root.join(name);
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&place).expect("the room of the chat could not be made");
+        std::fs::create_dir_all(&place).expect("the working directory of the chat could not be created");
         place
     }
 
@@ -577,7 +577,7 @@ mod tests {
         let room = room_of("out");
         let made = open(&room, "{\"path\":\"../../etc/passwd\"}", true);
         assert!(!made.report.ok);
-        assert!(made.report.output.contains("up out of the room"), "{}", made.report.output);
+        assert!(made.report.output.contains("outside the working directory"), "{}", made.report.output);
     }
 
     // A file of words is no picture, and the answer says what kinds are read.
@@ -658,6 +658,6 @@ mod tests {
     #[test]
     fn the_name_of_a_picture_of_the_web() {
         assert_eq!(name_of_address("https://e.org/pics/Cat%20Big.png?v=2"), "Cat Big.png");
-        assert_eq!(name_of_address("https://e.org/"), "a picture of the web");
+        assert_eq!(name_of_address("https://e.org/"), "an image from the web");
     }
 }

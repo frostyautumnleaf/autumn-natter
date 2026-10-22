@@ -194,21 +194,21 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
           faults.push('the body of the file block is ' + JSON.stringify(partBox.words.nodeValue)
             + ' and not the words of the change ' + where);
         }
-        // A half of a change that has come in stands to be read. The block was
+        // A half of a change that has come in can be read. The block was
         // once blank until the two halves of a change happened to meet.
         if (half.command.trim() && !partBox.text.textContent.trim()) {
           faults.push('the body of the file block was blank over words that had come ' + where);
         }
         var head = found[0].querySelector('.cmd').textContent;
-        var named = words + (part.target.trim() ? part.target : 'a file, begun');
+        var named = words + (part.target.trim() ? part.target : 'a file, started');
         if (head !== named) {
           faults.push('the head of the file block is ' + JSON.stringify(head)
             + ' and not ' + JSON.stringify(named) + ' ' + where);
         }
         if (seen.indexOf(head) === -1) { seen.push(head); }
       }
-      // The head of the block moved from the file begun to the file named, and
-      // nothing else. A head that read out a word of the change would be here.
+      // The head of the block moved from the file started to the file named, and
+      // nothing else. A head that showed a word of the change would be here.
       if (seen.length < 2) {
         faults.push('the head of the ' + call.name + ' block never named the file');
       }
@@ -221,5 +221,5 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
     + 'and the block stood under the words of the answer with room and a rule;\n'
     + 'the halves of a file call came in the order the model liked, and the body of the '
     + 'block showed a word of the change as it came while the head named the file, '
-    + 'or said a file was begun');
+    + 'or said a file was started');
 })();

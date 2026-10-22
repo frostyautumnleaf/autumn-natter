@@ -44,7 +44,7 @@ pub const MAX_NAME_CHARS: usize = 200;
 // The words that stand after a file of words the model was not given whole.
 // The same words stand wherever a file is cut, so the model is never told a
 // whole file was given when it was not.
-pub const CUT_NOTE: &str = "(the file was cut here, for it held more words than this program sends)";
+pub const CUT_NOTE: &str = "(the file was cut here, because it held more text than this program sends)";
 
 // The most bytes one attachment may hold, counted in the base64 form the
 // page sends. A file larger than this has no business standing in a chat.
@@ -374,8 +374,8 @@ fn stored_text_at(place: &Path, id: &str) -> String {
             }
             words.to_string()
         }
-        Some(_) => String::from("(the file held no words)"),
-        None => String::from("(the file was not there when the model was asked again)"),
+        Some(_) => String::from("(the file held no text)"),
+        None => String::from("(the file was missing when the model was asked again)"),
     }
 }
 
@@ -441,24 +441,24 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
     }
     lead.push('\n');
     lead.push_str(&format!(
-        "This message carries {} attachments, in this order:\n",
+        "This message has {} attachments, in this order:\n",
         attachments.len()
     ));
     let mut picture_of = 0usize;
     for (number, one) in attachments.iter().enumerate() {
         let kind = if is_image(&one.mime, &one.name) {
             if !vision_on {
-                String::from("a picture, which this model cannot be shown, for vision is off")
+                String::from("an image, which this model cannot see, because vision is off")
             } else {
                 // The number of the picture counts only the pictures that
                 // really go out, so "the third image" is never a gap.
                 picture_of += 1;
-                format!("a picture, image number {}", picture_of)
+                format!("an image, image number {}", picture_of)
             }
         } else if is_text(&one.mime, &one.name) {
-            String::from("a file of words, given in full below")
+            String::from("a text file, given in full below")
         } else {
-            String::from("a file that cannot be read here, so only its name goes to the model")
+            String::from("a file that cannot be read here, so only its name is sent to the model")
         };
         lead.push_str(&format!("{}. {} ({})\n", number + 1, one.name, kind));
     }
@@ -478,7 +478,7 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
                 parts.push(json!({
                     "type": "text",
                     "text": format!(
-                        "Image number {}, which is attachment {} named {}, was not there when the model was asked again.",
+                        "Image number {}, attachment {} named {}, was missing when the model was asked again.",
                         picture_of,
                         number + 1,
                         one.name
@@ -503,7 +503,7 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
             parts.push(json!({
                 "type": "text",
                 "text": format!(
-                    "The words of attachment {}, named {}:\n{}",
+                    "The text of attachment {}, named {}:\n{}",
                     number + 1,
                     one.name,
                     stored_text_at(place, &one.id)
@@ -540,7 +540,7 @@ pub fn parts_at(
             _ => parts.push(json!({
                 "type": "text",
                 "text": format!(
-                    "The picture named {} was not there when the model was asked again.",
+                    "The image named {} was missing when the model was asked again.",
                     one.name
                 )
             })),
@@ -660,14 +660,14 @@ mod tests {
         let parts = made.as_array().expect("the content is a list of parts");
         let lead = parts[0].get("text").unwrap().as_str().unwrap();
         assert!(lead.starts_with("Look at these"));
-        assert!(lead.contains("1. photo.png (a picture, image number 1)"));
-        assert!(lead.contains("2. notes.txt (a file of words, given in full below)"));
+        assert!(lead.contains("1. photo.png (an image, image number 1)"));
+        assert!(lead.contains("2. notes.txt (a text file, given in full below)"));
         assert!(lead.contains("3. tool.zip (a file that cannot be read here"));
         // The words of the text file go out under their number and name.
         let words = parts
             .iter()
             .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-            .find(|t| t.starts_with("The words of attachment 2"))
+            .find(|t| t.starts_with("The text of attachment 2"))
             .expect("the words of the second attachment");
         assert!(words.contains("named notes.txt"));
         assert!(words.contains("the words of the note"));

@@ -44,7 +44,7 @@ pub fn start(cfg: Config) -> Result<(), String> {
     let lan = util::lan_address();
     let bind = lan.unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
     let server =
-        Server::http((bind, port)).map_err(|e| format!("cannot listen on port {}: {}", port, e))?;
+        Server::http((bind, port)).map_err(|e| format!("Cannot listen on port {}: {}", port, e))?;
 
     println!("Autumn Natter serves the page on http://{}:{}", bind, port);
     println!("Open that address in a browser on another computer.");
@@ -94,7 +94,7 @@ fn handle(engine: &Engine, mut request: Request) {
     let method = request.method().as_str().to_string();
 
     if !allowed(&request) {
-        let text = "Only a computer of the local network may open this page.";
+        let text = "Only a computer on the local network may open this page.";
         let _ = request.respond(text_response(text, 403));
         return;
     }
@@ -136,7 +136,7 @@ fn handle(engine: &Engine, mut request: Request) {
                 }
                 None => {
                     let _ = request
-                        .respond(json_status(404, "that attachment is not here"));
+                        .respond(json_status(404, "That attachment is not here"));
                 }
             }
         }
@@ -148,7 +148,7 @@ fn handle(engine: &Engine, mut request: Request) {
             let _ = request.respond(json_response(&value));
         }
         _ => {
-            let _ = request.respond(json_status(404, "there is nothing at that address"));
+            let _ = request.respond(json_status(404, "There is nothing at that address"));
         }
     }
 }

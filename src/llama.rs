@@ -197,7 +197,7 @@ impl Server {
         thinking_mode: &str,
         preserve_thinking: Option<bool>,
     ) -> Result<Server, String> {
-        let port = util::free_port().ok_or("no free port on this machine")?;
+        let port = util::free_port().ok_or("No free port on this machine")?;
         let mut notes = Vec::new();
         let mut args = build_args(
             binary,
@@ -232,7 +232,7 @@ impl Server {
             }
             let child = match command.spawn() {
                 Ok(child) => child,
-                Err(e) => return Err(format!("cannot start {}: {}", binary.display(), e)),
+                Err(e) => return Err(format!("Cannot start {}: {}", binary.display(), e)),
             };
             let mut server = Server {
                 child,
@@ -263,7 +263,7 @@ impl Server {
                     // still works.
                     if attempt == 1 && use_tools && problem.exited {
                         notes.push(
-                            "the model has no usable chat template, so the terminal tool is off"
+                            "This model has no usable chat template, so no tool is offered"
                                 .to_string(),
                         );
                         args = build_args(
@@ -503,7 +503,7 @@ pub fn build_args(
                 args.push("--mmproj".into());
                 args.push(path.display().to_string());
             }
-            None => notes.push(format!("no vision projector next to {}", model.name)),
+            None => notes.push(format!("No vision projector file next to {}", model.name)),
         }
         // The room one image may take. 0 keeps the value inside the model
         // file, so the flag stays away.
@@ -750,7 +750,7 @@ pub fn stream_chat(
             return answer;
         }
         Err(other) => {
-            answer.error = Some(format!("cannot reach the model: {}", other));
+            answer.error = Some(format!("Cannot reach the model: {}", other));
             return answer;
         }
     };
@@ -806,7 +806,7 @@ pub fn stream_chat(
             }
             Err(e) => {
                 if !answer.stopped {
-                    answer.error = Some(format!("the stream stopped: {}", e));
+                    answer.error = Some(format!("The stream stopped: {}", e));
                 }
                 break;
             }
@@ -948,7 +948,7 @@ fn server_message(code: u16, body: &str) -> String {
         })
         .unwrap_or_else(|| body.lines().next().unwrap_or("").to_string());
     if detail.is_empty() {
-        return format!("the model server answered with status {}", code);
+        return format!("The model server answered with status {}", code);
     }
     format!("{} (status {})", detail, code)
 }
