@@ -1314,6 +1314,13 @@ pre.code.line {
           <span class="sub">How wide the column of the chat may be. 780 pixels is the width the chat always had, and it is the least. The chat never grows past 80 per cent of the width of the window, and it keeps clear of the line of the chapters, the line of the summarisations and the arrows of the chat.</span>
           <div class="ctl"><input id="fChatWidth" type="number" min="780" max="4000" step="10" placeholder="780"><span class="unit">pixels</span></div></div>
 
+        <div class="fld"><span class="lbl">Send the date and time at the start of a chat</span>
+          <span class="sub">At the start of every chat the program tells the model the current date and time of this machine, so it can answer questions about today. The line goes to the model only. It is not shown in the chat.</span>
+          <div class="ctl"><input id="fDateNewChat" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Send the date and time with every message</span>
+          <span class="sub">Every message you send also tells the model the current date and time. Turn this on for chats that run on for several days. If both options are on, the first message gets one line, not two.</span>
+          <div class="ctl"><input id="fDateEvery" type="checkbox"></div></div>
+
         <div class="sec">Compaction</div>
         <div class="fld"><span class="lbl">Compaction</span>
           <span class="sub">How the room of the talk is made again when it runs out. The handoff summary asks the model, without your being asked anything, for a summary of the talk when the room nears its end: the words before that summary are then left out of what goes back to the model, so a chat may go on for ever. The first message you sent is always kept, and the summary rides after it. Nothing leaves the chat alone until the room is gone.</span>
@@ -5020,6 +5027,8 @@ function loadProgram() {
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
     byId('fPasteLimit').value = pasteLimitOf(cfg.pasted_text_char_limit);
     byId('fChatWidth').value = chatWidthOf(cfg.chat_width);
+    byId('fDateNewChat').checked = cfg.chat_date_new_chat !== false;
+    byId('fDateEvery').checked = cfg.chat_date_every_message === true;
     byId('fCompaction').value = cfg.chat_compaction || 'handoff';
     byId('fCompactBy').value = cfg.chat_compact_by || 'percent';
     byId('fCompactPercent').value = cfg.chat_compact_percent || 85;
@@ -5258,6 +5267,8 @@ function saveSheet() {
     cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
     cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
     cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
+    cfg.chat_date_new_chat = byId('fDateNewChat').checked;
+    cfg.chat_date_every_message = byId('fDateEvery').checked;
     cfg.chat_compaction = byId('fCompaction').value;
     cfg.chat_compact_by = byId('fCompactBy').value;
     var percent = parseInt(byId('fCompactPercent').value, 10);

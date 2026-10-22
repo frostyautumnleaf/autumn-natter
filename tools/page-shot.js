@@ -616,6 +616,8 @@ const CONFIG = {
   chat_grow_thinking: true,
   chat_tools_in_thinking: true,
   chat_collapse_tools: true,
+  chat_date_new_chat: true,
+  chat_date_every_message: false,
   chat_highlight: true,
   chat_chapters: true,
   // The two rooms for steps stand unlimited, as they do for a new set of settings.

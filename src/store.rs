@@ -51,6 +51,61 @@ pub fn format_when(secs: i64) -> String {
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
+// The week of this program, counted from Monday.
+const WEEK: [&str; 7] = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+];
+
+// Turn seconds into the day of the week, the day and the clock time, all of them
+// in the local time of the machine, such as Sunday, 2026-10-25, 19:40. The line
+// the settings put before the model is read by the model, and the day of the
+// week costs nothing and says something the number of the day does not. The
+// three parts are taken from one reading of the clock, so the day of the week
+// always belongs to the day that stands beside it.
+pub fn format_date_clock(secs: i64) -> String {
+    if secs <= 0 {
+        return String::new();
+    }
+    #[cfg(unix)]
+    {
+        let when = secs as libc::time_t;
+        let mut local: libc::tm = unsafe { std::mem::zeroed() };
+        // SAFETY: localtime_r fills the struct it is given.
+        let filled = unsafe { libc::localtime_r(&when, &mut local) };
+        if !filled.is_null() {
+            // tm_wday counts from Sunday, which stands last in WEEK.
+            let weekday = WEEK[(local.tm_wday + 6).rem_euclid(7) as usize];
+            return format!(
+                "{}, {:04}-{:02}-{:02}, {:02}:{:02}",
+                weekday,
+                local.tm_year + 1900,
+                local.tm_mon + 1,
+                local.tm_mday,
+                local.tm_hour,
+                local.tm_min
+            );
+        }
+    }
+    let days = secs.div_euclid(86400);
+    // 1970-01-01, the zero of the count, was a Thursday: the fourth of WEEK.
+    let weekday = WEEK[(days + 3).rem_euclid(7) as usize];
+    let (y, m, d) = civil_from_days(days);
+    format!(
+        "{}, {:04}-{:02}-{:02}, {}",
+        weekday,
+        y,
+        m,
+        d,
+        format_clock(secs)
+    )
+}
+
 // Turn seconds into the day and the clock time of it, such as
 // 2026-10-20, 14:32. The heading of a summarisation is looked at days after it
 // stood, so the hour of it alone would not say which day it was.
@@ -625,6 +680,38 @@ fn human_name(dir_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The line of the day and the clock time reads as one moment: the day of the
+    // week belongs to the day that stands beside it, whatever time zone this
+    // machine works in, and the clock time is the clock time of that same day.
+    #[test]
+    fn the_line_of_the_day_names_the_day_of_the_week_it_stands_on() {
+        assert_eq!(format_date_clock(0), "");
+        // A few hours back, so the hour of the line stands away from the turn of
+        // a day. Eight days are looked at, so a day of the week worked out apart
+        // from the day of the month cannot agree with it by chance.
+        let base = now_secs() - 5 * 3600;
+        let mut earlier: Option<(usize, String)> = None;
+        for day in 0..8 {
+            let secs = base - day * 86400;
+            let line = format_date_clock(secs);
+            let parts: Vec<&str> = line.split(", ").collect();
+            assert_eq!(parts.len(), 3, "three parts, one line: {}", line);
+            let weekday = WEEK
+                .iter()
+                .position(|name| *name == parts[0])
+                .expect("a day of the week the line names");
+            assert_eq!(parts[1].split('-').count(), 3, "the day of the month: {}", line);
+            assert!(line.ends_with(&format_clock(secs)), "the clock of the day: {}", line);
+            if let Some((was, was_day)) = earlier {
+                // One day back, so the name of the week goes back one too, and the
+                // day of the month moves with it.
+                assert_eq!(weekday, (was + 6) % 7, "the week of {}", line);
+                assert_ne!(parts[1], was_day, "the day moved: {}", line);
+            }
+            earlier = Some((weekday, parts[1].to_string()));
+        }
+    }
 
     // A chat written before the switch for keeping the thinking of the earlier
     // turns existed reads with the thinking kept, which is what llama.cpp does

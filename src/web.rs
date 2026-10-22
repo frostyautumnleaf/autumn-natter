@@ -263,6 +263,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "grow_thinking": snap.chat_grow_thinking,
             "tools_in_thinking": snap.chat_tools_in_thinking,
             "collapse_tools": snap.chat_collapse_tools,
+            "date_new_chat": snap.chat_date_new_chat,
+            "date_every_message": snap.chat_date_every_message,
             "highlight": snap.chat_highlight,
             "chapters": snap.chat_chapters,
             "paste_limit": snap.chat_paste_limit,
