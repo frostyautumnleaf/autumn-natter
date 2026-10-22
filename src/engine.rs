@@ -593,6 +593,9 @@ pub struct Snap {
     // The number of characters where a paste of words into the chat box turns
     // into a file of its own.
     pub chat_paste_limit: u32,
+    // How wide the chat may be, in pixels. The page keeps it within 80 per cent
+    // of the window, and out of the room the two lines and the arrows need.
+    pub chat_width: u32,
     pub models: Vec<ModelInfo>,
     pub model_id: String,
     pub repositories: Vec<Repo>,
@@ -1592,6 +1595,7 @@ impl State {
             chat_highlight: self.cfg.chat_highlight,
             chat_chapters: self.cfg.chat_chapters,
             chat_paste_limit: self.cfg.pasted_text_char_limit,
+            chat_width: config::sanitize_chat_width(self.cfg.chat_width),
             // The Compaction section, so the sheet of the settings can be
             // filled in and the page can tell which way the talk is kept short.
             chat_compaction: self.cfg.chat_compaction.clone(),
@@ -2201,6 +2205,7 @@ impl Engine {
         // The chat box turns a long paste of words into a file, and the number
         // it does this at is kept inside the two bounds here.
         cfg.pasted_text_char_limit = config::sanitize_pasted_text_limit(cfg.pasted_text_char_limit);
+        cfg.chat_width = config::sanitize_chat_width(cfg.chat_width);
         // Compaction. The two words of the sheet are kept to the two each has,
         // the two numbers are kept inside their bounds, and the handoff prompt
         // is kept short enough to be sent beside a whole talk.
@@ -2297,6 +2302,7 @@ impl Snap {
             chat_highlight: true,
             chat_chapters: true,
             chat_paste_limit: 6000,
+            chat_width: config::LEAST_CHAT_WIDTH,
             models: Vec::new(),
             model_id: String::new(),
             repositories: Vec::new(),

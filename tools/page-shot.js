@@ -405,6 +405,8 @@ function scene(name, dark) {
       }
     }
     if (process.env.AN_NOCHAPTERS === '1') { start.chatting.chapters = false; }
+    // The width of the chat, as the Chatting section of the settings gives it.
+    if (process.env.AN_CHATWIDTH) { start.chatting.width = parseInt(process.env.AN_CHATWIDTH, 10) || 780; }
     start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
     start.code = name === 'rich';
     start.search = name === 'rich';

@@ -261,6 +261,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "highlight": snap.chat_highlight,
             "chapters": snap.chat_chapters,
             "paste_limit": snap.chat_paste_limit,
+            "width": snap.chat_width,
         },
         // The folder of the program data. The window of settings reads it out.
         "data_dir": snap.data_dir,
