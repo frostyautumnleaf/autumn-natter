@@ -640,6 +640,23 @@ pub struct Progress {
 }
 
 impl Progress {
+    // How fast the words that were sent are being worked through, in tokens of
+    // the talk to the second. The server gives the tokens it has done with and
+    // the clock it took to do them, so the speed is read from those two. The
+    // tokens kept from before are left out, for they cost no work. A piece that
+    // names no time gives nought, and the window counts the clocks itself.
+    pub fn per_second(&self) -> f64 {
+        if self.time_ms == 0 {
+            return 0.0;
+        }
+        let cache = self.cache.min(self.processed);
+        let done = self.processed.saturating_sub(cache);
+        if done == 0 {
+            return 0.0;
+        }
+        done as f64 / (self.time_ms as f64 / 1000.0)
+    }
+
     // The part of the work that is done, between 0.0 and 1.0. The tokens the
     // server kept from before are left out of both sides, for they cost
     // nothing and would make the work look finished before it began.
@@ -669,6 +686,13 @@ pub struct Context {
     pub prompt: u64,
     pub cache: u64,
     pub written: u64,
+    // The two speeds the server measures, given on the same piece of the answer
+    // as the counts above. `prompt_per_second` is how fast the words that were
+    // sent are worked through, and `decode_per_second` how fast the model is
+    // writing. A server that says nothing of speed leaves both at nought, and the
+    // window then counts the clocks itself.
+    pub prompt_per_second: f64,
+    pub decode_per_second: f64,
 }
 
 impl Context {
@@ -864,10 +888,13 @@ fn apply_event(
     // nothing of the talk, so it is passed over in silence.
     if let Some(made) = value.get("timings") {
         let number = |name: &str| made.get(name).and_then(|v| v.as_u64()).unwrap_or(0);
+        let speed = |name: &str| made.get(name).and_then(|v| v.as_f64()).unwrap_or(0.0);
         let told = Context {
             prompt: number("prompt_n"),
             cache: number("cache_n"),
             written: number("predicted_n"),
+            prompt_per_second: speed("prompt_per_second"),
+            decode_per_second: speed("predicted_per_second"),
         };
         if told.used() > 0 {
             on_context(told);
@@ -1584,7 +1611,8 @@ mod tests {
         let mut seen: Vec<u64> = Vec::new();
         let payload = concat!(
             "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Now\"}}],",
-            "\"timings\":{\"cache_n\":14,\"prompt_n\":327,\"predicted_n\":9,\"prompt_ms\":4393.85}}"
+            "\"timings\":{\"cache_n\":14,\"prompt_n\":327,\"predicted_n\":9,\"prompt_ms\":4393.85,",
+            "\"prompt_per_second\":26.38,\"predicted_per_second\":5.77}}"
         );
         let going_on = apply_event(
             payload,
@@ -1599,6 +1627,78 @@ mod tests {
         // 327 words worked through, 14 kept from an earlier turn, and 9 words
         // written by the model.
         assert_eq!(seen, vec![350]);
+    }
+
+    // The two speeds of the work stand on the same piece of the answer as the
+    // room of the talk, for the server is asked for the numbers of every piece.
+    // The numbers below are as a run of the model really gave them: 817 words of
+    // the talk worked through at 26.4 to the second, and 16 words written at 5.8
+    // to the second.
+    #[test]
+    fn the_two_speeds_of_the_work_are_read_from_the_stream() {
+        let mut answer = Answer::default();
+        let mut told: Option<Context> = None;
+        let payload = concat!(
+            "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Now\"}}],",
+            "\"timings\":{\"cache_n\":0,\"prompt_n\":817,\"predicted_n\":16,",
+            "\"prompt_ms\":30969.59,\"predicted_ms\":2772.1,",
+            "\"prompt_per_second\":26.380714,\"predicted_per_second\":5.771872}}"
+        );
+        apply_event(
+            payload,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |made: Context| {
+                if told.is_none() {
+                    told = Some(made);
+                }
+            },
+            &mut |_| {},
+        );
+        let said = told.expect("the piece carried the room, so it was told");
+        assert!((said.prompt_per_second - 26.380714).abs() < 1e-6);
+        assert!((said.decode_per_second - 5.771872).abs() < 1e-6);
+        // A piece that says nothing of speed leaves both at nought, which is how
+        // a server without these numbers reads.
+        let mut quiet = Answer::default();
+        let mut hush: Option<Context> = None;
+        apply_event(
+            "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"A\"}}],\"timings\":{\"prompt_n\":5}}",
+            &mut quiet,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |made: Context| {
+                if hush.is_none() {
+                    hush = Some(made);
+                }
+            },
+            &mut |_| {},
+        );
+        let still = hush.expect("the piece named a word of the talk");
+        assert_eq!((still.prompt_per_second, still.decode_per_second), (0.0, 0.0));
+    }
+
+    // The speed of the words that were sent is read from the two numbers of the
+    // progress of the prompt: the tokens done with, and the clock they took. The
+    // tokens kept from before are no work at all, so they stand on neither side.
+    #[test]
+    fn the_speed_of_the_prompt_is_read_from_its_progress() {
+        // 817 words in 30.967 seconds, which is 26.4 to the second.
+        let going = Progress { total: 817, cache: 0, processed: 817, time_ms: 30967 };
+        assert!((going.per_second() - 26.383).abs() < 0.01, "{}", going.per_second());
+        // Half of the words were kept from before. The server counts the tokens it
+        // has come to, the kept ones among them, so the work done in the time is
+        // the tokens come to less the tokens kept: 60 come to, 40 kept, and 20
+        // done in the second.
+        let kept = Progress { total: 100, cache: 40, processed: 60, time_ms: 1000 };
+        assert!((kept.per_second() - 20.0).abs() < 1e-9, "{}", kept.per_second());
+        // A piece that names no time, or no work, gives no speed. The first piece
+        // of a request is of that shape.
+        assert_eq!(Progress { total: 817, cache: 0, processed: 0, time_ms: 0 }.per_second(), 0.0);
+        assert_eq!(Progress { total: 0, cache: 0, processed: 0, time_ms: 500 }.per_second(), 0.0);
     }
 
     // A piece with no room in it says nothing of the talk. The first piece of a
@@ -1644,6 +1744,7 @@ mod tests {
             prompt: 327,
             cache: 0,
             written: 108,
+            ..Context::default()
         };
         assert_eq!(fresh.used(), 435);
         // The same talk, but the server kept part of the words from before.
@@ -1651,6 +1752,7 @@ mod tests {
             prompt: 4,
             cache: 323,
             written: 108,
+            ..Context::default()
         };
         assert_eq!(kept.used(), 435);
     }

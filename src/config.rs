@@ -480,6 +480,10 @@ pub struct Paths {
     pub settings_file: PathBuf,
     // Chats that belong to no repository.
     pub chats: PathBuf,
+    // The chats of the repositories. They stand here and not inside a
+    // repository, for a repository is the room a terminal command works in, and
+    // it must not hold the talks of the model that works in it.
+    pub repo_chats: PathBuf,
     // Default repositories directory.
     pub repositories: PathBuf,
     // Default models directory.
@@ -514,6 +518,7 @@ pub fn paths() -> Paths {
     let data = data_root();
     Paths {
         chats: data.join("chats"),
+        repo_chats: data.join("repo_chats"),
         repositories: data.join("repositories"),
         models: data.join("models"),
         settings_file: data.join("settings.json"),
@@ -540,6 +545,7 @@ pub fn ensure_dirs() -> std::io::Result<()> {
     let p = paths();
     fs::create_dir_all(&p.data)?;
     fs::create_dir_all(&p.chats)?;
+    fs::create_dir_all(&p.repo_chats)?;
     fs::create_dir_all(&p.models)?;
     Ok(())
 }

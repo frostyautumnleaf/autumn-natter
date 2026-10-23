@@ -637,6 +637,11 @@ pub struct Snap {
     pub search_enabled: bool,
     pub sandbox_enabled: bool,
     pub sandbox_available: bool,
+    // What a command of the open chat may reach beyond its own folder: the
+    // network, an install of a Python package, and the commands that fetch a page
+    // of the web. All three stand off, and the menu of the sandbox badge opens
+    // them one by one.
+    pub sandbox_access: tools::Access,
     // The thinking mode of the open chat.
     pub thinking_mode: String,
     // True when the model's template can switch thinking.
@@ -728,6 +733,12 @@ pub struct Snap {
     // sends words today, so the number is nothing. The words of the gauge
     // follow it, so a chat that can carry a picture says so by itself.
     pub progress_images: usize,
+    // The two speeds of the work, in tokens of the talk to the second: how fast
+    // the words that were sent are being worked through, and how fast the model
+    // is writing. The server is asked for both, and each stands at nought until
+    // it says something of speed.
+    pub prompt_rate: f64,
+    pub answer_rate: f64,
     // The calls of a tool the model is writing right now, in the order it
     // writes them. A block of a command being written is made of these.
     pub live_tools: Vec<LiveTool>,
@@ -767,6 +778,16 @@ pub struct State {
     pub progress_on: bool,
     // How many pictures the message being worked through carries.
     pub progress_images: usize,
+    // The two speeds of the work, as the page shows them: the words sent to the
+    // server, and the words the model is writing. Both are nought until the
+    // server says something of speed, or the clocks of the program have had
+    // their say.
+    pub prompt_rate: f64,
+    pub answer_rate: f64,
+    // The moment the words of an answer began to come. The program measures the
+    // speed of the writing itself when the server says nothing of speed, and it
+    // cannot do that without a beginning to measure from.
+    rate_start: Option<Instant>,
     // The calls of a tool the model is writing right now, in the order the
     // model writes them. The reader sees a command as it is written.
     pub live_tools: Vec<LiveTool>,
@@ -808,6 +829,9 @@ pub struct State {
     pub new_code: bool,
     pub new_search: bool,
     pub new_sandbox: bool,
+    // What a command of the next chat may reach. A new chat takes the choices of
+    // the chat that stood at the front, as it takes the other badges.
+    pub new_sandbox_access: tools::Access,
     pub new_thinking: String,
     pub new_preserve: bool,
 }
@@ -1432,6 +1456,9 @@ impl State {
         match self.chats.first() {
             Some(previous) => {
                 chat.meta.sandbox_enabled = previous.meta.sandbox_enabled;
+                chat.meta.sandbox_network = previous.meta.sandbox_network;
+                chat.meta.sandbox_pip = previous.meta.sandbox_pip;
+                chat.meta.sandbox_fetch = previous.meta.sandbox_fetch;
                 chat.meta.code_enabled = previous.meta.code_enabled;
                 chat.meta.search_enabled = previous.meta.search_enabled;
                 chat.meta.thinking_mode = previous.meta.thinking_mode.clone();
@@ -1439,6 +1466,9 @@ impl State {
             }
             None => {
                 chat.meta.sandbox_enabled = self.new_sandbox;
+                chat.meta.sandbox_network = self.new_sandbox_access.network;
+                chat.meta.sandbox_pip = self.new_sandbox_access.pip;
+                chat.meta.sandbox_fetch = self.new_sandbox_access.fetch;
                 chat.meta.code_enabled = self.new_code;
                 chat.meta.search_enabled = self.new_search;
                 chat.meta.thinking_mode = self.new_thinking.clone();
@@ -1614,6 +1644,14 @@ impl State {
         self.new_thinking = String::from(mode);
     }
 
+    // What a command of the chat in hand may reach beyond its own folder. With no
+    // chat open the choices the badges stand on are the choices of the next chat.
+    fn access_of_open(&self) -> tools::Access {
+        self.chat()
+            .map(|chat| access_of(&chat.meta))
+            .unwrap_or(self.new_sandbox_access)
+    }
+
     // Directory a tool run starts in. A repository chat works inside its
     // repository, and a loose chat gets its own folder.
     fn workdir_for(&self, chat: &Chat) -> PathBuf {
@@ -1718,6 +1756,7 @@ impl State {
             sandbox_enabled: chat
                 .map(|c| c.meta.sandbox_enabled)
                 .unwrap_or(self.new_sandbox),
+            sandbox_access: self.access_of_open(),
             sandbox_available: self.sandbox_available,
             thinking_mode: chat
                 .map(|c| c.meta.thinking_mode.clone())
@@ -1786,10 +1825,59 @@ impl State {
             progress: self.progress,
             progress_on: self.progress_on,
             progress_images: self.progress_images,
+            prompt_rate: self.prompt_rate,
+            answer_rate: self.answer_rate,
             live_tools: self.live_tools.clone(),
             rev: self.rev,
             structure_rev: self.structure_rev,
         }
+    }
+}
+
+// One of the three settings of the sandbox, named as the pages name it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SandboxSetting {
+    Network,
+    Pip,
+    Fetch,
+}
+
+impl SandboxSetting {
+    // The name of the setting on the wire between a page and the engine.
+    pub fn from_name(name: &str) -> Option<SandboxSetting> {
+        match name {
+            "network" => Some(SandboxSetting::Network),
+            "pip" => Some(SandboxSetting::Pip),
+            "fetch" => Some(SandboxSetting::Fetch),
+            _ => None,
+        }
+    }
+
+    // The line the status stands on after the setting moved.
+    fn words(self, on: bool) -> &'static str {
+        match (self, on) {
+            (SandboxSetting::Network, true) => "A command of this chat may reach the network",
+            (SandboxSetting::Network, false) => "A command of this chat has no network",
+            (SandboxSetting::Pip, true) => {
+                "Python package installs are open for this chat, into the chat's own folder"
+            }
+            (SandboxSetting::Pip, false) => "Python package installs are off for this chat",
+            (SandboxSetting::Fetch, true) => {
+                "wget, curl and fetch may run in this chat, and reach the network"
+            }
+            (SandboxSetting::Fetch, false) => "wget, curl and fetch are off in this chat",
+        }
+    }
+}
+
+// What a command of this chat may reach, out of the marks the chat carries. A
+// chat written before the three existed carries none of them, and reads as all
+// three off.
+pub fn access_of(meta: &store::ChatMeta) -> tools::Access {
+    tools::Access {
+        network: meta.sandbox_network,
+        pip: meta.sandbox_pip,
+        fetch: meta.sandbox_fetch,
     }
 }
 
@@ -1831,6 +1919,9 @@ impl Engine {
             progress: 0,
             progress_on: false,
             progress_images: 0,
+            prompt_rate: 0.0,
+            answer_rate: 0.0,
+            rate_start: None,
             live_tools: Vec::new(),
             thought_start: None,
             thought_end: None,
@@ -1854,6 +1945,9 @@ impl Engine {
             new_code: false,
             new_search: false,
             new_sandbox: true,
+            // Every part of what a command may reach stands off for a new set of
+            // settings, and for a chat written before the three existed.
+            new_sandbox_access: tools::Access::default(),
             new_thinking: String::from("off"),
             // llama.cpp keeps the thinking of the earlier turns on its own, so
             // the program asks for the same thing and lets the reader turn it
@@ -1861,6 +1955,9 @@ impl Engine {
             new_preserve: true,
         };
         state.refresh_lists();
+        // The talks go first, so a repository is found to hold no chat of the
+        // model that works inside it.
+        state.store.migrate_chats_out();
         state.migrate_attachments();
         state.reload_chats();
         // The first screen holds no chat at all, even when this place has
@@ -2052,6 +2149,35 @@ impl Engine {
         } else {
             "Tool runs are not sandboxed"
         });
+    }
+
+    // One of the three settings of the sandbox, for the chat in hand and for the
+    // next chat alike. They stand off until the reader opens them in the menu of
+    // the sandbox badge, and they are settings of the jail: a chat with the
+    // sandbox off runs its commands free and needs nothing opened.
+    //
+    // An install and a fetch are nothing without the network, so opening one of
+    // them opens the network too. Closing one leaves the network open only while
+    // the other still needs it, which is what the walls of the jail do as well.
+    pub fn set_sandbox_setting(&self, setting: SandboxSetting, on: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if let Some(chat) = state.chat_mut() {
+            match setting {
+                SandboxSetting::Network => chat.meta.sandbox_network = on,
+                SandboxSetting::Pip => chat.meta.sandbox_pip = on,
+                SandboxSetting::Fetch => chat.meta.sandbox_fetch = on,
+            }
+        }
+        // The same choice opens the next chat too, whatever stands open now.
+        match setting {
+            SandboxSetting::Network => state.new_sandbox_access.network = on,
+            SandboxSetting::Pip => state.new_sandbox_access.pip = on,
+            SandboxSetting::Fetch => state.new_sandbox_access.fetch = on,
+        }
+        state.persist();
+        state.set_status(setting.words(on));
     }
 
     // Choose the thinking mode of the open chat. A model with no thinking
@@ -2366,6 +2492,9 @@ impl Engine {
         state.cfg = cfg;
         let _ = config::save(&state.cfg);
         state.store = store::Store::new(config::repositories_dir(&state.cfg));
+        // The reader may have pointed the program at a folder of repositories
+        // that still holds its talks inside them.
+        state.store.migrate_chats_out();
         state.refresh_lists();
         state.reload_chats();
         state.set_status("Settings saved");
@@ -2429,6 +2558,7 @@ impl Snap {
             chat_title: String::new(),
             context_used: 0,
             context_total: 0,
+            sandbox_access: tools::Access::default(),
             generating: false,
             busy: false,
             code_enabled: false,
@@ -2482,6 +2612,8 @@ impl Snap {
             progress: 0,
             progress_on: false,
             progress_images: 0,
+            prompt_rate: 0.0,
+            answer_rate: 0.0,
             live_tools: Vec::new(),
             rev: 0,
             structure_rev: 0,
@@ -2735,6 +2867,9 @@ fn ask_summary(
         guard.progress = 0;
         guard.progress_images = pending_images(&body["messages"]);
         guard.progress_on = true;
+        guard.prompt_rate = 0.0;
+        guard.answer_rate = 0.0;
+        guard.rate_start = None;
         guard.thought_start = None;
         guard.thought_end = None;
         guard.live_thought_ms = 0;
@@ -3366,7 +3501,7 @@ fn run_turn(
     };
     let lost = files.len().saturating_sub(kept.len());
     // Take the work order first, so two answers cannot mix.
-    let (model, settings, workdir, sandbox_on) = {
+    let (model, settings, workdir, sandbox_on, access) = {
         let Ok(mut state) = state.lock() else { return Ended::Halted };
         if state.generating {
             return Ended::Halted;
@@ -3387,6 +3522,7 @@ fn run_turn(
             .chat()
             .map(|c| c.meta.sandbox_enabled)
             .unwrap_or(false);
+        let access = state.access_of_open();
         let workdir = state
             .chat()
             .map(|c| state.workdir_for(&c.clone()))
@@ -3450,7 +3586,7 @@ fn run_turn(
         state.ctx_at = None;
         state.set_status("The model is loading");
         let settings = state.settings_for(&model);
-        (model, settings, workdir, sandbox_on)
+        (model, settings, workdir, sandbox_on, access)
     };
 
     // Make sure a server runs for this model. This can take a long time, and
@@ -3541,7 +3677,7 @@ fn run_turn(
             // only when it has stopped.
             "timings_per_token": true,
         });
-        if let Some(list) = offered(code_on, search_on, chapters_on) {
+        if let Some(list) = offered(code_on, search_on, chapters_on, access) {
             body["tools"] = list;
             body["tool_choice"] = json!("auto");
         }
@@ -3565,6 +3701,12 @@ fn run_turn(
             guard.progress = 0;
             guard.progress_images = pending_images(&history);
             guard.progress_on = true;
+            // Neither speed is known until the server says something of it, and
+            // the clocks of the program have nothing to measure until a word of
+            // the answer arrives.
+            guard.prompt_rate = 0.0;
+            guard.answer_rate = 0.0;
+            guard.rate_start = None;
             // The calls of the step before this one stand in the chat by now, so
             // the blocks of the words being written start anew.
             guard.live_tools = Vec::new();
@@ -3584,6 +3726,24 @@ fn run_turn(
                     // worked through and the gauge has nothing left to say.
                     if finish_progress(&mut guard) {
                         guard.touch();
+                    }
+                    // A server that says nothing of speed leaves the clocks to
+                    // the program. The words of the answer are read as tokens of
+                    // some four letters, which is how a token of talk is mostly
+                    // made, and the clock is the one that ran from the first word
+                    // to this one. The speed the server gives wins as soon as it
+                    // comes, for it counts the tokens and not the letters.
+                    if guard.answer_rate == 0.0 {
+                        let began = guard.rate_start.unwrap_or_else(|| {
+                            let now = Instant::now();
+                            guard.rate_start = Some(now);
+                            now
+                        });
+                        let secs = began.elapsed().as_secs_f64();
+                        if secs > 0.5 {
+                            guard.answer_rate =
+                                (guard.live_text.chars().count() as f64 / 4.0) / secs;
+                        }
                     }
                     // Words have come, so the thinking of this moment is over.
                     // It may begin again before the answer ends.
@@ -3642,6 +3802,15 @@ fn run_turn(
                         guard.progress = percent;
                         guard.touch();
                     }
+                    // The speed of the prompt work comes from the same piece: the
+                    // tokens done with over the clock they took. The gauge and the
+                    // number of the speed stand and go together, so the speed is
+                    // written whenever the gauge moved.
+                    let speed = made.per_second();
+                    if speed > 0.0 && (speed - guard.prompt_rate).abs() >= 0.05 {
+                        guard.prompt_rate = speed;
+                        guard.touch();
+                    }
                 }
             },
             &mut |made: llama::Context| {
@@ -3651,6 +3820,27 @@ fn run_turn(
                 // window nothing.
                 if let Ok(mut guard) = context_state.lock() {
                     if climb_context_paced(&mut guard, made.used(), Instant::now()) {
+                        guard.touch();
+                    }
+                    // The same piece carries the two speeds of the work. The
+                    // server is asked for the numbers of every piece, so the
+                    // number of the speed moves while the model writes, and not
+                    // only when it has done. A nought is passed over, for the
+                    // first token of a run has no speed of its own yet.
+                    let mut told = false;
+                    if made.decode_per_second > 0.0
+                        && (made.decode_per_second - guard.answer_rate).abs() >= 0.05
+                    {
+                        guard.answer_rate = made.decode_per_second;
+                        told = true;
+                    }
+                    if made.prompt_per_second > 0.0
+                        && (made.prompt_per_second - guard.prompt_rate).abs() >= 0.05
+                    {
+                        guard.prompt_rate = made.prompt_per_second;
+                        told = true;
+                    }
+                    if told {
                         guard.touch();
                     }
                     // The limit of the summarisation is looked at here, with the
@@ -4020,7 +4210,7 @@ fn run_turn(
             // and no other one does.
             let thinking = std::mem::take(&mut thoughts);
             if terminal {
-                run_command(call, &thinking, thought_ms, state, &workdir, sandbox_on);
+                run_command(call, &thinking, thought_ms, state, &workdir, sandbox_on, access);
             } else {
                 run_program_tool(call, &thinking, thought_ms, state, &workdir);
             }
@@ -4050,13 +4240,20 @@ fn is_writing(call: &ToolCall) -> bool {
 // the machine. The web search stands on a switch of its own, for it reads the web
 // out of the program and never the machine. The mark of a chapter stands on a
 // switch of its own as well, for it runs nothing.
-fn offered(code_on: bool, search_on: bool, chapters_on: bool) -> Option<Value> {
+// `access` is what the chat lets a command reach, so the words of the terminal
+// tool tell the model what it really has.
+fn offered(
+    code_on: bool,
+    search_on: bool,
+    chapters_on: bool,
+    access: tools::Access,
+) -> Option<Value> {
     if !(code_on || search_on || chapters_on) {
         return None;
     }
     let mut list: Vec<Value> = Vec::new();
     if code_on {
-        list.push(tools::definition());
+        list.push(tools::definition(access));
         list.push(editfile::edit_definition());
         list.push(editfile::create_definition());
         list.push(viewimage::definition());
@@ -4079,6 +4276,7 @@ fn run_command(
     state: &Arc<Mutex<State>>,
     workdir: &Path,
     sandbox_on: bool,
+    access: tools::Access,
 ) {
     let (command, purpose) = tools::parse_arguments(&call.arguments);
     // The reason the model gave is not asked for any more, but a model that
@@ -4095,7 +4293,7 @@ fn run_command(
         guard.set_status(&text);
         id
     };
-    let outcome = tools::run(&command, workdir, sandbox_on, TOOL_TIMEOUT);
+    let outcome = tools::run(&command, workdir, sandbox_on, access, TOOL_TIMEOUT);
     let mut output = outcome.summary();
     // The chat asked for the sandbox, so say when it was not used. The run
     // itself already says why, and it did not run at all then.
@@ -5188,14 +5386,14 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Nothing is switched on, so the call carries no tools at all.
-        assert!(offered(false, false, false).is_none());
+        assert!(offered(false, false, false, tools::Access::default()).is_none());
         // The marks alone, which is what a chat with both badges off and the marks
         // on is offered.
-        let marks = offered(false, false, true).unwrap();
+        let marks = offered(false, false, true, tools::Access::default()).unwrap();
         assert_eq!(names(&marks), vec![tools::CHAPTER_TOOL_NAME.to_string()]);
         // The badge on: every tool of the program stands there, and the mark is
         // not among them.
-        let open = offered(true, false, false).unwrap();
+        let open = offered(true, false, false, tools::Access::default()).unwrap();
         let words = names(&open);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&editfile::EDIT_NAME.to_string()));
@@ -5205,13 +5403,70 @@ mod tests {
         assert!(!words.contains(&search::NAME.to_string()));
         // The badge of the web search alone: the search is offered, and none of
         // the tools that can reach the machine is offered with it.
-        let looked = offered(false, true, false).unwrap();
+        let looked = offered(false, true, false, tools::Access::default()).unwrap();
         assert_eq!(names(&looked), vec![search::NAME.to_string()]);
         // Both badges stand open, so both doors are open at once.
-        let both = offered(true, true, false).unwrap();
+        let both = offered(true, true, false, tools::Access::default()).unwrap();
         let words = names(&both);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&search::NAME.to_string()));
+        // What the chat lets a command reach stands in the words of the tool, so
+        // the model knows it before it asks for a command.
+        let open = offered(
+            true,
+            false,
+            false,
+            tools::Access { network: true, pip: true, fetch: true },
+        )
+        .unwrap();
+        let said = String::from(open[0]["function"]["description"].as_str().unwrap_or(""));
+        assert!(said.contains("The command may reach the network."));
+    }
+
+    // The three settings of the sandbox stand off for a new chat, and every one
+    // of them is kept for the next chat as well as for the one in hand. An
+    // install or a fetch opens the network, for neither does anything without it,
+    // and closing one leaves the network to the other.
+    #[test]
+    fn the_settings_of_the_sandbox_stand_off() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        // A new set of settings, and a chat written before the three existed, both
+        // read with all three off.
+        assert_eq!(tools::Access::default(), tools::Access { network: false, pip: false, fetch: false });
+        let older = store::ChatMeta::default();
+        assert!(!older.sandbox_network && !older.sandbox_pip && !older.sandbox_fetch);
+        assert_eq!(access_of(&older), tools::Access::default());
+
+        // Nothing is open at the start, whatever the sandbox itself stands on.
+        let first = engine.snapshot();
+        assert_eq!(first.sandbox_access, tools::Access::default());
+        // The three stand apart: an install does not open the switch of the
+        // network, and it does not open the fetch either. What a command may
+        // really reach is the three of them together.
+        engine.set_sandbox_setting(SandboxSetting::Pip, true);
+        let said = engine.snapshot();
+        assert!(said.sandbox_access.pip);
+        assert!(!said.sandbox_access.network);
+        assert!(!said.sandbox_access.fetch);
+        assert!(said.sandbox_access.net(), "an install needs the network");
+        // Closing the install leaves nothing open at all.
+        engine.set_sandbox_setting(SandboxSetting::Pip, false);
+        assert_eq!(engine.snapshot().sandbox_access, tools::Access::default());
+        // A fetch stands on its own, and an install beside it is told apart from
+        // it.
+        engine.set_sandbox_setting(SandboxSetting::Fetch, true);
+        engine.set_sandbox_setting(SandboxSetting::Pip, true);
+        let held = engine.snapshot();
+        assert!(held.sandbox_access.fetch);
+        assert!(held.sandbox_access.pip);
+        assert!(!held.sandbox_access.network);
+        // The names the pages send are the three names the engine answers.
+        for name in ["network", "pip", "fetch"] {
+            assert!(SandboxSetting::from_name(name).is_some(), "{}", name);
+        }
+        assert!(SandboxSetting::from_name("web").is_none());
     }
 
     // The head of a block, and the block of a call being written, take the one

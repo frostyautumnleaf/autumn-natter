@@ -3,10 +3,17 @@
 // Every repository has its own directory. The directory name follows the rule
 // "name_id", where the name uses only letters, digits and dashes, and the id is
 // ten lowercase hexadecimal characters.
+//
+// The chats of a repository do NOT stand inside that directory. A terminal
+// command of a chat works in the folder of its repository, so a chat kept there
+// could be read, and written over, by the very model that is talking in it. The
+// talks of a repository therefore stand under the data directory, at
+// `repo_chats/<repository id>/`, and only the work of the chat stands in the
+// repository.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config;
@@ -247,6 +254,20 @@ pub struct ChatMeta {
     pub search_enabled: bool,
     // Run the tool inside bubblewrap when this is true.
     pub sandbox_enabled: bool,
+    // The three settings of the sandbox. All of them stand off, for a chat and
+    // its commands reach nothing beyond the working directory until the reader
+    // opens one of them in the menu of the sandbox badge. A chat written before
+    // they existed carries none of them and reads with all three off.
+    // A command may reach the network.
+    #[serde(default)]
+    pub sandbox_network: bool,
+    // `pip install` works, into a Python environment of the chat's own.
+    #[serde(default)]
+    pub sandbox_pip: bool,
+    // The commands that fetch a page of the web, `wget`, `curl` and `fetch`, may
+    // run.
+    #[serde(default)]
+    pub sandbox_fetch: bool,
     // Thinking mode: "auto", "off", "on", "low", "medium", "high", "xhigh".
     #[serde(default)]
     pub thinking_mode: String,
@@ -277,6 +298,11 @@ impl Default for ChatMeta {
             search_enabled: false,
             // The sandbox is on unless the user turns it off.
             sandbox_enabled: true,
+            // What a command may reach beyond its own folder stands off, whatever
+            // the sandbox itself does.
+            sandbox_network: false,
+            sandbox_pip: false,
+            sandbox_fetch: false,
             thinking_mode: String::from("auto"),
             preserve_thinking: true,
             context_used: 0,
@@ -498,20 +524,40 @@ impl Chat {
 // Reads and writes the data on disk.
 pub struct Store {
     repos_dir: PathBuf,
+    // The folder that holds the chats of the repositories. It stands away from
+    // them, so a command working inside a repository cannot reach a talk.
+    chats_root: PathBuf,
 }
 
 impl Store {
     pub fn new(repos_dir: PathBuf) -> Store {
+        Store::with_chats(repos_dir, config::paths().repo_chats)
+    }
+
+    // A store that keeps the talks of its repositories in a folder of its own.
+    // Only the tests and `new` need this: the folder of the talks comes from the
+    // places of the program.
+    fn with_chats(repos_dir: PathBuf, chats_root: PathBuf) -> Store {
         let _ = fs::create_dir_all(&repos_dir);
-        Store { repos_dir }
+        Store { repos_dir, chats_root }
+    }
+
+    // Move the chats of every repository out of the directory of that
+    // repository, into the folder of the talks under the data directory. This
+    // runs once, when the program starts, and again when the reader points the
+    // program at another folder of repositories. See the head of this file.
+    pub fn migrate_chats_out(&self) {
+        migrate_repo_chats(&self.repos_dir, &self.chats_root);
     }
 
     // Directory that holds the chats of a repository, or of the loose chats.
+    // The chats of a repository stand outside it, for the folder of a repository
+    // is the room a terminal command works in. See the head of this file.
     fn chats_dir(&self, repo_id: &str) -> Option<PathBuf> {
         if repo_id.is_empty() {
             return Some(config::paths().chats);
         }
-        self.repo_path(repo_id).map(|p| p.join("chats"))
+        repo_chats_dir(&self.chats_root, repo_id)
     }
 
     // Find a repository directory by its id.
@@ -601,7 +647,9 @@ impl Store {
         }
         fs::create_dir_all(&path)
             .map_err(|e| format!("Cannot create {}: {}", path.display(), e))?;
-        fs::create_dir_all(path.join("chats")).map_err(|e| e.to_string())?;
+        // No `chats` folder here. The chats of a repository stand outside it, so
+        // a command working in the repository cannot come at them. See the head
+        // of this file.
         let text = serde_json::to_string_pretty(&repo).unwrap_or_else(|_| String::from("{}"));
         fs::write(path.join("repo.json"), text).map_err(|e| e.to_string())?;
         Ok(repo)
@@ -675,6 +723,114 @@ impl Store {
     }
 }
 
+// The folder of the chats of one repository, outside every repository. Only the
+// characters an id of this program is made of are let into a path, so an id out
+// of a chat file of another machine cannot name a road out of the folder of the
+// talks. An id with nothing usable in it gives nothing at all.
+fn repo_chats_dir(root: &Path, repo_id: &str) -> Option<PathBuf> {
+    let safe: String = repo_id
+        .chars()
+        .filter(|c| c.is_ascii_digit() || ('a'..='f').contains(&c.to_ascii_lowercase()))
+        .collect();
+    if safe.is_empty() || safe.as_str() != repo_id {
+        return None;
+    }
+    Some(root.join(safe))
+}
+
+// The chats of a repository used to stand in the directory of that repository,
+// at `<repository>/chats`. A command of the terminal tool works in that
+// directory, so the model could read every talk of the repository it was working
+// in, and write over it. The chats now stand under the data directory. This
+// moves them, once, when the program starts: nothing of a chat is thrown away,
+// for a chat whose id stands in both places keeps both copies, the newer under
+// its own id and the older beside it with `.kept` at the end of its name, where
+// no list of chats reads it.
+pub fn migrate_repo_chats(repos_dir: &Path, chats_root: &Path) {
+    let Ok(entries) = fs::read_dir(repos_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let older = path.join("chats");
+        if !older.is_dir() {
+            continue;
+        }
+        let Some(id) = repo_id_of(&path) else {
+            continue;
+        };
+        let Some(newer) = repo_chats_dir(chats_root, &id) else { continue };
+        let _ = fs::create_dir_all(&newer);
+        let Ok(chats) = fs::read_dir(&older) else { continue };
+        for chat in chats.flatten() {
+            let from = chat.path();
+            if from.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(name) = from.file_name().map(|n| n.to_string_lossy().to_string()) else {
+                continue;
+            };
+            let stood = newer.join(&name);
+            if !stood.exists() {
+                if fs::rename(&from, &stood).is_err() {
+                    continue;
+                }
+                continue;
+            }
+            // The same chat stands in both places, so the newer of the two is
+            // the one the program reads, and the older is laid beside it out of
+            // the reach of the list of chats.
+            let moved = newer.join(format!("{}.kept", name));
+            if older_of(&stood, &from) {
+                // The copy that already stood outside is the older one, so the
+                // two change places before the older is laid aside.
+                let held = newer.join(format!("{}.held", name));
+                if fs::rename(&stood, &held).is_ok()
+                    && fs::rename(&from, &stood).is_ok()
+                    && fs::rename(&held, &moved).is_err()
+                {
+                    let _ = fs::rename(&stood, &held);
+                }
+            } else {
+                let _ = fs::rename(&from, &moved);
+            }
+        }
+        // The folder goes when nothing of it is left, so the repository holds no
+        // mark of where its talks were kept.
+        let _ = fs::remove_dir(&older);
+    }
+}
+
+// True when the chat that stands at `older` was written before the one that
+// stands at `newer`. A file that cannot be read as a chat is the older of the
+// two, for a chat the program can read is worth more than one it cannot.
+fn older_of(newer: &Path, older: &Path) -> bool {
+    let read = |path: &Path| {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Chat>(&text).ok())
+            .map(|chat| chat.meta.updated)
+            .unwrap_or(i64::MIN)
+    };
+    read(newer) < read(older)
+}
+
+// The id of the repository that stands at this path, out of its record file or
+// out of the name of its folder.
+fn repo_id_of(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path.join("repo.json")).unwrap_or_default();
+    if let Ok(repo) = serde_json::from_str::<Repo>(&text) {
+        if !repo.id.is_empty() {
+            return Some(repo.id);
+        }
+    }
+    let name = path.file_name()?.to_string_lossy().to_string();
+    if let Some(tail) = name.strip_prefix("repository-") {
+        return Some(tail.to_string());
+    }
+    id_from_dir_name(&name)
+}
+
 // A readable name from a directory name, for a folder with no record file.
 fn human_name(dir_name: &str) -> String {
     let stem = match dir_name.rsplit_once('_') {
@@ -687,6 +843,69 @@ fn human_name(dir_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The chats of a repository do not stand inside the directory of that
+    // repository. A terminal command of a chat works in the folder of its
+    // repository, so a chat kept there could be read and written over by the
+    // model that is talking in it.
+    #[test]
+    fn the_chats_of_a_repository_stand_outside_it() {
+        static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let room = std::env::temp_dir().join(format!(
+            "autumn-natter-chats-out-{}-{}",
+            std::process::id(),
+            TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
+        let repos = room.join("repositories");
+        let talks = room.join("repo_chats");
+        // A repository of the old shape: its directory holds a folder of chats.
+        let repo = repos.join("notes_ab12cd34ef");
+        fs::create_dir_all(repo.join("chats")).unwrap();
+        fs::write(repo.join("repo.json"), r#"{"id":"ab12cd34ef","name":"notes"}"#).unwrap();
+        let stood = repo.join("chats").join("99.json");
+        fs::write(&stood, r#"{"meta":{"id":"99","title":"t","repo_id":"ab12cd34ef","model_id":"m","created":1,"updated":5,"code_enabled":false,"sandbox_enabled":true,"context_used":0},"messages":[]}"#).unwrap();
+        // The work of the chat stays where it is: only the talks move.
+        fs::write(repo.join("notes.md"), "work").unwrap();
+        migrate_repo_chats(&repos, &talks);
+        let moved = talks.join("ab12cd34ef").join("99.json");
+        assert!(moved.is_file(), "the chat did not move out");
+        assert!(!stood.exists(), "the chat is still inside the repository");
+        assert!(!repo.join("chats").exists(), "the folder of chats is still there");
+        assert!(repo.join("notes.md").is_file(), "the work of the chat stays");
+        // The chat is read again from its new place, and nothing of it stands
+        // under the repository any more.
+        let store = Store::with_chats(repos.clone(), talks.clone());
+        let listed = store.list_chats("ab12cd34ef");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].meta.id, "99");
+        let left: Vec<String> = fs::read_dir(&repo)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(left, vec![String::from("notes.md"), String::from("repo.json")], "{:?}", left);
+        // A chat written now goes to the new place too.
+        let mut chat = listed[0].clone();
+        chat.meta.title = String::from("again");
+        store.save_chat(&chat);
+        assert!(talks.join("ab12cd34ef").join("99.json").is_file());
+        assert_eq!(store.list_chats("ab12cd34ef")[0].meta.title, "again");
+        let _ = fs::remove_dir_all(&room);
+    }
+
+    // A chat id of another machine is not allowed to name a road out of the
+    // folder of the talks.
+    #[test]
+    fn a_chat_id_names_no_road_outside_the_folder_of_talks() {
+        let root = std::path::Path::new("/data/repo_chats");
+        assert_eq!(
+            repo_chats_dir(root, "ab12cd34ef"),
+            Some(root.join("ab12cd34ef"))
+        );
+        for bad in ["../../etc", "", "...", "/x", "A B"] {
+            assert!(repo_chats_dir(root, bad).is_none(), "{} was let through", bad);
+        }
+    }
 
     // The line of the day and the clock time reads as one moment: the day of the
     // week belongs to the day that stands beside it, whatever time zone this
