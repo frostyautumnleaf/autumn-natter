@@ -59,24 +59,27 @@ body.dark {
   --accent-soft: rgba(237, 116, 1, .17);
   --accent-line: rgba(237, 116, 1, .5);
 
-  --bg: #0f0501; --surface: #1b1b1b; --surface-2: #232323; --surface-3: #2b2b2b;
-  --line: #342f2a; --line-soft: #2b2723; --line-strong: #473f36;
+  /* The ground is of the autumn family, so every part stood on it is of the
+     same family too: one hue, with the steps of lightness the grey ladder had.
+     A surface of no colour at all would stand apart from a ground this warm. */
+  --bg: #0a0400; --surface: #231a13; --surface-2: #2c221a; --surface-3: #362a20;
+  --line: #3a2e24; --line-soft: #30261e; --line-strong: #503d2d;
   --text: #f2ebe2; --text-2: #d9cfc3; --dim: #a4998c; --faint: #857c71;
-  --hover: #262422; --tint: #2c1d10; --on-accent: #fff8ef;
+  --hover: #2d231b; --tint: #2c1d10; --on-accent: #fff8ef;
 
   --bubble: #2b1c10; --bubble-line: #4a3626;
   --plate: rgba(255, 255, 255, .075); --plate-line: rgba(255, 255, 255, .15);
   --plate-mark: rgba(255, 255, 255, .10);
   --plate-shadow: 0 1px 3px rgba(0, 0, 0, .38);
-  --code-bg: #201d1a; --code-line: #37312a;
-  --think-bg: #221e1a; --tool-bg: #211e1b;
-  --scrim: rgba(8, 7, 6, .6);
+  --code-bg: #231c17; --code-line: #3d3024;
+  --think-bg: #271e18; --tool-bg: #241d18;
+  --scrim: rgba(10, 4, 0, .62);
   --ring: 0 0 0 3px rgba(237, 116, 1, .16);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
   --shadow-2: 0 2px 6px rgba(0, 0, 0, .45), 0 16px 38px rgba(0, 0, 0, .5);
 }
 /* A word in an accent colour needs the bright end of the accent in the dark
-   skin, where #C53C01 cannot be read on #0f0501. The mix is of an allowed
+   skin, where #C53C01 cannot be read on #0a0400. The mix is of an allowed
    accent with a neutral, so no new colour is added. A plain value stands
    under it for a web view without color-mix. */
 :root { --ink: var(--strong); --ink-leaf: var(--leaf); --ink-fail: var(--deep); }
@@ -542,7 +545,7 @@ pre.code {
 
 /* The colours of a code block. Every one of them is one of the five accents, a
    neutral, or a mix of an accent with a warm neutral for the dark skin, where
-   the deep accents cannot be read on #0f0501. Weight and shape tell one kind of
+   the deep accents cannot be read on #0a0400. Weight and shape tell one kind of
    word from another as much as colour does, so a block can be read without it. */
 :root {
   --t-com: var(--faint); --t-key: var(--strong); --t-str: var(--deep);
