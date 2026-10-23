@@ -1,96 +1,76 @@
-# autumn-natter
+<div align="center">
+<img src="assets/readme/autumn-natter-plate.svg" width="112" height="112" alt="Autumn Natter: an autumn maple leaf with frost on its edges" />
 
-The millionth LLM natter software. Powered by Rust and Tauri.
+# Autumn Natter
 
-Autumn Natter starts llama-server and talks to it over the OpenAI compatible
-HTTP interface. Nothing leaves your computer.
+A chat program for models that run on your own machine. Rust and Tauri on the
+outside, llama.cpp underneath.
 
-## Layout
+The program starts `llama-server` for each answer and talks to it over the
+OpenAI compatible HTTP interface. The model runs on your own cards, the chats
+are kept in your own folders, and nothing of the conversation leaves the
+machine.
+</div>
 
-The program is a workspace of two crates.
+## Features
 
-- `.` is the core: the engine, the settings, the store, the llama.cpp reader,
-  the terminal tool, the device list, UPnP, and the page of the remote mode. It
-  has no window, so it builds and tests with no web view.
-- `src-tauri` is the desktop window. Rust on the back, and an HTML page under
-  `frontend/` drawn by the web view of the system.
+- <img src="assets/readme/chat.svg" width="20" height="20" alt="" /> **Chats kept per repository.** Every repository keeps its own list of chats on disk. Two chats can be open side by side, and the full list of a repository opens above the input box with the Alt key.
+- <img src="assets/readme/plus.svg" width="20" height="20" alt="" /> **A new chat and a context meter.** A new chat starts in the working folder of the repository with one click. A meter above the chat states what the conversation costs of the context window the model has, and changes colour before the window is full.
+- <img src="assets/readme/send.svg" width="20" height="20" alt="" /> **Pictures and files in a message.** Attachments can be dropped in, pasted, or chosen from the disk. A vision model receives a picture as part of the message rather than as encoded text. Text pasted above a set length is attached as a file instead of filling the input box.
+- <img src="assets/readme/think.svg" width="20" height="20" alt="" /> **Reasoning shown as it arrives.** Reasoning stands in a block of its own. It can be folded while it is being written, opened with a click, held at a fixed height, or allowed to grow with its text. A tool the model calls while reasoning can be placed inside the reasoning block that led to it, so the thought and its tool read as one part.
+- <img src="assets/readme/terminal.svg" width="20" height="20" alt="" /> **A terminal the model can use.** One shell command per call, run in the working folder of the chat, with its output written back into the block. The block can be folded while the command runs, and a command that is stopped keeps the output it had already produced.
+- <img src="assets/readme/code.svg" width="20" height="20" alt="" /> **File tools that either apply or refuse.** A file in the working folder of the chat can be changed or created. Every change in a call is matched against the file as it stood before the call, and the batch is written together or not at all.
+- <img src="assets/readme/shield.svg" width="20" height="20" alt="" /> **A sandbox for the commands.** With bubblewrap a command sees only the working folder of the chat. Other files of the machine, the home folder included, are not visible, there is no network access, and a file written by one command is not seen by the next. The file tools reach the same files whether the sandbox is on or off.
+- <img src="assets/readme/tooltip.svg" width="20" height="20" alt="" /> **Web search and page reading.** One tool searches the web and returns the text of a page as plain words, stripped of markup and shortened, so the model can answer from material it can reach.
+- <img src="assets/readme/snowflake.svg" width="20" height="20" alt="" /> **Context reclaimed without losing the conversation.** When the context window of the model runs short, the program asks the model for a handoff summary. The text before the summary is left out of what is sent back, and the summary takes its place. Everything the model wrote stays in the chat, and a line at the right holds one node for every summarisation.
+- <img src="assets/readme/chevron-down.svg" width="20" height="20" alt="" /> **Chapters, folding, and colour.** The model can mark where a new part of a long chat begins. The marks sit on a line at the left of the chat, and a click moves the reading position there. Code blocks are coloured by kind, and both the colouring and the marks can be switched off.
+- <img src="assets/readme/model.svg" width="20" height="20" alt="" /> **The settings of the model, on a page.** Context size, sampling, speculative decoding with a draft model, context checkpoints, the chat template, and extra arguments. The command line that the next answer will run is written out as the fields are changed.
+- <img src="assets/readme/gpu.svg" width="20" height="20" alt="" /> **Every graphics card accounted for.** The cards are read from the machine and each can be turned on or off. A budget of their video memory can be set, and the model can be split across the cards that are on.
+- <img src="assets/readme/settings.svg" width="20" height="20" alt="" /> **The same settings in the browser.** The remote mode serves the page to the local network with no window at all: the chats, the tools, and both pages of the settings. UPnP can open it beyond this machine, on a port of your choosing.
+- <img src="assets/readme/warning.svg" width="20" height="20" alt="" /> **Faults stated plainly.** Where a summarisation failed, where the sandbox is missing, or where the context ran out while a command was being written, the block states what happened, and the detail view states what to do next.
 
-## Compaction
+## Long conversations
 
-A chat goes on for ever once the room of the talk is made again on the way. The
-Compaction section of the settings says how that is done.
+A chat can continue indefinitely once space in the context window is reclaimed
+as it fills. The Compaction section of the settings decides how.
 
-- `Nothing` leaves the chat alone until the room is gone.
-- `Handoff summary` (the default) asks the model, between two answers, for a
-  summary of the talk. The words before that summary are then left out of what
-  goes back to the model, and the summary rides in their place.
-
-The summarisation is set going either at a share of the room of the model (the
-default, 85 per cent) or when the room left over falls under a number of tokens
-(the default, 10240). One line in `src/config.rs` owns the rule, so the fields
-of the window and the check of the worker cannot drift apart.
-
-The first message you sent is never dropped. It stands at the front of the
-prompt as it always did, word for word, so the server keeps the work it did on
-those words and on the pictures hung on them: the summary is added after it, and
-only the summary is worked through anew. The text the model is asked to write is
-yours to change in the settings (the prompt of the program is given back when the
-field is left empty, and it is cut at 4096 characters).
-
-What the model wrote is kept in the chat as a mark of its own, so nothing of the
-talk is thrown away: the reader still sees all of it. In the talk the mark stands
-as `Summarised #N` — a hairline with the count of it in the middle, for a
-handoff summary is not a saying of the model to the reader. Hover over it and the
-card says the day and the hour it stood, the tokens the talk took before it, and
-the tokens the summary itself takes. Beside the chat, at the right, a vertical
-line holds one node for every summarisation, the oldest at the top; a node says
-which summarisation it is and shows a little of what it says, and a click takes
-you there. The line is a switch in the same section.
-
-The ask for a summary is bounded on purpose, for it carries the whole of the talk.
-The room the summary is written in is only what is left in the window, between 512
-and 4096 tokens; the pictures of the talk are turned into words and left out, for
-a summary is written of words and a picture costs a great deal of room; the prompt
-carries a guard that says no tool is offered and none is wanted; and the body says
-not to read a call of a tool out of the answer, for a model that answers a session
-full of tool calls with a tool call of its own, cut short by the window, makes the
-server fault where the summary should have stood. An ask that comes back with a
-fault is made once more before the reader is told, and a failed ask leaves the
-meter of the talk at what the words of the chat cost of themselves, not at the
-window that ask filled.
-
-A summary that never came — the server went away, the answer was stopped, or the
-model gave no words — leaves its mark empty. The node turns the colour of a
-fault, the chat holds every word it had, and no message goes out over a talk that
-no longer fits: the card of the mark offers `Write the summary again`, which
-starts the summary from the place the chat was cut. A summary that the room cut
-short while it was written is kept, and said so, for the room was full when it
-was asked for.
-
-The limit is looked at while the model is writing, and not only between two
-answers. A model with a tool call bigger than the room it has never stops of
-itself: it writes on until the room is gone, which is the very thing the limit was
-set aside to prevent. So the stream is cut off at the piece of the answer the talk
-came to the limit under — `stream_chat` in `src/llama.rs` is given a hand of the
-program's own to stop it, beside the stop that is the reader's. What the model had
-written stands in the chat, and the call it was writing is written down after the
-summarisation with a `cancelled` mark on it, so the block says what the tool was
-pointed at and the reader sees a call that never ran. The words of the call that
-had come so far go back to the model as the words of a turn and never as a call,
-for a server set to read arguments out of one would fault over words that stop in
-the middle of a string; only the head of a long call is sent, bounded by the room
-the summarisation left over (`cut_bound`, at most 4000 characters), since the
-whole of a file the model was writing out would eat up the room again and have the
-model stopped before it had a word. The
-model is told the call was cancelled and what it had written, and is asked again,
-so the answer goes on from where it stood rather than beginning afresh. A writing
-stopped at the limit three times in one answer is writing something no room will
-hold, and the reader hears so.
+- `Nothing` leaves the chat alone until the context window is full.
+- `Handoff summary`, the default, asks the model between two answers for a
+  summary of the conversation. It is triggered either at a share of the context
+  window, 85 per cent by default, or when the space left falls below a number
+  of tokens, 10240 by default.
+- The first message you sent is never dropped, so the server keeps the work it
+  did on those words and on the pictures attached to them.
+- The request for a summary is limited on purpose. It is given only the space
+  left in the window, between 512 and 4096 tokens. Pictures are turned into
+  words and left out, and no tool is offered, because a model that answers a
+  conversation full of tool calls with a tool call of its own makes the server
+  fail where the summary should have stood.
+- A summary that never arrived leaves its mark empty, and the detail view of the
+  mark offers `Write the summary again`. Nothing of the conversation is thrown
+  away, and no message is sent over a conversation that no longer fits.
+- The limit is watched while the model is writing, and not only between two
+  answers. A model with a tool call larger than the space it has does not stop
+  by itself, so the stream is cut at the point where the conversation reached
+  the limit. What was written stays in the chat, the call is recorded after the
+  summarisation with a `cancelled` mark, and its words are sent back as the text
+  of a turn rather than as a call. Three cut-offs in one answer is a text that
+  no window will hold, and the reader is informed.
 
 The rule lives in `compaction_wanted` in `src/config.rs`, the work in
-`run_handoff`, `maybe_compact` and `make_room` in `src/engine.rs`, the words of a
-cut-off call in `cut_words` there too, and the line and the marks in the two
-pages.
+`run_handoff`, `maybe_compact`, and `make_room` in `src/engine.rs`, and the
+nodes and the marks in the desktop page and the browser page.
+
+## Running the program
+
+| Command | What it does |
+| :-- | :-- |
+| `./autumn-natter` | the window on this machine |
+| `./autumn-natter --remote` | no window, a page for the local network, settings included |
+| `cargo test -p autumn-natter-core` | the rules of the chats, with no display needed |
+
+Run `--help` for the arguments of the program, and `./run.sh --help` for the
+flags of the build.
 
 ## Build
 
@@ -100,11 +80,35 @@ The window needs the web view of the system.
     Fedora:         sudo dnf install webkit2gtk4.1-devel openssl-devel libappindicator-gtk3-devel librsvg2-devel pkgconf-pkg-config
     Arch:           sudo pacman -S webkit2gtk-4.1 base-devel openssl libappindicator-gtk3 librsvg
 
-Then:
+Then, in one command, with nothing written outside the checkout and no need for
+sudo:
 
-    cargo build --release          # the window lands in target/release
-    ./autumn-natter                # open the window
-    ./autumn-natter --remote       # no window, serve a page for the local network
-    cargo test -p autumn-natter-core   # the rules of the carousel, on the engine
+    ./run.sh                  # build, then open the window
+    ./run.sh --remote         # build, then serve the page to the network
+    ./run.sh --with-llama     # also build llama.cpp here, so you can chat
 
-Run `--help` for the arguments.
+The script calls `./build.sh`, which keeps the toolchain, the crates, and the
+build output under `./.local`, about 4 GB once built. `--fast` builds without
+LTO, `--debug` compiles fastest, `--check` only checks, and `--offline` builds
+from a vendored copy. To build by hand instead:
+
+    cargo build --release     # the window lands in target/release
+
+## Layout
+
+The program is a workspace of two crates.
+
+- `.` is the core: the engine, the settings, the store, the llama.cpp reader,
+  the tools, the device list, UPnP, and the page of the remote mode. It has no
+  window, so it builds and tests with no web view.
+- `src-tauri` is the desktop window. Rust on the back, and an HTML page under
+  `frontend/` drawn by the web view of the system.
+
+The page served to a browser is `web/page.html`. The two pages are kept in step,
+so a fault in the layout is found in a headless browser with
+`tools/page-shot.js` before it is seen by a user. The pictures in this README are
+made by `tools/readme_icons.py` from the icons of the program.
+
+## Licence
+
+MIT. See `LICENSE`.
