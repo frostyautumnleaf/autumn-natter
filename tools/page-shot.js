@@ -634,7 +634,6 @@ const CONFIG = {
   chat_tools_in_thinking: true,
   chat_collapse_tools: true,
   chat_date_new_chat: true,
-  chat_date_every_message: false,
   chat_highlight: true,
   chat_chapters: true,
   // The two rooms for steps stand unlimited, as they do for a new set of settings.
@@ -757,6 +756,26 @@ async function main() {
         if (String(url).indexOf('/api/state') === 0) {
           return Promise.resolve({ json: function () {
             return Promise.resolve(JSON.parse(JSON.stringify(held))); } });
+        }
+        // The sheet of settings. The page of the remote mode reads the same
+        // three answers the window of the program reads through its bridge.
+        if (String(url).indexOf('/api/config') === 0) {
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(JSON.parse(JSON.stringify(config))); } });
+        }
+        if (String(url).indexOf('/api/repositories') === 0) {
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(held.repositories.map(function (r) {
+              return { id: r.id, name: r.name }; })); } });
+        }
+        if (String(url).indexOf('/api/model_settings') === 0) {
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(JSON.parse(JSON.stringify(model))); } });
+        }
+        if (String(url).indexOf('/api/preview_command') === 0) {
+          return Promise.resolve({ json: function () {
+            return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
+              + '-ngl 999 --fit on --fit-target 400'); } });
         }
         if (String(url).indexOf('/api/attachment') === 0) {
           // One attachment record, as the small server of the remote mode

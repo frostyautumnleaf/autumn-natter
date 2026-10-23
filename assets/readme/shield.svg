@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Autumn Natter - an icon of the README.
+  The shape is the icon of the program in assets/icons/shield.svg; it is stood
+  on a plate and tinted, so that it reads on both the light theme of
+  GitHub and the dark one.
+  Made by tools/readme_icons.py - do not mend it by hand.
+-->
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The sandbox">
+  <rect x="2" y="2" width="60" height="60" rx="20" fill="#F3F8EB" stroke="#D9E6C2" stroke-width="2"/>
+  <g transform="translate(10.0 10.0) scale(1.83333)" fill="none">
+  <path d="M12 3 L19 5.8 V11.5 C19 16 15.9 19.6 12 21 C8.1 19.6 5 16 5 11.5 V5.8 Z" stroke="#4D7C0F" stroke-width="1.9" stroke-linejoin="round"/>
+  </g>
+</svg>

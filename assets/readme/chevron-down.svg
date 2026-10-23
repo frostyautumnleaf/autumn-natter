@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Autumn Natter - an icon of the README.
+  The shape is the icon of the program in assets/icons/chevron-down.svg; it is stood
+  on a plate and tinted, so that it reads on both the light theme of
+  GitHub and the dark one.
+  Made by tools/readme_icons.py - do not mend it by hand.
+-->
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Folds">
+  <rect x="2" y="2" width="60" height="60" rx="20" fill="#FCF0F4" stroke="#EFD2DD" stroke-width="2"/>
+  <g transform="translate(10.0 10.0) scale(1.83333)" fill="none">
+  <path d="M6.5 9.5 L12 15 L17.5 9.5" stroke="#9D174D" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

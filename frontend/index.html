@@ -59,24 +59,27 @@ body.dark {
   --accent-soft: rgba(237, 116, 1, .17);
   --accent-line: rgba(237, 116, 1, .5);
 
-  --bg: #141414; --surface: #1b1b1b; --surface-2: #232323; --surface-3: #2b2b2b;
-  --line: #342f2a; --line-soft: #2b2723; --line-strong: #473f36;
+  /* The ground is of the autumn family, so every part stood on it is of the
+     same family too: one hue, with the steps of lightness the grey ladder had.
+     A surface of no colour at all would stand apart from a ground this warm. */
+  --bg: #0a0400; --surface: #231a13; --surface-2: #2c221a; --surface-3: #362a20;
+  --line: #3a2e24; --line-soft: #30261e; --line-strong: #503d2d;
   --text: #f2ebe2; --text-2: #d9cfc3; --dim: #a4998c; --faint: #857c71;
-  --hover: #262422; --tint: #2c1d10; --on-accent: #fff8ef;
+  --hover: #2d231b; --tint: #2c1d10; --on-accent: #fff8ef;
 
   --bubble: #2b1c10; --bubble-line: #4a3626;
   --plate: rgba(255, 255, 255, .075); --plate-line: rgba(255, 255, 255, .15);
   --plate-mark: rgba(255, 255, 255, .10);
   --plate-shadow: 0 1px 3px rgba(0, 0, 0, .38);
-  --code-bg: #201d1a; --code-line: #37312a;
-  --think-bg: #221e1a; --tool-bg: #211e1b;
-  --scrim: rgba(8, 7, 6, .6);
+  --code-bg: #231c17; --code-line: #3d3024;
+  --think-bg: #271e18; --tool-bg: #241d18;
+  --scrim: rgba(10, 4, 0, .62);
   --ring: 0 0 0 3px rgba(237, 116, 1, .16);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
   --shadow-2: 0 2px 6px rgba(0, 0, 0, .45), 0 16px 38px rgba(0, 0, 0, .5);
 }
 /* A word in an accent colour needs the bright end of the accent in the dark
-   skin, where #C53C01 cannot be read on #141414. The mix is of an allowed
+   skin, where #C53C01 cannot be read on #0a0400. The mix is of an allowed
    accent with a neutral, so no new colour is added. A plain value stands
    under it for a web view without color-mix. */
 :root { --ink: var(--strong); --ink-leaf: var(--leaf); --ink-fail: var(--deep); }
@@ -386,6 +389,15 @@ body.home .stage { display: none; }
   cursor: pointer;
 }
 .sumhead .sbtn:hover { border-color: var(--accent); color: var(--accent); }
+/* The three dots under the heading of a summarisation that is being written. The
+   words of a summary are never shown, so the dots are all the reader is given of
+   the writing, and they nod the same nod as the dots of a thinking block. */
+.sdots { display: flex; gap: 4px; justify-content: center; align-items: center;
+  height: 10px; margin: -12px 4px 16px; }
+.sdots i { width: 4px; height: 4px; border-radius: 50%; background: var(--ink);
+  animation: nod 1.1s ease-in-out infinite; }
+.sdots i:nth-child(2) { animation-delay: .15s; }
+.sdots i:nth-child(3) { animation-delay: .3s; }
 /* The whole of a handoff summary. The card of the heading holds a little of it;
    the mark under the card asks for the whole, which is a reading of its own: the
    words are long, and they stand over the chat in a sheet of their own rather
@@ -533,7 +545,7 @@ pre.code {
 
 /* The colours of a code block. Every one of them is one of the five accents, a
    neutral, or a mix of an accent with a warm neutral for the dark skin, where
-   the deep accents cannot be read on #141414. Weight and shape tell one kind of
+   the deep accents cannot be read on #0a0400. Weight and shape tell one kind of
    word from another as much as colour does, so a block can be read without it. */
 :root {
   --t-com: var(--faint); --t-key: var(--strong); --t-str: var(--deep);
@@ -588,12 +600,11 @@ pre.code .t-p { color: var(--t-pun); }
    holds all of the thoughts and the chat moves instead of a rail inside the
    panel. With it off the fixed height above stands, as it always did. */
 .think.grow .words { max-height: none; overflow-y: visible; }
-/* The fold puts the thoughts away and keeps the runs of the tools that stand
-   inside the panel to be read. A fold that hid the whole body of the panel hid
-   the command the model had run with them, so a turn that asked for a command
-   before it said anything of its own stood empty on the page. */
-.think.closed .thought { display: none; }
-.think.closed .words { padding-bottom: 0; }
+/* The fold puts the whole body of the panel away: the thoughts, and the blocks
+   of the runs that stand among them. A reader who closed a panel asked not to
+   see any of it, so a tool block that stayed to be read under a closed head read
+   as a fault of the fold. The head of the panel is all that is left. */
+.think.closed .words { display: none; }
 /* The thoughts are markdown, so a heading, a list or a block of code can stand
    inside the panel. They stand small, so the panel stays a look inside the
    answer and does not become a second chat. */
@@ -1315,11 +1326,8 @@ pre.code.line {
           <div class="ctl"><input id="fChatWidth" type="number" min="780" max="4000" step="10" placeholder="780"><span class="unit">pixels</span></div></div>
 
         <div class="fld"><span class="lbl">Send the date and time at the start of a chat</span>
-          <span class="sub">At the start of every chat the program tells the model the current date and time of this machine, so it can answer questions about today. The line goes to the model only. It is not shown in the chat.</span>
+          <span class="sub">The program tells the model the current date and time of this machine once, in a system message at the start of the conversation, and says that it is the latest. The model can then answer questions about today. The line goes to the model only. It is not shown in the chat.</span>
           <div class="ctl"><input id="fDateNewChat" type="checkbox"></div></div>
-        <div class="fld"><span class="lbl">Send the date and time with every message</span>
-          <span class="sub">Every message you send also tells the model the current date and time. Turn this on for chats that run on for several days. If both options are on, the first message gets one line, not two.</span>
-          <div class="ctl"><input id="fDateEvery" type="checkbox"></div></div>
 
         <div class="sec">Compaction</div>
         <div class="fld"><span class="lbl">Compaction</span>
@@ -3479,7 +3487,11 @@ function fillLive(turn, m, group) {
     // show yet, so the panel stands away until they come.
     if (!m.reasoning) { panel.classList.add('hidden'); }
   }
+  // The thought of the answer that is coming in, and the blocks of the calls
+  // being written, are marked as the writer's own: the thread goes through the
+  // panel part by part and must leave these two alone.
   var thought = make('div', 'thought');
+  thought.dataset.live = '1';
   body.appendChild(thought);
   var plain = make('div', 'plain');
   turn.appendChild(plain);
@@ -3503,6 +3515,7 @@ function fillLive(turn, m, group) {
   // more than one call can stand there. Without thoughts the blocks stand under
   // the words, where a reader cannot miss them.
   ink.toolHost = make('div', 'writes');
+  ink.toolHost.dataset.live = '1';
   if (chatting.inThink && (m.reasoning || group)) { body.appendChild(ink.toolHost); }
   else { turn.appendChild(ink.toolHost); }
   ink.tools = [];
@@ -3580,6 +3593,17 @@ function fill(turn, m) {
     }
     cut.appendChild(card);
     turn.appendChild(cut);
+    // The words of a summary are never shown, so while it is being written the
+    // reader is given three dots under the heading. They nod the same nod as the
+    // dots of a thinking block, and they say that the program is at work where
+    // the gauge over the chat box has nothing left to say.
+    if (writing) {
+      var wait = make('div', 'sdots');
+      wait.appendChild(make('i'));
+      wait.appendChild(make('i'));
+      wait.appendChild(make('i'));
+      turn.appendChild(wait);
+    }
     return;
   }
   if (m.role === 'Tool' && m.tool !== '') {
@@ -3701,20 +3725,156 @@ function spanStartingAt(spans, n) {
   return null;
 }
 
-// The panel that holds one place of the thread, or nothing at all.
-function spanHolding(spans, n) {
-  for (var i = 0; i < spans.length; i++) {
-    if (n >= spans[i].from && n < spans[i].to) { return spans[i]; }
-  }
-  return null;
-}
-
 // What a panel of the thread is made of, so it is made again only when one of
-// its parts said something new.
+// its parts said something new. The answer that is coming in is not asked what
+// it said: the writer puts its words, and they grow every look.
 function groupStamp(items, span) {
   var parts = ['group'];
-  for (var n = span.from; n < span.to; n++) { parts.push(roleStamp(items[n])); }
+  for (var n = span.from; n < span.to; n++) {
+    parts.push(items[n].id === 'live' ? 'live' : roleStamp(items[n]));
+  }
   return parts.join('#');
+}
+
+// The parts of a thinking panel that the thread owns: the thought of every
+// message of the span, and the block of every run among them, in the order they
+// stand. The words of the answer that is coming in are not among them, for the
+// writer puts those, and they stand behind these.
+function groupParts(items, from, to) {
+  var parts = [];
+  for (var n = from; n < to; n++) {
+    var m = items[n];
+    if (m.id === 'live') { continue; }
+    if (m.reasoning) { parts.push({ kind: 'thought', m: m }); }
+    if (m.role === 'Tool') { parts.push({ kind: 'tool', m: m }); }
+  }
+  return parts;
+}
+
+// What one part of a panel said. A thought and the run of the tool it led to are
+// two parts of one message, so the kind of the part stands in the line as well.
+// A thought is asked only what its thoughts said: the result of the run that
+// stands under it comes later, and a thought made again for that result threw the
+// reading place of the panel away.
+function partStamp(part) {
+  if (part.kind === 'thought') {
+    return 'thought#' + (part.m.reasoning || '').length + '#' + (part.m.reasoning_ms || 0);
+  }
+  return 'tool#' + roleStamp(part.m);
+}
+
+// One part of a panel: the thought of a message, or the block of its run. What
+// the part said is kept on the node, so the panel can be gone through part by
+// part when the state comes round again.
+function partNode(part) {
+  var node = part.kind === 'thought' ? thoughtBlocks(part.m) : toolBox(part.m);
+  if (part.m.id) { node.dataset.mid = part.m.id; }
+  node.dataset.stamp = partStamp(part);
+  return node;
+}
+
+// The panel of a train of thought is gone through part by part: only a part that
+// said something new is made again, and every other part is left where it
+// stands. The panel was built again whole before, and that threw the reading
+// place of the panel away, so the thought the reader was looking at jumped back
+// to its start and the whole of it faded in a second time when the result of a
+// run came in among the thoughts.
+function syncGroup(turn, items, from, to, isLive) {
+  var panel = turn.querySelector('.think');
+  var body = panel ? panel.querySelector('.words') : null;
+  if (!body) { return; }
+  var parts = groupParts(items, from, to);
+  // The parts of the answer that is coming in stand behind these, and the writer
+  // owns them, so they are kept out of the count and left alone.
+  var held = [];
+  var live = null;
+  for (var c = body.firstChild; c; c = c.nextSibling) {
+    if (c.dataset && c.dataset.live) { live = c; break; }
+    held.push(c);
+  }
+  while (held.length > parts.length) {
+    var gone = held.pop();
+    gone.parentNode.removeChild(gone);
+  }
+  for (var p = 0; p < parts.length; p++) {
+    var node = held[p];
+    if (!node) { body.insertBefore(partNode(parts[p]), live); continue; }
+    if (node.dataset.stamp !== partStamp(parts[p])) {
+      body.replaceChild(partNode(parts[p]), node);
+    }
+  }
+  // The writer says how long the model has thought for, so the head of a panel
+  // that holds an answer still coming in is left to it.
+  if (isLive) { return; }
+  var ms = 0;
+  for (var n = from; n < to; n++) { ms += Number(items[n].reasoning_ms) || 0; }
+  var cap = panel.querySelector('.cap');
+  var said = thoughtWords(ms, true);
+  if (cap && cap.textContent !== said) { cap.textContent = said; }
+}
+
+// The rows of the thread: one for a panel of a train of thought, and one for a
+// message that stands on its own. A turn of the thread shows one row.
+function threadRows(items, spans) {
+  var rows = [], n = 0;
+  while (n < items.length) {
+    var span = spanStartingAt(spans, n);
+    if (span) { rows.push({ from: span.from, to: span.to, live: !!span.live }); n = span.to; }
+    else { rows.push({ from: n, to: n + 1, live: items[n].id === 'live' }); n++; }
+  }
+  return rows;
+}
+
+// What a row of the thread is made of, which is the messages it shows. A row is
+// known by them, so the thread is made again from the first row that changed and
+// not whole.
+function rowStamp(items, row) {
+  var parts = [];
+  for (var n = row.from; n < row.to; n++) { parts.push(items[n].id); }
+  return parts.join('+');
+}
+
+// One row of the thread: a thinking panel for a train of thought, or the turn of
+// one message. An answer that is coming in is drawn by the writer, inside the
+// panel that holds the thought that led to it when the Chatting setting says
+// that the blocks of a tool run stand there.
+function drawRow(turn, items, row) {
+  turn.dataset.row = rowStamp(items, row);
+  if (row.to - row.from > 1) {
+    var last = row.live ? row.to - 1 : row.to;
+    var made = fillGroup(turn, items, row.from, last);
+    turn.dataset.stamp = groupStamp(items, row);
+    // The chapter nodes are tied to a message, so the line beside the chat
+    // can find its place among the turns.
+    turn.dataset.mid = items[row.from].id;
+    if (row.live) { fillLive(turn, items[row.to - 1], made); }
+    return;
+  }
+  var m = items[row.from];
+  if (m.id === 'live') { fillLive(turn, m); } else { fill(turn, m); }
+  turn.dataset.stamp = roleStamp(m);
+  turn.dataset.mid = m.id;
+}
+
+// One row of the thread is put again when it said something new. A panel of a
+// train of thought is gone through part by part, so the thought the reader is
+// looking at keeps its place; the turn of one message is written again whole.
+function syncTurn(turn, items, row) {
+  if (!turn) { return; }
+  if (row.to - row.from > 1) {
+    var stamp = groupStamp(items, row);
+    if (turn.dataset.stamp === stamp) { return; }
+    turn.dataset.stamp = stamp;
+    syncGroup(turn, items, row.from, row.live ? row.to - 1 : row.to, row.live);
+    return;
+  }
+  var m = items[row.from];
+  // The words of an answer that is coming in belong to the writer.
+  if (m.id === 'live') { return; }
+  var said = roleStamp(m);
+  if (turn.dataset.stamp === said) { return; }
+  turn.dataset.stamp = said;
+  fill(turn, m);
 }
 
 // One thinking panel for a train of thought. Every thought of it stands in a
@@ -3726,15 +3886,10 @@ function fillGroup(turn, items, from, to) {
   turn.innerHTML = '';
   var made = thinkPanel();
   var ms = 0;
-  for (var n = from; n < to; n++) {
-    var m = items[n];
-    ms += Number(m.reasoning_ms) || 0;
-    if (m.reasoning) { made.words.appendChild(thoughtBlocks(m)); }
-    if (m.role === 'Tool') {
-      var box = toolBox(m);
-      if (m.id) { box.dataset.mid = m.id; }
-      made.words.appendChild(box);
-    }
+  var parts = groupParts(items, from, to);
+  for (var n = 0; n < parts.length; n++) {
+    ms += Number(parts[n].m.reasoning_ms) || 0;
+    made.words.appendChild(partNode(parts[n]));
   }
   made.label.textContent = thoughtWords(ms, true);
   var plate = make('div', 'plain');
@@ -3816,6 +3971,9 @@ function drawThread(s) {
     stopInk();
     if (box.dataset.key !== 'blank') {
       box.dataset.key = 'blank';
+      // The chat is remembered as none, so the chat that comes back after this
+      // one stands at the top again, as a chat that was opened always does.
+      box.dataset.chat = '';
       box.innerHTML = '';
       var blank = make('div', 'empty');
       var strong = make('b');
@@ -3834,44 +3992,47 @@ function drawThread(s) {
   // the answer at the end of it read as one part of the talk. The span of each
   // panel stands in the key, so the thread is made again when a panel grows.
   var spans = thoughtSpans(items);
+  var rows = threadRows(items, spans);
   var key = items.map(function (m) { return m.id; }).join('|')
           + '#' + spans.map(function (r) { return r.from + '-' + r.to; }).join(',');
+  var open = (s.chat && s.chat.id) || '';
   if (box.dataset.key !== key) {
     var had = Number(box.dataset.count || 0);
+    var fresh = box.dataset.chat !== open;
     box.dataset.key = key;
+    box.dataset.chat = open;
     box.dataset.count = items.length;
-    box.innerHTML = '';
-    for (var n = 0; n < items.length; n++) {
-      var turn = make('div', 'turn');
-      var span = spanStartingAt(spans, n);
-      // The chapter nodes are tied to a message, so the line beside the chat
-      // can find its place among the turns.
-      if (span) {
-        // One panel for the whole train of thought. When the answer that is
-        // coming in is the last part of it, the writer goes on inside the same
-        // panel, under the run of the tool that led to it.
-        var last = span.live ? span.to - 1 : span.to;
-        var made = fillGroup(turn, items, span.from, last);
-        if (span.live) { fillLive(turn, items[span.to - 1], made); }
-        n = span.to - 1;
-        turn.dataset.stamp = groupStamp(items, span);
-        turn.dataset.mid = items[span.from].id;
+    // The rows of a chat only ever stand at the end of it, so the thread is not
+    // made again whole when one row comes in. A row that stands where it stood is
+    // kept; a row whose words changed is put again on its own; a row that is new
+    // is added, and the rows that are no longer there are taken away. The chat
+    // that stood here was built again for one row that came in, which read as the
+    // whole chat refreshing under the reader.
+    for (var r = 0; r < rows.length; r++) {
+      var ids = rowStamp(items, rows[r]);
+      var child = box.children[r];
+      if (!child) {
+        var turn = make('div', 'turn');
+        drawRow(turn, items, rows[r]);
+        // Only the turn that came in fades up. A chat that was opened is already
+        // there, and its turns do not need to say so again.
+        if (r === rows.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
+        box.appendChild(turn);
+      } else if (child.dataset.row !== ids) {
+        var again = make('div', 'turn');
+        drawRow(again, items, rows[r]);
+        box.replaceChild(again, child);
       } else {
-        if (items[n].id === 'live') { fillLive(turn, items[n]); } else { fill(turn, items[n]); }
-        turn.dataset.stamp = roleStamp(items[n]);
-        turn.dataset.mid = items[n].id;
+        syncTurn(child, items, rows[r]);
       }
-      // Only the turn that came in fades up. A chat that was opened is already
-      // there, and its turns do not need to say so again.
-      if (n === items.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
-      box.appendChild(turn);
     }
-    // A chat that was opened or turned stands at the top.
-    el.thread.scrollTop = 0;
-    stick = true;
+    while (box.children.length > rows.length) { box.removeChild(box.lastChild); }
+    if (fresh) {
+      // A chat that was opened or turned stands at the top.
+      el.thread.scrollTop = 0;
+      stick = true;
+    }
   } else {
-    // The last turn is the one that can still grow.
-    var last = box.lastChild;
     var tail = items[items.length - 1];
     if (tail.id === 'live') {
       // An answer that is coming in is written a few characters at a time by
@@ -3879,12 +4040,14 @@ function drawThread(s) {
       feedInk(tail);
     } else {
       stopInk();
-      var hold = spanHolding(spans, items.length - 1);
-      var stamp = hold ? groupStamp(items, hold) : roleStamp(tail);
-      if (last && last.dataset.stamp !== stamp) {
-        last.dataset.stamp = stamp;
-        if (hold) { fillGroup(last, items, hold.from, hold.to); } else { fill(last, tail); }
-      }
+    }
+    // The last rows are the ones that can still say something new: the
+    // answer that is coming in, and the run of a tool whose result came in while
+    // the model wrote on. Only the last turn was looked at before, so a block of
+    // a run that stands in a thinking panel under an answer went on saying
+    // 'running' with nothing of its result for the rest of the answer.
+    for (var k = rows.length - 3; k < rows.length; k++) {
+      if (k >= 0) { syncTurn(box.children[k], items, rows[k]); }
     }
   }
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
@@ -5028,7 +5191,6 @@ function loadProgram() {
     byId('fPasteLimit').value = pasteLimitOf(cfg.pasted_text_char_limit);
     byId('fChatWidth').value = chatWidthOf(cfg.chat_width);
     byId('fDateNewChat').checked = cfg.chat_date_new_chat !== false;
-    byId('fDateEvery').checked = cfg.chat_date_every_message === true;
     byId('fCompaction').value = cfg.chat_compaction || 'handoff';
     byId('fCompactBy').value = cfg.chat_compact_by || 'percent';
     byId('fCompactPercent').value = cfg.chat_compact_percent || 85;
@@ -5268,7 +5430,6 @@ function saveSheet() {
     cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
     cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
     cfg.chat_date_new_chat = byId('fDateNewChat').checked;
-    cfg.chat_date_every_message = byId('fDateEvery').checked;
     cfg.chat_compaction = byId('fCompaction').value;
     cfg.chat_compact_by = byId('fCompactBy').value;
     var percent = parseInt(byId('fCompactPercent').value, 10);

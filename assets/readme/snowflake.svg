@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Autumn Natter - an icon of the README.
+  The shape is the icon of the program in assets/icons/snowflake.svg; it is stood
+  on a plate and tinted, so that it reads on both the light theme of
+  GitHub and the dark one.
+  Made by tools/readme_icons.py - do not mend it by hand.
+-->
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Compaction">
+  <rect x="2" y="2" width="60" height="60" rx="20" fill="#EEF7F6" stroke="#C9E2DF" stroke-width="2"/>
+  <g transform="translate(10.0 10.0) scale(1.83333)" fill="none">
+  <path d="M12 3 V21 M4.2 7.5 L19.8 16.5 M19.8 7.5 L4.2 16.5" stroke="#0F766E" stroke-width="1.9" stroke-linecap="round"/>
+    <path d="M9.6 5.2 L12 7.6 L14.4 5.2 M9.6 18.8 L12 16.4 L14.4 18.8" stroke="#0F766E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

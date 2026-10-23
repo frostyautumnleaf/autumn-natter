@@ -7,7 +7,9 @@
 
 use serde_json::{json, Value};
 
+use crate::config::{Config, ModelSettings};
 use crate::engine::Snap;
+use crate::llama;
 use crate::store;
 use crate::util;
 
@@ -264,7 +266,6 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "tools_in_thinking": snap.chat_tools_in_thinking,
             "collapse_tools": snap.chat_collapse_tools,
             "date_new_chat": snap.chat_date_new_chat,
-            "date_every_message": snap.chat_date_every_message,
             "highlight": snap.chat_highlight,
             "chapters": snap.chat_chapters,
             "paste_limit": snap.chat_paste_limit,
@@ -294,6 +295,140 @@ fn repo_name<'a>(snap: &'a Snap, id: &str) -> &'a str {
         .find(|r| r.id == id)
         .map(|r| r.name.as_str())
         .unwrap_or("")
+}
+
+// ------------------------------------------------------------------ settings
+//
+// The calls of the sheet of settings. The desktop window makes them through the
+// bridge of Tauri, and the page of the remote mode makes them through the small
+// server; both come here, so the two faces cannot drift apart.
+
+// The settings of the program, for the Program tab of the sheet.
+pub fn config_value(engine: &crate::engine::Engine) -> Value {
+    serde_json::to_value(engine.config()).unwrap_or_else(|_| json!({}))
+}
+
+// Store new settings, and refresh what depends on them.
+pub fn save_config(engine: &crate::engine::Engine, config: Value) -> Value {
+    match serde_json::from_value::<Config>(config) {
+        Ok(cfg) => {
+            engine.save_settings(cfg);
+            done()
+        }
+        Err(problem) => refused(&format!(
+            "The settings could not be read: {}",
+            problem
+        )),
+    }
+}
+
+// Every repository on disk, most recently used first. The sheet shows all of
+// them, while the top bar shows five.
+pub fn repositories_value(engine: &crate::engine::Engine) -> Value {
+    let repos = engine.repositories();
+    Value::Array(
+        repos
+            .iter()
+            .map(|repo| json!({ "id": repo.id, "name": repo.name }))
+            .collect(),
+    )
+}
+
+// Everything the Model tab needs: the settings of one model, the devices of the
+// machine, and the three lists of choices.
+pub fn model_settings_value(engine: &crate::engine::Engine, id: &str) -> Value {
+    let snap = engine.snapshot();
+    let (settings, gpus) = engine.model_settings(id);
+    let (name, kind) = snap
+        .models
+        .iter()
+        .find(|model| model.id() == id)
+        .map(|model| (model.name.clone(), model.kind.to_string()))
+        .unwrap_or_default();
+    json!({
+        "id": id,
+        "name": name,
+        "kind": kind,
+        "settings": serde_json::to_value(&settings).unwrap_or_else(|_| json!({})),
+        "gpus": gpus
+            .iter()
+            .map(|card| json!({
+                "device": card.device,
+                "name": card.name,
+                "memory_mb": card.memory_mb,
+                "enabled": card.enabled,
+                "is_offload": card.is_offload,
+                "memory_text": card.memory_text(),
+            }))
+            .collect::<Vec<_>>(),
+        "kinds": llama::KV_TYPES.to_vec(),
+        "loads": llama::LOAD_MODES.to_vec(),
+        "specs": llama::SPEC_TYPES.to_vec(),
+    })
+}
+
+// Save the settings of one model. A running server is stopped, because it was
+// started with the old values.
+pub fn save_model_settings(engine: &crate::engine::Engine, id: &str, settings: Value) -> Value {
+    match serde_json::from_value::<ModelSettings>(settings) {
+        Ok(made) => {
+            engine.save_model_settings(id.to_string(), made);
+            done()
+        }
+        Err(problem) => refused(&format!(
+            "The model settings could not be read: {}",
+            problem
+        )),
+    }
+}
+
+// The command line the next answer will use, read again whenever a field of the
+// Model tab moves. Nothing is started: only the arguments are built. The answer
+// is one line of words, and the notes under it.
+pub fn preview_line(engine: &crate::engine::Engine, id: &str, settings: Value) -> Value {
+    let snap = engine.snapshot();
+    let Some(model) = snap.models.iter().find(|m| m.id() == id) else {
+        return Value::String(String::new());
+    };
+    let Ok(held) = serde_json::from_value::<ModelSettings>(settings) else {
+        return Value::String(String::new());
+    };
+    // The switches of the form win over the switches the model was saved with.
+    let (_, devices) = engine.model_settings(id);
+    let mut cards = devices;
+    for (place, on) in held.gpu_enabled.iter().enumerate() {
+        if let Some(card) = cards.get_mut(place) {
+            card.enabled = *on;
+        }
+    }
+    let mut notes = Vec::new();
+    let args = llama::build_args(
+        std::path::Path::new(""),
+        model,
+        &held,
+        &cards,
+        0,
+        snap.code_enabled,
+        snap.thinking_mode.as_str(),
+        // The line shown in the sheet is the line of the chat in hand, so the
+        // choice of keeping the thinking of the earlier turns stands in it too.
+        snap.thinking_preserve_available.then_some(snap.thinking_preserve),
+        &mut notes,
+    );
+    let mut line = String::from("llama-server ");
+    for arg in args {
+        if arg.contains(' ') {
+            line.push_str(&format!("\"{arg}\""));
+        } else {
+            line.push_str(&arg);
+        }
+        line.push(' ');
+    }
+    for note in notes {
+        line.push('\n');
+        line.push_str(&note);
+    }
+    Value::String(line.trim_end().to_string())
 }
 
 // Answer after an action worked. The page reads the new state right away.
@@ -395,6 +530,23 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.set_dark_mode(flag(&value, "on"));
             done()
         }
+        // The sheet of settings. The window of the program makes these calls
+        // through its bridge, and the page of the remote mode through these
+        // routes; both come to the same three functions above.
+        "/api/config" | "config" => save_config(
+            engine,
+            value.get("config").cloned().unwrap_or(Value::Null),
+        ),
+        "/api/model_settings" | "model_settings" => save_model_settings(
+            engine,
+            &text_field(&value, "id"),
+            value.get("settings").cloned().unwrap_or(Value::Null),
+        ),
+        "/api/preview_command" | "preview_command" => preview_line(
+            engine,
+            &text_field(&value, "id"),
+            value.get("settings").cloned().unwrap_or(Value::Null),
+        ),
         other => refused(&format!("The caller may not use {}", other)),
     }
 }
