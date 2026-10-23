@@ -3333,7 +3333,17 @@ var ink = {
   clock: 0,         // when the page was written last
   tools: [],        // the blocks of the calls the model is writing now
   toolHost: null,   // where those blocks stand in the turn of the answer
-  toolKey: ''       // what those blocks said at the last look
+  toolKey: '',      // what those blocks said at the last look
+  // Whether the model has said a word of the answer itself. It is the mark that
+  // the model has moved on from its thoughts: a call asked for after a word of
+  // the answer did not come out of the thought above, and the block of it must
+  // not stand in the panel that closed before the words. It stands for the rest of
+  // the answer, whatever the model thinks again after it.
+  spoke: false,
+  // Whether this answer goes on inside a thinking panel that was brought by the
+  // turn before it, in which case the thoughts of the talk are not in this answer
+  // but in the panel over it.
+  grouped: false
 };
 
 // The blocks of an answer as one line, so a change of shape is seen at once.
@@ -3547,6 +3557,28 @@ function stepInk(now) {
   }
 }
 
+// Where the blocks of the calls being written stand, and there they are put if
+// they do not stand there already.
+//
+// A call that came out of a thought reads as one part of that thought, and stands
+// inside the thinking panel, where more than one call can stand beside the
+// thoughts that led to them. But a call asked for after the model has said a word
+// of the answer itself did not come out of the thought above it: the block of it
+// stands under the words of the answer, and not in the panel that closed before
+// those words. Without thoughts at all the blocks stand under the words as well,
+// for the panel of a thinking that never came is nothing to show.
+function placeWrites() {
+  if (!ink.toolHost || !ink.turn) { return; }
+  var inPanel = chatting.inThink && !ink.spoke && (ink.musing || ink.grouped);
+  var where = inPanel && ink.panelWords ? ink.panelWords : ink.turn;
+  // A block that already stands in the host is left where it stands, for the host
+  // carries the calls of this step and they belong together: the place is settled
+  // while the host is still empty, which is before any call of the step is written.
+  if (ink.toolHost.parentNode !== where && !ink.toolHost.firstChild) {
+    where.appendChild(ink.toolHost);
+  }
+}
+
 // The state has new words for the answer that is coming in.
 function feedInk(m) {
   ink.said = String(m.body || '');
@@ -3554,15 +3586,16 @@ function feedInk(m) {
   ink.ms = ink.base + (Number(m.reasoning_ms) || 0);
   ink.done = !!m.reasoning_done;
   if (ink.panel && ink.musing) { ink.panel.classList.remove('hidden'); }
+  // Words of the answer have come, so the model has moved on from the thought
+  // above, and every call it asks for from here on stands under the words rather
+  // than in the panel that closed before them.
+  if (String(m.body || '').length > 0) { ink.spoke = true; }
   // The thoughts can arrive after the first look, while a call is already being
-  // written. The blocks of the call go inside the panel then, when the Chatting
-  // setting stands for it, and the panel that was put away for want of thoughts
-  // comes back with them. Without thoughts the blocks stay under the words, for
-  // the panel of a thinking that never came is nothing to show.
-  if (ink.toolHost && ink.panelWords && ink.musing && chatting.inThink
-      && ink.toolHost.parentNode !== ink.panelWords) {
-    ink.panelWords.appendChild(ink.toolHost);
-  }
+  // written, and the panel that was put away for want of thoughts comes back with
+  // them. Where the blocks of the call stand is settled again here, for the two
+  // marks of the answer - whether it has thoughts, and whether it has words of its
+  // own - can move in either order while the answer comes in.
+  placeWrites();
   thinkHeadWords();
   // A command may be written while the answer is, and after it.
   feedWrite(m.tools);
@@ -3581,6 +3614,7 @@ function stopInk() {
   ink.caret = null; ink.said = ''; ink.musing = ''; ink.shown = 0;
   ink.shownMusing = 0; ink.shape = ''; ink.thoughtShape.shape = ''; ink.frame = 0;
   ink.tools = []; ink.toolHost = null; ink.toolKey = '';
+  ink.spoke = false; ink.grouped = false;
 }
 
 // The turn of an answer that is coming in. What the engine has given so far
@@ -3632,15 +3666,14 @@ function fillLive(turn, m, group) {
   if (ink.musing) { writeThought(); }
   thinkHeadWords();
   // The calls being written, if the engine has any. A command may already be
-  // half written at the first look at a new answer. With the Chatting setting
-  // on and thoughts in hand the blocks of the calls stand inside the thinking
-  // panel, so a call that came out of a thought reads as one part of it, and
-  // more than one call can stand there. Without thoughts the blocks stand under
-  // the words, where a reader cannot miss them.
+  // half written at the first look at a new answer, and the answer itself may
+  // already have words of its own. Where those blocks stand is read from the two
+  // marks below, and is read again on every look after it.
   ink.toolHost = make('div', 'writes');
   ink.toolHost.dataset.live = '1';
-  if (chatting.inThink && (m.reasoning || group)) { body.appendChild(ink.toolHost); }
-  else { turn.appendChild(ink.toolHost); }
+  ink.spoke = String(m.body || '').length > 0;
+  ink.grouped = !!group;
+  placeWrites();
   ink.tools = [];
   ink.toolKey = '';
   feedWrite(m.tools);
