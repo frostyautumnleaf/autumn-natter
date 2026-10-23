@@ -1338,7 +1338,7 @@ pre.code.line {
           <div class="ctl"><input id="fChatWidth" type="number" min="780" max="4000" step="10" placeholder="780"><span class="unit">pixels</span></div></div>
 
         <div class="fld"><span class="lbl">Send the date and time at the start of a chat</span>
-          <span class="sub">The program tells the model the current date and time of this machine once, in a system message at the start of the conversation, and says that it is the latest. The model can then answer questions about today. The line goes to the model only. It is not shown in the chat.</span>
+          <span class="sub">The program tells the model the date and time of this machine once, in a system message at the start of the conversation, and says that it is the latest. The line is written when the chat begins and stands as it was for the rest of the chat: a head of the talk that moved with the clock would make the model read the whole talk over again on every turn, whatever prompt caching says. The model can then answer questions about today. The line goes to the model only. It is not shown in the chat.</span>
           <div class="ctl"><input id="fDateNewChat" type="checkbox"></div></div>
 
         <div class="sec">Compaction</div>

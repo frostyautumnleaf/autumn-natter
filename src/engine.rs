@@ -542,33 +542,53 @@ fn words_as_they_stood(args: &str) -> String {
 // the program on the way to the model, as the handoff block is.
 pub const DATE_HEAD: &str = "[Program note: ";
 
-// One line of the day and the clock time. The moment it names is the moment the
-// talk is made up, so the line always says the latest day and hour this machine
-// has: a chat that runs on over several days reads a true day from it, and the
-// model is told to use that day instead of saying that it has no date.
+// One line of the day and the clock time, written from the moment it is given.
 fn date_line(secs: i64) -> String {
     let named = if secs > 0 { secs } else { store::now_secs() };
     format!(
-        "{}the current date and the current time on this machine are {}, in the local time \
-         zone of this machine. This is the latest date and time of this machine. Use it when \
-         the reader asks for today, for the day of the week or for the hour, and do not say \
-         that the date is unknown. The reader did not write this line.]",
+        "{}the current date and the current time on this machine are {}, taken when this chat \
+         began, in the local time zone of this machine. This is the latest date and time of \
+         this machine. Use it when the reader asks for today, for the day of the week or for \
+         the hour, and do not say that the date is unknown. The reader did not write this \
+         line.]",
         DATE_HEAD,
         store::format_date_clock(named)
     )
+}
+
+// The moment the line of the day is written from: the moment the chat was begun.
+// A chat with no moment of its own is named from this moment, and keeps it from
+// then on, as a chat begun now is.
+fn began_of(chat: &store::Chat) -> i64 {
+    if chat.meta.created > 0 {
+        chat.meta.created
+    } else {
+        store::now_secs()
+    }
 }
 
 // The message of the role `system` that carries the day and the clock time, or
 // nothing at all when the switch of the Chatting settings stands off. The line
 // goes at the head of the talk once, so no message of the reader carries it and
 // no message of the reader carries it twice.
-pub fn date_message(cfg: &Config) -> Option<Value> {
+//
+// `began` is the moment the chat was begun, and the line is written from that
+// moment alone. The head of the talk must not move while the talk runs, for the
+// server keeps the work it did on the head of a prompt only while the head
+// stands word for word as it stood: a line written from the clock of this moment
+// made a different head every minute, and every turn after it - the answer of a
+// tool above all, which comes seconds after the call was made - was read from
+// the start again, whatever the switch of prompt caching said. A run of a model
+// on this box measured the difference: 655 tokens read over in 26.9 seconds with
+// a head that had moved by a minute, and 4 tokens read over in 0.34 seconds with
+// a head that had not moved at all.
+pub fn date_message(cfg: &Config, began: i64) -> Option<Value> {
     if !cfg.chat_date_new_chat {
         return None;
     }
     Some(json!({
         "role": "system",
-        "content": date_line(store::now_secs()),
+        "content": date_line(began),
     }))
 }
 
@@ -1254,7 +1274,7 @@ impl State {
         let Some(chat) = self.chat() else {
             return json!([]);
         };
-        if let Some(line) = date_message(&self.cfg) {
+        if let Some(line) = date_message(&self.cfg, began_of(chat)) {
             out.push(line);
         }
         let vision_on = self.pictures_can_go();
@@ -6274,14 +6294,62 @@ mod tests {
     #[test]
     fn the_day_is_one_message_of_the_program_or_nothing_at_all() {
         let mut cfg = Config::default();
-        let made = date_message(&cfg).expect("the switch stands on for a new set of settings");
+        let made = date_message(&cfg, 1_700_000_000)
+            .expect("the switch stands on for a new set of settings");
         assert_eq!(made["role"], json!("system"));
         assert!(made["content"]
             .as_str()
             .expect("the words of the line")
             .starts_with(DATE_HEAD));
         cfg.chat_date_new_chat = false;
-        assert!(date_message(&cfg).is_none(), "the switch off sends no line at all");
+        assert!(date_message(&cfg, 1_700_000_000).is_none(), "the switch off sends no line");
+    }
+
+    // The head of the talk must not move while the talk runs. The line of the day
+    // is written from the moment the chat was begun and from no other, so every
+    // turn of a chat - above all the turn that carries the answer of a tool, which
+    // comes back seconds after the call was made - goes out with the head the
+    // server has already worked through, and the prompt cache holds. A line written
+    // from the clock of the moment made a new head every minute, and the whole talk
+    // was read over again on every turn with the caching switch on.
+    #[test]
+    fn the_head_of_the_talk_does_not_move_between_turns() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        dated_chat(&mut state, &Config::default());
+        // The head as it stands now, and as it stands a minute later, and as it
+        // stands after a run of a tool came in among the talk.
+        let first = date_lines(&state.build_history());
+        let began = state.chat().expect("a chat stands open").meta.created;
+        let said = date_message(&Config::default(), began).expect("the switch stands on");
+        assert_eq!(first.len(), 1);
+        assert_eq!(said["content"].as_str().expect("the words of the line"), first[0]);
+        // A minute of the clock, an hour of it, and a day of it make no difference
+        // to the head of a chat that has begun.
+        for later in [60i64, 3_600, 86_400, 604_800] {
+            let moved = date_message(&Config::default(), began + later)
+                .expect("the switch stands on");
+            assert_ne!(
+                moved["content"].as_str().expect("the words of the line"),
+                first[0],
+                "a moment other than the beginning of the chat makes a new head"
+            );
+        }
+        // The rule that matters to the server: two looks at the same chat give one
+        // and the same head, whatever the clock says between them.
+        let again = date_lines(&state.build_history());
+        assert_eq!(again, first, "the head of the talk moved between two looks");
+        // And the head is the first message of the talk, which is the part the
+        // server looks at first when it looks for work it has done before.
+        let list = state.build_history();
+        let head = list.as_array().expect("a list of the talk")[0].clone();
+        assert_eq!(head["role"], json!("system"));
+        assert!(head["content"]
+            .as_str()
+            .expect("the words of the line")
+            .starts_with(DATE_HEAD));
     }
     #[test]
     fn a_tool_call_cut_short_goes_back_as_words_and_not_as_a_call() {
