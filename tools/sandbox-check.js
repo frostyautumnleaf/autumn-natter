@@ -3,7 +3,9 @@
 // reach is three things beside the jail itself, and the reader must see all of
 // them at once and open them one by one. All three stand off until they are
 // opened. The page is loaded as it stands, with no bridge and no engine: the
-// menu is filled by hand with the states the engine hands out.
+// menu is filled by hand with the states the engine hands out. The box of the
+// menu is measured as well, for a setting with a long name must be read on one
+// line of a box that grew to hold it, and never cut off.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -43,7 +45,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     }
     var words = [];
     for (var i = 0; i < lines.length; i++) { words.push(lines[i].textContent); }
-    var wanted = ['Network access', 'pip install', 'wget and fetch'];
+    var wanted = ['Sandbox', 'Network access', 'Allow pip install', 'Allow wget and fetch'];
     for (var w = 0; w < wanted.length; w++) {
       if (words.join('|').indexOf(wanted[w]) < 0) {
         faults.push('the menu has no line for ' + wanted[w]);
@@ -51,14 +53,17 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     }
     // All three stand off, and the switches say so. The jail is a line of the
     // menu too, and it stands where the state has it, so the three settings are
-    // counted after it.
+    // counted after it: the jail stands at the head of the menu.
     function gates() {
       var all = el.sandboxmenu.querySelectorAll('button.toggle');
-      var out = [];
-      for (var i = 0; i < all.length; i++) {
-        if (all[i].textContent.indexOf('jail') < 0) { out.push(all[i]); }
-      }
-      return out;
+      return Array.prototype.slice.call(all, 1);
+    }
+    // The number of lines of words a node is set in. A line of the menu that is
+    // broken in two reads badly, and it is what these measurements are for.
+    function linesOf(node) {
+      var range = document.createRange();
+      range.selectNodeContents(node);
+      return range.getClientRects().length;
     }
     var on = 0;
     var first = gates();
@@ -147,6 +152,63 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (String(el.sandbox.title).indexOf('no network') < 0) {
       faults.push('the badge says nothing of the network being shut: ' + el.sandbox.title);
     }
+    // The box of the menu is as wide as the longest of its lines. No line of
+    // words is broken in two by a box that was too narrow for the name of a
+    // setting, and no word is cut off at the end of the box. The menu was put
+    // away above, so it is stood up again to be measured.
+    el.sandboxmenu.classList.remove('hidden');
+    fillSandboxMenu(state);
+    var box = el.sandboxmenu.getBoundingClientRect();
+    if (el.sandboxmenu.scrollWidth > el.sandboxmenu.clientWidth + 1) {
+      faults.push('the box of the menu is narrower than its lines: it holds '
+        + el.sandboxmenu.scrollWidth + 'px of words in ' + el.sandboxmenu.clientWidth + 'px');
+    }
+    var each = el.sandboxmenu.querySelectorAll('button');
+    for (var b = 0; b < each.length; b++) {
+      var said = each[b].querySelector('.word');
+      if (!said) { faults.push('a line of the menu has no words of its own'); continue; }
+      if (linesOf(said) !== 1) {
+        faults.push('the line ' + JSON.stringify(said.textContent) + ' is broken in '
+          + linesOf(said) + ' lines of words, in a box of ' + Math.round(box.width) + 'px');
+      }
+      if (said.scrollWidth > said.clientWidth + 1) {
+        faults.push('the words ' + JSON.stringify(said.textContent) + ' are cut off: they need '
+          + said.scrollWidth + 'px and have ' + said.clientWidth + 'px');
+      }
+    }
+    // A name longer than any of these makes the box wider rather than breaking
+    // the words, for the box is sized by the longest of its lines.
+    var longer = 'Allow wget and fetch and curl';
+    el.sandboxmenu.appendChild(gateLine('network', longer, '', false));
+    var grown = el.sandboxmenu.getBoundingClientRect();
+    var lastLine = el.sandboxmenu.querySelector('button:last-child .word');
+    if (grown.width <= box.width) {
+      faults.push('the box did not grow for a longer name: it stayed '
+        + Math.round(box.width) + 'px and would not hold ' + Math.round(grown.width) + 'px');
+    }
+    if (linesOf(lastLine) !== 1 || lastLine.scrollWidth > lastLine.clientWidth + 1) {
+      faults.push('a longer name was not read on one line of the grown box');
+    }
+    // A name too long for what is left of the window is wrapped rather than cut
+    // off, and the box never stands beyond the window.
+    el.sandboxmenu.innerHTML = '';
+    el.sandboxmenu.appendChild(gateLine('network',
+      'Allow wget and fetch and everything else that a command of this chat may want to run, '
+      + 'and a word more or two besides', '', false));
+    var widest = el.sandboxmenu.getBoundingClientRect();
+    var said2 = el.sandboxmenu.querySelector('button .word');
+    if (said2.scrollWidth > said2.clientWidth + 1) {
+      faults.push('a name too long for the box was cut off rather than wrapped');
+    }
+    if (linesOf(said2) < 2) {
+      faults.push('a name too long for the box was not wrapped at all');
+    }
+    // The box never leaves the window, whatever the names it holds.
+    if (widest.right > window.innerWidth + 1 || widest.left < -1) {
+      faults.push('the box of the menu stands beyond the window: from '
+        + Math.round(widest.left) + 'px to ' + Math.round(widest.right) + 'px of '
+        + window.innerWidth + 'px');
+    }
     return faults;
   });
   await browser.close();
@@ -154,7 +216,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     console.error(out.join('\n'));
     process.exit(1);
   }
-  console.log('the sandbox badge opens a menu of the jail and three settings; all three '
-    + 'stand off, each is asked for on its own, and the words of the badge say what a '
-    + 'command may reach');
+  console.log('the sandbox badge opens a menu of the jail and three settings, named '
+    + 'Sandbox, Network access, Allow pip install and Allow wget and fetch; all three '
+    + 'stand off, each is asked for on its own, the words of the badge say what a '
+    + 'command may reach, and the box of the menu is as wide as the longest of its lines');
 })().catch(function (e) { console.error(e); process.exit(1); });

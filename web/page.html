@@ -868,15 +868,23 @@ img.pic { animation: plate-in 180ms ease-out; }
 .badge.static { cursor: default; }
 /* The drop-down of a badge. The menu stands over the badge that opened it and
    holds one line for each thing the reader may choose, with a mark against the
-   thing chosen now. */
+   thing chosen now. The box is as wide as the longest of its lines, so a setting
+   with a long name is read on one line rather than broken in two; it is never
+   wider than the window, and only a line too long for what is left of the window
+   is wrapped. */
 .menuwrap { position: relative; display: inline-flex; }
 .menu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 40;
-  min-width: 176px; max-width: 260px; padding: 4px; background: var(--surface-2);
+  width: max-content; min-width: 176px; max-width: 340px;
+  max-width: min(340px, calc(100vw - 24px)); padding: 4px;
+  background: var(--surface-2);
   border: 1px solid var(--line-strong); border-radius: 10px;
   box-shadow: var(--shadow); }
 .menu button { display: flex; align-items: center; gap: 7px; width: 100%;
   padding: 6px 8px; border: 0; border-radius: 7px; background: none;
   color: var(--text-2); font-size: 12.5px; text-align: left; }
+/* The words of a line. They are shrunk and wrapped when the box is kept off the
+   edge of the window; the switch at the end of a line is never moved inwards. */
+.menu button .word { min-width: 0; }
 .menu button:hover { background: var(--hover); color: var(--ink); }
 .menu button.now { color: var(--ink); font-weight: 600; }
 .menu .tick { width: 12px; height: 12px; flex: 0 0 auto; stroke: var(--accent);
@@ -1865,7 +1873,7 @@ function fillThinkMenu(s) {
     line.type = 'button';
     if (modes[n] === thinking.mode) { line.className = 'now'; }
     line.appendChild(mark('M3.4 8.4 6.4 11.4 12.6 4.8', 'tick'));
-    var word = make('span');
+    var word = make('span', 'word');
     word.textContent = thinkWords(modes[n]);
     line.appendChild(word);
     line.addEventListener('click', function (mode) {
@@ -1881,7 +1889,7 @@ function fillThinkMenu(s) {
   var keep = make('button', 'toggle' + (thinking.preserve ? ' on' : ''));
   keep.type = 'button';
   keep.title = PRESERVE_TIP;
-  var keepWord = make('span');
+  var keepWord = make('span', 'word');
   keepWord.textContent = 'Preserve thinking';
   keep.appendChild(keepWord);
   keep.appendChild(make('span', 'sw'));
@@ -1922,8 +1930,8 @@ function fillSandboxMenu(s) {
   jail.title = s.sandbox_available
     ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.'
     : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox.');
-  var jailWord = make('span');
-  jailWord.textContent = 'Commands in the jail';
+  var jailWord = make('span', 'word');
+  jailWord.textContent = 'Sandbox';
   jail.appendChild(jailWord);
   jail.appendChild(make('span', 'sw'));
   jail.addEventListener('click', function (event) {
@@ -1936,9 +1944,9 @@ function fillSandboxMenu(s) {
   var gates = [
     ['network', 'Network access',
       'A command of this chat may reach the network: downloads, package updates, and other machines. Off unless you open it.'],
-    ['pip', 'pip install',
+    ['pip', 'Allow pip install',
       'pip install works, into a Python folder of this chat\u2019s own, and the packages are kept for the rest of the chat. It needs the network, so it opens that too. Off unless you open it.'],
-    ['fetch', 'wget and fetch',
+    ['fetch', 'Allow wget and fetch',
       'wget, curl and fetch may run, and bring back a page of the web. They need the network, so it opens that too. Off unless you open it.']
   ];
   for (var n = 0; n < gates.length; n++) {
@@ -1952,7 +1960,7 @@ function gateLine(part, word, tip, on) {
   var line = make('button', 'toggle' + (on ? ' on' : ''));
   line.type = 'button';
   line.title = tip;
-  var text = make('span');
+  var text = make('span', 'word');
   text.textContent = word;
   line.appendChild(text);
   line.appendChild(make('span', 'sw'));
