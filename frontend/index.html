@@ -928,6 +928,10 @@ img.pic { animation: plate-in 180ms ease-out; }
 .status { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
 .status.hot { color: var(--ink); font-weight: 600; }
+/* The speed of the work. The numbers of it line up as they change, so the line
+   does not shift under the reader's eye. */
+.rate { font-size: 11.5px; color: var(--faint); white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
 .quiet {
   display: inline-flex; align-items: center; gap: 6px; height: 27px; padding: 0 11px;
   border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
@@ -1205,10 +1209,14 @@ pre.code.line {
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
             <span id="searchtext">Search</span>
           </button>
-          <button class="badge" id="sandbox" title="Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.">
-            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
-            <span id="sandboxtext">Sandbox</span>
-          </button>
+          <div class="menuwrap" id="sandboxwrap">
+            <button class="badge" id="sandbox" title="What a command of this chat may reach. Click to open the settings of the sandbox.">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
+              <span id="sandboxtext">Sandbox</span>
+              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+            </button>
+            <div class="menu hidden" id="sandboxmenu"></div>
+          </div>
           <div class="menuwrap" id="thinkwrap">
             <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
@@ -1231,6 +1239,10 @@ pre.code.line {
     <div class="state-line">
       <span class="pulse" id="dot"></span>
       <span class="status" id="status"></span>
+      <!-- The speed of the work, in tokens of the talk to the second. It stands
+           next to the words of the state, for the two read as one line: what the
+           program is doing now, and how fast it is doing it. -->
+      <span class="rate hidden" id="rate"></span>
       <span class="grow"></span>
       <button class="quiet" id="newchat" title="Start a new chat here">
         <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
@@ -1549,9 +1561,10 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', 'where',
   'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
   'stage', 'thread', 'col', 'turnL', 'turnR',
-  'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'hint',
+  'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'rate', 'hint',
   'newchat', 'chatsbtn', 'settingsbtn', 'modelbtn', 'chapters', 'timeline',
-  'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'think', 'thinktext', 'thinkwrap',
+  'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
+  'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
 var el = {};
@@ -1649,6 +1662,8 @@ function draw(s) {
   var busy = !!s.generating || !!s.busy;
   el.dot.className = 'pulse' + (busy ? ' busy' : '') + (s.generating ? ' stop' : '');
   el.status.textContent = s.status;
+  el.status.className = 'status' + (s.generating ? ' hot' : '');
+  drawRate(s);
   el.status.className = 'status' + (s.generating ? ' hot' : '');
   el.hint.innerHTML = hintFor(s);
   el.newchat.style.display = s.generating ? 'none' : '';
@@ -1894,14 +1909,92 @@ function closeThinkMenu() {
   if (el.thinkmenu) { el.thinkmenu.classList.add('hidden'); }
 }
 
+// The menu of the sandbox badge. The badge no longer turns one thing on or off:
+// what a command may reach is three separate things, and the reader must be able
+// to see all three at once. Each line is a switch of its own, and all three stand
+// off until the reader opens one of them in this menu.
+function fillSandboxMenu(s) {
+  var menu = el.sandboxmenu;
+  if (!menu) { return; }
+  menu.innerHTML = '';
+  // The jail itself stands at the head of the menu, for the three settings below
+  // are the gates of that jail.
+  var jail = make('button', 'toggle' + (s.sandbox ? ' on' : ''));
+  jail.type = 'button';
+  jail.title = s.sandbox_available
+    ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.'
+    : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox.');
+  var jailWord = make('span');
+  jailWord.textContent = 'Commands in the jail';
+  jail.appendChild(jailWord);
+  jail.appendChild(make('span', 'sw'));
+  jail.addEventListener('click', function (event) {
+    event.stopPropagation();
+    post('/api/sandbox', { on: !(cur && cur.sandbox) });
+  });
+  menu.appendChild(jail);
+  menu.appendChild(make('div', 'sep'));
+  // The three gates. They are asked for one at a time, and each stands off.
+  var gates = [
+    ['network', 'Network access',
+      'A command of this chat may reach the network: downloads, package updates, and other machines. Off unless you open it.'],
+    ['pip', 'pip install',
+      'pip install works, into a Python folder of this chat\u2019s own, and the packages are kept for the rest of the chat. It needs the network, so it opens that too. Off unless you open it.'],
+    ['fetch', 'wget and fetch',
+      'wget, curl and fetch may run, and bring back a page of the web. They need the network, so it opens that too. Off unless you open it.']
+  ];
+  for (var n = 0; n < gates.length; n++) {
+    menu.appendChild(gateLine(gates[n][0], gates[n][1], gates[n][2], !!s['sandbox_' + gates[n][0]]));
+  }
+}
+
+// One gate of the menu: a line with a switch at the end of it. The menu stays
+// open under a click, so the switch is seen to move.
+function gateLine(part, word, tip, on) {
+  var line = make('button', 'toggle' + (on ? ' on' : ''));
+  line.type = 'button';
+  line.title = tip;
+  var text = make('span');
+  text.textContent = word;
+  line.appendChild(text);
+  line.appendChild(make('span', 'sw'));
+  line.addEventListener('click', function (event) {
+    event.stopPropagation();
+    post('/api/sandbox_setting', { part: part, on: !on });
+  });
+  return line;
+}
+
+function openSandboxMenu() {
+  if (!cur) { return; }
+  fillSandboxMenu(cur);
+  el.sandboxmenu.classList.remove('hidden');
+}
+
+function closeSandboxMenu() {
+  if (el.sandboxmenu) { el.sandboxmenu.classList.add('hidden'); }
+}
+
+
+
 function drawBadges(s) {
   el.code.classList.toggle('on', !!s.code);
   el.search.classList.toggle('on', !!s.search);
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
-  el.sandbox.title = s.sandbox_available
-    ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.'
-    : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox.');
+  // The badge is a door to the settings of the sandbox, so its words say what a
+  // command of this chat may really reach beyond its own folder.
+  var reached = [];
+  if (s.sandbox_network) { reached.push('the network'); }
+  if (s.sandbox_pip) { reached.push('pip install'); }
+  if (s.sandbox_fetch) { reached.push('wget and fetch'); }
+  el.sandbox.title = (s.sandbox_available
+      ? 'Terminal commands run inside a bubblewrap jail: a command sees only the working directory. '
+      : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox. '))
+    + (reached.length
+      ? 'Open to a command of this chat: ' + reached.join(', ') + '.'
+      : 'A command has no network, no package installs, and no fetch.')
+    + ' Click to open the settings of the sandbox.';
   var thinking = s.thinking || { mode: 'off', available: false, modes: [] };
   // The badge says what the model will do, in the words of this page. The
   // short names stay between the page and the server.
@@ -1916,9 +2009,42 @@ function drawBadges(s) {
   // The menu is filled again while it stands open, so a new model or a new
   // chat does not leave it standing with the old lines.
   if (!el.thinkmenu.classList.contains('hidden')) { fillThinkMenu(s); }
+  // The menu of the sandbox is filled again while it stands open, so a switch
+  // the reader has just moved is seen to move, and a new chat does not leave the
+  // old lines standing.
+  if (el.sandboxmenu && !el.sandboxmenu.classList.contains('hidden')) { fillSandboxMenu(s); }
 }
 
-// One line of keys next to the box. It says what the box needs at this moment.
+// The speed of the work, put next to the words of the state. Two kinds of work
+// are at hand while an answer comes in: the words that were sent are read over,
+// and then the model writes. The gauge above the chat box stands for the first
+// of them, so the number that goes beside the state is the number of the reading
+// while the gauge stands, and the number of the writing after it. A server that
+// says nothing of speed leaves the number away, rather than show one that was
+// made up.
+function drawRate(s) {
+  var node = el.rate;
+  if (!node) { return; }
+  var made = s.progress || {};
+  var reading = !!made.active;
+  var per = Number(reading ? made.reading : made.writing) || 0;
+  if (!s.generating || per < 0.05) {
+    node.classList.add('hidden');
+    return;
+  }
+  node.textContent = rateWords(per) + ' tok/s ' + (reading ? 'reading' : 'writing');
+  node.title = reading
+    ? 'Tokens of the words sent to the model that are worked through in a second.'
+    : 'Tokens the model is writing in a second.';
+  node.classList.remove('hidden');
+}
+
+// The number of a speed: to one decimal while it is small, and whole once it is
+// over ten, for 26.4 tokens to the second is a finer tale than the reader wants.
+function rateWords(per) {
+  return per >= 10 ? String(Math.round(per)) : per.toFixed(1);
+}
+
 function hintFor(s) {
   if (s && s.generating) { return '<kbd>Esc</kbd> stops the answer'; }
   if (document.activeElement === el.draft && el.draft.value === '') {
@@ -3834,6 +3960,58 @@ function rowStamp(items, row) {
   return parts.join('+');
 }
 
+// Whether two rows are made of the same talk, which they are when a message
+// stands in both of them. A row is made again when a panel of a train of thought
+// grows over a run of a tool, and when the answer that was coming in becomes a
+// message of the chat. Only the last of these brings a message that was not in
+// the row before, and it is known by the mark of the answer coming in.
+function sameTalk(was, now) {
+  if (!was || !now) { return false; }
+  if (was === 'live' || now === 'live') { return true; }
+  var mine = was.split('+');
+  var yours = now.split('+');
+  for (var i = 0; i < mine.length; i++) {
+    for (var j = 0; j < yours.length; j++) {
+      if (mine[i] === yours[j]) { return true; }
+    }
+  }
+  return false;
+}
+
+// The folds of a row, in the order the panels stand in it.
+//
+// A fold is the reader's own choice, and a row of the chat is made again whenever
+// the state of the chat moves: the answer that was coming in becomes a message of
+// the chat, a run of a tool comes in among the thoughts, the words of an answer
+// are written again. A fold kept only in the class of a panel went with the panel
+// when the panel went, so a thinking panel the reader opened closed itself again
+// under a tool call, and a block of a run the reader opened shut of its own when
+// the model finished writing. The folds are therefore read off the row before it
+// is made again, and put back on the panels as they stand now, in order.
+function foldsOf(turn) {
+  var found = [];
+  if (!turn) { return found; }
+  var nodes = turn.querySelectorAll('.think, .tool');
+  for (var i = 0; i < nodes.length; i++) {
+    found.push(nodes[i].classList.contains('closed'));
+  }
+  return found;
+}
+
+// The folds that stood in a row are put back on the panels of the row as it
+// stands now. A panel the reader never touched comes back as the Chatting
+// settings have it, for what stands in the record is the state the panel was in,
+// and that state was the setting until the reader moved it.
+function unfoldRow(turn, folds) {
+  if (!turn || !folds || !folds.length) { return; }
+  var nodes = turn.querySelectorAll('.think, .tool');
+  for (var i = 0; i < nodes.length && i < folds.length; i++) {
+    if (nodes[i].classList.contains('closed') !== folds[i]) {
+      nodes[i].classList.toggle('closed', folds[i]);
+    }
+  }
+}
+
 // One row of the thread: a thinking panel for a train of thought, or the turn of
 // one message. An answer that is coming in is drawn by the writer, inside the
 // panel that holds the thought that led to it when the Chatting setting says
@@ -3865,7 +4043,12 @@ function syncTurn(turn, items, row) {
     var stamp = groupStamp(items, row);
     if (turn.dataset.stamp === stamp) { return; }
     turn.dataset.stamp = stamp;
+    // A part of the panel is made again when it said something new, and the panel
+    // of a run made new stands closed as the settings have it. The folds the
+    // reader moved in this row are kept over the making.
+    var kept = foldMoved ? null : foldsOf(turn);
     syncGroup(turn, items, row.from, row.live ? row.to - 1 : row.to, row.live);
+    unfoldRow(turn, kept);
     return;
   }
   var m = items[row.from];
@@ -3874,7 +4057,9 @@ function syncTurn(turn, items, row) {
   var said = roleStamp(m);
   if (turn.dataset.stamp === said) { return; }
   turn.dataset.stamp = said;
+  var before = foldMoved ? null : foldsOf(turn);
   fill(turn, m);
+  unfoldRow(turn, before);
 }
 
 // One thinking panel for a train of thought. Every thought of it stands in a
@@ -3955,8 +4140,23 @@ function sentParts(m) {
 // The chat box holds one turn for every message. A turn is made once and then
 // only the words of the last turn are put again, so a message that came in
 // fades up and an answer that grows does not shake the page.
+// The setting of the panels the last look was drawn under, and whether it has
+// moved since. A panel that starts folded is folded by the Chatting settings, and
+// a move of those settings is the reader asking for the panels to stand the other
+// way; so what stood in the rows before is not carried over the look that first
+// draws them in the new way, or the setting would seem to do nothing.
+var foldSetting = '';
+var foldMoved = false;
+function foldsFollowSettings() {
+  var now = (chatting.thinking ? 'fold-thought' : 'show-thought')
+          + (chatting.tools ? '-fold-runs' : '-show-runs');
+  foldMoved = foldSetting !== '' && now !== foldSetting;
+  foldSetting = now;
+}
+
 function drawThread(s) {
   var box = el.col;
+  foldsFollowSettings();
   var items = s.messages.slice();
   // A handoff summary is written out of sight: nothing of it is put on the page
   // while it grows, so no live answer stands while the program is at one.
@@ -4019,8 +4219,15 @@ function drawThread(s) {
         if (r === rows.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
         box.appendChild(turn);
       } else if (child.dataset.row !== ids) {
+        // The row is made again in a new turn. The folds the reader moved are read
+        // off the old one and put back on the new one, but only when the two rows
+        // are made of the same talk: a row that stands where another row stood
+        // after a message went out of the chat is a different part of the talk,
+        // and the folds of the row that went should not follow it.
+        var kept = !foldMoved && sameTalk(child.dataset.row, ids) ? foldsOf(child) : null;
         var again = make('div', 'turn');
         drawRow(again, items, rows[r]);
+        unfoldRow(again, kept);
         box.replaceChild(again, child);
       } else {
         syncTurn(child, items, rows[r]);
@@ -4980,15 +5187,21 @@ el.repo.addEventListener('change', function (e) { post('/api/select_repository',
 el.newrepo.addEventListener('click', function () { openSettings('program'); byId('fNewRepo').focus(); });
 el.code.addEventListener('click', function () { if (cur) { post('/api/code', { on: !cur.code }); } });
 el.search.addEventListener('click', function () { if (cur) { post('/api/search', { on: !cur.search }); } });
-el.sandbox.addEventListener('click', function () { if (cur) { post('/api/sandbox', { on: !cur.sandbox }); } });
+// The sandbox badge is a drop-down, for what a command may reach is three
+// settings, and the reader must see all three together rather than cycle through
+// them blind.
+el.sandbox.addEventListener('click', function (event) {
+  event.stopPropagation();
+  if (el.sandboxmenu.classList.contains('hidden')) { closeThinkMenu(); openSandboxMenu(); } else { closeSandboxMenu(); }
+});
 // The thinking badge is a drop-down, for a mode is chosen and not cycled
 // through: the reader must be able to see what is on offer.
 el.think.addEventListener('click', function (event) {
   event.stopPropagation();
-  if (el.thinkmenu.classList.contains('hidden')) { openThinkMenu(); } else { closeThinkMenu(); }
+  if (el.thinkmenu.classList.contains('hidden')) { closeSandboxMenu(); openThinkMenu(); } else { closeThinkMenu(); }
 });
-// A click anywhere else in the page puts the menu away.
-document.addEventListener('click', function () { closeThinkMenu(); });
+// A click anywhere else in the page puts the menus away.
+document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); });
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
 el.draft.addEventListener('input', grow);
@@ -5009,6 +5222,10 @@ el.draft.addEventListener('keydown', function (e) {
   } else if (e.key === 'Escape') {
     if (el.thinkmenu && !el.thinkmenu.classList.contains('hidden')) {
       closeThinkMenu();
+      return;
+    }
+    if (el.sandboxmenu && !el.sandboxmenu.classList.contains('hidden')) {
+      closeSandboxMenu();
       return;
     }
     post('/api/cancel');
