@@ -46,6 +46,10 @@ const MAX_OUTPUT: usize = 8000;
 // The shell a command is handed to, both inside the jail and outside it.
 const SHELL: &str = "/bin/sh";
 
+// The road of the programs inside the jail. It holds the usual places and
+// nothing of the user, for the air of the host is let out of the room.
+const JAIL_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
 // The name the jail gives its own machine. The name of the host is not wanted
 // in there, and a command has no business reading it.
 const JAIL_HOSTNAME: &str = "natter";
@@ -76,17 +80,64 @@ const ETC_PATHS: [&str; 12] = [
     "/etc/pki/tls/certs",
 ];
 
+// What a command of the jail may reach beyond its own folder. Every part of it
+// stands off, so a command sees nothing of the machine and reaches nothing
+// beyond the working directory of the chat until the reader opens it in the menu
+// of the sandbox badge. The three stand off for a new chat, and for a chat
+// written before they existed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Access {
+    // A command may reach the network.
+    pub network: bool,
+    // `pip install` works. The chat gets a Python environment of its own to
+    // install into, and the network to fetch from.
+    pub pip: bool,
+    // The commands that fetch a file of the web, `wget`, `curl` and `fetch`, may
+    // run.
+    pub fetch: bool,
+}
+
+impl Access {
+    // True when a command of this chat may reach the network at all. An install
+    // and a fetch both need it, so either of them lets it through.
+    pub fn net(&self) -> bool {
+        self.network || self.pip || self.fetch
+    }
+}
+
 // The tool description handed to the model. The call is asked for one thing: the
 // command. No reason for the command is asked for, for a model told to say why
 // it runs something spends its words on a line the reader can work out from the
 // command itself. A model that gives a reason of its own is still read, and the
 // reader still sees it, so a chat written before this change keeps what it had.
-pub fn definition() -> Value {
+//
+// The words follow what the chat allows, so the model is not told a command has
+// no network when the reader opened the network, and is not left to find out by
+// running something that fails.
+pub fn definition(access: Access) -> Value {
+    let mut reach = String::from(
+        "Run one shell command and return its output. The command runs in the working directory of the chat. When the sandbox is on, the command can see only that directory and the programs of the machine: no other file of the machine is visible, the home folder included, and a file left by one command is not seen by the next. ",
+    );
+    reach.push_str(if access.net() {
+        "The command may reach the network. "
+    } else {
+        "There is no network access. "
+    });
+    if access.pip {
+        reach.push_str(
+            "Python packages may be installed: pip is on the PATH and installs into a Python environment of this chat at .venv. ",
+        );
+    }
+    if access.fetch {
+        reach.push_str("wget, curl and fetch may be used to read a page of the web.");
+    } else {
+        reach.push_str("wget, curl and fetch are turned off, so do not ask for a file of the web with them.");
+    }
     json!({
         "type": "function",
         "function": {
             "name": TOOL_NAME,
-            "description": "Run one shell command and return its output. The command runs in the working directory of the chat. When the sandbox is on, the command can see only that directory and the programs of the machine: no other file of the machine is visible, the home folder included, there is no network access, and a file left by one command is not seen by the next.",
+            "description": reach,
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -246,12 +297,25 @@ fn push_program_path(args: &mut Vec<String>, path: &Path) {
 
 // Build the argument list of the jail, up to the two marks that end it. The
 // working directory is the only place a command may write.
-fn jail_args(workdir: &Path) -> Vec<String> {
+fn jail_args(workdir: &Path, access: Access) -> Vec<String> {
     let wd = jail_workdir(workdir);
     let mut args: Vec<String> = vec![
-        // No network, no other processes, no other users, no other names, no
-        // other control groups.
-        "--unshare-all".into(),
+        // No other processes, no other users, no other names, no other control
+        // groups, and no network unless the chat opened it.
+        if access.net() {
+            // bwrap has no "all of them but the network", so the namespaces are
+            // named one by one and the network namespace is the one left out.
+            "--unshare-user".into()
+        } else {
+            "--unshare-all".into()
+        },
+    ];
+    if access.net() {
+        for part in ["--unshare-ipc", "--unshare-pid", "--unshare-uts", "--unshare-cgroup"] {
+            args.push(part.into());
+        }
+    }
+    args.extend_from_slice(&[
         // The user namespace is asked for on its own as well, so the next
         // option is honoured and not quietly skipped.
         "--unshare-user".into(),
@@ -268,7 +332,7 @@ fn jail_args(workdir: &Path) -> Vec<String> {
         // The empty root. Nothing of this machine is there until it is put in.
         "--tmpfs".into(),
         "/".into(),
-    ];
+    ]);
     // The programs of the machine, read only.
     for path in PROGRAM_PATHS.iter().chain(EXTRA_PROGRAM_PATHS.iter()) {
         push_program_path(&mut args, Path::new(path));
@@ -300,10 +364,17 @@ fn jail_args(workdir: &Path) -> Vec<String> {
     // The air of the host is let out of the room, so no variable of the user
     // can point a command at a place of the machine.
     args.push("--clearenv".into());
+    // An install goes into the Python environment of the chat, so that room
+    // stands at the head of the road of the programs and `pip` is the pip of it.
+    let mut path = String::from(JAIL_PATH);
+    let room = venv_room(workdir, access.pip);
+    if let Some(bin) = room.paths {
+        path = format!("{}:{}", bin, path);
+    }
     args.extend_from_slice(&[
         "--setenv".into(),
         "PATH".into(),
-        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".into(),
+        path,
         "--setenv".into(),
         "HOME".into(),
         wd.clone(),
@@ -325,10 +396,109 @@ fn jail_args(workdir: &Path) -> Vec<String> {
         "--setenv".into(),
         "GIT_PAGER".into(),
         "cat".into(),
-        "--chdir".into(),
-        wd,
     ]);
+    if let Some(env) = room.env {
+        // `pip install` has to write somewhere, and every folder of the machine
+        // is read only in here. The environment of the chat is that place. A
+        // system that keeps its own Python packages out of the reach of a
+        // program is answered as well, or it refuses the install of itself.
+        args.extend_from_slice(&[
+            "--setenv".into(),
+            "VIRTUAL_ENV".into(),
+            env,
+            "--setenv".into(),
+            "PIP_BREAK_SYSTEM_PACKAGES".into(),
+            "1".into(),
+        ]);
+    }
+    args.extend_from_slice(&["--chdir".into(), wd]);
     args
+}
+
+// What the Python environment of a chat gave the jail: the room of its programs,
+// to stand at the head of the road, and the room of the environment itself.
+#[derive(Default)]
+struct VenvRoom {
+    paths: Option<String>,
+    env: Option<String>,
+}
+
+// The folder the programs of the Python environment of a chat stand in. It
+// stands in the working directory of the chat, so what is installed is kept with
+// the work of the chat, and reaches nothing else.
+fn venv_dir(workdir: &Path) -> PathBuf {
+    workdir.join(".venv")
+}
+
+// Where the programs of the environment stand, of the two shapes the two kinds
+// of system use. Nothing when the environment is not there.
+fn venv_bin(venv: &Path) -> Option<String> {
+    for name in ["bin", "Scripts"] {
+        let room = venv.join(name);
+        if room.join("pip").is_file() || room.join("pip.exe").is_file() {
+            return Some(room.display().to_string());
+        }
+    }
+    None
+}
+
+// Make the Python environment of the chat when the chat may install packages,
+// and say what it gives the jail. An environment that stands already is taken as
+// it stands. One that cannot be made is asked for once and not again, and the
+// command is then served the pip of the machine, which says its own trouble.
+fn venv_room(workdir: &Path, wanted: bool) -> VenvRoom {
+    if !wanted {
+        return VenvRoom::default();
+    }
+    let venv = venv_dir(workdir);
+    if venv_bin(&venv).is_none() {
+        // A machine that cannot make an environment is asked once, and not
+        // again for every command of the chat.
+        let key = venv.display().to_string();
+        let mut ask = false;
+        if let Ok(mut set) = venv_tried().lock() {
+            ask = set.insert(key);
+        }
+        if ask {
+            make_venv(&venv);
+        }
+    }
+    // Without an environment the jail keeps the road of the programs it always
+    // had, and says nothing of pip.
+    let Some(bin) = venv_bin(&venv) else {
+        return VenvRoom::default();
+    };
+    VenvRoom { paths: Some(bin), env: Some(venv.display().to_string()) }
+}
+
+// The environments this run of the program has been asked to make.
+fn venv_tried() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static TRIED: OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    TRIED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+// Ask the interpreter of the machine for an environment of the chat. The
+// packages of the machine are left in sight, so the chat gains a place to
+// install into and loses nothing it could read before.
+fn make_venv(venv: &Path) {
+    let room = venv.parent().unwrap_or_else(|| Path::new("/"));
+    let place = venv.display().to_string();
+    for name in ["python3", "python"] {
+        let capture = util::capture_in(
+            name,
+            &["-m", "venv", "--system-site-packages", &place],
+            Some(room),
+            Duration::from_secs(120),
+        );
+        if capture.ok && venv_bin(venv).is_some() {
+            return;
+        }
+    }
+    // A half environment is worse than none at all, for it stands on the road of
+    // the programs with no pip in it.
+    if venv_bin(venv).is_none() {
+        let _ = std::fs::remove_dir_all(venv);
+    }
 }
 
 // bubblewrap writes its own trouble at the front of the error output and leaves
@@ -345,9 +515,124 @@ fn jail_failure(capture: &util::Capture) -> Option<String> {
     Some(capture.err.trim().to_string())
 }
 
+// The commands that fetch a file of the web by name. They are kept out of the
+// reach of a command until the reader lets them, for fetching a page is the
+// usual first step of a command that reaches further than the chat should.
+const FETCH_NAMES: [&str; 3] = ["wget", "curl", "fetch"];
+
+// The words of a command, cut at every mark that starts another one: `ls; wget
+// x` is two parts, and either of them may be the one that fetches. The marks of
+// a pair, as `&&` and `||`, cut at one of them and not at the other, which makes
+// no difference to the parts that come out.
+fn parts(command: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut one = String::new();
+    for c in command.chars() {
+        if c == ';' || c == '\n' || c == '|' || c == '&' || c == '(' || c == ')' {
+            if !one.trim().is_empty() {
+                out.push(one.trim().to_string());
+            }
+            one = String::new();
+            continue;
+        }
+        one.push(c);
+    }
+    if !one.trim().is_empty() {
+        out.push(one.trim().to_string());
+    }
+    out
+}
+
+// The name of the program one part of a command runs, with the wrappers and the
+// variables of the part passed over. `sudo  /usr/bin/wget`, `FOO=1 wget` and
+// `time -p curl` all name the program that does the work.
+fn head_word(part: &str) -> (String, Vec<String>) {
+    // The words that may stand before the program of a part without being it.
+    let skip = ["sudo", "command", "env", "time", "nohup", "nice", "stdbuf", "doas"];
+    let mut words: Vec<String> = Vec::new();
+    for word in part.split_whitespace() {
+        if words.is_empty() {
+            // A variable set for one command alone, as `PIP_NO_INPUT=1 pip
+            // install x`, says nothing of what the command runs.
+            if let Some((name, rest)) = word.split_once('=') {
+                if !name.is_empty() && rest.len() > 0 {
+                    continue;
+                }
+            }
+            let bare = word.rsplit('/').next().unwrap_or(word);
+            if bare.is_empty() || skip.contains(&bare) {
+                continue;
+            }
+        }
+        words.push(word.to_string());
+    }
+    let head = words.first().cloned().unwrap_or_default();
+    let bare = head.rsplit('/').next().unwrap_or(&head).to_string();
+    (bare, words)
+}
+
+// True when the command asks for one of the programs that fetch a page of the
+// web.
+pub fn uses_fetch(command: &str) -> bool {
+    parts(command).iter().any(|part| {
+        let (head, _) = head_word(part);
+        FETCH_NAMES.contains(&head.as_str())
+    })
+}
+
+// True when the part names pip: the program of that name, or `-m pip` of an
+// interpreter.
+fn names_pip(words: &[String], head: &str) -> bool {
+    if head == "pip" || head == "pip3" || head.ends_with("pip3") || head.ends_with("pip") {
+        return true;
+    }
+    words
+        .windows(2)
+        .any(|pair| pair[0] == "-m" && (pair[1] == "pip" || pair[1] == "pip3"))
+}
+
+// True when the command asks pip to write: to install, to take away, or to
+// build a wheel. `pip list` and `pip freeze` read and are left alone.
+pub fn uses_pip(command: &str) -> bool {
+    parts(command).iter().any(|part| {
+        let (head, words) = head_word(part);
+        if !names_pip(&words, &head) {
+            return false;
+        }
+        words.iter().any(|word| {
+            word == "install" || word == "uninstall" || word == "wheel" || word == "download"
+        })
+    })
+}
+
+// Why a command is refused before it runs, or nothing when the chat allows it.
+// The two are only asked of a sandboxed chat: a chat that runs its commands free
+// has already been told that they reach the whole machine.
+pub fn refused(command: &str, access: Access) -> Option<String> {
+    if !access.fetch && uses_fetch(command) {
+        return Some(format!(
+            "The command was not run: fetching with {} is off for this chat. Open it in the menu of the Sandbox badge, or work without the web.",
+            FETCH_NAMES.join(", ")
+        ));
+    }
+    if !access.pip && uses_pip(command) {
+        return Some(
+            "The command was not run: Python package installs are off for this chat. Open them in the menu of the Sandbox badge.".to_string(),
+        );
+    }
+    None
+}
+
 // Run one command. sandbox is true when the chat keeps the sandbox on.
-// workdir is the directory the command starts in.
-pub fn run(command: &str, workdir: &Path, sandbox: bool, timeout: Duration) -> Outcome {
+// workdir is the directory the command starts in. access is what the chat lets a
+// command reach beyond its own folder.
+pub fn run(
+    command: &str,
+    workdir: &Path,
+    sandbox: bool,
+    access: Access,
+    timeout: Duration,
+) -> Outcome {
     if command.trim().is_empty() {
         return Outcome {
             ok: false,
@@ -357,11 +642,21 @@ pub fn run(command: &str, workdir: &Path, sandbox: bool, timeout: Duration) -> O
         };
     }
     let _ = std::fs::create_dir_all(workdir);
+    if sandbox {
+        if let Some(reason) = refused(command, access) {
+            return Outcome {
+                ok: false,
+                output: reason,
+                sandboxed: false,
+                timed_out: false,
+            };
+        }
+    }
 
     #[cfg(unix)]
     {
         if sandbox {
-            return run_jailed(command, workdir, timeout);
+            return run_jailed(command, workdir, access, timeout);
         }
         let capture = util::capture_in(SHELL, &["-c", command, "natter"], Some(workdir), timeout);
         finish(capture, false)
@@ -417,20 +712,22 @@ pub fn run(command: &str, workdir: &Path, sandbox: bool, timeout: Duration) -> O
 // does not run at all: a chat that asked for the sandbox is never given a plain
 // run behind its back.
 #[cfg(unix)]
-fn run_jailed(command: &str, workdir: &Path, timeout: Duration) -> Outcome {
+fn run_jailed(command: &str, workdir: &Path, access: Access, timeout: Duration) -> Outcome {
     let failed = |reason: String| Outcome {
         ok: false,
         output: format!("The sandbox did not run this command: {}", reason),
         sandboxed: false,
         timed_out: false,
     };
-    if let Err(problem) = jail_check() {
+    // A jail with the network let through is other walls, so it is asked the same
+    // question for itself.
+    if let Err(problem) = jail_check_of(access) {
         return failed(problem);
     }
     let Some(bwrap) = bwrap_path() else {
         return failed(String::from("bubblewrap (bwrap) was not found"));
     };
-    let mut args = jail_args(workdir);
+    let mut args = jail_args(workdir, access);
     args.push("--".into());
     args.push(SHELL.into());
     args.push("-c".into());
@@ -498,14 +795,28 @@ fn shell_quote(text: &str) -> String {
 // there, and that the network is cut off. The answer is kept, so the machine is
 // asked once.
 pub fn jail_check() -> Result<(), String> {
-    static CHECK: OnceLock<Result<(), String>> = OnceLock::new();
-    CHECK.get_or_init(probe_the_jail).clone()
+    jail_check_of(Access::default())
+}
+
+// The same question of the shape of the jail the chat asks for: a jail with the
+// network let through keeps its other walls, but they are other walls and are
+// tried for themselves. The answer is kept, so the machine is asked once of each
+// of the two shapes.
+pub fn jail_check_of(access: Access) -> Result<(), String> {
+    static PLAIN: OnceLock<Result<(), String>> = OnceLock::new();
+    static OPEN: OnceLock<Result<(), String>> = OnceLock::new();
+    if access.net() {
+        return OPEN
+            .get_or_init(|| probe_the_jail(Access { network: true, pip: false, fetch: false }))
+            .clone();
+    }
+    PLAIN.get_or_init(|| probe_the_jail(Access::default())).clone()
 }
 
 // The five lines the jail is asked to write. The room is of the check alone, so
 // a chat is never touched.
 #[cfg(unix)]
-fn probe_the_jail() -> Result<(), String> {
+fn probe_the_jail(access: Access) -> Result<(), String> {
     let Some(bwrap) = bwrap_path() else {
         return Err(String::from(
             "bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox.",
@@ -539,19 +850,24 @@ fn probe_the_jail() -> Result<(), String> {
     // The lines of /proc/net/dev are counted instead of read with a tool, so
     // the check needs nothing but the shell. A new network room holds the loop
     // device alone, which is two lines of head and one line of device.
-    let script = format!(
+    let mut script = format!(
         "if [ -r {secret} ]; then echo hidden=no; else echo hidden=yes; fi; \
          if : > {work}/probe 2>/dev/null; then echo writable=yes; else echo writable=no; fi; \
          if [ -e {accounts} ]; then echo accounts=seen; else echo accounts=hidden; fi; \
-         if [ -e {logs} ]; then echo logs=seen; else echo logs=hidden; fi; \
-         lines=0; while IFS= read -r row; do lines=$((lines+1)); done < /proc/net/dev 2>/dev/null; \
-         if [ \"$lines\" = '3' ]; then echo net=off; else echo \"net=on:$lines\"; fi",
+         if [ -e {logs} ]; then echo logs=seen; else echo logs=hidden; fi;",
         secret = shell_quote(&secret_text),
         work = shell_quote(&work_text),
         accounts = shell_quote(&accounts_file.display().to_string()),
         logs = shell_quote(&logs_folder.display().to_string())
     );
-    let mut args = jail_args(&workdir);
+    // The network is only asked of a jail that promised to cut it off.
+    if !access.net() {
+        script.push_str(
+            " lines=0; while IFS= read -r row; do lines=$((lines+1)); done < /proc/net/dev 2>/dev/null; \
+             if [ \"$lines\" = '3' ]; then echo net=off; else echo \"net=on:$lines\"; fi",
+        );
+    }
+    let mut args = jail_args(&workdir, access);
     args.push("--".into());
     args.push(SHELL.into());
     args.push("-c".into());
@@ -565,7 +881,7 @@ fn probe_the_jail() -> Result<(), String> {
     if let Some(problem) = jail_failure(&capture) {
         return Err(format!("bubblewrap could not start the sandbox: {}", problem));
     }
-    let problems = check_lines(&capture.all());
+    let problems = check_lines(&capture.all(), access.net());
     if problems.is_empty() {
         return Ok(());
     }
@@ -574,7 +890,7 @@ fn probe_the_jail() -> Result<(), String> {
 
 // Nothing to check where bubblewrap cannot run at all.
 #[cfg(not(unix))]
-fn probe_the_jail() -> Result<(), String> {
+fn probe_the_jail(_access: Access) -> Result<(), String> {
     Err(String::from(
         "bubblewrap is not available on this system, so commands cannot be sandboxed",
     ))
@@ -582,7 +898,7 @@ fn probe_the_jail() -> Result<(), String> {
 
 // What the answer of the jail says is wrong. An empty answer means the jail
 // keeps everything it promises.
-fn check_lines(text: &str) -> Vec<String> {
+fn check_lines(text: &str, wants_net: bool) -> Vec<String> {
     let holds = |line: &str| text.lines().any(|seen| seen.trim() == line);
     let mut problems = Vec::new();
     // A file beside the working directory that can still be read is the worst
@@ -605,7 +921,7 @@ fn check_lines(text: &str) -> Vec<String> {
             "the root of the machine is visible inside the sandbox",
         ));
     }
-    if !holds("net=off") {
+    if !wants_net && !holds("net=off") {
         problems.push(String::from("the network is not blocked inside the sandbox"));
     }
     problems
@@ -807,7 +1123,7 @@ mod tests {
     // jail is watched even on a machine without bubblewrap.
     #[test]
     fn the_jail_starts_from_an_empty_root() {
-        let args = jail_args(Path::new("/work/somewhere"));
+        let args = jail_args(Path::new("/work/somewhere"), Access::default());
         let text = args.join("\n");
         // The root of the jail is its own empty room, and the root of the host
         // is never put in.
@@ -880,10 +1196,10 @@ mod tests {
     #[test]
     fn the_answer_of_the_check_is_read() {
         let good = "hidden=yes\nwritable=yes\naccounts=hidden\nlogs=hidden\nnet=off\n";
-        assert!(check_lines(good).is_empty());
+        assert!(check_lines(good, false).is_empty());
         // A file outside the room that can be read is the worst of them.
         let bad = good.replace("hidden=yes", "hidden=no");
-        let problems = check_lines(&bad);
+        let problems = check_lines(&bad, false);
         assert_eq!(problems.len(), 1);
         assert!(problems[0].contains("outside the working directory"));
         // The root of the machine got in, and the network was left on. Two of
@@ -891,15 +1207,156 @@ mod tests {
         let worse = good
             .replace("logs=hidden", "logs=seen")
             .replace("net=off", "net=on:7");
-        assert_eq!(check_lines(&worse).len(), 2);
+        assert_eq!(check_lines(&worse, false).len(), 2);
         // The root seen in both halves is still one fault of one kind.
         let both = good.replace("logs=hidden", "logs=seen").replace(
             "accounts=hidden",
             "accounts=seen",
         );
-        assert_eq!(check_lines(&both).len(), 1);
+        assert_eq!(check_lines(&both, false).len(), 1);
         // Nothing at all is not a good jail.
-        assert_eq!(check_lines("").len(), 4);
+        assert_eq!(check_lines("", false).len(), 4);
+        // A jail that was asked for the network is not faulted for having it.
+        let open = "hidden=yes\nwritable=yes\naccounts=hidden\nlogs=hidden\n";
+        assert!(check_lines(open, true).is_empty());
+        assert_eq!(check_lines(open, false).len(), 1);
+    }
+
+    // The three settings of the sandbox stand off, and the network is opened by
+    // an install or a fetch as much as by its own switch.
+    #[test]
+    fn every_part_of_the_access_stands_off() {
+        let off = Access::default();
+        assert!(!off.network && !off.pip && !off.fetch);
+        assert!(!off.net());
+        // Either of the two that need the network lets it through.
+        assert!(Access { pip: true, ..Access::default() }.net());
+        assert!(Access { fetch: true, ..Access::default() }.net());
+        assert!(Access { network: true, ..Access::default() }.net());
+    }
+
+    // The jail of a chat that may reach the web keeps every other wall, and the
+    // network namespace is the one it does not unshare.
+    #[test]
+    fn a_jail_with_the_network_names_the_walls_one_by_one() {
+        let open = jail_args(
+            Path::new("/work/somewhere"),
+            Access { network: true, pip: true, fetch: false },
+        );
+        let text = open.join("\n");
+        assert!(!text.contains("--unshare-all"), "the network must be left alone");
+        for mark in [
+            "--unshare-user",
+            "--unshare-ipc",
+            "--unshare-pid",
+            "--unshare-uts",
+            "--unshare-cgroup",
+            "--disable-userns",
+        ] {
+            assert!(text.contains(mark), "the jail lost {}", mark);
+        }
+        // Without the install the road is the road it always was, and pip is
+        // given nothing.
+        let plain = jail_args(Path::new("/work/somewhere"), Access::default());
+        let words = plain.join("\n");
+        assert!(!words.contains(".venv"));
+        assert!(!words.contains("PIP_BREAK_SYSTEM_PACKAGES"));
+        assert!(words.contains("--unshare-all"));
+    }
+
+    // An install goes into the Python environment of the chat, so the road of
+    // the programs starts in that environment and pip is told where it stands.
+    // The program makes the environment itself, so this test plants one and asks
+    // that the jail is told of it.
+    #[test]
+    fn an_install_goes_into_the_environment_of_the_chat() {
+        let room = std::env::temp_dir().join(format!(
+            "autumn-natter-venv-{}-{}",
+            std::process::id(),
+            TURN_OF_TEST.fetch_add(1, Ordering::SeqCst)
+        ));
+        let workdir = room.join("work");
+        let programs = venv_dir(&workdir).join("bin");
+        std::fs::create_dir_all(&programs).unwrap();
+        std::fs::write(programs.join("pip"), "").unwrap();
+        let pip = Access { pip: true, ..Access::default() };
+        let text = jail_args(&workdir, pip).join("\n");
+        let bin = venv_dir(&workdir).display().to_string();
+        let stood = format!("{}/bin:{}", bin, JAIL_PATH);
+        assert!(text.contains(&stood), "MISSING {}", stood);
+        assert!(text.contains("PIP_BREAK_SYSTEM_PACKAGES\n1"));
+        assert!(text.contains(&format!("VIRTUAL_ENV\n{}\n", bin)));
+        let _ = std::fs::remove_dir_all(&room);
+    }
+
+    // The commands that fetch, and the commands that install, are known by what
+    // they name, and not by the whole of the line.
+    #[test]
+    fn a_fetch_and_an_install_are_known_by_their_names() {
+        assert!(uses_fetch("wget https://example.com/a.tar"));
+        assert!(uses_fetch("curl -sS https://example.com"));
+        assert!(uses_fetch("fetch -o out https://example.com"));
+        assert!(uses_fetch("ls -la; wget https://example.com"));
+        assert!(uses_fetch("cd notes && curl https://example.com > page.html"));
+        assert!(uses_fetch("sudo /usr/bin/wget https://example.com"));
+        assert!(uses_fetch("echo hello | curl -T - https://example.com"));
+        // A word of another command is not the program of one.
+        assert!(!uses_fetch("echo wget"));
+        assert!(!uses_fetch("grep curl notes.md"));
+        assert!(!uses_fetch("cat curling.txt"));
+        assert!(!uses_fetch("ls"));
+
+        assert!(uses_pip("pip install requests"));
+        assert!(uses_pip("pip3 install --user rich"));
+        assert!(uses_pip("python3 -m pip install rich"));
+        assert!(uses_pip("PIP_NO_INPUT=1 pip install rich"));
+        assert!(uses_pip(".venv/bin/pip install rich"));
+        // A read of pip does not write anything.
+        assert!(!uses_pip("pip list"));
+        assert!(!uses_pip("pip show requests"));
+        assert!(!uses_pip("python3 -m pip freeze"));
+        assert!(!uses_pip("ls .venv/bin/pip"));
+    }
+
+    // A command the chat does not allow is answered before it runs, and the
+    // answer says what to open.
+    #[test]
+    fn a_command_the_chat_does_not_allow_is_answered_without_running() {
+        let off = Access::default();
+        let fetch = refused("wget https://example.com", off).expect("the fetch is refused");
+        assert!(fetch.contains("wget"));
+        assert!(fetch.contains("Sandbox"));
+        let pip = refused("pip install requests", off).expect("the install is refused");
+        assert!(pip.contains("Python package installs"));
+        // The same commands go through when the chat opened them.
+        let open = Access { network: true, pip: true, fetch: true };
+        assert!(refused("wget https://example.com", open).is_none());
+        assert!(refused("pip install requests", open).is_none());
+        // An install does not open the fetch, and a fetch does not open an
+        // install.
+        let only_fetch = Access { fetch: true, ..Access::default() };
+        assert!(refused("pip install requests", only_fetch).is_some());
+        let only_pip = Access { pip: true, ..Access::default() };
+        assert!(refused("wget https://example.com", only_pip).is_some());
+        // A command that needs neither goes through whatever stands off.
+        assert!(refused("ls -la", off).is_none());
+    }
+
+    // The words handed to the model follow what the chat allows, so the model is
+    // not told there is no network where the reader opened one.
+    #[test]
+    fn the_tool_says_what_the_chat_allows() {
+        let off = definition(Access::default());
+        let said = off["function"]["description"].as_str().unwrap_or("").to_string();
+        assert!(said.contains("There is no network access."));
+        assert!(said.contains("turned off"));
+        assert!(!said.contains("pip is on the PATH"));
+        let open = definition(Access { network: true, pip: true, fetch: true });
+        let words = open["function"]["description"].as_str().unwrap_or("").to_string();
+        assert!(words.contains("The command may reach the network."));
+        assert!(words.contains("pip is on the PATH"));
+        assert!(words.contains("wget, curl and fetch may be used"));
+        assert!(!words.contains("There is no network access."));
     }
 
     #[cfg(unix)]
@@ -933,6 +1390,9 @@ mod tests {
             ),
             &workdir,
             true,
+
+            Access::default(),
+
             Duration::from_secs(20),
         );
         assert!(out.sandboxed, "the run said it was not wrapped");
@@ -940,7 +1400,7 @@ mod tests {
             assert!(!out.output.contains(hidden), "{}", out.output);
         }
         // The room of the chat may be written, and what is written stays.
-        let wrote = run("echo kept > note.txt", &workdir, true, Duration::from_secs(20));
+        let wrote = run("echo kept > note.txt", &workdir, true, Access::default(), Duration::from_secs(20));
         assert!(wrote.ok, "{}", wrote.output);
         assert_eq!(
             std::fs::read_to_string(workdir.join("note.txt")).unwrap().trim(),
@@ -952,17 +1412,23 @@ mod tests {
             "test -w /usr && echo WRITABLE || echo READONLY",
             &workdir,
             true,
+
+            Access::default(),
+
             Duration::from_secs(20),
         );
         assert!(system.output.contains("READONLY"), "{}", system.output);
         // A command starts in the room of the chat. What it writes beside that
         // room is written in the jail, and never on the machine.
-        let place = run("pwd", &workdir, true, Duration::from_secs(20));
+        let place = run("pwd", &workdir, true, Access::default(), Duration::from_secs(20));
         assert_eq!(place.output.trim(), jail_workdir(&workdir));
         let beside = run(
             "echo nope > ../secret 2>/dev/null; echo tried",
             &workdir,
             true,
+
+            Access::default(),
+
             Duration::from_secs(20),
         );
         assert!(beside.ok, "{}", beside.output);
@@ -976,6 +1442,9 @@ mod tests {
             "echo gone > \"$TMPDIR/left\"; echo \"$TMPDIR\"",
             &workdir,
             true,
+
+            Access::default(),
+
             Duration::from_secs(20),
         );
         assert_eq!(left.output.trim(), "/tmp");
@@ -983,12 +1452,15 @@ mod tests {
             "test -e \"$TMPDIR/left\" && echo LEFT || echo CLEAN",
             &workdir,
             true,
+
+            Access::default(),
+
             Duration::from_secs(20),
         );
         assert!(clean.output.contains("CLEAN"), "{}", clean.output);
         // A command that is not wrapped says so plainly, and is marked as not
         // sandboxed, so the window can tell the reader.
-        let plain = run("cat ../secret 2>&1", &workdir, false, Duration::from_secs(20));
+        let plain = run("cat ../secret 2>&1", &workdir, false, Access::default(), Duration::from_secs(20));
         assert!(!plain.sandboxed);
         assert!(plain.output.contains("NOT-FOR-A-JAIL"), "{}", plain.output);
         let _ = std::fs::remove_dir_all(&room);
@@ -999,7 +1471,7 @@ mod tests {
     // it, and the words of the definition lead it nowhere near such a line.
     #[test]
     fn the_tool_asks_for_no_reason_of_the_command() {
-        let made = definition();
+        let made = definition(Access::default());
         let call = made.get("function").expect("the tool is a function");
         assert_eq!(
             call.get("name").and_then(|v| v.as_str()),

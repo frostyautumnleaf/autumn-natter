@@ -225,6 +225,13 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "progress": {
             "percent": snap.progress,
             "active": snap.progress_on,
+            // The two speeds of the work, in tokens of the talk to the second, as
+            // the server measures them. The page shows the one of the two that
+            // belongs to the work being done now: the reading of the words that
+            // were sent while the gauge stands, and the writing after it. Both
+            // are given to a tenth, so the number does not shiver as it moves.
+            "reading": rate(snap.prompt_rate),
+            "writing": rate(snap.answer_rate),
             "what": if snap.progress_images > 1 {
                 "images"
             } else if snap.progress_images == 1 {
@@ -256,6 +263,11 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox": snap.sandbox_enabled,
         "sandbox_available": snap.sandbox_available,
         "sandbox_note": snap.sandbox_note,
+        // The three settings of the sandbox, for the menu of the badge. All three
+        // stand off, and each is opened on its own line of the menu.
+        "sandbox_network": snap.sandbox_access.network,
+        "sandbox_pip": snap.sandbox_access.pip,
+        "sandbox_fetch": snap.sandbox_access.fetch,
         "status": snap.status,
         "dark": snap.dark_mode,
         // Chatting. How the page shows a thinking panel, a tool panel and a
@@ -282,6 +294,18 @@ fn ratio(snap: &Snap) -> f64 {
         return 0.0;
     }
     (snap.context_used as f64 / snap.context_total as f64).clamp(0.0, 1.0)
+}
+
+// A speed of the work, to a tenth of a token to the second. The server measures
+// the two speeds over the whole of the work it has done, and says them again on
+// every piece of the answer; the tenth keeps the number the page shows from
+// shivering under the reader. A speed that is nothing, or that makes no sense,
+// reads as nothing, and the page then keeps the number away.
+fn rate(per: f64) -> f64 {
+    if !per.is_finite() || per <= 0.0 {
+        return 0.0;
+    }
+    (per * 10.0).round() / 10.0
 }
 
 // Name of a repository, for the chat list. A chat with no repository gives an
@@ -482,6 +506,16 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/sandbox" | "sandbox" => {
             engine.set_sandbox(flag(&value, "on"));
+            done()
+        }
+        // One of the three settings of the sandbox. The line of the menu that was
+        // clicked says which of them, under `part`.
+        "/api/sandbox_setting" | "sandbox_setting" => {
+            let Some(setting) = crate::engine::SandboxSetting::from_name(&text_field(&value, "part"))
+            else {
+                return refused("That is not one of the settings of the sandbox");
+            };
+            engine.set_sandbox_setting(setting, flag(&value, "on"));
             done()
         }
         "/api/thinking" | "thinking" => {
