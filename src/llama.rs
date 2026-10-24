@@ -181,10 +181,6 @@ impl Server {
         }
     }
 
-    fn log_file() -> Option<fs::File> {
-        let path = crate::config::paths().data.join("server.log");
-        fs::File::create(path).ok()
-    }
 
     // Start llama-server and wait until it answers. use_tools is true when the
     // chat may call a tool of any kind: a command, or a mark of a chapter.
@@ -211,10 +207,14 @@ impl Server {
             &mut notes,
         );
 
+        // One log for this start of the server, under the logs of the program.
+        // The Logs tab of the sheet of settings reads it, and the ten newest of
+        // them, so a start that went wrong can still be read after the next one.
+        let log_place = crate::logs::start();
         let mut attempt = 0;
         loop {
             attempt += 1;
-            let log = Self::log_file();
+            let log = open_log(log_place.as_deref());
             let mut command = Command::new(binary);
             command.args(&args).stdin(Stdio::null());
             match log {
@@ -244,7 +244,7 @@ impl Server {
                 tools_on: use_tools,
                 notes: notes.clone(),
             };
-            match server.wait_ready() {
+            match server.wait_ready(log_place.as_deref()) {
                 Ok(props) => {
                     if let Some(n) = props
                         .get("default_generation_settings")
@@ -298,7 +298,9 @@ impl Server {
     }
 
     // Wait for the health endpoint. The load of a big model can take minutes.
-    fn wait_ready(&mut self) -> Result<Value, Fail> {
+    // The log of this start is read back when the wait fails, so the words the
+    // server gave are with the words of the fault.
+    fn wait_ready(&mut self, log_place: Option<&Path>) -> Result<Value, Fail> {
         let deadline = Instant::now() + Duration::from_secs(900);
         // The status of the last health call, for the error text. Every round
         // of the loop sets it before the text is made.
@@ -308,7 +310,7 @@ impl Server {
             if let Ok(Some(_)) = self.child.try_wait() {
                 return Err(Fail {
                     text: "llama-server stopped before it was ready".to_string(),
-                    output: read_tail(&crate::config::paths().data.join("server.log"), 1200),
+                    output: read_tail(log_place, 1200),
                     exited: true,
                 });
             }
@@ -328,7 +330,7 @@ impl Server {
                         "llama-server did not become ready in time (last status {})",
                         last_status.unwrap_or(0)
                     ),
-                    output: read_tail(&crate::config::paths().data.join("server.log"), 1200),
+                    output: read_tail(log_place, 1200),
                     exited: false,
                 });
             }
@@ -344,9 +346,25 @@ struct Fail {
     exited: bool,
 }
 
-// Read the end of a text file, for an error message.
-fn read_tail(path: &Path, max_bytes: usize) -> String {
-    let text = fs::read_to_string(path).unwrap_or_default();
+// Open the log file of this start. The file was made when the start was asked
+// for, and it is written from the front again when the server is started a
+// second time in the same run of the program.
+fn open_log(place: Option<&Path>) -> Option<fs::File> {
+    let place = place?;
+    fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(place)
+        .ok()
+}
+
+// Read the end of a text file, for an error message. No place at all, and no
+// file at all, give back nothing.
+fn read_tail(path: Option<&Path>, max_bytes: usize) -> String {
+    let text = match path {
+        Some(place) => fs::read_to_string(place).unwrap_or_default(),
+        None => String::new(),
+    };
     if text.len() <= max_bytes {
         return text;
     }
@@ -385,6 +403,15 @@ pub fn build_args(
         "--no-webui".into(),
         "--props".into(),
         "--slots".into(),
+        // The log of the server is read in the Logs tab of the sheet of
+        // settings, so it holds everything the server has to say: every level of
+        // the log, the time before every line, and no colours, for a file holds
+        // no colours. These three stand here and not in the settings of one
+        // model, for a log that hides nothing is what a fault is read out of.
+        "-v".into(),
+        "--log-timestamps".into(),
+        "--log-colors".into(),
+        "off".into(),
         "-c".into(),
         settings.ctx_size.to_string(),
         "-ctk".into(),

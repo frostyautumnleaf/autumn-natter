@@ -26,12 +26,17 @@
 //     which is written out of sight: no live answer stands in the chat
 //   AN_FIELD=fCompactPrompt node page-shot.js sheet-program p.png
 //     brings another field of the sheet into the picture
+//   AN_LOGSEARCH=error node page-shot.js sheet-logs p.png
+//     writes words in the field over the log, which is how a search is looked at
+//   AN_RATE=manual node page-shot.js sheet-logs p.png
+//     puts the pace of the log on manual, which is how the button of Refresh is
+//     looked at standing live; the other two paces leave it greyed
 //   AN_SUMMARIES, AN_NOTIMELINE, AN_BROKEN and AN_SUMMARISING stand for the
 //   Compaction section.
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
 //
 // The scenes: home, chat, rich, markdown, streaming, streaming-code, writing,
-// processing, previews, sheet-program, sheet-model. A name that ends in -dark draws the dark skin, and
+// processing, previews, sheet-program, sheet-model, sheet-logs. A name that ends in -dark draws the dark skin, and
 // a name that ends in -pale draws the pale one. AN_SCROLL=top puts the talk at
 // the top instead of the end.
 //   AN_PROGRESS=42 AN_WHAT=image node page-shot.js processing p.png
@@ -688,6 +693,63 @@ const MODEL = {
   specs: ['none', 'ngram', 'ngram-mod', 'lookahead']
 };
 
+// The logs of llama.cpp, for the Logs tab of the sheet of settings. The current
+// log is the one this run is writing, so it holds the words of a start that went
+// wrong: the line the program puts at the front of every log, a warning, and a
+// fault of the model file. The older log stands for a start of an hour ago, and
+// it is longer than what is read, so the words about the front of the log can be
+// seen as well.
+const LOG_TEXT = [
+  'autumn-natter 0.1.0 began this log on 2026-10-23, 21:05.',
+  'the file that was run: /home/user/src/llama.cpp/build/bin/llama-server',
+  'the arguments: -m /home/user/models/Qwen3.5-0.8B-UD-Q6_K_XL.gguf --host 127.0.0.1',
+  '  --port 41987 --no-webui --props --slots -v --log-timestamps --log-colors off -c 8192',
+  '',
+  '0.00.162 I log_info: version: b9100-3f0c1d',
+  '0.00.162 I log_info: loaded build 2026-10-19T09:14:22Z, x86_64-pc-linux-gnu, cc 13.2',
+  '0.00.163 I log_info: using LLAMA_CUBLAS=1',
+  '0.00.402 I ggml_backend_cuda_buffer_type_alloc_buffer: allocating 1024.00 MiB of device memory',
+  '0.01.118 W load: the model has no chat template, so --jinja was dropped and no tool is offered',
+  '0.01.204 D llama_new_context_with_model: n_ctx      = 8192',
+  '0.01.205 D llama_new_context_with_model: mem_size   = 100663296 bytes',
+  '0.01.902 I load: model is loaded',
+  '0.02.010 I srv  srv_start: model is loaded in 1.90 seconds',
+  '0.02.011 I srv    operator(): listening on 127.0.0.1 port 41987',
+  '0.03.441 I slot get_avail_slot: assigned slot  0 to task, n_tokens = 612',
+  '0.03.441 D slot launch_slot_: processing task, id =  0, n_tokens = 612',
+  '0.04.052 I slot print_timing:    0 |  prompt eval time =   611.00 ms / 612 tokens',
+  '0.04.052 I slot print_timing:    0 |  eval time       =  1204.00 ms / 148 tokens',
+  '0.11.320 E srv  operator(): error: the model file could not be read: no such file',
+  '0.11.320 E srv  operator(): the request was refused and the chat was left as it stood',
+  '0.11.321 W slot ~slot: the slot was given back while an answer was still being written',
+  '0.11.402 I slot get_avail_slot: assigned slot  0 to task, n_tokens = 640',
+  '0.12.010 I slot print_timing:    0 |  prompt eval time =   588.00 ms / 640 tokens',
+  '0.12.640 I slot print_timing:    0 |  eval time       =  1222.00 ms / 162 tokens'
+].join('\n');
+
+const LOGS = {
+  dir: '/home/user/.config/autumn_natter/logs',
+  version: '0.1.0',
+  kept: 10,
+  logs: [
+    { id: 'server-1762146344.log', when: '2026-10-23, 21:05', size: '18 KiB',
+      bytes: 18942, current: true },
+    { id: 'server-1762140120.log', when: '2026-10-23, 19:22', size: '1.2 MiB',
+      bytes: 1258291, current: false },
+    { id: 'server-1762131000.log', when: '2026-10-23, 16:50', size: '302 KiB',
+      bytes: 309248, current: false }
+  ]
+};
+
+// One log of the record above. The older one stands for a start that wrote more
+// than is read, so the sheet says that the front of the log is not shown. The
+// two answers stand as data, for the bridge is handed out as words and can carry
+// no function of this file.
+const LOG_ONE = {
+  now: { id: 'server-1762146344.log', text: LOG_TEXT, bytes: 18942, cut: false },
+  old: { id: 'server-1762140120.log', text: LOG_TEXT, bytes: 1258291, cut: true }
+};
+
 async function main() {
   let name = process.argv[2] || 'home';
   const out = process.argv[3] || (name + '.png');
@@ -696,7 +758,8 @@ async function main() {
   let dark = false;
   if (name.endsWith('-dark')) { dark = true; name = name.slice(0, -5); }
   else if (name.endsWith('-pale')) { name = name.slice(0, -5); }
-  const state = scene(name === 'sheet-program' || name === 'sheet-model' ? 'chat' : name, dark);
+  const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs';
+  const state = scene(isSheet ? 'chat' : name, dark);
 
   // AN_FOLD=0 turns the two fold switches of the Chatting section off, so a
   // picture can be taken of a panel that is written out as it comes in.
@@ -748,7 +811,7 @@ async function main() {
   view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
   view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
 
-  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, pic, pic2) {
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, one, pic, pic2) {
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
@@ -776,6 +839,15 @@ async function main() {
           return Promise.resolve({ json: function () {
             return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
               + '-ngl 999 --fit on --fit-target 400'); } });
+        }
+        if (String(url).indexOf('/api/logs') === 0) {
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(JSON.parse(JSON.stringify(logs))); } });
+        }
+        if (String(url).indexOf('/api/log') === 0) {
+          // The older log of the record was longer than what is read.
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(String(url).indexOf('1762140120') < 0 ? one.now : one.old); } });
         }
         if (String(url).indexOf('/api/attachment') === 0) {
           // One attachment record, as the small server of the remote mode
@@ -810,6 +882,13 @@ async function main() {
             return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
               + '-ngl 999 --fit on --fit-target 400');
           }
+          if (command === 'get_logs') {
+            return Promise.resolve(JSON.parse(JSON.stringify(logs)));
+          }
+          if (command === 'get_log') {
+            return Promise.resolve(String((args && args.id) || '').indexOf('1762140120') < 0
+              ? one.now : one.old);
+          }
           if (command === 'get_attachment') {
             // One attachment record, as the window hands it to the block
             // that asks for its file.
@@ -821,7 +900,7 @@ async function main() {
         }
       }
     };
-  }, useFetch, state, CONFIG, MODEL, ATT_PIC, ATT_TALL);
+  }, useFetch, state, CONFIG, MODEL, LOGS, LOG_ONE, ATT_PIC, ATT_TALL);
 
   await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
   await new Promise(function (r) { setTimeout(r, 700); });
@@ -896,6 +975,40 @@ async function main() {
       if (b) { b.click(); }
     });
     await new Promise(function (r) { setTimeout(r, 600); });
+  }
+  // The Logs tab: the list, the words of the run, and the log itself. The sheet
+  // is put back at the top of itself, for the log stands near the head of it.
+  if (name === 'sheet-logs') {
+    await view.evaluate(function () {
+      var b = document.getElementById('settingsbtn');
+      if (b) { b.click(); }
+      var t = document.getElementById('tabLogs');
+      if (t) { t.click(); }
+      var body = document.querySelector('.sheet-body');
+      if (body) { body.scrollTop = 0; }
+    });
+    await new Promise(function (r) { setTimeout(r, 900); });
+  }
+  // AN_LOGSEARCH=error writes words in the field over the log, so the look of a
+  // search can be seen: the lines that hold them stand by themselves, the words
+  // are marked, and the two steps go from one to the next.
+  if (process.env.AN_LOGSEARCH && name === 'sheet-logs') {
+    await view.evaluate(function (words) {
+      var field = document.getElementById('logSearch');
+      field.value = words;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    }, process.env.AN_LOGSEARCH);
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
+  // AN_RATE stands for the pace of the log, for the button of Refresh is live on
+  // manual alone and greyed on the two paces that read by themselves.
+  if (process.env.AN_RATE && name === 'sheet-logs') {
+    await view.evaluate(function (pace) {
+      var sel = document.getElementById('logRate');
+      sel.value = pace;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }, process.env.AN_RATE);
+    await new Promise(function (r) { setTimeout(r, 400); });
   }
   if (process.env.AN_SCROLL === 'top') {
     await view.evaluate(function () {

@@ -27,6 +27,7 @@ pub mod gguf;
 pub mod gpu;
 pub mod greet;
 pub mod llama;
+pub mod logs;
 pub mod markdown;
 pub mod remote;
 pub mod search;
