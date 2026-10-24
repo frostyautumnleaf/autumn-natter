@@ -28,6 +28,9 @@
 //     brings another field of the sheet into the picture
 //   AN_LOGSEARCH=error node page-shot.js sheet-logs p.png
 //     writes words in the field over the log, which is how a search is looked at
+//   AN_RATE=manual node page-shot.js sheet-logs p.png
+//     puts the pace of the log on manual, which is how the button of Refresh is
+//     looked at standing live; the other two paces leave it greyed
 //   AN_SUMMARIES, AN_NOTIMELINE, AN_BROKEN and AN_SUMMARISING stand for the
 //   Compaction section.
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
@@ -995,6 +998,16 @@ async function main() {
       field.value = words;
       field.dispatchEvent(new Event('input', { bubbles: true }));
     }, process.env.AN_LOGSEARCH);
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
+  // AN_RATE stands for the pace of the log, for the button of Refresh is live on
+  // manual alone and greyed on the two paces that read by themselves.
+  if (process.env.AN_RATE && name === 'sheet-logs') {
+    await view.evaluate(function (pace) {
+      var sel = document.getElementById('logRate');
+      sel.value = pace;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }, process.env.AN_RATE);
     await new Promise(function (r) { setTimeout(r, 400); });
   }
   if (process.env.AN_SCROLL === 'top') {

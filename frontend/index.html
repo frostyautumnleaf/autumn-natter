@@ -1043,9 +1043,10 @@ pre.code.line {
 .logcount { flex: 0 0 auto; font-size: 11.5px; color: var(--faint); text-align: right;
   font-variant-numeric: tabular-nums; }
 .logstate { margin: 14px 0 6px; font-size: 11.5px; color: var(--faint); }
-/* The button beside the field of the update holds two words, and they stand on
-   one line: a button of two lines makes its field taller than its words. */
+/* The button beside a field of the sheet stands on one line: a button that
+   wrapped would make its field taller than its own words. */
 .fld .ctl .btn { flex: 0 0 auto; white-space: nowrap; }
+.sheet-foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center;
   padding: 12px 16px; border-top: 1px solid var(--line); background: var(--surface-2); }
 .foot-note { font-size: 11.5px; color: var(--faint); margin-right: auto; max-width: 60ch; }
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px;
@@ -1055,6 +1056,10 @@ pre.code.line {
 .btn.go { background: var(--accent); border-color: var(--accent); color: var(--on-accent);
   font-weight: 600; }
 .btn.go:hover { background: var(--warm); border-color: var(--warm); color: var(--on-accent); }
+/* A button that cannot be pressed stands back from the others, and keeps
+   standing back under the pointer, so it is not taken for a live thing. */
+.btn[disabled], .btn[disabled]:hover { opacity: .45; cursor: default;
+  border-color: var(--line); background: var(--surface); color: var(--dim); }
 .cards { display: grid; gap: 0; }
 .cards .fld { grid-template-columns: minmax(0, 1fr) 34px; }
 .cards .fld .ctl { justify-content: flex-start; }
@@ -1569,12 +1574,12 @@ pre.code.line {
           <span class="sub">One log for every start of llama-server. The newest ten are kept and older ones are removed. The log this run of the program is writing is marked Now and is chosen by itself.</span>
           <div class="ctl"><select id="logPick" title="Which log to read"></select></div></div>
         <div class="fld"><span class="lbl">Update</span>
-          <span class="sub">How often the log is read again while this tab stands in front. Manual reads nothing until the button beside it is pressed.</span>
+          <span class="sub">How often the log is read again while this tab stands in front. Manual reads nothing until Refresh is pressed; for the other two that button stands greyed, for there is nothing to press.</span>
           <div class="ctl"><select id="logRate" title="How often the log is read again">
               <option value="live">Live</option>
               <option value="5">Every 5 seconds</option>
               <option value="manual">Manual</option>
-            </select><button class="btn" id="logRefresh" type="button" title="Read the list and the log again now">Read again</button></div></div>
+            </select><button class="btn" id="logRefresh" type="button" disabled title="Read the list and the log again now. It stands greyed while the log is read by itself.">Refresh</button></div></div>
         <div class="fld"><span class="lbl">Follow the end</span>
           <span class="sub">Keep the view at the last line while the log grows. Reading up turns it off again, as the chat does.</span>
           <div class="ctl"><input id="logFollow" type="checkbox" checked title="Keep the view at the last line"></div></div>
@@ -6084,6 +6089,9 @@ function logStep(step) {
 // is a great deal of words to carry about for nothing.
 function logsGo() {
   logsStop();
+  // Refresh belongs to manual alone. While the log is read by itself there is
+  // nothing left for the reader to press, so the button stands greyed.
+  byId('logRefresh').disabled = byId('logRate').value !== 'manual';
   var pace = logPace();
   if (!pace) { return; }
   logTimer = setInterval(function () {

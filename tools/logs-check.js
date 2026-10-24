@@ -67,6 +67,53 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (by('saveSheet').style.display !== 'none') {
       faults.push('the button for saving stands on the Logs tab, where nothing is saved');
     }
+
+    // The foot of the sheet, as it stood before this tab was added: a line drawn
+    // over it, and its note and its buttons standing on one line at the bottom,
+    // within the window and not below it. The button for saving is put away on
+    // this tab, so it is asked for only where it stands.
+    var footOf = function (wantsSave) {
+      var foot = document.querySelector('#overlay .sheet-foot');
+      var walk = getComputedStyle(foot);
+      var r = foot.getBoundingClientRect();
+      var sheet = by('overlay').firstElementChild.getBoundingClientRect();
+      if (walk.display !== 'flex') {
+        faults.push('the foot of the sheet is laid out as ' + walk.display + ', not in a line');
+      }
+      if (walk.borderTopWidth !== '1px') { faults.push('no line is drawn over the foot of the sheet'); }
+      if (r.height < 40) {
+        faults.push('the foot of the sheet stands ' + Math.round(r.height) + ' high, which is nothing');
+      }
+      if (Math.abs(r.bottom - sheet.bottom) > 1) { faults.push('the foot does not stand at the bottom of the sheet'); }
+      if (r.bottom > window.innerHeight + 1) { faults.push('the foot of the sheet stands below the window'); }
+      var close = by('closeSheet').getBoundingClientRect();
+      if (close.height < 20 || close.width < 30) { faults.push('the button for closing has no room of its own'); }
+      if (close.bottom > r.bottom + 1 || close.right > r.right + 1) {
+        faults.push('the button for closing stands outside the foot');
+      }
+      if (wantsSave) {
+        var save = by('saveSheet').getBoundingClientRect();
+        if (save.height < 20 || save.width < 30) { faults.push('the button for saving has no room of its own'); }
+        if (Math.abs(save.top - close.top) > 1) { faults.push('the two buttons of the foot do not stand on one line'); }
+        if (save.right > r.right + 1) { faults.push('the button for saving stands outside the foot'); }
+      }
+    };
+    footOf(false);
+
+    // Refresh belongs to manual. While the log is read by itself the button
+    // stands greyed, and a button that stands greyed cannot be pressed.
+    var refresh = by('logRefresh');
+    if (refresh.textContent.trim() !== 'Refresh') {
+      faults.push('the button reads \"' + refresh.textContent.trim() + '\" and not Refresh');
+    }
+    if (!refresh.disabled) { faults.push('Refresh stands live while the log is read by itself'); }
+    if (getComputedStyle(refresh).cursor !== 'default') {
+      faults.push('Refresh does not stand back from the pointer while it is greyed');
+    }
+    var pressed = 0;
+    refresh.addEventListener('click', function () { pressed++; });
+    refresh.click();
+    if (pressed) { faults.push('Refresh could be pressed while it stood greyed'); }
     if (by('logDir').textContent.indexOf('logs') < 0) { faults.push('the folder of the logs is not named'); }
     if (by('logLlama').textContent.indexOf('llamacpp') < 0) { faults.push('the folder of llama.cpp is not named'); }
     if (by('logSandbox').textContent.indexOf('bubblewrap') < 0) { faults.push('the answer of the jail is not shown'); }
@@ -150,10 +197,12 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('turning the following on did not bring the view back to the end');
     }
 
-    // Manual: nothing moves until the button beside the field is pressed.
+    // Manual: nothing moves until the button beside the field is pressed, and
+    // the button stands live for this pace alone.
     var rate = by('logRate');
     rate.value = 'manual';
     rate.dispatchEvent(new Event('change'));
+    if (refresh.disabled) { faults.push('Refresh still stood greyed once the reading stood manual'); }
     held.push('9.99.00 I a line that came while the reading stood manual');
     reads = 0;
     await wait(1300);
@@ -166,6 +215,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (lastLine().indexOf('came while the reading stood manual') < 0) {
       faults.push('the button did not read the log again');
     }
+    if (pressed !== 1) { faults.push('the button that stands live could not be pressed'); }
 
     // Live: the new line comes by itself, and the five second pace does not come
     // sooner than it says.
@@ -188,6 +238,20 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('the five second pace never brought the line it was given');
     }
 
+    // The pace is put back on live, and the button of manual goes grey again.
+    rate.value = 'live';
+    rate.dispatchEvent(new Event('change'));
+    if (!refresh.disabled) { faults.push('Refresh did not go back to standing greyed with the log'); }
+
+    // Back on the tab that has a button for saving, the foot stands as it did:
+    // the note at one end and the two buttons on one line at the other.
+    showSetTab('program');
+    await wait(60);
+    footOf(true);
+    if (by('saveSheet').style.display === 'none') {
+      faults.push('the button for saving was put away on the tab that has something to save');
+    }
+
     // The sheet is put away, and the reading of the log stops with it.
     reads = 0;
     closeSettings();
@@ -205,5 +269,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
   console.log('the Logs tab chooses the log of this run by itself, reads it again while the');
   console.log('update stands on live or on five seconds and stands still on manual, shows the');
   console.log('lines that hold the words looked for with the words marked and the two steps');
-  console.log('between them, colours a line of a fault, and stops reading when the sheet is put away');
+  console.log('between them, colours a line of a fault, and stops reading when the sheet is put');
+  console.log('away; Refresh stands greyed outside manual, and the foot of the sheet stands as');
+  console.log('it did, with its note and its buttons on one line at the bottom of the window');
 })().catch(function (e) { console.error(e); process.exit(1); });
