@@ -93,6 +93,23 @@ pub async fn save_model_settings(
     Ok(web::save_model_settings(&engine, &id, settings))
 }
 
+// The logs of llama.cpp, for the Logs tab of the sheet of settings. The list is
+// small: the name of every log that is kept, the day and the hour it stands at,
+// its size, and which of them this run of the program is writing.
+#[tauri::command]
+pub async fn get_logs() -> Result<Value, String> {
+    Ok(web::logs_value())
+}
+
+// One log, from its end. The page asks again by itself while the update of the
+// tab stands on live or on five seconds, and once when the reader presses the
+// button of it. A name that is not the name of a log gives back the words of a
+// fault, as the page of the remote mode does.
+#[tauri::command]
+pub async fn get_log(id: String, tail: Option<u64>) -> Result<Value, String> {
+    Ok(web::log_value(&id, tail))
+}
+
 // The command line the next answer will use, read again whenever a field of the
 // Model tab moves. Nothing is started: only the arguments are built.
 #[tauri::command]

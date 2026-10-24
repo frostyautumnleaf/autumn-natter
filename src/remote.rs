@@ -153,6 +153,26 @@ fn handle(engine: &Engine, mut request: Request) {
             let id = query_value(&query, "id");
             let _ = request.respond(json_response(&web::model_settings_value(engine, &id)));
         }
+        // The logs of llama.cpp, for the Logs tab. The list is asked for on its
+        // own, and one log with it, for a log is far too big to come with the
+        // state of the page.
+        ("GET", "/api/logs") => {
+            let _ = request.respond(json_response(&web::logs_value()));
+        }
+        ("GET", "/api/log") => {
+            let id = query_value(&query, "id");
+            let value = web::log_value(&id, query_u64(&query, "tail"));
+            // A log that is not here answers with the words of a fault, and with
+            // the number that says so as well.
+            let answer = json_response(&value);
+            let _ = request.respond(
+                if value.get("ok").and_then(|v| v.as_bool()) == Some(false) {
+                    answer.with_status_code(404)
+                } else {
+                    answer
+                },
+            );
+        }
         ("POST", _) => {
             let mut body = String::new();
             // A call with no body is allowed, so a read error is not a problem.
