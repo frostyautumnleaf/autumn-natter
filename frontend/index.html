@@ -11,7 +11,7 @@
 
     bar      the model, the repository, the name of the chat, the context
              meter, and the marks for the two windows of settings
-    stage    the chat in use, and the row of small previews over it
+    stage    the chat in use
     dock     the chat box with its badges, and the line of state
     sheet    the settings, in three tabs, over the window
 
@@ -176,7 +176,7 @@ textarea, input { font: inherit; color: inherit; }
 .mark-btn .svg { width: 16px; height: 16px; }
 .mark-btn.on { color: var(--ink); background: var(--accent-soft); border-color: var(--accent-line); }
 
-/* The middle of the bar: the name of the chat, and the turn of the carousel. */
+/* The middle of the bar: the name of the chat. */
 .spot { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0;
   justify-content: center; }
 .spot .title {
@@ -184,15 +184,6 @@ textarea, input { font: inherit; color: inherit; }
   max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .spot .title.none { color: var(--faint); font-weight: 500; }
-.pager { display: inline-flex; align-items: center; gap: 1px; flex: 0 0 auto;
-  border: 1px solid var(--line); border-radius: 999px; background: var(--surface-2); height: 26px; }
-.pager button { width: 24px; height: 24px; border-radius: 999px; display: inline-flex;
-  align-items: center; justify-content: center; color: var(--dim); }
-.pager button:hover:not([disabled]) { background: var(--accent-soft); color: var(--ink); }
-.pager button[disabled] { opacity: .35; cursor: default; }
-.pager .svg { width: 13px; height: 13px; }
-.pager .count { font-size: 11.5px; color: var(--dim); padding: 0 4px; white-space: nowrap;
-  font-variant-numeric: tabular-nums; }
 
 /* The right of the bar: the meter of the context, then the settings. */
 .meter-box { flex: 0 0 auto; width: 122px; display: flex; flex-direction: column; gap: 5px;
@@ -228,7 +219,7 @@ body.home .stage { display: none; }
 .hello .where { font-size: 12.5px; color: var(--faint); max-width: 60ch; }
 .hello .where b { color: var(--dim); font-weight: 600; }
 
-/* The stage: the chat in use, and the row of previews over it. */
+/* The stage: the chat in use. */
 .stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 
 /* ------------------------------------------------------------ the thread */
@@ -237,8 +228,7 @@ body.home .stage { display: none; }
   padding: 22px 0 26px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
 }
 /* The chat makes room at the left when a chat has chapters, so the line never
-   stands over the words. The line stands clear of the round button that turns
-   the carousel, and a window too narrow for a margin of its own does not show
+   stands over the words. A window too narrow for a margin of its own does not show
    it at all. */
 .stage.withchapters .thread { padding-left: var(--rail, 116px); }
 @media (max-width: 880px) {
@@ -437,9 +427,6 @@ body.home .stage { display: none; }
 .turn.t-note { border-top: 0; margin-top: 26px; padding-top: 6px; }
 .turn.in { animation: rise 240ms ease-out; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-/* The next chat of the carousel is slid in from the side it came from. */
-@keyframes slide { from { opacity: 0; transform: translateX(var(--from, 0)); }
-  to { opacity: 1; transform: none; } }
 
 .bubble {
   max-width: 82%; padding: 11px 14px; background: var(--bubble);
@@ -693,52 +680,6 @@ pre.code .t-p { color: var(--t-pun); }
    rule is left out while the answer has no words of its own, for a line over
    nothing says nothing. */
 .writes.ruled { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
-
-/* ------------------------------------------------- the row of previews */
-/* Alt turns the chats of this place into a row of small previews. The row is a
-   second look at the same carousel: the middle preview is the chat in use, a
-   click opens it, and Escape or Alt closes the row. */
-.veil { position: absolute; inset: 0; z-index: 8; display: none; }
-.veil.on { display: block; }
-.veil::before { content: ""; position: absolute; inset: 0; background: var(--bg); opacity: 1; }
-.row-head, .row-foot { position: absolute; left: 50%; transform: translateX(-50%); z-index: 9;
-  display: none; text-align: center; color: var(--dim); font-size: 12px; width: min(640px, 88%); }
-.veil.on ~ .row-head, .veil.on ~ .row-foot { display: block; }
-.row-head { top: 18px; }
-.row-foot { bottom: 16px; font-size: 11.5px; color: var(--faint); }
-.row-head b { color: var(--text-2); font-weight: 650; }
-.row-head .at { color: var(--dim); font-weight: 400; }
-.row-foot kbd { font: inherit; font-size: 11px; color: var(--dim); background: var(--surface-2);
-  border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; margin: 0 1px; }
-.previews { position: absolute; left: 0; right: 0; top: 50%; z-index: 9; }
-.prev { position: absolute; top: 0; left: 0; display: block; width: 190px; height: 224px;
-  border-radius: var(--r-m); border: 1px solid var(--line); background: var(--surface);
-  overflow: hidden; cursor: pointer; box-shadow: var(--shadow-1); text-align: left;
-  color: var(--text); padding: 0; }
-.prev.mid { border: 2px solid var(--accent); box-shadow: var(--shadow-2); }
-.prev:hover { border-color: var(--accent-line); }
-.prev .pt { font-size: 13px; font-weight: 650; margin: 13px 13px 0; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.prev .pp { font-size: 12px; line-height: 1.45; color: var(--dim); margin: 8px 13px 0;
-  max-height: 88px; overflow: hidden;
-  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; }
-.prev .pw { position: absolute; left: 13px; right: 13px; bottom: 11px; font-size: 11px;
-  color: var(--faint); display: flex; justify-content: space-between; gap: 8px; }
-.prev .pw .rn { color: var(--ink-leaf); overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; }
-
-/* The arrows that turn the carousel. They stand at the edge of the stage and
-   only when a chat sits that way. */
-/* While the row of previews stands in front, the chat and its arrows are put
-   away, so no word of the chat shows behind a preview. */
-body.rowon .thread, body.rowon .turn-btn { visibility: hidden; }
-.turn-btn { position: absolute; top: 50%; margin-top: -17px; width: 34px; height: 34px;
-  border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
-  color: var(--dim); z-index: 6; display: inline-flex; align-items: center; justify-content: center;
-  box-shadow: var(--shadow-1); transition: color 140ms, border-color 140ms, background 140ms; }
-.turn-btn:hover { color: var(--ink); border-color: var(--accent-line); background: var(--tint); }
-.turn-btn .svg { width: 16px; height: 16px; }
-.turn-btn.l { left: 12px; } .turn-btn.r { right: 12px; }
 
 /* ------------------------------------------------------------------ dock */
 /* The chat box, and the line of state under it. The box holds its badges in a
@@ -1081,11 +1022,6 @@ pre.code.line {
   .brand .word { display: none; }
   .spot .title { max-width: 26ch; }
 }
-@media (max-width: 900px) {
-  /* The bar already holds the marks that turn the carousel, so the marks at the
-     side of the chat are put away before they can stand over the words. */
-  .turn-btn { display: none; }
-}
 @media (max-width: 860px) {
   .meter-box { width: 84px; }
   .meter-box .pct { display: none; }
@@ -1100,7 +1036,6 @@ pre.code.line {
   .field select { max-width: 110px; }
   .bubble { max-width: 92%; }
   .col { padding: 0 16px; }
-  .turn-btn.l { left: 6px; } .turn-btn.r { right: 6px; }
   .hello .mark { width: 48px; height: 48px; }
   .hello .greet { font-size: 15.5px; }
 }
@@ -1117,13 +1052,227 @@ pre.code.line {
   .gauge .spin { animation: none; }
   img.pic { animation: none; }
 }
+
+/* ------------------------------------------------------------------ side bar
+   The bar stands at the left of the window. The window is pushed aside by the
+   width of the bar, and the bar slides out of the way when the reader hides
+   it. --side-w is the width the reader dragged it to. */
+:root { --side-w: 292px; }
+.main {
+  position: absolute; inset: 0 0 0 0;
+  left: 0;
+  transition: left var(--t-key);
+}
+body.sideopen .main { left: var(--side-w); }
+.side {
+  position: absolute; top: 0; bottom: 0; left: 0; width: var(--side-w);
+  display: flex; flex-direction: column; min-width: 0;
+  background: var(--surface-2);
+  border-right: 1px solid var(--line);
+  z-index: 40;
+  transform: translateX(-100%);
+  transition: transform var(--t-key);
+}
+body.sideopen .side { transform: none; }
+.side-grip {
+  position: absolute; top: 0; right: -4px; width: 9px; height: 100%;
+  cursor: col-resize; z-index: 41; touch-action: none;
+}
+.side-grip::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px;
+  background: transparent; transition: background var(--t-key);
+}
+.side-grip:hover::after, .side-grip.drag::after { background: var(--accent); }
+
+/* The two buttons at the head of the bar. */
+.side-top { padding: 10px 10px 6px; display: grid; gap: 6px; flex: 0 0 auto; }
+.side-new, .side-arch {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 9px 11px; border-radius: var(--r-m); cursor: pointer;
+  font: inherit; font-size: 13.5px; font-weight: 600; text-align: left;
+  border: 1px solid var(--line); background: var(--surface-3); color: var(--ink);
+  transition: background var(--t-key), border-color var(--t-key), transform 80ms ease;
+}
+.side-new { border-color: var(--accent-line); background: var(--accent-soft); }
+.side-new:hover { background: var(--hover); }
+.side-arch:hover { background: var(--hover); }
+.side-new:active, .side-arch:active { transform: translateY(1px); }
+.side-new svg, .side-arch svg { width: 15px; height: 15px; flex: 0 0 auto;
+  fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
+body.archmode .side-arch { border-color: var(--accent-line); background: var(--accent-soft); }
+
+/* The list itself. */
+.side-body { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding: 2px 6px 14px; scrollbar-gutter: stable; }
+.side-foot { flex: 0 0 auto; padding: 7px 12px 9px; font-size: 11px; color: var(--faint);
+  border-top: 1px solid var(--line-soft); }
+
+/* A group: the head that folds, and the rows under it. */
+.sgroup { margin: 2px 0 6px; }
+.shead {
+  display: flex; align-items: center; gap: 5px; width: 100%;
+  padding: 5px 7px; border-radius: var(--r-s); min-width: 0;
+}
+.shead:hover { background: var(--hover); }
+.shead button {
+  border: 0; background: none; padding: 0; margin: 0; color: inherit; font: inherit;
+  cursor: pointer; display: flex; align-items: center;
+}
+.chevbtn { flex: 0 0 auto; gap: 4px; color: var(--dim); }
+.shead:hover .chevbtn { color: var(--ink); }
+.chevbtn .chev { width: 11px; height: 11px; fill: none; stroke: currentColor;
+  stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--t-key); }
+.sgroup.fold > .shead .chev { transform: rotate(-90deg); }
+.chevbtn .fol { width: 14px; height: 14px; fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linejoin: round; }
+.shead .sname {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: left; font-size: 12.5px; font-weight: 650; color: var(--strong);
+  letter-spacing: .01em; text-transform: none;
+}
+.shead:hover .sname { color: var(--ink); }
+.shead .spinmark { flex: 0 0 auto; color: var(--accent); font-size: 14px; line-height: 1; }
+.shead .snum { flex: 0 0 auto; font-size: 10.5px; font-weight: 600; color: var(--faint); }
+.sgroup > .sbody { display: block; padding-left: 10px; }
+.sgroup.fold > .sbody { display: none; }
+.side-note { padding: 3px 10px 7px; font-size: 11.5px; color: var(--faint); }
+
+/* A row: a chat, or the place a chat of that name works in. */
+.srow {
+  position: relative; display: flex; align-items: center; gap: 6px;
+  padding: 6px 7px; margin: 1px 0; border-radius: var(--r-s);
+  cursor: pointer; border: 1px solid transparent; min-width: 0;
+}
+.srow:hover { background: var(--hover); }
+.srow.on { background: var(--accent-soft); border-color: var(--accent-line); }
+.srow .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; display: none; }
+.srow.on .dot { display: block; }
+.srow .stitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 13px; color: var(--ink); }
+.srow.pin .stitle::after { content: '•'; color: var(--accent); margin-left: 6px; }
+.srow .sday { flex: 0 0 auto; font-size: 10.5px; color: var(--faint); }
+.sdots {
+  flex: 0 0 auto; width: 21px; height: 21px; border: 0; border-radius: var(--r-s);
+  background: none; color: var(--dim); cursor: pointer; display: none;
+  align-items: center; justify-content: center; padding: 0;
+}
+.srow:hover .sdots, .srow .sdots.open, .shead:hover .sdots, .shead .sdots.open { display: inline-flex; }
+.sdots:hover { background: var(--surface-3); color: var(--ink); }
+.sdots svg { width: 13px; height: 13px; fill: currentColor; }
+.srow .sarch { flex: 0 0 auto; width: 21px; height: 21px; border: 0; border-radius: var(--r-s);
+  background: none; color: var(--dim); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.srow .sarch:hover { color: var(--ink); }
+.srow .sarch svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
+
+/* The button that asks for the rest of a group. */
+.smore {
+  display: block; width: calc(100% - 18px); margin: 3px 0 2px 9px; padding: 5px 8px;
+  border: 0; border-radius: var(--r-s); background: none; cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent); text-align: left;
+}
+.smore:hover { background: var(--accent-soft); }
+
+/* A row that has just come into the list of loose chats. */
+@keyframes sidefade { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+.srow.fadein { animation: sidefade 420ms ease both; }
+
+/* The menu a chat or a repository opens. */
+.side-menu {
+  position: fixed; z-index: 60; min-width: 168px; padding: 5px; display: none;
+  background: var(--surface-3); border: 1px solid var(--line-strong);
+  border-radius: var(--r-m); box-shadow: var(--shadow-2);
+}
+.side-menu.on { display: block; }
+.side-menu button {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 7px 9px; border: 0; border-radius: var(--r-s); background: none;
+  font: inherit; font-size: 13px; color: var(--ink); text-align: left; cursor: pointer;
+}
+.side-menu button:hover { background: var(--hover); }
+.side-menu button.bad { color: var(--ink-fail); }
+.side-menu button.bad:hover { background: rgba(214, 84, 66, 0.14); }
+.side-menu button .ar { margin-left: auto; color: var(--faint); }
+.side-menu .sep { height: 1px; margin: 4px 6px; background: var(--line); }
+.side-menu .cap { padding: 5px 9px 3px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint); }
+.side-menu .sub {
+  position: fixed; left: 0; top: 0; min-width: 168px; max-height: 260px;
+  overflow-y: auto; padding: 5px; display: none;
+  background: var(--surface-3); border: 1px solid var(--line-strong);
+  border-radius: var(--r-m); box-shadow: var(--shadow-2);
+}
+.side-menu .sub.on { display: block; }
+
+/* The small window that asks. */
+.side-ask {
+  position: fixed; inset: 0; z-index: 70; display: none; align-items: center; justify-content: center;
+  background: var(--scrim);
+}
+.side-ask.on { display: flex; }
+.ask-card {
+  width: min(400px, calc(100vw - 40px)); padding: 18px 18px 14px;
+  background: var(--surface-3); border: 1px solid var(--line-strong);
+  border-radius: var(--r-l); box-shadow: var(--shadow-2);
+}
+.ask-title { font-size: 15px; font-weight: 700; color: var(--ink); }
+.ask-body { margin-top: 7px; font-size: 13px; line-height: 1.5; color: var(--dim); }
+.ask-card input {
+  display: none; width: 100%; margin-top: 12px; padding: 8px 10px;
+  font: inherit; font-size: 13.5px; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-s);
+}
+.side-ask.asking input { display: block; }
+.ask-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.ask-foot button {
+  padding: 7px 13px; border-radius: var(--r-s); cursor: pointer; font: inherit; font-size: 13px;
+  background: var(--surface); border: 1px solid var(--line); color: var(--ink);
+}
+.ask-foot button:hover { background: var(--hover); }
+.ask-ok { border-color: var(--accent-line); background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.ask-ok.bad { border-color: none; background: var(--ink-fail); color: #fff; }
 </style>
 </head>
 <body>
 
 <!-- The bar: what the program runs on, the chat in use, and the two windows of
      settings. The groups are kept apart by a hairline. -->
+<!-- The side bar. Chats stand here, the chats of a repository under it, and
+     chats that belong to no repository by themselves. The right edge is drawn
+     out to make the bar wider or narrower, and the bar goes away when the
+     reader wants the whole window for the talk. -->
+<aside class="side" id="side">
+  <div class="side-top">
+    <button class="side-new" id="sideNew" title="Create new chat">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Create new chat</span>
+    </button>
+    <button class="side-arch" id="sideArch" title="Archived chats">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v4H3zM5 10v9h14v-9M10 14h4"/></svg>
+      <span>Archived chats</span>
+    </button>
+  </div>
+  <div class="side-body" id="sideBody"></div>
+  <div class="side-foot" id="sideFoot"></div>
+  <div class="side-grip" id="sideGrip" title="Drag to make the bar wider or narrower"></div>
+</aside>
+<!-- The menu a chat or a repository opens, and the small window that asks. -->
+<div class="side-menu" id="sideMenu"></div>
+<div class="side-ask" id="sideAsk">
+  <div class="ask-card">
+    <div class="ask-title" id="askTitle"></div>
+    <div class="ask-body" id="askBody"></div>
+    <input id="askInput" spellcheck="false" />
+    <div class="ask-foot">
+      <button class="ask-cancel" id="askCancel">Cancel</button>
+      <button class="ask-ok" id="askOk">Yes</button>
+    </div>
+  </div>
+</div>
+
+<div class="main" id="main">
 <header class="bar">
+  <button class="mark-btn side-btn" id="sidebtn" title="Show or hide the side bar" aria-label="Show or hide the side bar">
+    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.7" y="2.9" width="12.6" height="10.2" rx="2.1"/><path d="M6.1 2.9v10.2"/></svg>
+  </button>
   <div class="brand">
     <img class="mark" src="assets/autumn-natter.svg" alt="">
     <span class="word">Autumn Natter</span>
@@ -1148,15 +1297,7 @@ pre.code.line {
 
   <div class="spot">
     <span class="title" id="title"></span>
-    <span class="pager" id="pager">
-      <button id="pgL" title="The chat on the left" aria-label="The chat on the left">
-        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.8 4.2 6 8l3.8 3.8"/></svg>
-      </button>
-      <span class="count" id="where"></span>
-      <button id="pgR" title="The chat on the right" aria-label="The chat on the right">
-        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 4.2 10 8l-3.8 3.8"/></svg>
-      </button>
-    </span>
+    
   </div>
 
   <div class="meter-box" id="ctx" title="Tokens the model keeps in mind for this chat">
@@ -1167,14 +1308,12 @@ pre.code.line {
     <span class="meter"><i id="ctxfill"></i></span>
   </div>
   <span class="rule"></span>
-  <button class="mark-btn" id="chatsbtn" title="Show all the chats of this list (Alt)" aria-label="Show the chats">
-    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="2.2" width="4.8" height="4.8" rx="1.2"/><rect x="9" y="2.2" width="4.8" height="4.8" rx="1.2"/><rect x="2.2" y="9" width="4.8" height="4.8" rx="1.2"/><rect x="9" y="9" width="4.8" height="4.8" rx="1.2"/></svg>
-  </button>
+  
   <button class="mark-btn" id="modelbtn" title="Settings of this model" aria-label="Settings of this model">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.6 4.6h7.2M12.6 4.6h.8M2.6 11.4h.8M6.2 11.4h7.2"/><circle cx="11.2" cy="4.6" r="1.6"/><circle cx="4.6" cy="11.4" r="1.6"/></svg>
   </button>
   <button class="mark-btn" id="settingsbtn" title="Settings of the program" aria-label="Settings of the program">
-    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.9v1.7M8 12.4v1.7M2.8 4.9l1.5.9M11.7 10.2l1.5.9M2.8 11.1l1.5-.9M11.7 5.8l1.5-.9M4.9 2.8l.9 1.5M10.2 11.7l.9 1.5M11.1 2.8l-.9 1.5M5.8 11.7l-.9 1.5"/></svg>
+    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.45" d="M14.86 6.60L14.86 9.40L12.97 9.37L12.48 10.55L13.84 11.86L11.86 13.84L10.55 12.48L9.37 12.97L9.40 14.86L6.60 14.86L6.63 12.97L5.45 12.48L4.14 13.84L2.16 11.86L3.52 10.55L3.03 9.37L1.14 9.40L1.14 6.60L3.03 6.63L3.52 5.45L2.16 4.14L4.14 2.16L5.45 3.52L6.63 3.03L6.60 1.14L9.40 1.14L9.37 3.03L10.55 3.52L11.86 2.16L13.84 4.14L12.48 5.45L12.97 6.63Z"/><circle cx="8" cy="8" r="2.15"/></svg>
   </button>
 </header>
 
@@ -1188,8 +1327,8 @@ pre.code.line {
     <div class="where" id="homenote"></div>
   </div>
 
-  <!-- The chat in use. The chats beside it are turned by the arrows here and by
-       the row of small previews, and are not drawn beside it. -->
+  <!-- The chat in use. The other chats stand in the side bar at the left, and
+     are not drawn beside it. -->
   <div class="stage" id="stage">
     <!-- The chapters the model marked. They stand out of the words, on a line
          at the left of the chat: one node for the start of one chapter. -->
@@ -1200,22 +1339,12 @@ pre.code.line {
     <div class="thread" id="thread">
       <div class="col" id="col"></div>
     </div>
-    <button class="turn-btn l hidden" id="turnL" title="The chat on the left" aria-label="The chat on the left">
-      <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.8 4.2 6 8l3.8 3.8"/></svg>
-    </button>
-    <button class="turn-btn r hidden" id="turnR" title="The chat on the right" aria-label="The chat on the right">
-      <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 4.2 10 8l-3.8 3.8"/></svg>
-    </button>
+    
+    
 
-    <!-- The row of small previews. Alt brings it up over the chat. -->
-    <div class="veil" id="veil">
-      <div class="previews" id="previews"></div>
-    </div>
-    <div class="row-head" id="pcount"></div>
-    <div class="row-foot">
-      Click a card to open it. Drag, arrows, WASD or the wheel move along the row.
-      <kbd>Escape</kbd> or <kbd>Alt</kbd> closes the row.
-    </div>
+
+    
+    
   </div>
 
   <!-- The chat box. The badges stand in a row of their own under the words, so
@@ -1296,6 +1425,8 @@ pre.code.line {
   </div>
 
 </div>
+</div>
+
 
 <!-- The settings, in three tabs over the window. -->
 <div class="overlay hidden" id="overlay">
@@ -1653,11 +1784,9 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 
 // The parts of the page that stay in place. Their words are written again on
 // every draw.
-var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'pager', 'pgL', 'pgR', 'where',
-  'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
-  'stage', 'thread', 'col', 'turnL', 'turnR',
-  'veil', 'previews', 'pcount', 'greet', 'homenote', 'dot', 'status', 'rate', 'hint',
-  'newchat', 'chatsbtn', 'settingsbtn', 'modelbtn', 'chapters', 'timeline',
+var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
+  'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate', 'hint',
+  'newchat', 'settingsbtn', 'modelbtn', 'chapters', 'timeline',
   'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
@@ -1738,6 +1867,8 @@ function draw(s) {
   document.body.classList.toggle('dark', !!s.dark);
   readChatting(s);
   drawHome(s);
+  if (s.structure_rev !== listsRev) { listsRev = s.structure_rev; fetchLists(); }
+  drawSide(s);
   fillSelect(el.model, s.models, s.model.id, function (m) { return m.name; });
   fillRepos(s);
   el.kind.textContent = s.model.kind;
@@ -1749,7 +1880,6 @@ function draw(s) {
 
   drawContext(s);
   drawProgress(s);
-  drawCarousel(s);
   drawBadges(s);
 
   // The line of state. The mark beats while the program is at work, and it
@@ -1773,7 +1903,6 @@ function draw(s) {
   drawThread(s);
   drawChapters(s);
   drawTimeline(s);
-  if (ov.on) { rowCount(s); buildPreviews(ov.pos); placePreviews(); }
 }
 
 // Chatting. The switches of the Chatting section are read again with every
@@ -2145,7 +2274,9 @@ function hintFor(s) {
   if (document.activeElement === el.draft && el.draft.value === '') {
     return '<kbd>Enter</kbd> sends, <kbd>Shift</kbd> + <kbd>Enter</kbd> a new line';
   }
-  return '<kbd>Alt</kbd> shows the chats';
+  return side.open
+    ? 'The chats stand in the side bar at the left'
+    : 'The side bar is put away';
 }
 
 // A list is built again only when its content changed. This keeps an open
@@ -2207,7 +2338,6 @@ function drawHome(s) {
   drawHomeNote(s);
   if (home === was) { return; }
   slidePart(el.dock, function () { document.body.classList.toggle('home', home); });
-  if (home) { showRow(false); }
 }
 
 // One quiet line under the greeting: which model answers, how much room it has,
@@ -4695,324 +4825,6 @@ function gotoSummary(one) {
   });
 }
 
-// ---------------------------------------------------------------- carousel
-//
-// The chats of one place stand in a carousel inside the engine, and the chat in
-// the middle is the chat in use. This window draws only that chat: the chats
-// beside it are seen in the row of small previews. Turning the carousel slides
-// the chat out of the way and the next one in.
-function drawCarousel(s) {
-  var count = s.chats.length;
-  var index = s.carousel ? s.carousel.index : 0;
-  var left = index > 0;
-  var right = index < count - 1;
-
-  el.turnL.classList.toggle('hidden', !left);
-  el.turnR.classList.toggle('hidden', !right);
-  el.pager.classList.toggle('hidden', count < 2);
-  el.pgL.disabled = !left;
-  el.pgR.disabled = !right;
-  el.where.textContent = count > 1 ? (index + 1) + ' of ' + count : '';
-
-  // The chat changed, so the new one is slid in from the side the old one stood
-  // at. The number is taken from the list of the draw before this one, because
-  // the state in hand has already moved.
-  if (s.chat.id !== lastChat) {
-    var was = indexOfId(lastIds, lastChat);
-    var forward = was < 0 ? true : index >= was;
-    if (lastChat && !s.home) { slideChat(forward ? 1 : -1); }
-    lastChat = s.chat.id || '';
-  }
-  lastIds = s.chats.map(function (c) { return c.id; });
-}
-
-// Which place an id sits at in a list of ids, or -1 when it is gone.
-function indexOfId(ids, id) {
-  for (var n = 0; n < ids.length; n++) { if (ids[n] === id) { return n; } }
-  return -1;
-}
-
-// The chat is slid in from the side the carousel was turned to.
-function slideChat(direction) {
-  if (reduce) { return; }
-  var from = direction > 0 ? 26 : -26;
-  el.col.style.animation = 'none';
-  void el.col.offsetWidth;
-  el.col.style.animation = 'slide ' + (260) + 'ms ease-out';
-  el.col.style.setProperty('--from', from + 'px');
-}
-
-
-// ---------------------------------------------------------------- the row
-//
-// The Alt key or the mark in the bar turns the chats of this place into a row
-// of small previews over the chat. One click on a preview opens that chat. The
-// arrows, A and D, a drag, a flick and the wheel move along the row. A count of
-// the chats stands above the row, and a line of keys stands under it.
-
-// The state of the row. The place of every preview is worked out from these
-// numbers on every frame, so nothing is built again while the row moves.
-var ov = {
-  on: false,     // true while the row is up
-  pos: 0,        // where the row stands, counted in previews
-  target: 0,     // where the row wants to rest
-  speed: 0,      // previews for every frame, from a flick
-  open: 1,       // 0 to 1 while the row settles after it came up
-  drag: false,   // true while the pointer holds the row
-  from: 0,       // where the row stood when the pointer went down
-  pointer: 0,    // where the pointer was when it went down
-  last: 0,       // where the pointer stood in the last move
-  flick: 0,      // speed of the last move, in previews for one frame
-  frame: 0,      // the frame that is planned, or 0 for none
-  pressed: -1    // which preview the pointer went down on, or -1
-};
-
-// Space between two previews.
-var PREV_GAP = 18;
-
-// How many chats this place holds.
-function chatCount() { return cur && cur.chats ? cur.chats.length : 0; }
-
-// The chat the carousel stands on.
-function chatIndex() { return cur && cur.carousel ? cur.carousel.index : 0; }
-
-// Keeps a chat number inside the list of this place.
-function keepInside(value) { return Math.max(0, Math.min(chatCount() - 1, value)); }
-
-// The line above the row: how many chats this place holds, and where they are.
-function rowCount(s) {
-  el.pcount.innerHTML = '';
-  var strong = make('b');
-  var n = s.chats.length;
-  strong.textContent = n === 0 ? 'There is no chat here yet'
-    : n + ' ' + (n === 1 ? 'chat' : 'chats');
-  el.pcount.appendChild(strong);
-  if (n > 0) {
-    var at = make('span', 'at');
-    at.textContent = (s.repository.id ? ' in ' + s.repository.name : ' with no repository')
-      + '. ' + (chatIndex() + 1) + ' is open.';
-    el.pcount.appendChild(at);
-  }
-}
-
-// Width of one preview, and the step from one preview to the next.
-function prevWidth() {
-  var width = el.stage.clientWidth || 640;
-  return Math.max(158, Math.min(232, (width - 60) / 4));
-}
-function prevStep() { return prevWidth() + PREV_GAP; }
-
-// The previews are made once and only moved after that. Only the fifteen about
-// the chat in use are made, so a place with a hundred chats stays light to draw.
-function buildPreviews(centre) {
-  var start = Math.max(0, Math.min(Math.max(0, chatCount() - 15),
-      Math.round(keepInside(centre)) - 7));
-  var stop = Math.min(chatCount(), start + 15);
-  var key = start + '-' + stop + '-'
-    + cur.chats.slice(start, stop).map(function (c) { return c.id; }).join('|');
-  if (el.previews.dataset.key === key) { return; }
-  el.previews.dataset.key = key;
-  el.previews.innerHTML = '';
-  for (var n = start; n < stop; n++) {
-    // A plain div, and not a button: the box of a form control puts its words
-    // in the middle of itself, which is the wrong place for a preview.
-    var card = make('div', 'prev');
-    card.setAttribute('role', 'button');
-    card.setAttribute('tabindex', '0');
-    card.dataset.n = n;
-    card.dataset.id = cur.chats[n].id;
-    var title = make('div', 'pt');
-    title.textContent = cur.chats[n].title;
-    var line = make('div', 'pp');
-    line.textContent = cur.chats[n].preview || 'Nothing written yet';
-    var foot = make('div', 'pw');
-    var repo = make('span', 'rn');
-    repo.textContent = cur.chats[n].repo || '';
-    var when = make('span');
-    when.textContent = cur.chats[n].when || '';
-    foot.appendChild(repo);
-    foot.appendChild(when);
-    card.appendChild(title);
-    card.appendChild(line);
-    card.appendChild(foot);
-    el.previews.appendChild(card);
-  }
-}
-
-// Stand the previews in their place. Only the place, the size and the strength
-// of a card change, which is what keeps the motion smooth.
-function placePreviews() {
-  var step = prevStep();
-  var width = prevWidth();
-  var height = Math.round(width * 1.18);
-  var centre = (el.stage.clientWidth - width) / 2;
-  // The room of the row is the height of a card, so the row stands in the
-  // middle of the stage whatever the size of the window.
-  el.previews.style.height = height + 'px';
-  el.previews.style.marginTop = (-height / 2) + 'px';
-  // The row comes up big and shrinks into place, which is the look of a scale
-  // that goes from 1.6 down to 1.
-  var settle = 1 + (1 - ov.open) * 0.6;
-  var middle = Math.round(ov.pos);
-  var cards = el.previews.children;
-  for (var n = 0; n < cards.length; n++) {
-    var at = Number(cards[n].dataset.n);
-    var x = centre + (at - ov.pos) * step;
-    var on = at === middle;
-    cards[n].style.width = width + 'px';
-    cards[n].style.height = height + 'px';
-    cards[n].style.transform = 'translate(' + x.toFixed(1) + 'px, 0) scale('
-      + settle.toFixed(3) + ')';
-    cards[n].style.opacity = (ov.open * (on ? 1 : 0.62)).toFixed(3);
-    cards[n].classList.toggle('mid', on);
-  }
-}
-
-// One frame of the row. A flick keeps gliding and gives a little speed back on
-// every frame, and the row then settles on the nearest preview.
-function stepRow() {
-  ov.frame = 0;
-  var last = Math.max(0, chatCount() - 1);
-  if (ov.open < 1) { ov.open = Math.min(1, ov.open + 0.07); }
-  if (!ov.drag) {
-    if (Math.abs(ov.speed) > 0.008 && !reduce) {
-      ov.pos += ov.speed;
-      ov.speed *= 0.94;
-      // At an end there is nothing left to see, so the row stops there.
-      if (ov.pos < 0) { ov.pos = 0; ov.speed = 0; }
-      if (ov.pos > last) { ov.pos = last; ov.speed = 0; }
-      ov.target = keepInside(Math.round(ov.pos));
-    } else {
-      ov.speed = 0;
-      var gap = ov.target - ov.pos;
-      if (Math.abs(gap) < 0.004) { ov.pos = ov.target; } else { ov.pos += gap * 0.22; }
-    }
-  }
-  placePreviews();
-  var still = ov.speed === 0 && ov.pos === ov.target && ov.open >= 1;
-  if (ov.on && !still) { runRow(); }
-}
-
-// Ask for the next frame, once.
-function runRow() {
-  if (ov.on && !ov.frame) { ov.frame = requestAnimationFrame(stepRow); }
-}
-
-// Bring the row up, or put it away again.
-function showRow(on) {
-  if (on === ov.on) { return; }
-  ov.on = on;
-  el.veil.classList.toggle('on', on);
-  el.chatsbtn.classList.toggle('on', on);
-  document.body.classList.toggle('rowon', on);
-  if (!on) {
-    if (ov.frame) { cancelAnimationFrame(ov.frame); ov.frame = 0; }
-    ov.drag = false;
-    return;
-  }
-  ov.pos = chatIndex();
-  ov.target = chatIndex();
-  ov.speed = 0;
-  ov.open = reduce ? 1 : 0;
-  ov.drag = false;
-  ov.pressed = -1;
-  if (cur) { rowCount(cur); }
-  buildPreviews(ov.pos);
-  placePreviews();
-  runRow();
-}
-
-// One step with the keys. A key always moves the row, so the middle preview
-// changes even when the row stood on a preview edge.
-function rowStep(step) {
-  ov.speed = 0;
-  ov.target = keepInside(Math.round(ov.target) + step);
-  if (reduce) { ov.pos = ov.target; }
-  runRow();
-}
-
-// Open one chat of the row. Without a number, the chat in the middle is opened.
-function pickRow(at) {
-  var n = at === undefined ? Math.round(ov.pos) : keepInside(Math.round(at));
-  if (!cur || !cur.chats[n]) { return; }
-  showRow(false);
-  openChat(cur.chats[n].id);
-}
-
-// The pointer went down on the row.
-el.previews.addEventListener('pointerdown', function (event) {
-  var card = event.target.closest ? event.target.closest('.prev') : null;
-  ov.pressed = card ? Number(card.dataset.n) : -1;
-  ov.drag = true;
-  ov.from = ov.pos;
-  ov.pointer = event.clientX;
-  ov.last = event.clientX;
-  ov.flick = 0;
-  ov.speed = 0;
-  if (el.previews.setPointerCapture) { el.previews.setPointerCapture(event.pointerId); }
-  runRow();
-});
-
-// The pointer moved while the row was held down, so the row follows it and a
-// preview stays under the pointer.
-el.previews.addEventListener('pointermove', function (event) {
-  if (!ov.drag) { return; }
-  var step = prevStep();
-  ov.flick = (event.clientX - ov.last) / step;
-  ov.last = event.clientX;
-  var last = Math.max(0, chatCount() - 1);
-  // A drag to the right brings the chats that came before, so the count of the
-  // row goes the other way.
-  ov.pos = Math.max(-0.6, Math.min(last + 0.6,
-      ov.from - (event.clientX - ov.pointer) / step));
-  ov.target = keepInside(Math.round(ov.pos));
-  runRow();
-});
-
-// The pointer let go. A short press that did not move opens the preview it stood
-// on. A flick keeps gliding until the row settles.
-el.previews.addEventListener('pointerup', function (event) {
-  if (!ov.drag) { return; }
-  ov.drag = false;
-  var moved = Math.abs(event.clientX - ov.pointer);
-  var stood = ov.pressed;
-  ov.pressed = -1;
-  if (moved < 6) {
-    if (stood >= 0) { pickRow(stood); } else { runRow(); }
-    return;
-  }
-  ov.speed = Math.max(-0.6, Math.min(0.6, -ov.flick));
-  runRow();
-});
-
-el.previews.addEventListener('pointercancel', function () {
-  ov.drag = false;
-  runRow();
-});
-
-// The wheel moves along the row.
-el.previews.addEventListener('wheel', function (event) {
-  event.preventDefault();
-  var down = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-  rowStep(down > 0 ? 1 : -1);
-}, { passive: false });
-
-// The keys of the row. Alt brings the row up or takes it away, Escape puts it
-// away, the arrows and A and D move along it, and Enter opens the middle preview.
-document.addEventListener('keydown', function (event) {
-  if (event.key === 'Alt') {
-    event.preventDefault();
-    showRow(!ov.on);
-    return;
-  }
-  if (!ov.on) { return; }
-  if (event.key === 'Escape') { showRow(false); return; }
-  if (event.key === 'ArrowLeft' || event.key === 'a') { rowStep(-1); return; }
-  if (event.key === 'ArrowRight' || event.key === 'd') { rowStep(1); return; }
-  if (event.key === 'Enter') { pickRow(); return; }
-  // Nothing else reaches the chat box while the row is up.
-  if (event.key !== 'Tab') { event.preventDefault(); }
-});
 
 // ---------------------------------------------------------------- the box
 //
@@ -5298,17 +5110,11 @@ el.send.addEventListener('click', function () {
   send();
 });
 el.newchat.addEventListener('click', function () { post('/api/new_chat'); });
-el.chatsbtn.addEventListener('click', function () { showRow(!ov.on); });
-el.turnL.addEventListener('click', function () { roll(-1); });
-el.turnR.addEventListener('click', function () { roll(1); });
-el.pgL.addEventListener('click', function () { roll(-1); });
-el.pgR.addEventListener('click', function () { roll(1); });
 // A new window size changes the shape of the bar, the width of the row, and the
 // room the chat has for itself.
 window.addEventListener('resize', function () {
   setChatWidth();
   if (cur) { draw(cur); }
-  if (ov.on) { buildPreviews(ov.pos); placePreviews(); }
 });
 el.model.addEventListener('change', function (e) { post('/api/select_model', { id: e.target.value }); });
 el.repo.addEventListener('change', function (e) { post('/api/select_repository', { id: e.target.value }); });
@@ -5342,8 +5148,6 @@ el.draft.addEventListener('blur', function () {
 });
 
 el.draft.addEventListener('keydown', function (e) {
-  // While the row of previews is up, the row takes every key.
-  if (ov.on) { return; }
   if (e.key === 'Enter' && !e.shiftKey && !touch) {
     e.preventDefault();
     send();
@@ -5412,7 +5216,6 @@ function pasteForTheBox(e) {
 }
 
 // The paste is taken from the whole window, as the file let go is: a Ctrl+V
-// over the chat, over the row of previews or over the bar hangs its files on
 // the message, and the reader need not find the box first.
 document.addEventListener('paste', function (e) {
   if (!pasteForTheBox(e)) { return; }
@@ -5468,7 +5271,6 @@ el.box.addEventListener('dragleave', function (e) {
   if (!el.box.contains(e.relatedTarget)) { el.box.classList.remove('drop'); }
 });
 
-function roll(step) { post('/api/roll', { step: step }); }
 function openChat(id) { post('/api/open_chat', { id: id }); }
 
 
@@ -6173,7 +5975,6 @@ byId('fDark').addEventListener('change', function (e) {
   node.addEventListener('change', refreshPreview);
 });
 
-// Escape puts the sheet away, and Alt does not reach the row of previews behind
 // it. The other keys go through, so a field can still be written in.
 document.addEventListener('keydown', function (e) {
   if (!overlayOpen()) { return; }
@@ -6183,7 +5984,6 @@ document.addEventListener('keydown', function (e) {
 
 // Escape puts the whole of a summary away, and the key goes no further: the chat
 // box behind the sheet must not stop an answer with it. Alt is left alone, so the
-// row of previews still comes up over the sheet when the reader asks for it.
 document.addEventListener('keydown', function (e) {
   if (!summaryOpen()) { return; }
   if (e.key === 'Escape') { closeSummary(); e.preventDefault(); e.stopPropagation(); }
@@ -6193,6 +5993,574 @@ document.addEventListener('keydown', function (e) {
 grow();
 poll();
 window.setTimeout(function () { el.draft.focus(); }, 60);
+
+// ------------------------------------------------------------------ side bar
+//
+// The bar at the left holds every chat: the ones that were pinned at the top,
+// then the chats of each repository under their repository, then the chats that
+// belong to no repository. A repository group shows five of its chats until the
+// reader asks for the rest. The loose chats grow as the reader scrolls down and
+// fall back again when the reader goes back to the top.
+//
+// The bar is drawn out at its right edge, hidden with the mark in the bar, and
+// the window is pushed aside by its width.
+
+var SIDE_MIN = 208;
+var SIDE_MAX = 560;
+var SIDE_DEFAULT = 292;
+var LOOSE_AT_FIRST = 10;
+var LOOSE_MORE = 5;
+var REPO_AT_FIRST = 5;
+
+var side = {
+  open: true, w: SIDE_DEFAULT, arch: false, fold: {}, more: {},
+  window: LOOSE_AT_FIRST, fadeFrom: -1
+};
+var lastView = null;
+var lists = null;
+var listsRev = -1;
+var sideMenuFor = null;
+
+function sEl(id) { return document.getElementById(id); }
+
+function sideClamp(w) {
+  return Math.max(SIDE_MIN, Math.min(SIDE_MAX, Math.round(w)));
+}
+
+// The bar keeps its width, whether it is put away, and which groups are folded
+// from one time the program is opened to the next.
+function sideLoad() {
+  try {
+    var text = window.localStorage.getItem('natter.side');
+    if (!text) { return; }
+    var saved = JSON.parse(text);
+    if (typeof saved.w === 'number') { side.w = sideClamp(saved.w); }
+    if (typeof saved.open === 'boolean') { side.open = saved.open; }
+    if (saved.fold) { side.fold = saved.fold; }
+  } catch (e) { /* A bar that remembers nothing opens as it always did. */ }
+}
+
+function sideSave() {
+  try {
+    window.localStorage.setItem('natter.side', JSON.stringify({
+      w: side.w, open: side.open, fold: side.fold
+    }));
+  } catch (e) { /* A window that cannot remember, cannot remember. */ }
+}
+
+function sideApply() {
+  document.body.classList.toggle('sideopen', side.open);
+  document.body.classList.toggle('archmode', side.arch);
+  document.documentElement.style.setProperty('--side-w', side.w + 'px');
+  var btn = sEl('sidebtn');
+  if (btn) { btn.classList.toggle('on', side.open); }
+}
+
+function sideShow(on) {
+  side.open = !!on;
+  sideApply();
+  sideSave();
+}
+
+// The lists come from the program when they are made anew: a chat opened,
+// named, pinned, moved, put away, or written for the first time.
+function fetchLists() {
+  var done = function (v) { lists = v; drawSide(lastView); };
+  var fail = function () { /* The bar keeps the lists it last saw. */ };
+  if (typeof invoke === 'function') {
+    invoke('action', { path: 'lists', body: {} }).then(done, fail);
+    return;
+  }
+  // The page of the remote mode has no bridge: it asks the small HTTP server.
+  fetch('/api/lists', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: '{}' }).then(function (r) { return r.json(); }).then(done, fail);
+}
+
+function markOf(c) { return c.when || ''; }
+
+function sideNode(name, cls, text) {
+  var node = document.createElement(name);
+  if (cls) { node.className = cls; }
+  if (text !== undefined && text !== null) { node.textContent = text; }
+  return node;
+}
+
+function sidePicture(path, cls) {
+  var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  if (cls) { svg.setAttribute('class', cls); }
+  var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', path);
+  svg.appendChild(p);
+  return svg;
+}
+
+var PICS = {
+  chev: 'M6 9.5l6 6 6-6',
+  folderOpen: 'M3 7v12h18V9H11L9 7H3z',
+  folderShut: 'M3 6h6l2 2h10v11H3V6z',
+  bubble: 'M4 5h16v11H9l-5 4V5z',
+  dots: 'M12 6.5a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2zm0 5.1a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2zm0 5.1a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2z'
+};
+
+// A chat of a group. The whole row opens the chat; the three dots, or the right
+// button of the mouse, open the menu of the chat.
+function sideChatRow(c, where, at) {
+  var row = sideNode('div', 'srow');
+  row.dataset.id = c.id;
+  if (c.active || (lastView && c.id === lastView.chat_id)) { row.classList.add('on'); }
+  if (c.pinned) { row.classList.add('pin'); }
+  if (side.fadeFrom >= 0 && at >= side.fadeFrom) { row.classList.add('fadein'); }
+  row.appendChild(sideNode('span', 'dot'));
+  row.appendChild(sideNode('span', 'stitle', c.title || 'A new chat'));
+  var day = sideNode('span', 'sday', markOf(c));
+  row.appendChild(day);
+  if (side.arch) {
+    var back = sideNode('button', 'sarch');
+    back.title = 'Bring this chat back';
+    back.appendChild(sidePicture('M4 12h12M12 6l6 6-6 6M20 4v16', ''));
+    back.addEventListener('click', function (e) {
+      e.stopPropagation();
+      post('/api/archive_chat', { id: c.id, on: false });
+    });
+    row.appendChild(back);
+  }
+  var dots = sideNode('button', 'sdots');
+  dots.title = 'Settings of this chat';
+  dots.appendChild(sidePicture(PICS.dots, ''));
+  dots.addEventListener('click', function (e) {
+    e.stopPropagation();
+    sideOpenMenu('chat', c, where, dots);
+  });
+  row.appendChild(dots);
+  row.addEventListener('click', function () {
+    if (side.arch) { sideArch(false); }
+    post('/api/open_chat', { id: c.id });
+  });
+  row.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+    side.pointerX = e.clientX;
+    side.pointerY = e.clientY;
+    sideOpenMenu('chat', c, where, dots);
+  });
+  return row;
+}
+
+// A repository: the head that folds, and the chats under it.
+function sideRepoGroup(repo, chats, where) {
+  var group = sideNode('div', 'sgroup');
+  var head = sideNode('div', 'shead');
+  if (side.fold[repo.id]) { group.classList.add('fold'); }
+  var fold = sideNode('button', 'chevbtn');
+  fold.title = side.fold[repo.id] ? 'Show the chats of this repository' : 'Hide the chats of this repository';
+  fold.appendChild(sidePicture(PICS.chev, 'chev'));
+  fold.appendChild(sidePicture(side.fold[repo.id] ? PICS.folderShut : PICS.folderOpen, 'fol'));
+  fold.addEventListener('click', function (e) {
+    e.stopPropagation();
+    side.fold[repo.id] = !side.fold[repo.id];
+    sideSave();
+    drawSide(lastView);
+  });
+  head.appendChild(fold);
+  var name = sideNode('button', 'sname', repo.name);
+  name.title = 'Work in this repository';
+  name.addEventListener('click', function (e) {
+    e.stopPropagation();
+    post('/api/select_repository', { id: repo.id });
+  });
+  head.appendChild(name);
+  if (repo.pinned) { head.appendChild(sideNode('span', 'spinmark', '•')); }
+  head.appendChild(sideNode('span', 'snum', String(chats.length)));
+  var dots = sideNode('button', 'sdots');
+  dots.title = 'Settings of this repository';
+  dots.appendChild(sidePicture(PICS.dots, ''));
+  dots.addEventListener('click', function (e) {
+    e.stopPropagation();
+    sideOpenMenu('repo', repo, where, dots);
+  });
+  head.appendChild(dots);
+  group.appendChild(head);
+
+  var body = sideNode('div', 'sbody');
+  var shown = side.more[repo.id] ? chats.length : Math.min(REPO_AT_FIRST, chats.length);
+  for (var i = 0; i < shown; i++) { body.appendChild(sideChatRow(chats[i], repo.id, i)); }
+  if (chats.length > REPO_AT_FIRST) {
+    var more = sideNode('button', 'smore',
+      side.more[repo.id] ? 'Show fewer chats' : 'Show all ' + chats.length + ' chats');
+    more.addEventListener('click', function () {
+      side.more[repo.id] = !side.more[repo.id];
+      drawSide(lastView);
+    });
+    body.appendChild(more);
+  }
+  group.appendChild(body);
+  return group;
+}
+
+function drawSide(s) {
+  if (s) { lastView = s; }
+  var body = sEl('sideBody');
+  if (!body) { return; }
+  var keep = body.scrollTop;
+  body.innerHTML = '';
+  if (!lists) {
+    side.fadeFrom = -1;
+    body.appendChild(sideNode('div', 'side-note', 'Chats come here as you make them.'));
+    sideApply();
+    return;
+  }
+  var repos = lists.repositories || [];
+  var loose = lists.loose || [];
+  var pinnedChats = [];
+  var pinnedRepos = [];
+  var workRepos = [];
+  repos.forEach(function (repo) {
+    if (repo.pinned) { pinnedRepos.push(repo); } else { workRepos.push(repo); }
+  });
+  loose.forEach(function (c) { if (c.pinned) { pinnedChats.push(c); } });
+
+  if (side.arch) {
+    var agroup = sideNode('div', 'sgroup');
+    var ahead = sideNode('div', 'shead');
+    ahead.appendChild(sideNode('span', 'sname', 'Archived chats'));
+    ahead.appendChild(sideNode('span', 'snum', String((lists.archived || []).length)));
+    agroup.appendChild(ahead);
+    var abody = sideNode('div', 'sbody');
+    (lists.archived || []).forEach(function (c, i) { abody.appendChild(sideChatRow(c, c.repo, i)); });
+    if (!(lists.archived || []).length) {
+      abody.appendChild(sideNode('div', 'side-note', 'No chat has been put away.'));
+    }
+    agroup.appendChild(abody);
+    body.appendChild(agroup);
+  } else {
+    if (pinnedChats.length || pinnedRepos.length) {
+      var pgroup = sideNode('div', 'sgroup');
+      if (side.fold.__pinned) { pgroup.classList.add('fold'); }
+      var phead = sideNode('div', 'shead');
+      var pfold = sideNode('button', 'chevbtn');
+      pfold.appendChild(sidePicture(PICS.chev, 'chev'));
+      pfold.appendChild(sidePicture(side.fold.__pinned ? PICS.folderShut : PICS.folderOpen, 'fol'));
+      pfold.addEventListener('click', function () {
+        side.fold.__pinned = !side.fold.__pinned;
+        sideSave();
+        drawSide(lastView);
+      });
+      phead.appendChild(pfold);
+      phead.appendChild(sideNode('span', 'sname', 'Pinned'));
+      phead.appendChild(sideNode('span', 'snum',
+        String(pinnedChats.length + pinnedRepos.length)));
+      pgroup.appendChild(phead);
+      var pbody = sideNode('div', 'sbody');
+      pinnedChats.forEach(function (c, i) { pbody.appendChild(sideChatRow(c, '', i)); });
+      pinnedRepos.forEach(function (repo) {
+        pbody.appendChild(sideRepoGroup(repo, repo.chats || [], repo.id));
+      });
+      pgroup.appendChild(pbody);
+      body.appendChild(pgroup);
+    }
+    workRepos.forEach(function (repo) {
+      body.appendChild(sideRepoGroup(repo, repo.chats || [], repo.id));
+    });
+    var lgroup = sideNode('div', 'sgroup');
+    var lhead = sideNode('div', 'shead');
+    if (side.fold.__loose) { lgroup.classList.add('fold'); }
+    var lfold = sideNode('button', 'chevbtn');
+    lfold.appendChild(sidePicture(PICS.chev, 'chev'));
+    lfold.appendChild(sidePicture(side.fold.__loose ? PICS.folderShut : PICS.folderOpen, 'fol'));
+    lfold.addEventListener('click', function () {
+      side.fold.__loose = !side.fold.__loose;
+      sideSave();
+      drawSide(lastView);
+    });
+    lhead.appendChild(lfold);
+    lhead.appendChild(sideNode('span', 'sname', 'Loose chats'));
+    lhead.appendChild(sideNode('span', 'snum', String(loose.length)));
+    lgroup.appendChild(lhead);
+    var lbody = sideNode('div', 'sbody');
+    var rest = loose.filter(function (c) { return !c.pinned; });
+    for (var i = 0; i < Math.min(side.window, rest.length); i++) {
+      lbody.appendChild(sideChatRow(rest[i], '', i));
+    }
+    if (rest.length > side.window) {
+      lbody.appendChild(sideNode('div', 'side-note', 'Scroll down for more chats.'));
+    }
+    lgroup.appendChild(lbody);
+    body.appendChild(lgroup);
+  }
+  var foot = sEl('sideFoot');
+  if (foot) {
+    var count = 0;
+    repos.forEach(function (r) { count += (r.chats || []).length; });
+    count += loose.length;
+    foot.textContent = side.arch
+      ? ((lists.archived || []).length + ' put away')
+      : (count + (count === 1 ? ' chat' : ' chats') + ', ' + repos.length + ' repositories');
+  }
+  body.scrollTop = keep;
+  // The mark of the fade is spent: only the chats that come in at the bottom
+  // of the loose list are drawn fading.
+  side.fadeFrom = -1;
+  sideApply();
+}
+
+// The menu of a chat or of a repository. It opens under the mark that was
+// clicked, or under the mouse of a right click.
+function sideOpenMenu(kind, item, where, anchor) {
+  var menu = sEl('sideMenu');
+  if (sideMenuFor && sideMenuFor.anchor) { sideMenuFor.anchor.classList.remove('open'); }
+  menu.innerHTML = '';
+  sideMenuFor = { kind: kind, item: item, anchor: anchor };
+  if (anchor) { anchor.classList.add('open'); }
+
+  if (kind === 'chat') {
+    menu.appendChild(sideItem('Rename', function () {
+      sideAskText('Name this chat', 'The name stands in the side bar.', item.title || '', function (text) {
+        post('/api/rename_chat', { id: item.id, title: text });
+      });
+    }));
+    menu.appendChild(sideItem(item.pinned ? 'Unpin' : 'Pin', function () {
+      post('/api/pin_chat', { id: item.id, on: !item.pinned });
+    }));
+    var move = sideItem('Move to', null);
+    move.classList.add('hassub');
+    var sub = sideNode('div', 'sub');
+    var places = lists.repositories || [];
+    if ((item.repo || where || '') !== '') {
+      sub.appendChild(sideItem('No repository', function () {
+        post('/api/move_chat', { id: item.id, repo: '' });
+      }));
+    }
+    places.forEach(function (r) {
+      if ((item.repo || where || '') === r.id) { return; }
+      sub.appendChild(sideItem(r.name, function () {
+        post('/api/move_chat', { id: item.id, repo: r.id });
+      }));
+    });
+    if (!sub.childNodes.length) { sub.appendChild(sideNode('div', 'cap', 'No other place')); }
+    // The wing hangs off the menu itself, not off the button: a button of the
+    // browser keeps what it holds inside itself, and the wing stands outside.
+    menu.appendChild(sub);
+    move.addEventListener('mouseenter', function () {
+      sideSubEnter();
+      // The wing of places stands beside the menu, on the side where the
+      // window has room for it.
+      var box = menu.getBoundingClientRect();
+      var at = move.getBoundingClientRect();
+      sub.classList.add('on');
+      var wide = sub.offsetWidth;
+      sub.style.left = (box.right + wide + 12 > window.innerWidth)
+        ? Math.max(6, Math.round(box.left - wide - 3)) + 'px'
+        : Math.round(box.right + 3) + 'px';
+      sub.style.top = Math.max(6, Math.min(Math.round(at.top - 5),
+        window.innerHeight - sub.offsetHeight - 8)) + 'px';
+    });
+    // The wing stays while the mouse is over either of the two, and goes when
+    // the mouse has left both.
+    move.addEventListener('mouseleave', function () { sideSubLeave(); });
+    sub.addEventListener('mouseenter', function () { sideSubEnter(); });
+    sub.addEventListener('mouseleave', function () { sideSubLeave(); });
+    menu.appendChild(move);
+    menu.appendChild(sideNode('div', 'sep'));
+    if (side.arch) {
+      menu.appendChild(sideItem('Bring back', function () {
+        post('/api/archive_chat', { id: item.id, on: false });
+      }));
+    } else {
+      menu.appendChild(sideItem('Archive', function () {
+        post('/api/archive_chat', { id: item.id, on: true });
+      }));
+    }
+    menu.appendChild(sideNode('div', 'sep'));
+    menu.appendChild(sideItem('Delete', function () {
+      sideAskYes('Delete this chat?', 'The words of “' + (item.title || 'A new chat') +
+        '” are gone, and the chat is not brought back.', 'Delete', function () {
+        post('/api/delete_chat', { id: item.id });
+      });
+    }, true));
+  } else {
+    menu.appendChild(sideItem('Rename', function () {
+      sideAskText('Name this repository', 'The name stands in the side bar.', item.name || '', function (text) {
+        post('/api/rename_repo', { id: item.id, name: text });
+      });
+    }));
+    menu.appendChild(sideItem(item.pinned ? 'Unpin' : 'Pin', function () {
+      post('/api/pin_repo', { id: item.id, on: !item.pinned });
+    }));
+  }
+  menu.classList.add('on');
+  var box = menu.getBoundingClientRect();
+  var at = anchor ? anchor.getBoundingClientRect() : { left: side.pointerX, top: side.pointerY, bottom: side.pointerY };
+  // The menu is put to the right of the mark that opened it, where the window
+  // is. Only when there is no room there does it go to the left.
+  var atLeft = (anchor ? at.right : side.pointerX) + 4;
+  if (atLeft + box.width > window.innerWidth - 6) {
+    atLeft = Math.max(6, (anchor ? at.left : side.pointerX) - box.width - 4);
+  }
+  var top = (anchor ? at.bottom : side.pointerY) + box.height > window.innerHeight
+    ? Math.max(6, window.innerHeight - box.height - 8)
+    : (anchor ? at.bottom : side.pointerY) + 2;
+  menu.style.left = Math.round(atLeft) + 'px';
+  menu.style.top = Math.round(top) + 'px';
+}
+
+function sideItem(label, run, bad) {
+  var b = sideNode('button', bad ? 'bad' : '', label);
+  if (run) {
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      sideCloseMenu();
+      run();
+    });
+  }
+  return b;
+}
+
+var sideSubTimer = null;
+
+function sideSubLeave() {
+  sideSubTimer = window.setTimeout(function () {
+    var open = document.querySelector('.side-menu .sub.on');
+    if (open) { open.classList.remove('on'); }
+  }, 220);
+}
+
+function sideSubEnter() {
+  if (sideSubTimer) { window.clearTimeout(sideSubTimer); sideSubTimer = null; }
+}
+
+function sideCloseMenu() {
+  if (sideSubTimer) { window.clearTimeout(sideSubTimer); sideSubTimer = null; }
+  var menu = sEl('sideMenu');
+  menu.classList.remove('on');
+  menu.innerHTML = '';
+  if (sideMenuFor && sideMenuFor.anchor) { sideMenuFor.anchor.classList.remove('open'); }
+  sideMenuFor = null;
+}
+
+// The small window that asks. It answers with the words the reader wrote, or
+// with nothing when the reader goes away.
+function sideAskText(title, note, value, then) {
+  var ask = sEl('sideAsk');
+  ask.classList.add('on', 'asking');
+  sEl('askTitle').textContent = title;
+  sEl('askBody').textContent = note;
+  sEl('askOk').textContent = 'Name it';
+  sEl('askOk').classList.remove('bad');
+  var input = sEl('askInput');
+  input.value = value || '';
+  input.dataset.ask = 'text';
+  window.setTimeout(function () { input.focus(); input.select(); }, 30);
+  sideAskGo = function (ok) {
+    var text = input.value.trim();
+    ask.classList.remove('on', 'asking');
+    if (!ok || !text) { return; }
+    if (then) { then(text); }
+  };
+}
+
+function sideAskYes(title, note, okLabel, then) {
+  var ask = sEl('sideAsk');
+  ask.classList.add('on');
+  ask.classList.remove('asking');
+  sEl('askTitle').textContent = title;
+  sEl('askBody').textContent = note;
+  sEl('askOk').textContent = okLabel || 'Yes';
+  sEl('askOk').classList.add('bad');
+  sEl('askInput').value = '';
+  sEl('askInput').dataset.ask = 'yes';
+  sideAskGo = function (ok) {
+    ask.classList.remove('on');
+    if (!ok) { return; }
+    if (then) { then(); }
+  };
+}
+
+var sideAskGo = null;
+
+function sideArch(on) {
+  side.arch = !!on;
+  side.window = LOOSE_AT_FIRST;
+  sideApply();
+  drawSide(lastView);
+}
+
+// The right edge of the bar, drawn out.
+(function () {
+  var grip = sEl('sideGrip');
+  if (!grip) { return; }
+  var dragging = false;
+  grip.addEventListener('pointerdown', function (e) {
+    dragging = true;
+    grip.classList.add('drag');
+    if (grip.setPointerCapture) { grip.setPointerCapture(e.pointerId); }
+    e.preventDefault();
+  });
+  grip.addEventListener('pointermove', function (e) {
+    if (!dragging) { return; }
+    side.w = sideClamp(e.clientX);
+    document.documentElement.style.setProperty('--side-w', side.w + 'px');
+  });
+  grip.addEventListener('pointerup', function () {
+    if (!dragging) { return; }
+    dragging = false;
+    grip.classList.remove('drag');
+    sideSave();
+  });
+  grip.addEventListener('dblclick', function () {
+    side.w = SIDE_DEFAULT;
+    sideApply();
+    sideSave();
+  });
+})();
+
+// The loose chats come in as the reader scrolls down, and fall back when the
+// reader goes back to the top of the bar.
+(function () {
+  var body = sEl('sideBody');
+  if (!body) { return; }
+  body.addEventListener('scroll', function () {
+    if (side.arch) { return; }
+    var rest = ((lists && lists.loose) || []).filter(function (c) { return !c.pinned; });
+    if (body.scrollTop < 16 && side.window > LOOSE_AT_FIRST) {
+      side.window = LOOSE_AT_FIRST;
+      drawSide(lastView);
+      return;
+    }
+    if (side.window >= rest.length) { return; }
+    if (body.scrollTop + body.clientHeight >= body.scrollHeight - 48) {
+      side.fadeFrom = side.window;
+      side.window = Math.min(rest.length, side.window + LOOSE_MORE);
+      drawSide(lastView);
+    }
+  });
+})();
+
+document.addEventListener('pointerdown', function (e) {
+  var menu = sEl('sideMenu');
+  if (menu && menu.classList.contains('on') && !menu.contains(e.target)) { sideCloseMenu(); }
+}, true);
+
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') { return; }
+  var menu = sEl('sideMenu');
+  if (menu && menu.classList.contains('on')) { sideCloseMenu(); e.preventDefault(); return; }
+  var ask = sEl('sideAsk');
+  if (ask && ask.classList.contains('on')) { ask.classList.remove('on', 'asking'); e.preventDefault(); }
+}, true);
+
+sEl('sideNew') && sEl('sideNew').addEventListener('click', function () { post('/api/new_chat'); });
+sEl('sideArch') && sEl('sideArch').addEventListener('click', function () { sideArch(!side.arch); });
+sEl('askOk') && sEl('askOk').addEventListener('click', function () { if (sideAskGo) { sideAskGo(true); } });
+sEl('askCancel') && sEl('askCancel').addEventListener('click', function () { if (sideAskGo) { sideAskGo(false); } });
+sEl('askInput') && sEl('askInput').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') { e.preventDefault(); if (sideAskGo) { sideAskGo(true); } }
+});
+sEl('sidebtn') && sEl('sidebtn').addEventListener('click', function () { sideShow(!side.open); });
+
+sideLoad();
+sideApply();
+fetchLists();
 </script>
 </body>
 </html>
