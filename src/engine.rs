@@ -827,6 +827,10 @@ pub struct State {
     // talk again -- and a meter that only climbs would stand still for the whole
     // of the answer that followed, for ever after.
     pub ctx_fresh: bool,
+    // The moment last handed to a chat that was opened. Two chats opened inside
+    // one second are told apart by it, so the one opened last stands at the head
+    // of its group none the less.
+    pub last_opened: i64,
     pub sandbox_available: bool,
     pub sandbox_note: String,
     // What the chat template of the current model can do with thinking.
@@ -942,7 +946,13 @@ impl State {
     // head of its group in the side bar. The moment it was opened is kept with
     // the chat, which is what the order of a group is read from.
     fn mark_opened(&mut self, place: usize) {
-        self.chats[place].meta.opened = store::now_secs();
+        // The moment of the open never stands below the last one handed out, so
+        // two chats opened within one second keep the order the reader opened
+        // them in, and the chat that was opened last is the first in its group.
+        let now = store::now_secs();
+        let stamp = if now > self.last_opened { now } else { self.last_opened + 1 };
+        self.last_opened = stamp;
+        self.chats[place].meta.opened = stamp;
         let snapshot = self.chats[place].clone();
         self.ctx_used = snapshot.meta.context_used;
         self.current = Some(snapshot.meta.id.clone());
@@ -1961,6 +1971,7 @@ impl Engine {
             ctx_total: 0,
             ctx_used: 0,
             ctx_fresh: false,
+            last_opened: 0,
             sandbox_available,
             sandbox_note,
             thinking: markdown::ThinkingOptions::default(),

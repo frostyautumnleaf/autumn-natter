@@ -162,9 +162,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "home": snap.home,
         "greeting": snap.greeting,
         // The number the lists of the side bar are read again on. A chat that
-        // came, went, moved or was renamed moves it, so the page asks for the
-        // lists when they changed and not on every look.
-        "lists": snap.structure_rev,
+        // came, went, moved, was renamed, or was opened moves it, so the page
+        // asks for the lists when they changed and not on every look.
+        "structure_rev": snap.structure_rev,
         "messages": messages,
         // The chapters the model marked, in the order it marked them. The line
         // beside the chat is made of these, and of nothing else.

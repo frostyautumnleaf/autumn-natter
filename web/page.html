@@ -54,6 +54,13 @@
   --bar-h: 54px;
   --col: 780px;
   --r-s: 8px; --r-m: 12px; --r-l: 16px;
+
+  /* The pace of the parts that move: the window giving way to the bar, the day
+     of a chat giving way to the three dots of its row, a mark of the bar
+     changing colour. `--t-key` is the colour of a keyword of code and no pace at
+     all, and a transition written with it is thrown away whole by the page, so
+     what the reader saw where a move was meant was a snap. */
+  --t-move: 180ms;
 }
 body.dark {
   --accent-soft: rgba(237, 116, 1, .17);
@@ -143,9 +150,13 @@ textarea, input { font: inherit; color: inherit; }
 
 /* A field is a control with a hairline and a mark. It is not a native select,
    so the arrow and the padding are the same in every web view. */
+/* The whole block is the control: the choice fills the box from edge to edge,
+   and the mark, the tag and the arrow stand over it and let the pointer pass.
+   A click anywhere in the box therefore opens the list of the choice. */
 .field {
-  display: inline-flex; align-items: center; gap: 7px;
-  height: 32px; padding: 0 8px 0 9px; border-radius: var(--r-s);
+  position: relative;
+  display: inline-flex; align-items: center;
+  height: 32px; padding: 0; border-radius: var(--r-s);
   border: 1px solid var(--line); background: var(--surface-2);
   color: var(--text-2); font-size: 13px; max-width: 264px; min-width: 0;
   transition: border-color 140ms, background 140ms;
@@ -153,15 +164,21 @@ textarea, input { font: inherit; color: inherit; }
 .field:hover { border-color: var(--line-strong); background: var(--surface-3); }
 .field .svg { width: 14px; height: 14px; stroke: var(--dim); }
 .field select {
-  display: block; max-width: 190px; min-width: 0; overflow: hidden;
+  flex: 1 1 auto; min-width: 0; height: 100%;
+  padding: 0 26px 0 30px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; font-size: 13px;
   text-align: left; cursor: pointer;
 }
+.field.tagged select { padding-right: 70px; }
 .tag {
   flex: 0 0 auto; font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
   text-transform: uppercase; color: var(--ink);
 }
-.field .arrow { width: 12px; height: 12px; stroke: var(--faint); }
+.field > .svg { position: absolute; left: 9px; pointer-events: none; }
+/* The chip of the file kind is written over the choice, so it must let the
+   pointer through: a click on it is a click on the box, and opens the list. */
+.field .tag { position: absolute; right: 27px; pointer-events: none; }
+.field .arrow { position: absolute; right: 9px; width: 12px; height: 12px; stroke: var(--faint); }
 .field:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
 
 /* A mark button is a square of 30 with a picture in it and nothing else. */
@@ -378,13 +395,17 @@ body.home .stage { display: none; }
 .sumhead .sbtn:hover { border-color: var(--accent); color: var(--accent); }
 /* The three dots under the heading of a summarisation that is being written. The
    words of a summary are never shown, so the dots are all the reader is given of
-   the writing, and they nod the same nod as the dots of a thinking block. */
-.sdots { display: flex; gap: 4px; justify-content: center; align-items: center;
+   the writing, and they nod the same nod as the dots of a thinking block.
+   The name is kept apart from `.sdots`, the three dots of a row in the side bar:
+   two marks of one name in a page reach one another, and the margin that lifts
+   these dots into the rule of a heading pulled the mark of a row out of its
+   line, and made the row taller than its words ask for. */
+.sumdots { display: flex; gap: 4px; justify-content: center; align-items: center;
   height: 10px; margin: -12px 4px 16px; }
-.sdots i { width: 4px; height: 4px; border-radius: 50%; background: var(--ink);
+.sumdots i { width: 4px; height: 4px; border-radius: 50%; background: var(--ink);
   animation: nod 1.1s ease-in-out infinite; }
-.sdots i:nth-child(2) { animation-delay: .15s; }
-.sdots i:nth-child(3) { animation-delay: .3s; }
+.sumdots i:nth-child(2) { animation-delay: .15s; }
+.sumdots i:nth-child(3) { animation-delay: .3s; }
 /* The whole of a handoff summary, over the chat. The words of a summary are never
    written among the turns, so the reader asks for them from the card over the
    heading: they stand in a sheet of their own, read the way the words of the model
@@ -398,7 +419,14 @@ body.home .stage { display: none; }
 .sumview .vhead { display: flex; align-items: flex-start; gap: 14px; padding: 12px 14px;
   border-bottom: 1px solid var(--line); background: var(--surface-2); }
 .sumview .vhead .x { margin-left: auto; }
-.sumview .shead { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* The head of the sheet of a summary answers to the same name as the head of a
+   group in the side bar, and a name does the same work in both places. The room,
+   the pointer and the tint of the bar's head are not wanted here: the words of
+   the sheet stand at the left, as they do in the sheet of settings, and the head
+   of them answers nothing to a click. */
+.sumview .shead { display: flex; flex-direction: column; align-items: flex-start;
+  gap: 3px; min-width: 0; padding: 0; cursor: default; }
+.sumview .shead:hover { background: none; }
 .sumview .stitle { font-size: 13.5px; font-weight: 650; color: var(--text); }
 .sumview .smeta { font-size: 11.5px; color: var(--faint); }
 .sumview .smeta b { color: var(--dim); font-weight: 600; }
@@ -685,7 +713,13 @@ pre.code .t-p { color: var(--t-pun); }
 /* The chat box, and the line of state under it. The box holds its badges in a
    row of their own, so no part of the box is left empty. */
 .dock { flex: 0 0 auto; padding: 0 14px 12px; }
-body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px; }
+/* On the first screen the chat box stands with the mark and the words over it,
+   and the group as a whole is put in the middle of the room: the space over the
+   mark and the space under the line of state are the same. The room under the
+   line of state answers the 20px of air over the mark, so what the eye measures
+   from the top of the group to the top of the window matches what it measures
+   from the foot of the group to the foot of the window. */
+body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px; }
 .box {
   position: relative;
   border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface);
@@ -1030,7 +1064,6 @@ pre.code.line {
 @media (max-width: 720px) {
   .spot .title { display: none; }
   .field { max-width: 158px; }
-  .field select { max-width: 110px; }
   .bubble { max-width: 92%; }
   .col { padding: 0 16px; }
   .hello .mark { width: 48px; height: 48px; }
@@ -1055,11 +1088,17 @@ pre.code.line {
    width of the bar, and the bar slides out of the way when the reader hides
    it. --side-w is the width the reader dragged it to. */
 :root { --side-w: 292px; }
+/* The window of the program: the bar of the top, the talk, and the chat box,
+   one under the other. They are a column, so the talk takes the room between
+   them, the chat box stands at the foot of the window whatever its height is,
+   and the first screen has a middle to stand in. */
 .main {
   position: absolute; inset: 0 0 0 0;
   left: 0;
-  transition: left var(--t-key);
+  display: flex; flex-direction: column; min-width: 0;
+  transition: left var(--t-move);
 }
+.bar { flex: 0 0 auto; }
 body.sideopen .main { left: var(--side-w); }
 .side {
   position: absolute; top: 0; bottom: 0; left: 0; width: var(--side-w);
@@ -1068,7 +1107,7 @@ body.sideopen .main { left: var(--side-w); }
   border-right: 1px solid var(--line);
   z-index: 40;
   transform: translateX(-100%);
-  transition: transform var(--t-key);
+  transition: transform var(--t-move);
 }
 body.sideopen .side { transform: none; }
 .side-grip {
@@ -1077,22 +1116,24 @@ body.sideopen .side { transform: none; }
 }
 .side-grip::after {
   content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px;
-  background: transparent; transition: background var(--t-key);
+  background: transparent; transition: background var(--t-move);
 }
 .side-grip:hover::after, .side-grip.drag::after { background: var(--accent); }
 
 /* The two buttons at the head of the bar. */
 .side-top { padding: 10px 10px 6px; display: grid; gap: 6px; flex: 0 0 auto; }
+/* The words of the two buttons stand in the middle of the block, and in the
+   colour of any other words: the accent is left to the ground under them. */
 .side-new, .side-arch {
-  display: flex; align-items: center; gap: 8px; width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
   padding: 9px 11px; border-radius: var(--r-m); cursor: pointer;
-  font: inherit; font-size: 13.5px; font-weight: 600; text-align: left;
-  border: 1px solid var(--line); background: var(--surface-3); color: var(--ink);
-  transition: background var(--t-key), border-color var(--t-key), transform 80ms ease;
+  font: inherit; font-size: 13.5px; font-weight: 600; text-align: center;
+  border: 1px solid var(--line); background: var(--surface-3); color: var(--text);
+  transition: background var(--t-move), border-color var(--t-move), color var(--t-move),
+    transform 80ms ease;
 }
 .side-new { border-color: var(--accent-line); background: var(--accent-soft); }
-.side-new:hover { background: var(--hover); }
-.side-arch:hover { background: var(--hover); }
+.side-new:hover, .side-arch:hover { background: var(--hover); color: var(--ink); }
 .side-new:active, .side-arch:active { transform: translateY(1px); }
 .side-new svg, .side-arch svg { width: 15px; height: 15px; flex: 0 0 auto;
   fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
@@ -1109,24 +1150,28 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
   display: flex; align-items: center; gap: 5px; width: 100%;
   padding: 5px 7px; border-radius: var(--r-s); min-width: 0;
 }
+/* The whole head opens or shuts the group, so it stands under the pointer as
+   one control. */
+.shead { cursor: pointer; }
 .shead:hover { background: var(--hover); }
 .shead button {
   border: 0; background: none; padding: 0; margin: 0; color: inherit; font: inherit;
   cursor: pointer; display: flex; align-items: center;
 }
-.chevbtn { flex: 0 0 auto; gap: 4px; color: var(--dim); }
-.shead:hover .chevbtn { color: var(--ink); }
+.chevbtn { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; color: var(--dim); }
 .chevbtn .chev { width: 11px; height: 11px; fill: none; stroke: currentColor;
-  stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--t-key); }
+  stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--t-move); }
 .sgroup.fold > .shead .chev { transform: rotate(-90deg); }
 .chevbtn .fol { width: 14px; height: 14px; fill: none; stroke: currentColor;
   stroke-width: 1.8; stroke-linejoin: round; }
+/* The words of the bar are the colour of words. The accent comes in only where
+   the pointer stands, or where a chat of its own is chosen. */
 .shead .sname {
   flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  text-align: left; font-size: 12.5px; font-weight: 650; color: var(--strong);
+  text-align: left; font-size: 12.5px; font-weight: 650; color: var(--text-2);
   letter-spacing: .01em; text-transform: none;
 }
-.shead:hover .sname { color: var(--ink); }
+.shead:hover .sname, .shead:hover .chevbtn { color: var(--ink); }
 .shead .spinmark { flex: 0 0 auto; color: var(--accent); font-size: 14px; line-height: 1; }
 .shead .snum { flex: 0 0 auto; font-size: 10.5px; font-weight: 600; color: var(--faint); }
 .sgroup > .sbody { display: block; padding-left: 10px; }
@@ -1144,18 +1189,33 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 .srow .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; display: none; }
 .srow.on .dot { display: block; }
 .srow .stitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; font-size: 13px; color: var(--ink); }
+  white-space: nowrap; font-size: 13px; color: var(--text); }
+.srow:hover .stitle { color: var(--ink); }
+/* The chat that is open. Its name is set in bold, for the reader looks down the
+   bar for its own chat among the others, and a name that is merely tinted is a
+   name the eye passes over. A weight between the standard ones is not trusted:
+   the faces a window has to offer are not always cut at such a height. */
+.srow.on .stitle { font-weight: 700; }
 .srow.pin .stitle::after { content: '•'; color: var(--accent); margin-left: 6px; }
-.srow .sday { flex: 0 0 auto; font-size: 10.5px; color: var(--faint); }
+/* The day and the mark of the menu stand on one line at the end of the row. The
+   mark is part of that line at all times, but holds no room of its own until
+   the pointer comes: its width grows from nought, so the day gives way to it
+   smoothly and the row keeps the height its words ask for. */
+.srow .sday { flex: 0 0 auto; font-size: 10.5px; color: var(--faint); white-space: nowrap; }
 .sdots {
-  flex: 0 0 auto; width: 21px; height: 21px; border: 0; border-radius: var(--r-s);
-  background: none; color: var(--dim); cursor: pointer; display: none;
+  flex: 0 0 auto; width: 0; height: 18px; border: 0; border-radius: var(--r-s);
+  background: none; color: var(--dim); cursor: pointer; overflow: hidden;
   align-items: center; justify-content: center; padding: 0;
+  display: inline-flex; opacity: 0; pointer-events: none;
+  transition: width var(--t-move), opacity var(--t-move),
+    background var(--t-move), color var(--t-move);
 }
-.srow:hover .sdots, .srow .sdots.open, .shead:hover .sdots, .shead .sdots.open { display: inline-flex; }
+.srow:hover .sdots, .srow .sdots.open, .shead:hover .sdots, .shead .sdots.open {
+  width: 18px; opacity: 1; pointer-events: auto;
+}
 .sdots:hover { background: var(--surface-3); color: var(--ink); }
 .sdots svg { width: 13px; height: 13px; fill: currentColor; }
-.srow .sarch { flex: 0 0 auto; width: 21px; height: 21px; border: 0; border-radius: var(--r-s);
+.srow .sarch { flex: 0 0 auto; width: 21px; height: 18px; border: 0; border-radius: var(--r-s);
   background: none; color: var(--dim); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .srow .sarch:hover { color: var(--ink); }
 .srow .sarch svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
@@ -1164,13 +1224,16 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 .smore {
   display: block; width: calc(100% - 18px); margin: 3px 0 2px 9px; padding: 5px 8px;
   border: 0; border-radius: var(--r-s); background: none; cursor: pointer;
-  font: inherit; font-size: 11.5px; font-weight: 600; color: var(--accent); text-align: left;
+  font: inherit; font-size: 11.5px; font-weight: 600; color: var(--dim); text-align: left;
 }
-.smore:hover { background: var(--accent-soft); }
+.smore:hover { background: var(--accent-soft); color: var(--ink); }
 
-/* A row that has just come into the list of loose chats. */
+/* A row that has just come into the list of loose chats, and one that is on its
+   way out again. */
 @keyframes sidefade { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+@keyframes sidefadeout { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(7px); } }
 .srow.fadein { animation: sidefade 420ms ease both; }
+.srow.fadeout { animation: sidefadeout 260ms ease both; pointer-events: none; }
 
 /* The menu a chat or a repository opens. */
 .side-menu {
@@ -1182,9 +1245,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 .side-menu button {
   display: flex; align-items: center; gap: 7px; width: 100%;
   padding: 7px 9px; border: 0; border-radius: var(--r-s); background: none;
-  font: inherit; font-size: 13px; color: var(--ink); text-align: left; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--text); text-align: left; cursor: pointer;
+  transition: background var(--t-move), color var(--t-move);
 }
-.side-menu button:hover { background: var(--hover); }
+.side-menu button:hover { background: var(--hover); color: var(--ink); }
 .side-menu button.bad { color: var(--ink-fail); }
 .side-menu button.bad:hover { background: rgba(214, 84, 66, 0.14); }
 .side-menu button .ar { margin-left: auto; color: var(--faint); }
@@ -1276,7 +1340,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
   </div>
   <span class="rule"></span>
 
-  <label class="field" title="The model that answers. The chip at the right opens the settings of this model.">
+  <label class="field tagged" title="The model that answers. The chip at the right shows what kind of file it stands in.">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="2"/><path d="M6.4 1.9v2.3M9.6 1.9v2.3M6.4 11.8v2.3M9.6 11.8v2.3M1.9 6.4h2.3M1.9 9.6h2.3M11.8 6.4h2.3M11.8 9.6h2.3"/></svg>
     <select id="model" aria-label="Model"></select>
     <span class="tag" id="kind"></span>
@@ -1317,7 +1381,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
   </button>
 </header>
 
-<div class="area">
+<div class="area" id="area">
 
   <!-- The first screen: the mark, the line for this hour, and where the words
        are going. The chat box stands under them. -->
@@ -1849,7 +1913,11 @@ function tight() { return (document.documentElement.clientWidth || 640) < 860; }
 // stand in. The two lines are looked at where they stand, so a chat that has
 // neither keeps the whole of the room again.
 function setChatWidth() {
-  var wide = window.innerWidth || document.documentElement.clientWidth || 640;
+  // The room of the talk, not the width of the whole window: the bar at the
+  // left stands between the two, and is drawn wider or narrower.
+  var box = document.getElementById('area');
+  var wide = (box && box.clientWidth) || document.documentElement.clientWidth ||
+    window.innerWidth || 640;
   var room = wide - 48;
   if (el.stage && el.stage.classList.contains('withchapters')) { room -= 116; }
   if (el.stage && el.stage.classList.contains('withtimeline')) { room -= 92; }
@@ -1865,6 +1933,10 @@ function draw(s) {
   readChatting(s);
   el.darkbtn.title = s.dark ? 'Switch to the pale colours' : 'Switch to the dark colours';
   drawHome(s);
+  // The shape of the lists is carried in `structure_rev`. A chat that came,
+  // went, was named, pinned, moved, put away or opened moves it, and the bar is
+  // read again when it moves. The chat that was opened stands at the head of
+  // its group from that look on.
   if (s.structure_rev !== listsRev) { listsRev = s.structure_rev; fetchLists(); }
   drawSide(s);
   fillSelect(el.model, s.models, s.model.id, function (m) { return m.name; });
@@ -3979,7 +4051,7 @@ function fill(turn, m) {
     // dots of a thinking block, and they say that the program is at work where
     // the gauge over the chat box has nothing left to say.
     if (writing) {
-      var wait = make('div', 'sdots');
+      var wait = make('div', 'sumdots');
       wait.appendChild(make('i'));
       wait.appendChild(make('i'));
       wait.appendChild(make('i'));
@@ -5018,15 +5090,22 @@ el.newchat.addEventListener('click', function () { post('/api/new_chat'); });
 // room the chat has for itself.
 window.addEventListener('resize', function () {
   setChatWidth();
+  // The loose chats stand in the height the window has, so the count they are
+  // drawn with is worked out again against the new size.
+  side.fit = undefined;
   if (cur) { draw(cur); }
+  // The room of the bar changed with the window, so the loose chats are counted
+  // again against the height the window has now.
+  if (lastView) { drawSide(lastView); }
 });
 el.model.addEventListener('change', function (e) { post('/api/select_model', { id: e.target.value }); });
 el.repo.addEventListener('change', function (e) { post('/api/select_repository', { id: e.target.value }); });
+// The mark beside the box of the repository asks for a name in a window of its
+// own. The sheet of settings is not the place to name one new thing.
 el.newrepo.addEventListener('click', function () {
-  // The sheet of settings holds the field of a new repository, as the window of
-  // the program does, so the name is written there and not in a prompt.
-  openSettings('program');
-  byId('fNewRepo').focus();
+  sideAskText('Name the new repository', 'The name stands in the side bar, and folders of that name are kept under the folder of the repositories.', '', function (text) {
+    post('/api/create_repository', { name: text });
+  }, 'Create');
 });
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
@@ -5904,11 +5983,15 @@ var REPO_AT_FIRST = 5;
 
 var side = {
   open: true, w: SIDE_DEFAULT, arch: false, fold: {}, more: {},
-  window: LOOSE_AT_FIRST, fadeFrom: -1
+  window: LOOSE_AT_FIRST, fadeFrom: -1, fit: undefined
 };
 var lastView = null;
 var lists = null;
 var listsRev = -1;
+// The number of the lists that stand in the bar. The bar is read again when the
+// lists moved, and drawn again when the new lists have come in.
+var listsGot = -1;
+var sideStamp = '';
 var sideMenuFor = null;
 
 function sEl(id) { return document.getElementById(id); }
@@ -5944,6 +6027,9 @@ function sideApply() {
   document.documentElement.style.setProperty('--side-w', side.w + 'px');
   var btn = sEl('sidebtn');
   if (btn) { btn.classList.toggle('on', side.open); }
+  // The room the talk has changes with the bar, so the width of the chat is
+  // worked out again.
+  setChatWidth();
 }
 
 function sideShow(on) {
@@ -5955,7 +6041,7 @@ function sideShow(on) {
 // The lists come from the program when they are made anew: a chat opened,
 // named, pinned, moved, put away, or written for the first time.
 function fetchLists() {
-  var done = function (v) { lists = v; drawSide(lastView); };
+  var done = function (v) { lists = v; listsGot = listsRev; drawSide(lastView); };
   var fail = function () { /* The bar keeps the lists it last saw. */ };
   if (typeof invoke === 'function') {
     invoke('action', { path: 'lists', body: {} }).then(done, fail);
@@ -5999,7 +6085,16 @@ var PICS = {
 function sideChatRow(c, where, at) {
   var row = sideNode('div', 'srow');
   row.dataset.id = c.id;
-  if (c.active || (lastView && c.id === lastView.chat_id)) { row.classList.add('on'); }
+  // The place in the group, which the list of loose chats reads again when it
+  // lets a few rows go.
+  row.dataset.at = String(at);
+  // The chat this window is looking at, which is the row set apart from the
+  // others. The state of the window is looked at before the lists are asked
+  // again, so the lists may still say that the chat which stood open a moment
+  // ago is the open one: the state has the last word, and only one row of the
+  // bar is ever set apart.
+  var open = (lastView && lastView.chat_id) ? lastView.chat_id : null;
+  if (open ? c.id === open : !!c.active) { row.classList.add('on'); }
   if (c.pinned) { row.classList.add('pin'); }
   if (side.fadeFrom >= 0 && at >= side.fadeFrom) { row.classList.add('fadein'); }
   row.appendChild(sideNode('span', 'dot'));
@@ -6037,29 +6132,34 @@ function sideChatRow(c, where, at) {
   return row;
 }
 
-// A repository: the head that folds, and the chats under it.
+// A head that folds. The whole of it opens or shuts the group under it: a mark
+// that answers on one part of the line only is a mark the reader hunts for.
+function sideHeadFold(group, head, key) {
+  head.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('.sdots')) { return; }
+    side.fold[key] = !side.fold[key];
+    sideSave();
+    drawSide(lastView);
+  });
+}
+
+// The chevron and the folder that say which way the group stands.
+function sideHeadMark(key) {
+  var mark = sideNode('span', 'chevbtn');
+  mark.appendChild(sidePicture(PICS.chev, 'chev'));
+  mark.appendChild(sidePicture(side.fold[key] ? PICS.folderShut : PICS.folderOpen, 'fol'));
+  return mark;
+}
+
+// A repository: the head that folds, and the chats under it. The head is worked
+// in from its own menu, where the reader says which repository to stand in.
 function sideRepoGroup(repo, chats, where) {
   var group = sideNode('div', 'sgroup');
   var head = sideNode('div', 'shead');
   if (side.fold[repo.id]) { group.classList.add('fold'); }
-  var fold = sideNode('button', 'chevbtn');
-  fold.title = side.fold[repo.id] ? 'Show the chats of this repository' : 'Hide the chats of this repository';
-  fold.appendChild(sidePicture(PICS.chev, 'chev'));
-  fold.appendChild(sidePicture(side.fold[repo.id] ? PICS.folderShut : PICS.folderOpen, 'fol'));
-  fold.addEventListener('click', function (e) {
-    e.stopPropagation();
-    side.fold[repo.id] = !side.fold[repo.id];
-    sideSave();
-    drawSide(lastView);
-  });
-  head.appendChild(fold);
-  var name = sideNode('button', 'sname', repo.name);
-  name.title = 'Work in this repository';
-  name.addEventListener('click', function (e) {
-    e.stopPropagation();
-    post('/api/select_repository', { id: repo.id });
-  });
-  head.appendChild(name);
+  head.title = side.fold[repo.id] ? 'Show the chats of this repository' : 'Hide the chats of this repository';
+  head.appendChild(sideHeadMark(repo.id));
+  head.appendChild(sideNode('span', 'sname', repo.name));
   if (repo.pinned) { head.appendChild(sideNode('span', 'spinmark', '•')); }
   head.appendChild(sideNode('span', 'snum', String(chats.length)));
   var dots = sideNode('button', 'sdots');
@@ -6070,6 +6170,14 @@ function sideRepoGroup(repo, chats, where) {
     sideOpenMenu('repo', repo, where, dots);
   });
   head.appendChild(dots);
+  sideHeadFold(group, head, repo.id);
+  // The right button of the mouse opens the same menu the mark opens.
+  head.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+    side.pointerX = e.clientX;
+    side.pointerY = e.clientY;
+    sideOpenMenu('repo', repo, where, dots);
+  });
   group.appendChild(head);
 
   var body = sideNode('div', 'sbody');
@@ -6088,12 +6196,32 @@ function sideRepoGroup(repo, chats, where) {
   return group;
 }
 
+// What the bar is made of, so it is not made again on every look at the
+// window. A bar that is made again whole loses the move a row is in, the row
+// the pointer stands on, and the place the reader had reached in the list.
+function sideShape() {
+  var folds = Object.keys(side.fold).sort().map(function (k) {
+    return k + (side.fold[k] ? '1' : '0');
+  }).join(',');
+  var mores = Object.keys(side.more).sort().map(function (k) {
+    return k + (side.more[k] ? '1' : '0');
+  }).join(',');
+  return [listsGot, lastView ? lastView.chat_id : '', side.arch ? 'a' : '-', side.w,
+    side.open ? 'o' : '-', side.window, folds, mores].join('|');
+}
+
 function drawSide(s) {
   if (s) { lastView = s; }
   var body = sEl('sideBody');
   if (!body) { return; }
+  var shape = sideShape();
+  if (shape === sideStamp && body.childNodes.length) { sideApply(); return; }
+  sideStamp = shape;
   var keep = body.scrollTop;
   body.innerHTML = '';
+  // The list of the loose chats is looked for again below, and the bar holds
+  // none at all while the chats that were put away are looked at.
+  looseBody = null;
   if (!lists) {
     side.fadeFrom = -1;
     body.appendChild(sideNode('div', 'side-note', 'Chats come here as you make them.'));
@@ -6128,18 +6256,11 @@ function drawSide(s) {
       var pgroup = sideNode('div', 'sgroup');
       if (side.fold.__pinned) { pgroup.classList.add('fold'); }
       var phead = sideNode('div', 'shead');
-      var pfold = sideNode('button', 'chevbtn');
-      pfold.appendChild(sidePicture(PICS.chev, 'chev'));
-      pfold.appendChild(sidePicture(side.fold.__pinned ? PICS.folderShut : PICS.folderOpen, 'fol'));
-      pfold.addEventListener('click', function () {
-        side.fold.__pinned = !side.fold.__pinned;
-        sideSave();
-        drawSide(lastView);
-      });
-      phead.appendChild(pfold);
+      phead.appendChild(sideHeadMark('__pinned'));
       phead.appendChild(sideNode('span', 'sname', 'Pinned'));
       phead.appendChild(sideNode('span', 'snum',
         String(pinnedChats.length + pinnedRepos.length)));
+      sideHeadFold(pgroup, phead, '__pinned');
       pgroup.appendChild(phead);
       var pbody = sideNode('div', 'sbody');
       pinnedChats.forEach(function (c, i) { pbody.appendChild(sideChatRow(c, '', i)); });
@@ -6155,24 +6276,18 @@ function drawSide(s) {
     var lgroup = sideNode('div', 'sgroup');
     var lhead = sideNode('div', 'shead');
     if (side.fold.__loose) { lgroup.classList.add('fold'); }
-    var lfold = sideNode('button', 'chevbtn');
-    lfold.appendChild(sidePicture(PICS.chev, 'chev'));
-    lfold.appendChild(sidePicture(side.fold.__loose ? PICS.folderShut : PICS.folderOpen, 'fol'));
-    lfold.addEventListener('click', function () {
-      side.fold.__loose = !side.fold.__loose;
-      sideSave();
-      drawSide(lastView);
-    });
-    lhead.appendChild(lfold);
+    lhead.appendChild(sideHeadMark('__loose'));
     lhead.appendChild(sideNode('span', 'sname', 'Loose chats'));
     lhead.appendChild(sideNode('span', 'snum', String(loose.length)));
+    sideHeadFold(lgroup, lhead, '__loose');
     lgroup.appendChild(lhead);
     var lbody = sideNode('div', 'sbody');
-    var rest = loose.filter(function (c) { return !c.pinned; });
-    for (var i = 0; i < Math.min(side.window, rest.length); i++) {
-      lbody.appendChild(sideChatRow(rest[i], '', i));
-    }
-    if (rest.length > side.window) {
+    lbody.id = 'looseBody';
+    looseChats = loose.filter(function (c) { return !c.pinned; });
+    looseBody = lbody;
+    var shown = Math.min(side.window, looseChats.length);
+    for (var i = 0; i < shown; i++) { lbody.appendChild(sideChatRow(looseChats[i], '', i)); }
+    if (looseChats.length > shown) {
       lbody.appendChild(sideNode('div', 'side-note', 'Scroll down for more chats.'));
     }
     lgroup.appendChild(lbody);
@@ -6192,6 +6307,106 @@ function drawSide(s) {
   // of the loose list are drawn fading.
   side.fadeFrom = -1;
   sideApply();
+  // The loose chats fill the room that is left in the bar.
+  looseFit();
+}
+
+// The chats of no repository that were not pinned, and the node that holds them.
+var looseChats = [];
+var looseBody = null;
+
+// How many loose chats stand on the screen at once. The row that was drawn is
+// measured, and the room between the head of the group and the foot of the bar
+// is filled with rows of that height: as many as stand on the screen are drawn,
+// and no chat is left half out of the window.
+var looseFitting = false;
+function looseFit() {
+  var box = sEl('sideBody');
+  if (!box || !looseBody || side.arch || looseFitting) { return; }
+  if (box.scrollTop >= 16) { return; }
+  var rows = looseBody.querySelectorAll('.srow');
+  if (!rows.length) { return; }
+  var rowH = rows[0].getBoundingClientRect().height;
+  if (rows.length > 1) {
+    rowH = rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top;
+  }
+  if (rowH < 6) { return; }
+  var room = box.getBoundingClientRect().bottom -
+    Math.max(rows[0].getBoundingClientRect().top, box.getBoundingClientRect().top);
+  var want = Math.max(LOOSE_AT_FIRST, Math.floor(room / rowH));
+  want = Math.min(want, looseChats.length);
+  side.fit = want;
+  if (want === side.window) { return; }
+  looseFitting = true;
+  side.window = want;
+  looseDraw();
+  sideStamp = sideShape();
+  looseFitting = false;
+}
+
+// The rows of the loose list, made again from the number that stands. The rest
+// of the bar is left alone, so the reading place of the bar is kept.
+function looseDraw() {
+  if (!looseBody) { return; }
+  looseBody.innerHTML = '';
+  var n = Math.min(side.window, looseChats.length);
+  for (var i = 0; i < n; i++) {
+    var row = sideChatRow(looseChats[i], '', i);
+    if (side.fadeFrom >= 0 && i >= side.fadeFrom) { row.classList.add('fadein'); }
+    looseBody.appendChild(row);
+  }
+  looseTail();
+}
+
+// The line that says there are more chats below the last one that stands.
+function looseTail() {
+  if (!looseBody) { return; }
+  var note = looseBody.querySelector('.side-note');
+  if (note) { note.parentNode.removeChild(note); }
+  if (side.window < looseChats.length) {
+    looseBody.appendChild(sideNode('div', 'side-note', 'Scroll down for more chats.'));
+  }
+}
+
+// Five more chats come down, each fading in over the ones that stood before.
+function looseGrow() {
+  var to = Math.min(looseChats.length, side.window + LOOSE_MORE);
+  if (to <= side.window) { return; }
+  for (var i = side.window; i < to; i++) {
+    var row = sideChatRow(looseChats[i], '', i);
+    row.classList.add('fadein');
+    looseBody.appendChild(row);
+  }
+  side.window = to;
+  looseTail();
+  // The shape of the bar now holds the number of rows that stand, so the look
+  // at the state does not call the whole bar again a moment after the new rows
+  // began fading in.
+  sideStamp = sideShape();
+}
+
+// The chats below the last that stands on the screen go away fading, and are
+// taken out when the fade is over.
+var looseShrinking = null;
+function looseShrink(to) {
+  if (!looseBody || to >= side.window) { return; }
+  if (looseShrinking) { window.clearTimeout(looseShrinking); }
+  var doomed = [];
+  var rows = looseBody.querySelectorAll('.srow');
+  for (var i = 0; i < rows.length; i++) {
+    var at = Number(rows[i].dataset.at);
+    if (at >= to) { rows[i].classList.add('fadeout'); doomed.push(rows[i]); }
+  }
+  side.window = to;
+  sideStamp = sideShape();
+  if (!doomed.length) { looseTail(); return; }
+  looseShrinking = window.setTimeout(function () {
+    looseShrinking = null;
+    for (var i = 0; i < doomed.length; i++) {
+      if (doomed[i].parentNode) { doomed[i].parentNode.removeChild(doomed[i]); }
+    }
+    looseTail();
+  }, reduce ? 0 : 270);
 }
 
 // The menu of a chat or of a repository. It opens under the mark that was
@@ -6277,6 +6492,12 @@ function sideOpenMenu(kind, item, where, anchor) {
     menu.appendChild(sideItem(item.pinned ? 'Unpin' : 'Pin', function () {
       post('/api/pin_repo', { id: item.id, on: !item.pinned });
     }));
+    // The head of the group opens or shuts the group, so the place to say which
+    // repository to work in is the menu.
+    menu.appendChild(sideNode('div', 'sep'));
+    menu.appendChild(sideItem('Work in this repository', function () {
+      post('/api/select_repository', { id: item.id });
+    }));
   }
   menu.classList.add('on');
   var box = menu.getBoundingClientRect();
@@ -6330,12 +6551,12 @@ function sideCloseMenu() {
 
 // The small window that asks. It answers with the words the reader wrote, or
 // with nothing when the reader goes away.
-function sideAskText(title, note, value, then) {
+function sideAskText(title, note, value, then, okLabel) {
   var ask = sEl('sideAsk');
   ask.classList.add('on', 'asking');
   sEl('askTitle').textContent = title;
   sEl('askBody').textContent = note;
-  sEl('askOk').textContent = 'Name it';
+  sEl('askOk').textContent = okLabel || 'Name it';
   sEl('askOk').classList.remove('bad');
   var input = sEl('askInput');
   input.value = value || '';
@@ -6370,7 +6591,7 @@ var sideAskGo = null;
 
 function sideArch(on) {
   side.arch = !!on;
-  side.window = LOOSE_AT_FIRST;
+  side.window = side.fit || LOOSE_AT_FIRST;
   sideApply();
   drawSide(lastView);
 }
@@ -6396,6 +6617,9 @@ function sideArch(on) {
     dragging = false;
     grip.classList.remove('drag');
     sideSave();
+    // The bar stands wider or narrower, so the room of the loose chats is
+    // counted again against the height the window has.
+    if (lastView) { drawSide(lastView); }
   });
   grip.addEventListener('dblclick', function () {
     side.w = SIDE_DEFAULT;
@@ -6410,18 +6634,14 @@ function sideArch(on) {
   var body = sEl('sideBody');
   if (!body) { return; }
   body.addEventListener('scroll', function () {
-    if (side.arch) { return; }
-    var rest = ((lists && lists.loose) || []).filter(function (c) { return !c.pinned; });
-    if (body.scrollTop < 16 && side.window > LOOSE_AT_FIRST) {
-      side.window = LOOSE_AT_FIRST;
-      drawSide(lastView);
+    if (side.arch || !looseBody) { return; }
+    if (body.scrollTop < 16) {
+      if (side.fit !== undefined && side.window > side.fit) { looseShrink(side.fit); }
       return;
     }
-    if (side.window >= rest.length) { return; }
+    if (side.window >= looseChats.length) { return; }
     if (body.scrollTop + body.clientHeight >= body.scrollHeight - 48) {
-      side.fadeFrom = side.window;
-      side.window = Math.min(rest.length, side.window + LOOSE_MORE);
-      drawSide(lastView);
+      looseGrow();
     }
   });
 })();

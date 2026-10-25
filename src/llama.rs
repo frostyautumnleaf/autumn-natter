@@ -66,12 +66,115 @@ impl ModelInfo {
     }
 }
 
-// Look for model files in a directory tree. Hidden folders are skipped.
+// Look for model files in a directory tree. Hidden folders are skipped. A model
+// that was split into parts stands once in the list, and a model that stands in
+// a folder of its own is named for that folder.
 pub fn list_models(dir: &Path) -> Vec<ModelInfo> {
-    let mut out: Vec<ModelInfo> = Vec::new();
-    walk(dir, 0, 3, &mut out);
+    let mut found: Vec<ModelInfo> = Vec::new();
+    walk(dir, 0, 3, &mut found);
+    let mut out = named_models(dir, found);
     out.sort_by_key(|m| m.name.to_lowercase());
     out
+}
+
+// The mark of a split at the end of the name of a model file:
+// `-00001-of-00033`, or the same with underscores. It gives the name the model
+// has without the mark, the number of this part, and the number of parts in
+// all. A name with no mark gives nothing, so a model of eight billion parameters
+// called `llama-3-8b` keeps its name.
+fn shard_of(stem: &str) -> Option<(String, usize, usize)> {
+    let (before, total) = stem.rsplit_once(|c| c == '-' || c == '_')?;
+    let total: usize = total.parse().ok()?;
+    let (before_of, word) = before.rsplit_once(|c| c == '-' || c == '_')?;
+    if word.to_ascii_lowercase() != "of" {
+        return None;
+    }
+    let (base, number) = before_of.rsplit_once(|c| c == '-' || c == '_')?;
+    let number: usize = number.parse().ok()?;
+    // A name that is nothing but the mark of a split names no model.
+    if base.is_empty() || number == 0 {
+        return None;
+    }
+    Some((base.to_string(), number, total))
+}
+
+// One part of a split, or a whole model, with the name it stands in the list
+// under. The parts of one model are gathered under the folder they stand in and
+// their name without the mark of the split; the first of them is kept, for the
+// rest hang off it and are no choice of their own. A model that stands in a
+// folder of its own inside the folder of models is named for that folder, which
+// is the name the reader gave it when the files were put there.
+fn named_models(root: &Path, found: Vec<ModelInfo>) -> Vec<ModelInfo> {
+    // One entry per model: the folder, the name without the mark of a split,
+    // the number of the part kept, and the record the list is drawn from.
+    let mut kept: Vec<(PathBuf, String, usize, ModelInfo)> = Vec::new();
+    for model in found {
+        let stem = model.name.clone();
+        let (base, number) = match shard_of(&stem) {
+            Some((base, number, _total)) => (base, number),
+            None => (stem, 1usize),
+        };
+        let dir = model
+            .path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| root.to_path_buf());
+        match kept
+            .iter_mut()
+            .find(|(d, b, _, _)| *d == dir && *b == base)
+        {
+            // The lowest number of the split is the part that opens the rest.
+            Some(slot) if number < slot.2 => *slot = (dir, base, number, model),
+            Some(_) => {}
+            None => kept.push((dir, base, number, model)),
+        }
+    }
+    // How many models stand in each folder, looked up before the folders are
+    // given away one by one.
+    let mut counts: Vec<(PathBuf, usize)> = Vec::new();
+    for (dir, _, _, _) in kept.iter() {
+        match counts.iter_mut().find(|(d, _)| d == dir) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((dir.clone(), 1)),
+        }
+    }
+    let count_at = |dir: &Path| -> usize {
+        counts
+            .iter()
+            .find(|(d, _)| d == dir)
+            .map(|(_, n)| *n)
+            .unwrap_or(1)
+    };
+    let mut out: Vec<ModelInfo> = Vec::with_capacity(kept.len());
+    for (dir, base, _number, mut model) in kept {
+        if dir != root {
+            let folder = dir
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            // The folder of one model names that model. A folder of more than
+            // one cannot name them all alike, so the name of the file is kept
+            // beside it.
+            model.name = match (folder.is_empty(), count_at(&dir)) {
+                (true, _) => base,
+                (false, 1) => folder,
+                (false, _) => format!("{folder} ({base})"),
+            };
+        } else {
+            model.name = base;
+        }
+        out.push(model);
+    }
+    out
+}
+
+// The name a projector of a split model answers to: the name of the model
+// without the mark of the split.
+fn shard_base(stem: &str) -> String {
+    match shard_of(stem) {
+        Some((base, _number, _total)) => base,
+        None => stem.to_string(),
+    }
 }
 
 fn walk(dir: &Path, depth: usize, max_depth: usize, out: &mut Vec<ModelInfo>) {
@@ -116,10 +219,14 @@ fn walk(dir: &Path, depth: usize, max_depth: usize, out: &mut Vec<ModelInfo>) {
     }
 }
 
-// Find the vision projector that belongs to a model.
+// Find the vision projector that belongs to a model. It is looked for where the
+// files of the model stand, which is a folder of its own when the model has one,
+// and not in the folder of models the reader pointed at.
 pub fn find_mmproj(model: &Path) -> Option<PathBuf> {
     let dir = model.parent()?;
     let stem = model.file_stem()?.to_string_lossy().to_lowercase();
+    // The mark of a split is no part of the name a projector answers to.
+    let base = shard_base(&stem).to_lowercase();
     let entries = fs::read_dir(dir).ok()?;
     let mut fallback: Option<PathBuf> = None;
     for entry in entries.flatten() {
@@ -131,8 +238,20 @@ pub fn find_mmproj(model: &Path) -> Option<PathBuf> {
         if !name.ends_with(".gguf") {
             continue;
         }
-        // Prefer the projector named after the model.
-        if name.starts_with(&stem) {
+        let pstem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .unwrap_or_else(|| name.clone());
+        // A projector that was split too is read from its first part.
+        if let Some((_pbase, number, _total)) = shard_of(&pstem) {
+            if number != 1 {
+                continue;
+            }
+        }
+        // Prefer the projector named after the model, with the mark of a split
+        // on either side taken away.
+        let pbase = shard_base(&pstem);
+        if pbase.starts_with(&base) || base.starts_with(&pbase) || name.starts_with(&stem) {
             return Some(path);
         }
         if fallback.is_none() {
@@ -1813,6 +1932,78 @@ mod tests {
             time_ms: 0,
         };
         assert_eq!(over.part(), 1.0);
+    }
+
+    // The mark of a split is read out of the name of a file.
+    #[test]
+    fn the_mark_of_a_split_is_read_from_a_name() {
+        let parts = shard_of("Qwen3.8-Flash-Next-AD-5.00bpw-Q5_K_M-M64-00001-of-00033").unwrap();
+        assert_eq!(parts.0, "Qwen3.8-Flash-Next-AD-5.00bpw-Q5_K_M-M64");
+        assert_eq!(parts.1, 1);
+        assert_eq!(parts.2, 33);
+        let under = shard_of("model_00002_of_00004").unwrap();
+        assert_eq!((under.0.as_str(), under.1, under.2), ("model", 2, 4));
+        // A name that is not a split keeps itself.
+        assert!(shard_of("llama-3-8b-instruct").is_none());
+        assert!(shard_of("Qwen3.5-0.8B-UD-Q6_K_XL").is_none());
+        assert!(shard_of("thing-of-00002").is_none());
+    }
+
+    // A model split into parts stands once in the list, named for the folder it
+    // stands in, and its projector is found beside it.
+    #[test]
+    fn a_split_model_stands_once_in_the_list() {
+        let root = std::env::temp_dir().join(format!(
+            "atnatter-models-test-{}-1",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let inner = root.join("Qwen-3.8");
+        fs::create_dir_all(&inner).unwrap();
+        for n in 1..=33 {
+            let name = format!("Qwen3.8-Flash-Next-AD-5.00bpw-Q5_K_M-M64-{n:05}-of-00033.gguf");
+            fs::write(inner.join(name), b"x").unwrap();
+        }
+        fs::write(inner.join("Qwen-3.8-mmproj-f16.gguf"), b"x").unwrap();
+        fs::write(root.join("Qwen3.5-0.8B-UD-Q6_K_XL.gguf"), b"x").unwrap();
+        fs::write(root.join("Qwen3.5-0.8B-UD-Q6_K_XL-mmproj.gguf"), b"x").unwrap();
+
+        let models = list_models(&root);
+        let names: Vec<&str> = models.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, vec!["Qwen-3.8", "Qwen3.5-0.8B-UD-Q6_K_XL"]);
+        // The first part of the split stands for the whole of it.
+        let split = models.iter().find(|m| m.name == "Qwen-3.8").unwrap();
+        assert!(split
+            .path
+            .to_string_lossy()
+            .ends_with("M64-00001-of-00033.gguf"));
+        // The projector is read from the folder of the model, where it stands.
+        let mmproj = find_mmproj(&split.path).expect("the projector stands with the model");
+        assert_eq!(mmproj.file_name().unwrap(), "Qwen-3.8-mmproj-f16.gguf");
+        assert_eq!(mmproj.parent().unwrap(), inner);
+        let alone = models.iter().find(|m| m.name != "Qwen-3.8").unwrap();
+        let other = find_mmproj(&alone.path).expect("the projector stands with the model");
+        assert_eq!(other.file_name().unwrap(), "Qwen3.5-0.8B-UD-Q6_K_XL-mmproj.gguf");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // A folder of two models cannot name them both for the folder, so the name
+    // of the file is kept beside it.
+    #[test]
+    fn two_models_in_one_folder_are_told_apart() {
+        let root = std::env::temp_dir().join(format!(
+            "atnatter-models-test-{}-2",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let inner = root.join("pile");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(inner.join("first-00001-of-00002.gguf"), b"x").unwrap();
+        fs::write(inner.join("second.gguf"), b"x").unwrap();
+        let models = list_models(&root);
+        let names: Vec<&str> = models.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, vec!["pile (first)", "pile (second)"]);
+        let _ = fs::remove_dir_all(&root);
     }
 
     // The value behind one flag, for the tests.
