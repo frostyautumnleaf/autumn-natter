@@ -230,6 +230,11 @@ pub struct Repo {
     pub created: i64,
     #[serde(default)]
     pub last_used: i64,
+    // A repository the reader pinned stands in the `Pinned` group of the side
+    // bar, above the other groups of the list. A chat of a pinned repository is
+    // not pinned with it: the reader pins a chat on its own.
+    #[serde(default)]
+    pub pinned: bool,
     // Full path of the repository directory. It is not stored in repo.json.
     #[serde(skip, default)]
     pub path: PathBuf,
@@ -276,6 +281,20 @@ pub struct ChatMeta {
     // the switch existed reads as kept.
     #[serde(default = "preserve_thinking_on")]
     pub preserve_thinking: bool,
+    // A chat the reader pinned stands in the `Pinned` group of the side bar,
+    // above the groups of the repositories.
+    #[serde(default)]
+    pub pinned: bool,
+    // A chat the reader put away. It stands in no group of the side bar, and is
+    // read again from the list of the archived chats, where it can be brought
+    // back.
+    #[serde(default)]
+    pub archived: bool,
+    // The moment the chat was last opened. The side bar puts the chat that was
+    // opened last at the head of its group, and a chat that was never opened
+    // stands where the time of its last message puts it.
+    #[serde(default)]
+    pub opened: i64,
     // Tokens used by the last answer.
     pub context_used: u64,
 }
@@ -305,6 +324,9 @@ impl Default for ChatMeta {
             sandbox_fetch: false,
             thinking_mode: String::from("auto"),
             preserve_thinking: true,
+            pinned: false,
+            archived: false,
+            opened: 0,
             context_used: 0,
         }
     }
@@ -401,11 +423,6 @@ pub struct Chat {
     pub meta: ChatMeta,
     #[serde(default)]
     pub messages: Vec<Message>,
-    // True while a chat is only in the memory. The carousel shows such a chat
-    // as a blank one, and drops it when the user turns away without writing.
-    // It is never written to disk, so the files hold only real chats.
-    #[serde(default, skip_serializing)]
-    pub transient: bool,
 }
 
 // The first line of the newest message, in a short form. The carousel uses it
@@ -452,17 +469,7 @@ impl Chat {
                 ..Default::default()
             },
             messages: Vec::new(),
-            transient: false,
         }
-    }
-
-    // A blank chat for the front of the carousel. It is not on disk, and it
-    // goes away again when the user turns the carousel away from it without
-    // writing anything.
-    pub fn blank(repo_id: &str, model_id: &str) -> Chat {
-        let mut chat = Chat::new(repo_id, model_id);
-        chat.transient = true;
-        chat
     }
 
     // Short title from the first message of the user.
@@ -640,6 +647,9 @@ impl Store {
             name: raw_name.trim().to_string(),
             created: now,
             last_used: now,
+            // A new repository is not pinned. The reader pins it in the side
+            // bar when they want it above the others.
+            pinned: false,
             path: path.clone(),
         };
         if path.join("repo.json").is_file() {
@@ -691,13 +701,7 @@ impl Store {
     }
 
     // Write a chat. Parent directories are created when needed.
-    //
-    // A blank chat of the carousel lives only in the memory. Writing one would
-    // make it a real chat, and it would come back after the next start.
     pub fn save_chat(&self, chat: &Chat) {
-        if chat.transient {
-            return;
-        }
         let dir = match self.chats_dir(&chat.meta.repo_id) {
             Some(d) => d,
             None => return,
@@ -709,8 +713,7 @@ impl Store {
         }
     }
 
-    // Take one chat away for good. The carousel calls this when it drops a
-    // blank chat, so a file of an older run cannot bring that chat back.
+    // Take one chat away for good.
     pub fn delete_chat(&self, repo_id: &str, id: &str) {
         if id.is_empty() {
             return;
@@ -720,6 +723,94 @@ impl Store {
             None => return,
         };
         let _ = fs::remove_file(dir.join(format!("{id}.json")));
+    }
+
+    // Read one chat of any place by its id: the loose chats first, then the
+    // chats of every repository. The side bar works on a chat of a place that
+    // is not the place that is open, so the id is all the caller has.
+    pub fn load_chat(&self, id: &str) -> Option<Chat> {
+        if id.is_empty() {
+            return None;
+        }
+        let wanted = format!("{id}.json");
+        let mut places: Vec<PathBuf> = Vec::new();
+        if let Ok(entries) = fs::read_dir(config::paths().chats) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.file_name().map(|n| n.to_string_lossy() == wanted) == Some(true) {
+                    places.push(path);
+                }
+            }
+        }
+        if let Ok(entries) = fs::read_dir(&self.chats_root) {
+            for entry in entries.flatten() {
+                let path = entry.path().join(&wanted);
+                if path.is_file() {
+                    places.push(path);
+                }
+            }
+        }
+        for path in places {
+            if let Ok(text) = fs::read_to_string(&path) {
+                if let Ok(chat) = serde_json::from_str::<Chat>(&text) {
+                    if chat.meta.id == id {
+                        return Some(chat);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    // Write the record of a repository back to its own folder. The path is not
+    // kept in the record, so the folder it stands in is the folder that is
+    // written to.
+    pub fn save_repo(&self, repo: &Repo) {
+        if repo.path.join("repo.json").is_file() {
+            let text = serde_json::to_string_pretty(repo).unwrap_or_default();
+            let _ = fs::write(repo.path.join("repo.json"), text);
+        }
+    }
+
+    // Give a repository another name. The folder of a repository is named after
+    // it, `name_id`, so the folder is moved as well and keeps the record, the
+    // Python packages of the chats and the records of the attachments with it.
+    // The id does not move, which is what the talks of the repository and the
+    // chats that point at it are keyed on.
+    pub fn rename_repo(&self, id: &str, raw_name: &str) -> Result<Repo, String> {
+        let name = raw_name.trim().to_string();
+        if name.is_empty() {
+            return Err(String::from("A repository needs a name"));
+        }
+        let path = self
+            .repo_path(id)
+            .ok_or_else(|| String::from("That repository is not there"))?;
+        let dir_name = repo_dir_name(&name, id);
+        let newer = match path.parent() {
+            Some(parent) => parent.join(&dir_name),
+            None => return Err(String::from("The folder of that repository cannot be read")),
+        };
+        let mut repo = match fs::read_to_string(path.join("repo.json")) {
+            Ok(text) => serde_json::from_str::<Repo>(&text).unwrap_or_default(),
+            Err(_) => Repo::default(),
+        };
+        repo.id = id.to_string();
+        repo.name = name.clone();
+        if newer == path {
+            // The name came to the same folder name, so only the record moves.
+            let text = serde_json::to_string_pretty(&repo).unwrap_or_default();
+            fs::write(path.join("repo.json"), text).map_err(|e| e.to_string())?;
+            repo.path = path;
+            return Ok(repo);
+        }
+        if newer.exists() {
+            return Err(format!("A repository named {} is there already", name));
+        }
+        fs::rename(&path, &newer).map_err(|e| format!("Cannot move that repository: {}", e))?;
+        let text = serde_json::to_string_pretty(&repo).unwrap_or_default();
+        fs::write(newer.join("repo.json"), text).map_err(|e| e.to_string())?;
+        repo.path = newer;
+        Ok(repo)
     }
 }
 
@@ -1016,7 +1107,6 @@ mod tests {
                 },
                 summary,
             ],
-            transient: false,
         };
         let text = serde_json::to_string(&chat).expect("the chat is written");
         let back: Chat = serde_json::from_str(&text).expect("the chat is read");
@@ -1043,7 +1133,6 @@ mod tests {
                 ..Default::default()
             },
             messages: vec![mark("")],
-            transient: false,
         };
         assert!(waiting.handoff_owed());
         let written = Chat {
@@ -1074,7 +1163,6 @@ mod tests {
                 mark("s1", ""),
                 mark("s2", "the handoff summary of the talk, written the second time"),
             ],
-            transient: false,
         };
         assert!(!chat.handoff_owed());
         // The other way round the chat still waits, for the newest mark holds

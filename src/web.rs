@@ -32,20 +32,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         .iter()
         .map(|r| json!({ "id": r.id, "name": r.name }))
         .collect();
-    let chats: Vec<Value> = snap
-        .chats
-        .iter()
-        .map(|c| {
-            json!({
-                "id": c.meta.id,
-                "title": c.meta.title,
-                "repo": repo_name(snap, &c.meta.repo_id),
-                "when": store::format_when(c.meta.updated),
-                "active": c.meta.id == snap.chat_id,
-                "preview": store::preview(&c.messages),
-            })
-        })
-        .collect();
+
     // The mark of a chapter is not a message of the talk: it stands beside the
     // chat as a node on the chapter line, so it is kept out of the words.
     let chapters: Vec<Value> = snap
@@ -170,17 +157,14 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "repository": { "id": snap.repository_id, "name": snap.repository_name },
         "repositories": repositories,
         "chat": { "id": snap.chat_id, "title": snap.chat_title },
-        "chats": chats,
         // The first screen: the chat box on its own, with a line for this hour.
+        // `Create new chat` in the side bar goes back to this screen.
         "home": snap.home,
         "greeting": snap.greeting,
-        "overview": snap.overview,
-        // Where the carousel stands, and whether the open chat is blank.
-        "carousel": {
-            "index": snap.chat_index,
-            "count": snap.chat_count,
-            "blank": snap.blank_chat,
-        },
+        // The number the lists of the side bar are read again on. A chat that
+        // came, went, moved, was renamed, or was opened moves it, so the page
+        // asks for the lists when they changed and not on every look.
+        "structure_rev": snap.structure_rev,
         "messages": messages,
         // The chapters the model marked, in the order it marked them. The line
         // beside the chat is made of these, and of nothing else.
@@ -308,17 +292,46 @@ fn rate(per: f64) -> f64 {
     (per * 10.0).round() / 10.0
 }
 
-// Name of a repository, for the chat list. A chat with no repository gives an
-// empty string, and the page then shows nothing there.
-fn repo_name<'a>(snap: &'a Snap, id: &str) -> &'a str {
-    if id.is_empty() {
-        return "";
-    }
-    snap.repositories
-        .iter()
-        .find(|r| r.id == id)
-        .map(|r| r.name.as_str())
-        .unwrap_or("")
+// The lists the side bar is made of: every repository with the chats that stand
+// in it, the chats that belong to no repository, and the chats the reader put
+// away. The page asks for these when a list changed, and not with every look at
+// the state, for the chats are read from the disk and can be many.
+//
+// The chats of a group stand newest opened first, which is how the engine puts
+// them. The page splits each group into the pinned chats, five chats, and what
+// is left behind a `Show more`.
+pub fn lists_value(engine: &crate::engine::Engine) -> Value {
+    let open = engine.snapshot().chat_id;
+    let lists = engine.lists();
+    let line = |chat: &store::Chat| {
+        json!({
+            "id": chat.meta.id,
+            "title": chat.meta.title,
+            "repo": chat.meta.repo_id,
+            // The line of the group the chat stands in, in words the reader of
+            // the pinned group can use.
+            "when": store::format_when(chat.meta.updated),
+            "pinned": chat.meta.pinned,
+            "archived": chat.meta.archived,
+            "active": chat.meta.id == open,
+            "messages": chat.messages.len(),
+            "preview": store::preview(&chat.messages),
+        })
+    };
+    json!({
+        "repositories": lists
+            .repositories
+            .iter()
+            .map(|(repo, chats)| json!({
+                "id": repo.id,
+                "name": repo.name,
+                "pinned": repo.pinned,
+                "chats": Value::Array(chats.iter().map(line).collect()),
+            }))
+            .collect::<Vec<_>>(),
+        "loose": Value::Array(lists.loose.iter().map(line).collect()),
+        "archived": Value::Array(lists.archived.iter().map(line).collect()),
+    })
 }
 
 // ------------------------------------------------------------------ settings
@@ -584,22 +597,43 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.new_chat();
             done()
         }
-        // Turn the carousel of chats. Minus one shows the chat at the left.
-        "/api/roll" | "roll" => {
-            let step = value
-                .get("step")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0)
-                .clamp(-50, 50) as i32;
-            engine.roll(step);
-            done()
-        }
         "/api/open_chat" | "open_chat" => {
             engine.open_chat(text_field(&value, "id"));
             done()
         }
-        "/api/overview" | "overview" => {
-            engine.set_overview(flag(&value, "on"));
+        // The lists of the side bar. They do not come with the state, for the
+        // chats are read from the disk and the state is read six times a second.
+        "/api/lists" | "lists" => lists_value(engine),
+        // The work of the side bar on one chat, by its id: another name, the
+        // group it stands in, the place it belongs to, and taking it away.
+        "/api/rename_chat" | "rename_chat" => {
+            engine.rename_chat(text_field(&value, "id"), text_field(&value, "title"));
+            done()
+        }
+        "/api/pin_chat" | "pin_chat" => {
+            engine.set_chat_pinned(text_field(&value, "id"), flag(&value, "on"));
+            done()
+        }
+        "/api/archive_chat" | "archive_chat" => {
+            engine.set_chat_archived(text_field(&value, "id"), flag(&value, "on"));
+            done()
+        }
+        "/api/move_chat" | "move_chat" => {
+            engine.move_chat(text_field(&value, "id"), text_field(&value, "repo"));
+            done()
+        }
+        "/api/delete_chat" | "delete_chat" => {
+            engine.remove_chat(text_field(&value, "id"));
+            done()
+        }
+        // The work of the side bar on one repository: another name, and the
+        // group it stands in.
+        "/api/rename_repo" | "rename_repo" => {
+            engine.rename_repository(text_field(&value, "id"), text_field(&value, "name"));
+            done()
+        }
+        "/api/pin_repo" | "pin_repo" => {
+            engine.set_repository_pinned(text_field(&value, "id"), flag(&value, "on"));
             done()
         }
         "/api/select_model" | "select_model" => {

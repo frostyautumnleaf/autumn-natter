@@ -288,9 +288,71 @@ function chats(count, open) {
 }
 
 // The state of the engine, as the record of web::state.
+
+// The lists of the side bar. Two repositories stand with their chats, one with
+// more chats than a group shows at first; one repository was pinned, and so
+// were two of the chats that belong to no repository; and three chats were put
+// away. The words of the chats are the same few, for the bar shows only names.
+function lists(st) {
+  var openId = String(st.chat_id || '');
+  var home = !!st.home;
+  var titles = ['The ledger of the spring', 'A note on the margins', 'Words for the preface',
+    'The cost of the roof', 'A letter not sent', 'Names of the streets', 'The well and the pump',
+    'Three days of rain', 'The key of the archive', 'A map of the orchard', 'What the fair cost',
+    'The clock in the hall', 'A basket of letters'];
+  var line = function (id, repo, n, pinned, archived) {
+    return { id: id, title: titles[n % titles.length], repo: repo, when: 'yesterday',
+      pinned: !!pinned, archived: !!archived, active: id === openId, messages: 4 + n,
+      preview: 'A line of the chat.' };
+  };
+  var many = function (repo, from, count) {
+    var out = [];
+    for (var i = 0; i < count; i++) { out.push(line(repo + '-' + (from + i), repo, from + i, false, false)); }
+    return out;
+  };
+  var out = {
+    repositories: [
+      { id: 'r-one', name: 'The Ledger', pinned: false, chats: many('r-one', 0, 4) },
+      { id: 'r-two', name: 'The Orchard', pinned: false, chats: many('r-two', 4, 9) },
+      { id: 'r-pin', name: 'The Archive', pinned: true, chats: many('r-pin', 13, 2) }
+    ],
+    loose: [
+      line('l-one', '', 2, true, false),
+      line('l-two', '', 5, true, false),
+      line('l-three', '', 8, false, false),
+      line('l-four', '', 11, false, false),
+      line('l-five', '', 14, false, false),
+      line('l-six', '', 17, false, false),
+      line('l-seven', '', 20, false, false),
+      line('l-eight', '', 23, false, false),
+      line('l-nine', '', 26, false, false),
+      line('l-ten', '', 29, false, false),
+      line('l-eleven', '', 32, false, false),
+      line('l-twelve', '', 35, false, false),
+      line('l-thirteen', '', 38, false, false),
+      line('l-fourteen', '', 41, false, false),
+      line('l-fifteen', '', 44, false, false),
+      line('l-sixteen', '', 47, false, false)
+    ],
+    archived: [
+      line('a-one', '', 1, false, true),
+      line('a-two', 'r-one', 6, false, true),
+      line('a-three', 'r-two', 9, false, true)
+    ]
+  };
+  // A scene with a chat open that is not one of these has to have a row of the
+  // side bar marked as the chat in use, or the mark is never seen.
+  if (openId && !home) {
+    var any = out.loose.some(function (c) { return c.active; }) ||
+      out.repositories.some(function (r) { return r.chats.some(function (c) { return c.active; }); });
+    if (!any) { out.loose[2].active = true; }
+  }
+  return out;
+}
+
 function scene(name, dark) {
   const start = {
-    rev: 1, unchanged: false,
+    rev: 1, unchanged: false, structure_rev: 1,
     model: { id: 'm1', name: 'Qwen3.5-0.8B-UD-Q6_K', kind: 'GGUF' },
     models: [
       { id: 'm1', name: 'Qwen3.5-0.8B-UD-Q6_K', kind: 'GGUF' },
@@ -806,12 +868,16 @@ async function main() {
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu',
       '--font-render-hinting=none', '--force-color-profile=srgb']
   });
+  // A scene with a chat open has to say which chat it is, as the engine does,
+  // so the row of that chat can be marked in the side bar.
+  if (!state.home) { state.chat_id = 'l-three'; }
+
   const view = await browser.newPage();
   await view.setViewport({ width: width, height: height, deviceScaleFactor: 2 });
   view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
   view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
 
-  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, one, pic, pic2) {
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, one, pic, pic2, listsOf) {
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
@@ -830,6 +896,10 @@ async function main() {
           return Promise.resolve({ json: function () {
             return Promise.resolve(held.repositories.map(function (r) {
               return { id: r.id, name: r.name }; })); } });
+        }
+        if (String(url).indexOf('/api/lists') === 0) {
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(JSON.parse(JSON.stringify(listsOf))); } });
         }
         if (String(url).indexOf('/api/model_settings') === 0) {
           return Promise.resolve({ json: function () {
@@ -875,6 +945,9 @@ async function main() {
             return Promise.resolve(held.repositories.map(function (r) {
               return { id: r.id, name: r.name }; }));
           }
+          if (command === 'action' && String((args && args.path) || '') === 'lists') {
+            return Promise.resolve(JSON.parse(JSON.stringify(listsOf)));
+          }
           if (command === 'get_model_settings') {
             return Promise.resolve(JSON.parse(JSON.stringify(model)));
           }
@@ -900,7 +973,7 @@ async function main() {
         }
       }
     };
-  }, useFetch, state, CONFIG, MODEL, LOGS, LOG_ONE, ATT_PIC, ATT_TALL);
+  }, useFetch, state, CONFIG, MODEL, LOGS, LOG_ONE, ATT_PIC, ATT_TALL, lists(state));
 
   await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
   await new Promise(function (r) { setTimeout(r, 700); });
@@ -1041,11 +1114,30 @@ async function main() {
   // be seen open. The chat glides when a chapter is picked, so the wait is
   // long enough for the glide to come to rest.
   if (process.env.AN_CLICK) {
-    const hit = await view.$(process.env.AN_CLICK);
-    if (hit) {
+    const wants = String(process.env.AN_CLICK).split(';').filter(Boolean);
+    for (const want of wants) {
+      const hit = await view.$(want.trim());
+      if (!hit) { continue; }
       await hit.click();
       await new Promise(function (r) { setTimeout(r, 700); });
     }
+  }
+  // AN_HOVER2=selector hovers a second thing, after the click was made, so a
+  // menu that opens a wing of its own can be seen with the wing out.
+  if (process.env.AN_HOVER2) {
+    const over2 = await view.$(process.env.AN_HOVER2);
+    if (over2) {
+      await over2.hover();
+      await new Promise(function (r) { setTimeout(r, 400); });
+    }
+  }
+  // AN_JS=words runs the words in the page and prints what they answer, so a
+  // question about the page can be asked without leaving the picture.
+  if (process.env.AN_JS) {
+    const said = await view.evaluate(function (words) {
+      try { return String(eval(words)); } catch (e) { return 'fault: ' + String(e); }
+    }, process.env.AN_JS);
+    console.log('JS', said);
   }
   // AN_MEASURE=selector prints where the things that match stand, in the
   // measure of the page, so a layout can be checked without looking at pixels.

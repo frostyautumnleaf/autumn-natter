@@ -704,20 +704,12 @@ pub struct Snap {
     pub models: Vec<ModelInfo>,
     pub model_id: String,
     pub repositories: Vec<Repo>,
-    pub chats: Vec<Chat>,
     pub chat_id: String,
-    // Where the open chat sits in the carousel. The window moves the carousel
-    // to this place when the number changes.
-    pub chat_index: usize,
-    // How many chats this place has, the blank one counted too.
-    pub chat_count: usize,
-    // True when the open chat holds no message yet.
-    pub blank_chat: bool,
     // True when no chat is open. The window then shows the chat box in the
-    // middle of the screen, with the program mark and a line for this hour.
+    // middle of the screen, with the program mark and a line for this hour. The
+    // side bar and this one screen are what the reader goes between: a new chat
+    // is this screen, and the first message of it grows the chat.
     pub home: bool,
-    // True when the chats are shown as small previews.
-    pub overview: bool,
     // The line above the chat box while no chat is open.
     pub greeting: String,
     pub messages: Vec<Message>,
@@ -775,14 +767,13 @@ pub struct State {
     pub models: Vec<ModelInfo>,
     pub gpus: Vec<Gpu>,
     pub repositories: Vec<Repo>,
-    // Repository the chat list shows, and the one new chats belong to.
+    // Repository the side bar has open, and the one a new chat belongs to.
     pub scope_repo: String,
+    // The chats of the place that is open, newest first. The side bar reads the
+    // chats of every place when it is asked for them; this list is the place the
+    // open chat stands in.
     pub chats: Vec<Chat>,
     pub current: Option<String>,
-    // A blank chat that the user turned away from. It is dropped once the
-    // carousel has finished moving, so the move is still smooth. The text is
-    // the id of that chat.
-    pub pending_blank: Option<(String, Instant)>,
     // Text the model is writing right now.
     pub live_text: String,
     // The model's reasoning, streamed while an answer comes in.
@@ -836,14 +827,16 @@ pub struct State {
     // talk again -- and a meter that only climbs would stand still for the whole
     // of the answer that followed, for ever after.
     pub ctx_fresh: bool,
+    // The moment last handed to a chat that was opened. Two chats opened inside
+    // one second are told apart by it, so the one opened last stands at the head
+    // of its group none the less.
+    pub last_opened: i64,
     pub sandbox_available: bool,
     pub sandbox_note: String,
     // What the chat template of the current model can do with thinking.
     pub thinking: markdown::ThinkingOptions,
     pub rev: u64,
     pub structure_rev: u64,
-    // True while the chats are shown as small previews.
-    pub overview: bool,
     // The chat settings a new chat starts with. They matter while no chat is
     // open, where a badge has no chat to change.
     pub new_code: bool,
@@ -949,21 +942,97 @@ impl State {
         self.chats.iter().find(|c| c.meta.id == id)
     }
 
-    // Write the open chat to disk. Cloning first keeps the borrow short.
-    // A chat that holds something is a real chat from then on, even when the
-    // carousel made it as a blank one.
-    fn persist(&mut self) {
-        if let Some(id) = self.current.clone() {
-            if let Some(chat) = self.chats.iter_mut().find(|c| c.meta.id == id) {
-                if !chat.messages.is_empty() {
-                    chat.transient = false;
-                }
-            }
+    // Open the chat that stands at this place in the list, and put it at the
+    // head of its group in the side bar. The moment it was opened is kept with
+    // the chat, which is what the order of a group is read from.
+    fn mark_opened(&mut self, place: usize) {
+        // The moment of the open never stands below the last one handed out, so
+        // two chats opened within one second keep the order the reader opened
+        // them in, and the chat that was opened last is the first in its group.
+        let now = store::now_secs();
+        let stamp = if now > self.last_opened { now } else { self.last_opened + 1 };
+        self.last_opened = stamp;
+        self.chats[place].meta.opened = stamp;
+        let snapshot = self.chats[place].clone();
+        self.ctx_used = snapshot.meta.context_used;
+        self.current = Some(snapshot.meta.id.clone());
+        self.store.save_chat(&snapshot);
+        self.set_status("Ready");
+        self.touch_structure();
+    }
+
+    // Change the record of one chat, of this place or of another. The place in
+    // hand is looked in first, for the chat that stands open lives there in its
+    // newest shape; after it the chat is read from the disk. `None` says that no
+    // place holds such a chat.
+    fn edit_chat<F>(&mut self, id: &str, change: F) -> Option<()>
+    where
+        F: FnOnce(&mut Chat),
+    {
+        if id.is_empty() {
+            return None;
         }
-        if let Some(chat) = self.chat() {
-            let snapshot = chat.clone();
+        if let Some(place) = self.chats.iter().position(|c| c.meta.id == id) {
+            change(&mut self.chats[place]);
+            let snapshot = self.chats[place].clone();
             self.store.save_chat(&snapshot);
+            self.touch_structure();
+            return Some(());
         }
+        let mut chat = self.store.load_chat(id)?;
+        change(&mut chat);
+        self.store.save_chat(&chat);
+        self.touch_structure();
+        Some(())
+    }
+
+    // Every repository with the chats that stand in it, the chats that belong to
+    // no repository, and the chats the reader put away. A chat that was put away
+    // stands in neither of the first two. The chats of a group stand newest
+    // opened first, so the chat the reader was last in is the first of its group.
+    fn lists(&self) -> Lists {
+        let mut repositories: Vec<(Repo, Vec<Chat>)> = Vec::new();
+        let mut archived: Vec<Chat> = Vec::new();
+        for repo in self.repositories.iter() {
+            let mut chats = self.store.list_chats(&repo.id);
+            archived.extend(chats.iter().filter(|c| c.meta.archived).cloned());
+            chats.retain(|c| !c.meta.archived);
+            by_opened(&mut chats);
+            repositories.push((repo.clone(), chats));
+        }
+        let mut loose = self.store.list_chats("");
+        archived.extend(loose.iter().filter(|c| c.meta.archived).cloned());
+        loose.retain(|c| !c.meta.archived);
+        by_opened(&mut loose);
+        // The chats that were put away stand newest first, for the reader is
+        // most likely to want the one they put away last.
+        archived.sort_by_key(|c| std::cmp::Reverse(c.meta.updated));
+        Lists {
+            repositories,
+            loose,
+            archived,
+        }
+    }
+
+    // Write the open chat to disk. Cloning first keeps the borrow short.
+    //
+    // A chat that holds nothing is not written at all. It stands in the memory
+    // until the first message makes it worth keeping, so a new chat that the
+    // reader started and left alone leaves no file behind and never shows in
+    // the side bar.
+    fn persist(&mut self) {
+        let Some(chat) = self.chat() else { return };
+        if chat.messages.is_empty() {
+            return;
+        }
+        // The first message makes the chat a file, and a file makes a row in the
+        // side bar, so the lists of the windows are made anew.
+        let first = chat.messages.len() == 1;
+        let snapshot = chat.clone();
+        if first {
+            self.touch_structure();
+        }
+        self.store.save_chat(&snapshot);
     }
 
     // Add one message of a normal kind to the open chat.
@@ -1426,134 +1495,61 @@ impl State {
                 chat.meta.thinking_mode = String::from("off");
             }
         }
-        // Keep the open chat when it is still there.
-        if let Some(id) = self.current.clone() {
-            if !self.chats.iter().any(|c| c.meta.id == id) {
-                self.current = None;
-            }
-        }
-        self.pending_blank = None;
-        // A new place is looked at as one chat, not as a row of previews.
-        self.overview = false;
-        // A place with no chat at all is left empty. The window then shows the
-        // chat box on its own, and the first message starts the first chat.
-        // When the place has chats, the newest one is opened.
-        if self.chats.is_empty() {
-            self.current = None;
-            self.ctx_used = 0;
-        } else if self.current.is_none() {
-            self.current = Some(self.chats[0].meta.id.clone());
-            self.ctx_used = self.chats[0].meta.context_used;
-        }
-        self.touch_structure();
-    }
-
-    // Put a blank chat at the front of the carousel and open it. The blank
-    // chat lives only in the memory. When one is there already, it is used
-    // again, so asking for a new chat twice does not make two of them.
-    fn open_blank_chat(&mut self) {
-        if let Some(place) = self
-            .chats
-            .iter()
-            .position(|c| c.transient && c.messages.is_empty())
+        // Keep the open chat when it is still there, and forget the number of
+        // the talk when it is not. A place is never opened by itself: the first
+        // screen stands between places, and the reader opens a chat of the new
+        // place from the side bar, or starts a new one.
+        if self
+            .current
+            .as_ref()
+            .map(|id| !self.chats.iter().any(|c| &c.meta.id == id))
+            .unwrap_or(false)
         {
-            // A new chat belongs at the front, so move the blank one there.
-            if place != 0 {
-                let chat = self.chats.remove(place);
-                self.chats.insert(0, chat);
-            }
-            self.use_blank_front();
-            return;
+            self.current = None;
         }
+        if self.current.is_none() {
+            self.ctx_used = 0;
+        }
+        self.touch_structure();
+    }
+
+    // Start a new chat in the place that is open, and open it. Nothing is
+    // written to disk yet: the first message the reader sends makes the chat a
+    // real one and writes it, so a chat that was opened and left empty leaves
+    // no file behind.
+    //
+    // A new chat stands where the reader left the chat before it. Every setter
+    // of the two badges, the sandbox, the thinking mode and the choice of
+    // keeping the thinking keeps the choice for the next chat in step with the
+    // chat that stands open, so the new chat asks for the server the chat
+    // before it ran on and the model on it stays loaded.
+    fn start_chat(&mut self) {
         let model_id = self.current_model_id();
-        let mut chat = Chat::blank(&self.scope_repo, &model_id);
-        // A new chat stands where the reader left the chat before it: the two
-        // badges, the sandbox, the thinking mode and the choice of keeping the
-        // thinking all come from the chat that was at the front. The reader
-        // goes on with the same talk on the same server, so nothing that needs
-        // the model to load again moves on the way. With nothing at the front,
-        // the choices the badges hold for the next chat stand in their place.
-        match self.chats.first() {
-            Some(previous) => {
-                chat.meta.sandbox_enabled = previous.meta.sandbox_enabled;
-                chat.meta.sandbox_network = previous.meta.sandbox_network;
-                chat.meta.sandbox_pip = previous.meta.sandbox_pip;
-                chat.meta.sandbox_fetch = previous.meta.sandbox_fetch;
-                chat.meta.code_enabled = previous.meta.code_enabled;
-                chat.meta.search_enabled = previous.meta.search_enabled;
-                chat.meta.thinking_mode = previous.meta.thinking_mode.clone();
-                chat.meta.preserve_thinking = previous.meta.preserve_thinking;
-            }
-            None => {
-                chat.meta.sandbox_enabled = self.new_sandbox;
-                chat.meta.sandbox_network = self.new_sandbox_access.network;
-                chat.meta.sandbox_pip = self.new_sandbox_access.pip;
-                chat.meta.sandbox_fetch = self.new_sandbox_access.fetch;
-                chat.meta.code_enabled = self.new_code;
-                chat.meta.search_enabled = self.new_search;
-                chat.meta.thinking_mode = self.new_thinking.clone();
-                chat.meta.preserve_thinking = self.new_preserve;
-            }
-        }
+        let mut chat = Chat::new(&self.scope_repo, &model_id);
+        chat.meta.sandbox_enabled = self.new_sandbox;
+        chat.meta.sandbox_network = self.new_sandbox_access.network;
+        chat.meta.sandbox_pip = self.new_sandbox_access.pip;
+        chat.meta.sandbox_fetch = self.new_sandbox_access.fetch;
+        chat.meta.code_enabled = self.new_code;
+        chat.meta.search_enabled = self.new_search;
+        chat.meta.thinking_mode = self.new_thinking.clone();
+        chat.meta.preserve_thinking = self.new_preserve;
+        chat.meta.opened = store::now_secs();
         self.chats.insert(0, chat);
-        self.use_blank_front();
-    }
-
-    // Open the chat that sits at the front of the carousel, and say what a
-    // blank chat is.
-    fn use_blank_front(&mut self) {
-        let front = self.chats.first().map(|c| c.meta.id.clone());
-        self.current = front;
+        self.current = Some(self.chats[0].meta.id.clone());
         self.ctx_used = 0;
-        self.pending_blank = None;
-        self.set_status("A new chat. Write in it, or switch chats and it is removed");
+        self.set_status("A new chat. Write in it below");
         self.touch_structure();
     }
 
-    // Forget the blank chat with this id, when it is still blank and it is not
-    // the chat that is open.
-    fn drop_blank(&mut self, id: &str) {
-        if self.current.as_deref() == Some(id) {
-            return;
-        }
-        let place = self.chats.iter().position(|c| c.meta.id == id);
-        let Some(place) = place else { return };
-        if !(self.chats[place].transient && self.chats[place].messages.is_empty()) {
-            return;
-        }
-        let dropped = self.chats.remove(place);
-        // A blank chat never reaches the disk. The delete covers a file that an
-        // older run may have left, so the chat cannot come back by itself.
-        self.store
-            .delete_chat(&dropped.meta.repo_id, &dropped.meta.id);
+    // Put the first screen up: no chat is open, so the mark, the line for this
+    // hour and the chat box stand together in the middle of the window. This is
+    // what the program shows when it starts, and what `Create new chat` in the
+    // side bar goes back to.
+    fn open_home(&mut self) {
+        self.current = None;
+        self.ctx_used = 0;
         self.touch_structure();
-    }
-
-    // Take away a blank chat that the user turned away from. This waits until
-    // the carousel had the time to move, so the move stays smooth.
-    fn prune_blank(&mut self) {
-        let Some((id, deadline)) = self.pending_blank.clone() else {
-            return;
-        };
-        if Instant::now() < deadline {
-            return;
-        }
-        self.pending_blank = None;
-        self.drop_blank(&id);
-    }
-
-    // Note that the open chat is a blank one, in case the user leaves it now.
-    fn leave_blank(&mut self) {
-        let Some(id) = self.current.clone() else {
-            return;
-        };
-        let blank = self
-            .chats
-            .iter()
-            .any(|c| c.meta.id == id && c.transient && c.messages.is_empty());
-        if blank {
-            self.pending_blank = Some((id, Instant::now() + Duration::from_millis(320)));
-        }
     }
 
     // Refresh the model list, the device list and the repositories.
@@ -1811,17 +1807,8 @@ impl State {
             model_id: self.current_model_id(),
             // The top bar shows five recent repositories at most.
             repositories: self.repositories.iter().take(5).cloned().collect(),
-            chats: self.chats.clone(),
             chat_id: self.current.clone().unwrap_or_default(),
-            chat_index: self
-                .chats
-                .iter()
-                .position(|c| Some(&c.meta.id) == self.current.as_ref())
-                .unwrap_or(0),
-            chat_count: self.chats.len(),
-            blank_chat: chat.map(|c| c.messages.is_empty()).unwrap_or(true),
             home: self.current.is_none(),
-            overview: self.overview,
             greeting: crate::greet::greeting(store::now_secs()),
             // The marks of the chapters are not words of the talk: they are
             // given on the side, and kept out of the messages the window draws.
@@ -1901,6 +1888,35 @@ pub fn access_of(meta: &store::ChatMeta) -> tools::Access {
     }
 }
 
+// What the side bar is made of. Every repository stands with the chats that
+// are in it and were not put away, and the chats that belong to no repository
+// stand on their own. A repository the reader pinned keeps its mark, and so
+// does a chat; the page puts the pinned things in the group above the rest.
+pub struct Lists {
+    pub repositories: Vec<(Repo, Vec<Chat>)>,
+    pub loose: Vec<Chat>,
+    // The chats the reader put away, newest first, of every place.
+    pub archived: Vec<Chat>,
+}
+
+impl Default for Lists {
+    fn default() -> Self {
+        Lists {
+            repositories: Vec::new(),
+            loose: Vec::new(),
+            archived: Vec::new(),
+        }
+    }
+}
+
+// Put the chats of one group in the order the side bar shows them: the chat
+// that was opened last first. A chat that was never opened stands where the
+// time of its last message puts it, so a list of chats that nobody has opened
+// since the program was started is still the newest first.
+fn by_opened(chats: &mut [Chat]) {
+    chats.sort_by_key(|c| std::cmp::Reverse(c.meta.opened.max(c.meta.updated)));
+}
+
 // The handle a window keeps.
 pub struct Engine {
     state: Arc<Mutex<State>>,
@@ -1955,13 +1971,12 @@ impl Engine {
             ctx_total: 0,
             ctx_used: 0,
             ctx_fresh: false,
+            last_opened: 0,
             sandbox_available,
             sandbox_note,
             thinking: markdown::ThinkingOptions::default(),
             rev: 0,
             structure_rev: 0,
-            pending_blank: None,
-            overview: false,
             new_code: false,
             new_search: false,
             new_sandbox: true,
@@ -2009,15 +2024,10 @@ impl Engine {
         }
     }
 
-    // Read the state without changing it. A blank chat that the user turned
-    // away from is taken away here, because every window reads the state
-    // several times a second.
+    // Read the state without changing it.
     pub fn snapshot(&self) -> Snap {
         match self.state.lock() {
-            Ok(mut state) => {
-                state.prune_blank();
-                state.snap()
-            }
+            Ok(state) => state.snap(),
             Err(_) => Snap::empty(),
         }
     }
@@ -2040,7 +2050,7 @@ impl Engine {
         // A message sent from the first screen opens a chat of this place. The
         // window grows the chat box into a chat at the same time.
         if state.current.is_none() {
-            state.open_blank_chat();
+            state.start_chat();
         }
         // A chat that was cut for a handoff summary and never got one stands at
         // the place it was cut: its talk is past the room of the model and
@@ -2353,8 +2363,10 @@ impl Engine {
         attach::find_in(&[paths.data.join("work"), paths.repositories], id)
     }
 
-    // Start a chat in the place that is open now. The chat is blank, so it
-    // goes away again when the user turns the carousel away without writing.
+    // Go back to the first screen, where a new chat is written. The chat box
+    // stands in the middle of the window under the mark and the line for this
+    // hour, which is the screen the program opens on. The chat itself is made
+    // by the first message, so a new chat that is left alone leaves no file.
     pub fn new_chat(&self) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -2363,77 +2375,14 @@ impl Engine {
             state.set_status("Wait for the answer to finish");
             return;
         }
-        // The new chat is wanted in full, so the previews are put away.
-        state.overview = false;
-        state.open_blank_chat();
+        state.open_home();
+        state.set_status("A new chat. Write in it below");
     }
 
-    // Turn the carousel by one chat. Minus one shows the chat at the left, and
-    // plus one shows the chat at the right. A blank chat that is left behind
-    // goes away after the move.
-    pub fn roll(&self, step: i32) {
-        let Ok(mut state) = self.state.lock() else {
-            return;
-        };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
-        if state.chats.is_empty() {
-            state.open_blank_chat();
-            return;
-        }
-        let here = state
-            .chats
-            .iter()
-            .position(|c| Some(&c.meta.id) == state.current.as_ref())
-            .unwrap_or(0);
-        let target = if step < 0 {
-            here.saturating_sub((-step) as usize)
-        } else {
-            (here + step as usize).min(state.chats.len() - 1)
-        };
-        if target == here {
-            state.set_status(if step < 0 {
-                "This is the first chat here"
-            } else {
-                "This is the last chat here"
-            });
-            return;
-        }
-        // A blank chat is dropped, but only after the carousel moved.
-        state.leave_blank();
-        state.current = Some(state.chats[target].meta.id.clone());
-        state.ctx_used = state.chats[target].meta.context_used;
-        state.set_status("ready");
-        // Only the messages changed. The list of chats keeps its shape, so the
-        // window slides the cards instead of building them again.
-        state.touch();
-    }
-
-    // Show the chats of this place as small previews, or put them away again.
-    // While the previews are up, the chat in the middle of them is the chat the
-    // user is pointing at, so it is also the chat that is open.
-    pub fn set_overview(&self, on: bool) {
-        let Ok(mut state) = self.state.lock() else {
-            return;
-        };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
-        if state.overview == on {
-            return;
-        }
-        state.overview = on;
-        if on && state.current.is_none() && !state.chats.is_empty() {
-            state.current = Some(state.chats[0].meta.id.clone());
-            state.ctx_used = state.chats[0].meta.context_used;
-        }
-        state.touch();
-    }
-
-    // Open one chat of the carousel.
+    // Open one chat of the side bar, of any place. The place of that chat
+    // becomes the place that is open, so the bar, a command of the tool and the
+    // next chat all follow the chat the reader went to. The chat that was opened
+    // last stands at the head of its group in the side bar.
     pub fn open_chat(&self, id: String) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -2442,20 +2391,241 @@ impl Engine {
             state.set_status("Wait for the answer to finish");
             return;
         }
+        // A chat of another place is read from disk, for the side bar lists
+        // every place and the engine holds only the one that is open.
         if !state.chats.iter().any(|c| c.meta.id == id) {
+            match state.store.load_chat(&id) {
+                Some(chat) => state.chats.push(chat),
+                None => {
+                    state.set_status("That chat is not there");
+                    return;
+                }
+            }
+        }
+        let Some(place) = state.chats.iter().position(|c| c.meta.id == id) else {
+            return;
+        };
+        let repo = state.chats[place].meta.repo_id.clone();
+        if repo != state.scope_repo {
+            // The chat goes with its repository, so the place is read again
+            // with this chat kept open.
+            state.scope_repo = repo;
+            state.current = Some(id.clone());
+            state.reload_chats();
+            let Some(place) = state.chats.iter().position(|c| c.meta.id == id) else {
+                return;
+            };
+            state.mark_opened(place);
             return;
         }
-        state.leave_blank();
-        state.current = Some(id.clone());
-        state.ctx_used = state
-            .chats
-            .iter()
-            .find(|c| c.meta.id == id)
-            .map(|c| c.meta.context_used)
-            .unwrap_or(0);
-        state.overview = false;
-        state.set_status("ready");
-        state.touch();
+        state.mark_opened(place);
+    }
+
+    // ------------------------------------------------------------------ side bar
+    //
+    // The side bar works on chats and repositories by their id, and the chat it
+    // works on is seldom the chat that stands open. Each of these reads the chat
+    // out of the place that holds it, changes the record, and writes it back.
+
+    // Give one chat another name. A name of nothing is no name, and the chat
+    // keeps the one it had.
+    pub fn rename_chat(&self, id: String, title: String) {
+        let title = title.trim().chars().take(120).collect::<String>();
+        let title = title.trim().to_string();
+        if title.is_empty() {
+            return;
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state
+            .edit_chat(&id, |chat| chat.meta.title = title)
+            .is_none()
+        {
+            state.set_status("That chat is not there");
+        }
+    }
+
+    // Stand a chat in the `Pinned` group of the side bar, or take it out of it.
+    // A pinned chat stands in that group alone, so it is not shown in the group
+    // of its repository as well.
+    pub fn set_chat_pinned(&self, id: String, on: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.edit_chat(&id, |chat| chat.meta.pinned = on).is_none() {
+            state.set_status("That chat is not there");
+            return;
+        }
+        let words = if on {
+            "The chat stands in Pinned"
+        } else {
+            "The chat is no longer pinned"
+        };
+        state.set_status(words);
+    }
+
+    // Put a chat away, or bring it back. A chat that is put away stands in no
+    // group of the side bar; it is read again from the list of the archived
+    // chats. A chat that is put away while it stands open leaves the window at
+    // the first screen, for the talk it held is out of the way.
+    pub fn set_chat_archived(&self, id: String, on: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.edit_chat(&id, |chat| chat.meta.archived = on).is_none() {
+            state.set_status("That chat is not there");
+            return;
+        }
+        if on && state.current.as_deref() == Some(id.as_str()) {
+            state.open_home();
+        }
+        let words = if on {
+            "The chat is archived. Bring it back from Archived chats"
+        } else {
+            "The chat is no longer archived"
+        };
+        state.set_status(words);
+    }
+
+    // Move a chat into a repository, or out of every repository, which is what
+    // the `Move to` line of the menu of a chat does. The record of the chat is
+    // written in the folder of the place it goes to and taken out of the folder
+    // it came from, so a chat never stands in two places.
+    pub fn move_chat(&self, id: String, repo_id: String) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if !repo_id.is_empty() && !state.repositories.iter().any(|r| r.id == repo_id) {
+            state.set_status("That repository is not there");
+            return;
+        }
+        let mut found = state.chats.iter().find(|c| c.meta.id == id).cloned();
+        if found.is_none() {
+            found = state.store.load_chat(&id);
+        }
+        let Some(mut chat) = found else {
+            state.set_status("That chat is not there");
+            return;
+        };
+        let older = chat.meta.repo_id.clone();
+        if older == repo_id {
+            return;
+        }
+        let words = if repo_id.is_empty() {
+            let name = state
+                .repositories
+                .iter()
+                .find(|r| r.id == older)
+                .map(|r| r.name.clone())
+                .unwrap_or_default();
+            format!("The chat moved out of {}", name)
+        } else {
+            let name = state
+                .repositories
+                .iter()
+                .find(|r| r.id == repo_id)
+                .map(|r| r.name.clone())
+                .unwrap_or_default();
+            format!("The chat moved to {}", name)
+        };
+        chat.meta.repo_id = repo_id.clone();
+        state.store.save_chat(&chat);
+        state.store.delete_chat(&older, &id);
+        // The place that is open is read again, whichever of the two the chat
+        // came from or went to. The chat goes with its new place when it is the
+        // chat that stands open.
+        if older == state.scope_repo || repo_id == state.scope_repo {
+            if state.current.as_deref() == Some(id.as_str()) {
+                state.scope_repo = repo_id;
+            }
+            state.reload_chats();
+        } else if let Some(place) = state.chats.iter().position(|c| c.meta.id == id) {
+            state.chats[place] = chat;
+        }
+        state.touch_structure();
+        state.set_status(&words);
+    }
+
+    // Take one chat away for good. The window goes to the first screen when it
+    // was the chat that stood open.
+    pub fn remove_chat(&self, id: String) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let mut found = state.chats.iter().find(|c| c.meta.id == id).cloned();
+        if found.is_none() {
+            found = state.store.load_chat(&id);
+        }
+        let Some(chat) = found else {
+            state.set_status("That chat is not there");
+            return;
+        };
+        state.store.delete_chat(&chat.meta.repo_id, &id);
+        state.chats.retain(|c| c.meta.id != id);
+        if state.current.as_deref() == Some(id.as_str()) {
+            state.open_home();
+        }
+        state.touch_structure();
+        state.set_status("The chat was removed");
+    }
+
+    // Give a repository another name. The folder of a repository is named after
+    // it, so the folder is moved with the record, the Python packages of the
+    // chats and the records of the attachments in it. The id does not move, so
+    // the talks of the repository and the chats that point at it are not cut
+    // loose.
+    pub fn rename_repository(&self, id: String, name: String) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.generating {
+            state.set_status("Wait for the answer to finish");
+            return;
+        }
+        let made = state.store.rename_repo(&id, &name);
+        match made {
+            Ok(repo) => {
+                state.repositories = state.store.scan_repos();
+                state.touch_structure();
+                let words = format!("The repository is named {} now", repo.name);
+                state.set_status(&words);
+            }
+            Err(problem) => state.set_status(&problem),
+        }
+    }
+
+    // Stand a repository in the `Pinned` group of the side bar, or take it out
+    // of it. The chats of the repository are not moved.
+    pub fn set_repository_pinned(&self, id: String, on: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let Some(mut repo) = state.repositories.iter().find(|r| r.id == id).cloned() else {
+            state.set_status("That repository is not there");
+            return;
+        };
+        repo.pinned = on;
+        state.store.save_repo(&repo);
+        state.repositories = state.store.scan_repos();
+        state.touch_structure();
+        let words = if on {
+            "The repository stands in Pinned"
+        } else {
+            "The repository is no longer pinned"
+        };
+        state.set_status(words);
+    }
+
+    // Every repository with the chats that stand in it, the chats that belong
+    // to no repository, and the chats the reader put away. The side bar asks for
+    // this when a list changed, and not on every look at the state, for the
+    // chats are read from the disk.
+    pub fn lists(&self) -> Lists {
+        let Ok(state) = self.state.lock() else {
+            return Lists::default();
+        };
+        state.lists()
     }
 
     // Pick another model. The worker stops the running server.
@@ -2606,13 +2776,8 @@ impl Snap {
             models: Vec::new(),
             model_id: String::new(),
             repositories: Vec::new(),
-            chats: Vec::new(),
             chat_id: String::new(),
-            chat_index: 0,
-            chat_count: 0,
-            blank_chat: true,
             home: true,
-            overview: false,
             greeting: String::new(),
             messages: Vec::new(),
             chapters: Vec::new(),
@@ -3552,6 +3717,13 @@ fn run_turn(
         // on with the work after a handoff summary adds nothing: the mark of the
         // summarisation is the last thing in the chat, and the model is asked
         // again from behind it.
+        // A chat with nothing in it is a new one, and the side bar has to hear
+        // that it came: the first message gives it its name and puts it in the
+        // list of its place.
+        let fresh = state
+            .chat()
+            .map(|c| c.messages.is_empty())
+            .unwrap_or(false);
         if let Some(chat) = state.chat_mut() {
             if !going_on {
                 chat.messages.push(Message {
@@ -3594,6 +3766,9 @@ fn run_turn(
             );
         }
         state.persist();
+        if fresh {
+            state.touch_structure();
+        }
         state.generating = true;
         state.busy = true;
         // Both live buffers start empty, so a new turn never shows the
@@ -4559,7 +4734,7 @@ mod tests {
                 efforts: vec![String::from("low"), String::from("medium")],
                 has_preserve: false,
             };
-            state.open_blank_chat();
+            state.start_chat();
         }
         engine.set_thinking("medium");
         engine.set_code(true);
@@ -4577,8 +4752,13 @@ mod tests {
         };
         assert_eq!(before.thinking_mode, "medium");
         assert!(before.tools);
+        // `Create new chat` goes back to the first screen, and the first
+        // message of it starts the chat. No model is picked here, so the message
+        // stops before the worker; the chat is started the same way it is when
+        // the message goes out.
         engine.new_chat();
-        let state = engine.state.lock().unwrap();
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
         let chat = state.chat().expect("the new chat stands open");
         assert_eq!(chat.meta.thinking_mode, "medium");
         assert!(chat.meta.code_enabled);
@@ -4606,7 +4786,7 @@ mod tests {
                 efforts: vec![String::from("low"), String::from("medium")],
                 has_preserve: false,
             };
-            state.open_blank_chat();
+            state.start_chat();
         }
         engine.set_thinking("medium");
         let state = engine.state.lock().unwrap();
@@ -4685,10 +4865,10 @@ mod tests {
         store.save_chat(&chat);
     }
 
-    // A blank chat lives only in the memory, so it never reaches the disk. A
-    // chat that was written in is stored at once.
+    // A chat that was started and never written in leaves no file, so the files
+    // hold only the chats that hold something.
     #[test]
-    fn blank_chats_stay_off_disk() {
+    fn a_chat_is_written_when_it_holds_a_message() {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
@@ -4699,15 +4879,24 @@ mod tests {
                 .unwrap_or(0)
         };
 
-        // A run starts with no chat at all, and nothing on disk.
-        assert_eq!(engine.snapshot().chat_count, 0);
+        // A run starts on the first screen, with no chat and nothing on disk.
         assert!(engine.snapshot().home);
         assert_eq!(stored(), 0);
 
-        // Even the badges may not write a blank chat to disk.
+        // `Create new chat` goes back to the first screen. Nothing was written
+        // yet, so nothing is on disk either.
         engine.new_chat();
+        assert!(engine.snapshot().home);
+        assert_eq!(stored(), 0);
+
+        // The badges of a chat that holds nothing may not write it either.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+        }
         engine.set_code(true);
         engine.set_sandbox(false);
+        assert!(!engine.snapshot().home);
         assert_eq!(stored(), 0);
 
         // The first message makes it a real chat.
@@ -4716,112 +4905,342 @@ mod tests {
             state.push_message("You", "A real question", "", 0, false);
         }
         assert_eq!(stored(), 1);
-
-        // A fresh blank chat goes away when it is turned away from, and the
-        // chat that was written in stays on the disk and in the carousel.
-        engine.new_chat();
-        assert_eq!(engine.snapshot().chat_count, 2);
-        assert!(engine.snapshot().blank_chat);
-        engine.roll(1);
-        std::thread::sleep(Duration::from_millis(500));
-        let after = engine.snapshot();
-        assert_eq!(after.chat_count, 1);
-        assert!(!after.blank_chat);
-        assert_eq!(stored(), 1);
     }
 
+    // The side bar lists every place at once, opens a chat of any of them, and
+    // puts the chat that was opened at the head of its group. The place of the
+    // chat that is open becomes the place the program works in.
     #[test]
-    fn carousel_rules() {
+    fn the_side_bar_groups_and_orders_the_chats() {
         let _guard = config::test_turn();
         setup();
         write_chat("aaaabbbb01", 100);
         write_chat("aaaabbbb02", 200);
 
-        // The first thing the user sees is the chat box on its own, with no
-        // chat open. The chats on disk wait in the previews.
         let engine = Engine::start(Config::default());
+        // The first thing the reader sees is the first screen, even when the
+        // place has chats. They wait in the side bar.
         let snap = engine.snapshot();
-        assert_eq!(snap.chat_count, 2);
         assert!(snap.home);
         assert!(!snap.generating);
+        let lists = engine.lists();
+        assert_eq!(lists.loose.len(), 2);
+        assert_eq!(lists.loose[0].meta.id, "aaaabbbb02");
 
-        // Asking for a new chat twice still gives one blank chat.
+        // The chat that stands at the head of the group is not the chat that is
+        // open: opening a chat is what the reader does.
+        engine.open_chat(String::from("aaaabbbb01"));
+        let opened = engine.snapshot();
+        assert!(!opened.home);
+        assert_eq!(opened.chat_id, "aaaabbbb01");
+        // The chat that was opened stands first in its group now, and the rest
+        // of the group keeps the order it had.
+        let lists = engine.lists();
+        assert_eq!(lists.loose[0].meta.id, "aaaabbbb01");
+        assert_eq!(lists.loose[1].meta.id, "aaaabbbb02");
+
+        // A new chat is the first screen again, with no chat open.
         engine.new_chat();
-        engine.new_chat();
-        assert_eq!(engine.snapshot().chat_count, 3);
+        assert!(engine.snapshot().home);
 
-        // A blank chat that is turned away from goes away after the move.
-        engine.roll(1);
-        assert_eq!(engine.snapshot().chat_count, 3);
-        std::thread::sleep(Duration::from_millis(500));
-        let after = engine.snapshot();
-        assert_eq!(after.chat_count, 2);
-        assert_eq!(after.chat_index, 0);
-        assert_eq!(after.chat_id, "aaaabbbb02");
-        assert!(!after.blank_chat);
-
-        // A blank chat that was used stays, like any other chat.
-        engine.new_chat();
-        {
-            let mut state = engine.state.lock().unwrap();
-            state.push_message("You", "Hello there", "", 0, false);
-        }
-        engine.roll(1);
-        std::thread::sleep(Duration::from_millis(500));
-        assert_eq!(engine.snapshot().chat_count, 3);
-
-        // Every repository has its own carousel. A new repository is empty, so
-        // the window shows the chat box on its own again.
+        // A new repository is empty, and the window stands on the first screen
+        // while it is empty.
         engine.create_repository(String::from("Test Repo"));
-        let repo = engine.snapshot();
-        assert!(repo.in_repository);
-        assert_eq!(repo.chat_count, 0);
-        assert!(repo.home);
+        let in_repo = engine.snapshot();
+        assert!(in_repo.in_repository);
+        assert!(in_repo.home);
+
+        // A chat of that repository is opened from the side bar, and the place
+        // that is open follows it, for the room of a command is the repository
+        // of the chat.
+        let repo_id = repo_named(&engine, "Test Repo");
+        write_chat_in(&repo_id, "aaaabbbb03", 300);
         engine.select_repository(String::new());
-        let back = engine.snapshot();
-        assert!(!back.in_repository);
-        assert_eq!(back.chat_count, 3);
+        assert!(!engine.snapshot().in_repository);
+        engine.open_chat(String::from("aaaabbbb03"));
+        let gone = engine.snapshot();
+        assert_eq!(gone.chat_id, "aaaabbbb03");
+        assert!(gone.in_repository);
+        let lists = engine.lists();
+        let in_test = lists
+            .repositories
+            .iter()
+            .find(|(repo, _)| repo.name == "Test Repo")
+            .expect("the repository stands in the lists");
+        assert_eq!(in_test.1.len(), 1);
+        assert_eq!(in_test.1[0].meta.id, "aaaabbbb03");
+        // The loose chats are a group of their own, and the chat of the
+        // repository is not among them.
+        assert!(!lists.loose.iter().any(|c| c.meta.id == "aaaabbbb03"));
     }
 
-    // The first screen holds no chat. A message opens one, and the previews are
-    // a window over the carousel that does not change which chat is open.
+    // The menu of a chat renames it, pins it, moves it to another place, puts it
+    // away and takes it away.
     #[test]
-    fn the_first_screen_and_the_previews() {
+    fn the_menu_of_a_chat_works_on_the_chat() {
         let _guard = config::test_turn();
         setup();
-        write_chat("aaaabbbb03", 300);
+        write_chat("aaaacccc01", 100);
         let engine = Engine::start(Config::default());
+        let in_loose = |id: &str| {
+            engine
+                .lists()
+                .loose
+                .iter()
+                .any(|c| c.meta.id == id)
+        };
 
-        // The chat on disk is there, but no chat is open.
-        let snap = engine.snapshot();
-        assert_eq!(snap.chat_count, 1);
-        assert!(snap.home);
-        assert!(!snap.overview);
+        // Another name. The chat keeps everything else it was.
+        engine.rename_chat(String::from("aaaacccc01"), String::from("  A new name  "));
+        let chat = engine
+            .lists()
+            .loose
+            .iter()
+            .find(|c| c.meta.id == "aaaacccc01")
+            .expect("the chat is still there")
+            .clone();
+        assert_eq!(chat.meta.title, "A new name");
+        // A name of nothing is no name, and the chat keeps the one it had.
+        engine.rename_chat(String::from("aaaacccc01"), String::from("   "));
+        assert_eq!(
+            engine
+                .lists()
+                .loose
+                .iter()
+                .find(|c| c.meta.id == "aaaacccc01")
+                .expect("the chat is still there")
+                .meta
+                .title,
+            "A new name"
+        );
 
-        // The previews show that one chat, and it becomes the chat in use.
-        engine.set_overview(true);
-        let previews = engine.snapshot();
-        assert!(previews.overview);
-        assert!(!previews.home);
-        assert_eq!(previews.chat_index, 0);
+        // The pin. The mark stands with the chat, so it is still there when the
+        // chat is read again.
+        engine.set_chat_pinned(String::from("aaaacccc01"), true);
+        assert!(engine
+            .lists()
+            .loose
+            .iter()
+            .any(|c| c.meta.id == "aaaacccc01" && c.meta.pinned));
+        // The chat is read from the disk, so the mark came off the file and not
+        // only out of the memory.
+        let again = engine
+            .state
+            .lock()
+            .unwrap()
+            .store
+            .load_chat("aaaacccc01")
+            .expect("the chat is on disk");
+        assert!(again.meta.pinned);
+        engine.set_chat_pinned(String::from("aaaacccc01"), false);
+        assert!(in_loose("aaaacccc01"));
+        assert!(!engine
+            .lists()
+            .loose
+            .iter()
+            .any(|c| c.meta.id == "aaaacccc01" && c.meta.pinned));
 
-        // Picking it closes the previews and keeps the chat.
-        engine.open_chat(String::from("aaaabbbb03"));
-        let picked = engine.snapshot();
-        assert!(!picked.overview);
-        assert_eq!(picked.chat_id, "aaaabbbb03");
+        // A name the reader never gave is not a name of a chat: nothing is
+        // changed and nothing is said of a fault either.
+        engine.rename_chat(String::from("nosuchchat"), String::from("Nothing"));
 
-        // A message from the first screen opens a chat of this place. No model
-        // is picked here, so the message stops before the worker, but the chat
-        // is already there.
-        engine.select_repository(String::new());
-        engine.create_repository(String::from("Second"));
+        // Put away, and brought back. A chat that is put away stands in no group
+        // of the side bar, and stands in the list of the archived chats.
+        engine.set_chat_archived(String::from("aaaacccc01"), true);
+        assert!(!in_loose("aaaacccc01"));
+        assert!(engine
+            .lists()
+            .archived
+            .iter()
+            .any(|c| c.meta.id == "aaaacccc01"));
+        engine.set_chat_archived(String::from("aaaacccc01"), false);
+        assert!(in_loose("aaaacccc01"));
+        assert!(engine.lists().archived.is_empty());
+
+        // Move it into a repository, and out of it again. The chat stands in one
+        // place at a time, so the file of the place it came from is gone.
+        let repo_id = {
+            engine.create_repository(String::from("Moving In"));
+            repo_named(&engine, "Moving In")
+        };
+        engine.move_chat(String::from("aaaacccc01"), repo_id.clone());
+        assert!(!in_loose("aaaacccc01"));
+        let moved = engine
+            .lists()
+            .repositories
+            .iter()
+            .find(|(repo, _)| repo.id == repo_id)
+            .expect("the repository is there")
+            .1
+            .clone();
+        assert_eq!(moved.len(), 1);
+        assert_eq!(moved[0].meta.repo_id, repo_id);
+        assert!(
+            !config::paths().chats.join("aaaacccc01.json").exists(),
+            "the file of the place it came from is gone"
+        );
+        engine.move_chat(String::from("aaaacccc01"), String::new());
+        assert!(in_loose("aaaacccc01"));
+
+        // A place that is not there is not a place to move a chat to.
+        engine.move_chat(String::from("aaaacccc01"), String::from("ffffffffffff"));
+        assert!(in_loose("aaaacccc01"));
+
+        // Take the chat away. It is gone from the list and from the disk.
+        engine.remove_chat(String::from("aaaacccc01"));
+        assert!(!in_loose("aaaacccc01"));
+        assert!(engine.lists().archived.is_empty());
+        assert_eq!(
+            std::fs::read_dir(config::paths().chats)
+                .map(|entries| entries.count())
+                .unwrap_or(0),
+            0
+        );
+    }
+
+    // The chat that stands open is put away, moved or removed by the side bar
+    // too. The window goes to the first screen, for the talk it held is out of
+    // the way or gone.
+    #[test]
+    fn the_open_chat_follows_the_work_of_the_side_bar() {
+        let _guard = config::test_turn();
+        setup();
+        write_chat("aaaadddd01", 100);
+        let engine = Engine::start(Config::default());
+        engine.open_chat(String::from("aaaadddd01"));
+        assert!(!engine.snapshot().home);
+
+        // Put away: the window has nothing to show, so it stands on the first
+        // screen.
+        engine.set_chat_archived(String::from("aaaadddd01"), true);
         assert!(engine.snapshot().home);
-        engine.prompt(String::from("A first question"), Vec::new());
-        let after = engine.snapshot();
-        assert!(!after.home);
-        assert_eq!(after.chat_count, 1);
-        assert!(after.chats[0].transient);
+        engine.set_chat_archived(String::from("aaaadddd01"), false);
+
+        // Moved into a repository: the place that is open goes with the chat,
+        // and the chat stays open.
+        let repo_id = {
+            engine.create_repository(String::from("Carried Off"));
+            repo_named(&engine, "Carried Off")
+        };
+        // `Create repository` moves the place that is open, which closes the
+        // chat that stood in another place. Open it again, then move it.
+        engine.open_chat(String::from("aaaadddd01"));
+        assert_eq!(engine.snapshot().chat_id, "aaaadddd01");
+        engine.move_chat(String::from("aaaadddd01"), repo_id.clone());
+        let moved = engine.snapshot();
+        assert_eq!(moved.chat_id, "aaaadddd01");
+        assert!(moved.in_repository);
+        assert!(!moved.home);
+
+        // Removed: the window goes back to the first screen.
+        engine.remove_chat(String::from("aaaadddd01"));
+        assert!(engine.snapshot().home);
+        assert_eq!(engine.snapshot().chat_id, "");
+    }
+
+    // A repository is named again, and the folder it stands in follows the name,
+    // for the folder of a repository is named after it. The id does not move, so
+    // the talks of the repository keep their place and the chats keep pointing
+    // at it. A repository is pinned for the group above the rest.
+    #[test]
+    fn a_repository_is_named_again_and_pinned() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.create_repository(String::from("First Name"));
+        let id = repo_named(&engine, "First Name");
+        write_chat_in(&id, "aaaaeeee01", 100);
+        let older = config::repositories_dir(&Config::default()).join(format!("first-name_{}", id));
+        assert!(older.is_dir(), "the folder of a repository is its name");
+
+        engine.rename_repository(id.clone(), String::from("Second Name"));
+        let newer = config::repositories_dir(&Config::default()).join(format!("second-name_{}", id));
+        assert!(newer.is_dir(), "the folder went with the name");
+        assert!(!older.exists(), "and the older folder is gone");
+        let snap = engine.snapshot();
+        let shown = snap
+            .repositories
+            .iter()
+            .find(|repo| repo.id == id)
+            .expect("the repository is in the bar");
+        assert_eq!(shown.name, "Second Name");
+        // The talks of the repository did not move, for they stand under the
+        // data directory and are keyed on the id.
+        let lists = engine.lists();
+        let group = lists
+            .repositories
+            .iter()
+            .find(|(repo, _)| repo.id == id)
+            .expect("the repository is in the lists");
+        assert_eq!(group.0.name, "Second Name");
+        assert_eq!(group.1.len(), 1);
+        assert_eq!(group.1[0].meta.id, "aaaaeeee01");
+
+        // A name of nothing is no name, and the repository keeps the one it had.
+        engine.rename_repository(id.clone(), String::from("   "));
+        assert_eq!(repo_named(&engine, "Second Name"), id);
+
+        // The pin. The mark stands in the record of the repository.
+        engine.set_repository_pinned(id.clone(), true);
+        assert!(engine
+            .lists()
+            .repositories
+            .iter()
+            .any(|(repo, _)| repo.id == id && repo.pinned));
+        // Taken out of the group above the rest again. The mark stands in the
+        // record of this repository alone.
+        engine.set_repository_pinned(id.clone(), false);
+        assert!(!repo_row(&engine, &id).0.pinned);
+    }
+
+    // The name a repository was given, out of the lists the side bar reads. A
+    // name that is not there stops the test.
+    fn repo_named(engine: &Engine, name: &str) -> String {
+        engine
+            .lists()
+            .repositories
+            .iter()
+            .find(|(repo, _)| repo.name == name)
+            .unwrap_or_else(|| panic!("no repository named {}", name))
+            .0
+            .id
+            .clone()
+    }
+
+    // A chat of a repository, written on disk.
+    fn write_chat_in(repo_id: &str, id: &str, updated: i64) {
+        let store = store::Store::new(config::repositories_dir(&Config::default()));
+        let mut chat = Chat::new(repo_id, "");
+        chat.meta.id = id.to_string();
+        chat.meta.title = id.to_string();
+        chat.meta.updated = updated;
+        chat.messages.push(Message {
+            role: String::from("You"),
+            body: String::from("A written question"),
+            when: updated,
+            ..Default::default()
+        });
+        store.save_chat(&chat);
+    }
+
+    // Open a chat the way the first message of a reader does. `Create new chat`
+    // puts the first screen up, and the words written there start the chat. No
+    // model is picked in these tests, so no message goes out; the chat is
+    // started in the same way as it is when one does.
+    fn open_a_chat(engine: &Engine) {
+        engine.new_chat();
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+    }
+
+    // One repository row of the side bar, with the chats that stand in it.
+    fn repo_row(engine: &Engine, id: &str) -> (Repo, Vec<Chat>) {
+        engine
+            .lists()
+            .repositories
+            .into_iter()
+            .find(|(repo, _)| repo.id == id)
+            .unwrap_or_else(|| panic!("no repository row for {}", id))
     }
 
     // The badge offers the modes of the model and the reader chooses one. A
@@ -4832,7 +5251,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         {
             let mut state = engine.state.lock().unwrap();
             state.thinking = markdown::ThinkingOptions {
@@ -4911,7 +5330,7 @@ mod tests {
         {
             let mut state = engine.state.lock().unwrap();
             state.refresh_thinking();
-            state.open_blank_chat();
+            state.start_chat();
         }
         // Model A offers the levels, and the reader stands on medium.
         assert!(engine
@@ -4947,7 +5366,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         {
             let mut state = engine.state.lock().unwrap();
             state.thinking = markdown::ThinkingOptions {
@@ -4997,7 +5416,7 @@ mod tests {
                 efforts: Vec::new(),
                 has_preserve: true,
             };
-            state.open_blank_chat();
+            state.start_chat();
             if let Some(chat) = state.chat_mut() {
                 chat.messages.push(Message {
                     role: String::from("You"),
@@ -5070,7 +5489,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         let mark = |name: &str| ToolCall {
             id: format!("call-{name}"),
             name: String::from(tools::CHAPTER_TOOL_NAME),
@@ -5180,7 +5599,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         let call = ToolCall {
             id: String::from("call-one"),
             name: String::from(tools::TOOL_NAME),
@@ -5261,7 +5680,7 @@ mod tests {
             },
         ];
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         // The records of the attachments stand in a folder of the room of the
         // chat that carries them, so this test saves them where a chat of this
         // place would keep them.
@@ -5386,7 +5805,7 @@ mod tests {
         engine.set_search(true);
         assert!(engine.snapshot().search_enabled);
         assert!(!engine.snapshot().code_enabled);
-        engine.new_chat();
+        open_a_chat(&engine);
         assert!(engine.snapshot().search_enabled);
         engine.set_search(false);
         assert!(!engine.snapshot().search_enabled);
@@ -5567,7 +5986,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         {
             let mut state = engine.state.lock().unwrap();
             let call = ToolCall {
@@ -5597,7 +6016,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         let mut state = engine.state.lock().unwrap();
         let half = ToolCall {
             id: String::from("c1"),
@@ -5640,7 +6059,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         let command = ToolCall {
             id: String::from("call-one"),
             name: String::from(tools::TOOL_NAME),
@@ -5693,7 +6112,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         {
             let mut state = engine.state.lock().unwrap();
             state.ctx_used = 0;
@@ -5726,7 +6145,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         let begun = Instant::now();
         let mut state = engine.state.lock().unwrap();
         state.ctx_used = 0;
@@ -5812,7 +6231,7 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         add_message(&mut state, "You", "the first prompt");
         add_message(&mut state, "Assistant", "the old answer");
         // The first summarisation, written.
@@ -5863,7 +6282,7 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         add_message(&mut state, "You", "the first prompt");
         add_message(&mut state, "Assistant", "the old answer");
         let first = state.begin_summary();
@@ -5932,7 +6351,7 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         add_message(&mut state, "You", "the first prompt");
         add_message(&mut state, "Assistant", "the old answer, which was long");
         add_message(&mut state, "You", "an older question");
@@ -6130,7 +6549,7 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         add_message(&mut state, "You", "the first prompt");
         add_message(&mut state, "Assistant", "the answer");
         let mark = state.begin_summary();
@@ -6177,7 +6596,7 @@ mod tests {
     // know nothing of the line.
     fn dated_chat(state: &mut State, cfg: &Config) {
         state.cfg = cfg.clone();
-        state.open_blank_chat();
+        state.start_chat();
         add_message(state, "You", "the first prompt");
         add_message(state, "Assistant", "the first answer");
         add_message(state, "You", "the second prompt");
@@ -6357,7 +6776,7 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         add_message(&mut state, "You", "the first prompt");
         let cut = cut_call(
             editfile::EDIT_NAME,
@@ -6412,7 +6831,7 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         add_message(&mut state, "You", "the first prompt");
         let stopped = cut_call(
             editfile::EDIT_NAME,
@@ -6490,7 +6909,7 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         add_message(&mut state, "You", "the first prompt");
         // The meter climbed while the model wrote a call, as it does. The reader
         // stopped, and the words the number counted are not in the chat.
@@ -6511,7 +6930,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        engine.new_chat();
+        open_a_chat(&engine);
         let mut state = engine.state.lock().unwrap();
         // A number left over from an answer the reader stopped: the words it
         // counted went out of the talk with the answer.
@@ -6558,7 +6977,7 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         let mut arguments = String::from("{\"path\":\"notes/big.md\",\"content\":\"");
         for part in 0..(3 * (GREATEST_CUT_ARGS / 400 + 4)) {
             arguments.push_str(&format!("part-{:0>3}-", part % 100));
@@ -6608,7 +7027,7 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        state.open_blank_chat();
+        state.start_chat();
         add_message(&mut state, "You", "the first prompt");
         add_message(&mut state, "Assistant", "a long answer, and then some more of it");
         // A call written down before the summarisation stands with the words the
