@@ -393,6 +393,11 @@ function scene(name, dark) {
       // and the choice stands on, as it does for a new chat.
       preserve: true, preserve_available: true
     },
+    mcp: { python: 'python3', on: ['mcpdemo0001'], servers: [
+      { id: 'mcpdemo0001', name: 'Bookshop', kind: 'stdio', icon: 7, shown: true, on: true, tools: ['look_up', 'reserve'], fault: '' },
+      { id: 'mcpdemo0002', name: 'Clock', kind: 'internal', icon: 2, shown: true, on: false, tools: ['now'], fault: '' },
+      { id: 'mcpdemo0003', name: 'Archive', kind: 'http', icon: 9, shown: false, on: false, tools: [], fault: 'The server did not answer' }
+    ] },
     chatting: { collapse_thinking: true, grow_thinking: true,
                 tools_in_thinking: true, collapse_tools: true,
                 highlight: true, chapters: true },
@@ -820,7 +825,7 @@ async function main() {
   let dark = false;
   if (name.endsWith('-dark')) { dark = true; name = name.slice(0, -5); }
   else if (name.endsWith('-pale')) { name = name.slice(0, -5); }
-  const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs';
+  const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs' || name === 'sheet-mcp';
   const state = scene(isSheet ? 'chat' : name, dark);
 
   // AN_FOLD=0 turns the two fold switches of the Chatting section off, so a
@@ -910,6 +915,14 @@ async function main() {
             return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
               + '-ngl 999 --fit on --fit-target 400'); } });
         }
+        if (String(url).indexOf('/api/mcp') === 0) {
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(JSON.parse(JSON.stringify({ ok: true, python: 'python3', servers: [
+            { id: 'mcpdemo0001', name: 'Bookshop', kind: 'stdio', icon: 7, shown: true, on: true, tools: ['look_up', 'reserve'], fault: '' },
+            { id: 'mcpdemo0002', name: 'Clock', kind: 'internal', icon: 2, shown: true, on: false, tools: ['now'], fault: '' },
+            { id: 'mcpdemo0003', name: 'Archive', kind: 'http', icon: 9, shown: false, on: false, tools: [], fault: 'The server did not answer' }
+          ] }))); } });
+        }
         if (String(url).indexOf('/api/logs') === 0) {
           return Promise.resolve({ json: function () {
             return Promise.resolve(JSON.parse(JSON.stringify(logs))); } });
@@ -954,6 +967,13 @@ async function main() {
           if (command === 'preview_command') {
             return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
               + '-ngl 999 --fit on --fit-target 400');
+          }
+          if (command === 'get_mcp') {
+            return Promise.resolve(JSON.parse(JSON.stringify({ ok: true, python: 'python3', servers: [
+            { id: 'mcpdemo0001', name: 'Bookshop', kind: 'stdio', icon: 7, shown: true, on: true, tools: ['look_up', 'reserve'], fault: '' },
+            { id: 'mcpdemo0002', name: 'Clock', kind: 'internal', icon: 2, shown: true, on: false, tools: ['now'], fault: '' },
+            { id: 'mcpdemo0003', name: 'Archive', kind: 'http', icon: 9, shown: false, on: false, tools: [], fault: 'The server did not answer' }
+          ] })));
           }
           if (command === 'get_logs') {
             return Promise.resolve(JSON.parse(JSON.stringify(logs)));
@@ -1051,6 +1071,22 @@ async function main() {
   }
   // The Logs tab: the list, the words of the run, and the log itself. The sheet
   // is put back at the top of itself, for the log stands near the head of it.
+  if (name === 'sheet-mcp') {
+    await view.evaluate(function () {
+      var b = document.getElementById('settingsbtn');
+      if (b) { b.click(); }
+      var t = document.getElementById('tabMcp');
+      if (t) { t.click(); }
+    });
+    await new Promise(function (r) { setTimeout(r, 700); });
+  }
+  if (name === 'mcp-menu') {
+    await view.evaluate(function () {
+      var b = document.getElementById('mcp');
+      if (b) { b.click(); }
+    });
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
   if (name === 'sheet-logs') {
     await view.evaluate(function () {
       var b = document.getElementById('settingsbtn');
