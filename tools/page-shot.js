@@ -195,12 +195,14 @@ const FULL = [
       + 'with its address, as {"url": "https://..."}.'
   }),
   // A picture handed to the model. The block carries the receipt of the run and
-  // never the picture itself: the bytes go to the model alone.
+  // the picture itself: the bytes go to the model with the receipt, and the
+  // reader looks at the same picture, under an eye that says the model can see it.
   said(10, 'Tool', 'notes/cat.png', {
     tool_name: 'view_image',
     tool: 'Opened an image: notes/cat.png (PNG, 1024 by 768 pixels, 188 KiB). '
       + 'The image itself is sent to the model with this text, so you may be '
-      + 'asked what it shows.'
+      + 'asked what it shows.',
+    attachments: [{ id: 'att-cat', name: 'cat.png', mime: 'image/png', image: true }]
   })
 ];
 
