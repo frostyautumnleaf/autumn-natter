@@ -21,6 +21,7 @@ use crate::editfile;
 use crate::gpu::{self, Gpu};
 use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
+use crate::mcp;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
 use crate::tools;
@@ -85,6 +86,9 @@ enum Job {
     // The reader asked for the handoff summary of the open chat to be written
     // again, after one that never came back.
     Handoff,
+    // The reader added, changed or asked to look again at one server of their
+    // own, so the tools it has to offer are read again.
+    McpLook(String),
     // Leave the process, after the model is unloaded.
     Shutdown,
 }
@@ -114,6 +118,26 @@ impl ServerWants {
             && run.preserve == wants.preserve
             && (run.tools || !wants.tools)
     }
+}
+
+// One server of the reader's own, as the page is given it. The words of the code
+// of a server of the program itself are kept out of the state, for the state is
+// asked for about six times a second and the code may be a long file: the sheet
+// of the settings asks for them by a call of its own.
+#[derive(Clone, Debug, Default)]
+pub struct McpSnap {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub icon: usize,
+    // Whether this server stands in the drop-down of the badge.
+    pub shown: bool,
+    // Whether this server is switched on for the chat in hand.
+    pub on: bool,
+    // The names of the tools this server last answered with.
+    pub tools: Vec<String>,
+    // The reason the server could not be looked at, or empty.
+    pub fault: String,
 }
 
 // One chapter of a chat, as the window needs it. A chapter is kept in the chat
@@ -175,6 +199,13 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         // address that is to be read.
         search::NAME => (search::partial_words(raw), String::new(), String::new()),
         viewimage::NAME => (viewimage::partial_words(raw), String::new(), String::new()),
+        // A tool of a server of the reader's own is named by the tool itself,
+        // and the parts the model is writing are the words of the block.
+        name if mcp::is_tool(name) => (
+            mcp::shown_tool(name),
+            String::new(),
+            mcp::partial_words(raw),
+        ),
         // A name the program does not offer, and a name that came in pieces: the
         // words of a file are the best guess of what the model is naming.
         _ => (editfile::partial_words(raw), String::new(), String::new()),
@@ -712,6 +743,9 @@ pub struct Snap {
     // of the web. All three stand off, and the menu of the sandbox badge opens
     // them one by one.
     pub sandbox_access: tools::Access,
+    // The servers of the reader's own, for the drop-down of the badge and the
+    // MCP tab of the settings.
+    pub mcp: Vec<McpSnap>,
     // The thinking mode of the open chat.
     pub thinking_mode: String,
     // True when the model's template can switch thinking.
@@ -897,6 +931,17 @@ pub struct State {
     pub new_sandbox_access: tools::Access,
     pub new_thinking: String,
     pub new_preserve: bool,
+    // The MCP servers the next chat starts with, by their id. A new chat takes
+    // them from the chat that stood at the front, as it takes the badges.
+    pub new_mcp: Vec<String>,
+    // What each server last answered when it was asked what it has to offer,
+    // kept by its id. The tools of a server are read once and kept, so a chat
+    // does not open a server again on every answer, and the sheet of the
+    // settings has something to say about a server beside its name.
+    pub mcp_tools: std::collections::BTreeMap<String, Vec<mcp::Tool>>,
+    // The reason a server could not be looked at, kept by its id. A server that
+    // answers has no entry here.
+    pub mcp_fault: std::collections::BTreeMap<String, String>,
 }
 
 impl State {
@@ -953,6 +998,102 @@ impl State {
             .map(|c| c.meta.code_enabled || c.meta.search_enabled)
             .unwrap_or(self.new_code || self.new_search)
             || self.cfg.chat_chapters
+            || !self.mcp_of_open().is_empty()
+    }
+
+    // Every server of the reader's own, in the order the reader put them, with
+    // what the program last knew of each.
+    fn mcp_snap(&self) -> Vec<McpSnap> {
+        let on = self.mcp_of_open();
+        self.cfg
+            .mcp_servers
+            .iter()
+            .map(|server| McpSnap {
+                id: server.id.clone(),
+                name: server.name.clone(),
+                kind: server.kind(),
+                icon: server.icon,
+                shown: server.shown,
+                on: on.iter().any(|id| *id == server.id),
+                tools: self
+                    .mcp_tools
+                    .get(&server.id)
+                    .map(|tools| tools.iter().map(|t| t.name.clone()).collect())
+                    .unwrap_or_default(),
+                fault: self
+                    .mcp_fault
+                    .get(&server.id)
+                    .cloned()
+                    .unwrap_or_default(),
+            })
+            .collect()
+    }
+
+    // The servers of the reader's own that stand switched on for the chat in
+    // hand. Only servers that still stand in the settings are named, so a chat
+    // that outlived one of them asks for nothing that is gone. With no chat
+    // open, the list the badge holds for the next chat is used.
+    pub fn mcp_of_open(&self) -> Vec<String> {
+        let held = self
+            .chat()
+            .map(|c| c.meta.mcp.clone())
+            .unwrap_or_else(|| self.new_mcp.clone());
+        held.into_iter()
+            .filter(|id| self.cfg.mcp_servers.iter().any(|s| &s.id == id))
+            .collect()
+    }
+
+    // The servers that stand switched on for the chat in hand and whose tools
+    // were never read. They are looked at out of the state lock, for a server
+    // that will not answer is waited for, and the window must be free to draw
+    // while it is waited for.
+    fn mcp_to_look(&self) -> Vec<mcp::Server> {
+        self.mcp_of_open()
+            .into_iter()
+            .filter(|id| !self.mcp_tools.contains_key(id))
+            .filter_map(|id| {
+                self.cfg
+                    .mcp_servers
+                    .iter()
+                    .find(|s| s.id == id)
+                    .cloned()
+            })
+            .collect()
+    }
+
+    // The tools of the servers that stand switched on, as the model is sent
+    // them. A server with nothing to offer, or with nothing read of it, gives
+    // no tool, and the chat goes on without it.
+    fn mcp_definitions(&self) -> Vec<Value> {
+        let mut made: Vec<Value> = Vec::new();
+        for id in self.mcp_of_open() {
+            let Some(server) = self.cfg.mcp_servers.iter().find(|s| s.id == id) else {
+                continue;
+            };
+            let Some(tools) = self.mcp_tools.get(&server.id) else {
+                continue;
+            };
+            for tool in tools {
+                made.push(tool.definition(server));
+            }
+        }
+        made
+    }
+
+    // Ask one server what it has to offer, and keep what it answers, or keep
+    // the reason it did not. The answer of the look is what the sheet of the
+    // settings and the menu of the badge stand on.
+    fn mcp_look_at(&mut self, server: &mcp::Server) {
+        match mcp::list(server) {
+            Ok(found) => {
+                self.mcp_tools.insert(server.id.clone(), found);
+                self.mcp_fault.remove(&server.id);
+            }
+            Err(problem) => {
+                self.mcp_tools.insert(server.id.clone(), Vec::new());
+                self.mcp_fault.insert(server.id.clone(), problem);
+            }
+        }
     }
 
     // The choice to keep the thinking of the turns before the last answer, for
@@ -1584,6 +1725,7 @@ impl State {
         chat.meta.search_enabled = self.new_search;
         chat.meta.thinking_mode = self.new_thinking.clone();
         chat.meta.preserve_thinking = self.new_preserve;
+        chat.meta.mcp = self.new_mcp.clone();
         chat.meta.opened = store::now_secs();
         self.chats.insert(0, chat);
         self.current = Some(self.chats[0].meta.id.clone());
@@ -1842,6 +1984,7 @@ impl State {
             chat_date_new_chat: self.cfg.chat_date_new_chat,
             chat_highlight: self.cfg.chat_highlight,
             chat_chapters: self.cfg.chat_chapters,
+            mcp: self.mcp_snap(),
             chat_paste_limit: self.cfg.pasted_text_char_limit,
             chat_width: config::sanitize_chat_width(self.cfg.chat_width),
             // The Compaction section, so the sheet of the settings can be
@@ -2040,6 +2183,9 @@ impl Engine {
             // Every part of what a command may reach stands off for a new set of
             // settings, and for a chat written before the three existed.
             new_sandbox_access: tools::Access::default(),
+            new_mcp: Vec::new(),
+            mcp_tools: std::collections::BTreeMap::new(),
+            mcp_fault: std::collections::BTreeMap::new(),
             new_thinking: String::from("off"),
             // llama.cpp keeps the thinking of the earlier turns on its own, so
             // the program asks for the same thing and lets the reader turn it
@@ -2213,6 +2359,157 @@ impl Engine {
         } else {
             "Web search is off"
         });
+    }
+
+    // One server of the reader's own, switched on or off for this chat and for
+    // the next one. The servers of the reader's own are the tools of machines
+    // and programs beyond this one, so they stand off until the reader opens
+    // them, as the sandbox gates stand off.
+    pub fn set_mcp(&self, id: &str, on: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let keep = |held: &mut Vec<String>| {
+            held.retain(|one| one != id);
+            if on {
+                held.push(id.to_string());
+            }
+        };
+        if let Some(chat) = state.chat_mut() {
+            keep(&mut chat.meta.mcp);
+        }
+        // The same choice opens the next chat too, whatever stands open now.
+        keep(&mut state.new_mcp);
+        state.persist();
+        let name = state
+            .cfg
+            .mcp_servers
+            .iter()
+            .find(|server| server.id == id)
+            .map(|server| server.name.clone())
+            .unwrap_or_default();
+        let said = if on {
+            format!("The tools of {} are offered to the model", name)
+        } else {
+            format!("The tools of {} are off", name)
+        };
+        state.set_status(&said);
+    }
+
+    // The servers of the reader's own, as they stand in the settings. The sheet
+    // of the settings asks for these, for the state keeps no words of code.
+    pub fn mcp_servers(&self) -> Vec<mcp::Server> {
+        match self.state.lock() {
+            Ok(state) => state.cfg.mcp_servers.clone(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    // Add one server, or write a new one over an old one. The words the reader
+    // wrote are kept inside the bounds of `mcp::clean`, and a server with
+    // nothing written in the place its kind asks for is refused. The tools of
+    // the server are then read again, out of this call, so the sheet is not held
+    // up by a server that takes its time.
+    pub fn mcp_save(&self, given: mcp::Server) -> Result<String, String> {
+        let clean = given.clean();
+        clean.check()?;
+        let Ok(mut state) = self.state.lock() else {
+            return Err(String::from("The program is busy"));
+        };
+        let id = if clean.id.is_empty() {
+            store::new_id()
+        } else {
+            clean.id.clone()
+        };
+        let mut made = clean.clone();
+        made.id = id.clone();
+        if made.slug.is_empty() {
+            let held: Vec<&mcp::Server> = state
+                .cfg
+                .mcp_servers
+                .iter()
+                .filter(|server| server.id != id)
+                .collect();
+            made.slug = mcp::slug_for(&made.name, &held);
+        }
+        match state
+            .cfg
+            .mcp_servers
+            .iter_mut()
+            .find(|server| server.id == id)
+        {
+            Some(found) => *found = made,
+            None => state.cfg.mcp_servers.push(made),
+        }
+        // What was known of this server is thrown away, for the server the
+        // reader has just written is not the server the program looked at.
+        state.mcp_tools.remove(&id);
+        state.mcp_fault.remove(&id);
+        let _ = config::save(&state.cfg);
+        state.touch();
+        state.set_status("The server is kept. Its tools are being read");
+        drop(state);
+        let _ = self.jobs.send(Job::McpLook(id));
+        Ok(String::from("kept"))
+    }
+
+    // Take a server away: out of the settings, out of every chat that has it
+    // switched on, and off the machine if it was a server of the program itself.
+    pub fn mcp_remove(&self, id: &str) -> Result<String, String> {
+        let Ok(mut state) = self.state.lock() else {
+            return Err(String::from("The program is busy"));
+        };
+        let gone = state
+            .cfg
+            .mcp_servers
+            .iter()
+            .find(|server| server.id == id)
+            .cloned();
+        state.cfg.mcp_servers.retain(|server| server.id != id);
+        state.mcp_tools.remove(id);
+        state.mcp_fault.remove(id);
+        state.new_mcp.retain(|one| one != id);
+        for chat in state.chats.iter_mut() {
+            chat.meta.mcp.retain(|one| one != id);
+        }
+        let _ = config::save(&state.cfg);
+        state.touch();
+        if let Some(server) = gone {
+            if server.kind() == mcp::KIND_INTERNAL {
+                mcp::remove_folder(&server.id);
+            }
+        }
+        state.set_status("The server was taken away");
+        Ok(String::from("gone"))
+    }
+
+    // Whether a server stands in the drop-down of the badge. A server that is
+    // taken out of the menu is kept, and the chats that had it switched on keep
+    // that choice: the reader who takes a server out of the menu and puts it
+    // back finds it where they left it.
+    pub fn mcp_shown(&self, id: &str, on: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if let Some(server) = state
+            .cfg
+            .mcp_servers
+            .iter_mut()
+            .find(|server| server.id == id)
+        {
+            server.shown = on;
+        }
+        let _ = config::save(&state.cfg);
+        state.touch();
+    }
+
+    // Ask one server again what it has to offer. The answer comes in its own
+    // time, and the sheet of the settings sees it when it comes.
+    pub fn mcp_look(&self, id: &str) {
+        let Ok(mut state) = self.state.lock() else { return };
+        state.set_status("The server is being looked at");
+        drop(state);
+        let _ = self.jobs.send(Job::McpLook(id.to_string()));
     }
 
     // The sandbox for the open chat.
@@ -2797,6 +3094,7 @@ impl Snap {
     // A snapshot for the rare case where the lock is gone.
     fn empty() -> Snap {
         Snap {
+            mcp: Vec::new(),
             model_name: String::new(),
             model_kind: String::new(),
             in_repository: false,
@@ -2932,6 +3230,43 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                     }
                     goings_on += 1;
                     turn = Turn::Continue;
+                }
+            }
+            Job::McpLook(id) => {
+                // One server of the reader's own is asked what it has to offer.
+                // The state lock is let go of for the while, for a server that
+                // will not answer is waited for, and the window must go on
+                // drawing while it is waited for.
+                let wanted = match state.lock() {
+                    Ok(guard) => guard
+                        .cfg
+                        .mcp_servers
+                        .iter()
+                        .find(|server| server.id == id)
+                        .cloned(),
+                    Err(_) => break,
+                };
+                let Some(server) = wanted else { continue };
+                let found = mcp::list(&server);
+                let Ok(mut guard) = state.lock() else { break };
+                match found {
+                    Ok(tools) => {
+                        let count = tools.len();
+                        guard.mcp_tools.insert(server.id.clone(), tools);
+                        guard.mcp_fault.remove(&server.id);
+                        guard.touch();
+                        guard.set_status(&format!(
+                            "{} answers: {}",
+                            server.name,
+                            mcp::looked_words(count)
+                        ));
+                    }
+                    Err(problem) => {
+                        guard.mcp_tools.insert(server.id.clone(), Vec::new());
+                        guard.mcp_fault.insert(server.id.clone(), problem.clone());
+                        guard.touch();
+                        guard.set_status(&format!("{} does not answer: {}", server.name, problem));
+                    }
                 }
             }
             Job::Handoff => {
@@ -4071,8 +4406,34 @@ fn run_turn(
                 guard.cfg.chat_chapters,
             )
         };
+        // The tools of the servers of the reader's own. A server whose tools
+        // were never read is looked at here, out of the lock, and once: what
+        // the server answered is kept, so the next step and the next answer of
+        // this chat ask the server nothing again until the reader changes it.
+        let looked = match state.lock() {
+            Ok(guard) => guard.mcp_to_look(),
+            Err(_) => return Ended::Halted,
+        };
+        for server in looked {
+            let found = mcp::list(&server);
+            let Ok(mut guard) = state.lock() else { return Ended::Halted };
+            match found {
+                Ok(tools) => {
+                    guard.mcp_tools.insert(server.id.clone(), tools);
+                    guard.mcp_fault.remove(&server.id);
+                }
+                Err(problem) => {
+                    guard.mcp_tools.insert(server.id.clone(), Vec::new());
+                    guard.mcp_fault.insert(server.id.clone(), problem);
+                }
+            }
+        }
+        let mcp_tools = match state.lock() {
+            Ok(guard) => guard.mcp_definitions(),
+            Err(_) => return Ended::Halted,
+        };
         // Any of the tools is enough to let the model ask for one.
-        let use_tools = code_on || search_on || chapters_on;
+        let use_tools = code_on || search_on || chapters_on || !mcp_tools.is_empty();
         let mut body = json!({
             "messages": history,
             "stream": true,
@@ -4087,7 +4448,7 @@ fn run_turn(
             // only when it has stopped.
             "timings_per_token": true,
         });
-        if let Some(list) = offered(code_on, search_on, chapters_on, access) {
+        if let Some(list) = offered(code_on, search_on, chapters_on, access, &mcp_tools) {
             body["tools"] = list;
             body["tool_choice"] = json!("auto");
         }
@@ -4672,8 +5033,9 @@ fn offered(
     search_on: bool,
     chapters_on: bool,
     access: tools::Access,
+    mcp_tools: &[Value],
 ) -> Option<Value> {
-    if !(code_on || search_on || chapters_on) {
+    if !(code_on || search_on || chapters_on || !mcp_tools.is_empty()) {
         return None;
     }
     let mut list: Vec<Value> = Vec::new();
@@ -4689,6 +5051,9 @@ fn offered(
     if chapters_on {
         list.push(tools::chapter_definition());
     }
+    // The tools of the servers of the reader's own stand last, each under the
+    // name of the server it came from.
+    list.extend(mcp_tools.iter().cloned());
     Some(Value::Array(list))
 }
 
@@ -4756,6 +5121,7 @@ fn run_program_tool(
     // one thing another tool names when it has no file of its own.
     let shown = if target.is_empty() { shown } else { target };
     let doing = match call.name.as_str() {
+        name if mcp::is_tool(name) => "A tool of a server",
         editfile::EDIT_NAME => "Editing a file",
         editfile::CREATE_NAME => "Creating a file",
         search::NAME => "Searching the web",
@@ -4769,6 +5135,36 @@ fn run_program_tool(
         guard.set_status(&text);
         id
     };
+    // A tool of a server of the reader's own. The server is named by the part
+    // of the name of the tool that stands for it, and it is reached out of the
+    // program: never inside the jail of a command, for a command has no network
+    // and no program of its own to run.
+    if mcp::is_tool(&call.name) {
+        let wanted = {
+            let Ok(guard) = state.lock() else { return };
+            mcp::split_tool(&call.name).and_then(|(slug, tool)| {
+                guard
+                    .cfg
+                    .mcp_servers
+                    .iter()
+                    .find(|server| server.slug() == slug)
+                    .cloned()
+                    .map(|server| (server, tool))
+            })
+        };
+        let report = match wanted {
+            Some((server, tool)) => mcp::run(&server, &tool, &call.arguments),
+            None => mcp::Report {
+                ok: false,
+                output: String::from(
+                    "No server of this program is known by that name, so nothing ran",
+                ),
+            },
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &report.output, report.ok);
+        return;
+    }
     // A picture is read here and kept out of the words the reader sees. The
     // receipt of the run is the block in the chat; the picture rides on the same
     // message as an attachment of the chat, and goes to the model with the words
@@ -6055,14 +6451,14 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Nothing is switched on, so the call carries no tools at all.
-        assert!(offered(false, false, false, tools::Access::default()).is_none());
+        assert!(offered(false, false, false, tools::Access::default(), &[]).is_none());
         // The marks alone, which is what a chat with both badges off and the marks
         // on is offered.
-        let marks = offered(false, false, true, tools::Access::default()).unwrap();
+        let marks = offered(false, false, true, tools::Access::default(), &[]).unwrap();
         assert_eq!(names(&marks), vec![tools::CHAPTER_TOOL_NAME.to_string()]);
         // The badge on: every tool of the program stands there, and the mark is
         // not among them.
-        let open = offered(true, false, false, tools::Access::default()).unwrap();
+        let open = offered(true, false, false, tools::Access::default(), &[]).unwrap();
         let words = names(&open);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&editfile::EDIT_NAME.to_string()));
@@ -6072,10 +6468,10 @@ mod tests {
         assert!(!words.contains(&search::NAME.to_string()));
         // The badge of the web search alone: the search is offered, and none of
         // the tools that can reach the machine is offered with it.
-        let looked = offered(false, true, false, tools::Access::default()).unwrap();
+        let looked = offered(false, true, false, tools::Access::default(), &[]).unwrap();
         assert_eq!(names(&looked), vec![search::NAME.to_string()]);
         // Both badges stand open, so both doors are open at once.
-        let both = offered(true, true, false, tools::Access::default()).unwrap();
+        let both = offered(true, true, false, tools::Access::default(), &[]).unwrap();
         let words = names(&both);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&search::NAME.to_string()));
@@ -6086,6 +6482,7 @@ mod tests {
             false,
             false,
             tools::Access { network: true, pip: true, fetch: true },
+            &[],
         )
         .unwrap();
         let said = String::from(open[0]["function"]["description"].as_str().unwrap_or(""));
@@ -6105,6 +6502,42 @@ mod tests {
                 one["function"]["name"]
             );
         }
+    }
+
+    // The tools of the servers of the reader's own stand in the list of a step,
+    // and a server alone is enough to let the model be offered anything at all.
+    #[test]
+    fn the_tools_of_a_server_stand_in_the_list() {
+        let server = mcp::Server {
+            id: String::from("abcdef1234"),
+            name: String::from("Bookshop"),
+            kind: String::from(mcp::KIND_STDIO),
+            command: String::from("bookshop-mcp"),
+            slug: String::from("bookshop"),
+            shown: true,
+            ..mcp::Server::default()
+        };
+        let tool = mcp::Tool {
+            name: String::from("search_books"),
+            description: String::from("Search the books of the shop."),
+            ..mcp::Tool::default()
+        };
+        let made = vec![tool.definition(&server)];
+        let list = offered(false, false, false, tools::Access::default(), &made)
+            .expect("a server of the reader's own is a tool");
+        let names: Vec<&str> = list
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|one| one["function"]["name"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(names, vec!["mcp__bookshop__search_books"]);
+        // A server is reached out of the program and never inside the jail, so
+        // its words say so, and the rule of when to call it stands with it.
+        let said = list[0]["function"]["description"].as_str().unwrap_or("");
+        assert!(said.contains("Search the books of the shop."));
+        assert!(said.contains("Bookshop"));
+        assert!(said.contains(tools::CALL_RULE));
     }
 
     // The three settings of the sandbox stand off for a new chat, and every one
