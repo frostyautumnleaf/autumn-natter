@@ -48,7 +48,7 @@ pub const GREATEST_HANDOFF_PROMPT: usize = 4096;
 
 // The prompt that is given to the model when it is asked for the handoff
 // summary. The reader may write another one in the settings.
-pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a very detailed but concise handoff summary for AI consumption (no styling) that can be given to an AI to continue working from the current state of the session. Include full context of the session. You must include what has been done so far and what needs to be done. The AI will only receive the first initial prompt that the user sent, along with this handoff summary. If applicable, include a list of file paths that are relevant to the session / tasks / project with a short explanation of what each file is used for.";
+pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a detailed but concise handoff summary for AI consumption (no styling) that can be given to an AI to continue working from the current state of the session. Include the context of the session that an AI needs to carry on. Say what has been done so far and what needs to be done next. The AI will only receive the first initial prompt that the user sent, along with this handoff summary. Name the file paths that matter, one short line each, with what each file is used for. Keep the summary to about three hundred words: it must come to an end, for a summary that runs on for ever leaves the room it was asked to make unmade.";
 
 // The second ask for a handoff summary. The first is given all the room that
 // stands over after the words of the talk, and a model with a great deal to say
@@ -555,7 +555,10 @@ pub fn ensure_dirs() -> std::io::Result<()> {
     Ok(())
 }
 
-// Read settings.json. A missing file gives the default settings.
+// Read settings.json. A missing file gives the default settings. The file stands
+// in the folder of the data of this place, so a run that points the program at
+// another folder with `--data-dir` reads the settings of that folder, and the
+// folders of the model and of llama.cpp follow it.
 pub fn load() -> Config {
     let file = paths().settings_file;
     match fs::read_to_string(&file) {
@@ -728,7 +731,10 @@ mod tests {
         assert_eq!(cfg.chat_compact_prompt, DEFAULT_HANDOFF_PROMPT);
         // The prompt of the program is a text a model can be sent, and it is
         // short enough to fit the ceiling of the field.
-        assert!(cfg.chat_compact_prompt.starts_with("Write a very detailed"));
+        assert!(cfg.chat_compact_prompt.starts_with("Write a detailed"));
+        // The prompt of the program names a length, for a summary that never ends
+        // leaves the room it was asked to make unmade.
+        assert!(cfg.chat_compact_prompt.contains("three hundred words"));
         assert!(cfg.chat_compact_prompt.chars().count() <= GREATEST_HANDOFF_PROMPT);
         // The second ask has a prompt of its own, and it leans towards a short
         // summary rather than a long one.
