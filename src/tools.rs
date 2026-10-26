@@ -137,7 +137,7 @@ pub fn definition(access: Access) -> Value {
         "type": "function",
         "function": {
             "name": TOOL_NAME,
-            "description": reach,
+            "description": with_rule(reach),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -154,11 +154,14 @@ pub fn definition(access: Access) -> Value {
 
 // The tool description for a chapter of the chat.
 pub fn chapter_definition() -> Value {
+    let said = with_rule(String::from(
+        "Mark the start of a new chapter in this chat. This tool is offered only while the reader has turned the chapters of a chat on. Call it when a new part of the work begins: a new task, a new question, a new phase, or the next chapter of a story you are writing. You may call it as often as you like, including in the middle of your work. Call it just before you write the part it marks, then continue writing. The result only confirms that the marker was added, and you continue where you stopped. The one thing it asks for is the name, a short phrase that says what the part is about. Do not mark the same part twice, do not describe this call, and do not mention chapters in your answer.",
+    ));
     json!({
         "type": "function",
         "function": {
             "name": CHAPTER_TOOL_NAME,
-            "description": "Mark the start of a new chapter in this chat. Call it when a new part of the work begins: a new task, a new question, a new phase, or the next chapter of a story you are writing. You may call it as often as you like, including in the middle of your work. Call it just before you write the part it marks, then continue writing. The result only confirms that the marker was added, and you continue where you stopped. The name is a short phrase that says what the part is about. Do not mark the same part twice, do not describe this call, and do not mention chapters in your answer.",
+            "description": said,
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -171,6 +174,23 @@ pub fn chapter_definition() -> Value {
             }
         }
     })
+}
+
+// The rule every tool is offered under. A model reads the list of tools at the
+// head of every ask, and a model that has been told to call a tool on every
+// query spends its first turn of a chat trying to answer a message that asked
+// for nothing: it writes to itself that no real question stands there, that the
+// rule it was given cannot be met, and that it will answer briefly after all.
+// Those words come out as thinking before an answer that goes on as if none of
+// it had been said. The rule is the same one a person works under already, and
+// saying it once takes the argument out of the model's way.
+pub const CALL_RULE: &str = "Use a tool only when the reader asked for something a tool can do, or when it is plainly needed for the work. Never call a tool to fill a turn: answering in words is the right thing when no tool is wanted.";
+
+// Hang the rule of the tools on the description of one of them. A tool keeps its
+// own words first, so what it does is read before the rule that says when to use
+// it.
+pub fn with_rule(description: String) -> String {
+    format!("{} {}", description.trim_end(), CALL_RULE)
 }
 
 // The name of a chapter out of what the model sent. It is made one line, cut at
@@ -611,13 +631,13 @@ pub fn uses_pip(command: &str) -> bool {
 pub fn refused(command: &str, access: Access) -> Option<String> {
     if !access.fetch && uses_fetch(command) {
         return Some(format!(
-            "The command was not run: fetching with {} is off for this chat. Open it in the menu of the Sandbox badge, or work without the web.",
+            "The command was not run: fetching with {} is off for this chat, and only the reader can turn it on in the menu of the Sandbox badge. Do not try the command again, and do not look for another way to the web. Say in words that this chat does not let a command reach the web, and go on without it.",
             FETCH_NAMES.join(", ")
         ));
     }
     if !access.pip && uses_pip(command) {
         return Some(
-            "The command was not run: Python package installs are off for this chat. Open them in the menu of the Sandbox badge.".to_string(),
+            "The command was not run: Python package installs are off for this chat, and only the reader can turn them on. Do not try the command again, and do not look for another way to install. Say in words that this chat does not let a command install packages, and go on without them.".to_string(),
         );
     }
     None
@@ -1325,9 +1345,15 @@ mod tests {
         let off = Access::default();
         let fetch = refused("wget https://example.com", off).expect("the fetch is refused");
         assert!(fetch.contains("wget"));
-        assert!(fetch.contains("Sandbox"));
+        // The reader is told what to open, and the model is told plainly not to
+        // try again or to look for another way round it: a refusal that only
+        // names the fault is read by a model as a thing to work round.
+        assert!(fetch.contains("menu of the Sandbox badge"));
+        assert!(fetch.contains("Do not try the command again"));
+        assert!(fetch.contains("only the reader can turn it on"));
         let pip = refused("pip install requests", off).expect("the install is refused");
         assert!(pip.contains("Python package installs"));
+        assert!(pip.contains("Do not try the command again"));
         // The same commands go through when the chat opened them.
         let open = Access { network: true, pip: true, fetch: true };
         assert!(refused("wget https://example.com", open).is_none());

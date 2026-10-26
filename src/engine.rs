@@ -556,11 +556,11 @@ pub const DATE_HEAD: &str = "[Program note: ";
 fn date_line(secs: i64) -> String {
     let named = if secs > 0 { secs } else { store::now_secs() };
     format!(
-        "{}the current date and the current time on this machine are {}, taken when this chat \
-         began, in the local time zone of this machine. This is the latest date and time of \
-         this machine. Use it when the reader asks for today, for the day of the week or for \
-         the hour, and do not say that the date is unknown. The reader did not write this \
-         line.]",
+        "{}the date and the time on this machine are {}, in the local time zone of this \
+         machine. This is the latest the machine has. Answer from it when the reader asks for \
+         today, for the day of the week or for the hour; do not say the date is unknown. The \
+         reader did not write this line and is not shown it, so do not speak of it and do not \
+         reply to it: it is a note, not a question, and there is nothing in it to answer.]",
         DATE_HEAD,
         store::format_date_clock(named)
     )
@@ -6083,6 +6083,21 @@ mod tests {
         .unwrap();
         let said = String::from(open[0]["function"]["description"].as_str().unwrap_or(""));
         assert!(said.contains("The command may reach the network."));
+        // Every tool of the list carries the rule of when to call it. A model
+        // that is not told it may answer in words spends the first turn of a chat
+        // arguing with the list it was given, and writes the argument out as
+        // thinking before an answer that goes on as if none of it had been said.
+        for one in both.as_array().expect("a list of tools").iter() {
+            let said = one["function"]["description"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            assert!(
+                said.contains(tools::CALL_RULE),
+                "the rule of calling is missing from {:?}",
+                one["function"]["name"]
+            );
+        }
     }
 
     // The three settings of the sandbox stand off for a new chat, and every one
@@ -7101,7 +7116,12 @@ mod tests {
         let day = parts.join(", ");
         assert!(lines[0].contains(&day), "the day of this machine: {:?}", lines[0]);
         assert!(lines[0].contains("latest"), "the latest: {:?}", lines[0]);
-        assert!(lines[0].contains("current"), "the current hour: {:?}", lines[0]);
+        assert!(lines[0].contains("latest the machine has"), "the hour of this machine: {:?}", lines[0]);
+        // The line is a note and not a question: a model that reads it as a thing
+        // to answer writes to itself that no real query stands there, and those
+        // words come out as thinking before an answer.
+        assert!(lines[0].contains("not a question"));
+        assert!(lines[0].contains("do not speak of it"));
     }
 
     #[test]

@@ -29,7 +29,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::editfile;
-use crate::tools;
+use crate::tools::{self, with_rule};
 use crate::util;
 
 // The name the model uses to have a picture shown to it.
@@ -49,7 +49,9 @@ pub fn definition() -> Value {
         "type": "function",
         "function": {
             "name": NAME,
-            "description": "Send an image to yourself, so that you can be asked about it. Give the name of a file in the chat, as \"notes/cat.png\", or the address of an image on the web, as \"https://example.org/cat.png\". One image goes in one call; to look at two, call twice. The image must be of a kind the projector reads: PNG, JPEG, GIF or BMP, and no more than twelve megabytes. An image can only be shown while vision is turned on for the model; without it the call says so and nothing is read. The image is not stored after the conversation.",
+            "description": with_rule(String::from(
+                "Send an image to yourself, so that you can be asked about it. Give the name of a file in the chat, as \"notes/cat.png\", or the address of an image on the web, as \"https://example.org/cat.png\". One image goes in one call; to look at two, call twice. The image must be of a kind the projector reads: PNG, JPEG, GIF or BMP, and no more than twelve megabytes. An image can only be shown while vision is turned on for the model; without it the call says so and nothing is read. The image is not stored after the conversation.",
+            )),
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -1021,10 +1021,18 @@ mod tests {
             assert_eq!(parts[1].split('-').count(), 3, "the day of the month: {}", line);
             assert!(line.ends_with(&format_clock(secs)), "the clock of the day: {}", line);
             if let Some((was, was_day)) = earlier {
-                // One day back, so the name of the week goes back one too, and the
-                // day of the month moves with it.
-                assert_eq!(weekday, (was + 6) % 7, "the week of {}", line);
-                assert_ne!(parts[1], was_day, "the day moved: {}", line);
+                // The day of the month never moves forwards while the clock goes
+                // back, and the name of the week goes back one step with it.
+                assert!(parts[1] <= was_day.as_str(), "the day ran backwards: {}", line);
+                // One day the year holds 25 hours: the day the clocks go back, so
+                // a step of 86400 seconds stands twice inside the same day. There
+                // the name of the week stands still with the day beside it, and is
+                // never allowed to name a day other than the one it stands on.
+                if parts[1] == was_day {
+                    assert_eq!(weekday, was, "one day named twice over: {}", line);
+                } else {
+                    assert_eq!(weekday, (was + 6) % 7, "the week of {}", line);
+                }
             }
             earlier = Some((weekday, parts[1].to_string()));
         }
