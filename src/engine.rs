@@ -1969,6 +1969,13 @@ fn by_opened(chats: &mut [Chat]) {
 
 // The handle a window keeps.
 pub struct Engine {
+    // The state of the program. The window reaches it through the calls of this
+    // file. The live run of the engine against a real model reaches it outright, to
+    // switch the devices of the machine off, which no call of the program does: that
+    // is the only reason the field stands open there, and in the tests beside it.
+    #[cfg(any(test, feature = "live-driver"))]
+    pub state: Arc<Mutex<State>>,
+    #[cfg(not(any(test, feature = "live-driver")))]
     state: Arc<Mutex<State>>,
     jobs: Sender<Job>,
     cancel: Arc<AtomicBool>,
