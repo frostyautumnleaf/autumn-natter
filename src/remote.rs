@@ -156,6 +156,12 @@ fn handle(engine: &Engine, mut request: Request) {
         // The logs of llama.cpp, for the Logs tab. The list is asked for on its
         // own, and one log with it, for a log is far too big to come with the
         // state of the page.
+        // The servers of the reader's own, whole, for the MCP tab of the
+        // settings. The state carries their names and their tools, and nothing
+        // of the words a server of the program itself is made of.
+        ("GET", "/api/mcp") => {
+            let _ = request.respond(json_response(&web::mcp_value(engine)));
+        }
         ("GET", "/api/logs") => {
             let _ = request.respond(json_response(&web::logs_value()));
         }
