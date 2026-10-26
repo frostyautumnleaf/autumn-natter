@@ -5848,6 +5848,81 @@ mod tests {
         assert_eq!(last.tool, "5");
     }
 
+    // The picture a run opened for the model hangs on the message of the run. The
+    // bytes of a picture are never written into the words of a block, so this is
+    // the one way the reader can look at what the model was shown: the state
+    // carries the block of the picture with the run, and the bytes stand in the
+    // folder of the attachments of the chat until the block asks for them.
+    #[test]
+    fn the_picture_of_a_run_hangs_on_the_message_of_the_run() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let chat = state.chat().expect("a blank chat stands open");
+            let shelf = state.attach_place_for(chat);
+            let kept = attach::save_at(
+                &shelf,
+                &[attach::Incoming {
+                    name: String::from("cat.png"),
+                    mime: String::from("image/png"),
+                    data: String::from("data:image/png;base64,AAA="),
+                    text: String::new(),
+                }],
+            );
+            let call = ToolCall {
+                id: String::from("call-look"),
+                name: String::from(viewimage::NAME),
+                arguments: String::from("{\"path\":\"notes/cat.png\"}"),
+            };
+            let id = state.begin_tool(&call, "notes/cat.png", "", 0);
+            state.finish_tool_with(
+                &id,
+                "Opened an image: notes/cat.png (PNG, 2 by 2 pixels).",
+                true,
+                kept,
+            );
+        }
+        let snap = engine.snapshot();
+        let run = snap
+            .messages
+            .iter()
+            .find(|one| one.tool_name == viewimage::NAME)
+            .expect("the chat holds the run");
+        assert_eq!(run.role, "Tool");
+        assert_eq!(run.attachments.len(), 1, "the run hangs one picture on itself");
+        assert!(run.attachments[0].image, "a picture is known as a picture");
+        assert_eq!(run.attachments[0].name, "cat.png");
+
+        // The state of a page carries the block of the picture with the run: the
+        // name, the kind, and the id the bytes are asked for by. No byte of the
+        // picture rides here, for a chat of many pictures would be a wall.
+        let value = crate::web::state(&snap, None);
+        let rows = value["messages"].as_array().expect("the state carries the talk");
+        let row = rows
+            .iter()
+            .find(|one| one["tool_name"] == viewimage::NAME)
+            .expect("the run stands in the state");
+        let held = &row["attachments"][0];
+        assert_eq!(held["name"], "cat.png");
+        assert_eq!(held["image"], true);
+        assert_eq!(held["id"], run.attachments[0].id);
+        assert!(
+            held.get("data").is_none(),
+            "the state of a page carries no bytes of a picture"
+        );
+
+        // The bytes are reached by the id, which is how the block of the run
+        // draws the picture the model was shown.
+        let record = engine
+            .attachment(&run.attachments[0].id)
+            .expect("the record of the picture stands with the chat");
+        assert_eq!(record.data, "data:image/png;base64,AAA=");
+        assert_eq!(record.mime, "image/png");
+    }
+
     // The words under the number of the gauge follow the pictures the message
     // carries. A chat of words gives none, which is how the program stands
     // today, and only the newest message of the user is looked at.
