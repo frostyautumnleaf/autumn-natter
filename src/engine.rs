@@ -1014,7 +1014,7 @@ impl State {
                 kind: server.kind(),
                 icon: server.icon,
                 shown: server.shown,
-                on: on.iter().any(|id| *id == server.id),
+                on: on.contains(&server.id),
                 tools: self
                     .mcp_tools
                     .get(&server.id)
@@ -1078,22 +1078,6 @@ impl State {
             }
         }
         made
-    }
-
-    // Ask one server what it has to offer, and keep what it answers, or keep
-    // the reason it did not. The answer of the look is what the sheet of the
-    // settings and the menu of the badge stand on.
-    fn mcp_look_at(&mut self, server: &mcp::Server) {
-        match mcp::list(server) {
-            Ok(found) => {
-                self.mcp_tools.insert(server.id.clone(), found);
-                self.mcp_fault.remove(&server.id);
-            }
-            Err(problem) => {
-                self.mcp_tools.insert(server.id.clone(), Vec::new());
-                self.mcp_fault.insert(server.id.clone(), problem);
-            }
-        }
     }
 
     // The choice to keep the thinking of the turns before the last answer, for

@@ -235,10 +235,8 @@ pub fn slug_of(name: &str) -> String {
             Some('_')
         };
         let Some(kept) = keep else { continue };
-        if kept == '_' {
-            if last == '_' || out.is_empty() {
-                continue;
-            }
+        if kept == '_' && (last == '_' || out.is_empty()) {
+            continue;
         }
         out.push(kept);
         last = kept;
