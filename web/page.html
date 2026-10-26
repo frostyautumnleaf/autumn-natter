@@ -701,6 +701,28 @@ pre.code .t-p { color: var(--t-pun); }
 }
 .out.live { color: var(--dim); }
 .tool.bad .out { color: var(--ink-fail); }
+/* A picture the model was shown stands in the block of the run that opened it.
+   The bytes of a picture never ride in the words of a block, so the plate asks
+   for them once, by the id of the attachment, as the blocks of a sent message
+   do. The eye at the top right of the plate says whose eyes the picture is in,
+   and the tip of it says why. */
+.tshots { display: flex; flex-wrap: wrap; gap: 9px; margin: 8px 0 10px; }
+.tshot { position: relative; flex: 0 1 auto; max-width: 100%; line-height: 0; }
+.tshot .pic { display: block; width: auto; height: auto; max-width: 100%;
+  max-height: 340px; border-radius: 10px; border: 1px solid var(--plate-line);
+  background: var(--surface-3); box-shadow: var(--plate-shadow); }
+/* The ground that stands while the bytes of the picture are being read. The
+   size of the picture is not known yet, so the ground is of a size of its own. */
+.tshot span.pic { width: 168px; height: 116px; }
+/* The eye of the model. It stands over a picture, so it keeps a ground of its
+   own that no picture can swallow: the surface of the page, its hairline, and
+   the short shadow that lifts it off whatever is behind it. */
+.tshot .seen { position: absolute; top: 7px; right: 7px; display: inline-flex;
+  align-items: center; justify-content: center; width: 21px; height: 21px;
+  border-radius: 50%; background: var(--surface);
+  border: 1px solid var(--plate-line); box-shadow: var(--plate-shadow);
+  color: var(--dim); cursor: help; }
+.tshot .seen .svg { width: 12.5px; height: 12.5px; }
 /* The blocks of the calls the model is writing now. They stand under the words
    of the answer, within the turn of that answer, and a turn has no rule of its
    own to keep its parts apart. The block therefore takes the rule and the room
@@ -3060,6 +3082,12 @@ function toolBox(m) {
   output.textContent = m.tool;
   space.appendChild(labOne);
   space.appendChild(commandText);
+  // A picture the model was shown stands in the block of the run that opened
+  // it, under the name of the picture and above the receipt of the run. The
+  // reader has else no way of seeing what the model was asked about, for the
+  // bytes of a picture are sent to the model and never written into the block.
+  var shots = viewedPics(m);
+  if (shots) { space.appendChild(shots); }
   space.appendChild(labTwo);
   space.appendChild(output);
   body.appendChild(space);
@@ -4433,16 +4461,76 @@ function sentParts(m) {
           var url = record && record.data ? record.data : '';
           attUrls[id] = url;
           if (!url) { return; }
-          var held = block.querySelector('.pic');
-          var pic = held && held.tagName === 'IMG' ? held : make('img', 'pic');
-          if (held && held !== pic) { block.replaceChild(pic, held); }
-          pic.src = url;
-          pic.alt = one.name;
+          fillPic(block, url, one.name);
         }, function () {});
       })(one.id, block);
     }
   }
   return row;
+}
+
+// Set the bytes of a picture into its block. The block stands first as a ground
+// of its own, for the size of the picture is not known until the bytes come; the
+// ground is therefore turned into the picture itself.
+function fillPic(block, url, name) {
+  var place = block.querySelector('.pic');
+  if (!place) { return null; }
+  if (place.tagName !== 'IMG') {
+    var img = make('img', 'pic');
+    block.replaceChild(img, place);
+    place = img;
+  }
+  place.src = url;
+  place.alt = name || '';
+  return place;
+}
+
+// The mark of the eyes of the model: an eye, with the ball of it within it. It
+// stands at the top right of every picture the model was shown, so the reader
+// sees at a glance which pictures the model has looked at and which it has not.
+var EYE_MARK = 'M1.9 8c1.6-2.9 3.6-4.3 6.1-4.3s4.5 1.4 6.1 4.3c-1.6 2.9-3.6 4.3-6.1 4.3'
+  + 'S3.5 10.9 1.9 8z M8 9.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z';
+
+// The pictures a run opened for the model, taken from the blocks hung on the
+// message of the run. Nothing is made when the run hung no picture on itself,
+// so a command keeps the block it always had.
+function viewedPics(m) {
+  var held = m.attachments || [];
+  var row = null;
+  for (var n = 0; n < held.length; n++) {
+    if (!held[n].image) { continue; }
+    if (!row) { row = make('div', 'tshots'); }
+    row.appendChild(viewedPic(held[n]));
+  }
+  return row;
+}
+
+// One picture the model was shown. The bytes are asked for once, through the
+// same door as the blocks of a sent message, and kept, so a chat drawn again
+// asks nothing again. The eye at the corner carries the whole reason in its tip.
+function viewedPic(one) {
+  var plate = make('div', 'tshot');
+  plate.title = one.name;
+  plate.appendChild(make('span', 'pic'));
+  if (attUrls[one.id]) {
+    fillPic(plate, attUrls[one.id], one.name);
+  } else {
+    (function (id) {
+      attachmentWords(id).then(function (record) {
+        var url = record && record.data ? record.data : '';
+        if (!url) { return; }
+        attUrls[id] = url;
+        fillPic(plate, url, one.name);
+      }, function () {});
+    }(one.id));
+  }
+  var seen = 'The model can see this image.';
+  var eye = make('span', 'seen');
+  eye.title = seen;
+  eye.setAttribute('aria-label', seen);
+  eye.appendChild(mark(EYE_MARK));
+  plate.appendChild(eye);
+  return plate;
 }
 
 // The record of one attachment, from the small server of the remote mode.
