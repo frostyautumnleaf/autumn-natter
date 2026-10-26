@@ -1848,4 +1848,40 @@ def helper(x):
         assert!(bad.output.contains("no tool") || bad.output.contains("No tool"));
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    // The same kind of server again, and one of its tools run for real: the two
+    // hands, the call, and the words the model is to read.
+    #[test]
+    fn a_tool_of_a_server_of_the_program_itself_runs_for_real() {
+        let root = std::env::temp_dir().join("an-mcp-run-check");
+        let held = root.join("settings");
+        std::fs::create_dir_all(&held).expect("the place of the check is made");
+        config::set_data_dir(held);
+        let server = Server {
+            id: String::from("runchannel"),
+            name: String::from("Run"),
+            slug: String::from("run"),
+            kind: String::from(KIND_INTERNAL),
+            code: String::from(
+                r#"
+@tool
+def twice(word: str) -> str:
+    """Say the word twice."""
+    return word + " " + word
+"#,
+            ),
+            ..Server::default()
+        };
+        let made = run(&server, "twice", r#"{"word":"ember"}"#);
+        if made.output.contains("could not be started") {
+            println!("no Python on this machine: {}", made.output);
+            return;
+        }
+        assert!(made.ok, "{}", made.output);
+        assert_eq!(made.output, "ember ember");
+        // A tool that is not there is told in words, and the telling is a fault
+        // of the run and not of the program.
+        let missing = run(&server, "no_such_tool", "{}");
+        assert!(!missing.ok, "a tool that is not there was taken for a run");
+    }
 }
