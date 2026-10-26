@@ -24,7 +24,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::attach;
-use crate::tools;
+use crate::tools::{self, with_rule};
 
 // The name the model uses to change a file, and the name it uses to make one.
 pub const EDIT_NAME: &str = "edit_file";
@@ -70,7 +70,9 @@ pub fn edit_definition() -> Value {
         "type": "function",
         "function": {
             "name": EDIT_NAME,
-            "description": "Change a file in the chat by replacing exact text with other exact text. Prefer this over writing a whole file again with the terminal tool, because only the changed part is sent. Copy each old_string exactly from the file, spacing included. Put every change to one file in the same call, not in several calls. Every old_string is matched against the file as it was before this call, and no two of them may cover the same text. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. An old_string is never empty: use create_file for a new file. The file is in the working directory of the chat, which is the only place this tool works, and the tool runs in the program, so it works the same whether the sandbox is on or off. A call that succeeded means the file now holds what was sent, so read it again only when you must.",
+            "description": with_rule(String::from(
+                "Change a file in the chat by replacing exact text with other exact text. Prefer this over writing a whole file again with the terminal tool, because only the changed part is sent. Copy each old_string exactly from the file, spacing included. Put every change to one file in the same call, not in several calls. Every old_string is matched against the file as it was before this call, and no two of them may cover the same text. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. An old_string is never empty: use create_file for a new file. The file is in the working directory of the chat, which is the only place this tool works, and the tool runs in the program, so it works the same whether the sandbox is on or off. A call that succeeded means the file now holds what was sent, so read it again only when you must.",
+            )),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -114,7 +116,9 @@ pub fn create_definition() -> Value {
         "type": "function",
         "function": {
             "name": CREATE_NAME,
-            "description": "Create a new file in the working directory of the chat, with the text given for it. A file that already exists is left unchanged, because this tool never overwrites one: use edit_file to change a file. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
+            "description": with_rule(String::from(
+                "Create a new file in the working directory of the chat, with the text given for it. A file that already exists is left unchanged, because this tool never overwrites one: use edit_file to change a file. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
+            )),
             "parameters": {
                 "type": "object",
                 "properties": {

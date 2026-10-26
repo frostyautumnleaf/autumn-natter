@@ -27,6 +27,19 @@ repository = "https://github.com/frostyautumnleaf/autumn-natter"
 name = "autumn_natter_core"
 path = "src/lib.rs"
 
+# A live run of the engine against a real model, for the handoff summary. Not
+# part of the program: it is started by hand with `cargo run --bin`.
+[[bin]]
+name = "an-summary-run"
+path = "src/bin/an-summary-run.rs"
+required-features = ["live-driver"]
+
+[features]
+# The live run of the engine against a real model. It reaches the state of the
+# engine to switch the devices of the machine off, which no call of the program
+# does. The program is built without it.
+live-driver = []
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

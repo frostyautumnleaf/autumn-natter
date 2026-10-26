@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use std::io::Read;
 use std::time::Duration;
 
-use crate::tools;
+use crate::tools::{self, with_rule};
 
 // The name the model uses to look a thing up.
 pub const NAME: &str = "web_search";
@@ -75,7 +75,9 @@ pub fn definition() -> Value {
         "type": "function",
         "function": {
             "name": NAME,
-            "description": "Search the web, and read a page of it. With words to search for it returns the titles, the addresses and the short summaries of the results. With an address it reads that page and returns its text, so use the address of a result you want instead of guessing at it. The answer of a search engine is a short summary only, so a second call with the address of the page is often the better part of the work. Nothing that is read is stored.",
+            "description": with_rule(String::from(
+                "Search the web, and read a page of it. With words to search for it returns the titles, the addresses and the short summaries of the results. With an address it reads that page and returns its text, so use the address of a result you want instead of guessing at it. The answer of a search engine is a short summary only, so a second call with the address of the page is often the better part of the work. Nothing that is read is stored.",
+            )),
             "parameters": {
                 "type": "object",
                 "properties": {
