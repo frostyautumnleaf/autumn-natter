@@ -882,6 +882,32 @@ img.pic { animation: plate-in 180ms ease-out; }
 .menu button.toggle.on .sw::after { transform: translateX(9px);
   background: var(--on-accent); }
 .badge .down { width: 11px; height: 11px; margin-left: 1px; opacity: .65; }
+/* The MCP tab of the sheet: the rows of the servers, the picker of the icon,
+   and the field of the words of a server of the program itself. */
+.mcpnote { padding: 10px 0 2px; color: var(--text-2); font-size: 12.5px; }
+.mcprow { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px;
+  align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.mcprow .ico { display: flex; align-items: center; justify-content: center; color: var(--ink); }
+.mcprow .ico .svg { width: 15px; height: 15px; }
+.mcprow .body { min-width: 0; }
+.mcprow .name { font-size: 13.5px; color: var(--text); }
+.mcprow .kind { font-size: 11.5px; color: var(--text-2); margin-top: 2px; overflow-wrap: anywhere; }
+.mcprow .acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end;
+  max-width: 168px; flex: 0 0 auto; }
+.mcprow .acts .btn { flex: 0 0 auto; }
+.iconpick { display: flex; flex-wrap: wrap; gap: 4px; }
+.iconpick button { display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface-2); color: var(--text-2); cursor: pointer; padding: 0; }
+.iconpick button:hover { border-color: var(--line-strong); color: var(--text); }
+.iconpick button.on { border-color: var(--accent-line); background: var(--accent-soft);
+  color: var(--ink); }
+.iconpick .svg { width: 14px; height: 14px; }
+textarea.mcpcode { min-height: 168px; font-family: var(--mono); font-size: 12px;
+  line-height: 1.45; tab-size: 4; }
+.menu .line .ico { display: inline-flex; color: var(--ink); margin-right: 7px; }
+.menu .line .ico .svg { width: 13px; height: 13px; }
+
 .keys { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
 .keys kbd { font: inherit; font-size: 11px; color: var(--dim); background: var(--surface-2);
@@ -1454,6 +1480,14 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
             </button>
             <div class="menu hidden" id="sandboxmenu"></div>
           </div>
+          <div class="menuwrap" id="mcpwrap">
+            <button class="badge" id="mcp" title="The servers of the reader's own, spoken to over MCP. Click to switch one on or off for this chat. A server runs in the program and not in the sandbox of a command.">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14"/></svg>
+              <span id="mcptext">MCP</span>
+              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+            </button>
+            <div class="menu hidden" id="mcpmenu"></div>
+          </div>
           <div class="menuwrap" id="thinkwrap">
             <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
@@ -1500,6 +1534,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <button class="on" id="tabProgram" type="button">Program</button>
         <button id="tabModel" type="button">Model</button>
         <button id="tabLogs" type="button">Logs</button>
+        <button id="tabMcp" type="button">MCP</button>
       </div>
       <span class="sub" id="sheetSub">The settings of this program</span>
       <button class="mark-btn x" id="sheetClose" type="button" title="Close" aria-label="Close">
@@ -1763,6 +1798,52 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
            read again by itself, so the words of a start that is going on now come
            up as they are written. Nothing of a log comes with the state of the
            page: a server that was told to say everything writes far too much. -->
+      <!-- The servers of the reader's own, spoken to over MCP. A server is a
+           program of this machine, a server on the network, or words of Python
+           the program runs. The menu of the MCP badge holds the ones that stand
+           in it, and each of them is switched on or off for one chat there. -->
+      <div class="pane hidden" id="paneMcp">
+        <div class="sec">Servers</div>
+        <div class="mcpnote" id="mcpNote">No server stands here yet. Add one below.</div>
+        <div id="mcpList"></div>
+
+        <div class="sec" id="mcpEditHead">Add a server</div>
+        <div class="fld"><span class="lbl">Name</span>
+          <span class="sub">The name the menu of the badge and the blocks of the chat show beside the tools of this server.</span>
+          <div class="ctl"><input class="txt" id="mcName" type="text" placeholder="Bookshop" spellcheck="false"></div></div>
+        <div class="fld"><span class="lbl">Icon</span>
+          <span class="sub">One mark for this server, so its lines are known apart in the menu.</span>
+          <div class="ctl iconpick" id="mcIcon"></div></div>
+        <div class="fld"><span class="lbl">Kind</span>
+          <span class="sub">A program of this machine, a server on the network, or words of Python that the program runs.</span>
+          <div class="ctl"><select id="mcKind">
+            <option value="stdio">Program of this machine (stdio)</option>
+            <option value="http">Server on the network (HTTP)</option>
+            <option value="internal">Built in the program (Python)</option>
+          </select></div></div>
+        <div class="fld" id="mcCommandRow"><span class="lbl">Command</span>
+          <span class="sub">The whole line that starts the server, quotes and all. The server speaks over its standard input and its standard output.</span>
+          <div class="ctl"><input class="txt" id="mcCommand" type="text" placeholder="python3 -m bookshop_mcp" spellcheck="false"></div></div>
+        <div class="fld" id="mcUrlRow"><span class="lbl">Address</span>
+          <span class="sub">The address of the server. It is spoken to over Streamable HTTP.</span>
+          <div class="ctl"><input class="txt" id="mcUrl" type="text" placeholder="http://127.0.0.1:8000/mcp" spellcheck="false"></div></div>
+        <div class="fld wide" id="mcCodeRow"><span class="lbl">Python code</span>
+          <span class="sub">Write a function, and put @tool over the ones the model may use. The names and the types of its arguments become the parts of the tool, and the first line of its doc string becomes the description of it. Nothing beyond the library that stands with Python is needed. A whole MCP server of your own is run as it stands.</span>
+          <div class="ctl"><textarea class="mcpcode" id="mcCode" spellcheck="false" autocomplete="off"></textarea></div></div>
+        <div class="fld"><span class="lbl">In the menu</span>
+          <span class="sub">Whether this server stands in the drop-down of the MCP badge. A server left out of the menu is kept here all the same.</span>
+          <div class="ctl"><input id="mcShown" type="checkbox"></div></div>
+        <div class="fld wide" style="border-bottom:0"><span class="lbl">Save this server</span>
+          <span class="sub" id="mcpSaveNote">The server is kept, and its tools are read. Nothing else of the settings moves.</span>
+          <div class="ctl"><button class="btn go" id="mcpSave" type="button">Save this server</button>
+            <button class="btn" id="mcpClear" type="button">Add another</button></div></div>
+
+        <div class="sec">About</div>
+        <div class="fld wide" style="border-bottom:0"><span class="lbl">Python</span>
+          <span class="sub">The program a server of the program itself is run with. Another may be named in the Command field of that server.</span>
+          <div class="ctl"><span class="ro" id="mcpPython"></span></div></div>
+      </div>
+
       <div class="pane hidden" id="paneLogs">
         <div class="sec">llama.cpp logs</div>
         <div class="fld"><span class="lbl">Log</span>
@@ -1852,6 +1933,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate', 'hint',
   'newchat', 'settingsbtn', 'modelbtn', 'chapters', 'timeline',
   'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
+  'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
@@ -2273,6 +2355,147 @@ function closeSandboxMenu() {
 
 
 
+/* ------------------------------------------------------------------ MCP
+
+   The servers of the reader's own. The badge holds the ones that stand in the
+   menu, and each is switched on or off for this chat; the MCP tab of the sheet
+   adds them, changes them and takes them away. A server runs in the program and
+   never in the sandbox of a command, for the jail has no network and no program
+   of its own to run. */
+
+// The sixteen marks a server may be known by. The number of the mark stands
+// between the program and the page; the drawing of it stands here alone.
+var MCP_ICONS = [
+  'M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14',
+  'M8 2.2 13 5v6L8 13.8 3 11V5zM8 6.6v2.8M6.6 8h2.8',
+  'M2.6 5.4 8 2.6l5.4 2.8v5.2L8 13.4l-5.4-2.8zM8 8v5.4M2.6 5.4 8 8l5.4-2.6',
+  'M3.4 3.4h9.2v9.2H3.4zM6 6h4M8 6v4',
+  'M8 2.4a5.6 5.6 0 1 0 0 11.2 5.6 5.6 0 0 0 0-11.2zM8 4.8V8l2.4 1.6',
+  'M4.2 12.4V4.6a2 2 0 0 1 2-2h3.2l2.4 2.4v7.4zM9.4 2.6v2.4h2.4',
+  'M2.4 3.2h11.2v9.6H2.4zM4.6 6.4 6.6 8l-2 1.6M8.2 10.2h3.2',
+  'M8 2.6l1.7 3.5 3.9.5-2.8 2.7.7 3.8L8 11.4l-3.5 1.7.7-3.8-2.8-2.7 3.9-.5z',
+  'M3 12.6 8 3.4l5 9.2zM5.6 10h4.8',
+  'M2.6 8h4.2M9.2 8h4.2M8 2.6v4.2M8 9.2v4.2',
+  'M5.4 6.2a2.6 2.6 0 1 1 4.4 1.9L8 10l-1.8-1.9zM10 9.6l2.6 2.6',
+  'M3.4 4h9.2v8H3.4zM5.6 4V2.4M10.4 4V2.4M3.4 6.8h9.2',
+  'M8 2.4c1.6 2 2.4 3.6 2.4 5.2a2.4 2.4 0 1 1-4.8 0c0-1.6.8-3.2 2.4-5.2zM6.4 12.4h3.2',
+  'M4 3.2h8l1.6 4.4a3.6 3.6 0 0 1-3.2 5.6L8 14.4l-2.4-1.2a3.6 3.6 0 0 1-3.2-5.6z',
+  'M2.8 6.4h10.4M2.8 9.6h10.4M5.2 3.2h5.6',
+  'M8 2.6 9.9 6l3.5.5-2.5 2.5.6 3.5-3.5-1.8-3.5 1.8.6-3.5L4.6 6.5 8.1 6z'
+];
+
+// The mark of one server, out of the list the state carries.
+function mcpIconOf(one) {
+  var n = Number(one && one.icon) || 0;
+  return MCP_ICONS[n % MCP_ICONS.length];
+}
+
+// The mark of the server a name of a tool names. The name of a tool of a server
+// is `mcp__<server>__<tool>`, and the server is known by the part between.
+function mcpServerOf(name) {
+  var held = (cur && cur.mcp && cur.mcp.servers) || [];
+  var rest = String(name || '').replace(/^mcp__/, '');
+  var at = rest.indexOf('__');
+  var slug = at > 0 ? rest.slice(0, at) : '';
+  for (var i = 0; i < held.length; i++) {
+    if (String(held[i].slug || '') === slug) { return held[i]; }
+    if (String(held[i].name || '').toLowerCase() === slug) { return held[i]; }
+  }
+  return null;
+}
+
+// The words a tool of a server is named by in the head of its block.
+function mcpToolWords(name) {
+  var rest = String(name || '').replace(/^mcp__/, '');
+  var at = rest.indexOf('__');
+  return at > 0 ? rest.slice(at + 2) : rest;
+}
+
+// The menu of the MCP badge: one line for every server that stands in the menu,
+// each with the mark of its own and a switch at the end of it. A server that is
+// switched on has its tools offered to the model of this chat.
+function fillMcpMenu(s) {
+  var menu = el.mcpmenu;
+  if (!menu) { return; }
+  var held = mcpMenuServers(s);
+  menu.innerHTML = '';
+  if (!held.length) {
+    var none = make('div', 'word');
+    none.className = 'sub';
+    none.textContent = 'No server stands in this menu. Add one in the MCP tab of the settings.';
+    menu.appendChild(none);
+    return;
+  }
+  for (var n = 0; n < held.length; n++) {
+    menu.appendChild(mcpLine(held[n]));
+  }
+}
+
+// The servers the menu shows: the ones the reader put in the menu, and any one
+// this chat has switched on, so a choice is never out of reach.
+function mcpMenuServers(s) {
+  var held = (s && s.mcp && s.mcp.servers) || [];
+  var out = [];
+  for (var i = 0; i < held.length; i++) {
+    if (held[i].shown || held[i].on) { out.push(held[i]); }
+  }
+  return out;
+}
+
+// One line of the menu: the mark, the name, and a switch. The menu stays open
+// under a click, so the switch is seen to move.
+function mcpLine(one) {
+  var line = make('button', 'toggle' + (one.on ? ' on' : ''));
+  line.type = 'button';
+  var tools = one.tools || [];
+  line.title = (one.fault
+    ? 'The server did not answer: ' + one.fault
+    : (tools.length
+      ? tools.length + ' tools: ' + tools.slice(0, 6).join(', ')
+      : 'This server has nothing to offer.'))
+    + ' Click to offer the tools of this server to the model, or to take them away.';
+  var ico = make('span', 'ico');
+  ico.appendChild(mark(mcpIconOf(one)));
+  line.appendChild(ico);
+  var word = make('span', 'word');
+  word.textContent = one.name || '';
+  line.appendChild(word);
+  line.appendChild(make('span', 'sw'));
+  line.addEventListener('click', function (event) {
+    event.stopPropagation();
+    post('/api/mcp_on', { id: one.id, on: !one.on });
+  });
+  return line;
+}
+
+function openMcpMenu() {
+  if (!cur) { return; }
+  fillMcpMenu(cur);
+  el.mcpmenu.classList.remove('hidden');
+}
+
+function closeMcpMenu() {
+  if (el.mcpmenu) { el.mcpmenu.classList.add('hidden'); }
+}
+
+// The badge itself: bright when a server stands open for this chat, with the
+// number of them beside its name.
+function drawMcp(s) {
+  if (!el.mcp) { return; }
+  var held = (s.mcp && s.mcp.servers) || [];
+  var on = 0;
+  for (var i = 0; i < held.length; i++) { if (held[i].on) { on += 1; } }
+  el.mcp.classList.toggle('on', on > 0);
+  el.mcptext.textContent = on ? 'MCP ' + on : 'MCP';
+  el.mcp.title = held.length
+    ? (on
+      ? on + ' of ' + held.length + ' servers are offered to the model of this chat.'
+      : 'No server of the ' + held.length + ' you added is offered to the model.')
+    : 'No MCP server has been added. Add one in the MCP tab of the settings.';
+  el.mcp.title += ' A server runs in the program, not in the sandbox of a command. Click to open the menu.';
+  if (el.mcpmenu && !el.mcpmenu.classList.contains('hidden')) { fillMcpMenu(s); }
+}
+
 function drawBadges(s) {
   el.code.classList.toggle('on', !!s.code);
   el.search.classList.toggle('on', !!s.search);
@@ -2309,6 +2532,7 @@ function drawBadges(s) {
   // the reader has just moved is seen to move, and a new chat does not leave the
   // old lines standing.
   if (el.sandboxmenu && !el.sandboxmenu.classList.contains('hidden')) { fillSandboxMenu(s); }
+  drawMcp(s);
 }
 
 // The speed of the work, put next to the words of the state. Two kinds of work
@@ -2988,6 +3212,17 @@ var TOOL_SHAPES = {
 // The shape of one tool. A name the page does not know is drawn as a run of the
 // terminal tool, for that is the shape the reader knows best.
 function toolShape(name) {
+  var key = String(name || '');
+  // A tool of a server of the reader's own is named for the server it came
+  // from, and the mark of that server stands beside its name.
+  if (key.indexOf('mcp__') === 0) {
+    var one = mcpServerOf(key);
+    return {
+      mark: one ? mcpIconOf(one) : MCP_ICONS[0],
+      head: 'Calling: ', done: 'Called: ', word: 'parts', end: 'result',
+      empty: 'no words with the call', begun: 'the parts of the call'
+    };
+  }
   return TOOL_SHAPES[name] || TOOL_SHAPES.run_terminal;
 }
 
@@ -5219,7 +5454,12 @@ el.think.addEventListener('click', function (event) {
   if (el.thinkmenu.classList.contains('hidden')) { closeSandboxMenu(); openThinkMenu(); } else { closeThinkMenu(); }
 });
 // A click anywhere else in the page puts the menus away.
-document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); });
+el.mcp.addEventListener('click', function (event) {
+  event.stopPropagation();
+  if (el.mcpmenu.classList.contains('hidden')) { closeThinkMenu(); closeSandboxMenu(); openMcpMenu(); }
+  else { closeMcpMenu(); }
+});
+document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); });
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
 el.draft.addEventListener('input', grow);
@@ -5377,11 +5617,176 @@ function setOption(text, value) {
   var o = document.createElement('option'); o.textContent = text; o.value = value; return o;
 }
 
+/* ------------------------------------------------------------------ MCP tab
+
+   The servers of the reader's own. Every row of the list says what a server is,
+   what it has to offer, and whether it stands in the menu of the badge. The
+   editor below holds one server, a new one or one being changed. */
+
+var mcpAll = [];      // the servers read for this tab
+var mcpEdit = '';     // the id of the server in the editor, empty for a new one
+var mcpIcon = 0;      // the mark chosen in the picker of the editor
+
+// The servers of the reader's own, read from the program.
+// The servers, with the words of them, for the MCP tab of the sheet.
+function mcpRead() { return invoke('get_mcp'); }
+
+// Read the list again, and draw it.
+function loadMcp() {
+  // The editor is drawn at once, before the list comes back, so the tab is
+  // never an empty box while the servers are being read.
+  if (!mcpEdit) { showMcpEditor(null); }
+  mcpRead().then(function (made) {
+    mcpAll = (made && made.servers) || [];
+    var note = byId('mcpNote');
+    note.textContent = mcpAll.length
+      ? mcpAll.length + ' servers stand here. A server runs in the program, and never in the sandbox of a command.'
+      : 'No server stands here yet. Write one below: a program of this machine, a server on the network, or words of Python the program runs for you.';
+    var python = byId('mcpPython');
+    if (python) { python.textContent = (made && made.python) || 'not found'; }
+    var list = byId('mcpList');
+    list.innerHTML = '';
+    for (var i = 0; i < mcpAll.length; i++) { list.appendChild(mcpRow(mcpAll[i])); }
+  }, function () {});
+}
+
+// One row of the list: the mark, the name, what the server is, what it offered
+// the last time it was looked at, and four things the reader may do with it.
+function mcpRow(one) {
+  var row = make('div', 'mcprow');
+  var ico = make('span', 'ico');
+  ico.appendChild(mark(mcpIconOf(one)));
+  row.appendChild(ico);
+  var body = make('div', 'body');
+  var name = make('div', 'name');
+  name.textContent = one.name || '';
+  body.appendChild(name);
+  var kind = make('div', 'kind');
+  kind.textContent = mcpKindWords(one.kind) + (one.slug ? '  (' + one.slug + ')' : '');
+  body.appendChild(kind);
+  var tools = one.tools || [];
+  var said = make('div', 'kind');
+  said.textContent = one.fault
+    ? 'Did not answer: ' + one.fault
+    : (tools.length ? tools.length + ' tools: ' + tools.slice(0, 8).join(', ') : 'Nothing to offer yet.');
+  body.appendChild(said);
+  row.appendChild(body);
+  // The four things the reader may do with a server stand in a block of their
+  // own at the right of the row, two above two, so none of them is stretched
+  // over the words of the row or cut by its edge.
+  var acts = make('div', 'acts');
+  acts.appendChild(mcpButton('Let this server stand in the drop-down of the MCP badge',
+    one.shown ? 'In menu' : 'Out', one.shown, function () {
+      post('/api/mcp', { op: 'shown', id: one.id, on: !one.shown });
+      setTimeout(loadMcp, 260);
+    }));
+  acts.appendChild(mcpButton('Ask the server again what it has to offer', 'Look', false,
+    function () {
+      post('/api/mcp', { op: 'test', id: one.id });
+      setTimeout(loadMcp, 1200);
+    }));
+  acts.appendChild(mcpButton('Change this server below', 'Edit', false, function () {
+    showMcpEditor(one);
+  }));
+  acts.appendChild(mcpButton('Take this server away', 'Remove', false, function () {
+    if (!window.confirm('Take ' + (one.name || 'this server') + ' away?')) { return; }
+    post('/api/mcp', { op: 'remove', id: one.id });
+    if (mcpEdit === one.id) { showMcpEditor(null); }
+    setTimeout(loadMcp, 260);
+  }));
+  row.appendChild(acts);
+  return row;
+}
+
+function mcpButton(tip, word, on, go) {
+  var node = make('button', 'btn' + (on ? ' go' : ''));
+  node.type = 'button';
+  node.title = tip;
+  node.textContent = word;
+  node.addEventListener('click', go);
+  return node;
+}
+
+// What a kind of server is called in the words a reader is given.
+function mcpKindWords(kind) {
+  if (kind === 'http') { return 'Server on the network (HTTP)'; }
+  if (kind === 'internal') { return 'Built in the program (Python)'; }
+  return 'Program of this machine (stdio)';
+}
+
+// Put one server, or nothing at all, into the editor.
+function showMcpEditor(one) {
+  mcpEdit = one ? (one.id || '') : '';
+  byId('mcpEditHead').textContent = one ? 'Change ' + (one.name || 'the server') : 'Add a server';
+  byId('mcName').value = one ? (one.name || '') : '';
+  byId('mcKind').value = one ? (one.kind || 'stdio') : 'stdio';
+  byId('mcCommand').value = one ? (one.command || '') : '';
+  byId('mcUrl').value = one ? (one.url || '') : '';
+  byId('mcCode').value = one ? (one.code || '') : '';
+  byId('mcShown').checked = one ? !!one.shown : true;
+  mcpIcon = one ? (Number(one.icon) || 0) : 0;
+  mcpFillPicker();
+  mcpKindRows();
+}
+
+// Only the fields of the kind that stands chosen are drawn.
+function mcpKindRows() {
+  var kind = byId('mcKind').value;
+  byId('mcCommandRow').style.display = (kind === 'stdio' || kind === 'internal') ? '' : 'none';
+  byId('mcUrlRow').style.display = kind === 'http' ? '' : 'none';
+  byId('mcCodeRow').style.display = kind === 'internal' ? '' : 'none';
+  byId('mcCommand').placeholder = kind === 'internal'
+    ? 'empty to use the Python of this machine'
+    : 'python3 -m bookshop_mcp';
+}
+
+// The sixteen marks, each a button of the picker.
+function mcpFillPicker() {
+  var box = byId('mcIcon');
+  if (!box) { return; }
+  box.innerHTML = '';
+  for (var i = 0; i < MCP_ICONS.length; i++) {
+    var node = make('button', i === mcpIcon ? 'on' : '');
+    node.type = 'button';
+    node.title = 'Mark ' + (i + 1);
+    node.appendChild(mark(MCP_ICONS[i]));
+    node.addEventListener('click', function (n) {
+      return function () { mcpIcon = n; mcpFillPicker(); };
+    }(i));
+    box.appendChild(node);
+  }
+}
+
+// Keep what stands in the editor. The server is looked at as soon as it is
+// kept, so the tools it has are read without the reader being asked to press
+// anything else.
+function mcpSave() {
+  var server = {
+    id: mcpEdit,
+    name: byId('mcName').value,
+    kind: byId('mcKind').value,
+    command: byId('mcCommand').value,
+    url: byId('mcUrl').value,
+    code: byId('mcCode').value,
+    icon: mcpIcon,
+    shown: byId('mcShown').checked
+  };
+  if (!String(server.name).trim()) {
+    byId('mcpSaveNote').textContent = 'A server needs a name before it can be kept.';
+    return;
+  }
+  byId('mcpSaveNote').textContent = 'Kept. The tools of the server are being read.';
+  post('/api/mcp', { op: 'save', server: server });
+  setTimeout(loadMcp, 1500);
+}
+
 function openSettings(tab) {
-  setTab = tab === 'model' ? 'model' : tab === 'logs' ? 'logs' : 'program';
+  setTab = tab === 'model' ? 'model' : tab === 'logs' ? 'logs'
+    : tab === 'mcp' ? 'mcp' : 'program';
   byId('overlay').classList.remove('hidden');
   showSetTab(setTab);
   if (setTab === 'program') { loadProgram(); } else if (setTab === 'model') { loadModel(); }
+  else if (setTab === 'mcp') { loadMcp(); }
 }
 
 // The sheet is put away, and with it the reading of the log again by itself: no
@@ -5396,22 +5801,27 @@ function showSetTab(tab) {
   byId('tabProgram').classList.toggle('on', tab === 'program');
   byId('tabModel').classList.toggle('on', tab === 'model');
   byId('tabLogs').classList.toggle('on', tab === 'logs');
+  byId('tabMcp').classList.toggle('on', tab === 'mcp');
   byId('paneProgram').classList.toggle('hidden', tab !== 'program');
   byId('paneModel').classList.toggle('hidden', tab !== 'model');
   byId('paneLogs').classList.toggle('hidden', tab !== 'logs');
+  byId('paneMcp').classList.toggle('hidden', tab !== 'mcp');
   // The logs are read while their tab stands in front, and not one moment
   // longer, for a verbose log is a great deal of words.
   if (tab === 'logs') { loadLogs(false); logsGo(); } else { logsStop(); }
+  if (tab === 'mcp') { loadMcp(); }
   byId('sheetSub').textContent = tab === 'program'
     ? 'The settings of this program'
     : tab === 'logs' ? 'The output of llama-server, for the last ten starts'
+    : tab === 'mcp' ? 'Servers of your own, reached over MCP'
     : 'One model, and the command line it will use';
   byId('sheetNote').textContent = tab === 'program'
     ? 'The folders are read again the next time the program looks.'
     : tab === 'logs' ? 'llama-server writes the logs. Nothing here is saved.'
+    : tab === 'mcp' ? 'Each server is kept as soon as it is saved here. Nothing of a server runs in the sandbox.'
     : 'Saving stops a running server, because it was started with the old values.';
   // Nothing of the Logs tab is saved, so the button for saving stands away.
-  byId('saveSheet').style.display = tab === 'logs' ? 'none' : '';
+  byId('saveSheet').style.display = (tab === 'logs' || tab === 'mcp') ? 'none' : '';
 }
 
 // Program tab: read the settings and every repository on disk.
@@ -6018,6 +6428,15 @@ byId('logBody').addEventListener('scroll', function () {
 byId('tabProgram').addEventListener('click', function () { showSetTab('program'); loadProgram(); });
 byId('tabModel').addEventListener('click', function () { showSetTab('model'); loadModel(); });
 byId('tabLogs').addEventListener('click', function () { showSetTab('logs'); });
+byId('tabMcp').addEventListener('click', function () { showSetTab('mcp'); });
+// The editor of the MCP tab: the kind moves which fields stand, and the two
+// buttons keep what stands in the fields or begin again.
+byId('mcKind').addEventListener('change', mcpKindRows);
+byId('mcpSave').addEventListener('click', mcpSave);
+byId('mcpClear').addEventListener('click', function () {
+  byId('mcpSaveNote').textContent = 'Write the next one below.';
+  showMcpEditor(null);
+});
 byId('sheetClose').addEventListener('click', closeSettings);
 byId('closeSheet').addEventListener('click', closeSettings);
 byId('saveSheet').addEventListener('click', saveSheet);
