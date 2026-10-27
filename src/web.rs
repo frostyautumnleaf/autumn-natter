@@ -569,6 +569,11 @@ pub fn mcp_value(engine: &crate::engine::Engine) -> Value {
         // The Python the servers of the program itself are run with. The sheet
         // says what it found, so a machine without Python is known about.
         "python": crate::mcp::python(),
+        // The words a server of the program itself begins with. The sheet puts
+        // them in the field of the code when the kind is moved to that one, so
+        // the example and the rules for an AI stand in one place, in the file
+        // that holds the runner they describe.
+        "template": crate::mcp::TEMPLATE,
     })
 }
 

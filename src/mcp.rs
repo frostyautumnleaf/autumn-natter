@@ -17,7 +17,10 @@
 //     settings. This file writes the plumbing around those words - a small
 //     runner that speaks the protocol - and starts the pair as a stdio server.
 //     The code the reader writes needs nothing but the library that stands with
-//     Python itself.
+//     Python itself. A new server of that kind begins with an example of its
+//     own, `TEMPLATE`, which the sheet of settings puts in the field of the
+//     code. The head of that example is written for an AI, so a reader may hand
+//     the whole of the field to an AI and get back a server that works.
 //
 // The tools of a server reach the model under a name of its own:
 // `mcp__<server>__<tool>`, for the tools of two servers may share a name, and
@@ -1220,6 +1223,166 @@ pub fn python() -> String {
     .clone()
 }
 
+// The words a new server of the program itself begins with. The MCP tab of the
+// sheet puts them in the field of the code when the reader moves the kind of a
+// new server to that kind, so the shape the runner wants is seen before a word
+// is written. The head of these words is written for an AI as much as for a
+// person: a reader hands the whole of the field to an AI, and the AI writes a
+// server that works from these words alone.
+//
+// The marks of a whole server, the other kind of server of the program, are
+// kept out of these words on purpose. The program looks at the whole of a file
+// for them, so one of them named in a doc string would move every new server of
+// this kind into the other kind, where the runner is left out and the package
+// it asks for is not installed. A test keeps them out.
+pub const TEMPLATE: &str = r##"
+"""An example server of the "Built in the program" kind of Autumn Natter.
+
+This file is the whole of the server. Autumn Natter writes it beside a runner of
+its own and starts the two of them together as a server that speaks MCP over its
+standard input and its standard output. Nothing beyond the library that stands
+with Python is needed.
+
+The rules below are for an AI, and for the person who hands this file to one. A
+server written to these rules works in this program. Keep the rules when a new
+server is written, and keep this doc string at the head of it.
+
+HOW THIS FILE IS RUN
+
+  * Autumn Natter writes these words to a file, writes its runner beside them,
+    and starts the runner with this file as its first argument. The runner reads
+    the file and then answers the protocol.
+  * Do not write a loop for the server, and do not read the standard input or
+    write the standard output yourself. The runner does both. A line of ours
+    among its messages breaks the talk with the program.
+  * Do not reach for a library of the Model Context Protocol of your own. It is
+    not installed here, and this program installs nothing. Do not write the name
+    of that package, the name of a class of it, or the name of its run over the
+    standard input anywhere in this file, not even in a comment. The program
+    looks at the whole of a file for the marks of such a server, and one of them
+    anywhere makes it run this file as a server of that kind, with the runner of
+    the program left out.
+  * The names tool and note already stand in the room of this file. Do not
+    import them, and do not write over them.
+  * Only the library that stands with Python may be imported. One import that
+    fails takes the whole server away, and the reason stands in the sheet of
+    settings.
+  * Each look at this server starts a fresh process, and so does each call of
+    one of its tools. The process is let go again when the answer came back, so
+    nothing stands between two calls. Do not keep what a call found in a name of
+    the file: give it back, and ask for it again on the next call.
+  * Write no code that runs when the file is read. Such code is worked through
+    before every call, and a fault in it takes the server away. Put the work
+    inside a tool.
+  * The server starts in the folder of this one server, under the data folder of
+    the program. This file is the only file of the server, so do not open a file
+    beside it. Words a tool needs stand inside this file.
+  * A tool runs in the program, and not in the sandbox of a command, so it can
+    reach the files of this machine and the network. Do that only when the
+    reader asked for it.
+
+WHAT BECOMES A TOOL
+
+  * A function with @tool above it is a tool of the server.
+  * When no function of the file holds @tool, every function of the file with a
+    doc string of its own becomes a tool instead. So write @tool above the
+    functions the model may use, or the model is offered the helpers too.
+  * A tool is one function of this file. It is called with the parts of the call
+    by their names, so it may not ask for what a call cannot give. A method of a
+    class is not a tool, for self is never given.
+  * @tool(name="another_name") gives the tool another name, and
+    @tool(description="...") gives a description in the place of the doc string.
+  * A helper of our own stands without @tool, so the model is never offered it.
+    See the foot of this file.
+  * The list of the tools is read when the server is saved. A new function, or a
+    new name, needs the server saved again, or the button that asks the server
+    what it has to offer.
+
+WHAT THE MODEL IS TOLD ABOUT A TOOL
+
+  * The doc string of the function is the description of the tool. Every line of
+    it is joined into one line, so write one clear sentence: what the tool does,
+    and what it gives back. A model reads one sentence better than two of them
+    joined together.
+  * The doc string is the only place the model is told anything. A comment of
+    ours is sent nowhere at all.
+  * Write a type for every argument: str, int, float, bool, list, dict. An
+    argument with no type is offered to the model as a line of words.
+  * An argument with no default is wanted, and the model must give it. An
+    argument with a default may be left out.
+  * A description of one argument is not read. When the name of an argument does
+    not say what it is for, say it in the doc string of the function.
+  * The parts come to the function as the model sent them, and nothing is turned
+    into another kind first. A model that sends "12" for a number has sent
+    words: turn the part over with int() or float(), and answer the model in
+    words when it cannot be turned over.
+
+WHAT A TOOL GIVES BACK
+
+  * Give back a line of words. That is what the model reads.
+  * Any other value is turned into JSON words, so a dict or a list is all right.
+  * Give back nothing at all, and the model reads that the tool ran and gave
+    nothing back.
+  * Raise a fault when a call cannot be worked. The runner catches it and tells
+    the model the last line of it, so raise ValueError("the words are empty")
+    with a short reason of its own.
+  * Words that are printed go to the error output of the process and come into
+    the log of the program. They never reach the model. note("...") says the
+    same thing on purpose.
+  * The answer of a tool is cut at eight thousand characters. Answer with what
+    the model needs, and no more.
+
+THE TWO TOOLS BELOW
+
+  * hello takes a name and gives back a line of words. It shows one argument the
+    model must give and one it may leave out.
+  * word_count takes words and gives back a shape. It shows a fault raised, a
+    dict given back, and a helper called.
+  * Read both, and the lines above them, before you write your own. Take both
+    away when you have written one of your own, for a tool the model is offered
+    is a tool the model may use.
+"""
+
+# The imports of the standard library stand here, and nothing else. None is
+# needed below. The names tool and note come from the runner of the program and
+# need no import of their own.
+
+
+# The tools stand between these two lines. Every tool is one function with
+# @tool above it, a doc string of one line for the model to read, and its work.
+# Write your own tools here.
+
+
+@tool
+def hello(name: str, loud: bool = False) -> str:
+    """Say hello to one person, and give back the line of words to show them."""
+    said = "Hello, " + str(name).strip() + "!"
+    return said.upper() if loud else said
+
+
+@tool
+def word_count(text: str, keep: int = 0) -> dict:
+    """Count the words of some text, and give back the count and the first of them."""
+    words = str(text).split()
+    if not words:
+        raise ValueError("No word came with the call, so there is nothing to count")
+    held = words if int(keep) <= 0 else words[: int(keep)]
+    return {"count": len(words), "words": one_run(held)}
+
+
+# A helper of our own stands under the tools, without @tool, so the model is
+# never offered it. A helper with a doc string is not offered either, once one
+# function of the file carries the mark.
+
+
+def one_run(words):
+    # The words of a list in one line, cut short when the line grows long.
+    line = " ".join(str(one) for one in words)
+    if len(line) <= 200:
+        return line
+    return line[:200] + " ..."
+"##;
+
 // The program of the servers of the program itself. It is written beside the
 // words of the reader and started with them, and it needs nothing but the
 // library that stands with Python.
@@ -1670,6 +1833,101 @@ mod tests {
             );
         }
         assert!(RUNNER.contains("def tool("));
+    }
+
+    // The words a new server of the program itself begins with are a server of
+    // that kind: the mark of @tool over a function, a doc string of its own for
+    // every tool, nothing that is not the library of Python, and the rules for
+    // an AI at the head of it.
+    #[test]
+    fn the_template_is_a_server_of_the_program_itself() {
+        // The marks of a whole server are the trap. One of them in the words of
+        // the template would move every new server of this kind into the other
+        // kind, where the runner is left out.
+        assert!(
+            !brings_its_own_server(TEMPLATE),
+            "the template names a mark of a whole server, so it is not run by the runner"
+        );
+        assert!(TEMPLATE.contains("@tool"), "the template has no tool of its own");
+        assert!(
+            TEMPLATE.trim_start().starts_with("\"\"\""),
+            "the template has no head of its own"
+        );
+        // The head is written for an AI, so it has to name the things an AI
+        // would else guess wrong.
+        for word in [
+            "AI",
+            "doc string",
+            "library that stands with Python",
+            "fresh process",
+            "eight thousand",
+            "int() or float()",
+            "@tool(name=",
+        ] {
+            assert!(
+                TEMPLATE.contains(word),
+                "the template says nothing of {}",
+                word
+            );
+        }
+        // Every tool of the template has a doc string of one line, for that is
+        // the whole of what the model is told about it.
+        assert!(TEMPLATE.contains("Say hello to one person"));
+        assert!(TEMPLATE.contains("Count the words of some text"));
+        // A helper of our own, without the mark, so the model is not offered it.
+        assert!(TEMPLATE.contains("def one_run(words):"));
+    }
+
+    // The template run for real, the way a new server of this kind is run: the
+    // tools it offers, the shape of their parts, and the three ways a tool
+    // answers.
+    #[test]
+    fn the_template_of_a_server_is_run_for_real() {
+        let root = std::env::temp_dir().join("an-mcp-template-check");
+        let held = root.join("settings");
+        std::fs::create_dir_all(&held).expect("the place of the check is made");
+        config::set_data_dir(held);
+        let server = Server {
+            id: String::from("templatecheck"),
+            name: String::from("Template"),
+            slug: String::from("template"),
+            kind: String::from(KIND_INTERNAL),
+            code: String::from(TEMPLATE),
+            ..Server::default()
+        };
+        let tools = match list(&server) {
+            Ok(list) => list,
+            Err(problem) => {
+                println!("no Python on this machine: {}", problem);
+                assert!(problem.contains("could not be started") || problem.contains("Python"));
+                return;
+            }
+        };
+        let names: Vec<&str> = tools.iter().map(|one| one.name.as_str()).collect();
+        assert_eq!(names, vec!["hello", "word_count"], "the tools of the template");
+        // The helper is not offered, and the doc string of a tool is what the
+        // model reads. An argument with a default of its own is not wanted.
+        assert!(!names.contains(&"one_run"));
+        let hello = tools
+            .iter()
+            .find(|one| one.name == "hello")
+            .expect("the tool of the template");
+        assert!(hello.description.contains("Say hello to one person"));
+        assert_eq!(hello.schema["properties"]["name"]["type"], "string");
+        assert_eq!(hello.schema["properties"]["loud"]["type"], "boolean");
+        assert_eq!(hello.schema["required"], json!(["name"]));
+        // A line of words, a shape turned into words, and a fault told.
+        let said = run(&server, "hello", r#"{"name":"leaf","loud":true}"#);
+        assert!(said.ok, "{}", said.output);
+        assert_eq!(said.output, "HELLO, LEAF!");
+        let counted = run(&server, "word_count", r#"{"text":"one two three","keep":"2"}"#);
+        assert!(counted.ok, "{}", counted.output);
+        assert!(counted.output.contains("\"count\": 3"));
+        assert!(counted.output.contains("one two"));
+        let empty = run(&server, "word_count", r#"{"text":"   "}"#);
+        assert!(!empty.ok, "a fault of a tool was taken for an answer");
+        assert!(empty.output.contains("nothing to count"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     // A server is only reached when the one thing its kind needs stands in the
