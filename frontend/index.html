@@ -903,8 +903,14 @@ img.pic { animation: plate-in 180ms ease-out; }
 .iconpick button.on { border-color: var(--accent-line); background: var(--accent-soft);
   color: var(--ink); }
 .iconpick .svg { width: 14px; height: 14px; }
-textarea.mcpcode { min-height: 168px; font-family: var(--mono); font-size: 12px;
-  line-height: 1.45; tab-size: 4; }
+/* The field of the code of a server of the program itself begins with an example
+   of its own, so it is made tall enough to read a tool of it whole, and its words
+   stand in the mono face. The rule for the fields of the sheet further down is
+   held off by naming the field and the class together: two such rules stand
+   level, and the later one wins. */
+.sheet textarea.mcpcode { min-height: 320px; font-size: 12px; line-height: 1.45;
+  tab-size: 4;
+  font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace; }
 .menu .line .ico { display: inline-flex; color: var(--ink); margin-right: 7px; }
 .menu .line .ico .svg { width: 13px; height: 13px; }
 
@@ -1828,7 +1834,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <span class="sub">The address of the server. It is spoken to over Streamable HTTP.</span>
           <div class="ctl"><input class="txt" id="mcUrl" type="text" placeholder="http://127.0.0.1:8000/mcp" spellcheck="false"></div></div>
         <div class="fld wide" id="mcCodeRow"><span class="lbl">Python code</span>
-          <span class="sub">Write a function, and put @tool over the ones the model may use. The names and the types of its arguments become the parts of the tool, and the first line of its doc string becomes the description of it. Nothing beyond the library that stands with Python is needed. A whole MCP server of your own is run as it stands.</span>
+          <span class="sub">Write a function, and put @tool over the ones the model may use. The names and the types of its arguments become the parts of the tool, and its doc string becomes the description of it, in one line. Nothing beyond the library that stands with Python is needed. A whole MCP server of your own is run as it stands. An empty field of this kind is filled with an example of its own, and the rules a server of this kind has to keep stand at the head of it. Give those rules, with the example, to an AI, and it can write a server that works here.</span>
           <div class="ctl"><textarea class="mcpcode" id="mcCode" spellcheck="false" autocomplete="off"></textarea></div></div>
         <div class="fld"><span class="lbl">In the menu</span>
           <span class="sub">Whether this server stands in the drop-down of the MCP badge. A server left out of the menu is kept here all the same.</span>
@@ -5626,6 +5632,7 @@ function setOption(text, value) {
 var mcpAll = [];      // the servers read for this tab
 var mcpEdit = '';     // the id of the server in the editor, empty for a new one
 var mcpIcon = 0;      // the mark chosen in the picker of the editor
+var mcpTemplate = ''; // the words a server of the program itself begins with
 
 // The servers of the reader's own, read from the program.
 // The servers, with the words of them, for the MCP tab of the sheet.
@@ -5644,6 +5651,12 @@ function loadMcp() {
       : 'No server stands here yet. Write one below: a program of this machine, a server on the network, or words of Python the program runs for you.';
     var python = byId('mcpPython');
     if (python) { python.textContent = (made && made.python) || 'not found'; }
+    // The example a server of the program itself begins with. It stands in the
+    // program and not in the page, for it tells the rules of the runner that
+    // stands beside it. The kind may already stand on that one when the words
+    // come back, so the field is looked at again here.
+    mcpTemplate = (made && made.template) || '';
+    if (byId('mcKind').value === 'internal') { mcpTemplateHold(); }
     var list = byId('mcpList');
     list.innerHTML = '';
     for (var i = 0; i < mcpAll.length; i++) { list.appendChild(mcpRow(mcpAll[i])); }
@@ -5738,6 +5751,21 @@ function mcpKindRows() {
   byId('mcCommand').placeholder = kind === 'internal'
     ? 'empty to use the Python of this machine'
     : 'python3 -m bookshop_mcp';
+  // A server of the program itself begins with the example of one, so the shape
+  // the runner of the program wants is seen before a word is written.
+  if (kind === 'internal') { mcpTemplateHold(); }
+}
+
+// Put the example of a server of the program itself in the field of the code.
+// What the reader wrote is never written over: only an empty field, or one that
+// still holds the example whole, is filled again. The head of the example is
+// written for an AI, so the field may be handed over as it stands.
+function mcpTemplateHold() {
+  var box = byId('mcCode');
+  if (!box || !mcpTemplate) { return; }
+  var held = String(box.value || '');
+  if (held.trim() && held.trim() !== mcpTemplate.trim()) { return; }
+  box.value = mcpTemplate;
 }
 
 // The sixteen marks, each a button of the picker.

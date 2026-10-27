@@ -143,6 +143,53 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
         faults.push('Save sent other words than the fields held: ' + JSON.stringify(server));
       }
     }
+    // The example a server of the program itself begins with comes from the
+    // program with the list of the servers, and the field of the code takes it
+    // when the kind is moved to that one.
+    var EXAMPLE = '"""An example of a server of the program itself.\n\n' +
+      '@tool\ndef hello(name: str) -> str:\n    """Say hello to one person."""\n' +
+      '    return "Hello, " + name;\n';
+    mcpRead = function () {
+      return Promise.resolve({ servers: servers, python: 'python3', template: EXAMPLE });
+    };
+    loadMcp();
+    await new Promise(function (rest) { setTimeout(rest, 20); });
+    if (mcpTemplate !== EXAMPLE) {
+      faults.push('the example did not come over the read of the servers');
+    }
+    kind.value = 'internal';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    if (byId('mcCode').value !== EXAMPLE) {
+      faults.push('the field of the code did not take the example: ' + byId('mcCode').value);
+    }
+    // What the reader wrote is never written over, and the example is offered
+    // again when the field still holds the example whole.
+    byId('mcCode').value = 'the words of the reader';
+    kind.value = 'stdio';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    kind.value = 'internal';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    if (byId('mcCode').value !== 'the words of the reader') {
+      faults.push('the example was written over the words of the reader');
+    }
+    byId('mcCode').value = EXAMPLE;
+    kind.value = 'stdio';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    kind.value = 'internal';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    if (byId('mcCode').value !== EXAMPLE) {
+      faults.push('the example could not be offered again to a fresh field');
+    }
+    // A page that never got the example leaves the field as the reader left it.
+    mcpTemplate = '';
+    byId('mcCode').value = '';
+    kind.value = 'stdio';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    kind.value = 'internal';
+    kind.dispatchEvent(new Event('change', { bubbles: true }));
+    if (byId('mcCode').value !== '') {
+      faults.push('a field was filled with nothing at all');
+    }
     // A tool of a server is drawn in the shape of a tool of a server, and the
     // name the reader sees is the name the server gave it.
     var shape = toolShape('mcp__bookshop__look_up');
@@ -162,6 +209,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
   }
   console.log('the MCP badge opens a menu of the servers with a mark and a switch each, '
     + 'the tab holds every server with its mark, its kind and what became of the look, '
-    + 'the picker offers sixteen marks, the kind moves which fields stand, and Save sends '
-    + 'what the fields hold');
+    + 'the picker offers sixteen marks, the kind moves which fields stand, the field of '
+    + 'the code of a server of the program itself begins with the example the program '
+    + 'sends and keeps what the reader wrote, and Save sends what the fields hold');
 })();
