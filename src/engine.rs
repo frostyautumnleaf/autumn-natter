@@ -642,7 +642,8 @@ fn last_summary_place(chat: &Chat) -> Option<usize> {
 }
 
 // True when the talk that goes out to the server ends on a call the server has
-// to answer: a call of a tool, or the receipt of one. A server set to read calls
+// to answer: a call of a tool, the receipt of one, or the telling of a call that
+// was stopped while the model wrote it. A server set to read calls
 // out of an answer is put to work behind such a call, and the words of the turn
 // that holds it are never given back. The two asks that are not an answer of the
 // model -- the ask for a handoff summary, and the ask that puts the model back to
@@ -656,10 +657,23 @@ fn ends_on_a_call(history: &Value) -> bool {
         Some(last) => {
             last.get("tool_calls").is_some()
                 || last.get("role").and_then(|r| r.as_str()) == Some("tool")
+                // The telling of a call the room gave out under is a call as well:
+                // it stands in the place of the turn that was cut short, and the
+                // model is asked for that call again. A word of the program goes
+                // out after it, so the ask ends on a question and what comes back
+                // is an answer and not a thing thrown away.
+                || last
+                    .get("content")
+                    .and_then(|c| c.as_str())
+                    .is_some_and(|said| said.starts_with(CUT_TOLD_FIRST))
         }
         None => false,
     }
 }
+
+// The first words of `cut_words`. They are looked for whole, and only at the
+// front of the words that go out, so no other saying is taken for one.
+pub const CUT_TOLD_FIRST: &str = "[A tool call was cancelled";
 
 // The talk of an ask that only goes on, after a handoff summary or after a run of
 // a tool. The mark of the summarisation carries its handoff block in the history
@@ -3304,6 +3318,13 @@ pub const NO_SUMMARY_CEILING: i64 = -1;
 // own instead of the summary. The words of a run are kept, for they name the
 // file that was worked on and say what the command printed, which is all the
 // summary needs of a tool.
+//
+// The telling of a call that was stopped while the model wrote it is a debt of the
+// same kind, though it stands among the words and not in the shape of a call: it
+// asks the model for that call again, so a server set to read calls out of an
+// answer writes one instead of the summary. It is taken out with the rest, and one
+// line is kept in its place, for the summary has to know that the file the model
+// was writing into was never written.
 pub fn words_only(items: &mut Vec<Value>) {
     // What a call was pointed at, out of its arguments. The one thing the tool
     // was given is named, for that is what the run was about.
@@ -3382,6 +3403,23 @@ pub fn words_only(items: &mut Vec<Value>) {
             }
             continue;
         }
+        if role == "assistant" {
+            if let Some(said) = item.get("content").and_then(|c| c.as_str()) {
+                if said.starts_with(CUT_TOLD_FIRST) {
+                    // A call the room gave out under, or one the reader stopped: both
+                    // tellings begin the same way. The whole of it is not words to
+                    // summarise, and it asks for a call the server would else write.
+                    // The one thing a summary needs of it is that the call never ran.
+                    kept.push(json!({
+                        "role": "assistant",
+                        "content": "The model wrote a call of a tool that was cancelled \
+                                     while it was still being written, so the tool never ran \
+                                     and nothing of what the call asked for was done.",
+                    }));
+                    continue;
+                }
+            }
+        }
         // A message of the reader may carry pictures among its words.
         let mut gone = item.clone();
         if let Some(parts) = gone.get("content").and_then(|c| c.as_array()).cloned() {
@@ -3428,6 +3466,49 @@ pub fn words_only(items: &mut Vec<Value>) {
 // The words put after a talk that ends on a word of the model, so that the ask
 // for a handoff summary is a question and not a thing to go on with.
 pub const SUMMARY_PROMPT_WORDS: &str = "Write the handoff summary of the session above.";
+
+// The words put after the telling of a call that was cut short, when that telling
+// is the last thing of the talk. The telling asks the model for the call again, so
+// the ask has to end on a word of the reader and not on the telling itself: a
+// server set to read calls out of an answer writes one behind it, and the ask that
+// made that call is thrown away with the call, which leaves no answer of the model
+// at all. Nothing of these words is written into the chat, for the reader never
+// wrote them.
+pub const CUT_CONTINUE_WORDS: &str = "The space above was written by the program, and the call it tells of never ran. Do not answer it and do not write it again. Go on with the work from the point it reached before that call, and write the call only when the work still needs it and in parts small enough for the space you have.";
+
+// The word a talk that ends on the telling of a cut call is asked with. The talk
+// is read as it stands, so the telling is the last thing of it whenever a call was
+// stopped and nothing else came after it: the words of an answer, the mark of a
+// summarisation and the thinking of the turn all stand before it.
+pub fn cut_asks_for_a_call(history: &Value) -> bool {
+    ends_on_a_call(history)
+        && history
+            .as_array()
+            .and_then(|items| items.last())
+            .and_then(|last| last.get("content"))
+            .and_then(|c| c.as_str())
+            .is_some_and(|said| said.starts_with(CUT_TOLD_FIRST))
+}
+
+// How much room the talk takes when the telling of a call that was stopped where
+// the model wrote it is left out of it, as the ask for a handoff summary leaves it
+// out. The telling is the longest message of a talk that came to the limit in the
+// middle of a call, for it holds the words of the call the model had written; and
+// it is not words of the talk, for it is the program speaking, and the summary is
+// written of the talk. So the room that a summarisation made is weighed on the talk
+// without it, which is what the next ask for a summary carries, and what the room
+// of the next step is measured against.
+pub fn carrying_the_cut(history: &Value) -> u64 {
+    let mut items: Vec<Value> = history.as_array().cloned().unwrap_or_default();
+    items.retain(|item| {
+        !(item.get("role").and_then(|r| r.as_str()) == Some("assistant")
+            && item
+                .get("content")
+                .and_then(|c| c.as_str())
+                .is_some_and(|said| said.starts_with(CUT_TOLD_FIRST)))
+    });
+    estimate_tokens(&Value::Array(items))
+}
 
 // The ask for a handoff summary: the talk as it stands, and the prompt the
 // model is to be given. The pictures go out of it, the server is asked not to
@@ -4334,16 +4415,10 @@ fn run_turn(
     // at this moment, for the runs of a tool that came out of the answer were written
     // into the chat after the ask was made ready, and it is the talk of the answer as
     // the runs left it that the next ask goes out with.
-    let carried_prompt: &str = if going_on
-        && state
-            .lock()
-            .map(|guard| ends_on_a_call(&guard.build_history()))
-            .unwrap_or(false)
-    {
-        CONTINUE_PROMPT
-    } else {
-        ""
-    };
+    // The word is looked for again before every step, and not once for the turn, for
+    // an answer whose writing was stopped at the limit goes on with the telling of
+    // the call it was stopped at at the end of the talk: see `CUT_CONTINUE_WORDS`.
+    let mut carried: Option<String> = None;
 
     let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
     // The two rooms of the Chatting settings, read once for this answer. None
@@ -4378,6 +4453,17 @@ fn run_turn(
         // it.
         room_cut.store(false, Ordering::Relaxed);
         let cut_flag = room_cut.clone();
+        // The word this step is asked with. A turn that only goes on with the work
+        // after a handoff summary of the chat box is asked with the word that names
+        // the call the talk ends on, and an answer that was stopped at the limit and
+        // went on after the room was made is asked with the word that names the
+        // telling of the call it was stopped at. Both stand for a call the server
+        // would else owe an answer to.
+        let carried_prompt: &str = match &carried {
+            Some(word) => word.as_str(),
+            None if going_on => CONTINUE_PROMPT,
+            None => "",
+        };
         let (history, code_on, search_on, chapters_on) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
@@ -4693,12 +4779,12 @@ fn run_turn(
             // The meter keeps the number the server last spoke of. An answer that
             // never came to its end gives no usage numbers of its own.
             let used_now = guard.ctx_used;
-            // The room the talk takes after the summarisation, and after the words
-            // of the cut call are told. The meter of the context keeps the number
-            // it climbed to while the room was full, for it only moves up; the
-            // room of the next ask is read from the talk as it stands, which is
-            // smaller, and that is what the two checks below are weighed on.
-            let mut room_used = estimate_tokens(&guard.build_history());
+            // The meter of the context keeps the number the room climbed to, for it
+            // only moves up. The room of the asks that follow is read again below,
+            // out of the talk as it stands after the summarisation and the telling
+            // of the call: the number of the ask that was cut holds the whole of the
+            // room, and a meter that kept the larger of the two would read the chat
+            // as full again the moment the room was made.
             if let Some(chat) = guard.chat_mut() {
                 chat.meta.context_used = used_now;
                 chat.meta.updated = store::now_secs();
@@ -4757,14 +4843,27 @@ fn run_turn(
                 chat.meta.context_used = used_now;
             }
             guard.persist();
-            room_used = room_used.max(estimate_tokens(&guard.build_history()));
-            let still_full = config::compaction_wanted(&guard.cfg, room_used, guard.ctx_total);
+            // Whether the room that was made is past the limit is weighed on the
+            // words the next step of the answer really carries, and not on the whole
+            // of the talk as it stands. The ask for the next summary is written of
+            // words alone, and the telling of the call that was stopped is the
+            // program speaking and not a word of the talk: it is the longest message
+            // of a chat that came to the limit in the middle of a call, for it holds
+            // the words of the call the model had written. Weighed on the whole of the
+            // talk, a chat that is past the limit only because of that telling could
+            // never be got under it again -- the answer ended under the block of a
+            // call that never ran, and every fresh send ended the same way. So the
+            // room is weighed with the telling left out, which is what a second
+            // summarisation is made of, and which is what the model is asked with
+            // once the words of the call are bounded to the room.
+            let room_asked = carrying_the_cut(&guard.build_history());
+            let still_full = config::compaction_wanted(&guard.cfg, room_asked, guard.ctx_total);
             if !room || still_full {
                 // Either the summary never came, which the reader is asked of in
-                // the usual way, or the room is still past the limit -- out of the
-                // summarisation, or because the telling of the stopped call filled
-                // what it made. Either way the answer ends here, rather than be
-                // stopped again at once on the first word of the next ask.
+                // the usual way, or the room is still past the limit even with the
+                // telling of the stopped call left out of it. Either way the answer
+                // ends here, rather than be stopped again at once on the first word
+                // of the next ask.
                 guard.generating = false;
                 let text = if guard.handoff_owed() {
                     "The handoff summary was not written. Start it again from the summarisation timeline"
@@ -4786,9 +4885,28 @@ fn run_turn(
                 );
                 break Ended::Halted;
             }
-            // The room is made and the model has the words of what it was stopped
-            // at, so it is asked again: it goes on from where it stood instead of
-            // beginning the work afresh.
+            // The talk that the words of the stopped call went into ends on the
+            // telling of them, which is a call the server is owed an answer to: the
+            // telling asks for the call again, and nothing of the reader stands after
+            // it. A word of the program therefore goes out behind it, so the ask ends
+            // on a question. Without it a server set to read calls out of an answer
+            // writes one of its own, and the words of it are thrown away with the ask
+            // that made it, so the step that follows the room being made gives back
+            // no answer at all and the chat stands under the block of the call that
+            // never ran. See `cut_asks_for_a_call`. The word is no note of the chat,
+            // for the reader never wrote it and has nothing to read where it stands;
+            // it rides on the ask alone, as `CONTINUE_PROMPT` does. The first message
+            // of the reader keeps the front of the prompt, so it costs the room of a
+            // fresh tail and nothing else.
+            if cut_asks_for_a_call(&guard.build_history()) {
+                carried = Some(String::from(CUT_CONTINUE_WORDS));
+            }
+            // The room is made and the telling of the call stands where the model
+            // will read it, so the answer is asked on from there. It is not gone on
+            // with by the worker, for the worker asks the model to go on once for a
+            // send, and that one going on is spent on the summarisation of the chat
+            // box. The step that comes now is asked afresh out of the talk as it
+            // stands, so the work is not begun again.
             guard.generating = true;
             guard.set_status("Space was made. The model is continuing the answer");
             continue;
@@ -7392,6 +7510,107 @@ mod tests {
         );
     }
 
+    // The telling of a call that the room gave out under stands in the place of the
+    // turn that was cut short, and asks the model for that call again. The talk that
+    // ends on it is therefore a call the server owes an answer to, as a run whose
+    // receipt stands last is. Without a word of the reader after it a server set to
+    // read calls writes one of its own, the words of it are thrown away with the ask
+    // that made it, and the reader is left with no answer at all.
+    #[test]
+    fn the_telling_of_a_cut_call_asks_the_server_for_an_answer() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        let cut = cut_call(editfile::EDIT_NAME, "{\"path\":\"notes.md\"");
+        state.push_cancelled(&cut, "", 0, GREATEST_CUT_ARGS);
+        let items = undated(&state.build_history());
+        // The telling stands last, as the words of the turn it stood in, and the
+        // server is owed the call it tells of.
+        let last = items.last().expect("a talk with the telling in it");
+        assert_eq!(last["role"], json!("assistant"));
+        assert!(last["content"]
+            .as_str()
+            .expect("words")
+            .starts_with(CUT_TOLD_FIRST));
+        assert!(
+            ends_on_a_call(&json!(items)),
+            "the telling of a call was not known as a call: {}",
+            json!(items)
+        );
+        assert!(
+            cut_asks_for_a_call(&json!(items)),
+            "the ask was not known to carry a debt: {}",
+            json!(items)
+        );
+        // A run of a tool, and the talk ends on the receipt of it: that is a debt of
+        // another kind, and no word of the cut call stands at the end of it.
+        let mut ran = cut_call(tools::TOOL_NAME, "{\"command\":\"ls\"}");
+        ran.id = String::from("call-9");
+        let id = state.begin_tool(&ran, "ls", "", 0);
+        state.finish_tool(&id, "notes.md", true);
+        let items = undated(&state.build_history());
+        assert!(ends_on_a_call(&json!(items)), "a receipt was not a debt");
+        assert!(
+            !cut_asks_for_a_call(&json!(items)),
+            "a plain receipt was taken for the telling of a cut call: {}",
+            json!(items)
+        );
+        // A word of the model after the telling, and the ask may go out as the talk
+        // stands: nobody waits for the call any more.
+        add_message(&mut state, "Assistant", "I will write it in pieces");
+        let items = undated(&state.build_history());
+        assert!(!ends_on_a_call(&json!(items)));
+        assert!(!cut_asks_for_a_call(&json!(items)));
+        // The word of the reader that pays the debt is not the telling itself, so a
+        // talk that ends on it is no debt.
+        let asked = go_on_words(&state, CUT_CONTINUE_WORDS);
+        let items = undated(&asked);
+        assert_eq!(items.last().expect("a talk")["role"], json!("user"));
+        assert!(!cut_asks_for_a_call(&json!(items)));
+    }
+
+    // The word that pays the debt of a cut call is a word of the program and not of
+    // the reader, so it stands in no message of the chat: the reader never wrote it
+    // and has nothing to read where it stands. It rides on the ask alone, and comes
+    // to no window.
+    #[test]
+    fn the_word_that_pays_the_debt_of_a_cut_call_never_reaches_the_window() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        let cut = cut_call(editfile::EDIT_NAME, "{\"path\":\"notes.md\"");
+        state.push_cancelled(&cut, "", 0, GREATEST_CUT_ARGS);
+        // The word goes out with the ask, and the talk ends on the reader.
+        let asked = undated(&go_on_words(&state, CUT_CONTINUE_WORDS));
+        let last = asked.last().expect("a talk with the word in it");
+        assert_eq!(last["role"], json!("user"));
+        assert_eq!(last["content"].as_str().expect("words"), CUT_CONTINUE_WORDS);
+        // Nothing of it stands in the chat, so nothing of it can come to the window.
+        let said = json!(state.snap().messages).to_string();
+        assert!(
+            !said.contains(CUT_CONTINUE_WORDS),
+            "the word of the program came to the window"
+        );
+        // The words of the cut call are told once, and once only: the word of the
+        // program names the debt without repeating the telling of it.
+        let told = asked
+            .iter()
+            .filter(|item| {
+                item["content"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .starts_with(CUT_TOLD_FIRST)
+            })
+            .count();
+        assert_eq!(told, 1, "the telling of the call was carried twice");
+    }
+
     // The ask of a turn that only goes on carries a word of its own when the talk
     // ends on a call or on the receipt of one, so the talk the server is given ends
     // on a question. The reader never wrote that word, so it is not written into the
@@ -7945,6 +8164,47 @@ mod tests {
         let nameless = cut_words("", "");
         assert!(nameless.contains("cancelled"));
         assert!(nameless.contains("the model had not written the name of the tool yet"));
+    }
+
+    // The room a summarisation made is weighed on the words the next ask really
+    // carries. The telling of a call that was stopped where the model wrote it is
+    // the longest message of such a chat, for it holds the words of the call; and
+    // the ask for a summary is written of words alone, so that telling stands out of
+    // it. A chat that is past the limit only because of the telling therefore has
+    // room enough left to make a second summary with, and the answer is not stopped
+    // under the block of a call that never ran.
+    #[test]
+    fn the_room_is_weighed_without_the_telling_of_the_call() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        // A call of a great many words, and the telling of it is a long message.
+        let mut arguments = String::from("{\"path\":\"notes/big.md\",\"content\":\"");
+        for part in 0..40 {
+            arguments.push_str(&format!("part-{:0>3}-", part % 100));
+            arguments.push_str(&"y".repeat(391));
+        }
+        let long = cut_call(editfile::CREATE_NAME, &arguments);
+        state.push_cancelled(&long, "", 0, GREATEST_CUT_ARGS);
+        let whole = estimate_tokens(&state.build_history());
+        let asked = carrying_the_cut(&state.build_history());
+        // The telling is out of the words the next summary ask carries, and it is
+        // the bulk of the talk: what is left is a small part of the whole.
+        assert!(asked < whole, "the telling was not left out: {} of {}", asked, whole);
+        assert!(
+            asked * 4 < whole,
+            "the telling was most of the talk and stands in the ask: {} of {}",
+            asked,
+            whole
+        );
+        // And the ask for a summary carries the one line that says the call never
+        // ran, so the summary is not told nothing of it.
+        let said = summary_ask(&state.build_history(), "Summarise it.").to_string();
+        assert!(said.contains("was cancelled while it was still being written"));
+        assert!(!said.contains(&"y".repeat(60)), "the whole call went to the summary ask");
     }
 
     // The words that stand before a summarisation go back to the model no more.
