@@ -29,6 +29,7 @@ pub mod greet;
 pub mod llama;
 pub mod logs;
 pub mod markdown;
+pub mod mcp;
 pub mod remote;
 pub mod search;
 pub mod store;

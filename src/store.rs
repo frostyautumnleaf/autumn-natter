@@ -295,6 +295,11 @@ pub struct ChatMeta {
     // stands where the time of its last message puts it.
     #[serde(default)]
     pub opened: i64,
+    // The MCP servers the reader switched on for this chat, by their id. A
+    // chat written before the badge existed carries none of them, and stands
+    // with no server of the reader's own.
+    #[serde(default)]
+    pub mcp: Vec<String>,
     // Tokens used by the last answer.
     pub context_used: u64,
 }
@@ -322,6 +327,8 @@ impl Default for ChatMeta {
             sandbox_network: false,
             sandbox_pip: false,
             sandbox_fetch: false,
+            // No MCP server of the reader's own stands in a new chat.
+            mcp: Vec::new(),
             thinking_mode: String::from("auto"),
             preserve_thinking: true,
             pinned: false,

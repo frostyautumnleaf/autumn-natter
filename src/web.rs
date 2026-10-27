@@ -249,6 +249,22 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox_note": snap.sandbox_note,
         // The three settings of the sandbox, for the menu of the badge. All three
         // stand off, and each is opened on its own line of the menu.
+        // The servers of the reader's own, for the menu of the MCP badge and
+        // for the MCP tab of the settings. The words of the code of a server of
+        // the program itself are kept out of here, for this is asked for about
+        // six times a second: the sheet asks for them by a call of its own.
+        "mcp": {
+            "servers": snap.mcp.iter().map(|one| json!({
+                "id": one.id,
+                "name": one.name,
+                "kind": one.kind,
+                "icon": one.icon,
+                "shown": one.shown,
+                "on": one.on,
+                "tools": one.tools,
+                "fault": one.fault,
+            })).collect::<Vec<Value>>(),
+        },
         "sandbox_network": snap.sandbox_access.network,
         "sandbox_pip": snap.sandbox_access.pip,
         "sandbox_fetch": snap.sandbox_access.fetch,
@@ -522,6 +538,45 @@ pub fn log_value(id: &str, most: Option<u64>) -> Value {
     }
 }
 
+// The servers of the reader's own, whole: what the MCP tab of the settings is
+// filled from. The line that starts a server, the address of it, and the words
+// of a server of the program itself all come here, and nowhere else, for the tab
+// is opened now and then and the state is asked for always.
+pub fn mcp_value(engine: &crate::engine::Engine) -> Value {
+    let held = engine.mcp_servers();
+    let known: Vec<Value> = held
+        .iter()
+        .map(|server| {
+            json!({
+                "id": server.id,
+                "name": server.name,
+                "kind": server.kind(),
+                "command": server.command,
+                "url": server.url,
+                "code": server.code,
+                "icon": server.icon,
+                "shown": server.shown,
+                "slug": server.slug,
+            })
+        })
+        .collect();
+    json!({
+        "ok": true,
+        "servers": known,
+        // The icons the sheet offers, so the sheet and the program agree on how
+        // many there are. The drawing of them stands in the page.
+        "icons": crate::mcp::ICON_COUNT,
+        // The Python the servers of the program itself are run with. The sheet
+        // says what it found, so a machine without Python is known about.
+        "python": crate::mcp::python(),
+        // The words a server of the program itself begins with. The sheet puts
+        // them in the field of the code when the kind is moved to that one, so
+        // the example and the rules for an AI stand in one place, in the file
+        // that holds the runner they describe.
+        "template": crate::mcp::TEMPLATE,
+    })
+}
+
 // Answer after an action worked. The page reads the new state right away.
 pub fn done() -> Value {
     json!({ "ok": true })
@@ -584,6 +639,42 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             };
             engine.set_sandbox_setting(setting, flag(&value, "on"));
             done()
+        }
+        // One server of the reader's own, switched on or off for this chat. The
+        // menu of the badge sends the id of the server it drew.
+        "/api/mcp_on" | "mcp_on" => {
+            engine.set_mcp(&text_field(&value, "id"), flag(&value, "on"));
+            done()
+        }
+        // The MCP tab of the settings: add a server, write one over, take one
+        // away, move it in or out of the menu, or ask it again what it has.
+        "/api/mcp" | "mcp" => {
+            let op = text_field(&value, "op");
+            match op.as_str() {
+                "save" => {
+                    let given: crate::mcp::Server = serde_json::from_value(
+                        value.get("server").cloned().unwrap_or(json!({})),
+                    )
+                    .unwrap_or_default();
+                    match engine.mcp_save(given) {
+                        Ok(_) => done(),
+                        Err(problem) => refused(&problem),
+                    }
+                }
+                "remove" => match engine.mcp_remove(&text_field(&value, "id")) {
+                    Ok(_) => done(),
+                    Err(problem) => refused(&problem),
+                },
+                "shown" => {
+                    engine.mcp_shown(&text_field(&value, "id"), flag(&value, "on"));
+                    done()
+                }
+                "look" => {
+                    engine.mcp_look(&text_field(&value, "id"));
+                    done()
+                }
+                other => refused(&format!("Nothing is done by \"{}\"", other)),
+            }
         }
         "/api/thinking" | "thinking" => {
             engine.set_thinking(&text_field(&value, "mode"));

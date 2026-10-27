@@ -93,6 +93,14 @@ pub async fn save_model_settings(
     Ok(web::save_model_settings(&engine, &id, settings))
 }
 
+// The servers of the reader's own, for the MCP tab of the sheet of settings.
+// The state carries their names, their icons and their tools; the whole of a
+// server, its code included, comes from here.
+#[tauri::command]
+pub async fn get_mcp(engine: State<'_, Engine>) -> Result<Value, String> {
+    Ok(web::mcp_value(&engine))
+}
+
 // The logs of llama.cpp, for the Logs tab of the sheet of settings. The list is
 // small: the name of every log that is kept, the day and the hour it stands at,
 // its size, and which of them this run of the program is writing.

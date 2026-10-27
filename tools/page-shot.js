@@ -36,7 +36,9 @@
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
 //
 // The scenes: home, chat, rich, markdown, streaming, streaming-code, writing,
-// processing, previews, sheet-program, sheet-model, sheet-logs. A name that ends in -dark draws the dark skin, and
+// processing, previews, sheet-program, sheet-model, sheet-logs, sheet-mcp,
+// mcp-menu. AN_NOKIND=1 leaves the kind of the editor of the MCP tab as it
+// stands, so the empty field of the code can be looked at. A name that ends in -dark draws the dark skin, and
 // a name that ends in -pale draws the pale one. AN_SCROLL=top puts the talk at
 // the top instead of the end.
 //   AN_PROGRESS=42 AN_WHAT=image node page-shot.js processing p.png
@@ -72,6 +74,31 @@ function aPicture(where) {
 
 const ATT_PIC = aPicture(process.env.AN_PICFILE);
 const ATT_TALL = aPicture(process.env.AN_PICFILE2 || process.env.AN_PICFILE);
+
+// The words a server of the program itself begins with, read out of the program.
+// The MCP tab of a picture shows the example the program really sends, so the
+// scene is not a guess of it.
+function theTemplate() {
+  const words = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'mcp.rs'), 'utf8');
+  const head = 'pub const TEMPLATE: &str = r##"\n';
+  const from = words.indexOf(head);
+  if (from < 0) { return ''; }
+  const rest = words.slice(from + head.length);
+  const end = rest.indexOf('\n"##;');
+  return end < 0 ? '' : rest.slice(0, end);
+}
+
+const MCP_TEMPLATE = theTemplate();
+
+// The servers of the fake reader, for the MCP tab and the menu of the badge.
+const MCP_HELD = { ok: true, python: 'python3', template: MCP_TEMPLATE, servers: [
+  { id: 'mcpdemo0001', name: 'Bookshop', kind: 'stdio', icon: 7, shown: true, on: true,
+    tools: ['look_up', 'reserve'], fault: '' },
+  { id: 'mcpdemo0002', name: 'Clock', kind: 'internal', icon: 2, shown: true, on: false,
+    tools: ['now'], fault: '' },
+  { id: 'mcpdemo0003', name: 'Archive', kind: 'http', icon: 9, shown: false, on: false,
+    tools: [], fault: 'The server did not answer' }
+] };
 
 // The handoff summaries of a talk. `count` of them are spread over the messages,
 // each with the two numbers of the room, the day it stood, and a little of what
@@ -393,6 +420,11 @@ function scene(name, dark) {
       // and the choice stands on, as it does for a new chat.
       preserve: true, preserve_available: true
     },
+    mcp: { python: 'python3', on: ['mcpdemo0001'], servers: [
+      { id: 'mcpdemo0001', name: 'Bookshop', kind: 'stdio', icon: 7, shown: true, on: true, tools: ['look_up', 'reserve'], fault: '' },
+      { id: 'mcpdemo0002', name: 'Clock', kind: 'internal', icon: 2, shown: true, on: false, tools: ['now'], fault: '' },
+      { id: 'mcpdemo0003', name: 'Archive', kind: 'http', icon: 9, shown: false, on: false, tools: [], fault: 'The server did not answer' }
+    ] },
     chatting: { collapse_thinking: true, grow_thinking: true,
                 tools_in_thinking: true, collapse_tools: true,
                 highlight: true, chapters: true },
@@ -820,7 +852,7 @@ async function main() {
   let dark = false;
   if (name.endsWith('-dark')) { dark = true; name = name.slice(0, -5); }
   else if (name.endsWith('-pale')) { name = name.slice(0, -5); }
-  const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs';
+  const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs' || name === 'sheet-mcp';
   const state = scene(isSheet ? 'chat' : name, dark);
 
   // AN_FOLD=0 turns the two fold switches of the Chatting section off, so a
@@ -877,7 +909,7 @@ async function main() {
   view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
   view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
 
-  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, one, pic, pic2, listsOf) {
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, one, pic, pic2, listsOf, mcpHeld) {
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
@@ -909,6 +941,10 @@ async function main() {
           return Promise.resolve({ json: function () {
             return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
               + '-ngl 999 --fit on --fit-target 400'); } });
+        }
+        if (String(url).indexOf('/api/mcp') === 0) {
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(JSON.parse(JSON.stringify(mcpHeld))); } });
         }
         if (String(url).indexOf('/api/logs') === 0) {
           return Promise.resolve({ json: function () {
@@ -955,6 +991,9 @@ async function main() {
             return Promise.resolve('llama-server -m model.gguf --jinja -c 8192 '
               + '-ngl 999 --fit on --fit-target 400');
           }
+          if (command === 'get_mcp') {
+            return Promise.resolve(JSON.parse(JSON.stringify(mcpHeld)));
+          }
           if (command === 'get_logs') {
             return Promise.resolve(JSON.parse(JSON.stringify(logs)));
           }
@@ -973,7 +1012,7 @@ async function main() {
         }
       }
     };
-  }, useFetch, state, CONFIG, MODEL, LOGS, LOG_ONE, ATT_PIC, ATT_TALL, lists(state));
+  }, useFetch, state, CONFIG, MODEL, LOGS, LOG_ONE, ATT_PIC, ATT_TALL, lists(state), MCP_HELD);
 
   await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
   await new Promise(function (r) { setTimeout(r, 700); });
@@ -1051,6 +1090,33 @@ async function main() {
   }
   // The Logs tab: the list, the words of the run, and the log itself. The sheet
   // is put back at the top of itself, for the log stands near the head of it.
+  if (name === 'sheet-mcp') {
+    await view.evaluate(function () {
+      var b = document.getElementById('settingsbtn');
+      if (b) { b.click(); }
+      var t = document.getElementById('tabMcp');
+      if (t) { t.click(); }
+    });
+    await new Promise(function (r) { setTimeout(r, 700); });
+    // A new server of the kind the program runs, so the field of the code stands
+    // filled with the example the program sent with it.
+    if (!process.env.AN_NOKIND) {
+      await view.evaluate(function () {
+        var k = document.getElementById('mcKind');
+        if (k) { k.value = 'internal'; k.dispatchEvent(new Event('change', { bubbles: true })); }
+        var box = document.getElementById('mcCode');
+        if (box) { box.scrollTop = 0; }
+      });
+      await new Promise(function (r) { setTimeout(r, 250); });
+    }
+  }
+  if (name === 'mcp-menu') {
+    await view.evaluate(function () {
+      var b = document.getElementById('mcp');
+      if (b) { b.click(); }
+    });
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
   if (name === 'sheet-logs') {
     await view.evaluate(function () {
       var b = document.getElementById('settingsbtn');

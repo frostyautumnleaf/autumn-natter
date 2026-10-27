@@ -33,6 +33,7 @@ pub fn run(cfg: Config) -> Result<(), String> {
             commands::get_model_settings,
             commands::save_model_settings,
             commands::preview_command,
+            commands::get_mcp,
             commands::get_logs,
             commands::get_log,
             commands::take_files,

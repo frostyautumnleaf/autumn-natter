@@ -292,7 +292,12 @@ pub struct Config {
     pub chat_compact_prompt_short: String,
     // The vertical timeline of the summarisations, at the right of the chat.
     #[serde(default = "on_by_default")]
-    pub chat_timeline: bool,
+    pub chat_timeline: bool,    // The servers of the reader's own, spoken to over MCP. They stand here and
+    // not in a folder of their own, for the sheet writes the whole list again
+    // whenever one of them moves. A set of settings written before this stood
+    // reads with no server at all.
+    #[serde(default)]
+    pub mcp_servers: Vec<crate::mcp::Server>,
 }
 
 // The compaction of a new set of settings.
@@ -461,6 +466,8 @@ impl Default for Config {
             chat_compact_prompt: default_handoff_prompt(),
             chat_compact_prompt_short: default_handoff_prompt_short(),
             chat_timeline: true,
+            // No server of the reader's own stands in a new set of settings.
+            mcp_servers: Vec::new(),
         }
     }
 }
