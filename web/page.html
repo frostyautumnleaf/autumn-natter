@@ -472,6 +472,19 @@ body.home .stage { display: none; }
   font-variant-numeric: tabular-nums; }
 .turn:hover .stamp { opacity: 1; height: 15px; margin-top: 5px; }
 .turn.t-you .stamp { padding-right: 2px; }
+/* The line under a message. The time of it stands at one end and the marks of
+   what the reader may do with the message at the other, and the line opens when
+   the pointer goes over the message, as the time alone did before. The marks are
+   buttons: writing over them keeps the line open, so the reader may rest the
+   pointer on one and press it. */
+.acts { display: inline-flex; align-items: center; gap: 2px; height: 15px;
+  vertical-align: top; flex: 0 0 auto; }
+.acts button { display: inline-flex; align-items: center; justify-content: center;
+  width: 21px; height: 15px; padding: 0; border: 0; border-radius: 4px;
+  background: none; color: var(--faint); cursor: pointer; flex: 0 0 auto; }
+.acts button:hover { background: var(--hover); color: var(--ink); }
+.acts button.rm:hover { color: var(--ink-fail); }
+.acts .svg { width: 12px; height: 12px; }
 
 /* Words of one kind, as the window sets them. */
 .body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 9px; }
@@ -586,8 +599,14 @@ pre.code .t-p { color: var(--t-pun); }
    scroll inside the panel. */
 .think { position: relative; margin: 0 0 11px; background: var(--think-bg);
   border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; }
-.think::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px;
-  border-radius: 2px; background: var(--accent); }
+/* The rule of accent colour at the left of a thinking panel. It is a border and
+   not a bar, so it goes round the two corners of the panel at the left instead
+   of stopping short under them: the corner of the panel and the rule of the
+   thinking are one line. The top and the bottom of the panel keep the hairline
+   of the panel, so only the left side of the shape is drawn over. */
+.think::before { content: ""; position: absolute; left: 0; top: 0; width: 11px;
+  height: 100%; border: 2px solid var(--accent); border-right: 0;
+  border-radius: 10px 0 0 10px; pointer-events: none; }
 .think > .thead { gap: 7px; min-height: 31px; padding: 6px 11px 6px 15px; }
 .think > .thead:hover { background: var(--hover); }
 .think > .thead .svg { width: 12px; height: 12px; stroke: var(--ink); }
@@ -848,8 +867,55 @@ img.pic { animation: plate-in 180ms ease-out; }
   background: var(--plate-mark); }
 .bubble .part.file .mark .svg { width: 15px; height: 15px; }
 .bubble .part.file .nm { font-size: 12px; }
-.dock-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px 10px; }
-.badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+/* The row under the words of the chat box. The badges of the chat stand at the
+   left, the mark of the thinking mode at the right, and the keys with the round
+   mark take the room between them. The room before the sandbox badge and the
+   room after it are asked for the left-over room in the same way, so the sandbox
+   badge comes to the middle of the box, and the mark of the thinking mode keeps
+   the right hand side whatever the badges on the left do. One box stands at the
+   first screen and in a chat, so one row serves both, and the look of the row
+   does not change when a chat opens. */
+.dock-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px 8px;
+  flex-wrap: nowrap; }
+/* The room of the middle. The two halves of the left-over room of the same
+   size stand on either side of the sandbox badge, and are asked to grow and to
+   give way back to nought, so the room is shared out evenly and the badge comes
+   over the middle of the box. */
+.badges .mid { flex: 1 1 0px; min-width: 0; }
+/* The half at the right of the sandbox badge is held 36px wider than the half
+   at its left, for the mark of the thinking mode with the round mark of sending
+   that stand beyond the line of badges are 36px broader than the three badges
+   of the tools that stand before it. The sandbox badge thus stands over the
+   middle of the box itself, and not over the middle of the line of badges. */
+.badges .mid.right { flex: 1 1 36px; }
+/* The line is never wrapped, so nothing of it may stand over the rest. Nothing
+   of it is cut in two either: only the room between the badges gives way, and
+   every badge, the mark of the thinking mode and the round mark of sending are
+   held to their whole shape. What no longer fits is kept whole and out of the
+   way rather than sawn asunder, for a badge cut in two is read as nothing. */
+.dock-row > * { flex-shrink: 0; min-width: 0; overflow: hidden; }
+.dock-row .send { overflow: visible; }
+/* The badges of the line are held to their whole shape: a badge that does not
+   fit is kept whole and out of the way rather than sawn asunder. */
+.badges .badge { flex-shrink: 0; }
+/* The words of the keys stand between the line of badges and the mark of the
+   thinking mode. Their ground is nought and their ground may be given back to
+   nought, so they take only the room that is left when the middle and the
+   badges have had theirs, and what no longer fits is cut at the ellipsis rather
+   than let out over a badge. */
+.dock-row .keys { flex: 0 1 auto; min-width: 0; }
+/* The menu of the thinking badge hangs at the right hand side of the badge, for
+   the badge itself stands at the right hand side of the box. */
+.dock-row #thinkwrap .menu { left: auto; right: 0; }
+/* The badges of the chat fill the room of the row that is left to them, and
+   share it out themselves: the badges of the tools stand at the left, the
+   sandbox badge is held over the middle of the box by the two halves of the
+   room on either side of it, and the mark of the thinking mode keeps the right
+   hand end. They are never wrapped. The line keeps no ground of its own, for
+   the menu of a badge hangs over the edge of the line and must not be cut by
+   it: what no longer fits is kept whole and out of the way by the row. */
+.badges { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap;
+  flex: 1 1 auto; min-width: 0; }
 .badge {
   display: inline-flex; align-items: center; gap: 6px; height: 27px; padding: 0 10px;
   border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2);
@@ -1114,6 +1180,25 @@ pre.code.line {
   .meter-box { width: 84px; }
   .meter-box .pct { display: none; }
   .keys { display: none; }
+}
+/* A narrow window has no room left to spare. Below 1081px the words of the
+   keys go out of the line under the chat box, for they say only what the keys
+   may do and the room is wanted by the badges. Nothing of the line is ever cut
+   in two, and nothing of it stands over the rest. */
+@media (max-width: 1080px) {
+  .dock-row .keys { display: none; }
+}
+@media (max-width: 960px) {
+  /* No room left for the middle: the two halves of it go out of the line, so
+     the sandbox badge falls in after the badges of the tools at the left and
+     keeps its whole shape. The words of the keys go with the middle, for the
+     room they were given is gone. A line that bends under itself keeps no
+     ground of its own, so the menus of the badges are not clipped as they hang
+     over its edge. */
+  .badges .mid { display: none; }
+  .dock-row .keys { display: none; }
+  .dock-row { flex-wrap: wrap; }
+  .badges { flex: 1 1 100%; flex-wrap: wrap; }
 }
 @media (max-width: 720px) {
   .spot .title { display: none; }
@@ -1500,14 +1585,6 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
             <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
             <span id="searchtext">Search</span>
           </button>
-          <div class="menuwrap" id="sandboxwrap">
-            <button class="badge" id="sandbox" title="What a command of this chat may reach. Click to open the settings of the sandbox.">
-              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
-              <span id="sandboxtext">Sandbox</span>
-              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
-            </button>
-            <div class="menu hidden" id="sandboxmenu"></div>
-          </div>
           <div class="menuwrap" id="mcpwrap">
             <button class="badge" id="mcp" title="The servers of the reader's own, spoken to over MCP. Click to switch one on or off for this chat. A server runs in the program and not in the sandbox of a command.">
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14"/></svg>
@@ -1516,17 +1593,36 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
             </button>
             <div class="menu hidden" id="mcpmenu"></div>
           </div>
-          <div class="menuwrap" id="thinkwrap">
-            <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
-              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
-              <span id="thinktext">Thinking: Disabled</span>
+          <!-- The sandbox badge stands in a place of its own within the line of
+               badges, between two halves of the left-over room of the same size,
+               so that it comes over the middle of the box. A window too narrow
+               for that gives the middle up, and the badge falls in after the
+               badges of the tools at the left. -->
+          <div class="mid left" aria-hidden="true"></div>
+          <div class="menuwrap" id="sandboxwrap">
+            <button class="badge" id="sandbox" title="What a command of this chat may reach. Click to open the settings of the sandbox.">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
+              <span id="sandboxtext">Sandbox</span>
               <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
             </button>
-            <div class="menu hidden" id="thinkmenu"></div>
+            <div class="menu hidden" id="sandboxmenu"></div>
           </div>
+          <div class="mid right" aria-hidden="true"></div>
         </div>
-        <span class="grow"></span>
+        <!-- The words of the keys stand between the line of badges and the mark
+             of the thinking mode. They take their room out of what the middle
+             leaves over, and are cut at the ellipsis when the room is too
+             little for them; they never narrow the middle, for the room they
+             were given first is the room that the badges leave behind. -->
         <span class="keys" id="hint"></span>
+        <div class="menuwrap" id="thinkwrap">
+          <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
+            <span id="thinktext">Thinking: Disabled</span>
+            <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+          </button>
+          <div class="menu hidden" id="thinkmenu"></div>
+        </div>
         <button class="send" id="send" title="Send" aria-label="Send">
           <svg class="svg" viewBox="0 0 16 16" aria-hidden="true">
             <path class="mark-send" d="M8 12.6V4M4.4 7.6 8 4l3.6 3.6"/>
@@ -4368,11 +4464,74 @@ function fill(turn, m) {
     }
     turn.appendChild(words);
   }
-  if (m.when) {
-    var when = make('div', 'stamp');
-    when.textContent = m.when;
-    turn.appendChild(when);
+  var line = actLine(m);
+  if (line) { turn.appendChild(line); }
+}
+
+// The line under a message: the time of it at one end, and the marks of what the
+// reader may do with the message at the other. A message of the reader and an
+// answer of the model may both be written again, and both taken away: taking a
+// message of the reader away takes the answer it led to, for the answer is a
+// saying about a question that is no longer there, and taking an answer away
+// leaves the question of the reader where it stands. An answer the reader stopped
+// has one mark more, for it never came to an end of its own: the model is asked
+// to write on from the word it had reached.
+function actLine(m) {
+  var can = m.role === 'You' || m.role === 'Assistant';
+  if (!can && !m.when) { return null; }
+  var line = make('div', 'stamp');
+  if (m.when) { line.textContent = m.when; }
+  if (!can) { return line; }
+  var acts = make('span', 'acts');
+  var edit = make('button', 'edit');
+  edit.title = 'Write this message again, and take what came after it away';
+  edit.setAttribute('aria-label', 'Edit this message');
+  edit.appendChild(mark('M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2'));
+  edit.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    editMessage(m);
+  });
+  acts.appendChild(edit);
+  if (m.stopped) {
+    // An answer the reader stopped. The model is asked to write on from the last
+    // word it had put down, so the mark is the arrow of a sending, and its tip
+    // says where the answer goes on from.
+    var go = make('button', 'go');
+    go.title = 'Let the model write on from where it stopped';
+    go.setAttribute('aria-label', 'Continue this answer');
+    go.appendChild(mark('M8 12.6V4M4.4 7.6 8 4l3.6 3.6'));
+    go.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      post('continue_message', { id: m.id });
+    });
+    acts.appendChild(go);
   }
+  var away = make('button', 'rm');
+  away.title = m.role === 'You'
+    ? 'Remove this message, the answer it led to, and everything after them'
+    : 'Remove this answer and everything written after it';
+  away.setAttribute('aria-label', 'Remove this message');
+  away.appendChild(mark('M4.3 4.1h7.4M6.2 4.1V2.9h3.6v1.2M5.3 4.1l.6 9h4.2l.6-9'));
+  away.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    post('delete_message', { id: m.id });
+  });
+  acts.appendChild(away);
+  line.appendChild(acts);
+  return line;
+}
+
+// Put one message back into the chat box to be written again. Everything that
+// came after it goes out of the talk with it, for the model answered a talk that
+// no longer reads that way, so the words of this message stand whole in the box
+// and the reader sends them afresh.
+function editMessage(m) {
+  post('delete_message', { id: m.id });
+  var box = document.getElementById('draft');
+  box.value = m.body;
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  box.focus();
+  box.setSelectionRange(box.value.length, box.value.length);
 }
 
 // ------------------------------------------------ a train of thought
@@ -4785,7 +4944,7 @@ function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
     (m.tool || '').length, /^running \.\.\.$/i.test(m.tool) ? 1 : 0,
     m.attachments ? m.attachments.length : 0, m.when || '',
-    m.cancelled ? 'cut' : ''].join('#');
+    m.cancelled ? 'cut' : '', m.stopped ? 'stopped' : ''].join('#');
 }
 
 // The chat box holds one turn for every message. A turn is made once and then

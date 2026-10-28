@@ -414,6 +414,12 @@ pub struct Message {
     // nothing after it at all.
     #[serde(default)]
     pub reader_stopped: bool,
+    // True of an answer of the model that the reader stopped while it was being
+    // written. Such an answer never came to an end of its own, so the button that
+    // goes on with it stands beside the time of it. A chat written before this
+    // existed carries no such mark, and reads as an answer that came to its end.
+    #[serde(default)]
+    pub stopped: bool,
     // A message of the role "Summary" only. The room the talk took when the
     // handoff summary was asked for, in tokens.
     #[serde(default)]

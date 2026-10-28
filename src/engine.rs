@@ -58,6 +58,12 @@ enum Turn {
     Sent(SentMessage),
     // Go on from the talk as it stands.
     Continue,
+    // Go on with an answer the reader stopped. The talk stands at the words the
+    // model had written, and the assistant mark of the template is open under
+    // them, so the model goes on from the very word it stopped at. The id of the
+    // answer is carried along, for the words of that answer and no other are the
+    // ones to go on with.
+    Resume(String),
 }
 
 // What an answer of the model came to, so the worker knows whether the work may
@@ -86,6 +92,9 @@ enum Job {
     // The reader asked for the handoff summary of the open chat to be written
     // again, after one that never came back.
     Handoff,
+    // The reader asked for an answer they stopped to be gone on with, from the
+    // word the model had written. The id is the answer they pressed the mark under.
+    Resume(String),
     // The reader added, changed or asked to look again at one server of their
     // own, so the tools it has to offer are read again.
     McpLook(String),
@@ -1249,6 +1258,104 @@ impl State {
         self.touch();
     }
 
+    // Take one message out of the open chat, and with it every message that came
+    // after it. A message of the reader that led to an answer of the model takes
+    // that answer with it, for the answer is a saying about a question that is no
+    // longer there. A message of the model leaves the question that led to it, for
+    // the reader wrote those words themselves and the program does not throw away
+    // what a reader wrote behind their back. Nothing of the talk after the message
+    // can stand either: the model answered a talk that no longer reads that way.
+    // The records of the files hung on the messages that go are taken away with
+    // them, so no file is left behind with no message to carry it.
+    fn remove_message_after(&mut self, id: &str) -> Result<usize, &'static str> {
+        let Some(open) = self.chat().cloned() else {
+            return Err("No chat is open");
+        };
+        let Some(place) = open.messages.iter().position(|m| m.id == id) else {
+            return Err("That message is not in this chat");
+        };
+        let gone: Vec<String> = open.messages[place..]
+            .iter()
+            .flat_map(|m| m.attachments.iter().map(|a| a.id.clone()))
+            .collect();
+        // The room of the records is worked out from the place of the chat, which
+        // needs the chat for a moment of its own, so it is looked at before the
+        // messages are gone through.
+        let room = attach::shelf(&self.workdir_for(&open));
+        let Some(chat) = self.chat_mut() else {
+            return Err("No chat is open");
+        };
+        // A chat that is left with no message of the talk has nothing left to
+        // write, so it is taken away as a chat that was never filled is.
+        let left: Vec<String> = chat.messages[..place]
+            .iter()
+            .map(|m| m.role.clone())
+            .collect();
+        let empty = !left.iter().any(|role| role != "Note");
+        chat.messages.drain(place..);
+        if !gone.is_empty() {
+            attach::remove_at(&room, &gone);
+        }
+        if empty {
+            return Ok(place);
+        }
+        chat.meta.updated = store::now_secs();
+        let snapshot = chat.clone();
+        self.store.save_chat(&snapshot);
+        self.touch();
+        Ok(place)
+    }
+
+    // True when the whole of the talk was taken out of the chat, so the chat is
+    // no longer worth keeping.
+    fn holds_nothing(&self) -> bool {
+        self.chat()
+            .map(|chat| !chat.messages.iter().any(|m| m.role != "Note"))
+            .unwrap_or(true)
+    }
+
+    // Keep the mark of an answer that the reader stopped, so the page can stand
+    // the button that goes on with it under that answer. The newest message of the
+    // model is the one to mark, for the stop came at the end of the talk. A mark of
+    // an older stop is looked at and taken away at the same time, for an answer
+    // written after it is a whole answer and nothing of the chat is left standing
+    // over a saying the reader went past.
+    fn mark_last_answer_stopped(&mut self) {
+        let Some(chat) = self.chat_mut() else { return };
+        for message in chat.messages.iter_mut() {
+            message.stopped = false;
+        }
+        if let Some(message) = chat
+            .messages
+            .iter_mut()
+            .rev()
+            .find(|m| m.role == "Assistant" || m.role == "Tool")
+        {
+            message.stopped = true;
+        }
+        self.persist();
+        self.touch();
+    }
+
+    // Take the mark of an answer that was not over off the open chat. The reader
+    // asked for that answer to be gone on with, or wrote a new turn on top of it,
+    // and either way the button that asked for it goes away.
+    fn clear_stopped_marks(&mut self) {
+        let mut moved = false;
+        if let Some(chat) = self.chat_mut() {
+            for message in chat.messages.iter_mut() {
+                if message.stopped {
+                    message.stopped = false;
+                    moved = true;
+                }
+            }
+        }
+        if moved {
+            self.persist();
+            self.touch();
+        }
+    }
+
     // Add one note. A failed note is drawn in the warning colour. Notes are for
     // the window and are never sent to the model.
     fn push_note(&mut self, text: &str, failed: bool) {
@@ -2274,6 +2381,9 @@ impl Engine {
             state.set_status("llama-server was not found. Set its folder in the settings");
             return;
         }
+        // A new turn ends any answer that was stopped, so the button that goes on
+        // with such an answer does not stand over a chat that has moved past it.
+        state.clear_stopped_marks();
         drop(state);
         self.cancel.store(false, Ordering::SeqCst);
         let _ = self
@@ -2313,6 +2423,95 @@ impl Engine {
     // Stop reading the answer.
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+    }
+
+    // Take one message out of the open chat, and with it every message that came
+    // after it. A message of the reader takes the answer of the model that followed
+    // it; a message of the model leaves the message of the reader that led to it.
+    // A chat that is left with no talk in it is taken away, as a chat that was
+    // never filled is.
+    pub fn delete_message(&self, id: String) {
+        let Ok(mut state) = self.state.lock() else { return };
+        if state.generating {
+            state.set_status("Wait for the answer to finish");
+            return;
+        }
+        if state.chat().is_none() {
+            state.set_status("No chat is open");
+            return;
+        }
+        match state.remove_message_after(&id) {
+            Err(problem) => state.set_status(problem),
+            Ok(_) => {
+                // The whole of the talk went, so the chat goes with it and the
+                // first screen stands in its place.
+                if state.holds_nothing() {
+                    let gone = state.current.clone();
+                    if let Some(id) = gone {
+                        let repo = state
+                            .chats
+                            .iter()
+                            .find(|c| c.meta.id == id)
+                            .map(|c| c.meta.repo_id.clone())
+                            .unwrap_or_default();
+                        state.store.delete_chat(&repo, &id);
+                        state.chats.retain(|c| c.meta.id != id);
+                        state.open_home();
+                    }
+                    state.set_status("The message was removed, and the chat with it");
+                    return;
+                }
+                state.set_status("The message was removed, with everything after it");
+            }
+        }
+    }
+
+    // Go on with an answer the reader stopped. The talk stands at the words the
+    // model had written, so the model follows on from the word it stopped at rather
+    // than beginning again.
+    pub fn continue_message(&self, id: String) {
+        let Ok(mut state) = self.state.lock() else { return };
+        if state.generating {
+            state.set_status("An answer is still being generated");
+            return;
+        }
+        if state.handoff_owed() {
+            state.set_status(
+                "The handoff summary of this chat was never written. Start it again from the summarisation timeline",
+            );
+            return;
+        }
+        if state.model().is_none() {
+            state.set_status("Choose a model in the top bar first");
+            return;
+        }
+        if state.server_binary().is_none() {
+            state.set_status("llama-server was not found. Set its folder in the settings");
+            return;
+        }
+        let stands = state
+            .chat()
+            .map(|chat| {
+                chat.messages
+                    .iter()
+                    .any(|m| m.id == id && m.stopped && m.role == "Assistant")
+            })
+            .unwrap_or(false);
+        if !stands {
+            state.set_status("That answer was not stopped");
+            return;
+        }
+        // The mark of the stop is left where it stands while the ask goes out, for
+        // the words the model is to write on from are read out of the answer under
+        // it. It goes of its own accord when the rest of the answer comes back, so a
+        // second press finds nothing to go on with: the answer is begun again under
+        // `generating` until then.
+        state.generating = true;
+        state.busy = true;
+        state.set_status("The model is going on with the answer");
+        drop(state);
+        self.cancel.store(false, Ordering::SeqCst);
+        let _ = self.jobs.send(Job::Resume(id));
     }
 
     // The tools of the open chat: the terminal tool, and the tools that work on
@@ -3276,6 +3475,13 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                 if made && !cancel.load(Ordering::Relaxed) {
                     run_turn(&state, &mut server, &cancel, Turn::Continue);
                 }
+            }
+            Job::Resume(id) => {
+                // The reader stopped an answer and now wants it gone on with. The
+                // talk stands at the words the model had written, so the answer is
+                // asked for out of the talk as it stands, with the mark of the
+                // template that opens an answer left open under those words.
+                run_turn(&state, &mut server, &cancel, Turn::Resume(id));
             }
         }
     }
@@ -4263,9 +4469,41 @@ fn run_turn(
     turn: Turn,
 ) -> Ended {
     let going_on = matches!(turn, Turn::Continue);
+    // The answer the reader stopped is gone on with, and not asked for afresh. The
+    // talk ends on the words the model had written, so the mark of the template
+    // that opens an answer of the model stands open under them: what the model
+    // writes next follows the last word it had written.
+    let resuming = matches!(turn, Turn::Resume(_));
+    // The thoughts the model had for the words it wrote before the reader stopped
+    // it, read out of the chat by the id the mark under the answer carried. The
+    // words themselves need no reading: they stand in the chat as the last message
+    // of the model, so the talk the model is asked with already ends on them, and
+    // the thoughts are all the template wants back beside them.
+    let thought = match &turn {
+        Turn::Resume(id) => state
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard.chat().and_then(|chat| {
+                    chat.messages
+                        .iter()
+                        .find(|message| message.id == *id && message.stopped)
+                        .map(|message| message.reasoning.clone())
+                })
+            })
+            .unwrap_or_default(),
+        _ => String::new(),
+    };
+    // Whether the thoughts of an answer may go back with it. The switch of the chat
+    // and the template of the model both have to agree, as they do wherever the
+    // thoughts of an answer are sent.
+    let keeps_thoughts = state
+        .lock()
+        .map(|guard| guard.kept_thinking())
+        .unwrap_or(false);
     let (text, files) = match turn {
         Turn::Sent(sent) => (sent.text, sent.files),
-        Turn::Continue => (String::new(), Vec::new()),
+        Turn::Continue | Turn::Resume(_) => (String::new(), Vec::new()),
     };
     // A turn that only goes on adds no message of the reader to the chat, for the
     // words the model is asked with come out of the talk as it stands. A talk that
@@ -4503,6 +4741,10 @@ fn run_turn(
             Err(_) => return Ended::Halted,
         };
         // Any of the tools is enough to let the model ask for one.
+        // The first step of a resumed answer is the one step put together from the
+        // words the model had written; the steps after a command are an answer of
+        // their own, as they always were, and follow a receipt.
+        let resume_now = resuming && steps == 1;
         let use_tools = code_on || search_on || chapters_on || !mcp_tools.is_empty();
         let mut body = json!({
             "messages": history,
@@ -4518,11 +4760,60 @@ fn run_turn(
             // only when it has stopped.
             "timings_per_token": true,
         });
-        if let Some(list) = offered(code_on, search_on, chapters_on, access, &mcp_tools) {
-            body["tools"] = list;
-            body["tool_choice"] = json!("auto");
+        // A half-written call cannot be mended by going on with it, so a resumed
+        // answer is asked for with no tool offered: the reader stopped the turn to
+        // hear the rest of a saying, not to have a command begun. The steps after a
+        // command are an answer of their own, as they always were, and are asked for
+        // in the usual way.
+        if !resume_now {
+            if let Some(list) = offered(code_on, search_on, chapters_on, access, &mcp_tools) {
+                body["tools"] = list;
+                body["tool_choice"] = json!("auto");
+            }
         }
-
+        // The ask of the first step of a resumed answer is the talk as it stands,
+        // which ends on the words the model had written: they are the last message
+        // of the model, and no word of the talk is added after them. The template
+        // puts those words under the mark that opens an answer of a model and leaves
+        // that mark open under them, so what the model writes next follows the last
+        // word it had put down: the answer is gone on with from that word, and not
+        // begun again. The thoughts the model had for those words ride beside them,
+        // so the template puts them back where they stood. Only a chat that keeps
+        // its thinking, on a model whose template can keep it, sends them: the
+        // others send the bare words, as they always did.
+        if resume_now {
+            if keeps_thoughts && !thought.trim().is_empty() {
+                if let Some(items) = body["messages"].as_array_mut() {
+                    if let Some(last) = items.last_mut() {
+                        last["reasoning_content"] = json!(thought);
+                    }
+                }
+            }
+            // The words of the answer that was stopped must stand whole at the end
+            // of the talk, for the answer is gone on with from the last of them. The
+            // room made for the summarisation can have taken them away with the
+            // words a handoff summary stands for, and can have left a call the model
+            // asked for standing there instead. Either way the talk no longer ends
+            // on those words, and a half answer cannot be gone on with, so the ask
+            // is not made and the reader is told why.
+            let ends_open = body["messages"]
+                .as_array()
+                .and_then(|items| items.last())
+                .filter(|last| {
+                    last.get("role").and_then(|role| role.as_str()) == Some("assistant")
+                        && last.get("tool_calls").is_none()
+                })
+                .and_then(|last| last.get("content"))
+                .and_then(|words| words.as_str())
+                .is_some_and(|words| !words.trim().is_empty());
+            if !ends_open {
+                let Ok(mut guard) = state.lock() else { return Ended::Halted };
+                guard.set_status(
+                    "The words of that answer are no longer at the end of the talk, so it cannot be gone on with",
+                );
+                return Ended::Halted;
+            }
+        }
         // Every piece of new text goes into the state, so the window can show
         // it while it arrives.
         let stream_state = state.clone();
@@ -4540,7 +4831,9 @@ fn run_turn(
             // message carries; the server has none of them, so the count is
             // read from the words that go out.
             guard.progress = 0;
-            guard.progress_images = pending_images(&history);
+            // The pictures of the ask that is really sent are counted, so the
+            // gauge over the chat box says what the server has to work through.
+            guard.progress_images = pending_images(&body["messages"]);
             guard.progress_on = true;
             // Neither speed is known until the server says something of it, and
             // the clocks of the program have nothing to measure until a word of
@@ -5003,6 +5296,21 @@ fn run_turn(
             // with a run.
             let thinking = std::mem::take(&mut stopped_thoughts);
             guard.push_stopped_by_reader(call, &thinking, thought_ms, GREATEST_CUT_ARGS);
+        }
+        // An answer the reader stopped never came to an end of its own, so the mark
+        // of it stands on the thing the reader is shown of that turn: the button
+        // that goes on with the answer stands under it. A turn that asked for a
+        // command is not one of these, for the command was the thing the model was
+        // doing, and its block carries its own mark of the stop already.
+        if answer.stopped && !stopped_call {
+            guard.mark_last_answer_stopped();
+        }
+        // An answer that came to its end of its own is whole, so a mark of a stop
+        // kept under an earlier answer of the chat is no longer worth standing: the
+        // reader wrote past that answer, and the button that went on with it is the
+        // mark of nothing now.
+        if !answer.stopped {
+            guard.clear_stopped_marks();
         }
 
         // Tokens for the context meter. The number the server gave at the end of
@@ -7019,6 +7327,107 @@ mod tests {
         // A number that goes back never moves the meter, pace or no pace.
         assert!(!climb_context_paced(&mut state, 90, begun + Duration::from_secs(5)));
         assert_eq!(state.ctx_used, 140);
+    }
+
+    // ------------------------------------------------------- a message goes,
+    // A reader may take a message out of the chat again. A message of the reader
+    // that led to an answer of the model takes that answer with it, for the
+    // answer is a saying about a question that is no longer there. A message of
+    // the model leaves the question that led to it, for the reader wrote those
+    // words themselves. Nothing of the talk after the message can stand either.
+    #[test]
+    fn a_message_of_the_reader_takes_the_answer_of_the_model_with_it() {
+        let _guard = config::test_turn();
+        setup();
+        let mut cfg = Config::default();
+        // The line of the day is not part of the chat, so it is put away here and
+        // the talk is exactly the messages the chat holds.
+        cfg.chat_date_new_chat = false;
+        let engine = Engine::start(cfg);
+        open_a_chat(&engine);
+        let mut state = engine.state.lock().unwrap();
+        add_message(&mut state, "You", "the question");
+        let answer_id = {
+            let chat = state.chat_mut().unwrap();
+            chat.messages.push(Message {
+                id: store::new_id(),
+                role: "Assistant".to_string(),
+                body: "the answer".to_string(),
+                ..Default::default()
+            });
+            chat.messages.last().unwrap().id.clone()
+        };
+        add_message(&mut state, "You", "the next question");
+        // The message of the reader goes, and the answer it led to goes with it.
+        let first = state.chat().unwrap().messages[0].id.clone();
+        assert_eq!(state.remove_message_after(&first), Ok(0));
+        let left: Vec<String> = state
+            .chat()
+            .unwrap()
+            .messages
+            .iter()
+            .map(|m| m.body.clone())
+            .collect();
+        assert_eq!(left, Vec::<String>::new());
+        // The whole of the talk went with the first question, so nothing of it is
+        // sent to the model again. The chat itself is taken away by
+        // `Engine::delete_message`, which is what a chat with no talk in it is.
+        let told = state.build_history();
+        assert!(told.as_array().unwrap().is_empty());
+        assert!(!state
+            .chat()
+            .unwrap()
+            .messages
+            .iter()
+            .any(|m| m.id == answer_id));
+    }
+
+    #[test]
+    fn a_message_of_the_model_leaves_the_question_that_led_to_it() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        let mut state = engine.state.lock().unwrap();
+        add_message(&mut state, "You", "the question");
+        add_message(&mut state, "Assistant", "the answer");
+        add_message(&mut state, "You", "the next question");
+        let answer_id = state.chat().unwrap().messages[1].id.clone();
+        assert_eq!(state.remove_message_after(&answer_id), Ok(1));
+        let left: Vec<String> = state
+            .chat()
+            .unwrap()
+            .messages
+            .iter()
+            .map(|m| m.role.clone() + ":" + &m.body)
+            .collect();
+        assert_eq!(left, vec!["You:the question".to_string()]);
+    }
+
+    // The button that goes on with a stopped answer stands under that answer and
+    // under nothing else, so the page needs to know which message was stopped.
+    #[test]
+    fn an_answer_the_reader_stopped_carries_the_mark_of_it() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        let mut state = engine.state.lock().unwrap();
+        add_message(&mut state, "You", "the question");
+        state.push_message("Assistant", "the answer, cut short", "", 0, false);
+        // A whole answer carries no mark of a stop, and none is added to the chat
+        // for a stop that never happened.
+        assert!(!state.chat().unwrap().messages[1].stopped);
+        state.mark_last_answer_stopped();
+        let chat = state.chat().unwrap();
+        assert!(chat.messages[1].stopped);
+        assert_eq!(chat.messages.len(), 2);
+        // A note is not an answer, so the mark does not move on to one.
+        state.push_note("a word of the program", false);
+        state.mark_last_answer_stopped();
+        let chat = state.chat().unwrap();
+        assert!(!chat.messages[2].stopped);
+        assert!(chat.messages[1].stopped);
     }
 
     // ------------------------------------------------------------ compaction

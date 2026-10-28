@@ -113,6 +113,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // tool was for, and this tells the page that the writing of it was
                 // stopped rather than the running of it failed.
                 "cancelled": m.cancelled,
+                // An answer of the model that the reader stopped. The button that
+                // goes on with the answer stands under such a message.
+                "stopped": m.stopped,
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is
@@ -616,6 +619,19 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         // on the heading of a summarisation that was never written.
         "/api/handoff" | "handoff" => {
             engine.restart_handoff();
+            done()
+        }
+        // Take one message out of the chat, and with it every message after it.
+        // The mark of it stands under a message of the reader and under an answer
+        // of the model.
+        "/api/delete_message" | "delete_message" => {
+            engine.delete_message(text_field(&value, "id"));
+            done()
+        }
+        // Go on with an answer the reader stopped. The mark of it stands under the
+        // answer that was stopped, and under nothing else.
+        "/api/continue_message" | "continue_message" => {
+            engine.continue_message(text_field(&value, "id"));
             done()
         }
         "/api/code" | "code" => {
