@@ -461,7 +461,7 @@ pub fn clean_summary(text: &str) -> String {
 // that it is there to go on with the work and not to begin it again.
 pub fn handoff_block(summary: &str) -> String {
     format!(
-        "[The session was compacted. The messages between the first user message and this point were removed, so that the conversation could continue inside the context window of the model. The text below is a handoff summary written by an AI at that point, so that the session can continue. Read it as the state the session was in, and continue the work from it. Do not greet the user, do not repeat this summary, and do not start the work again.]\n\n{}",
+        "{HANDOFF_HEAD} The messages between the first user message and this point were removed, so that the conversation could continue inside the context window of the model. The text below is a handoff summary written by an AI at that point, so that the session can continue. Read it as the state the session was in, and continue the work from it. Do not greet the user, do not repeat this summary, and do not start the work again.]\n\n{}",
         summary
     )
 }
@@ -696,14 +696,60 @@ fn go_on_words(state: &State, carried: &str) -> Value {
 }
 
 // True when the newest thing of a chat is a summarisation, which is to say
-// there is nothing new to write a summary of.
+// there is nothing new to write a summary of. A note is looked past, for notes
+// come and go with the turns. A turn of the model that left no row of itself is
+// looked past as well: the window drew nothing of it, and a chat that is still
+// past the limit because of the words before the summarisation would else be
+// told it has room to spare and stand still for ever. The thinking of a turn is
+// a thing that was said, for the reader reads it in the panel of the thought.
 fn ends_on_summary(chat: &Chat) -> bool {
     chat.messages
         .iter()
         .rev()
-        .find(|message| message.role != "Note")
+        .find(|message| {
+            message.role != "Note"
+                && !(message.role == "Assistant"
+                    && message.body.trim().is_empty()
+                    && message.reasoning.trim().is_empty())
+        })
         .map(|message| message.role == "Summary" && !message.body.trim().is_empty())
         .unwrap_or(false)
+}
+
+// A turn of the model that left nothing of itself behind: no words, no thinking,
+// and no call of a tool. The server writes the mark of an empty turn for it, so
+// the words of such a turn go back as a saying of the model with nothing after
+// them, and the next ask is then put to go on where the model left off. A model
+// answers that with the mark of an empty turn again, which is the whole of the
+// exchange the reader saw: seventeen tokens of an overfull chat, of which two
+// were words, ending on the empty turn. The thinking of a turn counts as a thing
+// said, for the panel of the thought shows it and the template may keep it.
+fn said_nothing_at_all(turn: &Value) -> bool {
+    turn.get("role").and_then(|r| r.as_str()) == Some("assistant")
+        && turn.get("tool_calls").is_none()
+        && said_no_words(turn.get("content").unwrap_or(&Value::Null))
+        && said_no_words(turn.get("reasoning_content").unwrap_or(&Value::Null))
+}
+
+// Whether the words of one message say nothing at all. A message of parts rather
+// than words says something, for its parts are its words and its pictures.
+fn said_no_words(said: &Value) -> bool {
+    said.is_null()
+        || said
+            .as_str()
+            .map(|text| text.trim().is_empty())
+            .unwrap_or(false)
+}
+
+// Whether the talk that goes out ends on a saying of the model with nothing
+// after it. A turn of the model is the answer of the ask that went out before
+// it, so no turn of the reader stands behind it and the next ask would go out on
+// an empty turn alone. Only a talk that has grown past one message has an empty
+// turn of its own to answer.
+fn ends_on_an_empty_turn(history: &Value) -> bool {
+    history
+        .as_array()
+        .is_some_and(|items| items.len() > 1 && said_nothing_at_all(&items[items.len() - 1]))
 }
 
 // The chapters of one chat, in the order they were marked. A note is not a
@@ -925,6 +971,12 @@ pub struct State {
     // talk again -- and a meter that only climbs would stand still for the whole
     // of the answer that followed, for ever after.
     pub ctx_fresh: bool,
+    // The room the words of the summary ask took, kept while that ask runs. The
+    // limit of the summarisation is weighed on the room the model has grown on
+    // top of these words, and not on the words themselves, which stand past the
+    // limit from the first piece of a talk that is being summarised. Nought says
+    // no such ask is on its way.
+    pub summary_room: u64,
     // The moment last handed to a chat that was opened. Two chats opened inside
     // one second are told apart by it, so the one opened last stands at the head
     // of its group none the less.
@@ -2169,6 +2221,7 @@ impl Engine {
             ctx_total: 0,
             ctx_used: 0,
             ctx_fresh: false,
+            summary_room: 0,
             last_opened: 0,
             sandbox_available,
             sandbox_note,
@@ -3420,6 +3473,13 @@ pub fn words_only(items: &mut Vec<Value>) {
                 }
             }
         }
+        if said_nothing_at_all(item) {
+            // A turn of the model with nothing in it is the mark of an empty turn,
+            // and the summary ask is better off without it: the server is then put
+            // to go on with an empty turn instead of writing the summary. The turn
+            // says nothing, so nothing of the talk is lost by the leaving out.
+            continue;
+        }
         // A message of the reader may carry pictures among its words.
         let mut gone = item.clone();
         if let Some(parts) = gone.get("content").and_then(|c| c.as_array()).cloned() {
@@ -3475,6 +3535,51 @@ pub const SUMMARY_PROMPT_WORDS: &str = "Write the handoff summary of the session
 // at all. Nothing of these words is written into the chat, for the reader never
 // wrote them.
 pub const CUT_CONTINUE_WORDS: &str = "The space above was written by the program, and the call it tells of never ran. Do not answer it and do not write it again. Go on with the work from the point it reached before that call, and write the call only when the work still needs it and in parts small enough for the space you have.";
+
+// The words put after a turn of the model that left nothing of itself behind, when
+// that turn is the last thing of the talk. The turn goes back to the server as a
+// saying of the model with nothing after it, which is a thing to go on with rather
+// than a thing to answer, and a model whose template writes the mark of an empty
+// turn answers it with the mark of an empty turn again. The log of one such
+// exchange holds seventeen tokens, of which two are words, and the empty turn
+// stands at the end of it. These words go out behind the turn so that the ask ends
+// on a question, and the model has something to answer. They are never written
+// into the chat, for the reader never wrote them.
+pub const EMPTY_TURN_WORDS: &str = "You wrote nothing above and the program ran nothing, so there is nothing there to answer or to go on with. Go on with the work now: say in words what you have, or call a tool from the list you are given when the work needs one. Do not write an empty turn. Write a call in parts small enough for the space you have.";
+
+// The word a talk that ends on a turn of the model with nothing in it is asked
+// with. A mark of a summarisation stands behind such a turn when the room was made
+// after it, and the handoff block of that mark tells the model to go on with the
+// work, so no second word is put behind the turn: it would say the same thing
+// twice, and the room the summarisation made is the room this ask is to be written
+// in.
+pub fn empty_turn_words(history: &Value) -> Option<String> {
+    if ends_on_summary_mark(history) || !ends_on_an_empty_turn(history) {
+        return None;
+    }
+    Some(String::from(EMPTY_TURN_WORDS))
+}
+
+// Whether the handoff block of a summarisation stands at the end of the talk that
+// goes out, which is the case after the room was made: the mark carries its block
+// in the history itself, and the words before the mark are left out. A turn of the
+// model that came back empty stands in front of that block, so the block is the
+// word that already tells the model to go on.
+//
+// A chat that was never summarised, and a chat whose newest summarisation was
+// never written, send no block of theirs at all, so neither is taken for one.
+fn ends_on_summary_mark(history: &Value) -> bool {
+    history
+        .as_array()
+        .and_then(|items| items.last())
+        .and_then(|last| last.get("content"))
+        .and_then(|c| c.as_str())
+        .is_some_and(|said| said.starts_with(HANDOFF_HEAD))
+}
+
+// The first words of the handoff block, looked for whole and only at the front of
+// the words that go out, so no other saying is taken for a summarisation.
+const HANDOFF_HEAD: &str = "[The session was compacted.";
 
 // The word a talk that ends on the telling of a cut call is asked with. The talk
 // is read as it stands, so the telling is the last thing of it whenever a call was
@@ -3567,6 +3672,9 @@ impl Drop for SummaryWriting {
     fn drop(&mut self) {
         if let Ok(mut guard) = self.state.lock() {
             guard.summarising = false;
+            // No summary ask is on its way from here, so nothing is left to weigh
+            // the room of one against.
+            guard.summary_room = 0;
             guard.touch();
         }
     }
@@ -3581,6 +3689,36 @@ fn summary_too_long(shot: &SummaryShot) -> bool {
     shot.error.is_none() && !shot.stopped && shot.finish == "length"
 }
 
+// The least the room a summary ask stands on has to grow over the words it was
+// sent with before the hand of the program is put up over it. The server gives
+// the room of the words it was sent, and the words of the model stand on top of
+// them; a few words of shiver between the two numbers are no summary running
+// away from its room.
+const LEAST_SUMMARY_GROWTH: u64 = 64;
+
+// The most a step of one answer that left nothing of itself behind is followed by
+// another ask. The first ask carries the word that says an empty turn is not an
+// answer; a model that answers that with nothing again is given one more turn, and
+// after it the reader is told. A model with nothing to give is not out-asked, and
+// every ask of the kind costs the room the summarisation just made.
+const EMPTY_TURN_ROOF: usize = 2;
+
+// The word the reader is given when the model gave no answer twice over and the
+// program can do no more about it. What the reader has to do is told in the same
+// words every time: send the message again, or ask for less at a time. One row of
+// them stands in the chat as well, for the chat ends on a turn with nothing in it
+// and the reader is to know why nothing was asked after it.
+const EMPTY_TURN_END_WORDS: &str = "The model gave no answer twice over, so the answer ends here. Send the message again, or ask for the work in parts small enough for the context";
+
+// The word the reader is given when the writing was stopped at the limit of the
+// summarisation over a turn that left nothing of itself behind. The model wrote
+// neither words nor a call, so the room that a summarisation makes would be spent
+// on the words before the turn and on the turn of nothing with them, and the ask
+// that followed would be put to go on with nothing again. The answer is ended
+// where it stands, and the reader is told what to do: the same thing as above, but
+// of one turn and not of two.
+const EMPTY_TURN_CUT_WORDS: &str = "The space gave out while the model wrote neither words nor a call, so the answer ends here. Send the message again, or ask for the work in parts small enough for the context";
+
 // Say a word to the reader about the summary, from outside the lock.
 fn tell(state: &Arc<Mutex<State>>, words: &str) {
     if let Ok(mut guard) = state.lock() {
@@ -3590,7 +3728,15 @@ fn tell(state: &Arc<Mutex<State>>, words: &str) {
 }
 
 // Ask the server for a handoff summary once, with the words the model is to be
-// given, and gather what it writes.
+// given, and gather what it writes. The hand of the program is put up beside the
+// hand of the reader, and let go again at once. The ask carries the whole of the
+// talk, so it stands past the limit of the summarisation from its first piece,
+// and the limit is not a thing to stop a summary at: a hand left up would cut the
+// summary off before a word of it came. What the hand is there for is the ask
+// that runs the other way, when the room of the talk grows past the limit while
+// the model writes. Such an ask is ended where it stands instead of being let
+// fill the window: the words it gave stand, and a summary of a chat that filled
+// the window is a wall of words the reader is left with in the place of a room.
 //
 // None of it is shown. The words of a summary are not a saying of the model to
 // the reader: they are read by the next model, and a wall of words laid over the
@@ -3627,10 +3773,14 @@ fn ask_summary(
         guard.live_thought_ms = 0;
         guard.live_thought_done = false;
     }
-    // A summary is asked for with no hand from the program over it: it is the
-    // making of the room and not the spending of it, and to stop a summary at the
-    // limit would be to cut off the very words the limit was come to.
-    let no_cut = std::sync::atomic::AtomicBool::new(false);
+    // The hand of the program, put up by the piece of the answer that speaks of a
+    // talk grown past the limit of the summarisation, and let go again at once by
+    // the hand for the numbers of the talk below. The ask ends there, and nothing
+    // of the summary is lost, for the words of it stand in what is given back.
+    // A summary asked of a chat that is never stopped writes a wall of words over
+    // the whole window, and the next ask for a summary is then made of that wall.
+    let room_cut = std::sync::atomic::AtomicBool::new(false);
+    let cut_flag = &room_cut;
     // The words of the summary are gathered here, out of the sight of the window.
     let mut said = String::new();
     let gauge_state = state.clone();
@@ -3639,7 +3789,7 @@ fn ask_summary(
         base_url,
         body,
         cancel,
-        &no_cut,
+        cut_flag,
         &mut |piece: &str| {
             said.push_str(piece);
             // The first word is here, so the words that were sent are worked
@@ -3675,6 +3825,22 @@ fn ask_summary(
             if let Ok(mut guard) = context_state.lock() {
                 if climb_context_paced(&mut guard, made.used(), Instant::now()) {
                     guard.touch();
+                }
+                // A summary is the making of the room and not the spending of it,
+                // so the limit is not come to on the words that were sent: a chat
+                // that is being summarised stands past the limit before a word of
+                // the summary comes, and a hand left to the plain limit would cut
+                // the summary off before it began. The room is looked at all the
+                // same, for the server speaks it on every piece, and only a room
+                // that grew over the words of the ask while the model wrote puts
+                // the hand up. That is a summary running past its room, which is
+                // ended where it stands: the words of it stand in what is given
+                // back, the room is made by them, and the answer that came to the
+                // limit goes on behind the summarisation. Left to run, it writes a
+                // wall of words over the whole window, and the reader is left with
+                // a summary of that wall and no answer at all.
+                if made.used().saturating_sub(guard.summary_room) > LEAST_SUMMARY_GROWTH {
+                    room_cut.store(true, Ordering::Relaxed);
                 }
             }
         },
@@ -3789,6 +3955,14 @@ fn run_handoff(
     }
 
     let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
+    // The room the words of the ask take stands against the room the server speaks
+    // of on every piece, so that only a summary that grows over its own words is
+    // stopped at the limit. The number the server gave for the last ask is the
+    // nearest thing to hand, and the meter of the talk is read again from the
+    // words that go out when the ask is over.
+    if let Ok(mut guard) = state.lock() {
+        guard.summary_room = guard.ctx_used;
+    }
     // The talk as it stands, with the ask for the summary after it. No tool is
     // offered: a summary is words, and a model that asked for a command in the
     // middle of writing one would spend the room it was given on it.
@@ -4419,6 +4593,11 @@ fn run_turn(
     // an answer whose writing was stopped at the limit goes on with the telling of
     // the call it was stopped at at the end of the talk: see `CUT_CONTINUE_WORDS`.
     let mut carried: Option<String> = None;
+    // How many asks of this answer went out on a turn of the model with nothing in
+    // it. A model with nothing left to give answers the word of the program with
+    // nothing again, and a third ask of the same kind can give nothing back either.
+    // The count is kept so that the reader is told instead of watched.
+    let mut empty_asks = 0usize;
 
     let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
     // The two rooms of the Chatting settings, read once for this answer. None
@@ -4445,25 +4624,39 @@ fn run_turn(
     // The hand is put up by the piece of the answer that speaks of a talk past the
     // limit, and looked at by the stream after every piece.
     let mut cuts = 0usize;
-    let room_cut = Arc::new(AtomicBool::new(false));
+    let limit_cut = Arc::new(AtomicBool::new(false));
     let outcome = loop {
         steps += 1;
         // The hand is let go again for every step: the step that is going to come
         // now is to be written out, unless the talk comes to the limit again under
         // it.
-        room_cut.store(false, Ordering::Relaxed);
-        let cut_flag = room_cut.clone();
+        limit_cut.store(false, Ordering::Relaxed);
+        let cut_flag = limit_cut.clone();
         // The word this step is asked with. A turn that only goes on with the work
         // after a handoff summary of the chat box is asked with the word that names
         // the call the talk ends on, and an answer that was stopped at the limit and
         // went on after the room was made is asked with the word that names the
         // telling of the call it was stopped at. Both stand for a call the server
         // would else owe an answer to.
-        let carried_prompt: &str = match &carried {
-            Some(word) => word.as_str(),
-            None if going_on => CONTINUE_PROMPT,
-            None => "",
+        let mut carried_prompt: String = match &carried {
+            Some(word) => word.clone(),
+            None if going_on => String::from(CONTINUE_PROMPT),
+            None => String::new(),
         };
+        // The step before this one may have left a turn of the model with nothing in
+        // it, which stands in the chat by now and ends the talk as it goes out. The
+        // server is then put to go on where the model left off, and the model leaves
+        // the turn empty again; a word of the program behind the turn makes the ask
+        // a question instead. It is looked for in the talk of every step, for the
+        // first step of an answer carries no word of its own.
+        if carried_prompt.is_empty() {
+            let Ok(guard) = state.lock() else { return Ended::Halted };
+            if let Some(word) = empty_turn_words(&guard.build_history()) {
+                carried_prompt = word;
+                empty_asks += 1;
+            }
+        }
+        let carried_prompt: &str = carried_prompt.as_str();
         let (history, code_on, search_on, chapters_on) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
@@ -4559,7 +4752,7 @@ fn run_turn(
             &base_url,
             &body,
             cancel,
-            &room_cut,
+            &limit_cut,
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
                     guard.live_text.push_str(piece);
@@ -4789,6 +4982,27 @@ fn run_turn(
                 chat.meta.context_used = used_now;
                 chat.meta.updated = store::now_secs();
             }
+            // A step stopped over a turn of nothing is the fault of the reader's
+            // log: the room was come to while the model wrote neither words nor a
+            // call. The answer is ended where it stands and the reader is told, for
+            // the answer is not to be gone on with. The words a summarisation stands
+            // for are the words before the turn, and the turn of nothing goes with
+            // them, for the words before a summarisation go back to the model no
+            // more. The ask that followed a room made here would end on the mark of
+            // the summarisation, and a model with nothing to give answers that with
+            // the mark of an empty turn again, which is the chat the reader saw: no
+            // answer, and a room spent. The row of the turn of nothing is written as
+            // ever, and the word about the space that gave out stands after it. The
+            // room of the overfull chat is still made after the send, as it is for
+            // every chat past the limit.
+            if cut.is_empty() && answer_text.trim().is_empty() && answer_thinking.trim().is_empty() {
+                guard.push_message("Assistant", "", &thoughts, thought_ms, false);
+                guard.push_note(EMPTY_TURN_CUT_WORDS, false);
+                guard.persist();
+                guard.generating = false;
+                guard.set_status(EMPTY_TURN_CUT_WORDS);
+                break Ended::Halted;
+            }
             // The reader is told before the room is made, for the making of it puts
             // the heading of a summarisation in the chat and the two belong one
             // under the other.
@@ -4936,6 +5150,16 @@ fn run_turn(
         let asked_for_tool =
             use_tools && (!step_runs.is_empty() || !step_marks.is_empty());
         let no_words = answer_text.trim().is_empty();
+        // A turn of nothing is a step that wrote no words, wrote no thinking, and
+        // asked for no command of a tool. A step that asked for a command wrote an
+        // answer of its own, and the block of the run stands in the chat for it. A
+        // step that was stopped at the limit of the summarisation over such a turn
+        // is ended where it stands, above.
+        let turn_of_nothing =
+            !asked_for_tool && no_words && answer_thinking.trim().is_empty();
+        // A ceiling of nothing is the same as no ceiling at all, so an answer
+        // with an empty room for commands still ends on the turn that asked.
+        let no_room_left = answer_room.is_some_and(|room| steps >= room);
         // The calls the reader stopped with their own hand while the model was
         // still writing them. A mark of a chapter is not one of them: it runs
         // nothing, the reader is never shown a block of it, and a block for it
@@ -4981,12 +5205,22 @@ fn run_turn(
             // The model used tokens but left nothing to read, and asked for no
             // command. This happens when the context ran full.
             Kept::Note => {
-                let note = if answer.finish == "length" {
-                    String::from("(the context was full before the model could answer)")
+                if turn_of_nothing && !no_room_left {
+                    // The row of the turn stands with nothing in it, as the
+                    // template of the model writes an empty turn. The line about a
+                    // turn with no answer is not put in its place: the answer is
+                    // asked on below out of the talk as it stands, and the talk has
+                    // to end on the mark of the empty turn for the word of the
+                    // program to go out behind it. See `empty_turn_words`.
+                    guard.push_message("Assistant", "", &answer_thinking, thought_ms, false)
                 } else {
-                    String::from("(the model gave no answer)")
-                };
-                guard.push_message("Assistant", &note, &answer_thinking, thought_ms, false);
+                    let note = if answer.finish == "length" {
+                        String::from("(the context was full before the model could answer)")
+                    } else {
+                        String::from("(the model gave no answer)")
+                    };
+                    guard.push_message("Assistant", &note, &answer_thinking, thought_ms, false);
+                }
             }
             Kept::Nothing => {}
         }
@@ -5028,9 +5262,80 @@ fn run_turn(
         // in the old sense, so the answer goes on to the next part of the talk.
         let finished = answer.stopped || answer.error.is_some();
         let nothing_left = step_marks.is_empty() && step_runs.is_empty();
-        // A ceiling of nothing is the same as no ceiling at all, so an answer
-        // with an empty room for commands still ends on the turn that asked.
-        let no_room_left = answer_room.is_some_and(|room| steps >= room);
+        // A step that left a turn of the model with nothing in it, and asked for
+        // nothing, would end the answer on that turn. The ask that goes out behind
+        // it is then put to go on where the model left off, and the model leaves the
+        // turn empty again: this is the loop the reader met, in which every fresh
+        // send of a chat ends under "(the model gave no answer)" without a word.
+        // The answer is therefore asked on here, out of the talk as it stands, with
+        // the word of the program behind the empty turn. The room is come to first,
+        // for the empty turn stands on a talk that may well be past the limit, and
+        // the words before a summarisation go back to the model no more. A room
+        // made after a turn of nothing is spent on nothing, for the turn of nothing
+        // goes with the words the summary stands for: the reader is told at once
+        // when no word of the program is left to put behind the turn. An answer with
+        // no tools offered is not gone on with here, for the tools are what the
+        // model is asked to fall back on, and an answer of plain words comes to its
+        // end as it always did.
+        if !finished && nothing_left && !no_room_left && use_tools && turn_of_nothing {
+            // The word of the program goes out behind the turn, so the ask ends on
+            // a question and not on the empty turn itself. It is looked for out of
+            // the talk as it stands, for a chat whose room was just made carries
+            // the mark of the summarisation after the turn and needs no second word.
+            let word = empty_turn_words(&guard.build_history());
+            if word.is_some() {
+                empty_asks += 1;
+            }
+            // A turn of nothing that no word of the program follows is the mark of
+            // an empty turn at the end of the talk, which is what the server of the
+            // reader's log answered with nothing again. The reader is told, and the
+            // room is not made and spent for a third ask of the same shape. The
+            // words stand in the chat as well as under the top bar, for the chat
+            // ends on a turn with nothing in it and the reader is to know why
+            // nothing was asked after it.
+            if word.is_none() || empty_asks >= EMPTY_TURN_ROOF {
+                guard.push_note(EMPTY_TURN_END_WORDS, false);
+                guard.persist();
+                guard.generating = false;
+                guard.set_status(EMPTY_TURN_END_WORDS);
+                break Ended::Halted;
+            }
+            let room_wanted =
+                config::compaction_wanted(&guard.cfg, guard.ctx_used, guard.ctx_total);
+            guard.generating = true;
+            guard.set_status("The model gave no answer, so it is asked again");
+            drop(guard);
+            // The room is made after the row of the turn of nothing stands in the
+            // chat, so the heading of the summarisation goes under it and not over
+            // it, and the model is asked on with the word of the program behind the
+            // turn.
+            if room_wanted {
+                let made_room = make_room(state, server, cancel);
+                let Ok(held) = state.lock() else { return Ended::Halted };
+                if !made_room || held.handoff_owed() {
+                    let mut held = held;
+                    held.generating = false;
+                    held.set_status(
+                        "The handoff summary was not written. Start it again from the summarisation timeline",
+                    );
+                    return Ended::Halted;
+                }
+            }
+            let Ok(mut held) = state.lock() else { return Ended::Halted };
+            // The room the next ask stands on is the room of the talk as it stands,
+            // and not the room the empty ask took, which is the room of a talk that
+            // grew while the model wrote nothing. The meter is read anew as well,
+            // for the turn of nothing and the summarisation moved the talk about.
+            held.ctx_used = estimate_tokens(&held.build_history());
+            held.ctx_fresh = true;
+            // The word of the program rides on the ask alone, and is taken afresh
+            // after the room was made: the mark of the summarisation may stand in
+            // front of the turn by now and says the same thing already, and then no
+            // word goes out.
+            carried = empty_turn_words(&held.build_history());
+            drop(held);
+            continue;
+        }
         if finished || !use_tools || nothing_left || no_room_left {
             guard.generating = false;
             let text = if answer.stopped {
@@ -7124,6 +7429,126 @@ mod tests {
         let marks = state.handoffs();
         assert_eq!(marks[1].state, "done");
         assert_eq!(marks[1].before, 7000);
+    }
+
+    // A model that answered a summarisation with a turn of no words and no thinking
+    // leaves the reader no row of it, and fills none of the room the summarisation
+    // made. The chat is then still past the limit, and it must not be told it has
+    // room to spare: the newest thing that was really said is the summarisation, and
+    // the room is made again rather than the chat left standing still. A turn with
+    // words of its own, or with thinking, is a new thing that is worth a summary.
+    #[test]
+    fn a_turn_of_nothing_after_a_summarisation_is_not_a_thing_said() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        let mark = state.begin_summary();
+        state.finish_summary(&mark, "Done: the parser. Next: the bar.", 6964, 412, "");
+        assert!(ends_on_summary(state.chat().expect("a chat stands open")));
+        // The empty turn of the model: no words, no thinking, and no run.
+        state.push_message("Assistant", "", "", 0, false);
+        assert!(
+            ends_on_summary(state.chat().expect("a chat stands open")),
+            "a turn of nothing is not a thing said, so the room is still to be made"
+        );
+        // A note, which the window shows between the turns, is looked past as ever.
+        state.push_note("a note of the program", false);
+        assert!(ends_on_summary(state.chat().expect("a chat stands open")));
+        // The thinking of a turn is a thing that was said, for the reader reads it
+        // in the panel of the thought, and the next model is told to read it too.
+        state.push_message("Assistant", "", "the thinking of the turn", 0, false);
+        assert!(
+            !ends_on_summary(state.chat().expect("a chat stands open")),
+            "the thinking of a turn is a thing said"
+        );
+        state.push_message("Assistant", "the answer at last", "", 0, false);
+        assert!(
+            !ends_on_summary(state.chat().expect("a chat stands open")),
+            "words of the model are new words to summarise"
+        );
+    }
+
+    // The talk of a step that wrote no words and asked for nothing ends on a saying
+    // of the model with nothing after it. The server is then put to go on where the
+    // model left off, and a model whose template writes the mark of an empty turn
+    // answers that with the mark of an empty turn again: the log of one such exchange
+    // holds seventeen tokens, two of them words, and the empty turn at the end of it.
+    // A word of the program therefore goes out behind the empty turn, on the ask
+    // alone, and never into the chat.
+    #[test]
+    fn an_empty_turn_of_the_model_is_asked_on_with_a_word_of_the_program() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        // A turn with words of its own is not an empty turn, and neither is the
+        // receipt of a run, which is a word of the tool and not of the model.
+        assert!(!ends_on_an_empty_turn(&state.build_history()));
+        state.push_message("Assistant", "", "", 0, false);
+        let history = state.build_history();
+        assert!(ends_on_an_empty_turn(&history));
+        assert_eq!(
+            empty_turn_words(&history).as_deref(),
+            Some(EMPTY_TURN_WORDS),
+            "the ask must not go out on an empty turn alone"
+        );
+        // The word of the program rides on the ask and is never written into the
+        // chat, for the reader never wrote it and has nothing to read where it
+        // stands.
+        let asked = undated(&go_on_words(&state, EMPTY_TURN_WORDS));
+        let last = asked.last().expect("the ask is not empty");
+        assert_eq!(last["role"], json!("user"));
+        assert_eq!(last["content"].as_str().expect("words"), EMPTY_TURN_WORDS);
+        assert!(
+            !json!(undated(&state.build_history()))
+                .to_string()
+                .contains(EMPTY_TURN_WORDS),
+            "the word of the program came to the window"
+        );
+        // The thinking of a turn is a thing the model said, and it rides with the
+        // turn when the chat keeps the thinking on a model whose template may keep
+        // it, so nothing is put after such a turn.
+        state.thinking.has_preserve = true;
+        if let Some(chat) = state.chat_mut() {
+            chat.meta.preserve_thinking = true;
+        }
+        state.push_message("Assistant", "", "the thinking of the turn", 0, false);
+        assert!(empty_turn_words(&state.build_history()).is_none());
+        state.push_message("Assistant", "the answer at last", "", 0, false);
+        assert!(!ends_on_an_empty_turn(&state.build_history()));
+    }
+
+    // The room was made after the empty turn, so the handoff block of the mark
+    // stands behind it and already tells the model to go on with the work. A second
+    // word of the same kind would say the thing twice, and would spend the room the
+    // summarisation made for the ask that follows it.
+    #[test]
+    fn an_empty_turn_before_a_summarisation_needs_no_second_word() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        // The empty turn, and the room made after it.
+        state.push_message("Assistant", "", "", 0, false);
+        assert!(empty_turn_words(&state.build_history()).is_some());
+        let mark = state.begin_summary();
+        state.finish_summary(&mark, "Done: the parser. Next: the bar.", 6964, 412, "");
+        let history = state.build_history();
+        assert!(
+            ends_on_summary_mark(&history),
+            "the handoff block must stand at the end of the talk that goes out"
+        );
+        assert!(
+            empty_turn_words(&history).is_none(),
+            "the handoff block already asks the model to go on"
+        );
     }
 
     // A summarisation that was never written is started again in the place it
