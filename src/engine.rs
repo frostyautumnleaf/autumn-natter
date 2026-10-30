@@ -795,6 +795,10 @@ pub struct Snap {
     pub summarising: bool,
     pub busy: bool,
     pub code_enabled: bool,
+    // Which of the tools of the program the model may reach in the open chat.
+    // The badge of the tools is the switch over all of them; these are the lines
+    // of its drop-down.
+    pub tool_switches: store::ToolSwitches,
     // The switch of the web search of the open chat.
     pub search_enabled: bool,
     pub sandbox_enabled: bool,
@@ -985,6 +989,9 @@ pub struct State {
     // The chat settings a new chat starts with. They matter while no chat is
     // open, where a badge has no chat to change.
     pub new_code: bool,
+    // The lines of the drop-down of the badge of the tools that the next chat
+    // opens with, as the choice of them in this chat leaves them.
+    pub new_tools: store::ToolSwitches,
     pub new_search: bool,
     pub new_sandbox: bool,
     // What a command of the next chat may reach. A new chat takes the choices of
@@ -1896,6 +1903,7 @@ impl State {
         chat.meta.sandbox_pip = self.new_sandbox_access.pip;
         chat.meta.sandbox_fetch = self.new_sandbox_access.fetch;
         chat.meta.code_enabled = self.new_code;
+        chat.meta.tools = self.new_tools.clone();
         chat.meta.search_enabled = self.new_search;
         chat.meta.thinking_mode = self.new_thinking.clone();
         chat.meta.preserve_thinking = self.new_preserve;
@@ -2132,6 +2140,9 @@ impl State {
             summarising: self.summarising,
             busy: self.busy,
             code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(self.new_code),
+            tool_switches: chat
+                .map(|c| c.meta.tools.clone())
+                .unwrap_or_else(|| self.new_tools.clone()),
             search_enabled: chat
                 .map(|c| c.meta.search_enabled)
                 .unwrap_or(self.new_search),
@@ -2352,6 +2363,7 @@ impl Engine {
             rev: 0,
             structure_rev: 0,
             new_code: false,
+            new_tools: store::ToolSwitches::default(),
             new_search: false,
             new_sandbox: true,
             // Every part of what a command may reach stands off for a new set of
@@ -2514,6 +2526,34 @@ impl Engine {
         } else {
             "The tools of the program are off"
         });
+    }
+
+    // One line of the drop-down of the badge of the tools. The badge itself is
+    // the switch over all of them, so a tool that is switched on here is offered
+    // only while the badge stands on; turning this line off takes the tool out of
+    // the chat even when the badge is on. The same choice opens the next chat.
+    pub fn set_tool_switch(&self, part: &str, on: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if let Some(chat) = state.chat_mut() {
+            if !chat.meta.tools.set(part, on) {
+                return;
+            }
+        }
+        // The same choice opens the next chat too, whatever stands open now, as
+        // with the badge of the tools itself.
+        if !state.new_tools.set(part, on) {
+            return;
+        }
+        state.persist();
+        let word = tool_group_word(part);
+        let words = if on {
+            format!("The model may use {} again", word)
+        } else {
+            format!("{} are off", word)
+        };
+        state.set_status(&words);
     }
 
     // The web search of the open chat. It stands on a switch of its own and not
@@ -3488,6 +3528,7 @@ impl Snap {
             generating: false,
             busy: false,
             code_enabled: false,
+            tool_switches: store::ToolSwitches::default(),
             search_enabled: false,
             sandbox_enabled: true,
             sandbox_available: false,
@@ -4935,7 +4976,7 @@ fn run_turn(
             None if going_on => CONTINUE_PROMPT,
             None => "",
         };
-        let (history, code_on, search_on, chapters_on) = {
+        let (history, code_on, search_on, chapters_on, switches) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 go_on_words(&guard, carried_prompt),
@@ -4945,6 +4986,10 @@ fn run_turn(
                     .map(|c| c.meta.search_enabled)
                     .unwrap_or(false),
                 guard.cfg.chat_chapters,
+                guard
+                    .chat()
+                    .map(|c| c.meta.tools.clone())
+                    .unwrap_or_default(),
             )
         };
         // The tools of the servers of the reader's own. A server whose tools
@@ -4993,7 +5038,7 @@ fn run_turn(
             "timings_per_token": true,
         });
         if use_tools {
-            if let Some(list) = offered(code_on, search_on, chapters_on, access, &mcp_tools) {
+            if let Some(list) = offered(code_on, search_on, chapters_on, access, &mcp_tools, &switches) {
                 body["tools"] = list;
                 body["tool_choice"] = json!("auto");
             }
@@ -5598,6 +5643,22 @@ fn run_turn(
             // The other tools work in the room of the chat in the program
             // itself, and the setting that holds the room speaks of commands.
             let terminal = call.name == tools::TOOL_NAME;
+            // A tool the reader took out of the drop-down of the badge is never
+            // offered, but a model that names it anyway is answered rather than
+            // run: the badge of the tools is the door over all of them, and a
+            // call of the model cannot open it.
+            if !tool_allowed(state, &call.name) {
+                let Ok(mut guard) = state.lock() else {
+                    continue;
+                };
+                let note = format!(
+                    "{} are switched off for this chat, so nothing ran",
+                    tool_group_word(group_of(&call.name).unwrap_or("tools"))
+                );
+                let id = guard.begin_tool(call, &note, "", 0);
+                guard.finish_tool(&id, &note, false);
+                continue;
+            }
             // The room for commands is spent. The call is still answered, so
             // the model hears why and can go on with its talk instead of
             // asking again for a command that never runs.
@@ -5649,22 +5710,70 @@ fn is_writing(call: &ToolCall) -> bool {
 // switch of its own as well, for it runs nothing.
 // `access` is what the chat lets a command reach, so the words of the terminal
 // tool tell the model what it really has.
+// The line of the drop-down of the badge of the tools that a tool of the program
+// stands under. A tool outside the badge - the mark of a chapter, and every tool
+// of a server of the reader's own - gives nothing back, for the badge holds no
+// switch over it.
+fn group_of(name: &str) -> Option<&'static str> {
+    match name {
+        tools::TOOL_NAME => Some("commands"),
+        editfile::EDIT_NAME | editfile::CREATE_NAME => Some("files"),
+        viewimage::NAME => Some("picture"),
+        _ => None,
+    }
+}
+
+// True when the open chat lets a call of this name through. The badge of the
+// tools is read where the tools are offered; this is the same rule laid over the
+// call itself, for a model can name a tool it was never offered.
+fn tool_allowed(state: &Arc<Mutex<State>>, name: &str) -> bool {
+    let Some(part) = group_of(name) else { return true };
+    let Ok(guard) = state.lock() else { return false };
+    guard
+        .chat()
+        .map(|c| c.meta.tools.value_of(part))
+        .unwrap_or(true)
+}
+
+// The words of one line of the drop-down, for the line of the state and for the
+// block of a call that was not let through.
+fn tool_group_word(part: &str) -> String {
+    match part {
+        "commands" => String::from("Terminal commands"),
+        "files" => String::from("File management"),
+        "picture" => String::from("The look at a picture"),
+        "hand_out" => String::from("Handing a file to the reader"),
+        "ask" => String::from("Asking the reader"),
+        other => String::from(other),
+    }
+}
+
 fn offered(
     code_on: bool,
     search_on: bool,
     chapters_on: bool,
     access: tools::Access,
     mcp_tools: &[Value],
+    switches: &store::ToolSwitches,
 ) -> Option<Value> {
     if !(code_on || search_on || chapters_on || !mcp_tools.is_empty()) {
         return None;
     }
     let mut list: Vec<Value> = Vec::new();
+    // The badge of the tools is the door over all of them, and the lines of its
+    // drop-down stand behind that door: a tool whose line is off is not offered,
+    // and a badge that is off offers none of them whatever the lines say.
     if code_on {
-        list.push(tools::definition(access));
-        list.push(editfile::edit_definition());
-        list.push(editfile::create_definition());
-        list.push(viewimage::definition());
+        if switches.commands {
+            list.push(tools::definition(access));
+        }
+        if switches.files {
+            list.push(editfile::edit_definition());
+            list.push(editfile::create_definition());
+        }
+        if switches.picture {
+            list.push(viewimage::definition());
+        }
     }
     if search_on {
         list.push(search::definition());
@@ -5675,6 +5784,12 @@ fn offered(
     // The tools of the servers of the reader's own stand last, each under the
     // name of the server it came from.
     list.extend(mcp_tools.iter().cloned());
+    // Nothing was left to offer. A chat with every line of the drop-down of the
+    // badge switched off comes to this, and the call of the model must carry no
+    // tools at all rather than an empty list of them.
+    if list.is_empty() {
+        return None;
+    }
     Some(Value::Array(list))
 }
 
@@ -5962,6 +6077,70 @@ mod tests {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
+    }
+
+    // A line of the drop-down of the badge of the tools takes its kind of tool out
+    // of the chat, and the badge itself takes every one of them out with it. The
+    // choice stands with the chat, and opens the next chat the same way.
+    #[test]
+    fn a_line_of_the_badge_of_the_tools_takes_its_tool_out() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+        }
+        engine.set_code(true);
+        engine.set_tool_switch("files", false);
+        let snap = engine.snapshot();
+        assert!(snap.code_enabled, "the badge stands on");
+        assert!(snap.tool_switches.commands);
+        assert!(!snap.tool_switches.files, "file management is off");
+        assert!(snap.tool_switches.picture);
+        let words = |code_on: bool, switches: &store::ToolSwitches| {
+            offered(code_on, false, false, tools::Access::default(), &[], switches)
+                .map(|list| {
+                    list.as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                        .collect::<Vec<_>>()
+                })
+        };
+        let given = words(true, &engine.snapshot().tool_switches).expect("the badge stands on");
+        assert!(given.contains(&tools::TOOL_NAME.to_string()));
+        assert!(!given.contains(&editfile::EDIT_NAME.to_string()));
+        assert!(!given.contains(&editfile::CREATE_NAME.to_string()));
+        assert!(given.contains(&viewimage::NAME.to_string()));
+        // Every line of the drop-down off, and the badge on: nothing of the
+        // program is offered at all.
+        engine.set_tool_switch("commands", false);
+        engine.set_tool_switch("picture", false);
+        assert!(words(true, &engine.snapshot().tool_switches).is_none());
+        // The badge is the door over all of them: with the badge off, a line that
+        // stands on offers nothing.
+        engine.set_tool_switch("commands", true);
+        engine.set_code(false);
+        assert!(words(false, &engine.snapshot().tool_switches).is_none());
+        // The next chat opens with the same lines, as the reader left them.
+        engine.new_chat();
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+        }
+        let kept = {
+            let state = engine.state.lock().unwrap();
+            state
+                .chat()
+                .expect("a chat stands open")
+                .meta
+                .tools
+                .clone()
+        };
+        assert!(kept.commands, "the line the reader put back on stays on");
+        assert!(!kept.files, "file management is still off");
+        assert!(!kept.picture);
     }
 
     // The reader works in one chat with the tools on and a level of thinking
@@ -7147,14 +7326,14 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Nothing is switched on, so the call carries no tools at all.
-        assert!(offered(false, false, false, tools::Access::default(), &[]).is_none());
+        assert!(offered(false, false, false, tools::Access::default(), &[], &store::ToolSwitches::default()).is_none());
         // The marks alone, which is what a chat with both badges off and the marks
         // on is offered.
-        let marks = offered(false, false, true, tools::Access::default(), &[]).unwrap();
+        let marks = offered(false, false, true, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
         assert_eq!(names(&marks), vec![tools::CHAPTER_TOOL_NAME.to_string()]);
         // The badge on: every tool of the program stands there, and the mark is
         // not among them.
-        let open = offered(true, false, false, tools::Access::default(), &[]).unwrap();
+        let open = offered(true, false, false, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
         let words = names(&open);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&editfile::EDIT_NAME.to_string()));
@@ -7164,10 +7343,10 @@ mod tests {
         assert!(!words.contains(&search::NAME.to_string()));
         // The badge of the web search alone: the search is offered, and none of
         // the tools that can reach the machine is offered with it.
-        let looked = offered(false, true, false, tools::Access::default(), &[]).unwrap();
+        let looked = offered(false, true, false, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
         assert_eq!(names(&looked), vec![search::NAME.to_string()]);
         // Both badges stand open, so both doors are open at once.
-        let both = offered(true, true, false, tools::Access::default(), &[]).unwrap();
+        let both = offered(true, true, false, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
         let words = names(&both);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&search::NAME.to_string()));
@@ -7179,6 +7358,7 @@ mod tests {
             false,
             tools::Access { network: true, pip: true, fetch: true },
             &[],
+            &store::ToolSwitches::default(),
         )
         .unwrap();
         let said = String::from(open[0]["function"]["description"].as_str().unwrap_or(""));
@@ -7219,7 +7399,8 @@ mod tests {
             ..mcp::Tool::default()
         };
         let made = vec![tool.definition(&server)];
-        let list = offered(false, false, false, tools::Access::default(), &made)
+        let list = offered(false, false, false, tools::Access::default(), &made,
+            &store::ToolSwitches::default())
             .expect("a server of the reader's own is a tool");
         let names: Vec<&str> = list
             .as_array()

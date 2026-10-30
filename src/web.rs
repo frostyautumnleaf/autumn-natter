@@ -247,6 +247,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "generating": snap.generating,
         "busy": snap.busy,
         "code": snap.code_enabled,
+        // The lines of the drop-down of the badge of the tools. The badge itself
+        // is the switch over all of them, so a tool that is switched on here is
+        // offered only while the badge stands on.
+        "tool_switches": {
+            "commands": snap.tool_switches.commands,
+            "files": snap.tool_switches.files,
+            "picture": snap.tool_switches.picture,
+            "hand_out": snap.tool_switches.hand_out,
+            "ask": snap.tool_switches.ask,
+        },
         "search": snap.search_enabled,
         "sandbox": snap.sandbox_enabled,
         "sandbox_available": snap.sandbox_available,
@@ -641,6 +651,16 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/code" | "code" => {
             engine.set_code(flag(&value, "on"));
+            done()
+        }
+        // One line of the drop-down of the badge of the tools. The line that was
+        // clicked says which tool it switched, under `part`.
+        "/api/tool_switch" | "tool_switch" => {
+            let part = text_field(&value, "part");
+            if part.is_empty() {
+                return refused("That is not one of the tools of the program");
+            }
+            engine.set_tool_switch(&part, flag(&value, "on"));
             done()
         }
         "/api/search" | "search" => {

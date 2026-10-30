@@ -1547,10 +1547,14 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       <div class="dock-row">
         <div class="badges">
           <div class="b-left">
-            <button class="badge" id="code" title="Let the model use the tools of the program: the terminal tool and the file tools. A command runs in the sandbox when the sandbox is on. The file tools can reach only the working directory of the chat.">
-              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
-              <span id="codetext">Tools</span>
-            </button>
+            <div class="menuwrap" id="codewrap">
+              <button class="badge" id="code" title="Let the model use the tools of the program. The badge is the switch over all of them: with the badge off, no tool is offered at all. Click the arrow beside the name to choose which tools the model may reach.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
+                <span id="codetext">Tools</span>
+                <svg class="svg down" id="codemenu-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="codemenu"></div>
+            </div>
             <button class="badge" id="search" title="Let the model search the web and read a page of it. Search runs in the program, not in the sandbox of a command: a command has no network access. Search touches no file of the machine, and nothing that is read is stored.">
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
               <span id="searchtext">Search</span>
@@ -2018,7 +2022,7 @@ function post(path, body) {
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
   'newchat', 'settingsbtn', 'modelbtn', 'darkbtn', 'chapters', 'timeline',
-  'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
+  'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
@@ -2578,8 +2582,99 @@ function drawMcp(s) {
   if (el.mcpmenu && !el.mcpmenu.classList.contains('hidden')) { fillMcpMenu(s); }
 }
 
-function drawBadges(s) {
+// The lines of the drop-down of the badge of the tools. Each line is one switch
+// over a kind of tool of the program, and the badge itself is the switch over all
+// of them: a tool whose line is off is not offered even while the badge stands
+// on, and a badge that is off offers nothing whatever the lines say. The first
+// word of a line is the name the program knows the switch by.
+var TOOL_LINES = [
+  ['commands', 'Terminal commands',
+   'The model may run a command. A command runs in the sandbox when the sandbox is on, and reaches only the working directory of the chat unless the menu of the sandbox badge opens more.'],
+  ['files', 'File management',
+   'The model may change a file of the chat and make a new one. Both work in the working directory of the chat and nowhere else, and they run in the program, so the sandbox of a command is not between them.'],
+  ['picture', 'Look at a picture',
+   'The model may look at a picture of the chat. The picture is read in the program and shown to the model, and never written out again.']
+];
+
+// One line of the menu of the badge: a kind of tool, with a switch at the end of
+// it. The menu stays open under a click, so the switch is seen to move.
+function toolLine(part, word, tip, on) {
+  var line = make('button', 'toggle' + (on ? ' on' : ''));
+  line.type = 'button';
+  line.title = tip;
+  var text = make('span', 'word');
+  text.textContent = word;
+  line.appendChild(text);
+  line.appendChild(make('span', 'sw'));
+  line.addEventListener('click', function (event) {
+    event.stopPropagation();
+    post('/api/tool_switch', { part: part, on: !on });
+  });
+  return line;
+}
+
+// The menu of the badge of the tools. The badge no longer turns one thing on or
+// off: the tools of the program are several kinds of thing, and the reader must
+// be able to see which of them the model may reach. The badge itself stands at
+// the head of its own menu, as the jail stands at the head of the menu of the
+// sandbox, for it is the door over all of them.
+function fillToolMenu(s) {
+  var menu = el.codemenu;
+  if (!menu) { return; }
+  menu.innerHTML = '';
+  var all = make('button', 'toggle' + (s.code ? ' on' : ''));
+  all.type = 'button';
+  all.title = 'Every tool of the program at once. A tool that is switched off in this menu stays off when the badge comes back on.';
+  var allWord = make('span', 'word');
+  allWord.textContent = 'All the tools';
+  all.appendChild(allWord);
+  all.appendChild(make('span', 'sw'));
+  all.addEventListener('click', function (event) {
+    event.stopPropagation();
+    post('/api/code', { on: !(cur && cur.code) });
+  });
+  menu.appendChild(all);
+  menu.appendChild(make('div', 'sep'));
+  var held = s.tool_switches || {};
+  for (var n = 0; n < TOOL_LINES.length; n++) {
+    var one = TOOL_LINES[n];
+    menu.appendChild(toolLine(one[0], one[1], one[2] + (s.code ? ''
+      : ' The badge of the tools is off, so no tool is offered at all.'),
+      held[one[0]] !== false));
+  }
+}
+
+function openToolMenu() {
+  if (!cur) { return; }
+  fillToolMenu(cur);
+  el.codemenu.classList.remove('hidden');
+}
+
+function closeToolMenu() {
+  if (el.codemenu) { el.codemenu.classList.add('hidden'); }
+}
+
+// The badge itself: the door over every tool of the program. The tip says how
+// many the reader has taken out of the chat, for a badge that stands on can
+// still be hiding a tool.
+function drawTools(s) {
+  if (!el.code) { return; }
   el.code.classList.toggle('on', !!s.code);
+  var held = s.tool_switches || {};
+  var off = 0;
+  for (var n = 0; n < TOOL_LINES.length; n++) {
+    if (held[TOOL_LINES[n][0]] === false) { off += 1; }
+  }
+  el.code.title = (s.code
+      ? 'The model may reach the tools of the program in this chat.'
+      : 'No tool of the program is offered to the model in this chat.')
+    + (off ? ' ' + off + ' of ' + TOOL_LINES.length + ' are switched off in the menu.' : '')
+    + ' Click to switch all of them on or off; click the arrow to choose them one by one.';
+  if (el.codemenu && !el.codemenu.classList.contains('hidden')) { fillToolMenu(s); }
+}
+
+function drawBadges(s) {
+  drawTools(s);
   el.search.classList.toggle('on', !!s.search);
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
@@ -5656,7 +5751,21 @@ el.newrepo.addEventListener('click', function () {
 });
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
-el.code.addEventListener('click', function () { if (cur) { post('/api/code', { on: !cur.code }); } });
+// The badge of the tools is the switch over all of them, and the arrow beside its
+// name opens the drop-down where they are chosen one by one.
+el.code.addEventListener('click', function () {
+  closeToolMenu();
+  if (cur) { post('/api/code', { on: !cur.code }); }
+});
+el.codemenuCaret = el['codemenu-caret'];
+if (el.codemenuCaret) {
+  el.codemenuCaret.addEventListener('click', function (event) {
+    event.stopPropagation();
+    if (el.codemenu.classList.contains('hidden')) {
+      closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); openToolMenu();
+    } else { closeToolMenu(); }
+  });
+}
 el.search.addEventListener('click', function () { if (cur) { post('/api/search', { on: !cur.search }); } });
 // The sandbox badge is a drop-down, for what a command may reach is three
 // settings, and the reader must see all three together rather than cycle through
@@ -5677,7 +5786,8 @@ el.mcp.addEventListener('click', function (event) {
   if (el.mcpmenu.classList.contains('hidden')) { closeThinkMenu(); closeSandboxMenu(); openMcpMenu(); }
   else { closeMcpMenu(); }
 });
-document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); });
+document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); });
+
 el.darkbtn.addEventListener('click', function () { post('/api/dark', { on: !(cur && cur.dark) }); });
 el.draft.addEventListener('input', grow);
 el.draft.addEventListener('focus', function () {

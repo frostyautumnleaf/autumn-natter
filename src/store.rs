@@ -246,6 +246,91 @@ pub struct Repo {
     pub path: PathBuf,
 }
 
+// Which of the tools of the program the model may reach in one chat. The badge
+// of the tools is the switch over all of them: with the badge off, none of these
+// matters, for nothing is offered at all. Each line of the drop-down of the badge
+// holds one of these switches, and the name of a line is the name the page sends.
+//
+// A chat written before these switches existed carries none of them and reads
+// with all of them on, which is what such a chat was offered.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ToolSwitches {
+    // A command of the terminal tool may run.
+    #[serde(default = "switch_on")]
+    pub commands: bool,
+    // The tools that work on the files of the chat: to change a file, and to
+    // make a new one.
+    #[serde(default = "switch_on")]
+    pub files: bool,
+    // A picture of the chat may be looked at.
+    #[serde(default = "switch_on")]
+    pub picture: bool,
+    // A file of the chat may be handed to the reader in a download block.
+    #[serde(default = "switch_on")]
+    pub hand_out: bool,
+    // The model may stop and ask the reader a question.
+    #[serde(default = "switch_on")]
+    pub ask: bool,
+}
+
+// The switch of a tool that nothing has touched yet.
+fn switch_on() -> bool {
+    true
+}
+
+impl Default for ToolSwitches {
+    fn default() -> Self {
+        ToolSwitches {
+            commands: true,
+            files: true,
+            picture: true,
+            hand_out: true,
+            ask: true,
+        }
+    }
+}
+
+impl ToolSwitches {
+    // Turn one line of the drop-down on or off. The name is the name the page
+    // sends; a name of another kind is answered with nothing done.
+    pub fn set(&mut self, part: &str, on: bool) -> bool {
+        match part {
+            "commands" => self.commands = on,
+            "files" => self.files = on,
+            "picture" => self.picture = on,
+            "hand_out" => self.hand_out = on,
+            "ask" => self.ask = on,
+            _ => return false,
+        }
+        true
+    }
+
+    // The switches as the page reads them, for the menu of the badge and the tip
+    // over the badge.
+    pub fn words(&self) -> Vec<(&'static str, bool)> {
+        vec![
+            ("commands", self.commands),
+            ("files", self.files),
+            ("picture", self.picture),
+            ("hand_out", self.hand_out),
+            ("ask", self.ask),
+        ]
+    }
+
+    // What one line of the drop-down stands on. A name of another kind reads as
+    // on, for a tool nothing switches off is offered.
+    pub fn value_of(&self, part: &str) -> bool {
+        match part {
+            "commands" => self.commands,
+            "files" => self.files,
+            "picture" => self.picture,
+            "hand_out" => self.hand_out,
+            "ask" => self.ask,
+            _ => true,
+        }
+    }
+}
+
 // The stored facts about one chat.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChatMeta {
@@ -306,6 +391,11 @@ pub struct ChatMeta {
     // with no server of the reader's own.
     #[serde(default)]
     pub mcp: Vec<String>,
+    // Which of the tools of the program the model may reach, now that the badge
+    // of the tools holds a drop-down of them. A chat written before the
+    // drop-down existed carries none of these and reads with all of them on.
+    #[serde(default)]
+    pub tools: ToolSwitches,
     // Tokens used by the last answer.
     pub context_used: u64,
 }
@@ -325,6 +415,9 @@ impl Default for ChatMeta {
             created: 0,
             updated: 0,
             code_enabled: false,
+            // Every tool of the program stands offered until the reader takes one
+            // out of the drop-down of the badge.
+            tools: ToolSwitches::default(),
             search_enabled: false,
             // The sandbox is on unless the user turns it off.
             sandbox_enabled: true,
