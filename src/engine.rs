@@ -2368,8 +2368,11 @@ impl Engine {
         };
         state.refresh_lists();
         // The talks go first, so a repository is found to hold no chat of the
-        // model that works inside it.
+        // model that works inside it. The records of the repositories go with
+        // them, for a command of the terminal tool works in the folder of a
+        // repository and has no business with them.
         state.store.migrate_chats_out();
+        state.store.migrate_records_out();
         state.migrate_attachments();
         state.reload_chats();
         // The first screen holds no chat at all, even when this place has
@@ -3414,8 +3417,9 @@ impl Engine {
         let _ = config::save(&state.cfg);
         state.store = store::Store::new(config::repositories_dir(&state.cfg));
         // The reader may have pointed the program at a folder of repositories
-        // that still holds its talks inside them.
+        // that still holds its talks, and its records, inside them.
         state.store.migrate_chats_out();
+        state.store.migrate_records_out();
         state.refresh_lists();
         state.reload_chats();
         state.set_status("Settings saved");

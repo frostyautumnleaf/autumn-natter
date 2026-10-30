@@ -491,6 +491,10 @@ pub struct Paths {
     // repository, for a repository is the room a terminal command works in, and
     // it must not hold the talks of the model that works in it.
     pub repo_chats: PathBuf,
+    // The record of every repository: its name, when it was made and used,
+    // whether it is pinned. These stand here for the same reason the talks do,
+    // and not in the folder of the repository beside the work.
+    pub repo_records: PathBuf,
     // The logs of llama-server, one file for every start of it, the ten newest
     // of them. The Logs tab of the sheet of settings reads them.
     pub logs: PathBuf,
@@ -529,6 +533,7 @@ pub fn paths() -> Paths {
     Paths {
         chats: data.join("chats"),
         repo_chats: data.join("repo_chats"),
+        repo_records: data.join("repo_records"),
         logs: data.join("logs"),
         repositories: data.join("repositories"),
         models: data.join("models"),
@@ -557,6 +562,7 @@ pub fn ensure_dirs() -> std::io::Result<()> {
     fs::create_dir_all(&p.data)?;
     fs::create_dir_all(&p.chats)?;
     fs::create_dir_all(&p.repo_chats)?;
+    fs::create_dir_all(&p.repo_records)?;
     fs::create_dir_all(&p.logs)?;
     fs::create_dir_all(&p.models)?;
     Ok(())
