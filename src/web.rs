@@ -113,6 +113,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // tool was for, and this tells the page that the writing of it was
                 // stopped rather than the running of it failed.
                 "cancelled": m.cancelled,
+                // An answer of the model that never came to an end of its own,
+                // because the reader stopped it. The page puts the mark of going on
+                // with it under that answer alone.
+                "stopped": m.stopped,
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is
@@ -610,6 +614,23 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/cancel" | "cancel" => {
             engine.cancel();
+            done()
+        }
+        // Take one message out of the talk, with everything that came after it.
+        // The page asks under a message, when the pointer goes over it.
+        "/api/delete_message" | "delete_message" => {
+            engine.remove_message(text_field(&value, "id"));
+            done()
+        }
+        // Write the answer of a message again. The talk is cut back to the message
+        // the reader is going on from, and the model is asked again from there.
+        "/api/retry_message" | "retry_message" => {
+            engine.retry_message(text_field(&value, "id"));
+            done()
+        }
+        // Go on with an answer the reader stopped while the model was writing it.
+        "/api/continue_message" | "continue_message" => {
+            engine.continue_message(text_field(&value, "id"));
             done()
         }
         // Start the handoff summary of this chat again. The button for it stands

@@ -472,6 +472,21 @@ body.home .stage { display: none; }
   font-variant-numeric: tabular-nums; }
 .turn:hover .stamp { opacity: 1; height: 15px; margin-top: 5px; }
 .turn.t-you .stamp { padding-right: 2px; }
+/* What the reader may do with a message. The marks stand in the line where the
+   time of the message stands, and that line opens when the pointer goes over the
+   message, as the time of it alone did before. A mark is a button and not a piece
+   of a word, so the line stays open under the pointer on a mark, and the mark may
+   be pressed. */
+.stamp { display: flex; align-items: center; gap: 8px; }
+.acts { display: inline-flex; align-items: center; gap: 1px; }
+.acts button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 21px; height: 15px; padding: 0; border: 0; border-radius: 4px;
+  background: none; color: var(--faint);
+  transition: color 120ms, background 120ms;
+}
+.acts button:hover { color: var(--ink); background: var(--hover); }
+.acts .svg { width: 12px; height: 12px; }
 
 /* Words of one kind, as the window sets them. */
 .body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 9px; }
@@ -4368,11 +4383,101 @@ function fill(turn, m) {
     }
     turn.appendChild(words);
   }
-  if (m.when) {
-    var when = make('div', 'stamp');
-    when.textContent = m.when;
-    turn.appendChild(when);
+  var line = actLine(m);
+  if (line) { turn.appendChild(line); }
+}
+
+// The marks of what the reader may do with a message. They stand in the line
+// where the time of the message stands, and that line opens when the pointer goes
+// over the message. An answer that is still coming in has no place in the chat
+// yet, so it has no line and no mark.
+function actLine(m) {
+  if (!m || !m.id || m.id === 'live') { return null; }
+  var line = make('div', 'stamp');
+  var when = make('span', 'when');
+  when.textContent = m.when || '';
+  line.appendChild(when);
+  var acts = actsOf(m);
+  if (acts.firstChild) { line.appendChild(acts); }
+  if (!m.when && !acts.firstChild) { return null; }
+  return line;
+}
+
+// The marks themselves. Write it again takes the words of the message back into
+// the chat box, and the message goes out of the chat with everything that came
+// after it, for the model answered a talk that no longer reads that way. Write
+// the answer again cuts the talk back to this message and asks the model again
+// from there. Take it away removes the message and everything after it: a message
+// of the reader takes the answer it provoked along, and a message of the model
+// leaves the question behind. Go on with it stands only under an answer the
+// reader stopped while the model was still writing.
+function actsOf(m) {
+  var acts = make('div', 'acts');
+  if (m.role === 'You' || m.role === 'Assistant') {
+    acts.appendChild(actMark(ACT_EDIT,
+      m.role === 'You'
+        ? 'Write this message again. The words go into the chat box, and this message and everything after it go out of the chat.'
+        : 'Take these words back into the chat box. This answer and everything after it go out of the chat.',
+      function () { editMessage(m); }));
+    acts.appendChild(actMark(ACT_RETRY,
+      'Write the answer again, from this message. Everything after it goes out of the chat.',
+      function () { retryMessage(m); }));
+    acts.appendChild(actMark(ACT_REMOVE,
+      'Remove this message and everything after it. Files hung on those messages are removed with them.',
+      function () { deleteMessage(m); }));
   }
+  if (m.role === 'Assistant' && m.stopped) {
+    acts.appendChild(actMark(ACT_CONTINUE,
+      'Go on with this answer, from the word the model had reached.',
+      function () { continueMessage(m); }));
+  }
+  return acts;
+}
+
+// One mark of the line. A div is not a button, so the line stays open under the
+// pointer on a mark; the click is kept off the turn behind it, which is the
+// message and not the mark.
+function actMark(path, tip, doing) {
+  var button = make('button', 'act');
+  button.type = 'button';
+  button.title = tip;
+  button.setAttribute('aria-label', tip);
+  button.appendChild(mark(path, 'svg'));
+  button.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    doing();
+  });
+  return button;
+}
+
+// The marks of the line: a pencil for writing a message again, a round arrow for
+// the answer again, a waste bin for taking a message away, and an arrow for going
+// on with an answer that stopped.
+var ACT_EDIT = 'M11.5 2.4l2.1 2.1-8.2 8.2-2.9.8.8-2.9zM9.7 4.2l2.1 2.1';
+var ACT_RETRY = 'M13.2 8a5.2 5.2 0 1 1-1.6-3.8M13.4 2.2v2.9h-2.9';
+var ACT_REMOVE = 'M3.2 4.7h9.6M6.4 4.7V3.3h3.2v1.4M4.7 4.7l.7 8.1h5.2l.7-8.1';
+var ACT_CONTINUE = 'M3.4 8h7.4M7.6 4.6 11 8l-3.4 3.4';
+
+// Take the words of a message back into the chat box. The message goes out of the
+// chat with everything after it, so what the reader sends again is the talk as it
+// stood before that message.
+function editMessage(m) {
+  post('/api/delete_message', { id: m.id });
+  el.draft.value = m.body;
+  grow();
+  el.draft.focus();
+}
+
+function retryMessage(m) {
+  post('/api/retry_message', { id: m.id });
+}
+
+function deleteMessage(m) {
+  post('/api/delete_message', { id: m.id });
+}
+
+function continueMessage(m) {
+  post('/api/continue_message', { id: m.id });
 }
 
 // ------------------------------------------------ a train of thought
@@ -4682,6 +4787,10 @@ function fillGroup(turn, items, from, to) {
     for (var j = 0; j < cut.length; j++) { said.appendChild(blockNode(cut[j])); }
     turn.appendChild(said);
   }
+  // The line under a train of thought belongs to the last message of it, which is
+  // the answer the thought led to, or the last run of a tool.
+  var line = actLine(items[to - 1]);
+  if (line) { turn.appendChild(line); }
   return { panel: made.panel, words: made.words, head: made.head,
     label: made.label, ms: ms };
 }
@@ -4785,7 +4894,10 @@ function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
     (m.tool || '').length, /^running \.\.\.$/i.test(m.tool) ? 1 : 0,
     m.attachments ? m.attachments.length : 0, m.when || '',
-    m.cancelled ? 'cut' : ''].join('#');
+    m.cancelled ? 'cut' : '',
+    // The line under a message carries the mark of going on with it, so the row
+    // is made again when the state says an answer was stopped.
+    m.stopped ? 'stopped' : ''].join('#');
 }
 
 // The chat box holds one turn for every message. A turn is made once and then
