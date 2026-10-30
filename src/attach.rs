@@ -86,6 +86,82 @@ pub struct Stored {
 // The name of the folder of the records, inside the room of the chat.
 pub const FOLDER: &str = ".attachments";
 
+// The marks of the chat of the model, as they stand in the prompt the template
+// makes. A mark the reader pastes into a message, or that stands in a file the
+// reader hung on it, is read by the model as a mark of its own chat, and the
+// model then stops thinking and writes the words of the answer where the
+// thinking was to stand. The mark of a thought is the worst of them, for it
+// tells the model its thinking is over and it may go on to the answer.
+const CHAT_MARKS: [&str; 10] = [
+    concat!("<", " ", "|im_start", ">"),
+    concat!("<", " ", "|im_end", ">"),
+    concat!("<", " ", "|vision_start", ">"),
+    concat!("<", " ", "|vision_end", ">"),
+    concat!("<", " ", "|image_pad", ">"),
+    concat!("<", " ", "|video_pad", ">"),
+    "< think>",
+    "< /think>",
+    "< tool_call>",
+    "< /tool_call>",
+];
+
+// The mark of a thought, and its close, with the mark of a space taken away
+// from either side. A model that reads these in the words it is sent again
+// takes them for the marks of its own thinking, and stops thinking and writes
+// the answer where the thinking was to stand.
+// Built in two parts, for the mark of a space at the front of the close would
+// else stand in the source as a mark of the chat of the model, and the reader
+// of the source would read it as a mark of its own.
+const THINK_OPEN: &str = concat!("<", "think>");
+const THINK_CLOSE: &str = concat!("</", "think>");
+
+// The words the model is told where a mark of its own chat stood in the words
+// it was sent. The mark is taken out of the words, and this line stands in its
+// place, so the model reads the words as the reader meant them and does not
+// read a mark of the chat as a mark of its own.
+pub const MARK_NOTE: &str = "[a mark of the chat of the model stood here in these words]";
+
+// Take the marks of the chat of the model out of the words that go back to it.
+// The reader may paste a file that holds a mark, or write one in a message, and
+// the model then reads the mark as a mark of its own chat and stops thinking.
+// The mark is taken out and a line that names it stands in its place, so the
+// words read as the reader meant them. Words that hold no mark come back as
+// they were.
+pub fn neutralize_marks(words: &str) -> String {
+    if !CHAT_MARKS.iter().any(|mark| words.contains(mark)) {
+        return words.to_string();
+    }
+    let mut out = String::with_capacity(words.len());
+    let mut rest = words;
+    loop {
+        // The nearest mark of any kind, whichever kind it is.
+        let Some((mark, place)) = CHAT_MARKS
+            .iter()
+            .map(|mark| (mark, rest.find(mark)))
+            .filter_map(|(mark, place)| place.map(|p| (mark, p)))
+            .min_by_key(|(_, place)| *place)
+        else {
+            out.push_str(rest);
+            break;
+        };
+        out.push_str(&rest[..place]);
+        // A mark of a thought, with nothing between it and its close, stands
+        // for an empty block of thinking. The model that reads it is told the
+        // block is empty, and not that its own thinking is over.
+        if *mark == THINK_OPEN {
+            let after = &rest[place + mark.len()..];
+            if let Some(close) = after.find(THINK_CLOSE) {
+                out.push_str(MARK_NOTE);
+                rest = &after[close + THINK_CLOSE.len()..];
+                continue;
+            }
+        }
+        out.push_str(MARK_NOTE);
+        rest = &rest[place + mark.len()..];
+    }
+    out
+}
+
 // The folder that holds the records of the attachments of one chat. It stands
 // inside the room that chat works in, which is its repository, or its own
 // folder under `work/` when it has no repository.
@@ -430,8 +506,14 @@ fn record_path(place: &Path, id: &str) -> PathBuf {
 // that names its number and its file. The pictures therefore stand in the
 // order of the list, and each can be named by its number.
 pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], vision_on: bool) -> Value {
+    // The words the reader wrote are read by the model as the words of the
+    // reader, and a mark of the chat of the model in them would be read as a
+    // mark of the model's own chat. The marks are taken out before the words go
+    // out, so the model reads them as the reader meant them. See
+    // `neutralize_marks`.
+    let body = neutralize_marks(body);
     if attachments.is_empty() {
-        return json!(body);
+        return json!(&body);
     }
     let mut parts: Vec<Value> = Vec::new();
     let mut lead = String::new();
@@ -500,13 +582,19 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
                 "image_url": { "url": data },
             }));
         } else if is_text(&one.mime, &one.name) {
+            // The words of a file the reader hung on the message may hold a mark
+            // of the chat of the model, and the model would read it the same way
+            // it reads one in the words of the reader. The marks are taken out
+            // of the file's words as well, so a file that holds a mark does not
+            // stop the model thinking.
+            let words = neutralize_marks(&stored_text_at(place, &one.id));
             parts.push(json!({
                 "type": "text",
                 "text": format!(
                     "The text of attachment {}, named {}:\n{}",
                     number + 1,
                     one.name,
-                    stored_text_at(place, &one.id)
+                    words
                 ),
             }));
         }
@@ -637,6 +725,88 @@ mod tests {
     fn a_message_without_attachments_sends_plain_words() {
         let made = content_at(Path::new("."), "Hello there", &[], true);
         assert_eq!(made, json!("Hello there"));
+    }
+
+    // A mark of the chat of the model in the words of the reader is taken out
+    // of the words that go to the model, and a line that names it stands in its
+    // place. Words that hold no mark come back as they were.
+    #[test]
+    fn the_marks_of_the_chat_are_taken_out_of_the_words() {
+        let plain = neutralize_marks("Hello there");
+        assert_eq!(plain, "Hello there");
+
+        let tok_start = concat!("<", " ", "|im_start", ">");
+        let tok_end = concat!("<", " ", "|im_end", ">");
+        let tok_think = concat!("<", " think", ">");
+        let tok_think_end = concat!("<", " /think", ">");
+
+        let one = neutralize_marks(&format!("The file has: {}user\nhello{}", tok_start, tok_end));
+        assert!(!one.contains(tok_start));
+        assert!(!one.contains(tok_end));
+        assert!(one.contains(MARK_NOTE));
+        assert!(one.contains("The file has:"));
+
+        let two = neutralize_marks(&format!("The docs use {} and {}.", tok_think, tok_think_end));
+        assert!(!two.contains(tok_think));
+        assert!(!two.contains(tok_think_end));
+        assert!(two.contains(MARK_NOTE));
+
+        let three = neutralize_marks("No marks here at all.");
+        assert_eq!(three, "No marks here at all.");
+    }
+
+    // A mark of a thought, with nothing between it and its close, stands for an
+    // empty block of thinking, and is taken out with one note, not two.
+    #[test]
+    fn the_marks_of_a_thinking_block_are_taken_out() {
+        let tok_think = concat!("<", " think", ">");
+        let tok_think_end = concat!("<", " /think", ">");
+
+        // A block of thinking with words in it: the open and the close are
+        // taken out, and the words between them stand.
+        let with_words =
+            neutralize_marks(&format!("{}I am thinking.{}", tok_think, tok_think_end));
+        assert!(!with_words.contains(tok_think));
+        assert!(!with_words.contains(tok_think_end));
+        assert!(with_words.contains("I am thinking."));
+        let notes = with_words.matches(MARK_NOTE).count();
+        assert_eq!(notes, 2);
+
+        // A block of thinking with nothing in it: the marks are taken out,
+        // and the words that stood between them are gone with them.
+        let empty = neutralize_marks(&format!("{}{}", tok_think, tok_think_end));
+        assert!(!empty.contains(tok_think));
+        assert!(!empty.contains(tok_think_end));
+        assert!(empty.contains(MARK_NOTE));
+    }
+
+    // A mark in the words of a file the reader hung on the message is taken out
+    // of the words that go to the model, as a mark in the words of the reader is.
+    #[test]
+    fn the_marks_of_a_file_are_taken_out_of_the_words() {
+        let _guard = config::test_turn();
+        let shelf = test_shelf();
+        let tok_think = concat!("<", " think", ">");
+        let tok_think_end = concat!("<", " /think", ">");
+        let files = vec![incoming(
+            "notes.txt",
+            "text/plain",
+            "",
+            &format!("The docs use {} and {}.", tok_think, tok_think_end),
+        )];
+        let kept = save_at(&shelf, &files);
+        let made = content_at(&shelf, "Look at this", &kept, true);
+        let parts = made.as_array().expect("the content is a list of parts");
+        let words = parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+            .find(|t| t.starts_with("The text of attachment 1"))
+            .expect("the words of the attachment");
+        assert!(!words.contains(tok_think));
+        assert!(!words.contains(tok_think_end));
+        assert!(words.contains(MARK_NOTE));
+
+        remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
     }
 
     // The words that go out name every attachment by its number and its

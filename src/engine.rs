@@ -1617,9 +1617,14 @@ impl State {
                     if message.body.trim().is_empty() {
                         continue;
                     }
+                    // The summary the model wrote may hold a mark of its own chat
+                    // in its words, and the model would read it the same way it
+                    // reads one in the words of the reader. The marks are taken
+                    // out before the summary goes back to it.
+                    let summary = attach::neutralize_marks(&handoff_block(&message.body));
                     out.push(json!({
                         "role": "user",
-                        "content": handoff_block(&message.body),
+                        "content": summary,
                     }));
                 }
                 // The words of the reader, and the attachments that hang on
@@ -1640,9 +1645,13 @@ impl State {
                     // The thinking of the answer rides beside its words, so the
                     // template may put it back where it stood. An answer that
                     // thought nothing sends nothing, for the empty block of a
-                    // turn is not worth the room.
+                    // turn is not worth the room. A mark of the chat of the model
+                    // in the thinking is taken out, for the model that reads it
+                    // again would take it for a mark of its own thinking and stop
+                    // thinking where the thinking was to stand.
                     if keep_thinking && !message.reasoning.trim().is_empty() {
-                        entry["reasoning_content"] = json!(message.reasoning);
+                        let thought = attach::neutralize_marks(&message.reasoning);
+                        entry["reasoning_content"] = json!(thought);
                     }
                     out.push(entry);
                 }
@@ -1722,12 +1731,19 @@ impl State {
                     // opened, when there is one and this model can be shown a
                     // picture. With neither the entry is the plain words, as it
                     // always was.
+                    // The words of the receipt may hold a mark of the chat of the
+                    // model, and the model would read it the same way it reads one
+                    // in the words of the reader. The marks are taken out before
+                    // the receipt goes back to it. A picture a tool opened stands
+                    // beside the words, and the words of it are looked at the
+                    // same way.
+                    let receipt = attach::neutralize_marks(&message.tool);
                     let content = if message.attachments.is_empty() {
-                        Value::String(message.tool.clone())
+                        Value::String(receipt)
                     } else {
                         attach::parts_at(
                             &shelf,
-                            &message.tool,
+                            &receipt,
                             &message.attachments,
                             vision_on,
                         )
@@ -6664,6 +6680,109 @@ mod tests {
             &shelf,
             &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
         );
+    }
+
+    // A mark of the chat of the model in the words of the reader, in the words
+    // of a file the reader hung on the message, in the thinking of an answer,
+    // and in the words of a tool receipt, is taken out of the talk that goes
+    // back to the model. The model that reads the mark would take it for a mark
+    // of its own chat and stop thinking, so the mark is gone before the talk is
+    // sent, and a line that names it stands in its place.
+    #[test]
+    fn the_marks_of_the_chat_are_taken_out_of_the_talk() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let tok_start = concat!("<", " ", "|im_start", ">");
+        let tok_end = concat!("<", " ", "|im_end", ">");
+        let tok_think = concat!("<", " think", ">");
+        let tok_think_end = concat!("<", " /think", ">");
+        let files = vec![attach::Incoming {
+            name: String::from("notes.txt"),
+            mime: String::from("text/plain"),
+            data: String::new(),
+            text: format!("The docs use {} and {}.", tok_think, tok_think_end),
+        }];
+        {
+            let mut state = engine.state.lock().unwrap();
+            // The model is told it may keep the thinking of the turns before
+            // the last answer, so the thinking of an answer goes back to it.
+            state.thinking.has_preserve = true;
+            state.start_chat();
+            let shelf = {
+                let chat = state.chat().expect("a blank chat stands open");
+                state.attach_place_for(chat)
+            };
+            let kept = attach::save_at(&shelf, &files);
+            if let Some(chat) = state.chat_mut() {
+                chat.messages.push(Message {
+                    id: store::new_id(),
+                    role: String::from("You"),
+                    body: format!("The file has: {}user\nhello{}", tok_start, tok_end),
+                    attachments: kept.clone(),
+                    ..Default::default()
+                });
+                chat.messages.push(Message {
+                    id: store::new_id(),
+                    role: String::from("Assistant"),
+                    body: String::from("I read the file."),
+                    reasoning: format!("{}I am thinking.{}", tok_think, tok_think_end),
+                    ..Default::default()
+                });
+                chat.messages.push(Message {
+                    id: store::new_id(),
+                    role: String::from("Tool"),
+                    body: String::new(),
+                    tool: format!("The command ran: {}", tok_end),
+                    call_id: String::from("call-test"),
+                    tool_name: String::from(tools::TOOL_NAME),
+                    tool_args: String::from("{}"),
+                    ..Default::default()
+                });
+            }
+            let history = state.build_history();
+            let items = undated(&history);
+            // The reader's message: the marks in the words are gone, and the
+            // marks in the file are gone.
+            let reader = items[0].clone();
+            assert_eq!(reader["role"], json!("user"));
+            let parts = reader["content"]
+                .as_array()
+                .expect("a message with attachments goes out as parts");
+            let lead = parts[0].get("text").unwrap().as_str().unwrap();
+            assert!(!lead.contains(tok_start));
+            assert!(!lead.contains(tok_end));
+            assert!(lead.contains(attach::MARK_NOTE));
+            let file_words = parts
+                .iter()
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                .find(|t| t.starts_with("The text of attachment 1"))
+                .expect("the words of the attachment");
+            assert!(!file_words.contains(tok_think));
+            assert!(!file_words.contains(tok_think_end));
+            assert!(file_words.contains(attach::MARK_NOTE));
+            // The answer of the model: the marks in the thinking are gone.
+            let answer = items[1].clone();
+            assert_eq!(answer["role"], json!("assistant"));
+            let thought = answer["reasoning_content"].as_str().unwrap();
+            assert!(!thought.contains(tok_think));
+            assert!(!thought.contains(tok_think_end));
+            assert!(thought.contains(attach::MARK_NOTE));
+            assert!(thought.contains("I am thinking."));
+            // The tool run goes out as a call and a receipt: the call is the
+            // assistant message with the call in it, and the receipt is the
+            // tool message with the words of the run in it. The mark in the
+            // words of the receipt is gone.
+            let receipt = items[3].clone();
+            assert_eq!(receipt["role"], json!("tool"));
+            let tool_words = receipt["content"].as_str().unwrap();
+            assert!(!tool_words.contains(tok_end));
+            assert!(tool_words.contains(attach::MARK_NOTE));
+            attach::remove_at(
+                &shelf,
+                &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
+            );
+        }
     }
 
     // The reader watches a command as the model writes it, and watches nothing
