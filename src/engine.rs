@@ -4126,12 +4126,6 @@ fn make_room(
     !guard.handoff_owed() && !config::compaction_wanted(&guard.cfg, guard.ctx_used, guard.ctx_total)
 }
 
-// The most a writing is stopped at the limit of the summarisation in one answer.
-// A model that is set to write one thing bigger than the room it has is stopped,
-// has the room made for it, and is asked again; stopped a third time, it is
-// writing something no room will hold, and the reader has to hear so.
-const CUT_ROOF: usize = 3;
-
 // The most the model is asked to go on with its work after a handoff summary of
 // one send of the chat box. Once is enough. An answer that filled the room again
 // after the summary made for it is a talk the reader has to send a word to, and a
@@ -5011,9 +5005,14 @@ fn run_turn(
             // ask goes out: the meter is read again on the first number of the
             // next ask, and the hand is put up again on the word that is past the
             // limit. A summary that was kept is room that was made, and the answer
-            // goes on after it whatever the estimate says: a model that writes
-            // the same thing bigger than the room is stopped a second time, and
-            // that is the roof of the cuts that ends the answer.
+            // goes on after it whatever the estimate says, for as long as each
+            // summarisation frees the room the answer goes on after it: a task
+            // that fills the room again and again is summarised again and again,
+            // and the work is not begun over for the fault of the room. The
+            // answer ends only when the room that was made is still past the
+            // limit: the model is writing something no room will hold, and the
+            // reader has to hear so rather than watch the same room be made and
+            // spent for ever.
             let room_asked = carrying_the_cut(&guard.build_history());
             let still_full = config::compaction_wanted(&guard.cfg, room_asked, guard.ctx_total);
             if !room || (still_full && cuts > 1) {
@@ -5031,16 +5030,6 @@ fn run_turn(
                     "The summarisation made no space, so the answer ends here"
                 };
                 guard.set_status(text);
-                break Ended::Halted;
-            }
-            if cuts >= CUT_ROOF {
-                // A model stopped at the limit again and again is writing something
-                // no room will hold, and the reader has to hear so rather than
-                // watch the same room be made and spent for ever.
-                guard.generating = false;
-                guard.set_status(
-                    "The writing reached the limit again and again, so the answer ends here. Ask for the work in parts small enough for the context, or give the model a larger context",
-                );
                 break Ended::Halted;
             }
             // The talk that the words of the stopped call went into ends on the
@@ -8631,6 +8620,72 @@ mod tests {
         assert!(
             !goes_on,
             "the answer was stopped under the block of a call that never ran"
+        );
+    }
+
+    // The answer goes on after the third summarisation as much as after the
+    // first, for as long as each summary frees the room: a task that fills the
+    // room again and again is summarised again and again, and the work is not
+    // stopped for the fault of the room. The number of the cuts is no roof of
+    // its own: only a room that stays past the limit even with the summary in
+    // it ends the answer, and it is stopped the second time it is found so.
+    #[test]
+    fn the_answer_goes_on_after_the_third_summary_that_frees_the_room() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        // The room and the limit, set so that the talk came to the limit while
+        // the answer was being written, and so that a summary of the talk frees
+        // the room: the estimate of the talk with the summary in it reads under
+        // the limit.
+        state.ctx_total = 2048;
+        state.ctx_used = 1600;
+        let mut cfg = Config::default();
+        cfg.chat_compact_by = config::COMPACT_BY_TOKENS.to_string();
+        cfg.chat_compact_reserve = 1500;
+        state.cfg = cfg;
+        // The summary of the talk frees the room, and the meter is read again
+        // from the talk as it stands.
+        let mark = state.begin_summary();
+        state.finish_summary(&mark, "Done: the parser. Next: the bar.", 1600, 250, "");
+        let made = estimate_tokens(&state.build_history());
+        state.ctx_used = made;
+        let whole = estimate_tokens(&state.build_history());
+        assert!(
+            !config::compaction_wanted(&state.cfg, whole, state.ctx_total),
+            "the room was not freed by the summary: {} of {}",
+            whole,
+            state.ctx_total
+        );
+        // The third cut of an answer goes on after the room is made, whatever
+        // the number of the cuts: a summary that frees the room is room that was
+        // made, and the work is not stopped for the fault of the room.
+        let still_full = config::compaction_wanted(&state.cfg, whole, state.ctx_total);
+        let cuts = 3usize;
+        let room = true;
+        let stopped = !room || (still_full && cuts > 1);
+        assert!(
+            !stopped,
+            "the answer was stopped after the third summary that freed the room"
+        );
+        // A room that stays past the limit even with the summary in it ends the
+        // answer the second time it is found so, whatever the number of the cuts
+        // before it.
+        state.ctx_total = 512;
+        let still_full = config::compaction_wanted(&state.cfg, whole, state.ctx_total);
+        assert!(
+            still_full,
+            "the room was not kept past the limit: {} of {}",
+            whole,
+            state.ctx_total
+        );
+        let stopped = !room || (still_full && cuts > 1);
+        assert!(
+            stopped,
+            "the answer was not stopped under a room that stayed past the limit"
         );
     }
 
