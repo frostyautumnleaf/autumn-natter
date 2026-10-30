@@ -863,8 +863,28 @@ img.pic { animation: plate-in 180ms ease-out; }
   background: var(--plate-mark); }
 .bubble .part.file .mark .svg { width: 15px; height: 15px; }
 .bubble .part.file .nm { font-size: 12px; }
-.dock-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px 10px; }
-.badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.dock-row { padding: 6px 8px 8px 10px; }
+/* The badges are set out over the whole breadth of the box: the badges that let
+   the model reach the machine and the web stand at the left, the sandbox badge
+   stands over the middle of the box, and the badge of the thinking mode stands at
+   the right hand end with the mark of sending. The three parts are the three
+   columns of one grid, and the two sides are kept equal, so the middle of the row
+   is the middle of the box whatever the two sides hold. The look does not change
+   when a chat opens and the box grows. */
+.badges { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  gap: 8px; min-width: 0; }
+.badges .b-left, .badges .b-right { display: flex; align-items: center; gap: 6px;
+  min-width: 0; }
+.badges .b-left { justify-self: start; }
+.badges .b-mid { justify-self: center; }
+.badges .b-right { justify-self: end; justify-content: flex-end; gap: 8px; }
+/* A box no wider than this cannot hold the three parts in one line at all. The
+   row then bends under itself, and the sandbox badge goes with the rest, for a
+   badge over the middle of nothing says nothing. */
+@media (max-width: 620px) {
+  .badges { display: flex; flex-wrap: wrap; }
+  .badges .b-mid { order: 3; }
+}
 .badge {
   display: inline-flex; align-items: center; gap: 6px; height: 27px; padding: 0 10px;
   border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2);
@@ -951,10 +971,6 @@ img.pic { animation: plate-in 180ms ease-out; }
 .menu .line .ico { display: inline-flex; color: var(--ink); margin-right: 7px; }
 .menu .line .ico .svg { width: 13px; height: 13px; }
 
-.keys { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; }
-.keys kbd { font: inherit; font-size: 11px; color: var(--dim); background: var(--surface-2);
-  border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; margin: 0 1px; }
 .send {
   flex: 0 0 auto; width: 34px; height: 34px; border-radius: 999px; background: var(--accent);
   color: var(--on-accent); display: inline-flex; align-items: center; justify-content: center;
@@ -1128,7 +1144,6 @@ pre.code.line {
 @media (max-width: 860px) {
   .meter-box { width: 84px; }
   .meter-box .pct { display: none; }
-  .keys { display: none; }
 }
 @media (max-width: 720px) {
   .spot .title { display: none; }
@@ -1507,47 +1522,51 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         placeholder="Write a message for the model"></textarea>
       <div class="dock-row">
         <div class="badges">
-          <button class="badge" id="code" title="Let the model use the tools of the program: the terminal tool and the file tools. A command runs in the sandbox when the sandbox is on. The file tools can reach only the working directory of the chat.">
-            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
-            <span id="codetext">Tools</span>
-          </button>
-          <button class="badge" id="search" title="Let the model search the web and read a page of it. Search runs in the program, not in the sandbox of a command: a command has no network access. Search touches no file of the machine, and nothing that is read is stored.">
-            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
-            <span id="searchtext">Search</span>
-          </button>
-          <div class="menuwrap" id="sandboxwrap">
-            <button class="badge" id="sandbox" title="What a command of this chat may reach. Click to open the settings of the sandbox.">
-              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
-              <span id="sandboxtext">Sandbox</span>
-              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+          <div class="b-left">
+            <button class="badge" id="code" title="Let the model use the tools of the program: the terminal tool and the file tools. A command runs in the sandbox when the sandbox is on. The file tools can reach only the working directory of the chat.">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
+              <span id="codetext">Tools</span>
             </button>
-            <div class="menu hidden" id="sandboxmenu"></div>
+            <button class="badge" id="search" title="Let the model search the web and read a page of it. Search runs in the program, not in the sandbox of a command: a command has no network access. Search touches no file of the machine, and nothing that is read is stored.">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
+              <span id="searchtext">Search</span>
+            </button>
+            <div class="menuwrap" id="mcpwrap">
+              <button class="badge" id="mcp" title="The servers of the reader's own, spoken to over MCP. Click to switch one on or off for this chat. A server runs in the program and not in the sandbox of a command.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14"/></svg>
+                <span id="mcptext">MCP</span>
+                <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="mcpmenu"></div>
+            </div>
           </div>
-          <div class="menuwrap" id="mcpwrap">
-            <button class="badge" id="mcp" title="The servers of the reader's own, spoken to over MCP. Click to switch one on or off for this chat. A server runs in the program and not in the sandbox of a command.">
-              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14"/></svg>
-              <span id="mcptext">MCP</span>
-              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
-            </button>
-            <div class="menu hidden" id="mcpmenu"></div>
+          <div class="b-mid">
+            <div class="menuwrap" id="sandboxwrap">
+              <button class="badge" id="sandbox" title="What a command of this chat may reach. Click to open the settings of the sandbox.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
+                <span id="sandboxtext">Sandbox</span>
+                <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="sandboxmenu"></div>
+            </div>
           </div>
-          <div class="menuwrap" id="thinkwrap">
-            <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
-              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
-              <span id="thinktext">Thinking: Disabled</span>
-              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+          <div class="b-right">
+            <div class="menuwrap" id="thinkwrap">
+              <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
+                <span id="thinktext">Thinking: Disabled</span>
+                <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="thinkmenu"></div>
+            </div>
+            <button class="send" id="send" title="Send the message">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true">
+                <path class="mark-send" d="M8 12.6V4M4.4 7.6 8 4l3.6 3.6"/>
+                <path class="mark-stop" d="M5.4 5.4h5.2v5.2H5.4z"/>
+              </svg>
             </button>
-            <div class="menu hidden" id="thinkmenu"></div>
           </div>
         </div>
-        <span class="grow"></span>
-        <span class="keys" id="hint"></span>
-        <button class="send" id="send" title="Send" aria-label="Send">
-          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true">
-            <path class="mark-send" d="M8 12.6V4M4.4 7.6 8 4l3.6 3.6"/>
-            <path class="mark-stop" d="M5.4 5.4h5.2v5.2H5.4z"/>
-          </svg>
-        </button>
       </div>
     </div>
     <div class="state-line">
@@ -1973,7 +1992,7 @@ function post(path, body) {
 // The parts of the page that stay in place. Their words are written again on
 // every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
-  'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate', 'hint',
+  'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
   'newchat', 'settingsbtn', 'modelbtn', 'darkbtn', 'chapters', 'timeline',
   'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
@@ -2084,7 +2103,7 @@ function draw(s) {
   el.status.textContent = s.status;
   el.status.className = 'status' + (s.generating ? ' hot' : '');
   drawRate(s);
-  el.hint.innerHTML = hintFor(s);
+  el.send.title = sendTitle(s);
   el.newchat.style.display = s.generating ? 'none' : '';
 
   // The round mark. It is dull while there is nothing to send, and it turns
@@ -2605,14 +2624,12 @@ function rateWords(per) {
 }
 
 // One line of keys next to the box. It says what the box needs at this moment.
-function hintFor(s) {
-  if (s && s.generating) { return '<kbd>Esc</kbd> stops the answer'; }
-  if (document.activeElement === el.draft && el.draft.value === '') {
-    return '<kbd>Enter</kbd> sends, <kbd>Shift</kbd> + <kbd>Enter</kbd> a new line';
-  }
-  return side.open
-    ? 'The chats stand in the side bar at the left'
-    : 'The side bar is put away';
+// What the mark of sending does, in its tip. The words of the keys stood beside
+// it once, and took the room the badges need: the mark now says the same thing
+// when the reader rests the pointer on it.
+function sendTitle(s) {
+  if (s && s.generating) { return 'Stop the answer (Esc)'; }
+  return 'Send (Enter). Shift + Enter makes a new line.';
 }
 
 // A list is built again only when its content changed. This keeps an open
@@ -5500,7 +5517,7 @@ function grow() {
   if (cur) {
     var live = anythingToSend() || !!cur.generating;
     el.send.classList.toggle('live', live && !cur.generating);
-    el.hint.innerHTML = hintFor(cur);
+    el.send.title = sendTitle(cur);
   }
 }
 
@@ -5579,7 +5596,6 @@ el.draft.addEventListener('focus', function () {
 });
 el.draft.addEventListener('blur', function () {
   el.box.classList.remove('focus');
-  if (cur) { el.hint.innerHTML = hintFor(cur); }
 });
 
 el.draft.addEventListener('keydown', function (e) {
