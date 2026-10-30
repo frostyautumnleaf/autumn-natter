@@ -598,6 +598,14 @@ function scene(name, dark) {
       start.live = WRITING_SAYS.slice(0, Math.min(WRITING_SAYS.length, told));
     }
     start.reasoning = 'Look in the folder first, then say what stands in it.';
+    // The head of the thinking panel says how long the thoughts have taken
+    // while they are coming, and the count of the calls that stand among them,
+    // so a picture of a live answer wants a length of its own to say, and one
+    // that is over wants the mark that says it is over.
+    if (process.env.AN_THOUGHTMS !== undefined) {
+      start.reasoning_ms = Number(process.env.AN_THOUGHTMS) || 0;
+    }
+    if (process.env.AN_THOUGHTDONE === '1') { start.reasoning_done = true; }
     var tool = process.env.AN_TOOL || 'run_terminal';
     var named = WRITING_NAMES[tool] !== undefined;
     // A file tool names its file in the head of the block, and makes its words
