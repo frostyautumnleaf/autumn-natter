@@ -601,8 +601,16 @@ pre.code .t-p { color: var(--t-pun); }
    scroll inside the panel. */
 .think { position: relative; margin: 0 0 11px; background: var(--think-bg);
   border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; }
-.think::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px;
-  border-radius: 2px; background: var(--accent); }
+/* The rule of colour at the left hand edge of the panel. It is not a straight
+   bar cut off at its two ends: it bends with the two corners of the box, so it
+   follows the shape the panel is cut to and stops where the edge begins to turn
+   away. The two sides of the rule that run along the top and the bottom are
+   left without colour, and a rounded corner is drawn half with the colour of
+   one side and half with that of the next, which is the bend the eye wants. */
+.think::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 11px;
+  border: 2px solid transparent; border-left-color: var(--accent);
+  border-radius: 9px 0 0 9px; pointer-events: none; }
+
 .think > .thead { gap: 7px; min-height: 31px; padding: 6px 11px 6px 15px; }
 .think > .thead:hover { background: var(--hover); }
 .think > .thead .svg { width: 12px; height: 12px; stroke: var(--ink); }
