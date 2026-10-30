@@ -117,6 +117,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // because the reader stopped it. The page puts the mark of going on
                 // with it under that answer alone.
                 "stopped": m.stopped,
+                // The files a run of the download tool offered to the reader. The
+                // page draws a block for each of them at the end of the answer
+                // that made the offer, and only once the model has stopped.
+                "downloads": m.downloads.iter().map(|one| json!({
+                    "name": one.name,
+                    "extension": one.extension,
+                    "kind": one.kind,
+                    "path": one.path,
+                    "size": one.size,
+                })).collect::<Vec<Value>>(),
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is
@@ -556,6 +566,46 @@ pub fn log_value(id: &str, most: Option<u64>) -> Value {
 // filled from. The line that starts a server, the address of it, and the words
 // of a server of the program itself all come here, and nowhere else, for the tab
 // is opened now and then and the state is asked for always.
+// One file the reader was offered, for the window that has no web server of its
+// own. The name, the kind of the bytes, and the bytes as a data URL: the window
+// hangs the data URL on a link and the file comes down, which is what the button
+// of a block does over http as well. A name that leaves the room of the open chat
+// answers with nothing, as it does on the road of the remote page.
+pub fn gift_value(engine: &crate::engine::Engine, asked: &str) -> Value {
+    match engine.gift(asked) {
+        Some((name, kind, bytes)) => {
+            let size = bytes.len();
+            json!({
+                "ok": true,
+                "name": name,
+                "mime": kind,
+                "data": format!("data:{};base64,{}", kind, util::b64(&bytes)),
+                "size": size,
+            })
+        }
+        None => refused("That file is not here, or it does not stand in this chat"),
+    }
+}
+
+// Several files the reader was offered, wound into one archive for the same
+// window. The archive is made in the memory and is never written out, so taking
+// the whole of an offer leaves no file of its own behind.
+pub fn gift_zip_value(engine: &crate::engine::Engine, paths: &[String]) -> Value {
+    match engine.gift_zip(paths) {
+        Some((name, bytes)) => {
+            let size = bytes.len();
+            json!({
+                "ok": true,
+                "name": name,
+                "mime": "application/zip",
+                "data": format!("data:application/zip;base64,{}", util::b64(&bytes)),
+                "size": size,
+            })
+        }
+        None => refused("None of those files is here any more"),
+    }
+}
+
 pub fn mcp_value(engine: &crate::engine::Engine) -> Value {
     let held = engine.mcp_servers();
     let known: Vec<Value> = held

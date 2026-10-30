@@ -852,6 +852,47 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .part .x:hover { background: var(--hover); }
 .part .x .svg { width: 10px; height: 10px; stroke: var(--dim); stroke-width: 2.2; }
 .part .x:hover .svg { stroke: var(--ink); }
+/* The files the model offered at the end of an answer. A block is one file: the
+   mark of the kind of file, its name with the ending under the name, and the
+   button that takes it. The blocks stand in the middle of the chat, under the
+   answer that offered them and not among its words, for they are the work the
+   answer left and not a saying of it. */
+.gifts {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 6px 0 12px; animation: rise 240ms ease-out;
+}
+.gift {
+  display: flex; align-items: center; gap: 11px; width: 100%; max-width: 430px;
+  padding: 9px 9px 9px 10px; border: 1px solid var(--line); border-radius: var(--r-m);
+  background: var(--surface); box-shadow: var(--shadow-1);
+}
+.gift .plate {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 9px; background: var(--surface-3);
+  border: 1px solid var(--line);
+}
+.gift .plate .svg { width: 19px; height: 19px; stroke: var(--ink); }
+.gift .names { flex: 1 1 auto; min-width: 0; }
+.gift .nm {
+  font-size: 13.5px; font-weight: 620; color: var(--text); line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gift .ext {
+  margin-top: 3px; font-size: 10.5px; font-weight: 650; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--dim);
+}
+.gift .get, .gifts .all {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 11px; border: 1px solid var(--accent-line); border-radius: 9px;
+  background: var(--accent-soft); color: var(--ink); font-size: 12px;
+  font-weight: 650; font-family: inherit; cursor: pointer;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease;
+}
+.gift .get:hover, .gifts .all:hover { background: var(--tint); border-color: var(--accent); }
+.gift .get .svg, .gifts .all .svg { width: 13px; height: 13px; stroke: var(--ink); }
+/* The button of the whole offer stands under the files it takes, in the middle
+   of the chat as they are. */
+.gifts .all { align-self: center; }
 /* The box says that a file let go there would land in it. */
 .box.drop { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line); }
 /* The files that hang on a message the reader has sent stand under its words,
@@ -1189,6 +1230,7 @@ pre.code.line {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
+  .gifts { animation: none; }
   .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
   .gauge .spin { animation: none; }
   img.pic { animation: none; }
@@ -2597,7 +2639,9 @@ var TOOL_LINES = [
   ['files', 'File management',
    'The model may change a file of the chat and make a new one. Both work in the working directory of the chat and nowhere else, and they run in the program, so the sandbox of a command is not between them.'],
   ['picture', 'Look at a picture',
-   'The model may look at a picture of the chat. The picture is read in the program and shown to the model, and never written out again.']
+   'The model may look at a picture of the chat. The picture is read in the program and shown to the model, and never written out again.'],
+  ['hand_out', 'Hand a file to the reader',
+   'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all.']
 ];
 
 // One line of the menu of the badge: a kind of tool, with a switch at the end of
@@ -3447,6 +3491,14 @@ var TOOL_SHAPES = {
     mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
     head: 'Looking at an image: ', word: 'image', end: 'result',
     empty: 'nothing to look at', begun: 'the image to look at'
+  },
+  // A file held out to the reader. The block of the run says which file was
+  // offered; the block of the offer itself, with the button, stands under the
+  // answer and not here.
+  download_file: {
+    mark: 'M8 2.4v6.4M5.4 6.4 8 9l2.6-2.6M3.2 12.6h9.6',
+    head: 'Offering a file: ', done: 'Offered a file: ', word: 'file', end: 'result',
+    empty: 'no file name', begun: 'a file, started', file: true
   }
 };
 
@@ -4690,6 +4742,9 @@ function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
     (m.tool || '').length, /^running \.\.\.$/i.test(m.tool) ? 1 : 0, m.when || '',
     m.attachments ? m.attachments.length : 0, m.cancelled ? 'cut' : '',
+    // The blocks of an offer stand under the answer, so the row that carries them
+    // is made again when an offer comes in or goes out.
+    m.downloads ? 'gift' + m.downloads.length : '',
     // The line under a message carries the mark of going on with it, so the row
     // is made again when the state says an answer was stopped.
     m.stopped ? 'stopped' : ''].join('#');
@@ -5162,6 +5217,7 @@ function drawThread(s) {
   // panel stands in the key, so the thread is made again when a panel grows.
   var spans = thoughtSpans(items);
   var rows = threadRows(items, spans);
+  var plan = giftPlan(items, rows);
   var key = items.map(function (m) { return m.id; }).join('|')
           + '#' + spans.map(function (r) { return r.from + '-' + r.to; }).join(',');
   var open = (s.chat && s.chat.id) || '';
@@ -5203,6 +5259,7 @@ function drawThread(s) {
       }
     }
     while (box.children.length > rows.length) { box.removeChild(box.lastChild); }
+    for (var p = 0; p < rows.length; p++) { placeGifts(box.children[p], plan[p]); }
     if (fresh) {
       // A chat that was opened or turned stands at the top.
       el.thread.scrollTop = 0;
@@ -5225,6 +5282,12 @@ function drawThread(s) {
     for (var k = rows.length - 3; k < rows.length; k++) {
       if (k >= 0) { syncTurn(box.children[k], items, rows[k]); }
     }
+    // The offers of the last answers are looked at again here as well: an offer
+    // that came in while the model was writing stands aside until the answer is
+    // over, and the row that carries it has nothing else to say when it ends.
+    for (var q = rows.length - 3; q < rows.length; q++) {
+      if (q >= 0) { placeGifts(box.children[q], plan[q]); }
+    }
   }
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
 }
@@ -5235,6 +5298,236 @@ el.thread.addEventListener('scroll', function () {
   var box = el.thread;
   stick = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
 });
+
+// ---------------------------------------------------- the offer of a file
+//
+// The download tool leaves the files it offered at the end of the answer that
+// offered them. A block is one file: the mark of the kind of file, its name with
+// the ending under the name, and the button that takes it. The blocks stand in
+// the middle of the chat, under the whole of an answer and never among its words,
+// for they are the work the answer left and not a saying of it. They stand only
+// once the model has stopped writing, for a file the model was still making is
+// not finished work, and they stand under the last word of the answer whatever
+// message of it the tool that offered the file ran in.
+
+// The mark of a kind of file. A page of a web browser and a table of numbers are
+// two different things to look at, so each has a shape of its own; a file that is
+// none of the shapes below is a sheet with a corner turned over.
+var GIFT_MARKS = {
+  document: 'M4 2.2h5.2l2.8 2.8v8.8H4zM9.2 2.2v3.2H12M6 8.6h4M6 10.8h4',
+  page: 'M2.4 3h11.2v10H2.4zM2.4 5.6h11.2M4.2 4.3h2.4',
+  image: 'M2.4 3.4h11.2v9.2H2.4zM4.6 10.4l2.2-2.6 1.8 2.2 1.4-1.8 1.6 2.4M11.2 5.6a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
+  code: 'M6.2 11.4 3 8l3.2-3.4M9.8 4.6 13 8l-3.2 3.4',
+  table: 'M2.4 3h11.2v10H2.4zM2.4 6.4h11.2M2.4 9.6h11.2M6.4 3v10M10.2 3v10',
+  archive: 'M2.6 3h10.8v3H2.6zM3.8 6h8.4v7H3.8zM6.6 8.4h2.8',
+  sound: 'M3 6.4h2.6L9 3.6v8.8L5.6 9.6H3zM11.2 6a2.8 2.8 0 0 1 0 4',
+  film: 'M2.4 4h11.2v8H2.4zM5.4 4v8M10.6 4v8M2.4 8h11.2',
+  program: 'M3 3h10v10H3zM6.4 6.2l3.6 1.8-3.6 1.8z',
+  font: 'M3.4 12.6 8 3.4l4.6 9.2M5.2 9.4h5.6',
+  file: 'M4 2.2h5.2l2.8 2.8v8.8H4zM9.2 2.2v3.2H12'
+};
+// The mark of the button of a block, and of the button of a whole offer.
+var GIFT_DOWN = 'M8 2.4v6.4M5.4 6.4 8 9l2.6-2.6M3.2 12.6h9.6';
+
+// The road of a file of the chat. The small server of the program answers for it,
+// and opens only the room of the chat that is open: the rule of the sandbox lies
+// over a download as it lies over a command.
+function giftHref(one) {
+  return '/api/gift?path=' + encodeURIComponent(one.path);
+}
+
+// The road of the whole of an offer, wound into one archive in the memory of the
+// program. Every file of the offer is one word of the ask.
+function giftZipHref(list) {
+  var parts = [];
+  for (var n = 0; n < list.length; n++) {
+    parts.push('path=' + encodeURIComponent(list[n].path));
+  }
+  return '/api/gift_zip?' + parts.join('&');
+}
+
+// The whole name of a file of an offer, which is the name the browser is given,
+// so it keeps the name the block showed and not the kind it guessed.
+function giftWhole(one) {
+  return one.extension ? one.name + '.' + one.extension : one.name;
+}
+
+// Take a file the browser has been given the road to.
+function takeDown(href, name) {
+  var link = document.createElement('a');
+  link.href = href;
+  if (name) { link.download = name; }
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+// The button says what went wrong, for a moment, rather than taking a file that
+// is not there. A block of an offer the reader was shown an hour ago names a
+// file that may have been written over since.
+function failGift(button, words) {
+  if (!button) { return; }
+  var said = button.querySelector('span');
+  if (!said) { return; }
+  var was = said.textContent;
+  said.textContent = words;
+  button.disabled = true;
+  window.setTimeout(function () {
+    said.textContent = was;
+    button.disabled = false;
+  }, 2400);
+}
+
+// Take one file of an offer. The bytes are asked for first, so a file that has
+// gone out of the room of the chat says so instead of bringing down nothing.
+function takeGift(one, button) {
+  if (inWindow) {
+    invoke('get_gift', { path: one.path }).then(function (answer) {
+      if (!answer || answer.ok === false) { failGift(button, 'Not here'); return; }
+      takeDown(answer.data, answer.name || giftWhole(one));
+    }, function () { failGift(button, 'Not here'); });
+    return;
+  }
+  window.fetch(giftHref(one)).then(function (answer) {
+    if (!answer.ok) { failGift(button, 'Not here'); return null; }
+    return answer.blob().then(function (made) {
+      takeDown(window.URL.createObjectURL(made), giftWhole(one));
+    });
+  }).catch(function () { failGift(button, 'Not here'); });
+}
+
+// Take the whole of an offer at once. The archive is made in the memory of the
+// program and is never written out to the room of the chat.
+function takeGifts(list, button) {
+  if (inWindow) {
+    var paths = list.map(function (one) { return one.path; });
+    invoke('get_gift_zip', { paths: paths }).then(function (answer) {
+      if (!answer || answer.ok === false) { failGift(button, 'Not here'); return; }
+      takeDown(answer.data, answer.name || giftWhole(list[0]) + '.zip');
+    }, function () { failGift(button, 'Not here'); });
+    return;
+  }
+  window.fetch(giftZipHref(list)).then(function (answer) {
+    if (!answer.ok) { failGift(button, 'Not here'); return null; }
+    return answer.blob().then(function (made) {
+      takeDown(window.URL.createObjectURL(made), giftWhole(list[0]) + '.zip');
+    });
+  }).catch(function () { failGift(button, 'Not here'); });
+}
+
+// One file of an offer: the mark of its kind, its name with the ending under it,
+// and the button at the right of the block.
+function giftBlock(one) {
+  var box = make('div', 'gift');
+  var plate = make('span', 'plate');
+  plate.appendChild(mark(GIFT_MARKS[one.kind] || GIFT_MARKS.file));
+  box.appendChild(plate);
+  var names = make('div', 'names');
+  var nm = make('div', 'nm');
+  nm.textContent = one.name || 'a file';
+  nm.title = one.path || '';
+  names.appendChild(nm);
+  if (one.extension) {
+    var tail = make('div', 'ext');
+    tail.textContent = one.extension;
+    names.appendChild(tail);
+  }
+  box.appendChild(names);
+  var get = make('button', 'get');
+  get.type = 'button';
+  get.appendChild(mark(GIFT_DOWN));
+  var said = make('span');
+  said.textContent = 'Download';
+  get.appendChild(said);
+  get.title = 'Take ' + giftWhole(one) + ' out of the chat';
+  get.addEventListener('click', function () { takeGift(one, get); });
+  box.appendChild(get);
+  return box;
+}
+
+// The blocks of one offer, with the button of the whole of it under them when
+// there is more than one file.
+function giftRow(list) {
+  var row = make('div', 'gifts');
+  for (var n = 0; n < list.length; n++) { row.appendChild(giftBlock(list[n])); }
+  if (list.length > 1) {
+    var all = make('button', 'all');
+    all.type = 'button';
+    all.appendChild(mark(GIFT_DOWN));
+    var said = make('span');
+    said.textContent = 'Download all';
+    all.appendChild(said);
+    all.title = 'Take all ' + list.length + ' files in one archive';
+    all.addEventListener('click', function () { takeGifts(list, all); });
+    row.appendChild(all);
+  }
+  return row;
+}
+
+// The answers of a chat, in the order they stand: where one begins, where it
+// ends, whether the model is still writing it, and what it offered. An answer is
+// the talk between one word of the reader and the next, which is why the offer
+// belongs to a whole answer and not to the one message the tool ran in.
+function chatAnswers(items) {
+  var out = [];
+  var begin = 0;
+  for (var n = 0; n <= items.length; n++) {
+    if (n === items.length || items[n].role === 'You') {
+      if (n > begin) {
+        var held = [];
+        var writing = false;
+        for (var k = begin; k < n; k++) {
+          if (items[k].id === 'live') { writing = true; }
+          var given = items[k].downloads;
+          if (given && given.length) {
+            for (var j = 0; j < given.length; j++) { held.push(given[j]); }
+          }
+        }
+        out.push({ from: begin, to: n, writing: writing, gifts: held });
+      }
+      begin = n + 1;
+    }
+  }
+  return out;
+}
+
+// Which row of the thread carries the offer of its answer, and what it is made
+// of. Only the last row of an answer carries it, and an answer that is still
+// being written carries nothing at all.
+function giftPlan(items, rows) {
+  var answers = chatAnswers(items);
+  var plan = [];
+  var at = 0;
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    while (at + 1 < answers.length && answers[at + 1].from <= row.from) { at += 1; }
+    var one = answers[at];
+    var given = (one && !one.writing && one.gifts.length
+      && row.from >= one.from && row.to === one.to) ? one.gifts : null;
+    plan.push(given);
+  }
+  return plan;
+}
+
+// The blocks of an offer are put under the row that carries them, or taken away,
+// or left alone. A row that was made again has lost them with the rest of its
+// words, so what stands in the row is looked at and not only what the row said
+// it was made of last.
+function placeGifts(turn, given) {
+  if (!turn) { return; }
+  var want = given ? given.map(function (one) {
+    return String(one.path) + ':' + String(one.size);
+  }).join('|') : '';
+  var held = null;
+  for (var n = 0; n < turn.children.length; n++) {
+    if (turn.children[n].classList.contains('gifts')) { held = turn.children[n]; break; }
+  }
+  if (turn.dataset.gifts === want && (held || !want)) { return; }
+  turn.dataset.gifts = want;
+  if (held) { turn.removeChild(held); }
+  if (given && given.length) { turn.appendChild(giftRow(given)); }
+}
+
 
 // ------------------------------------------------------------ chapter line
 //

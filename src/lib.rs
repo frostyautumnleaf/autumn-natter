@@ -21,6 +21,7 @@
 
 pub mod attach;
 pub mod config;
+pub mod download;
 pub mod editfile;
 pub mod engine;
 pub mod gguf;

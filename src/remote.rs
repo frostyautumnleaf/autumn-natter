@@ -179,6 +179,37 @@ fn handle(engine: &Engine, mut request: Request) {
                 },
             );
         }
+        // A file the reader was offered by the download tool. The name is the one
+        // the block carries, and only the room of the open chat is opened for it:
+        // the rule of the sandbox lies over a download as it lies over a command.
+        // The bytes come back as an attachment, so the browser keeps the name the
+        // block showed rather than the kind it guessed.
+        ("GET", "/api/gift") => {
+            let asked = query_value(&query, "path");
+            match engine.gift(&asked) {
+                Some((name, kind, bytes)) => {
+                    let _ = request.respond(bytes_response(&name, &kind, bytes));
+                }
+                None => {
+                    let _ = request.respond(json_status(404, "That file is not of this chat"));
+                }
+            }
+        }
+        // The whole of an offer at once, wound into one archive in the memory. The
+        // names come as several `path` words of the query, and the archive is
+        // never written out to the room of the chat.
+        ("GET", "/api/gift_zip") => {
+            let asked = query_values(&query, "path");
+            match engine.gift_zip(&asked) {
+                Some((name, bytes)) => {
+                    let _ =
+                        request.respond(bytes_response(&name, "application/zip", bytes));
+                }
+                None => {
+                    let _ = request.respond(json_status(404, "None of those files is here"));
+                }
+            }
+        }
         ("POST", _) => {
             let mut body = String::new();
             // A call with no body is allowed, so a read error is not a problem.
@@ -234,6 +265,22 @@ fn query_value(query: &str, key: &str) -> String {
     String::new()
 }
 
+// Every value a word of the query carries. The button that takes the whole of an
+// offer at once sends one `path` word for each file of it, so the same name comes
+// back several times.
+fn query_values(query: &str, key: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for pair in query.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        if parts.next() == Some(key) {
+            if let Some(value) = parts.next() {
+                out.push(urlencoding::decode(value).unwrap_or_default().into_owned());
+            }
+        }
+    }
+    out
+}
+
 // A number from the query of the page, for example since=41.
 fn query_u64(query: &str, key: &str) -> Option<u64> {
     for pair in query.split('&') {
@@ -252,6 +299,56 @@ fn query_u64(query: &str, key: &str) -> Option<u64> {
 fn json_response(value: &serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_string(value.to_string())
         .with_header(content_type("application/json; charset=utf-8"))
+}
+
+// The bytes of a file the reader was offered. The name goes into the answer as an
+// attachment, so the browser keeps the name the block showed instead of the kind
+// it guessed, and the file is never opened in the page. A name of another alphabet
+// is written twice over: once the plain way, for a browser that reads only that,
+// and once as the bytes of UTF-8 with the awkward letters written as numbers.
+fn bytes_response(
+    name: &str,
+    kind: &str,
+    bytes: Vec<u8>,
+) -> Response<std::io::Cursor<Vec<u8>>> {
+    let plain = plain_name(name);
+    let held = format!(
+        "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+        plain,
+        percent_of(name)
+    );
+    Response::from_data(bytes)
+        .with_header(content_type(kind))
+        .with_header(header("content-disposition", &held))
+        // The file is of this chat and of this moment: a page that kept an old
+        // copy of it would hand out words that are no longer the work.
+        .with_header(header("cache-control", "no-store"))
+}
+
+// A name the plain way round in a header: the quotes and the marks that end a
+// line are taken out, for they would end the header itself.
+fn plain_name(name: &str) -> String {
+    name.chars()
+        .map(|ch| match ch {
+            '"' | '\\' | '\n' | '\r' => '-',
+            other => other,
+        })
+        .collect()
+}
+
+// The letters a header cannot carry written as numbers, which is how a name of
+// another alphabet reaches the browser whole.
+fn percent_of(name: &str) -> String {
+    let mut out = String::new();
+    for byte in name.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_' | b'(' | b')' => {
+                out.push(*byte as char);
+            }
+            other => out.push_str(&format!("%{:02X}", other)),
+        }
+    }
+    out
 }
 
 // A JSON answer with a status number that is not 200.

@@ -521,6 +521,11 @@ pub struct Message {
     // that answer and nowhere else.
     #[serde(default)]
     pub stopped: bool,
+    // The files a run of the download tool offered to the reader. The blocks of
+    // the offer stand at the end of the answer that made them, and never while
+    // the model is still writing.
+    #[serde(default)]
+    pub downloads: Vec<crate::download::Gift>,
     // A message of the role "Summary" only. The room the talk took when the
     // handoff summary was asked for, in tokens.
     #[serde(default)]

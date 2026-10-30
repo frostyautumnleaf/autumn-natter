@@ -55,6 +55,24 @@ pub async fn get_attachment(engine: State<'_, Engine>, id: String) -> Result<Val
     }
 }
 
+// A file the reader was offered by the download tool, and the whole of such an
+// offer wound into one archive. The window has no web server between it and the
+// engine, so the bytes come back as a data URL and the window hangs them on a
+// link; the remote page asks for the same two things over http. Only the room of
+// the open chat is opened for either, which is the rule the file tools work to.
+#[tauri::command]
+pub async fn get_gift(engine: State<'_, Engine>, path: String) -> Result<Value, String> {
+    Ok(web::gift_value(&engine, &path))
+}
+
+#[tauri::command]
+pub async fn get_gift_zip(
+    engine: State<'_, Engine>,
+    paths: Vec<String>,
+) -> Result<Value, String> {
+    Ok(web::gift_zip_value(&engine, &paths))
+}
+
 // The settings of the program, for the sheet of settings. The same three calls
 // stand behind the routes of the remote page, in `web`.
 #[tauri::command]

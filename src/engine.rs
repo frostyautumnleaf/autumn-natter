@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use crate::attach;
 use crate::store::Attachment;
 use crate::config::{self, Config, ModelSettings};
+use crate::download;
 use crate::editfile;
 use crate::gpu::{self, Gpu};
 use crate::llama::{self, ModelInfo, Server, ToolCall};
@@ -212,6 +213,11 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         editfile::EDIT_NAME | editfile::CREATE_NAME => {
             let (command, target) = editfile::live_params(name, raw);
             (command, String::new(), target)
+        }
+        // A file being offered to the reader is named by the file itself.
+        download::NAME => {
+            let one = download::partial_words(raw);
+            (one.clone(), String::new(), one)
         }
         // A look about the web is named by the words to look for, or by the
         // address that is to be read.
@@ -1574,6 +1580,23 @@ impl State {
         self.finish_tool_with(id, output, ok, Vec::new());
     }
 
+    // The same, with the files a run of the download tool offered to the reader.
+    // The offer rides on the message of the run, so the blocks can be drawn again
+    // when the chat is opened another day; the blocks themselves stand at the end
+    // of the answer, and only once the model has stopped writing. See
+    // `gifts_till` for the offer of a turn.
+    fn finish_gifts(&mut self, id: &str, output: &str, ok: bool, gifts: Vec<download::Gift>) {
+        if let Some(chat) = self.chat_mut() {
+            if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
+                message.tool = output.to_string();
+                message.failed = !ok;
+                message.downloads = gifts;
+            }
+        }
+        self.persist();
+        self.touch();
+    }
+
     // The same, with the records of the pictures the run opened hanging on the
     // message as well. A tool that hands a picture to the model keeps the bytes
     // of it out of the words the reader is given, so the picture stands where the
@@ -2932,6 +2955,55 @@ impl Engine {
         }
         let paths = config::paths();
         attach::find_in(&[paths.data.join("work"), paths.repositories], id)
+    }
+
+    // One file the reader was offered, for the button of a block. The name is the
+    // name the block carries, and is read as the tool reads it: only the room of
+    // the open chat is opened, so a name that steps out of that room gives
+    // nothing. The rule of the sandbox lies over a download as it lies over a
+    // command. The answer is the name of the file, the kind of its bytes, and the
+    // bytes.
+    pub fn gift(&self, asked: &str) -> Option<(String, String, Vec<u8>)> {
+        let workdir = self.open_workdir()?;
+        let (name, bytes) = download::bytes_of(&workdir, asked)?;
+        let (_, tail) = download::split_name(&name);
+        Some((name, download::mime(&tail).to_string(), bytes))
+    }
+
+    // Several files the reader was offered, in one archive, for the button that
+    // takes the whole of an offer at once. A name that is not in the room of the
+    // chat is passed over; when none of them can be had, nothing comes back. The
+    // archive is made in the memory and is never written out to the room of the
+    // chat, so a download leaves no file of its own behind.
+    pub fn gift_zip(&self, asked: &[String]) -> Option<(String, Vec<u8>)> {
+        let workdir = self.open_workdir()?;
+        let mut held: Vec<(String, Vec<u8>)> = Vec::new();
+        for one in asked.iter().take(download::GREATEST_FILES) {
+            if let Some((name, bytes)) = download::bytes_of(&workdir, one) {
+                // A file of a folder stands in the archive under its own name, and
+                // two files of the same name would otherwise write over one
+                // another: the folder they came out of is put back on the second.
+                let mut shown = name;
+                if held.iter().any(|(one, _)| *one == shown) {
+                    let (stem, tail) = download::split_name(&shown);
+                    shown = format!("{}-{}.{}", stem, held.len(), tail);
+                }
+                held.push((shown, bytes));
+            }
+        }
+        if held.is_empty() {
+            return None;
+        }
+        let made = download::zip_of(held);
+        Some((zip_name(asked), made))
+    }
+
+    // The room of the open chat, which is the only room a download is read from.
+    fn open_workdir(&self) -> Option<PathBuf> {
+        let Ok(state) = self.state.lock() else {
+            return None;
+        };
+        state.chat().map(|chat| state.workdir_for(chat))
     }
 
     // Go back to the first screen, where a new chat is written. The chat box
@@ -5719,6 +5791,7 @@ fn group_of(name: &str) -> Option<&'static str> {
         tools::TOOL_NAME => Some("commands"),
         editfile::EDIT_NAME | editfile::CREATE_NAME => Some("files"),
         viewimage::NAME => Some("picture"),
+        download::NAME => Some("hand_out"),
         _ => None,
     }
 }
@@ -5773,6 +5846,9 @@ fn offered(
         }
         if switches.picture {
             list.push(viewimage::definition());
+        }
+        if switches.hand_out {
+            list.push(download::definition());
         }
     }
     if search_on {
@@ -5862,6 +5938,7 @@ fn run_program_tool(
         editfile::CREATE_NAME => "Creating a file",
         search::NAME => "Searching the web",
         viewimage::NAME => "Looking at an image",
+        download::NAME => "Offering a file",
         _ => "A tool of the program",
     };
     let message_id = {
@@ -5931,6 +6008,17 @@ fn run_program_tool(
         };
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool_with(&message_id, &made.report.output, made.report.ok, records);
+        return;
+    }
+    // A file the reader is offered. Nothing is copied and nothing is fetched: the
+    // file stands in the room of the chat where the model put it, and the offer
+    // rides on the message of the run. The page draws the blocks of the offer at
+    // the end of the answer that made them, and only when the model has stopped
+    // writing, so a file that is still being written is never handed over.
+    if call.name == download::NAME {
+        let made = download::offer(workdir, &call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_gifts(&message_id, &made.report.output, made.report.ok, made.gifts);
         return;
     }
     let report = match call.name.as_str() {
@@ -6048,6 +6136,24 @@ fn estimate_tokens(history: &Value) -> u64 {
     chars / 4
 }
 
+// The name of the archive the reader is given when they take the whole of an
+// offer at once. The first file of the offer gives its name to the archive, so
+// the file that comes down is not a mystery; an offer with nothing to take its
+// name from is called for the program.
+fn zip_name(asked: &[String]) -> String {
+    let first = asked
+        .iter()
+        .map(|one| one.trim())
+        .find(|one| !one.is_empty())
+        .map(|one| {
+            let tail = one.rsplit(['/', '\\']).next().unwrap_or(one);
+            let (stem, _) = download::split_name(tail);
+            stem
+        })
+        .unwrap_or_else(|| String::from("autumn-natter"));
+    format!("{}.zip", first)
+}
+
 fn first_line(text: &str) -> String {
     let line = text.lines().next().unwrap_or("").trim();
     if line.chars().count() > 60 {
@@ -6098,6 +6204,7 @@ mod tests {
         assert!(snap.tool_switches.commands);
         assert!(!snap.tool_switches.files, "file management is off");
         assert!(snap.tool_switches.picture);
+        assert!(snap.tool_switches.hand_out);
         let words = |code_on: bool, switches: &store::ToolSwitches| {
             offered(code_on, false, false, tools::Access::default(), &[], switches)
                 .map(|list| {
@@ -6113,10 +6220,22 @@ mod tests {
         assert!(!given.contains(&editfile::EDIT_NAME.to_string()));
         assert!(!given.contains(&editfile::CREATE_NAME.to_string()));
         assert!(given.contains(&viewimage::NAME.to_string()));
+        assert!(given.contains(&download::NAME.to_string()));
         // Every line of the drop-down off, and the badge on: nothing of the
-        // program is offered at all.
-        engine.set_tool_switch("commands", false);
-        engine.set_tool_switch("picture", false);
+        // program is offered at all. The lines are read from the switches of the
+        // chat themselves, so a tool the program learns later is taken out here
+        // as well rather than leaving this test to say a thing that is no longer
+        // true of it.
+        let lines = engine
+            .snapshot()
+            .tool_switches
+            .words()
+            .into_iter()
+            .map(|(part, _)| part)
+            .collect::<Vec<_>>();
+        for part in lines.iter() {
+            engine.set_tool_switch(part, false);
+        }
         assert!(words(true, &engine.snapshot().tool_switches).is_none());
         // The badge is the door over all of them: with the badge off, a line that
         // stands on offers nothing.
@@ -6141,6 +6260,8 @@ mod tests {
         assert!(kept.commands, "the line the reader put back on stays on");
         assert!(!kept.files, "file management is still off");
         assert!(!kept.picture);
+        assert!(!kept.hand_out, "the offer of a file is still off");
+        assert!(!lines.is_empty(), "the badge has lines to switch");
     }
 
     // The reader works in one chat with the tools on and a level of thinking
@@ -7042,6 +7163,88 @@ mod tests {
         assert_eq!(last.role, "Tool");
         assert_eq!(last.reasoning, "I will run the command.");
         assert_eq!(last.tool, "5");
+    }
+
+    // A run of the download tool leaves its offer on the message of the run, and
+    // the reader reaches the file by the name the block carries. A name that steps
+    // out of the room of the chat is answered and never offered, which is the rule
+    // of the sandbox over a download as it is over a command.
+    #[test]
+    fn the_offer_of_a_file_hangs_on_the_run_and_reaches_the_reader() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let workdir = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
+            std::fs::create_dir_all(room.join("notes")).unwrap();
+            std::fs::write(room.join("page.html"), "<p>work</p>").unwrap();
+            std::fs::write(room.join("notes/table.csv"), "a,b\n1,2\n").unwrap();
+            room
+        };
+        let call = ToolCall {
+            id: String::from("call-offer"),
+            name: String::from(download::NAME),
+            arguments: String::from(
+                "{\"paths\":[\"page.html\",\"notes/table.csv\",\"../elsewhere.txt\"]}",
+            ),
+        };
+        run_program_tool(&call, "", 0, &engine.state, &workdir);
+        let snap = engine.snapshot();
+        let run = snap
+            .messages
+            .iter()
+            .find(|one| one.tool_name == download::NAME)
+            .expect("the chat holds the run");
+        assert_eq!(run.role, "Tool");
+        assert!(!run.failed, "{}", run.tool);
+        assert_eq!(run.downloads.len(), 2, "the two files of the room are offered");
+        assert_eq!(run.downloads[0].name, "page");
+        assert_eq!(run.downloads[0].extension, "html");
+        assert_eq!(run.downloads[0].kind, "page");
+        assert_eq!(run.downloads[0].path, "page.html");
+        assert_eq!(run.downloads[1].path, "notes/table.csv");
+        assert_eq!(run.downloads[1].kind, "table");
+        assert!(run.tool.contains("2 files"), "{}", run.tool);
+        assert!(run.tool.contains("Not offered"), "{}", run.tool);
+        // The state of a page carries the offer with the run, so the blocks of an
+        // offer are drawn again when the chat is opened another day.
+        let value = crate::web::state(&snap, None);
+        let rows = value["messages"].as_array().expect("the state carries the talk");
+        let row = rows
+            .iter()
+            .find(|one| one["tool_name"] == download::NAME)
+            .expect("the run stands in the state");
+        let held = &row["downloads"][0];
+        assert_eq!(held["name"], "page");
+        assert_eq!(held["extension"], "html");
+        assert_eq!(held["kind"], "page");
+        assert_eq!(held["path"], "page.html");
+        assert_eq!(held["size"], 11);
+        // The button of a block comes down these two roads. The bytes of a file of
+        // the chat come back under the name of the file and the kind of its bytes;
+        // a name that leaves the room of the chat, or that names a file which is
+        // not there, gives nothing at all.
+        let (name, kind, bytes) = engine
+            .gift("notes/table.csv")
+            .expect("the file stands in the room");
+        assert_eq!(name, "table.csv");
+        assert_eq!(kind, "text/csv");
+        assert_eq!(bytes, b"a,b\n1,2\n");
+        assert!(engine.gift("../elsewhere.txt").is_none());
+        assert!(engine.gift("nowhere.txt").is_none());
+        let (called, kept) = engine
+            .gift_zip(&[
+                String::from("page.html"),
+                String::from("notes/table.csv"),
+                String::from("nowhere.txt"),
+            ])
+            .expect("two of the files stand in the room");
+        assert_eq!(called, "page.zip");
+        assert_eq!(&kept[0..4], b"PK\x03\x04");
+        assert!(engine.gift_zip(&[String::from("nowhere.txt")]).is_none());
+        let _ = std::fs::remove_dir_all(&workdir);
     }
 
     // The picture a run opened for the model hangs on the message of the run. The
