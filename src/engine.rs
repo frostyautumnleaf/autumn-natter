@@ -3625,12 +3625,6 @@ struct SummaryShot {
     stopped: bool,
     // The fault of the stream, when there was one.
     error: Option<String>,
-    // How many words the model gave.
-    written: u64,
-    // The room the ask took, as the server counted it. Zero when the server
-    // gave no number, which is when the words are measured as well as they can
-    // be.
-    used: u64,
 }
 
 // The mark that says the program is writing a handoff summary. It is taken off
@@ -3687,8 +3681,6 @@ fn ask_summary(
                 finish: String::new(),
                 stopped: true,
                 error: Some(String::from("The program state is gone")),
-                written: 0,
-                used: 0,
             };
         };
         // The gauge stands for this ask alone. The words under the number follow
@@ -3771,8 +3763,6 @@ fn ask_summary(
         finish: answer.finish.clone(),
         stopped: answer.stopped,
         error: answer.error.clone(),
-        written: answer.completion_tokens,
-        used: answer.prompt_tokens + answer.completion_tokens,
     }
 }
 
@@ -3942,22 +3932,12 @@ fn run_handoff(
     // read. What the model gave stands in the mark of the summarisation alone.
     guard.live_text = String::new();
     guard.live_reasoning = String::new();
-    // The room the summary itself takes. The server gives the number with the
-    // answer; when nothing came back the words are measured as well as they can
-    // be, which is what the meter of the talk is made of elsewhere too. The
-    // number of the words the model gave is the number of the summary, and the
-    // number the server gave of the room the ask took is not a number of the
-    // summary, for the room the ask took is the room the words sent and the
-    // words the model gave took together.
-    let after = if shot.written > 0 {
-        shot.written
-    } else {
-        estimate_tokens(&json!([{ "role": "user", "content": &summary }]))
-    };
-    // The room the ask took, as the server counted it. The number is the room
-    // the words sent and the words the model gave took together, and it is the
-    // number the meter of the talk is read from when the ask came off.
-    let used = shot.used;
+    // The room the summary itself takes, read from the words that stand in the
+    // mark: the number the server gives of the words the model wrote holds the
+    // thinking that is hidden with the rest of it, and it reads the summary
+    // bigger than it is. The measure of the words is the number the reader reads
+    // beside the heading of the summarisation.
+    let after = estimate_tokens(&json!([{ "role": "user", "content": &summary }]));
     // What became of the ask. A summary that never came, that was stopped, or
     // whose server went away, is no summary at all: the mark is left empty, the
     // chat keeps every word it had, and the reader starts it again. A summary
@@ -3997,21 +3977,17 @@ fn run_handoff(
         return false;
     }
     guard.finish_summary(&id, &summary, before, after, &why);
-    // The room the talk takes now. The words the summary stands for are no part
-    // of what goes back to the model, so the meter says what the talk costs
-    // after the summarisation rather than what it cost before. The number the
-    // server gave with the ask is the count of the talk it carried, and it wins
-    // over the measure of the words: the measure reads the words of the talk as
-    // four letters to a word, and a talk of words that are not four letters wide
-    // is read bigger than it is. The words the talk takes after the summary are
-    // a small part of the words it took before it, so the number of the ask that
-    // came off is a ceiling on them, and the ceiling is the number the next ask
-    // is weighed against.
-    let made = if used > 0 {
-        used
-    } else {
-        estimate_tokens(&guard.build_history())
-    };
+    // The room the talk takes now, read from the words that stand after the
+    // summary: the first prompt, the summary, and the words that come after it.
+    // The number the server gave with the ask is not the number of the talk that
+    // stands now, for it holds the words the summary stands for, which are no
+    // part of what goes back to the model, and it reads the talk bigger than it
+    // is. A meter that kept the number of the ask would read the chat as full
+    // the moment the room was made, and the answer would end under the block of
+    // a summary that had just freed the room. The measure of the words is the
+    // number the next ask is weighed against, and the first number the server
+    // gives on the next ask takes the meter where it stands, as it always does.
+    let made = estimate_tokens(&guard.build_history());
     guard.ctx_used = made;
     if let Some(chat) = guard.chat_mut() {
         chat.meta.context_used = made;
@@ -7440,8 +7416,6 @@ mod tests {
             finish: String::from(finish),
             stopped,
             error: error.map(String::from),
-            written: 4096,
-            used: 0,
         };
         // The room ran full: ask again, of the short prompt.
         assert!(summary_too_long(&shot("length", false, None)));
