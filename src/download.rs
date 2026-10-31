@@ -51,7 +51,7 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Offer one or more files of the working directory to the user, so the user can take each of them with the button of a block in the chat. Use it when the work left a file the user asked for: a page, a document, a picture, an archive of the work. Call it at the end of the answer, once the work is done; the blocks stand under the answer, and never while it is being written. The block shows the kind of the file, its name without the extension, the extension under the name, and the button. A file that is not there, or that is bigger than 64 MiB, is answered and no block stands for it.",
+                "Offer one or more files of the working directory to the user, so the user can take each of them with the button of a block in the chat. Use it when the work left a file the user asked for: a page, a document, a picture, an archive of the work. Call it at the end of the answer, once the work is done. The blocks are placed BELOW your answer, at its foot: they are never above it, and never stand while it is still being written. So never tell the user the files are above them - say the files are below, or say only that they are offered. The block shows the kind of the file, its name without the extension, the extension under the name, and the button. A file that is not there, or that is bigger than 64 MiB, is answered and no block stands for it.",
             )),
             "parameters": {
                 "type": "object",
