@@ -633,7 +633,14 @@ pre.code .t-p { color: var(--t-pun); }
 .think > .thead .took { color: var(--dim); font-size: 10.5px; font-weight: 650;
   letter-spacing: .08em; text-transform: uppercase; }
 .think > .thead .cnt.pre::before, .think > .thead .cnt.post::after { content: "\2022";
-  margin: 0 7px; color: var(--faint); font-weight: 400; }
+  color: var(--faint); font-weight: 400; }
+/* The head already puts seven pixels between one part of it and the next, so
+   the bullet is given the seven on the side away from its neighbour only: twice
+   seven on one side of it and nothing on the other would read as a bullet that
+   leans. The gap before the mark of the runs is therefore the same seven that
+   stands between the bullet and the time. */
+.think > .thead .cnt.pre::before { margin: 0 7px 0 0; }
+.think > .thead .cnt.post::after { margin: 0 0 0 7px; }
 /* While the model is thinking there is no bulb: three dots stand in its place
    and nod at one another, so the reader sees that the block is not finished.
    When the thoughts stop the bulb comes back. */
@@ -1766,7 +1773,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <div class="b-left">
             <div class="menuwrap" id="codewrap">
               <button class="badge" id="code" title="Let the model use the tools of the program. The badge is the switch over all of them: with the badge off, no tool is offered at all. Click the arrow beside the name to choose which tools the model may reach.">
-                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.8 4.2a0.67 0.67 0 0 0 0 0.94l1.07 1.07a0.67 0.67 0 0 0 0.94 0l2.51-2.51a4 4 0 0 1-5.29 5.29l-4.61 4.61a1.41 1.41 0 1 1-2-2l4.61-4.61a4 4 0 0 1 5.29-5.29l-2.51 2.51z"/></svg>
                 <span id="codetext">Tools</span>
                 <svg class="svg down" id="codemenu-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
               </button>
@@ -3536,12 +3543,9 @@ function mark(path, cls) {
 // The mark of the thinking panel. The answer that is coming in needs it too.
 var THINK_MARK = 'M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4';
 // The mark of a tool, for the count of the runs that stand inside a thinking
-// panel. It is the cog of the settings of the program, which is the shape the
+// panel. It is the wrench of the badge of the tools, which is the shape the
 // reader already knows as the place where the tools are switched on.
-var TOOL_MARK = 'M14.86 6.60L14.86 9.40L12.97 9.37L12.48 10.55L13.84 11.86L11.86 13.84L10.55'
-  + ' 12.48L9.37 12.97L9.40 14.86L6.60 14.86L6.63 12.97L5.45 12.48L4.14 13.84L2.16 11.86L3.52'
-  + ' 10.55L3.03 9.37L1.14 9.40L1.14 6.60L3.03 6.63L3.52 5.45L2.16 4.14L4.14 2.16L5.45 3.52L6.63'
-  + ' 3.03L6.60 1.14L9.40 1.14L9.37 3.03L10.55 3.52L11.86 2.16L13.84 4.14L12.48 5.45L12.97 6.63Z';
+var TOOL_MARK = 'M9.8 4.2a0.67 0.67 0 0 0 0 0.94l1.07 1.07a0.67 0.67 0 0 0 0.94 0l2.51-2.51a4 4 0 0 1-5.29 5.29l-4.61 4.61a1.41 1.41 0 1 1-2-2l4.61-4.61a4 4 0 0 1 5.29-5.29l-2.51 2.51z';
 
 // A length of time in words, as the head of a thinking panel says it: so many
 // seconds, or minutes and seconds, or hours.
@@ -3580,7 +3584,7 @@ function thoughtWords(ms, over) {
 // It stands only while the reader lets the runs stand inside the thinking, for
 // otherwise the runs are not in the panel at all. The time moves while the
 // thoughts come, and says nothing of a thought that has not begun to be timed.
-function thinkHeadSay(panel, ms, over) {
+function thinkHeadSay(panel, ms, over, given) {
   if (!panel) { return; }
   var head = panel.firstElementChild;
   if (!head) { return; }
@@ -3588,10 +3592,19 @@ function thinkHeadSay(panel, ms, over) {
   var cnt = head.querySelector('.cnt');
   var took = head.querySelector('.took');
   if (!cap || !cnt) { return; }
-  var runs = 0;
-  if (chatting.inThink) {
-    var body = panel.querySelector('.words');
-    if (body) { runs = body.querySelectorAll('.tool').length; }
+  // The runs that stand among the thoughts. While an answer is coming in the
+  // panel is the only place the number can be read from; a panel that is written
+  // out again afterwards is made part by part, and is told the number it holds
+  // instead, for its parts are not all in place at the moment its head is made.
+  var runs;
+  if (given !== undefined && given !== null) {
+    runs = given;
+  } else {
+    runs = 0;
+    if (chatting.inThink) {
+      var body = panel.querySelector('.words');
+      if (body) { runs = body.querySelectorAll('.tool').length; }
+    }
   }
   var words = thoughtWords(ms, over);
   if (cap.textContent !== words) { cap.textContent = words; }
@@ -5273,7 +5286,12 @@ function fillGroup(turn, items, from, to) {
     ms += Number(parts[n].m.reasoning_ms) || 0;
     made.words.appendChild(partNode(parts[n]));
   }
-  made.label.textContent = thoughtWords(ms, true);
+  var runs = 0;
+  for (var r = 0; r < parts.length; r++) { if (parts[r].kind === 'tool') { runs += 1; } }
+  // The head of a panel written out of a train of thought is told the number of
+  // runs it holds, so the count stands there for the whole life of the panel and
+  // not only while the answer was coming in.
+  thinkHeadSay(made.panel, ms, true, chatting.inThink ? runs : 0);
   var plate = make('div', 'plain');
   plate.appendChild(made.panel);
   turn.appendChild(plate);
