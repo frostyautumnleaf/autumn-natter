@@ -7,7 +7,7 @@
 // answer the model did not think of, and waits. What the user says goes back
 // to the model as the result of the call, and the model goes on from there.
 //
-// A question of the ordinary kind is waited for a short while: ten seconds by
+// A question of the ordinary kind is waited for a short while: thirty seconds by
 // default, from the Chatting settings. When the time is gone the model is told
 // that the user did not answer, and it is left to go on as best it can. A
 // question the model has marked as one it cannot go on without is waited for as
@@ -45,7 +45,10 @@ pub const GREATEST_QUESTION: usize = 600;
 pub const GREATEST_CHOICE: usize = 120;
 
 // The wait of a question of the ordinary kind, when nothing stands in the way.
-pub const ORDINARY_WAIT: u32 = 10;
+// It is the same thirty seconds the settings default to, so a question written
+// with no wait of its own is waited for as long as the sheet of settings would
+// have said.
+pub const ORDINARY_WAIT: u32 = 30;
 
 // What the model asked for.
 #[derive(Clone, Debug, Default)]

@@ -436,11 +436,11 @@ fn default_pasted_text_char_limit() -> u32 {
     6000
 }
 
-// The short wait of a question the model put to the user. Ten seconds is long
-// enough to read a line and press a key, and short enough that a user who is
-// not there is not waited for.
+// The short wait of a question the model put to the user. Thirty seconds is long
+// enough to read the question, weigh it and answer it, and short enough that a
+// user who has gone away is not waited for while the model sits on its question.
 fn default_ask_seconds() -> u32 {
-    10
+    30
 }
 
 // The longest wait either kind of question may be set to. A day of waiting is
