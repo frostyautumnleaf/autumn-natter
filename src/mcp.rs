@@ -1815,7 +1815,7 @@ mod tests {
     }
 
     // The runner speaks the verbs of the protocol, and says so in words that a
-    // user of the file can find.
+    // search of the file can find.
     #[test]
     fn the_runner_knows_the_verbs_of_the_protocol() {
         for verb in [

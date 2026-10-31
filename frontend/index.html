@@ -3763,8 +3763,9 @@ var TOOL_SHAPES = {
   // answer and not here.
   offer_files: {
     mark: 'M8 2.4v6.4M5.4 6.4 8 9l2.6-2.6M3.2 12.6h9.6',
-    head: 'Offering a file: ', done: 'Offered a file: ', word: 'file', end: 'result',
-    empty: 'no file name', begun: 'a file, started', file: true
+    head: 'Offering a file: ', done: 'Offered a file: ', pluralDone: 'Offered files: ',
+    word: 'file', end: 'result',
+    empty: 'no file name', begun: 'a file, started', file: true, offer: true
   },
   // A question the model put to the user. The head says what was asked; under
   // the second label stands the answer, or the word that the question was given
@@ -3809,6 +3810,24 @@ function headWords(shape, named, over) {
   return head + words;
 }
 
+// The words of the head of a block that offered files. Every file the call
+// offered is named, for the blocks with their buttons stand under the answer
+// and the head of the run is the index of them. The sentence the tool sent back
+// is not a name of a file, and a head that carried it said the same thing
+// twice. A call that offered nothing - one that failed, or one the user stopped
+// - keeps what came back, which is the reason.
+function offerHead(shape, m, over) {
+  var given = m.downloads || [];
+  if (!given.length) { return headWords(shape, firstLine(m.body), over); }
+  var held = [];
+  var n;
+  for (n = 0; n < given.length; n++) {
+    held.push(given[n].extension ? given[n].name + '.' + given[n].extension : given[n].name);
+  }
+  return (given.length > 1 ? (shape.pluralDone || '') : (shape.done || ''))
+    + held.join(', ');
+}
+
 // The one thing the head of a call being written names. A file tool is named
 // for the file it works on, and the user must wait for that name: the words of
 // a change are not a name of a file, and a head that reads 'Editing file:
@@ -3845,7 +3864,9 @@ function toolBox(m) {
   // The head says what the tool is doing while it runs, and what it did when
   // it is over, so the block reads as it changes from one to the other. A run
   // that failed did not do the thing, so it keeps the name of the trying.
-  cmd.textContent = headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
+  cmd.textContent = shape.offer
+    ? offerHead(shape, m, !running && !m.failed && !cut)
+    : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
   var state = make('span', 'state' + (running ? ' run' : '')
     + (cut ? ' cut' : (m.failed ? ' fail' : '')));
