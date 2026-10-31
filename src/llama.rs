@@ -303,6 +303,11 @@ impl Server {
 
     // Start llama-server and wait until it answers. use_tools is true when the
     // chat may call a tool of any kind: a command, or a mark of a chapter.
+    // `keep_talks` names the folder the server writes the talks it has worked
+    // through into, and reads them back from -- see `slot_save_flags`. It is
+    // none when the reader has switched the keeping off, and nothing of a talk
+    // is then kept anywhere.
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         binary: &Path,
         model: &ModelInfo,
@@ -311,9 +316,28 @@ impl Server {
         use_tools: bool,
         thinking_mode: &str,
         preserve_thinking: Option<bool>,
+        keep_talks: Option<&Path>,
     ) -> Result<Server, String> {
         let port = util::free_port().ok_or("No free port on this machine")?;
         let mut notes = Vec::new();
+        // The folder has to stand before it is named to the server, for the
+        // server throws out an argument that names no folder of the disk, and
+        // the keeping of every talk would go missing with it. A folder that
+        // cannot be made is told to the reader; the server starts none the
+        // less, only without the keeping.
+        let keeping = match keep_talks {
+            Some(dir) => match fs::create_dir_all(dir) {
+                Ok(()) => slot_save_flags(dir),
+                Err(problem) => {
+                    notes.push(format!(
+                        "The talks the model has read through cannot be kept: the folder of the program could not be made ({})",
+                        problem
+                    ));
+                    Vec::new()
+                }
+            },
+            None => Vec::new(),
+        };
         let mut args = build_args(
             binary,
             model,
@@ -325,6 +349,7 @@ impl Server {
             preserve_thinking,
             &mut notes,
         );
+        args.extend(keeping.iter().cloned());
 
         // One log for this start of the server, under the logs of the program.
         // The Logs tab of the sheet of settings reads it, and the ten newest of
@@ -396,6 +421,9 @@ impl Server {
                             preserve_thinking,
                             &mut notes,
                         );
+                        // The retry is a whole new command line, so the folder
+                        // of the kept talks is named to it again.
+                        args.extend(keeping.iter().cloned());
                         server.stop_now();
                         continue;
                     }
@@ -741,11 +769,84 @@ pub fn build_args(
     args
 }
 
+// The arguments that hand the server the folder it writes the talks it has
+// worked through into, and reads them back from. The folder must stand
+// already: the server throws out an argument that names no folder of the disk,
+// which is why `Server::start` makes the folder before the arguments are put
+// together.
+//
+// A server started without these arguments knows nothing of the keeping. It
+// answers a call of `slot_state` with words saying that it does not support
+// the action, and the caller takes that as a talk that was not kept.
+pub fn slot_save_flags(dir: &Path) -> Vec<String> {
+    vec![
+        "--slot-save-path".into(),
+        dir.display().to_string(),
+    ]
+}
+
 fn clamp(index: usize, len: usize) -> usize {
     if len == 0 {
         return 0;
     }
     index.min(len - 1)
+}
+
+// Tell the server what to do with the talk that one of its slots has worked
+// its way through. `action` is "save", which copies the worked-through state
+// of the slot into a file of the folder from `--slot-save-path`, or "restore",
+// which lays the state from such a file in the slot again, so that the next
+// ask of that slot is read on from where the talk left off instead of from its
+// first word.
+//
+// The name of the file goes in the body of the call, and the server looks for
+// it in that folder and nowhere else: a name with a folder mark in it, or with
+// a point of the disk, is thrown out by the server. `context_name` in the
+// engine makes names that always pass.
+//
+// The number given back is the bigness of the file in bytes. Both calls answer
+// with a fault when there is nothing to be done: a slot with no talk worked
+// through in it, a file that is not there, or a file that does not fit the
+// room of the slot. None of those is a hurt -- the talk is then simply read
+// through again, which is what would have happened without any keeping -- so
+// the engine takes a fault quietly and says nothing of it.
+pub fn slot_state(
+    base_url: &str,
+    action: &str,
+    slot: usize,
+    filename: &str,
+) -> Result<u64, String> {
+    let url = format!("{}/slots/{}?action={}", base_url, slot, action);
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        // A whole talk is copied to, or off, the disk. A long talk on a slow
+        // disk takes longer than the small calls of the endpoints, so the wait
+        // here is a long one. Nothing else is asked of the server meanwhile.
+        .timeout_read(Duration::from_secs(600))
+        .build();
+    let body = json!({ "filename": filename });
+    match agent.post(&url).send_json(&body) {
+        Ok(response) => {
+            let mut text = String::new();
+            let _ = response.into_reader().read_to_string(&mut text);
+            let told = serde_json::from_str::<Value>(&text).map_err(|_| {
+                format!(
+                    "The server answered the {} of a talk with words that could not be read",
+                    action
+                )
+            })?;
+            Ok(told
+                .get("n_bytes")
+                .and_then(Value::as_u64)
+                .unwrap_or(0))
+        }
+        Err(ureq::Error::Status(code, response)) => {
+            let mut text = String::new();
+            let _ = response.into_reader().read_to_string(&mut text);
+            Err(server_message(code, &text))
+        }
+        Err(other) => Err(format!("Cannot reach the model: {}", other)),
+    }
 }
 
 // Ask one endpoint on the loopback address. The error carries the status code.
@@ -1139,6 +1240,21 @@ mod tests {
             name: String::from("one"),
             kind: "GGUF",
         }
+    }
+
+    // The folder of the kept talks goes to the server as one argument, and the
+    // server is told the folder and nothing else: it makes the names of the
+    // files inside it by itself.
+    #[test]
+    fn the_folder_of_the_kept_talks_goes_to_the_server() {
+        let flags = slot_save_flags(Path::new("/data/of/the/program/contexts"));
+        assert_eq!(
+            flags,
+            vec![
+                String::from("--slot-save-path"),
+                String::from("/data/of/the/program/contexts")
+            ]
+        );
     }
 
     // The Sampling section sends its values to the server on every start, and

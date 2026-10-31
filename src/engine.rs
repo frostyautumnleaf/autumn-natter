@@ -904,6 +904,11 @@ pub struct Snap {
     // Whether the model may mark the chapters of a chat, and whether the
     // chapter line stands beside it.
     pub chat_chapters: bool,
+    // Whether the talk that the model has worked its way through is kept in a
+    // file of the program, so that a chat coming back is not read through
+    // again. The sheet of the settings reads it, and the page has nothing of
+    // its own to do with it: the keeping is all behind the ask.
+    pub chat_context_files: bool,
     // The number of characters where a paste of words into the chat box turns
     // into a file of its own.
     pub chat_paste_limit: u32,
@@ -1082,6 +1087,17 @@ pub struct State {
     // The reason a server could not be looked at, kept by its id. A server that
     // answers has no entry here.
     pub mcp_fault: std::collections::BTreeMap<String, String>,
+    // Which slot of the running server each chat had its talk read into. The
+    // server understands a talk in one slot and nowhere else, so a chat that
+    // comes back wants the slot it stood in, and the ask of it has to name the
+    // slot to the server. A chat with no entry here has nothing to go back to,
+    // which is how things stand when the keeping of the talks is switched off.
+    pub context_slot: std::collections::BTreeMap<String, usize>,
+    // Which chat stands in each slot of the running server, the other side of
+    // the list above. A slot that another chat is to take has to be written out
+    // to the file of the chat that stands in it first, for the talk of that
+    // chat stands nowhere else in the world once the slot is gone over.
+    pub context_holds: std::collections::BTreeMap<usize, String>,
 }
 
 // Whether the talk that goes out ends on a saying of the model with words of its
@@ -1126,6 +1142,16 @@ impl State {
     fn touch_structure(&mut self) {
         self.structure_rev += 1;
         self.rev += 1;
+    }
+
+    // Say that the server knows nothing of any talk any more. The talks of the
+    // chats stood in the slots of that one server: a server started again has
+    // slots of its own, and nothing of an older server is understood by it. The
+    // talks themselves are safe -- they were written out before the server was
+    // stopped, and the words of a chat stand in its file of chats as ever.
+    pub fn context_lost(&mut self) {
+        self.context_slot.clear();
+        self.context_holds.clear();
     }
 
     // The thinking mode of the chat in hand. With no chat open, the mode the
@@ -2323,6 +2349,7 @@ impl State {
             chat_bold_markdown: self.cfg.chat_bold_markdown,
             chat_silent_retries: self.cfg.chat_silent_retries,
             chat_chapters: self.cfg.chat_chapters,
+            chat_context_files: self.cfg.chat_context_files,
             mcp: self.mcp_snap(),
             chat_paste_limit: self.cfg.pasted_text_char_limit,
             ask_seconds: self.cfg.ask_seconds.min(config::GREATEST_ASK_SECONDS),
@@ -2533,6 +2560,8 @@ impl Engine {
             new_mcp: Vec::new(),
             mcp_tools: std::collections::BTreeMap::new(),
             mcp_fault: std::collections::BTreeMap::new(),
+            context_slot: std::collections::BTreeMap::new(),
+            context_holds: std::collections::BTreeMap::new(),
             new_thinking: String::from("off"),
             // llama.cpp keeps the thinking of the earlier turns on its own, so
             // the program asks for the same thing and lets the reader turn it
@@ -3771,6 +3800,7 @@ impl Snap {
             chat_bold_markdown: true,
             chat_silent_retries: 2,
             chat_chapters: true,
+            chat_context_files: true,
             chat_paste_limit: 6000,
             ask_seconds: 10,
             ask_critical_seconds: 0,
@@ -3819,17 +3849,17 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
             Ok(job) => job,
             // The engine went away, so take the model with it.
             Err(_) => {
-                stop_server(&mut server);
+                stop_server(&state, &mut server);
                 return;
             }
         };
         match job {
             Job::Shutdown => {
-                stop_server(&mut server);
+                stop_server(&state, &mut server);
                 return;
             }
             Job::ModelChanged | Job::SettingsChanged => {
-                stop_server(&mut server);
+                stop_server(&state, &mut server);
                 if let Ok(mut state) = state.lock() {
                     state.ctx_total = 0;
                     state.refresh_thinking();
@@ -3848,7 +3878,7 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
             Job::ThinkingChanged => {
                 // The flags are server level, so the running server goes.
                 // The model and context stay the same, so nothing else changes.
-                stop_server(&mut server);
+                stop_server(&state, &mut server);
             }
             Job::Prompt(sent) => {
                 let mut turn = Turn::Sent(sent);
@@ -3962,7 +3992,185 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
     }
 }
 
-fn stop_server(server: &mut Option<Server>) {
+// The name of the file that the worked-through talk of one chat stands in,
+// inside the folder of the program. The server takes the name and looks for it
+// in that folder and in no other place, and it throws out a name that holds a
+// mark of a folder, a colon, a question mark, a quote, or a character no word
+// is made of. So the id of the chat is kept as far as it is made of marks a
+// name of a file may hold, and the id of the model -- which is a path of the
+// disk, and so could never stand in a name at all -- is hashed into a few marks
+// at the end instead.
+//
+// The two belong in one name, for the talk of a chat read through by one model
+// is not the talk of the same chat read through by another. The words are the
+// same words, but what the model made of them, and the shape the server put
+// them into, are not: a talk of one model laid in a slot of another is thrown
+// out by the server as a talk that does not fit, so the two are kept apart by
+// the name and never mixed.
+pub fn context_name(chat_id: &str, model_id: &str) -> String {
+    let mut name = String::new();
+    for mark in chat_id.chars() {
+        if mark.is_ascii_alphanumeric() || mark == '.' || mark == '_' || mark == '-' {
+            name.push(mark);
+        }
+    }
+    if name.is_empty() {
+        name.push_str("chat");
+    }
+    // Two hundred marks of the id, sixteen of the hash of the model, the mark
+    // between, and the four of the ending: well within the two hundred and
+    // fifty-five the server reads. An id longer than that is not a chat id of
+    // this program, but it is no reason either to let the talk of one chat fall
+    // into the file of another whose id runs the same way for two hundred marks,
+    // so a long id is not cut: the whole of it goes into a hash of its own,
+    // which tells every chat apart and is short enough to stand.
+    if name.len() > 200 {
+        name = format!("{:016x}", fnv1a(chat_id));
+    }
+    format!("{}-{:016x}.ctx", name, fnv1a(model_id))
+}
+
+// FNV-1a: the plainest hash there is, and the shortest to write out. It is here
+// to keep a name short and even, and to tell the talks of two models apart.
+// Nothing of it stands against a hurt that is meant.
+fn fnv1a(words: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in words.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+// The slot of the running server that the chat in hand wants, with its talk
+// laid in that slot again.
+//
+// An ask that names no slot goes to whatever slot the server has free, and the
+// server reads the talk through from its first word unless the front of it
+// happens to match what a slot already holds -- which, between two chats that
+// ask different things of the model, it does not. An ask that names the slot
+// the talk was worked through in is stood on: the server keeps the work it has
+// already done, and works through only the words that came after it.
+//
+// So a chat that comes back is given the slot it had, and the talk of it is
+// taken out of its file and laid in the slot first. A chat that stands in the
+// slot we are taking has its talk written out to its own file before the slot
+// is gone over, so nothing of it is lost and it is read back in its turn.
+//
+// None is given back when the keeping is switched off, when no chat stands
+// open, or when the state is gone: the ask then goes out with no slot named,
+// exactly as it always did.
+fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> Option<usize> {
+    let (chat_id, slots) = {
+        let Ok(guard) = state.lock() else { return None };
+        if !guard.cfg.chat_context_files {
+            return None;
+        }
+        // A chat that is not open has no talk to keep, and no id to name its
+        // file by.
+        let chat_id = match guard.current.as_ref() {
+            Some(id) if !id.is_empty() => id.clone(),
+            _ => return None,
+        };
+        // The server has one slot for each path it may work a talk through at a
+        // time, and the slots are named from nought.
+        let slots = guard
+            .model()
+            .map(|m| guard.settings_for(&m).parallel)
+            .unwrap_or(1)
+            .max(1) as usize;
+        (chat_id, slots)
+    };
+    // Whether this chat had a slot before, and whether that slot still stands
+    // for it. Both true is the common case: every turn of one chat after the
+    // first comes here, and goes straight back with the slot it had. Nothing is
+    // read from a file and nothing is written to one, for the server holds the
+    // newest of the talk already.
+    let (had, held) = {
+        let Ok(guard) = state.lock() else { return None };
+        let had = guard.context_slot.get(&chat_id).copied();
+        let held = had.and_then(|slot| guard.context_holds.get(&slot).cloned());
+        (had, held)
+    };
+    if let (Some(slot), Some(who)) = (had, held) {
+        if who == chat_id && slot < slots {
+            return Some(slot);
+        }
+    }
+    let holds = match state.lock() {
+        Ok(guard) => guard.context_holds.clone(),
+        Err(_) => return None,
+    };
+    // The slot this chat had, so long as a server with this few paths has it
+    // still. A server started with fewer paths than the one before has fewer
+    // slots, and a slot of the older server is simply not there.
+    let slot = match had {
+        Some(slot) if slot < slots => slot,
+        _ => {
+            // The first slot nobody stands in. When every slot stands full of
+            // the talk of another chat there is none such, and nought is taken:
+            // the chat turned out of it has its talk written out just below, and
+            // reads it back when it comes round again.
+            (0..slots)
+                .find(|one| !holds.contains_key(one))
+                .unwrap_or_default()
+        }
+    };
+    // The chat that stood in this slot, when it was another chat, has its talk
+    // written out here. This is the moment the keeping earns its keep: the slot
+    // of that chat is taken, and what the model made of its talk stands
+    // nowhere else.
+    if let Some(other) = holds.get(&slot) {
+        if other != &chat_id {
+            let name = context_name(other, model_id);
+            let _ = llama::slot_state(base_url, "save", slot, &name);
+        }
+    }
+    // The talk of this chat, out of its file and into the slot. A file that is
+    // not there -- the first ask of a chat, or a folder the reader threw away --
+    // is answered by the server with a fault, and the talk is then read through
+    // as it always was. Nothing is said either way, for the words that come
+    // back are the same words however the talk got there.
+    let name = context_name(&chat_id, model_id);
+    let _ = llama::slot_state(base_url, "restore", slot, &name);
+    if let Ok(mut guard) = state.lock() {
+        guard.context_holds.insert(slot, chat_id.clone());
+        guard.context_slot.insert(chat_id, slot);
+    }
+    Some(slot)
+}
+
+// Write out every talk that stands worked-through in the running server, each
+// to its own file. The server is alive when this is called, and dead directly
+// after it, so this is the last moment there is to write them at. Nothing is
+// said when one of them cannot be written: a talk that was not kept is a talk
+// read through again, and the words of a chat stand in its file of chats as
+// ever -- only the reading of them has to be done twice.
+fn save_all_contexts(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) {
+    let holds = match state.lock() {
+        Ok(guard) => guard.context_holds.clone(),
+        Err(_) => return,
+    };
+    for (slot, chat_id) in holds {
+        let name = context_name(&chat_id, model_id);
+        let _ = llama::slot_state(base_url, "save", slot, &name);
+    }
+}
+
+// Stop the running server. The talks that stand worked-through in it are
+// written out first, for the server is the one place they stand, and after this
+// call there is nothing left to write them from: this is the unload of the
+// model, whether it comes from the reader changing the model or the settings,
+// or from the program being shut down. The bookkeeping of the slots goes with
+// the server, for the next server has slots of its own and would not
+// understand a talk of the one before.
+fn stop_server(state: &Arc<Mutex<State>>, server: &mut Option<Server>) {
+    if let Some(old) = server.as_ref() {
+        save_all_contexts(state, &old.url, &old.model_id);
+    }
+    if let Ok(mut guard) = state.lock() {
+        guard.context_lost();
+    }
     if let Some(mut old) = server.take() {
         old.stop();
     }
@@ -4146,9 +4354,15 @@ fn ask_summary_for_handoff(
     history: &Value,
     prompt: &str,
     tools: Option<&Value>,
+    slot: Option<usize>,
     cancel: &Arc<AtomicBool>,
 ) -> SummaryShot {
     let mut body = summary_ask(history, prompt, tools);
+    // The ask goes to the slot the talk above it was worked through in, so the
+    // server stands on that work and works through the ask alone.
+    if let Some(slot) = slot {
+        body["id_slot"] = json!(slot);
+    }
     let mut shot = ask_summary(state, base_url, &body, cancel);
     let mut tries = 0usize;
     while !shot.calls.is_empty()
@@ -4449,6 +4663,12 @@ fn run_handoff(
     }
 
     let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
+    // The slot of this chat, with the talk of it laid in the slot again when
+    // another chat stood there last. The ask of the summary names the slot, for
+    // the talk above the ask is the talk the server worked through in it.
+    let slot = server
+        .as_ref()
+        .and_then(|running| context_claim(state, &running.url, &running.model_id));
     // The talk as it stands, with the ask for the summary after it as a message
     // of the reader. The tools of the chat stand offered as they stand for an
     // answer, so that the front of this ask is the front of the talk word for
@@ -4457,13 +4677,13 @@ fn run_handoff(
     // cancelled and is asked again.
     let tools = summary_tools(state);
     let mut shot =
-        ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), cancel);
+        ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), slot, cancel);
     // A long talk can trip the server over one ask and not over the next, so a
     // fault that leaves no words at all is asked once more before the reader is
     // told. A stop of the reader's own is never asked again.
     if shot.error.is_some() && !shot.stopped && !cancel.load(Ordering::Relaxed) {
         tell(state, "The summary did not arrive. Asking once more");
-        shot = ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), cancel);
+        shot = ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), slot, cancel);
     }
     let mut summary = clean_summary(&shot.text);
     // The first ask was made again when the room ran full under it, which is the
@@ -4483,7 +4703,7 @@ fn run_handoff(
             state,
             "The summary filled the context without a word of itself. Asking for a shorter one",
         );
-        let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), cancel);
+        let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), slot, cancel);
         let cleaned = clean_summary(&again.text);
         if !cleaned.trim().is_empty() {
             shot = again;
@@ -4503,7 +4723,7 @@ fn run_handoff(
             "The summary filled the context. Asking again for a shorter one",
         );
         if !asked_short {
-            let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), cancel);
+            let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), slot, cancel);
             let cleaned = clean_summary(&again.text);
             if !cleaned.trim().is_empty() {
                 shot = again;
@@ -5155,6 +5375,13 @@ fn run_turn(
     let mut carried: Option<String> = None;
 
     let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
+    // The slot of this chat. The talk it stands on was worked through in that
+    // slot, so every step of this answer is asked of the same slot and none of
+    // the work is done twice. None when the keeping of the talks is switched
+    // off, and the ask then goes out with no slot named, as it always did.
+    let slot = server
+        .as_ref()
+        .and_then(|running| context_claim(state, &running.url, &running.model_id));
     // The two rooms of the Chatting settings, read once for this answer. None
     // means no ceiling, which is how both stand for a new set of settings: the
     // answer then ends when the model stops by itself, and a model may run as
@@ -5271,6 +5498,14 @@ fn run_turn(
                 body["tools"] = list;
                 body["tool_choice"] = json!("auto");
             }
+        }
+        // The slot this chat stands in. The server takes the ask of a named
+        // slot, waits while that slot is busy, and stands on the talk it
+        // already worked through there; without the name it picks a slot by the
+        // luck of the front of the words, and a chat that went away and came
+        // back is read through again from its first word.
+        if let Some(slot) = slot {
+            body["id_slot"] = json!(slot);
         }
 
         // Every piece of new text goes into the state, so the window can show
@@ -6296,7 +6531,7 @@ fn ensure_server(
     settings: &ModelSettings,
     cancel: &Arc<AtomicBool>,
 ) -> Result<u64, String> {
-    let (binary, gpus, wants) = {
+    let (binary, gpus, wants, keeping) = {
         let Ok(state) = state.lock() else {
             return Err("The program state is gone".to_string());
         };
@@ -6304,7 +6539,12 @@ fn ensure_server(
             .server_binary()
             .ok_or("llama-server was not found in the folder from the settings")?;
         let wants = state.server_wants();
-        (binary, state.gpus.clone(), wants)
+        // The folder the talks the model works its way through are written into,
+        // when the reader has the keeping on. The server is told the folder and
+        // nothing else: it makes the names of the files inside it by itself,
+        // and never looks outside it. See `context_claim`.
+        let keeping = state.cfg.chat_context_files.then(|| config::paths().contexts);
+        (binary, state.gpus.clone(), wants, keeping)
     };
     let (thinking_mode, preserve, tools_wanted) =
         (wants.thinking_mode.clone(), wants.preserve, wants.tools);
@@ -6322,7 +6562,7 @@ fn ensure_server(
             .unwrap_or(settings.ctx_size as u64);
         return Ok(total);
     }
-    stop_server(server);
+    stop_server(state, server);
     if cancel.load(Ordering::Relaxed) {
         return Err("Stopped before the model loaded".to_string());
     }
@@ -6334,6 +6574,7 @@ fn ensure_server(
         tools_wanted,
         &thinking_mode,
         preserve,
+        keeping.as_deref(),
     ) {
         Ok(started) => {
             let total = started.ctx_total;
@@ -6348,7 +6589,7 @@ fn ensure_server(
             Ok(total)
         }
         Err(problem) => {
-            stop_server(server);
+            stop_server(state, server);
             Err(problem)
         }
     }
@@ -10126,5 +10367,163 @@ mod tests {
                 .any(|one| one.stopped),
             "the mark stayed when the talk came to an end"
         );
+    }
+
+    // The name of the file a talk stands in has to be a name the server reads:
+    // no mark of a folder, no colon, no question mark, no quote, no character a
+    // word is not made of, and never a point at the end. The id of a chat is
+    // made of quiet marks today, but a name of a file on the disk can never be
+    // trusted to be, for the server throws the whole ask of a talk out over one
+    // mark it does not like.
+    #[test]
+    fn the_name_of_a_talk_is_a_name_the_server_reads() {
+        let name = context_name("one/two:three*four?q=\"five|six<seven>eight", "/models/a model.gguf");
+        assert!(!name.is_empty(), "a name is never nothing");
+        assert!(name.ends_with(".ctx"), "the ending marks the talks of the program");
+        assert!(!name.ends_with('.'), "a name ending on a point is thrown out");
+        for mark in name.chars() {
+            assert!(
+                mark.is_ascii_alphanumeric() || mark == '.' || mark == '_' || mark == '-',
+                "the name {} holds {} that the server would throw out",
+                name,
+                mark
+            );
+        }
+        assert!(name.len() <= 255, "the server reads no name longer than that");
+    }
+
+    // The talk of a chat read through by one model is not the talk of the same
+    // chat read through by another, so the two stand in two files. The id of a
+    // model is a path of the disk, which could never stand in a name at all, so
+    // it is hashed in at the end instead.
+    #[test]
+    fn the_name_of_a_talk_tells_the_models_apart() {
+        let one = context_name("chat", "/models/one.gguf");
+        let two = context_name("chat", "/models/two.gguf");
+        assert_ne!(one, two, "two models keep their own talk of one chat");
+        assert_eq!(
+            one,
+            context_name("chat", "/models/one.gguf"),
+            "the name of one chat and one model does not move between runs"
+        );
+        assert!(!one.contains('/'), "the path of a model is hashed and not written");
+    }
+
+    // A chat id longer than the room of a name is not cut at the room of a
+    // name: the whole of it goes into a hash, so two chats whose ids run the
+    // same way for three hundred marks still stand in two files.
+    #[test]
+    fn a_long_chat_id_is_hashed_and_still_stands_alone() {
+        let long = "a".repeat(300);
+        let longer = format!("{}b", long);
+        let one = context_name(&long, "/m.gguf");
+        let other = context_name(&longer, "/m.gguf");
+        assert!(one.len() <= 255, "a long id is brought down to a name that fits");
+        assert_ne!(one, other, "the whole of a long id is told apart, not the front of it");
+    }
+
+    // A server that is stopped leaves no word of its slots behind. The talks
+    // were written out before it went, and the next server has slots of its own
+    // that nothing of the one before is understood in.
+    #[test]
+    fn a_stopped_server_leaves_no_word_of_its_slots() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.context_slot.insert(String::from("one"), 0);
+        state.context_slot.insert(String::from("two"), 1);
+        state.context_holds.insert(0, String::from("one"));
+        state.context_holds.insert(1, String::from("two"));
+        state.context_lost();
+        assert!(state.context_slot.is_empty(), "no chat keeps a slot of a server that is gone");
+        assert!(state.context_holds.is_empty(), "and no slot keeps a chat");
+    }
+
+    // Two chats and one slot: the chat that comes second takes the slot of the
+    // first, and the first is given that same slot again when it comes back, for
+    // its talk was written out at the moment the slot was taken. The writing and
+    // the reading that go with the changing of a slot are answered quietly when
+    // nothing is at the other end of the call, which is how things stand in a
+    // test -- and a talk that cannot be kept is a talk read through again, with
+    // the same words at the end of it.
+    #[test]
+    fn a_slot_passes_from_one_chat_to_the_other() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        let nowhere = "http://127.0.0.1:1";
+        let model = "/models/one.gguf";
+        let (first, second) = {
+            let mut guard = state.lock().unwrap();
+            guard.start_chat();
+            let first = guard.current.clone().expect("a chat was opened");
+            guard.start_chat();
+            let second = guard.current.clone().expect("a second chat was opened");
+            assert_ne!(first, second, "two chats, two ids");
+            assert!(guard.context_slot.is_empty(), "nothing is kept until a chat is asked");
+            (first, second)
+        };
+        // The chat in hand takes the only slot the server has.
+        state.lock().unwrap().current = Some(first.clone());
+        let slot = context_claim(&state, nowhere, model).expect("a slot for the chat in hand");
+        assert_eq!(slot, 0, "the slots are named from nought");
+        assert_eq!(
+            state.lock().unwrap().context_holds.get(&slot).map(|one| one.as_str()),
+            Some(first.as_str()),
+            "the slot stands for the chat that took it"
+        );
+        // The second chat takes that same slot, and the first chat is written
+        // down against it no longer -- but not forgotten: it still wants it.
+        state.lock().unwrap().current = Some(second.clone());
+        let taken = context_claim(&state, nowhere, model).expect("a slot for the chat in hand");
+        assert_eq!(taken, slot, "one slot, so both chats stand in it in turn");
+        {
+            let guard = state.lock().unwrap();
+            assert_eq!(
+                guard.context_slot.get(&first),
+                Some(&slot),
+                "the first chat still wants the slot it had"
+            );
+            assert_eq!(
+                guard.context_holds.get(&slot).map(|one| one.as_str()),
+                Some(second.as_str()),
+                "and the slot stands for the chat that is in it now"
+            );
+        }
+        // Back it goes, when the first chat is asked again.
+        state.lock().unwrap().current = Some(first.clone());
+        let back = context_claim(&state, nowhere, model).expect("the slot of the chat in hand");
+        assert_eq!(back, slot, "the chat that came back found the slot it left");
+        assert_eq!(
+            state.lock().unwrap().context_holds.get(&slot).map(|one| one.as_str()),
+            Some(first.as_str()),
+            "and it stands in it again"
+        );
+    }
+
+    // With the keeping of the talks switched off, nothing is claimed: the ask
+    // goes out with no slot named, exactly as it did before the keeping was.
+    #[test]
+    fn no_slot_is_claimed_when_the_keeping_is_off() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config {
+            chat_context_files: false,
+            ..Config::default()
+        });
+        let state = engine.state.clone();
+        {
+            let mut guard = state.lock().unwrap();
+            guard.start_chat();
+            assert!(guard.current.is_some());
+        }
+        assert!(
+            context_claim(&state, "http://127.0.0.1:1", "/models/one.gguf").is_none(),
+            "a switched-off keeping keeps nothing"
+        );
+        let guard = state.lock().unwrap();
+        assert!(guard.context_slot.is_empty() && guard.context_holds.is_empty());
     }
 }

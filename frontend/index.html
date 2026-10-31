@@ -1946,6 +1946,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <span class="sub">The program tells the model the date and time of this machine once, in a system message at the start of the conversation, and says that it is the latest. The line is written when the chat begins and stands as it was for the rest of the chat: a head of the talk that moved with the clock would make the model read the whole talk over again on every turn, whatever prompt caching says. The model can then answer questions about today. The line goes to the model only. It is not shown in the chat.</span>
           <div class="ctl"><input id="fDateNewChat" type="checkbox"></div></div>
 
+        <div class="fld"><span class="lbl">Keep the read talk of a chat</span>
+          <span class="sub">The model works the talk of a chat through once, and understands it only while it stands loaded, in a slot of its own. Turn this on to write what the model made of the talk into a file of the program when the model is put down for another chat, or when the program is shut down; the chat is then taken up again where it left off, instead of being read through from its first word. Nothing of the chat you see is written twice, and the files may be thrown away whenever you like: a chat that comes back without its file is only read through again, and the words at the end of it are the same.</span>
+          <div class="ctl"><input id="fContextFiles" type="checkbox"></div></div>
+
         <div class="sec">Compaction</div>
         <div class="fld"><span class="lbl">Compaction</span>
           <span class="sub">How the context is made again when it fills up. The handoff summary asks the model, without asking you anything, for a summary of the conversation when the context nears its end. The messages before that summary are then left out of what is sent back to the model, so a chat can go on for ever. The first message you sent is always kept, and the summary follows it. Nothing is removed from the chat you see.</span>
@@ -7270,6 +7274,7 @@ function loadProgram() {
     byId('fAskSeconds').value = askWaitOf(cfg.ask_seconds, 10);
     byId('fAskCriticalSeconds').value = askWaitOf(cfg.ask_critical_seconds, 0);
     byId('fDateNewChat').checked = cfg.chat_date_new_chat !== false;
+    byId('fContextFiles').checked = cfg.chat_context_files !== false;
     byId('fCompaction').value = cfg.chat_compaction || 'handoff';
     byId('fCompactBy').value = cfg.chat_compact_by || 'percent';
     byId('fCompactPercent').value = cfg.chat_compact_percent || 85;
@@ -7530,6 +7535,7 @@ function saveSheet() {
     cfg.ask_seconds = holdSeconds('fAskSeconds', 10, 1, 86400);
     cfg.ask_critical_seconds = holdSeconds('fAskCriticalSeconds', 0, 0, 86400);
     cfg.chat_date_new_chat = byId('fDateNewChat').checked;
+    cfg.chat_context_files = byId('fContextFiles').checked;
     cfg.chat_compaction = byId('fCompaction').value;
     cfg.chat_compact_by = byId('fCompactBy').value;
     var percent = parseInt(byId('fCompactPercent').value, 10);

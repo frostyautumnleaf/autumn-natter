@@ -320,6 +320,11 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "bold_markdown": snap.chat_bold_markdown,
             "silent_retries": snap.chat_silent_retries,
             "chapters": snap.chat_chapters,
+            // Whether the talk a chat worked through is kept in a file, so that
+            // it does not have to be read through again. The sheet of the
+            // settings shows the switch; the keeping itself is all behind the
+            // ask, and the page has nothing else to do with it.
+            "context_files": snap.chat_context_files,
             "paste_limit": snap.chat_paste_limit,
             "width": snap.chat_width,
             // How long the model waits for an answer to a question it put to the
