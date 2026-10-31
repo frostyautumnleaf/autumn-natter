@@ -3580,7 +3580,7 @@ function thoughtWords(ms, over) {
 // It stands only while the reader lets the runs stand inside the thinking, for
 // otherwise the runs are not in the panel at all. The time moves while the
 // thoughts come, and says nothing of a thought that has not begun to be timed.
-function thinkHeadSay(panel, ms, over) {
+function thinkHeadSay(panel, ms, over, given) {
   if (!panel) { return; }
   var head = panel.firstElementChild;
   if (!head) { return; }
@@ -3588,10 +3588,19 @@ function thinkHeadSay(panel, ms, over) {
   var cnt = head.querySelector('.cnt');
   var took = head.querySelector('.took');
   if (!cap || !cnt) { return; }
-  var runs = 0;
-  if (chatting.inThink) {
-    var body = panel.querySelector('.words');
-    if (body) { runs = body.querySelectorAll('.tool').length; }
+  // The runs that stand among the thoughts. While an answer is coming in the
+  // panel is the only place the number can be read from; a panel that is written
+  // out again afterwards is made part by part, and is told the number it holds
+  // instead, for its parts are not all in place at the moment its head is made.
+  var runs;
+  if (given !== undefined && given !== null) {
+    runs = given;
+  } else {
+    runs = 0;
+    if (chatting.inThink) {
+      var body = panel.querySelector('.words');
+      if (body) { runs = body.querySelectorAll('.tool').length; }
+    }
   }
   var words = thoughtWords(ms, over);
   if (cap.textContent !== words) { cap.textContent = words; }
@@ -5273,7 +5282,12 @@ function fillGroup(turn, items, from, to) {
     ms += Number(parts[n].m.reasoning_ms) || 0;
     made.words.appendChild(partNode(parts[n]));
   }
-  made.label.textContent = thoughtWords(ms, true);
+  var runs = 0;
+  for (var r = 0; r < parts.length; r++) { if (parts[r].kind === 'tool') { runs += 1; } }
+  // The head of a panel written out of a train of thought is told the number of
+  // runs it holds, so the count stands there for the whole life of the panel and
+  // not only while the answer was coming in.
+  thinkHeadSay(made.panel, ms, true, chatting.inThink ? runs : 0);
   var plate = make('div', 'plain');
   plate.appendChild(made.panel);
   turn.appendChild(plate);
