@@ -915,6 +915,13 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .part .x:hover { background: var(--hover); }
 .part .x .svg { width: 10px; height: 10px; stroke: var(--dim); stroke-width: 2.2; }
 .part .x:hover .svg { stroke: var(--ink); }
+/* The block of a file of words in the box may be clicked, and says so: the click
+   puts the words of the file into the chat box instead of sending the file. */
+.part.pick { cursor: pointer; }
+.part.pick:hover { border-color: var(--accent-line); background: var(--tint); }
+.part.pick:hover .nm { color: var(--ink); }
+.part.pick:hover .mark .svg { stroke: var(--ink); }
+.part.pick:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 /* The files the model offered at the end of an answer. A block is one file: the
    mark of the kind of file, its name with the ending under the name, and the
    button that takes it. The blocks stand in the middle of the chat, under the
@@ -6194,7 +6201,10 @@ function holdFile(file) {
   var name = freeName(file.name || (file.type && file.type.indexOf('image/') === 0
     ? 'image.png' : 'attachment.bin'));
   var kind = fileKind(name, file.type);
-  var held = { name: name, mime: file.type || '', kind: kind, data: '', text: '', url: '' };
+  // The file itself stands beside its words, so a file of words that was never
+  // read yet can still be read when the reader asks for its words.
+  var held = { name: name, mime: file.type || '', kind: kind, data: '', text: '', url: '',
+    file: file };
   heldFiles.push(held);
   if (kind === 'image') {
     var reader = new FileReader();
@@ -6241,6 +6251,46 @@ function holdWords(words) {
 
 // One block of the box, or of a sent message. A place to drop from makes it
 // a block of the box, with the mark that takes the file away again.
+// The words of a file the box holds. A file of words taken from the disk is read
+// when its words are asked for, for a long one may not have been read yet, and no
+// reader should wait for the whole of a disk before the first word of it can
+// stand in the box.
+function wordsOfHeld(one, done) {
+  if (one.text) { done(one.text); return; }
+  if (!one.file) { done(''); return; }
+  var reader = new FileReader();
+  reader.onload = function () { one.text = String(reader.result); done(one.text); };
+  reader.onerror = function () { done(''); };
+  reader.readAsText(one.file);
+}
+
+// The words of a file of words, put into the chat box instead of going out with
+// the message. A long paste becomes a file of its own, and a reader who would
+// rather have the words back where they can be read and mended clicks the block
+// to have them. Words already standing in the box keep their place: what comes in
+// goes in at the mark the reader left, with a line between it and what stood
+// there before, and the block goes away, so the box is not left holding the words
+// twice over.
+function putWordsInBox(one) {
+  wordsOfHeld(one, function (words) {
+    if (!words) { return; }
+    var box = el.draft;
+    var at = (box.selectionStart === null || box.selectionStart === undefined)
+      ? box.value.length : box.selectionStart;
+    var before = box.value.slice(0, at), after = box.value.slice(at);
+    var gap1 = (!before || /\s$/.test(before)) ? '' : '\n';
+    var gap2 = (!after || /^\s/.test(after)) ? '' : '\n';
+    box.value = before + gap1 + words + gap2 + after;
+    var place = heldFiles.indexOf(one);
+    if (place >= 0) { heldFiles.splice(place, 1); }
+    drawParts();
+    grow();
+    box.focus();
+    var caret = before.length + gap1.length + words.length;
+    box.setSelectionRange(caret, caret);
+  });
+}
+
 function partBlock(one, place) {
   // A block of a picture and a block of a file are cut differently once they
   // stand under a sent message, so each carries word of what it is.
@@ -6264,13 +6314,32 @@ function partBlock(one, place) {
   nm.textContent = one.name;
   part.appendChild(nm);
   if (place !== undefined) {
+    // The block of a file of words answers a click: its words go into the chat
+    // box, which is what a reader wants when a paste of theirs was turned into a
+    // file by the length of it.
+    if (one.kind === 'text') {
+      part.classList.add('pick');
+      part.title = one.name + ' — click to put the words in the chat box';
+      part.setAttribute('role', 'button');
+      part.tabIndex = 0;
+      part.addEventListener('click', function () { putWordsInBox(one); });
+      part.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          putWordsInBox(one);
+        }
+      });
+    }
     var x = make('button', 'x');
     x.type = 'button';
     x.title = 'Remove this file';
     x.setAttribute('aria-label', 'Remove ' + one.name + ' from the message');
     x.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true">'
       + '<path d="M4 4l8 8M12 4l-8 8"/></svg>';
-    x.addEventListener('click', function () {
+    x.addEventListener('click', function (event) {
+      // The mark of taking the file away is not the block of the file: a click on
+      // it takes the file out and puts nothing in the box.
+      event.stopPropagation();
       heldFiles.splice(place, 1);
       drawParts();
       grow();
