@@ -210,6 +210,20 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // them. The window shows them as blocks of a command being written, so
         // the reader sees the words of it and does not wait for the run.
         "live_tools": live_tools,
+        // The question the model has put to the reader and is waiting on, when it
+        // has put one. The popup of the ask stands above the chat box, and the
+        // reader answers it there: by choosing one of the answers the model
+        // offered, or by writing an answer of their own.
+        "ask": snap.ask.as_ref().map(|one| json!({
+            "id": one.id,
+            "question": one.question,
+            "choices": one.choices,
+            "critical": one.critical,
+            // The seconds left to answer, or nothing when the question waits
+            // until it is answered.
+            "left": one.left(),
+            "seconds": one.seconds,
+        })),
         // The thinking that comes with a live answer, how long it lasted and
         // whether it has stopped. The page writes the last two on the head of
         // the panel.
@@ -306,6 +320,11 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "chapters": snap.chat_chapters,
             "paste_limit": snap.chat_paste_limit,
             "width": snap.chat_width,
+            // How long the model waits for an answer to a question it put to the
+            // reader: the short wait of an ordinary question, and the wait of one
+            // the model cannot go on without.
+            "ask_seconds": snap.ask_seconds,
+            "ask_critical_seconds": snap.ask_critical_seconds,
         },
         // The folder of the program data. The window of settings reads it out.
         "data_dir": snap.data_dir,
@@ -674,6 +693,21 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/cancel" | "cancel" => {
             engine.cancel();
+            done()
+        }
+        // The reader answered the question the model put with the tool of that
+        // name. The id is the one the ask carried, so an answer that comes late --
+        // after the question was given up, or after another answer took it -- does
+        // nothing at all.
+        "/api/ask_answer" | "ask_answer" => {
+            let id = text_field(&value, "id");
+            let answer = text_field(&value, "answer");
+            if answer.trim().is_empty() {
+                return refused("Nothing was written");
+            }
+            if !engine.answer_ask(&id, &answer) {
+                return refused("That question is answered already, or is over");
+            }
             done()
         }
         // Take one message out of the talk, with everything that came after it.

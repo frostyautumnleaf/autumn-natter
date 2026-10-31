@@ -773,6 +773,69 @@ pre.code .t-p { color: var(--t-pun); }
 /* ------------------------------------------------------------------ dock */
 /* The chat box, and the line of state under it. The box holds its badges in a
    row of their own, so no part of the box is left empty. */
+/* The question the model has put to the reader. It stands over the chat box, in a
+   card of its own: the question and the reason for it at the top, the answers the
+   model offered under them, and a box for an answer the model did not think of.
+   The card rises into place, and the border of a question the model cannot go on
+   without stands warmer than the border of one that may be waited out. */
+.ask {
+  margin: 0 0 10px; padding: 13px 14px 12px; border: 1px solid var(--accent-line);
+  border-radius: var(--r-l); background: var(--surface); box-shadow: var(--shadow-2);
+  animation: ask-rise 260ms cubic-bezier(.2, .8, .2, 1);
+}
+.ask.hidden { display: none; }
+.ask.weighty { border-color: var(--accent); background: var(--tint); }
+.ask-head { display: flex; align-items: flex-start; gap: 9px; }
+.ask .ask-mark {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; background: var(--accent-soft);
+}
+.ask .ask-mark .svg { width: 15px; height: 15px; stroke: var(--ink); }
+.ask-title { flex: 1 1 auto; min-width: 0; font-size: 14px; line-height: 1.45; color: var(--text); }
+.ask-wait {
+  flex: 0 0 auto; font-size: 11px; font-weight: 650; color: var(--dim); white-space: nowrap;
+  padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-2); font-variant-numeric: tabular-nums;
+}
+/* The last three seconds of a question that may be waited out are said in the
+   colour of a fault, so the reader looks up before the question is gone. */
+.ask-wait.short { color: var(--ink-fail); border-color: var(--accent-line); }
+.ask-choices { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.ask-choice {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-2);
+  color: var(--text-2); font-size: 12.5px; font-weight: 620; font-family: inherit;
+  cursor: pointer; overflow: hidden;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.ask-choice:hover { background: var(--tint); border-color: var(--accent); color: var(--ink);
+  transform: translateY(-1px); }
+.ask-choice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-own { display: flex; align-items: flex-end; gap: 8px; margin-top: 11px; }
+#askdraft {
+  flex: 1 1 auto; min-height: 36px; max-height: 24vh; padding: 8px 11px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+  font-size: 13.5px; line-height: 1.45; font-family: inherit; color: var(--text);
+  resize: none; overflow-y: auto; scrollbar-width: thin;
+}
+#askdraft:focus { outline: none; border-color: var(--accent-line); box-shadow: var(--ring); }
+.ask-send {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px;
+  border: 1px solid var(--accent-line); border-radius: 10px; background: var(--accent-soft);
+  color: var(--ink); font-size: 12.5px; font-weight: 650; font-family: inherit; cursor: pointer;
+}
+.ask-send:hover { border-color: var(--accent); background: var(--tint); }
+.ask-send .svg { width: 13px; height: 13px; stroke: var(--ink); }
+.ask-note { margin-top: 9px; font-size: 11.5px; color: var(--dim); }
+/* The answer has gone out and the run has yet to take it: the card says so by
+   stilling itself, so the same question is not answered twice. */
+.ask.waiting .ask-choice, .ask.waiting .ask-send, .ask.waiting #askdraft {
+  opacity: .55; pointer-events: none;
+}
+@keyframes ask-rise {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
 .dock { flex: 0 0 auto; padding: 0 14px 12px; }
 /* On the first screen the chat box stands with the mark and the words over it,
    and the group as a whole is put in the middle of the room: the space over the
@@ -1228,6 +1291,7 @@ pre.code.line {
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
   .gifts { animation: none; }
+  .ask { animation: none; }
   .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
   .gauge .spin { animation: none; }
   img.pic { animation: none; }
@@ -1561,6 +1625,31 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     
   </div>
 
+  <!-- The question the model has put to the reader. It stands over the chat box,
+       in a card of its own: the question and the reason for the ask at the top,
+       the answers the model offered under them, and a box for an answer the model
+       did not think of. An ordinary question counts its seconds down and is then
+       given up; a question the model cannot go on without waits, and says so. -->
+  <div class="ask hidden" id="ask">
+    <div class="ask-head">
+      <span class="ask-mark">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5"/></svg>
+      </span>
+      <span class="ask-title" id="asktitle"></span>
+      <span class="ask-wait" id="askwait"></span>
+    </div>
+    <div class="ask-choices" id="askchoices"></div>
+    <div class="ask-own">
+      <textarea id="askdraft" rows="1" spellcheck="false"
+        placeholder="Answer in your own words"></textarea>
+      <button class="ask-send" id="asksend" title="Send your answer to the model">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.6V3.4M4.2 7.2 8 3.4l3.8 3.8"/></svg>
+        <span>Send</span>
+      </button>
+    </div>
+    <div class="ask-note" id="asknote"></div>
+  </div>
+
   <!-- The chat box. The badges stand in a row of their own under the words, so
        no part of the box is left empty. -->
   <div class="dock" id="dock">
@@ -1743,6 +1832,13 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Width of the chat</span>
           <span class="sub">How wide the column of the chat may be. 780 pixels is the width the chat always had, and it is the least. The chat never grows past 80 per cent of the width of the window, and it keeps clear of the line of the chapters, the line of the summarisations and the arrows of the chat.</span>
           <div class="ctl"><input id="fChatWidth" type="number" min="780" max="4000" step="10" placeholder="780"><span class="unit">pixels</span></div></div>
+
+        <div class="fld"><span class="lbl">A question of the model waits</span>
+          <span class="sub">How long the model waits for you to answer a question it put to you before it goes on without an answer and is told that you did not reply. Questions of this kind are the ordinary ones: the model could go on, but would rather ask.</span>
+          <div class="ctl"><input id="fAskSeconds" type="number" min="1" max="86400" step="1" placeholder="10"><span class="unit">seconds</span></div></div>
+        <div class="fld"><span class="lbl">A weighty question waits</span>
+          <span class="sub">How long the model waits for a question it marked as one it cannot go on without — a token that was never given, a choice only you can make. 0 means it waits until you answer, which is what such a question asks for.</span>
+          <div class="ctl"><input id="fAskCriticalSeconds" type="number" min="0" max="86400" step="1" placeholder="0"><span class="unit">seconds, 0 for as long as it takes</span></div></div>
 
         <div class="fld"><span class="lbl">Send the date and time at the start of a chat</span>
           <span class="sub">The program tells the model the date and time of this machine once, in a system message at the start of the conversation, and says that it is the latest. The line is written when the chat begins and stands as it was for the rest of the chat: a head of the talk that moved with the clock would make the model read the whole talk over again on every turn, whatever prompt caching says. The model can then answer questions about today. The line goes to the model only. It is not shown in the chat.</span>
@@ -2068,6 +2164,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
+  'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
   'sumOverlay', 'sumTitle', 'sumMeta', 'sumWords', 'sumClose'];
 var el = {};
@@ -2165,6 +2262,9 @@ function draw(s) {
   drawContext(s);
   drawProgress(s);
   drawBadges(s);
+  // The question the model has put to the reader stands over the chat box, and
+  // the wait it set is counted down under the question.
+  drawAsk(s);
 
   // The line of state. The mark beats while the program is at work, and it
   // goes red while an answer can still be stopped.
@@ -2637,7 +2737,9 @@ var TOOL_LINES = [
   ['picture', 'Look at a picture',
    'The model may look at a picture of the chat. The picture is read in the program and shown to the model, and never written out again.'],
   ['hand_out', 'Hand a file to the reader',
-   'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all.']
+   'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all.'],
+  ['ask', 'Ask you a question',
+   'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.']
 ];
 
 // One line of the menu of the badge: a kind of tool, with a switch at the end of
@@ -3496,6 +3598,14 @@ var TOOL_SHAPES = {
     mark: 'M8 2.4v6.4M5.4 6.4 8 9l2.6-2.6M3.2 12.6h9.6',
     head: 'Offering a file: ', done: 'Offered a file: ', word: 'file', end: 'result',
     empty: 'no file name', begun: 'a file, started', file: true
+  },
+  // A question the model put to the reader. The head says what was asked; under
+  // the second label stands the answer, or the word that the question was given
+  // up because no answer came.
+  ask_reader: {
+    mark: 'M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5',
+    head: 'Asking the reader: ', done: 'Asked the reader: ', word: 'question', end: 'answer',
+    empty: 'no question', begun: 'the question being written'
   }
 };
 
@@ -5508,6 +5618,167 @@ function placeGifts(turn, given) {
   if (given && given.length) { turn.appendChild(giftRow(given)); }
 }
 
+// ------------------------------------------------------ the question of the reader
+//
+// A model that cannot go on without a word from the reader asks, and the ask
+// stands above the chat box: the question and the reason for it at the top, the
+// answers the model offered under them, and a box for an answer the model did not
+// think of. A question of the ordinary kind counts its seconds down and is then
+// given up, and the model is told that you did not answer; a question the model
+// marked as one it cannot go on without waits until you answer. Both waits come
+// from the Chatting settings.
+
+// The ask the card was last made for. A question that is still the one standing
+// is not made again, or the words the reader was writing in the box would be
+// thrown away on every look of the state.
+var askHeld = '';
+// The seconds left, kept between the looks of the state so that the count moves
+// once a second and not once a poll.
+var askLeft = -1;
+var askTimer = null;
+var askWired = false;
+
+// The answers the model offered, in the order it offered them. Choosing one is
+// the same as writing it out, which is why it goes back the same road.
+function fillAskChoices(one) {
+  var box = el.askchoices;
+  if (!box) { return; }
+  box.innerHTML = '';
+  var list = one.choices || [];
+  for (var n = 0; n < list.length; n++) {
+    var choice = make('button', 'ask-choice');
+    choice.type = 'button';
+    var said = make('span');
+    said.textContent = list[n];
+    choice.appendChild(said);
+    choice.title = 'Answer: ' + list[n];
+    (function (words) {
+      choice.addEventListener('click', function () { answerAsk(words); });
+    })(list[n]);
+    box.appendChild(choice);
+  }
+  box.style.display = list.length ? '' : 'none';
+}
+
+// The words of the wait. A question that waits for ever says that it does, for a
+// reader who has been away from the machine should know that nothing was given up
+// while they were gone.
+function askWaitWords(one, left) {
+  if (left === null) { return 'It waits until you answer'; }
+  return left + (left === 1 ? ' second left' : ' seconds left');
+}
+
+function paintAskWait() {
+  if (!el.askwait || !cur || !cur.ask) { return; }
+  var left = askLeft < 0 ? null : askLeft;
+  el.askwait.textContent = askWaitWords(cur.ask, left);
+  el.askwait.className = 'ask-wait' + (left !== null && left <= 3 ? ' short' : '');
+}
+
+function startAskCount() {
+  stopAskCount();
+  askTimer = window.setInterval(function () {
+    if (!cur || !cur.ask) { stopAskCount(); return; }
+    if (askLeft > 0) { askLeft -= 1; }
+    paintAskWait();
+  }, 1000);
+}
+
+function stopAskCount() {
+  if (askTimer) { window.clearInterval(askTimer); askTimer = null; }
+}
+
+// The ask, put again on every look of the state. The card is made anew only when
+// the question changed; the wait is written again always, for it is always older.
+function drawAsk(s) {
+  var box = el.ask;
+  if (!box) { return; }
+  wireAsk();
+  var one = s.ask;
+  if (!one || !one.id) {
+    if (askHeld !== '') {
+      askHeld = '';
+      box.classList.add('hidden');
+      box.classList.remove('waiting', 'weighty');
+      if (el.askdraft) { el.askdraft.value = ''; }
+      if (el.asknote) { el.asknote.textContent = ''; }
+      stopAskCount();
+    }
+    return;
+  }
+  box.classList.remove('hidden');
+  box.classList.toggle('weighty', !!one.critical);
+  if (askHeld !== one.id) {
+    askHeld = one.id;
+    box.classList.remove('waiting');
+    if (el.asktitle) {
+      el.asktitle.textContent = one.question
+        || 'The model is waiting for a word from you.';
+    }
+    if (el.asknote) {
+      el.asknote.textContent = one.critical
+        ? 'The model says it cannot go on without your answer.'
+        : 'Choose one of the answers, or write an answer of your own.';
+    }
+    fillAskChoices(one);
+    if (el.askdraft) {
+      el.askdraft.value = '';
+      growAskDraft();
+      // The card rose over the chat box, and the field of an answer of their own
+      // is where most answers are made. A touch screen is left to reach for the
+      // keys itself, for the keyboard of such a machine covers the chat.
+      if (!touch) { el.askdraft.focus(); }
+    }
+    askLeft = (one.left === null || one.left === undefined) ? -1 : Number(one.left);
+    startAskCount();
+  }
+  paintAskWait();
+}
+
+// The answer of the reader, whichever way it was made. The card stills itself
+// while the run takes the answer in, so the same question is not answered twice;
+// the next look of the state takes the card away.
+function answerAsk(words) {
+  var text = String(words || '').trim();
+  if (!text || !cur || !cur.ask || !el.ask) { return; }
+  el.ask.classList.add('waiting');
+  if (el.asknote) {
+    el.asknote.textContent = 'Your answer is on its way to the model.';
+  }
+  post('/api/ask_answer', { id: cur.ask.id, answer: text });
+}
+
+// The field of an answer of the reader's own grows with the words, as the chat
+// box does, and stops at the height the card can hold.
+function growAskDraft() {
+  var field = el.askdraft;
+  if (!field) { return; }
+  field.style.height = 'auto';
+  var height = Math.min(field.scrollHeight, Math.round(window.innerHeight * 0.24));
+  field.style.height = Math.max(36, height) + 'px';
+}
+
+// The two roads an answer goes out by: a choice, or the field and its button.
+// Enter answers, as it does in the chat box, and Shift+Enter is a new line.
+function wireAsk() {
+  if (askWired) { return; }
+  askWired = true;
+  if (el.asksend) {
+    el.asksend.addEventListener('click', function () {
+      answerAsk(el.askdraft ? el.askdraft.value : '');
+    });
+  }
+  if (el.askdraft) {
+    el.askdraft.addEventListener('input', growAskDraft);
+    el.askdraft.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        answerAsk(el.askdraft.value);
+      }
+    });
+  }
+}
+
 // ------------------------------------------------------------ chapter line
 //
 // The model can mark the start of a chapter of the chat. The marks are not
@@ -6457,6 +6728,8 @@ function loadProgram() {
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
     byId('fPasteLimit').value = pasteLimitOf(cfg.pasted_text_char_limit);
     byId('fChatWidth').value = chatWidthOf(cfg.chat_width);
+    byId('fAskSeconds').value = askWaitOf(cfg.ask_seconds, 10);
+    byId('fAskCriticalSeconds').value = askWaitOf(cfg.ask_critical_seconds, 0);
     byId('fDateNewChat').checked = cfg.chat_date_new_chat !== false;
     byId('fCompaction').value = cfg.chat_compaction || 'handoff';
     byId('fCompactBy').value = cfg.chat_compact_by || 'percent';
@@ -6623,6 +6896,22 @@ function intOf(id, fallback) {
 function numOf(id, fallback) {
   var v = parseFloat(byId(id).value); return isNaN(v) ? (fallback || 0) : v;
 }
+
+// The two waits of a question the model put, as the sheet shows them. A set of
+// settings written before the waits existed holds nothing, and the wait of the
+// question itself is then stood in: ten seconds for an ordinary question, and as
+// long as it takes for one the model cannot go on without.
+function askWaitOf(value, fallback) {
+  return (value === undefined || value === null) ? fallback : value;
+}
+
+// A whole number of seconds out of a field of the sheet, kept between the two
+// bounds the field allows. The default stands where no number could be read.
+function holdSeconds(id, fallback, least, greatest) {
+  var made = Math.round(numOf(id, fallback));
+  if (isNaN(made)) { made = fallback; }
+  return Math.min(greatest, Math.max(least, made));
+}
 // The advanced fold of a section stands open when one of its fields has moved
 // away from the default the program gives a new set of settings.
 function advOpen(id, keys, defaults) {
@@ -6698,6 +6987,8 @@ function saveSheet() {
     cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
     cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
     cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
+    cfg.ask_seconds = holdSeconds('fAskSeconds', 10, 1, 86400);
+    cfg.ask_critical_seconds = holdSeconds('fAskCriticalSeconds', 0, 0, 86400);
     cfg.chat_date_new_chat = byId('fDateNewChat').checked;
     cfg.chat_compaction = byId('fCompaction').value;
     cfg.chat_compact_by = byId('fCompactBy').value;

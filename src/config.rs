@@ -265,6 +265,17 @@ pub struct Config {
     // have taken their room.
     #[serde(default = "default_chat_width")]
     pub chat_width: u32,
+    // How long the model waits for an answer to a question it put to the reader.
+    // When the time is gone the reader is asked no more, the model is told that
+    // the reader did not answer, and it is left to go on as well as it can.
+    #[serde(default = "default_ask_seconds")]
+    pub ask_seconds: u32,
+    // The same for a question the model marked as one it cannot go on without.
+    // Nothing at all, which is the default, waits until the reader answers: a
+    // model that was told to ask only when it must should not have its question
+    // taken away for a reader who stepped away from the machine.
+    #[serde(default)]
+    pub ask_critical_seconds: u32,
     // Compaction. Either "off", which leaves the chat alone until the room is
     // gone, or "handoff", which asks the model for a handoff summary before
     // the room is gone. A new set of settings stands on the handoff summary.
@@ -405,6 +416,18 @@ fn default_pasted_text_char_limit() -> u32 {
     6000
 }
 
+// The short wait of a question the model put to the reader. Ten seconds is long
+// enough to read a line and press a key, and short enough that a reader who is
+// not there is not waited for.
+fn default_ask_seconds() -> u32 {
+    10
+}
+
+// The longest wait either kind of question may be set to. A day of waiting is
+// already the whole of a working day, and a wait longer than that is a fault of
+// the setting rather than a wish of the model.
+pub const GREATEST_ASK_SECONDS: u32 = 24 * 60 * 60;
+
 // Keep the paste limit inside the two bounds above.
 pub fn sanitize_pasted_text_limit(value: u32) -> u32 {
     value.clamp(LEAST_PASTE_LIMIT, GREATEST_PASTE_LIMIT)
@@ -457,6 +480,8 @@ impl Default for Config {
             chat_max_answer_steps: -1,
             pasted_text_char_limit: default_pasted_text_char_limit(),
             chat_width: default_chat_width(),
+            ask_seconds: default_ask_seconds(),
+            ask_critical_seconds: 0,
             // The handoff summary stands between the first message of the
             // reader and the end of the room, so a chat can go on for ever.
             chat_compaction: default_compaction(),

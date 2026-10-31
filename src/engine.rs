@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use crate::askuser;
 use crate::attach;
 use crate::store::Attachment;
 use crate::config::{self, Config, ModelSettings};
@@ -199,6 +200,48 @@ pub struct LiveTool {
     pub done: bool,
 }
 
+// A question the model has put to the reader, and the wait that stands with it.
+// The question stands above the chat box until the reader answers it, the time of
+// an ordinary question is gone, or the reader stops the answer; the three roads
+// end the wait, and each has its own words for the model.
+#[derive(Clone, Debug)]
+pub struct Asking {
+    // Lets the answer of the reader find the question it belongs to, when a
+    // page draws the ask again after the question was asked.
+    pub id: String,
+    // The question, and the reason the model gives with it.
+    pub question: String,
+    // The answers the model offered for the reader to choose from.
+    pub choices: Vec<String>,
+    // True when the model said it cannot go on without an answer.
+    pub critical: bool,
+    // How long the question is waited for. Nothing at all waits until the reader
+    // answers, which is what a question the model cannot go on without asks for.
+    pub seconds: u32,
+    // The moment the wait began, which is where the time left is measured from.
+    began: Instant,
+    // What the reader answered. The wait is over when this holds anything.
+    answer: Option<String>,
+}
+
+impl Asking {
+    // The seconds left for the reader to answer, or nothing when the question
+    // waits until it is answered. The popup counts these seconds down.
+    pub fn left(&self) -> Option<u32> {
+        if self.seconds == 0 {
+            return None;
+        }
+        let gone = self.began.elapsed().as_secs() as u32;
+        Some(self.seconds.saturating_sub(gone))
+    }
+
+    // True when the wait is over: the reader answered, or the time of an ordinary
+    // question is gone.
+    pub fn ended(&self) -> bool {
+        self.answer.is_some() || self.left().map(|left| left == 0).unwrap_or(false)
+    }
+}
+
 // The words of a call that the reader is given: the command of a terminal run,
 // or the one thing another tool names. The head of the block of a run and the
 // block of a call being written both come from here, so the two cannot say
@@ -217,6 +260,11 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         // A file being offered to the reader is named by the file itself.
         download::NAME => {
             let one = download::partial_words(raw);
+            (one.clone(), String::new(), one)
+        }
+        // A question of the reader is named by the question.
+        askuser::NAME => {
+            let one = askuser::partial_words(raw);
             (one.clone(), String::new(), one)
         }
         // A look about the web is named by the words to look for, or by the
@@ -853,6 +901,11 @@ pub struct Snap {
     // The number of characters where a paste of words into the chat box turns
     // into a file of its own.
     pub chat_paste_limit: u32,
+    // How long the model waits for an answer to a question it put to the reader,
+    // for the two kinds of question. The second is nought by default, which means
+    // the question is waited for until it is answered.
+    pub ask_seconds: u32,
+    pub ask_critical_seconds: u32,
     // How wide the chat may be, in pixels. The page keeps it within 80 per cent
     // of the window, and out of the room the two lines and the arrows need.
     pub chat_width: u32,
@@ -909,6 +962,9 @@ pub struct Snap {
     // The calls of a tool the model is writing right now, in the order it
     // writes them. A block of a command being written is made of these.
     pub live_tools: Vec<LiveTool>,
+    // The question the model has put to the reader and is waiting on, when it has
+    // put one. The popup of the ask stands above the chat box.
+    pub ask: Option<Asking>,
     // Goes up when a message changes, so the window redraws them.
     pub rev: u64,
     // Goes up when a list changes, so the window rebuilds it.
@@ -957,6 +1013,10 @@ pub struct State {
     // The calls of a tool the model is writing right now, in the order the
     // model writes them. The reader sees a command as it is written.
     pub live_tools: Vec<LiveTool>,
+    // The question the model has put to the reader and is waiting on, when it has
+    // put one. The ask stands above the chat box until it is answered, given up,
+    // or stopped with the answer.
+    pub asking: Option<Asking>,
     // The moments the thinking of the live answer began and last stopped. The
     // two together are the length of it.
     thought_start: Option<Instant>,
@@ -1580,6 +1640,69 @@ impl State {
         self.finish_tool_with(id, output, ok, Vec::new());
     }
 
+    // Put a question to the reader and begin the wait. The words of the question,
+    // the answers the model offered, and the wait that stands with them all come
+    // from the ask itself and the settings; the popup above the chat box is made
+    // of what the state carries.
+    fn begin_asking(&mut self, asked: &askuser::Question) -> (String, u32) {
+        let one = Asking {
+            id: store::new_id(),
+            question: asked.text.clone(),
+            choices: asked.choices.clone(),
+            critical: asked.critical,
+            seconds: askuser::wait_of(
+                asked.critical,
+                self.cfg.ask_seconds,
+                self.cfg.ask_critical_seconds,
+            ),
+            began: Instant::now(),
+            answer: None,
+        };
+        let id = one.id.clone();
+        let seconds = one.seconds;
+        self.asking = Some(one);
+        self.touch();
+        (id, seconds)
+    }
+
+    // The answer of the reader, when the question the page was drawing is the one
+    // that stands. A question that was answered already, or that the run has
+    // given over, is answered no more.
+    fn answer_asking(&mut self, id: &str, answer: &str) -> bool {
+        let Some(one) = self.asking.as_mut() else {
+            return false;
+        };
+        if one.id != id || one.answer.is_some() {
+            return false;
+        }
+        one.answer = Some(answer.to_string());
+        self.touch();
+        true
+    }
+
+    // What the reader answered the question of this id, when they have. The run of
+    // the tool asks this until the wait comes to an end.
+    fn asking_answer_of(&self, id: &str) -> Option<String> {
+        self.asking
+            .iter()
+            .find(|one| one.id == id)
+            .and_then(|one| one.answer.clone())
+    }
+
+    // Take the ask away, for the question came to its end and the popup over the
+    // chat box has nothing left to say. A question of another run is left alone.
+    fn clear_asking(&mut self, id: &str) {
+        if self
+            .asking
+            .as_ref()
+            .map(|one| one.id == id)
+            .unwrap_or(false)
+        {
+            self.asking = None;
+            self.touch();
+        }
+    }
+
     // The same, with the files a run of the download tool offered to the reader.
     // The offer rides on the message of the run, so the blocks can be drawn again
     // when the chat is opened another day; the blocks themselves stand at the end
@@ -2194,6 +2317,11 @@ impl State {
             chat_chapters: self.cfg.chat_chapters,
             mcp: self.mcp_snap(),
             chat_paste_limit: self.cfg.pasted_text_char_limit,
+            ask_seconds: self.cfg.ask_seconds.min(config::GREATEST_ASK_SECONDS),
+            ask_critical_seconds: self
+                .cfg
+                .ask_critical_seconds
+                .min(config::GREATEST_ASK_SECONDS),
             chat_width: config::sanitize_chat_width(self.cfg.chat_width),
             // The Compaction section, so the sheet of the settings can be
             // filled in and the page can tell which way the talk is kept short.
@@ -2236,6 +2364,7 @@ impl State {
             prompt_rate: self.prompt_rate,
             answer_rate: self.answer_rate,
             live_tools: self.live_tools.clone(),
+            ask: self.asking.clone(),
             rev: self.rev,
             structure_rev: self.structure_rev,
         }
@@ -2367,6 +2496,7 @@ impl Engine {
             answer_rate: 0.0,
             rate_start: None,
             live_tools: Vec::new(),
+            asking: None,
             thought_start: None,
             thought_end: None,
             // The meter of the context moves at most twice a second, so the
@@ -2955,6 +3085,17 @@ impl Engine {
         }
         let paths = config::paths();
         attach::find_in(&[paths.data.join("work"), paths.repositories], id)
+    }
+
+    // The reader answered the question the model is waiting on. The words go into
+    // the block of the run, and the ask goes away with them. A question that was
+    // answered already, or that has been given over, is answered no more, and the
+    // page is told so.
+    pub fn answer_ask(&self, id: &str, answer: &str) -> bool {
+        let Ok(mut guard) = self.state.lock() else {
+            return false;
+        };
+        guard.answer_asking(id, answer.trim())
     }
 
     // One file the reader was offered, for the button of a block. The name is the
@@ -3621,6 +3762,8 @@ impl Snap {
             chat_highlight: true,
             chat_chapters: true,
             chat_paste_limit: 6000,
+            ask_seconds: 10,
+            ask_critical_seconds: 0,
             chat_width: config::LEAST_CHAT_WIDTH,
             models: Vec::new(),
             model_id: String::new(),
@@ -3649,6 +3792,7 @@ impl Snap {
             prompt_rate: 0.0,
             answer_rate: 0.0,
             live_tools: Vec::new(),
+            ask: None,
             rev: 0,
             structure_rev: 0,
         }
@@ -4959,6 +5103,10 @@ fn run_turn(
         state.live_text = String::new();
         state.live_reasoning = String::new();
         state.live_tools = Vec::new();
+        // A question the model had put to the reader before this answer began is
+        // gone with the answer that asked it: the popup that stood over the chat
+        // box was asked by a run that is no more.
+        state.asking = None;
         // The meter of the context is paced, and the pace begins anew with this
         // answer, so the first number of a new answer is stood on at once.
         state.ctx_at = None;
@@ -5752,7 +5900,7 @@ fn run_turn(
             if terminal {
                 run_command(call, &thinking, thought_ms, state, &workdir, sandbox_on, access);
             } else {
-                run_program_tool(call, &thinking, thought_ms, state, &workdir);
+                run_program_tool(call, &thinking, thought_ms, state, &workdir, cancel);
             }
         }
         if !thoughts.is_empty() {
@@ -5792,6 +5940,7 @@ fn group_of(name: &str) -> Option<&'static str> {
         editfile::EDIT_NAME | editfile::CREATE_NAME => Some("files"),
         viewimage::NAME => Some("picture"),
         download::NAME => Some("hand_out"),
+        askuser::NAME => Some("ask"),
         _ => None,
     }
 }
@@ -5850,6 +5999,9 @@ fn offered(
         if switches.hand_out {
             list.push(download::definition());
         }
+        if switches.ask {
+            list.push(askuser::definition());
+        }
     }
     if search_on {
         list.push(search::definition());
@@ -5867,6 +6019,37 @@ fn offered(
         return None;
     }
     Some(Value::Array(list))
+}
+
+// The wait for a word from the reader. The run asks the state what the reader
+// answered, and rests between the asks, so the window is never kept from drawing
+// and the reader is never hurried. A question of the ordinary kind is given up
+// when its wait is gone; any question is given up with the answer when the reader
+// stops the run, and a question the model cannot go on without is waited for as
+// long as it takes.
+fn wait_for_answer(
+    state: &Arc<Mutex<State>>,
+    id: &str,
+    seconds: u32,
+    cancel: &Arc<AtomicBool>,
+) -> Option<String> {
+    let began = Instant::now();
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        let held = state
+            .lock()
+            .ok()
+            .and_then(|guard| guard.asking_answer_of(id));
+        if held.is_some() {
+            return held;
+        }
+        if seconds > 0 && began.elapsed().as_secs() >= seconds as u64 {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
 }
 
 // One run of the terminal tool. The block stands in the chat before the command
@@ -5925,6 +6108,9 @@ fn run_program_tool(
     thought_ms: u64,
     state: &Arc<Mutex<State>>,
     workdir: &Path,
+    // The hand the reader puts up to stop the answer. A question the reader was
+    // asked is given up with the answer, for the run that asked it is going away.
+    cancel: &Arc<AtomicBool>,
 ) {
     // The words of the call, and the words of the state line, are settled first:
     // the block has to stand in the chat before the work begins.
@@ -5939,6 +6125,7 @@ fn run_program_tool(
         search::NAME => "Searching the web",
         viewimage::NAME => "Looking at an image",
         download::NAME => "Offering a file",
+        askuser::NAME => "Asking the reader",
         _ => "A tool of the program",
     };
     let message_id = {
@@ -6008,6 +6195,36 @@ fn run_program_tool(
         };
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool_with(&message_id, &made.report.output, made.report.ok, records);
+        return;
+    }
+    // A question the model puts to the reader. The run waits: the ask stands above
+    // the chat box, the reader chooses one of the answers the model offered or
+    // writes an answer of their own, and what they said goes back to the model as
+    // the result of the call. A question of the ordinary kind is given up when its
+    // wait is gone; a question the model cannot go on without is waited for until
+    // it is answered, or until the reader stops the answer whole.
+    if call.name == askuser::NAME {
+        let asked = askuser::parse(&call.arguments);
+        {
+            let Ok(mut guard) = state.lock() else { return };
+            let text = format!("Waiting for your answer: {}", first_line(&asked.text));
+            guard.set_status(&text);
+        }
+        let (asking, seconds) = {
+            let Ok(mut guard) = state.lock() else { return };
+            guard.begin_asking(&asked)
+        };
+        let answer = wait_for_answer(state, &asking, seconds, cancel);
+        let (words, ok) = match answer {
+            Some(said) => (askuser::answered_words(&said), true),
+            // A question that was given up is no fault of the run: the model is
+            // told the reader did not answer, and goes on as well as it can.
+            None if seconds > 0 => (askuser::given_up_words(seconds), true),
+            None => (askuser::stopped_words(), false),
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &words, ok);
+        guard.clear_asking(&asking);
         return;
     }
     // A file the reader is offered. Nothing is copied and nothing is fetched: the
@@ -7165,6 +7382,122 @@ mod tests {
         assert_eq!(last.tool, "5");
     }
 
+    // The question the model put stands a moment after the call was made, for the
+    // run of the tool is on a thread of its own. The test looks for it as a window
+    // does, and gives up after two seconds of nothing.
+    fn asked_of(engine: &Engine) -> Asking {
+        for _ in 0..100 {
+            if let Some(one) = engine.snapshot().ask {
+                return one;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("no question ever stood above the chat box");
+    }
+
+    // A question the model cannot go on without stands above the chat box until
+    // the reader answers it, and what they said goes back to the model as the
+    // result of the call. The ask goes away with the answer, and answering the
+    // same question twice does nothing the second time.
+    #[test]
+    fn a_question_the_reader_answers_goes_back_to_the_model() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let (workdir, cancel) = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
+            std::mem::drop(state);
+            (
+                room,
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            )
+        };
+        let call = ToolCall {
+            id: String::from("call-ask"),
+            name: String::from(askuser::NAME),
+            arguments: String::from(
+                "{\"question\":\"Which token should I use?\",\"choices\":[\"Here it is\",\"I have none\"],\"kind\":\"critical\"}",
+            ),
+        };
+        let held = engine.state.clone();
+        let waiter = cancel.clone();
+        let worker = {
+            let call = call.clone();
+            std::thread::spawn(move || {
+                run_program_tool(&call, "", 0, &held, &std::path::Path::new("."), &waiter)
+            })
+        };
+        // The ask stands while the run waits for a word. A weighty question is
+        // waited for as long as it takes, so it carries no time left.
+        let asked = asked_of(&engine);
+        assert_eq!(asked.question, "Which token should I use?");
+        assert_eq!(asked.choices.len(), 2);
+        assert!(asked.critical, "the model said it cannot go on");
+        assert_eq!(asked.left(), None, "a weighty question waits for ever");
+        assert!(engine.answer_ask(&asked.id, "  Here it is  "), "the answer came home");
+        assert!(
+            !engine.answer_ask(&asked.id, "again"),
+            "a question is answered once"
+        );
+        worker.join().expect("the run came to its end");
+        let snap = engine.snapshot();
+        let run = snap
+            .messages
+            .iter()
+            .find(|one| one.tool_name == askuser::NAME)
+            .expect("the chat holds the run");
+        assert_eq!(run.body, "Which token should I use?");
+        assert!(!run.failed, "{}", run.tool);
+        assert_eq!(run.tool, "The reader answered: Here it is");
+        assert!(snap.ask.is_none(), "the ask went away with the answer");
+        let _ = std::fs::remove_dir_all(&workdir);
+    }
+
+    // A question of the ordinary kind is waited for a short while, and then given
+    // up: the model is told that the reader did not answer, and the run is not
+    // held up any longer than the setting says.
+    #[test]
+    fn a_question_that_is_not_answered_is_given_up() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            state.cfg.ask_seconds = 1;
+        }
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let call = ToolCall {
+            id: String::from("call-ask-quiet"),
+            name: String::from(askuser::NAME),
+            arguments: String::from("{\"question\":\"Shall I write the file?\"}"),
+        };
+        let held = engine.state.clone();
+        let waiter = cancel.clone();
+        let worker = {
+            let call = call.clone();
+            std::thread::spawn(move || {
+                run_program_tool(&call, "", 0, &held, &std::path::Path::new("."), &waiter)
+            })
+        };
+        let asked = asked_of(&engine);
+        assert!(!asked.critical);
+        assert!(asked.choices.is_empty(), "nothing was offered to choose from");
+        assert!(asked.left().is_some(), "an ordinary question is timed");
+        worker.join().expect("the wait came to an end");
+        let snap = engine.snapshot();
+        let run = snap
+            .messages
+            .iter()
+            .find(|one| one.tool_name == askuser::NAME)
+            .expect("the chat holds the run");
+        assert!(run.tool.contains("did not answer within 1 second"), "{}", run.tool);
+        assert!(!run.failed, "a question given up is no fault of the run");
+        assert!(snap.ask.is_none(), "the ask went away with the wait");
+    }
+
     // A run of the download tool leaves its offer on the message of the run, and
     // the reader reaches the file by the name the block carries. A name that steps
     // out of the room of the chat is answered and never offered, which is the rule
@@ -7190,7 +7523,14 @@ mod tests {
                 "{\"paths\":[\"page.html\",\"notes/table.csv\",\"../elsewhere.txt\"]}",
             ),
         };
-        run_program_tool(&call, "", 0, &engine.state, &workdir);
+        run_program_tool(
+            &call,
+            "",
+            0,
+            &engine.state,
+            &workdir,
+            &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
         let snap = engine.snapshot();
         let run = snap
             .messages
