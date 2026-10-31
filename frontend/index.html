@@ -1171,15 +1171,19 @@ img.pic { animation: plate-in 180ms ease-out; }
 .sheet textarea.mcpcode { min-height: 320px; font-size: 12px; line-height: 1.45;
   tab-size: 4;
   font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace; }
-.menu .line .ico { display: inline-flex; color: var(--ink); margin-right: 7px; }
-.menu .line .ico .svg { width: 13px; height: 13px; }
+/* The mark at the head of a line of a menu. A line is a row of flexed things,
+   and a span of marks left to itself stands on the line of the words rather
+   than level with them, so the mark is made a flexed thing of its own. */
+.menu .ico { display: inline-flex; align-items: center; color: var(--ink);
+  flex: 0 0 auto; }
+.menu .ico .svg { width: 13px; height: 13px; }
 
 .send {
   flex: 0 0 auto; width: 34px; height: 34px; border-radius: 999px; background: var(--accent);
   color: var(--on-accent); display: inline-flex; align-items: center; justify-content: center;
   opacity: .38; transition: opacity 160ms, background 160ms, transform 120ms;
 }
-.send .svg { width: 17px; height: 17px; stroke-width: 2; }
+.send .svg { width: 17px; height: 17px; stroke-width: 2; display: block; }
 .send .mark-stop { display: none; }
 .send.live { opacity: 1; }
 .send.live:hover { background: var(--warm); }
@@ -3783,7 +3787,11 @@ function toolShape(name) {
     return {
       mark: one ? mcpIconOf(one) : MCP_ICONS[0],
       head: 'Calling: ', done: 'Called: ', word: 'parts', end: 'result',
-      empty: 'no words with the call', begun: 'the parts of the call'
+      empty: 'no words with the call', begun: 'the parts of the call',
+      // A call of a server is named for the tool it called, and never for the
+      // words that went with it: those are its parameters, and they stand under
+      // their own label in the body of the block.
+      named: mcpToolWords(key)
     };
   }
   return TOOL_SHAPES[name] || TOOL_SHAPES.run_terminal;
@@ -3810,6 +3818,7 @@ function headWords(shape, named, over) {
 // The other tools name the words themselves - a command, the words to look for -
 // so the first line of what has come in is the thing they name.
 function headName(one, shape) {
+  if (shape && shape.named) { return shape.named; }
   if (one.target && one.target.trim()) { return one.target; }
   return shape && shape.file ? '' : firstLine(one.command);
 }
@@ -3836,7 +3845,7 @@ function toolBox(m) {
   // The head says what the tool is doing while it runs, and what it did when
   // it is over, so the block reads as it changes from one to the other. A run
   // that failed did not do the thing, so it keeps the name of the trying.
-  cmd.textContent = headWords(shape, firstLine(m.body), !running && !m.failed && !cut);
+  cmd.textContent = headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
   var state = make('span', 'state' + (running ? ' run' : '')
     + (cut ? ' cut' : (m.failed ? ' fail' : '')));
