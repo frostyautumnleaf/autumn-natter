@@ -27,6 +27,8 @@ pub fn run(cfg: Config) -> Result<(), String> {
             commands::get_state,
             commands::action,
             commands::get_attachment,
+            commands::get_gift,
+            commands::get_gift_zip,
             commands::get_config,
             commands::save_config,
             commands::list_repositories,

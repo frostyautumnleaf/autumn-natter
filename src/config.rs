@@ -241,6 +241,17 @@ pub struct Config {
     // Give the words of a block of code the colours of their kind.
     #[serde(default = "on_by_default")]
     pub chat_highlight: bool,
+    // Let the marks of boldness stand for boldness: a word held between two marks
+    // is written in the heavier shape of the letters. Turned off, the marks are
+    // read as part of the words of the answer, as they were before.
+    #[serde(default = "on_by_default")]
+    pub chat_bold_markdown: bool,
+    // How many times an answer is asked over when the model came to its own end
+    // without a word, a call or a fault. A model that thought a while and then
+    // stopped has said nothing of the work it was given, and the same ask a second
+    // time very nearly always brings the words back. 0 leaves a silence alone.
+    #[serde(default = "silence_retries")]
+    pub chat_silent_retries: i64,
     // Let the model mark the chapters of a chat, and show them beside it.
     #[serde(default = "on_by_default")]
     pub chat_chapters: bool,
@@ -265,6 +276,17 @@ pub struct Config {
     // have taken their room.
     #[serde(default = "default_chat_width")]
     pub chat_width: u32,
+    // How long the model waits for an answer to a question it put to the reader.
+    // When the time is gone the reader is asked no more, the model is told that
+    // the reader did not answer, and it is left to go on as well as it can.
+    #[serde(default = "default_ask_seconds")]
+    pub ask_seconds: u32,
+    // The same for a question the model marked as one it cannot go on without.
+    // Nothing at all, which is the default, waits until the reader answers: a
+    // model that was told to ask only when it must should not have its question
+    // taken away for a reader who stepped away from the machine.
+    #[serde(default)]
+    pub ask_critical_seconds: u32,
     // Compaction. Either "off", which leaves the chat alone until the room is
     // gone, or "handoff", which asks the model for a handoff summary before
     // the room is gone. A new set of settings stands on the handoff summary.
@@ -405,6 +427,18 @@ fn default_pasted_text_char_limit() -> u32 {
     6000
 }
 
+// The short wait of a question the model put to the reader. Ten seconds is long
+// enough to read a line and press a key, and short enough that a reader who is
+// not there is not waited for.
+fn default_ask_seconds() -> u32 {
+    10
+}
+
+// The longest wait either kind of question may be set to. A day of waiting is
+// already the whole of a working day, and a wait longer than that is a fault of
+// the setting rather than a wish of the model.
+pub const GREATEST_ASK_SECONDS: u32 = 24 * 60 * 60;
+
 // Keep the paste limit inside the two bounds above.
 pub fn sanitize_pasted_text_limit(value: u32) -> u32 {
     value.clamp(LEAST_PASTE_LIMIT, GREATEST_PASTE_LIMIT)
@@ -435,6 +469,12 @@ fn no_limit() -> i64 {
     -1
 }
 
+// How many times an answer is asked over when the model came to its own end
+// without a word, a call or a fault of its own.
+fn silence_retries() -> i64 {
+    2
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -452,11 +492,15 @@ impl Default for Config {
             chat_collapse_tools: true,
             chat_date_new_chat: true,
             chat_highlight: true,
+            chat_bold_markdown: true,
+            chat_silent_retries: 2,
             chat_chapters: true,
             chat_max_tool_steps: -1,
             chat_max_answer_steps: -1,
             pasted_text_char_limit: default_pasted_text_char_limit(),
             chat_width: default_chat_width(),
+            ask_seconds: default_ask_seconds(),
+            ask_critical_seconds: 0,
             // The handoff summary stands between the first message of the
             // reader and the end of the room, so a chat can go on for ever.
             chat_compaction: default_compaction(),
@@ -491,6 +535,10 @@ pub struct Paths {
     // repository, for a repository is the room a terminal command works in, and
     // it must not hold the talks of the model that works in it.
     pub repo_chats: PathBuf,
+    // The record of every repository: its name, when it was made and used,
+    // whether it is pinned. These stand here for the same reason the talks do,
+    // and not in the folder of the repository beside the work.
+    pub repo_records: PathBuf,
     // The logs of llama-server, one file for every start of it, the ten newest
     // of them. The Logs tab of the sheet of settings reads them.
     pub logs: PathBuf,
@@ -529,6 +577,7 @@ pub fn paths() -> Paths {
     Paths {
         chats: data.join("chats"),
         repo_chats: data.join("repo_chats"),
+        repo_records: data.join("repo_records"),
         logs: data.join("logs"),
         repositories: data.join("repositories"),
         models: data.join("models"),
@@ -557,6 +606,7 @@ pub fn ensure_dirs() -> std::io::Result<()> {
     fs::create_dir_all(&p.data)?;
     fs::create_dir_all(&p.chats)?;
     fs::create_dir_all(&p.repo_chats)?;
+    fs::create_dir_all(&p.repo_records)?;
     fs::create_dir_all(&p.logs)?;
     fs::create_dir_all(&p.models)?;
     Ok(())

@@ -113,6 +113,20 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // tool was for, and this tells the page that the writing of it was
                 // stopped rather than the running of it failed.
                 "cancelled": m.cancelled,
+                // An answer of the model that never came to an end of its own,
+                // because the reader stopped it. The page puts the mark of going on
+                // with it under that answer alone.
+                "stopped": m.stopped,
+                // The files a run of the download tool offered to the reader. The
+                // page draws a block for each of them at the end of the answer
+                // that made the offer, and only once the model has stopped.
+                "downloads": m.downloads.iter().map(|one| json!({
+                    "name": one.name,
+                    "extension": one.extension,
+                    "kind": one.kind,
+                    "path": one.path,
+                    "size": one.size,
+                })).collect::<Vec<Value>>(),
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is
@@ -196,6 +210,20 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // them. The window shows them as blocks of a command being written, so
         // the reader sees the words of it and does not wait for the run.
         "live_tools": live_tools,
+        // The question the model has put to the reader and is waiting on, when it
+        // has put one. The popup of the ask stands above the chat box, and the
+        // reader answers it there: by choosing one of the answers the model
+        // offered, or by writing an answer of their own.
+        "ask": snap.ask.as_ref().map(|one| json!({
+            "id": one.id,
+            "question": one.question,
+            "choices": one.choices,
+            "critical": one.critical,
+            // The seconds left to answer, or nothing when the question waits
+            // until it is answered.
+            "left": one.left(),
+            "seconds": one.seconds,
+        })),
         // The thinking that comes with a live answer, how long it lasted and
         // whether it has stopped. The page writes the last two on the head of
         // the panel.
@@ -243,6 +271,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "generating": snap.generating,
         "busy": snap.busy,
         "code": snap.code_enabled,
+        // The lines of the drop-down of the badge of the tools. The badge itself
+        // is the switch over all of them, so a tool that is switched on here is
+        // offered only while the badge stands on.
+        "tool_switches": {
+            "commands": snap.tool_switches.commands,
+            "files": snap.tool_switches.files,
+            "picture": snap.tool_switches.picture,
+            "hand_out": snap.tool_switches.hand_out,
+            "ask": snap.tool_switches.ask,
+        },
         "search": snap.search_enabled,
         "sandbox": snap.sandbox_enabled,
         "sandbox_available": snap.sandbox_available,
@@ -279,9 +317,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "collapse_tools": snap.chat_collapse_tools,
             "date_new_chat": snap.chat_date_new_chat,
             "highlight": snap.chat_highlight,
+            "bold_markdown": snap.chat_bold_markdown,
+            "silent_retries": snap.chat_silent_retries,
             "chapters": snap.chat_chapters,
             "paste_limit": snap.chat_paste_limit,
             "width": snap.chat_width,
+            // How long the model waits for an answer to a question it put to the
+            // reader: the short wait of an ordinary question, and the wait of one
+            // the model cannot go on without.
+            "ask_seconds": snap.ask_seconds,
+            "ask_critical_seconds": snap.ask_critical_seconds,
         },
         // The folder of the program data. The window of settings reads it out.
         "data_dir": snap.data_dir,
@@ -542,6 +587,46 @@ pub fn log_value(id: &str, most: Option<u64>) -> Value {
 // filled from. The line that starts a server, the address of it, and the words
 // of a server of the program itself all come here, and nowhere else, for the tab
 // is opened now and then and the state is asked for always.
+// One file the reader was offered, for the window that has no web server of its
+// own. The name, the kind of the bytes, and the bytes as a data URL: the window
+// hangs the data URL on a link and the file comes down, which is what the button
+// of a block does over http as well. A name that leaves the room of the open chat
+// answers with nothing, as it does on the road of the remote page.
+pub fn gift_value(engine: &crate::engine::Engine, asked: &str) -> Value {
+    match engine.gift(asked) {
+        Some((name, kind, bytes)) => {
+            let size = bytes.len();
+            json!({
+                "ok": true,
+                "name": name,
+                "mime": kind,
+                "data": format!("data:{};base64,{}", kind, util::b64(&bytes)),
+                "size": size,
+            })
+        }
+        None => refused("That file is not here, or it does not stand in this chat"),
+    }
+}
+
+// Several files the reader was offered, wound into one archive for the same
+// window. The archive is made in the memory and is never written out, so taking
+// the whole of an offer leaves no file of its own behind.
+pub fn gift_zip_value(engine: &crate::engine::Engine, paths: &[String]) -> Value {
+    match engine.gift_zip(paths) {
+        Some((name, bytes)) => {
+            let size = bytes.len();
+            json!({
+                "ok": true,
+                "name": name,
+                "mime": "application/zip",
+                "data": format!("data:application/zip;base64,{}", util::b64(&bytes)),
+                "size": size,
+            })
+        }
+        None => refused("None of those files is here any more"),
+    }
+}
+
 pub fn mcp_value(engine: &crate::engine::Engine) -> Value {
     let held = engine.mcp_servers();
     let known: Vec<Value> = held
@@ -612,6 +697,38 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.cancel();
             done()
         }
+        // The reader answered the question the model put with the tool of that
+        // name. The id is the one the ask carried, so an answer that comes late --
+        // after the question was given up, or after another answer took it -- does
+        // nothing at all.
+        "/api/ask_answer" | "ask_answer" => {
+            let id = text_field(&value, "id");
+            let answer = text_field(&value, "answer");
+            if answer.trim().is_empty() {
+                return refused("Nothing was written");
+            }
+            if !engine.answer_ask(&id, &answer) {
+                return refused("That question is answered already, or is over");
+            }
+            done()
+        }
+        // Take one message out of the talk, with everything that came after it.
+        // The page asks under a message, when the pointer goes over it.
+        "/api/delete_message" | "delete_message" => {
+            engine.remove_message(text_field(&value, "id"));
+            done()
+        }
+        // Write the answer of a message again. The talk is cut back to the message
+        // the reader is going on from, and the model is asked again from there.
+        "/api/retry_message" | "retry_message" => {
+            engine.retry_message(text_field(&value, "id"));
+            done()
+        }
+        // Go on with an answer the reader stopped while the model was writing it.
+        "/api/continue_message" | "continue_message" => {
+            engine.continue_message(text_field(&value, "id"));
+            done()
+        }
         // Start the handoff summary of this chat again. The button for it stands
         // on the heading of a summarisation that was never written.
         "/api/handoff" | "handoff" => {
@@ -620,6 +737,16 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/code" | "code" => {
             engine.set_code(flag(&value, "on"));
+            done()
+        }
+        // One line of the drop-down of the badge of the tools. The line that was
+        // clicked says which tool it switched, under `part`.
+        "/api/tool_switch" | "tool_switch" => {
+            let part = text_field(&value, "part");
+            if part.is_empty() {
+                return refused("That is not one of the tools of the program");
+            }
+            engine.set_tool_switch(&part, flag(&value, "on"));
             done()
         }
         "/api/search" | "search" => {

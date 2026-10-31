@@ -19,8 +19,10 @@
 // can grow without the compiler stopping over it.
 #![recursion_limit = "256"]
 
+pub mod askuser;
 pub mod attach;
 pub mod config;
+pub mod download;
 pub mod editfile;
 pub mod engine;
 pub mod gguf;

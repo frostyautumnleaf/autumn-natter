@@ -22,6 +22,8 @@
 //   AN_NOTIMELINE=1 node page-shot.js rich p.png  # the line turned off
 //   AN_BROKEN=1 node page-shot.js rich p.png      # the newest one never written
 //   AN_CUT=1 node page-shot.js rich p.png         # a tool call the reader stopped
+//   AN_GIFTS=1 node page-shot.js rich p.png       # the talk ends with the blocks
+//     of the files the download tool offered, with their buttons
 //   AN_SUMMARISING=1 node page-shot.js rich p.png # a summary being written,
 //     which is written out of sight: no live answer stands in the chat
 //   AN_FIELD=fCompactPrompt node page-shot.js sheet-program p.png
@@ -459,6 +461,30 @@ function scene(name, dark) {
         });
       });
     }
+    // AN_GIFTS=1 ends the talk with a run of the download tool and the blocks of
+    // the files it offered: the mark of the kind of file, the name with the ending
+    // under the name, the button at the right of the block, and the button of the
+    // whole of the offer under several files. The blocks stand in the middle of the
+    // chat, under the whole of the answer.
+    if (process.env.AN_GIFTS === '1') {
+      start.messages = start.messages.concat([
+        said(21, 'Tool', 'a-page-of-the-work.html', {
+          tool_name: 'download_file',
+          tool: '2 files are offered to the reader in download blocks: '
+            + 'a-page-of-the-work.html, counts/of-the-run.csv',
+          downloads: [
+            { name: 'a-page-of-the-work', extension: 'html', kind: 'page',
+              path: 'a-page-of-the-work.html', size: 4213 },
+            { name: 'the counts of the run', extension: 'csv', kind: 'table',
+              path: 'counts/of-the-run.csv', size: 118 }
+          ]
+        }),
+        said(22, 'Assistant',
+          'The page and the table of the run stand under this answer, each with a '
+          + 'button of its own.\n\nThe page holds the work, and the table the '
+          + 'counts of the runs it went through.')
+      ]);
+    }
     // The chapters the model marked, tied to the message each begins after.
     start.chapters = name === 'rich'
       ? [{ id: 'ch1', name: 'The plan for the parser', after: 1 },
@@ -598,6 +624,14 @@ function scene(name, dark) {
       start.live = WRITING_SAYS.slice(0, Math.min(WRITING_SAYS.length, told));
     }
     start.reasoning = 'Look in the folder first, then say what stands in it.';
+    // The head of the thinking panel says how long the thoughts have taken
+    // while they are coming, and the count of the calls that stand among them,
+    // so a picture of a live answer wants a length of its own to say, and one
+    // that is over wants the mark that says it is over.
+    if (process.env.AN_THOUGHTMS !== undefined) {
+      start.reasoning_ms = Number(process.env.AN_THOUGHTMS) || 0;
+    }
+    if (process.env.AN_THOUGHTDONE === '1') { start.reasoning_done = true; }
     var tool = process.env.AN_TOOL || 'run_terminal';
     var named = WRITING_NAMES[tool] !== undefined;
     // A file tool names its file in the head of the block, and makes its words

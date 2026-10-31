@@ -10,6 +10,12 @@
 // talks of a repository therefore stand under the data directory, at
 // `repo_chats/<repository id>/`, and only the work of the chat stands in the
 // repository.
+//
+// The record of a repository - its name, when it was made and used, whether it
+// is pinned - does not stand inside that directory either, for the same reason:
+// a model that can read the folder it works in can read the list of the other
+// repositories, and write over its own. The records stand under the data
+// directory, at `repo_records/<repository id>.json`.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -240,6 +246,91 @@ pub struct Repo {
     pub path: PathBuf,
 }
 
+// Which of the tools of the program the model may reach in one chat. The badge
+// of the tools is the switch over all of them: with the badge off, none of these
+// matters, for nothing is offered at all. Each line of the drop-down of the badge
+// holds one of these switches, and the name of a line is the name the page sends.
+//
+// A chat written before these switches existed carries none of them and reads
+// with all of them on, which is what such a chat was offered.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ToolSwitches {
+    // A command of the terminal tool may run.
+    #[serde(default = "switch_on")]
+    pub commands: bool,
+    // The tools that work on the files of the chat: to change a file, and to
+    // make a new one.
+    #[serde(default = "switch_on")]
+    pub files: bool,
+    // A picture of the chat may be looked at.
+    #[serde(default = "switch_on")]
+    pub picture: bool,
+    // A file of the chat may be handed to the reader in a download block.
+    #[serde(default = "switch_on")]
+    pub hand_out: bool,
+    // The model may stop and ask the reader a question.
+    #[serde(default = "switch_on")]
+    pub ask: bool,
+}
+
+// The switch of a tool that nothing has touched yet.
+fn switch_on() -> bool {
+    true
+}
+
+impl Default for ToolSwitches {
+    fn default() -> Self {
+        ToolSwitches {
+            commands: true,
+            files: true,
+            picture: true,
+            hand_out: true,
+            ask: true,
+        }
+    }
+}
+
+impl ToolSwitches {
+    // Turn one line of the drop-down on or off. The name is the name the page
+    // sends; a name of another kind is answered with nothing done.
+    pub fn set(&mut self, part: &str, on: bool) -> bool {
+        match part {
+            "commands" => self.commands = on,
+            "files" => self.files = on,
+            "picture" => self.picture = on,
+            "hand_out" => self.hand_out = on,
+            "ask" => self.ask = on,
+            _ => return false,
+        }
+        true
+    }
+
+    // The switches as the page reads them, for the menu of the badge and the tip
+    // over the badge.
+    pub fn words(&self) -> Vec<(&'static str, bool)> {
+        vec![
+            ("commands", self.commands),
+            ("files", self.files),
+            ("picture", self.picture),
+            ("hand_out", self.hand_out),
+            ("ask", self.ask),
+        ]
+    }
+
+    // What one line of the drop-down stands on. A name of another kind reads as
+    // on, for a tool nothing switches off is offered.
+    pub fn value_of(&self, part: &str) -> bool {
+        match part {
+            "commands" => self.commands,
+            "files" => self.files,
+            "picture" => self.picture,
+            "hand_out" => self.hand_out,
+            "ask" => self.ask,
+            _ => true,
+        }
+    }
+}
+
 // The stored facts about one chat.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChatMeta {
@@ -300,6 +391,11 @@ pub struct ChatMeta {
     // with no server of the reader's own.
     #[serde(default)]
     pub mcp: Vec<String>,
+    // Which of the tools of the program the model may reach, now that the badge
+    // of the tools holds a drop-down of them. A chat written before the
+    // drop-down existed carries none of these and reads with all of them on.
+    #[serde(default)]
+    pub tools: ToolSwitches,
     // Tokens used by the last answer.
     pub context_used: u64,
 }
@@ -319,6 +415,9 @@ impl Default for ChatMeta {
             created: 0,
             updated: 0,
             code_enabled: false,
+            // Every tool of the program stands offered until the reader takes one
+            // out of the drop-down of the badge.
+            tools: ToolSwitches::default(),
             search_enabled: false,
             // The sandbox is on unless the user turns it off.
             sandbox_enabled: true,
@@ -414,6 +513,19 @@ pub struct Message {
     // nothing after it at all.
     #[serde(default)]
     pub reader_stopped: bool,
+    // True of an answer of the model that never came to an end of its own,
+    // because the reader stopped it. It is not the same thing as
+    // `reader_stopped`, which stands for a call that was cancelled: this says
+    // that the words of the model stopped in the middle. The mark stands on the
+    // newest answer only, so the page may put the mark of going on with it under
+    // that answer and nowhere else.
+    #[serde(default)]
+    pub stopped: bool,
+    // The files a run of the download tool offered to the reader. The blocks of
+    // the offer stand at the end of the answer that made them, and never while
+    // the model is still writing.
+    #[serde(default)]
+    pub downloads: Vec<crate::download::Gift>,
     // A message of the role "Summary" only. The room the talk took when the
     // handoff summary was asked for, in tokens.
     #[serde(default)]
@@ -541,19 +653,24 @@ pub struct Store {
     // The folder that holds the chats of the repositories. It stands away from
     // them, so a command working inside a repository cannot reach a talk.
     chats_root: PathBuf,
+    // The folder that holds the record of every repository. It stands away from
+    // them for the same reason the talks do: the record of a repository is not
+    // the business of the model that works inside it.
+    records_root: PathBuf,
 }
 
 impl Store {
     pub fn new(repos_dir: PathBuf) -> Store {
-        Store::with_chats(repos_dir, config::paths().repo_chats)
+        let places = config::paths();
+        Store::with_rooms(repos_dir, places.repo_chats, places.repo_records)
     }
 
-    // A store that keeps the talks of its repositories in a folder of its own.
-    // Only the tests and `new` need this: the folder of the talks comes from the
-    // places of the program.
-    fn with_chats(repos_dir: PathBuf, chats_root: PathBuf) -> Store {
+    // A store that keeps the talks of its repositories, and their records, in
+    // folders of its own. Only the tests and `new` need this: the two folders
+    // come from the places of the program.
+    fn with_rooms(repos_dir: PathBuf, chats_root: PathBuf, records_root: PathBuf) -> Store {
         let _ = fs::create_dir_all(&repos_dir);
-        Store { repos_dir, chats_root }
+        Store { repos_dir, chats_root, records_root }
     }
 
     // Move the chats of every repository out of the directory of that
@@ -562,6 +679,22 @@ impl Store {
     // program at another folder of repositories. See the head of this file.
     pub fn migrate_chats_out(&self) {
         migrate_repo_chats(&self.repos_dir, &self.chats_root);
+    }
+
+    // Move the record of every repository out of the directory of that
+    // repository, into the folder of the records under the data directory. The
+    // record used to stand in the directory, where a command of the terminal
+    // tool could read it and write over it. This runs once, when the program
+    // starts, and again when the reader points the program at another folder of
+    // repositories.
+    pub fn migrate_records_out(&self) {
+        migrate_repo_records(&self.repos_dir, &self.records_root);
+    }
+
+    // Where the record of one repository stands. A repository with no usable id
+    // has no record of its own.
+    fn record_of(&self, repo: &Repo) -> Option<PathBuf> {
+        repo_record_path(&self.records_root, &repo.id)
     }
 
     // Directory that holds the chats of a repository, or of the loose chats.
@@ -615,19 +748,23 @@ impl Store {
                 Some(n) => n.to_string_lossy().to_string(),
                 None => continue,
             };
-            let repo_file = path.join("repo.json");
-            let mut repo = match fs::read_to_string(&repo_file) {
-                Ok(text) => serde_json::from_str::<Repo>(&text).unwrap_or_default(),
-                Err(_) => Repo::default(),
+            // The record of a repository stands in the folder of the records,
+            // named for the id the name of the folder carries.
+            let id = name
+                .strip_prefix("repository-")
+                .map(|t| t.to_string())
+                .or_else(|| id_from_dir_name(&name));
+            let mut repo = match id
+                .as_deref()
+                .and_then(|i| repo_record_path(&self.records_root, i))
+                .and_then(|p| fs::read_to_string(p).ok())
+            {
+                Some(text) => serde_json::from_str::<Repo>(&text).unwrap_or_default(),
+                None => Repo::default(),
             };
             // A directory without a usable record is still shown, so the user
             // sees what is on disk.
             if repo.id.is_empty() {
-                let id = if let Some(tail) = name.strip_prefix("repository-") {
-                    Some(tail.to_string())
-                } else {
-                    id_from_dir_name(&name)
-                };
                 match id {
                     Some(id) => {
                         repo.id = id;
@@ -643,7 +780,9 @@ impl Store {
         out
     }
 
-    // Create a repository directory and its record file.
+    // Create a repository directory and its record. The record does not stand in
+    // the directory, for that directory is the room a command of the terminal
+    // tool works in. See the head of this file.
     pub fn create_repo(&self, raw_name: &str) -> Result<Repo, String> {
         let id = new_id();
         let dir_name = repo_dir_name(raw_name, &id);
@@ -659,7 +798,13 @@ impl Store {
             pinned: false,
             path: path.clone(),
         };
-        if path.join("repo.json").is_file() {
+        if path.is_dir() {
+            return Err("A repository with that name already exists".to_string());
+        }
+        let record = self
+            .record_of(&repo)
+            .ok_or_else(|| String::from("The name of that repository cannot be kept"))?;
+        if record.is_file() {
             return Err("A repository with that name already exists".to_string());
         }
         fs::create_dir_all(&path)
@@ -668,17 +813,14 @@ impl Store {
         // a command working in the repository cannot come at them. See the head
         // of this file.
         let text = serde_json::to_string_pretty(&repo).unwrap_or_else(|_| String::from("{}"));
-        fs::write(path.join("repo.json"), text).map_err(|e| e.to_string())?;
+        fs::write(&record, text).map_err(|e| e.to_string())?;
         Ok(repo)
     }
 
     // Store the time a repository was last used.
     pub fn touch_repo(&self, repo: &mut Repo) {
         repo.last_used = now_secs();
-        if repo.path.join("repo.json").is_file() {
-            let text = serde_json::to_string_pretty(repo).unwrap_or_default();
-            let _ = fs::write(repo.path.join("repo.json"), text);
-        }
+        self.save_repo(repo);
     }
 
     // Chats of one scope, newest first. repo_id "" gives the loose chats.
@@ -769,13 +911,15 @@ impl Store {
         None
     }
 
-    // Write the record of a repository back to its own folder. The path is not
-    // kept in the record, so the folder it stands in is the folder that is
-    // written to.
+    // Write the record of a repository back to the folder of the records. The
+    // path of the directory is not kept in the record, and a record of a
+    // repository the program did not make is never written: a folder of the
+    // reader's own, put into the folder of repositories, is left as it stands.
     pub fn save_repo(&self, repo: &Repo) {
-        if repo.path.join("repo.json").is_file() {
+        let Some(record) = self.record_of(repo) else { return };
+        if record.is_file() {
             let text = serde_json::to_string_pretty(repo).unwrap_or_default();
-            let _ = fs::write(repo.path.join("repo.json"), text);
+            let _ = fs::write(record, text);
         }
     }
 
@@ -797,16 +941,22 @@ impl Store {
             Some(parent) => parent.join(&dir_name),
             None => return Err(String::from("The folder of that repository cannot be read")),
         };
-        let mut repo = match fs::read_to_string(path.join("repo.json")) {
-            Ok(text) => serde_json::from_str::<Repo>(&text).unwrap_or_default(),
-            Err(_) => Repo::default(),
+        // The record stands outside the folder, so it is read from the folder of
+        // the records and written back there: only the folder of the work moves.
+        let record = repo_record_path(&self.records_root, id);
+        let mut repo = match record.as_ref().and_then(|p| fs::read_to_string(p).ok()) {
+            Some(text) => serde_json::from_str::<Repo>(&text).unwrap_or_default(),
+            None => Repo::default(),
         };
         repo.id = id.to_string();
         repo.name = name.clone();
+        let text = serde_json::to_string_pretty(&repo).unwrap_or_default();
         if newer == path {
-            // The name came to the same folder name, so only the record moves.
-            let text = serde_json::to_string_pretty(&repo).unwrap_or_default();
-            fs::write(path.join("repo.json"), text).map_err(|e| e.to_string())?;
+            // The name came to the same folder name, so nothing moves but the
+            // words of the record.
+            if let Some(record) = record {
+                fs::write(record, text).map_err(|e| e.to_string())?;
+            }
             repo.path = path;
             return Ok(repo);
         }
@@ -814,18 +964,18 @@ impl Store {
             return Err(format!("A repository named {} is there already", name));
         }
         fs::rename(&path, &newer).map_err(|e| format!("Cannot move that repository: {}", e))?;
-        let text = serde_json::to_string_pretty(&repo).unwrap_or_default();
-        fs::write(newer.join("repo.json"), text).map_err(|e| e.to_string())?;
+        if let Some(record) = record {
+            fs::write(record, text).map_err(|e| e.to_string())?;
+        }
         repo.path = newer;
         Ok(repo)
     }
 }
 
-// The folder of the chats of one repository, outside every repository. Only the
-// characters an id of this program is made of are let into a path, so an id out
-// of a chat file of another machine cannot name a road out of the folder of the
-// talks. An id with nothing usable in it gives nothing at all.
-fn repo_chats_dir(root: &Path, repo_id: &str) -> Option<PathBuf> {
+// An id of this program, or nothing at all. Only the characters an id is made of
+// are let into a path, so an id out of a chat file of another machine cannot name
+// a road out of the folder it is looked in.
+fn clean_id(repo_id: &str) -> Option<String> {
     let safe: String = repo_id
         .chars()
         .filter(|c| c.is_ascii_digit() || ('a'..='f').contains(&c.to_ascii_lowercase()))
@@ -833,7 +983,20 @@ fn repo_chats_dir(root: &Path, repo_id: &str) -> Option<PathBuf> {
     if safe.is_empty() || safe.as_str() != repo_id {
         return None;
     }
-    Some(root.join(safe))
+    Some(safe)
+}
+
+// The folder of the record of one repository, outside every repository.
+fn repo_record_path(root: &Path, repo_id: &str) -> Option<PathBuf> {
+    clean_id(repo_id).map(|id| root.join(format!("{id}.json")))
+}
+
+// The folder of the chats of one repository, outside every repository. Only the
+// characters an id of this program is made of are let into a path, so an id out
+// of a chat file of another machine cannot name a road out of the folder of the
+// talks. An id with nothing usable in it gives nothing at all.
+fn repo_chats_dir(root: &Path, repo_id: &str) -> Option<PathBuf> {
+    clean_id(repo_id).map(|id| root.join(id))
 }
 
 // The chats of a repository used to stand in the directory of that repository,
@@ -915,18 +1078,70 @@ fn older_of(newer: &Path, older: &Path) -> bool {
 
 // The id of the repository that stands at this path, out of its record file or
 // out of the name of its folder.
+// The id of a repository, from the name of its folder. The record is not asked
+// for, for the record stands outside the folder now, and the name of the folder
+// is what the talks of a repository are keyed on.
 fn repo_id_of(path: &Path) -> Option<String> {
-    let text = fs::read_to_string(path.join("repo.json")).unwrap_or_default();
-    if let Ok(repo) = serde_json::from_str::<Repo>(&text) {
-        if !repo.id.is_empty() {
-            return Some(repo.id);
-        }
-    }
     let name = path.file_name()?.to_string_lossy().to_string();
     if let Some(tail) = name.strip_prefix("repository-") {
         return Some(tail.to_string());
     }
     id_from_dir_name(&name)
+}
+
+// The record of a repository used to stand in the directory of that repository,
+// at `<repository>/repo.json`. A command of the terminal tool works in that
+// directory, so the model could read the record of the repository it was working
+// in, see the other repositories from it, and write over its own. The records
+// now stand under the data directory. This moves them, once, when the program
+// starts. A repository whose record stands in both places keeps the one under
+// the data directory, which is the newer of the two, and the copy inside the
+// directory is put away with it.
+pub fn migrate_repo_records(repos_dir: &Path, records_root: &Path) {
+    let Ok(entries) = fs::read_dir(repos_dir) else {
+        return;
+    };
+    let _ = fs::create_dir_all(records_root);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let older = path.join("repo.json");
+        if !older.is_file() {
+            continue;
+        }
+        let text = fs::read_to_string(&older).unwrap_or_default();
+        // The id of the record itself comes before the id of the folder, for a
+        // folder that was renamed while the record was not keeps the id the
+        // talks are keyed on.
+        let mut repo: Repo = serde_json::from_str(&text).unwrap_or_default();
+        if repo.id.is_empty() {
+            repo.id = match repo_id_of(&path) {
+                Some(id) => id,
+                None => {
+                    // Nothing names this folder, so the record cannot be put
+                    // anywhere. It is taken away rather than left where a
+                    // command could come at it.
+                    let _ = fs::remove_file(&older);
+                    continue;
+                }
+            };
+        }
+        let Some(newer) = repo_record_path(records_root, &repo.id) else {
+            let _ = fs::remove_file(&older);
+            continue;
+        };
+        if !newer.is_file() {
+            // The path of the directory is not kept in a record, and was never
+            // written into one: what stands in the folder is what stands now.
+            let written = serde_json::to_string_pretty(&repo).unwrap_or(text.clone());
+            if fs::write(&newer, written).is_err() {
+                continue;
+            }
+        }
+        let _ = fs::remove_file(&older);
+    }
 }
 
 // A readable name from a directory name, for a folder with no record file.
@@ -956,6 +1171,7 @@ mod tests {
         ));
         let repos = room.join("repositories");
         let talks = room.join("repo_chats");
+        let records = room.join("repo_records");
         // A repository of the old shape: its directory holds a folder of chats.
         let repo = repos.join("notes_ab12cd34ef");
         fs::create_dir_all(repo.join("chats")).unwrap();
@@ -972,7 +1188,7 @@ mod tests {
         assert!(repo.join("notes.md").is_file(), "the work of the chat stays");
         // The chat is read again from its new place, and nothing of it stands
         // under the repository any more.
-        let store = Store::with_chats(repos.clone(), talks.clone());
+        let store = Store::with_rooms(repos.clone(), talks.clone(), records.clone());
         let listed = store.list_chats("ab12cd34ef");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].meta.id, "99");
@@ -988,6 +1204,61 @@ mod tests {
         store.save_chat(&chat);
         assert!(talks.join("ab12cd34ef").join("99.json").is_file());
         assert_eq!(store.list_chats("ab12cd34ef")[0].meta.title, "again");
+        let _ = fs::remove_dir_all(&room);
+    }
+
+    // The record of a repository does not stand inside the directory of that
+    // repository either. The model that works in a repository can read the
+    // folder it works in, and the record of it is not its business.
+    #[test]
+    fn the_record_of_a_repository_stands_outside_it() {
+        static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let room = std::env::temp_dir().join(format!(
+            "autumn-natter-records-out-{}-{}",
+            std::process::id(),
+            TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
+        let repos = room.join("repositories");
+        let records = room.join("repo_records");
+        // A repository of the old shape: its directory holds its own record.
+        let repo = repos.join("notes_ab12cd34ef");
+        fs::create_dir_all(&repo).unwrap();
+        fs::write(
+            repo.join("repo.json"),
+            r#"{"id":"ab12cd34ef","name":"notes","created":7,"last_used":9,"pinned":true}"#,
+        )
+        .unwrap();
+        fs::write(repo.join("notes.md"), "work").unwrap();
+        migrate_repo_records(&repos, &records);
+        assert!(!repo.join("repo.json").exists(), "the record is still inside");
+        assert!(repo.join("notes.md").is_file(), "the work of the chat stays");
+        let kept = records.join("ab12cd34ef.json");
+        assert!(kept.is_file(), "the record did not move out");
+        // What the record said is not lost in the moving.
+        let store = Store::with_rooms(repos.clone(), room.join("repo_chats"), records.clone());
+        let listed = store.scan_repos();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "ab12cd34ef");
+        assert_eq!(listed[0].name, "notes");
+        assert!(listed[0].pinned, "the pin came across");
+        assert_eq!(listed[0].last_used, 9);
+        // A new repository is made with its record outside its directory, and a
+        // rename leaves the record where it stands.
+        let made = store.create_repo("The Ledger").unwrap();
+        assert!(!made.path.join("repo.json").exists(), "a new record stood inside");
+        assert!(records.join(format!("{}.json", made.id)).is_file());
+        let renamed = store.rename_repo(&made.id, "The Ladder").unwrap();
+        assert_eq!(renamed.path.file_name().unwrap().to_string_lossy(), "the-ladder_".to_string() + &made.id);
+        assert!(records.join(format!("{}.json", made.id)).is_file());
+        assert_eq!(
+            store
+                .scan_repos()
+                .into_iter()
+                .find(|r| r.id == made.id)
+                .unwrap()
+                .name,
+            "The Ladder"
+        );
         let _ = fs::remove_dir_all(&room);
     }
 

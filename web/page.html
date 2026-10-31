@@ -472,6 +472,21 @@ body.home .stage { display: none; }
   font-variant-numeric: tabular-nums; }
 .turn:hover .stamp { opacity: 1; height: 15px; margin-top: 5px; }
 .turn.t-you .stamp { padding-right: 2px; }
+/* What the reader may do with a message. The marks stand in the line where the
+   time of the message stands, and that line opens when the pointer goes over the
+   message, as the time of it alone did before. A mark is a button and not a piece
+   of a word, so the line stays open under the pointer on a mark, and the mark may
+   be pressed. */
+.stamp { display: flex; align-items: center; gap: 8px; }
+.acts { display: inline-flex; align-items: center; gap: 1px; }
+.acts button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 21px; height: 15px; padding: 0; border: 0; border-radius: 4px;
+  background: none; color: var(--faint);
+  transition: color 120ms, background 120ms;
+}
+.acts button:hover { color: var(--ink); background: var(--hover); }
+.acts .svg { width: 12px; height: 12px; }
 
 /* Words of one kind, as the window sets them. */
 .body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 9px; }
@@ -586,8 +601,16 @@ pre.code .t-p { color: var(--t-pun); }
    scroll inside the panel. */
 .think { position: relative; margin: 0 0 11px; background: var(--think-bg);
   border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; }
-.think::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px;
-  border-radius: 2px; background: var(--accent); }
+/* The rule of colour at the left hand edge of the panel. It is not a straight
+   bar cut off at its two ends: it bends with the two corners of the box, so it
+   follows the shape the panel is cut to and stops where the edge begins to turn
+   away. The two sides of the rule that run along the top and the bottom are
+   left without colour, and a rounded corner is drawn half with the colour of
+   one side and half with that of the next, which is the bend the eye wants. */
+.think::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 11px;
+  border: 2px solid transparent; border-left-color: var(--accent);
+  border-radius: 9px 0 0 9px; pointer-events: none; }
+
 .think > .thead { gap: 7px; min-height: 31px; padding: 6px 11px 6px 15px; }
 .think > .thead:hover { background: var(--hover); }
 .think > .thead .svg { width: 12px; height: 12px; stroke: var(--ink); }
@@ -595,6 +618,22 @@ pre.code .t-p { color: var(--t-pun); }
   text-transform: uppercase; color: var(--dim); }
 .think > .thead .fold { width: 14px; height: 14px; margin-left: auto; stroke: var(--faint); }
 .think.closed > .thead .fold { transform: rotate(-90deg); }
+/* The count of the runs that stand among the thoughts, and the time the model
+   has spent upon them. Both stand in the head beside its words. The count is
+   read out of the panel itself, so it grows as the model asks for one call after
+   another; the time is read out of the state, so it moves while the thoughts are
+   coming and not only after they are written. The bullet between the two is
+   drawn on the side of the count that looks at the other, for while the model
+   thinks the count stands before the time, and once it has stopped the count
+   stands after the words that hold the time. */
+.think > .thead .cnt { display: inline-flex; align-items: center; gap: 4px; color: var(--dim);
+  font-size: 10.5px; font-weight: 650; letter-spacing: .08em; }
+.think > .thead .cnt .svg { width: 12px; height: 12px; stroke: var(--ink); }
+.think > .thead .cnt.hidden { display: none; }
+.think > .thead .took { color: var(--dim); font-size: 10.5px; font-weight: 650;
+  letter-spacing: .08em; text-transform: uppercase; }
+.think > .thead .cnt.pre::before, .think > .thead .cnt.post::after { content: "\2022";
+  margin: 0 7px; color: var(--faint); font-weight: 400; }
 /* While the model is thinking there is no bulb: three dots stand in its place
    and nod at one another, so the reader sees that the block is not finished.
    When the thoughts stop the bulb comes back. */
@@ -734,6 +773,117 @@ pre.code .t-p { color: var(--t-pun); }
 /* ------------------------------------------------------------------ dock */
 /* The chat box, and the line of state under it. The box holds its badges in a
    row of their own, so no part of the box is left empty. */
+/* The question the model has put to the reader. It stands over the chat box, in a
+   card of its own: the question and the reason for it at the top, the answers the
+   model offered under them, and a box for an answer the model did not think of.
+   The card rises into place, and the border of a question the model cannot go on
+   without stands warmer than the border of one that may be waited out. */
+.ask {
+  margin: 0 0 10px; padding: 13px 14px 12px; border: 1px solid var(--accent-line);
+  border-radius: var(--r-l); background: var(--surface); box-shadow: var(--shadow-2);
+  animation: ask-rise 260ms cubic-bezier(.2, .8, .2, 1);
+}
+.ask.hidden { display: none; }
+.ask.weighty { border-color: var(--accent); background: var(--tint); }
+.ask-head { display: flex; align-items: flex-start; gap: 9px; }
+.ask .ask-mark {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; background: var(--accent-soft);
+}
+.ask .ask-mark .svg { width: 15px; height: 15px; stroke: var(--ink); }
+.ask-title { flex: 1 1 auto; min-width: 0; font-size: 14px; line-height: 1.45; color: var(--text); }
+.ask-wait {
+  flex: 0 0 auto; font-size: 11px; font-weight: 650; color: var(--dim); white-space: nowrap;
+  padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-2); font-variant-numeric: tabular-nums;
+}
+/* The last three seconds of a question that may be waited out are said in the
+   colour of a fault, so the reader looks up before the question is gone. */
+.ask-wait.short { color: var(--ink-fail); border-color: var(--accent-line); }
+.ask-choices { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.ask-choice {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px;
+  border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-2);
+  color: var(--text-2); font-size: 12.5px; font-weight: 620; font-family: inherit;
+  cursor: pointer; overflow: hidden;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.ask-choice:hover { background: var(--tint); border-color: var(--accent); color: var(--ink);
+  transform: translateY(-1px); }
+.ask-choice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-own { display: flex; align-items: flex-end; gap: 8px; margin-top: 11px; }
+#askdraft {
+  flex: 1 1 auto; min-height: 36px; max-height: 24vh; padding: 8px 11px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+  font-size: 13.5px; line-height: 1.45; font-family: inherit; color: var(--text);
+  resize: none; overflow-y: auto; scrollbar-width: thin;
+}
+#askdraft:focus { outline: none; border-color: var(--accent-line); box-shadow: var(--ring); }
+.ask-send {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px;
+  border: 1px solid var(--accent-line); border-radius: 10px; background: var(--accent-soft);
+  color: var(--ink); font-size: 12.5px; font-weight: 650; font-family: inherit; cursor: pointer;
+}
+.ask-send:hover { border-color: var(--accent); background: var(--tint); }
+.ask-send .svg { width: 13px; height: 13px; stroke: var(--ink); }
+.ask-note { margin-top: 9px; font-size: 11.5px; color: var(--dim); }
+/* The answer has gone out and the run has yet to take it: the card says so by
+   stilling itself, so the same question is not answered twice. */
+.ask.waiting .ask-choice, .ask.waiting .ask-send, .ask.waiting #askdraft {
+  opacity: .55; pointer-events: none;
+}
+@keyframes ask-rise {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+/* The window a picture or a file of words is looked at in. A block over the chat
+   box, or one standing under a sent message, is too small to read a picture or a
+   page of words from, so a click on it opens the thing here, at the size it
+   really is: a picture bigger than the window is scrolled instead of shrunk, and
+   words are read as words. The window rises into place over the chat and goes
+   away again with a click outside it, the mark of closing, or the key of escape. */
+.viewer {
+  position: fixed; inset: 0; z-index: 80; display: flex; align-items: center;
+  justify-content: center; padding: 26px; background: var(--scrim);
+}
+.viewer.hidden { display: none; }
+.look {
+  display: flex; flex-direction: column; width: min(1000px, 100%); max-height: 100%;
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--r-l); box-shadow: var(--shadow-2); overflow: hidden;
+  animation: look-rise 220ms cubic-bezier(.2, .8, .2, 1);
+}
+.look-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 11px 13px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.look-name { flex: 1 1 auto; min-width: 0; font-size: 13.5px; font-weight: 650;
+  color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.look-kind { flex: 0 0 auto; font-size: 10.5px; font-weight: 650; color: var(--dim);
+  text-transform: uppercase; letter-spacing: .07em; }
+.look-close {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface-2); cursor: pointer;
+}
+.look-close:hover { border-color: var(--accent-line); background: var(--tint); }
+.look-close .svg { width: 12px; height: 12px; stroke: var(--dim); stroke-width: 2.2; }
+.look-close:hover .svg { stroke: var(--ink); }
+.look-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px;
+  background: var(--surface-2); scrollbar-width: thin; }
+/* A picture is shown at the size it is: never stretched beyond it, and never
+   shrunk below the room the window has, for the point of the window is to see
+   what the block was too small to show. */
+.look-body img { display: block; max-width: 100%; height: auto; margin: 0 auto;
+  background: var(--surface); border-radius: var(--r-m); }
+.look-body pre { margin: 0; color: var(--text); white-space: pre-wrap;
+  overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.55;
+  font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace; }
+.look-note { font-size: 12.5px; color: var(--dim); }
+@keyframes look-rise {
+  from { opacity: 0; transform: translateY(12px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
 .dock { flex: 0 0 auto; padding: 0 14px 12px; }
 /* On the first screen the chat box stands with the mark and the words over it,
    and the group as a whole is put in the middle of the room: the space over the
@@ -813,6 +963,67 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .part .x:hover { background: var(--hover); }
 .part .x .svg { width: 10px; height: 10px; stroke: var(--dim); stroke-width: 2.2; }
 .part .x:hover .svg { stroke: var(--ink); }
+/* The block of a file of words in the box may be clicked, and says so: the click
+   puts the words of the file into the chat box instead of sending the file. */
+.part.pick { cursor: pointer; }
+.part.pick:hover { border-color: var(--accent-line); background: var(--tint); }
+.part.pick:hover .nm { color: var(--ink); }
+.part.pick:hover .mark .svg { stroke: var(--ink); }
+.part.pick:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+/* A block that may be looked at says so, and the eye that opens a file of words
+   matches the mark that takes a file away. */
+.part.peek, .tshot.peek { cursor: pointer; }
+.part.peek:hover { border-color: var(--accent-line); background: var(--tint); }
+.part.peek:hover .nm { color: var(--ink); }
+.part .eye {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; padding: 0; border: 0; border-radius: 6px; background: none;
+  cursor: pointer;
+}
+.part .eye:hover { background: var(--hover); }
+.part .eye .svg { width: 13px; height: 13px; stroke: var(--dim); stroke-width: 1.8; }
+.part .eye:hover .svg { stroke: var(--ink); }
+/* The files the model offered at the end of an answer. A block is one file: the
+   mark of the kind of file, its name with the ending under the name, and the
+   button that takes it. The blocks stand in the middle of the chat, under the
+   answer that offered them and not among its words, for they are the work the
+   answer left and not a saying of it. */
+.gifts {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 6px 0 12px; animation: rise 240ms ease-out;
+}
+.gift {
+  display: flex; align-items: center; gap: 11px; width: 100%; max-width: 430px;
+  padding: 9px 9px 9px 10px; border: 1px solid var(--line); border-radius: var(--r-m);
+  background: var(--surface); box-shadow: var(--shadow-1);
+}
+.gift .plate {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 9px; background: var(--surface-3);
+  border: 1px solid var(--line);
+}
+.gift .plate .svg { width: 19px; height: 19px; stroke: var(--ink); }
+.gift .names { flex: 1 1 auto; min-width: 0; }
+.gift .nm {
+  font-size: 13.5px; font-weight: 620; color: var(--text); line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gift .ext {
+  margin-top: 3px; font-size: 10.5px; font-weight: 650; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--dim);
+}
+.gift .get, .gifts .all {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 11px; border: 1px solid var(--accent-line); border-radius: 9px;
+  background: var(--accent-soft); color: var(--ink); font-size: 12px;
+  font-weight: 650; font-family: inherit; cursor: pointer;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease;
+}
+.gift .get:hover, .gifts .all:hover { background: var(--tint); border-color: var(--accent); }
+.gift .get .svg, .gifts .all .svg { width: 13px; height: 13px; stroke: var(--ink); }
+/* The button of the whole offer stands under the files it takes, in the middle
+   of the chat as they are. */
+.gifts .all { align-self: center; }
 /* The box says that a file let go there would land in it. */
 .box.drop { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line); }
 /* The files that hang on a message the reader has sent stand under its words,
@@ -848,8 +1059,28 @@ img.pic { animation: plate-in 180ms ease-out; }
   background: var(--plate-mark); }
 .bubble .part.file .mark .svg { width: 15px; height: 15px; }
 .bubble .part.file .nm { font-size: 12px; }
-.dock-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px 10px; }
-.badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.dock-row { padding: 6px 8px 8px 10px; }
+/* The badges are set out over the whole breadth of the box: the badges that let
+   the model reach the machine and the web stand at the left, the sandbox badge
+   stands over the middle of the box, and the badge of the thinking mode stands at
+   the right hand end with the mark of sending. The three parts are the three
+   columns of one grid, and the two sides are kept equal, so the middle of the row
+   is the middle of the box whatever the two sides hold. The look does not change
+   when a chat opens and the box grows. */
+.badges { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  gap: 8px; min-width: 0; }
+.badges .b-left, .badges .b-right { display: flex; align-items: center; gap: 6px;
+  min-width: 0; }
+.badges .b-left { justify-self: start; }
+.badges .b-mid { justify-self: center; }
+.badges .b-right { justify-self: end; justify-content: flex-end; gap: 8px; }
+/* A box no wider than this cannot hold the three parts in one line at all. The
+   row then bends under itself, and the sandbox badge goes with the rest, for a
+   badge over the middle of nothing says nothing. */
+@media (max-width: 620px) {
+  .badges { display: flex; flex-wrap: wrap; }
+  .badges .b-mid { order: 3; }
+}
 .badge {
   display: inline-flex; align-items: center; gap: 6px; height: 27px; padding: 0 10px;
   border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2);
@@ -936,10 +1167,6 @@ img.pic { animation: plate-in 180ms ease-out; }
 .menu .line .ico { display: inline-flex; color: var(--ink); margin-right: 7px; }
 .menu .line .ico .svg { width: 13px; height: 13px; }
 
-.keys { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; }
-.keys kbd { font: inherit; font-size: 11px; color: var(--dim); background: var(--surface-2);
-  border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; margin: 0 1px; }
 .send {
   flex: 0 0 auto; width: 34px; height: 34px; border-radius: 999px; background: var(--accent);
   color: var(--on-accent); display: inline-flex; align-items: center; justify-content: center;
@@ -1113,7 +1340,6 @@ pre.code.line {
 @media (max-width: 860px) {
   .meter-box { width: 84px; }
   .meter-box .pct { display: none; }
-  .keys { display: none; }
 }
 @media (max-width: 720px) {
   .spot .title { display: none; }
@@ -1132,6 +1358,9 @@ pre.code.line {
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
+  .gifts { animation: none; }
+  .ask { animation: none; }
+  .look { animation: none; }
   .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
   .gauge .spin { animation: none; }
   img.pic { animation: none; }
@@ -1465,8 +1694,50 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     
   </div>
 
+  <!-- The question the model has put to the reader. It stands over the chat box,
+       in a card of its own: the question and the reason for the ask at the top,
+       the answers the model offered under them, and a box for an answer the model
+       did not think of. An ordinary question counts its seconds down and is then
+       given up; a question the model cannot go on without waits, and says so. -->
+  <div class="ask hidden" id="ask">
+    <div class="ask-head">
+      <span class="ask-mark">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5"/></svg>
+      </span>
+      <span class="ask-title" id="asktitle"></span>
+      <span class="ask-wait" id="askwait"></span>
+    </div>
+    <div class="ask-choices" id="askchoices"></div>
+    <div class="ask-own">
+      <textarea id="askdraft" rows="1" spellcheck="false"
+        placeholder="Answer in your own words"></textarea>
+      <button class="ask-send" id="asksend" title="Send your answer to the model">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.6V3.4M4.2 7.2 8 3.4l3.8 3.8"/></svg>
+        <span>Send</span>
+      </button>
+    </div>
+    <div class="ask-note" id="asknote"></div>
+  </div>
+
   <!-- The chat box. The badges stand in a row of their own under the words, so
        no part of the box is left empty. -->
+  <!-- The window a picture or a file of words is looked at in. It covers the chat
+       and holds one thing: the picture at the size it is, or the words of a file
+       as they stand. A click outside it, the mark of closing, or the key of
+       escape puts it away again. -->
+  <div class="viewer hidden" id="viewer" role="dialog" aria-modal="true" aria-labelledby="lookname">
+    <div class="look">
+      <div class="look-head">
+        <span class="look-name" id="lookname"></span>
+        <span class="look-kind" id="lookkind"></span>
+        <button class="look-close" id="lookclose" type="button" title="Close this window">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </button>
+      </div>
+      <div class="look-body" id="lookbody"></div>
+    </div>
+  </div>
+
   <div class="dock" id="dock">
     <div class="box" id="box">
       <!-- How far the server is with the words it was sent. The number stands
@@ -1492,47 +1763,55 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         placeholder="Write a message for the model"></textarea>
       <div class="dock-row">
         <div class="badges">
-          <button class="badge" id="code" title="Let the model use the tools of the program: the terminal tool and the file tools. A command runs in the sandbox when the sandbox is on. The file tools can reach only the working directory of the chat.">
-            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
-            <span id="codetext">Tools</span>
-          </button>
-          <button class="badge" id="search" title="Let the model search the web and read a page of it. Search runs in the program, not in the sandbox of a command: a command has no network access. Search touches no file of the machine, and nothing that is read is stored.">
-            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
-            <span id="searchtext">Search</span>
-          </button>
-          <div class="menuwrap" id="sandboxwrap">
-            <button class="badge" id="sandbox" title="What a command of this chat may reach. Click to open the settings of the sandbox.">
-              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
-              <span id="sandboxtext">Sandbox</span>
-              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+          <div class="b-left">
+            <div class="menuwrap" id="codewrap">
+              <button class="badge" id="code" title="Let the model use the tools of the program. The badge is the switch over all of them: with the badge off, no tool is offered at all. Click the arrow beside the name to choose which tools the model may reach.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.6 4.6 2.2 8l3.4 3.4M10.4 4.6 13.8 8l-3.4 3.4"/></svg>
+                <span id="codetext">Tools</span>
+                <svg class="svg down" id="codemenu-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="codemenu"></div>
+            </div>
+            <button class="badge" id="search" title="Let the model search the web and read a page of it. Search runs in the program, not in the sandbox of a command: a command has no network access. Search touches no file of the machine, and nothing that is read is stored.">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
+              <span id="searchtext">Search</span>
             </button>
-            <div class="menu hidden" id="sandboxmenu"></div>
+            <div class="menuwrap" id="mcpwrap">
+              <button class="badge" id="mcp" title="The servers of the reader's own, spoken to over MCP. Click to switch one on or off for this chat. A server runs in the program and not in the sandbox of a command.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14"/></svg>
+                <span id="mcptext">MCP</span>
+                <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="mcpmenu"></div>
+            </div>
           </div>
-          <div class="menuwrap" id="mcpwrap">
-            <button class="badge" id="mcp" title="The servers of the reader's own, spoken to over MCP. Click to switch one on or off for this chat. A server runs in the program and not in the sandbox of a command.">
-              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14"/></svg>
-              <span id="mcptext">MCP</span>
-              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
-            </button>
-            <div class="menu hidden" id="mcpmenu"></div>
+          <div class="b-mid">
+            <div class="menuwrap" id="sandboxwrap">
+              <button class="badge" id="sandbox" title="What a command of this chat may reach. Click to open the settings of the sandbox.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
+                <span id="sandboxtext">Sandbox</span>
+                <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="sandboxmenu"></div>
+            </div>
           </div>
-          <div class="menuwrap" id="thinkwrap">
-            <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
-              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
-              <span id="thinktext">Thinking: Disabled</span>
-              <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+          <div class="b-right">
+            <div class="menuwrap" id="thinkwrap">
+              <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
+                <span id="thinktext">Thinking: Disabled</span>
+                <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="thinkmenu"></div>
+            </div>
+            <button class="send" id="send" title="Send the message">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true">
+                <path class="mark-send" d="M8 12.6V4M4.4 7.6 8 4l3.6 3.6"/>
+                <path class="mark-stop" d="M5.4 5.4h5.2v5.2H5.4z"/>
+              </svg>
             </button>
-            <div class="menu hidden" id="thinkmenu"></div>
           </div>
         </div>
-        <span class="grow"></span>
-        <span class="keys" id="hint"></span>
-        <button class="send" id="send" title="Send" aria-label="Send">
-          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true">
-            <path class="mark-send" d="M8 12.6V4M4.4 7.6 8 4l3.6 3.6"/>
-            <path class="mark-stop" d="M5.4 5.4h5.2v5.2H5.4z"/>
-          </svg>
-        </button>
       </div>
     </div>
     <div class="state-line">
@@ -1624,6 +1903,12 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Colour code blocks</span>
           <span class="sub">Text in a code block is coloured by kind: comment, keyword, string, number. Turn this off to show a block in one colour.</span>
           <div class="ctl"><input id="fHighlight" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Bold words in the chat</span>
+          <span class="sub">A word held between two marks of boldness is written in the heavier shape of the letters. Turn this off to read the marks as part of the words themselves.</span>
+          <div class="ctl"><input id="fBoldMarkdown" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Ask a silence over</span>
+          <span class="sub">When the model stops by itself without writing a word, a command or a fault, the same ask goes out again this many times before the chat says the model gave no answer. A model that thought a while and then stopped very nearly always goes on when asked again. 0 leaves a silence alone.</span>
+          <div class="ctl"><input id="fSilentRetries" type="number" min="0" max="10" step="1" placeholder="2"><span class="unit">times</span></div></div>
         <div class="fld"><span class="lbl">Chapter markers</span>
           <span class="sub">The model may mark where a new part of the chat begins. The markers appear on a line at the left of the chat, and clicking one scrolls there. Turn this off to hide the line; the model is then not offered the tool.</span>
           <div class="ctl"><input id="fChapters" type="checkbox"></div></div>
@@ -1639,6 +1924,13 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Width of the chat</span>
           <span class="sub">How wide the column of the chat may be. 780 pixels is the width the chat always had, and it is the least. The chat never grows past 80 per cent of the width of the window, and it keeps clear of the line of the chapters, the line of the summarisations and the arrows of the chat.</span>
           <div class="ctl"><input id="fChatWidth" type="number" min="780" max="4000" step="10" placeholder="780"><span class="unit">pixels</span></div></div>
+
+        <div class="fld"><span class="lbl">A question of the model waits</span>
+          <span class="sub">How long the model waits for you to answer a question it put to you before it goes on without an answer and is told that you did not reply. Questions of this kind are the ordinary ones: the model could go on, but would rather ask.</span>
+          <div class="ctl"><input id="fAskSeconds" type="number" min="1" max="86400" step="1" placeholder="10"><span class="unit">seconds</span></div></div>
+        <div class="fld"><span class="lbl">A weighty question waits</span>
+          <span class="sub">How long the model waits for a question it marked as one it cannot go on without — a token that was never given, a choice only you can make. 0 means it waits until you answer, which is what such a question asks for.</span>
+          <div class="ctl"><input id="fAskCriticalSeconds" type="number" min="0" max="86400" step="1" placeholder="0"><span class="unit">seconds, 0 for as long as it takes</span></div></div>
 
         <div class="fld"><span class="lbl">Send the date and time at the start of a chat</span>
           <span class="sub">The program tells the model the date and time of this machine once, in a system message at the start of the conversation, and says that it is the latest. The line is written when the chat begins and stands as it was for the rest of the chat: a head of the talk that moved with the clock would make the model read the whole talk over again on every turn, whatever prompt caching says. The model can then answer questions about today. The line goes to the model only. It is not shown in the chat.</span>
@@ -1958,12 +2250,14 @@ function post(path, body) {
 // The parts of the page that stay in place. Their words are written again on
 // every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
-  'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate', 'hint',
+  'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
   'newchat', 'settingsbtn', 'modelbtn', 'darkbtn', 'chapters', 'timeline',
-  'code', 'codetext', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
+  'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
+  'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
+  'viewer', 'lookname', 'lookkind', 'lookclose', 'lookbody',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
   'sumOverlay', 'sumTitle', 'sumMeta', 'sumWords', 'sumClose'];
 var el = {};
@@ -1988,7 +2282,7 @@ var cur = null;        // the last state
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
-  highlight: true, chapters: true, paste: 6000, width: 780 };
+  highlight: true, bold: true, chapters: true, paste: 6000, width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -2061,6 +2355,9 @@ function draw(s) {
   drawContext(s);
   drawProgress(s);
   drawBadges(s);
+  // The question the model has put to the reader stands over the chat box, and
+  // the wait it set is counted down under the question.
+  drawAsk(s);
 
   // The line of state. The mark beats while the program is at work, and it
   // goes red while an answer can still be stopped.
@@ -2069,7 +2366,7 @@ function draw(s) {
   el.status.textContent = s.status;
   el.status.className = 'status' + (s.generating ? ' hot' : '');
   drawRate(s);
-  el.hint.innerHTML = hintFor(s);
+  el.send.title = sendTitle(s);
   el.newchat.style.display = s.generating ? 'none' : '';
 
   // The round mark. It is dull while there is nothing to send, and it turns
@@ -2095,6 +2392,7 @@ function readChatting(s) {
   chatting.inThink = chat.tools_in_thinking !== false;
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
+  chatting.bold = chat.bold_markdown !== false;
   chatting.chapters = chat.chapters !== false;
   chatting.paste = chat.paste_limit || 6000;
   chatting.width = Number(chat.width) || CHAT_LEAST;
@@ -2520,8 +2818,103 @@ function drawMcp(s) {
   if (el.mcpmenu && !el.mcpmenu.classList.contains('hidden')) { fillMcpMenu(s); }
 }
 
-function drawBadges(s) {
+// The lines of the drop-down of the badge of the tools. Each line is one switch
+// over a kind of tool of the program, and the badge itself is the switch over all
+// of them: a tool whose line is off is not offered even while the badge stands
+// on, and a badge that is off offers nothing whatever the lines say. The first
+// word of a line is the name the program knows the switch by.
+var TOOL_LINES = [
+  ['commands', 'Terminal commands',
+   'The model may run a command. A command runs in the sandbox when the sandbox is on, and reaches only the working directory of the chat unless the menu of the sandbox badge opens more.'],
+  ['files', 'File management',
+   'The model may change a file of the chat and make a new one. Both work in the working directory of the chat and nowhere else, and they run in the program, so the sandbox of a command is not between them.'],
+  ['picture', 'Look at a picture',
+   'The model may look at a picture of the chat. The picture is read in the program and shown to the model, and never written out again.'],
+  ['hand_out', 'Hand a file to the reader',
+   'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all.'],
+  ['ask', 'Ask you a question',
+   'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.']
+];
+
+// One line of the menu of the badge: a kind of tool, with a switch at the end of
+// it. The menu stays open under a click, so the switch is seen to move.
+function toolLine(part, word, tip, on) {
+  var line = make('button', 'toggle' + (on ? ' on' : ''));
+  line.type = 'button';
+  line.title = tip;
+  var text = make('span', 'word');
+  text.textContent = word;
+  line.appendChild(text);
+  line.appendChild(make('span', 'sw'));
+  line.addEventListener('click', function (event) {
+    event.stopPropagation();
+    post('/api/tool_switch', { part: part, on: !on });
+  });
+  return line;
+}
+
+// The menu of the badge of the tools. The badge no longer turns one thing on or
+// off: the tools of the program are several kinds of thing, and the reader must
+// be able to see which of them the model may reach. The badge itself stands at
+// the head of its own menu, as the jail stands at the head of the menu of the
+// sandbox, for it is the door over all of them.
+function fillToolMenu(s) {
+  var menu = el.codemenu;
+  if (!menu) { return; }
+  menu.innerHTML = '';
+  var all = make('button', 'toggle' + (s.code ? ' on' : ''));
+  all.type = 'button';
+  all.title = 'Every tool of the program at once. A tool that is switched off in this menu stays off when the badge comes back on.';
+  var allWord = make('span', 'word');
+  allWord.textContent = 'All the tools';
+  all.appendChild(allWord);
+  all.appendChild(make('span', 'sw'));
+  all.addEventListener('click', function (event) {
+    event.stopPropagation();
+    post('/api/code', { on: !(cur && cur.code) });
+  });
+  menu.appendChild(all);
+  menu.appendChild(make('div', 'sep'));
+  var held = s.tool_switches || {};
+  for (var n = 0; n < TOOL_LINES.length; n++) {
+    var one = TOOL_LINES[n];
+    menu.appendChild(toolLine(one[0], one[1], one[2] + (s.code ? ''
+      : ' The badge of the tools is off, so no tool is offered at all.'),
+      held[one[0]] !== false));
+  }
+}
+
+function openToolMenu() {
+  if (!cur) { return; }
+  fillToolMenu(cur);
+  el.codemenu.classList.remove('hidden');
+}
+
+function closeToolMenu() {
+  if (el.codemenu) { el.codemenu.classList.add('hidden'); }
+}
+
+// The badge itself: the door over every tool of the program. The tip says how
+// many the reader has taken out of the chat, for a badge that stands on can
+// still be hiding a tool.
+function drawTools(s) {
+  if (!el.code) { return; }
   el.code.classList.toggle('on', !!s.code);
+  var held = s.tool_switches || {};
+  var off = 0;
+  for (var n = 0; n < TOOL_LINES.length; n++) {
+    if (held[TOOL_LINES[n][0]] === false) { off += 1; }
+  }
+  el.code.title = (s.code
+      ? 'The model may reach the tools of the program in this chat.'
+      : 'No tool of the program is offered to the model in this chat.')
+    + (off ? ' ' + off + ' of ' + TOOL_LINES.length + ' are switched off in the menu.' : '')
+    + ' Click to switch all of them on or off; click the arrow to choose them one by one.';
+  if (el.codemenu && !el.codemenu.classList.contains('hidden')) { fillToolMenu(s); }
+}
+
+function drawBadges(s) {
+  drawTools(s);
   el.search.classList.toggle('on', !!s.search);
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
@@ -2590,14 +2983,12 @@ function rateWords(per) {
 }
 
 // One line of keys next to the box. It says what the box needs at this moment.
-function hintFor(s) {
-  if (s && s.generating) { return '<kbd>Esc</kbd> stops the answer'; }
-  if (document.activeElement === el.draft && el.draft.value === '') {
-    return '<kbd>Enter</kbd> sends, <kbd>Shift</kbd> + <kbd>Enter</kbd> a new line';
-  }
-  return side.open
-    ? 'The chats stand in the side bar at the left'
-    : 'The side bar is put away';
+// What the mark of sending does, in its tip. The words of the keys stood beside
+// it once, and took the room the badges need: the mark now says the same thing
+// when the reader rests the pointer on it.
+function sendTitle(s) {
+  if (s && s.generating) { return 'Stop the answer (Esc)'; }
+  return 'Send (Enter). Shift + Enter makes a new line.';
 }
 
 // A list is built again only when its content changed. This keeps an open
@@ -2774,6 +3165,30 @@ function linkAt(words, at) {
 // bracket with a line before it is an escaped bracket and starts nothing, and a
 // bracket with a mark of exclamation before it is a picture, which is read as
 // words here as it always was.
+// A word held between marks of boldness: two marks of the same kind, the same
+// marks again further along the line, and a word of its own between them. The
+// word may stand in the middle of another word when the marks are of the asterisk
+// kind, for that is how a name of a file is written out; the mark of the line
+// between words is kept for the marks that stand between words, so a name with
+// such marks in it is not read as a bold word at all.
+function boldAt(words, at) {
+  var mark = words.charAt(at);
+  if (!chatting.bold || words.charAt(at + 1) !== mark) { return null; }
+  var before = at > 0 ? words.charAt(at - 1) : '';
+  if (mark === '_' && before && /[A-Za-z0-9_]/.test(before)) { return null; }
+  var rest = words.slice(at + 2), near = 0;
+  for (;;) {
+    var close = rest.indexOf(mark + mark, near);
+    if (close < 0) { return null; }
+    var said = rest.slice(0, close), after = rest.charAt(close + 2);
+    if (said && !/^\s/.test(said) && !/[\s\\]$/.test(said)
+        && (mark !== '_' || !after || !/[A-Za-z0-9_]/.test(after))) {
+      return { words: said, end: at + 2 + close + 2 };
+    }
+    near = close + 2;
+  }
+}
+
 function lineParts(line, out) {
   var words = String(line || ''), run = '', n = 0;
   while (n < words.length) {
@@ -2785,6 +3200,15 @@ function lineParts(line, out) {
         if (run) { out.push({ words: plain(run) }); run = ''; }
         out.push({ words: plain(link.words), href: link.href });
         n = link.end;
+        continue;
+      }
+    }
+    if (ch === '*' || ch === '_') {
+      var held = boldAt(words, n);
+      if (held) {
+        if (run) { out.push({ words: plain(run) }); run = ''; }
+        out.push({ words: plain(held.words), bold: true });
+        n = held.end;
         continue;
       }
     }
@@ -2848,13 +3272,25 @@ function linkNode(words, href, fade) {
   return link;
 }
 
+// A bold word. The heavier shape of the letters comes from the skin; the words
+// are set as words and never as marks, and a link that stands inside a bold word
+// keeps the road of a link.
+function boldNode(words, href, fade) {
+  var held = make('strong');
+  if (href) { held.appendChild(linkNode(words, href, fade)); }
+  else if (fade) { fresh(held, words); }
+  else { held.textContent = words; }
+  return held;
+}
+
 // The parts of a run of words put into a node. `fade` puts the words behind a
 // fade, as the new words of an answer are.
 function inlineInto(node, parts, fade) {
   for (var n = 0; n < parts.length; n++) {
     var part = parts[n];
     if (!part.words) { continue; }
-    if (part.href) { putLast(node, linkNode(part.words, part.href, fade)); }
+    if (part.bold) { putLast(node, boldNode(part.words, part.href, fade)); }
+    else if (part.href) { putLast(node, linkNode(part.words, part.href, fade)); }
     else if (fade) { fresh(node, part.words); }
     else { putLast(node, document.createTextNode(part.words)); }
   }
@@ -3099,6 +3535,13 @@ function mark(path, cls) {
 
 // The mark of the thinking panel. The answer that is coming in needs it too.
 var THINK_MARK = 'M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4';
+// The mark of a tool, for the count of the runs that stand inside a thinking
+// panel. It is the cog of the settings of the program, which is the shape the
+// reader already knows as the place where the tools are switched on.
+var TOOL_MARK = 'M14.86 6.60L14.86 9.40L12.97 9.37L12.48 10.55L13.84 11.86L11.86 13.84L10.55'
+  + ' 12.48L9.37 12.97L9.40 14.86L6.60 14.86L6.63 12.97L5.45 12.48L4.14 13.84L2.16 11.86L3.52'
+  + ' 10.55L3.03 9.37L1.14 9.40L1.14 6.60L3.03 6.63L3.52 5.45L2.16 4.14L4.14 2.16L5.45 3.52L6.63'
+  + ' 3.03L6.60 1.14L9.40 1.14L9.37 3.03L10.55 3.52L11.86 2.16L13.84 4.14L12.48 5.45L12.97 6.63Z';
 
 // A length of time in words, as the head of a thinking panel says it: so many
 // seconds, or minutes and seconds, or hours.
@@ -3127,6 +3570,48 @@ function thoughtWords(ms, over) {
   return span > 0 ? 'Thought for ' + spanWords(span) : 'Thought';
 }
 
+// The head of a thinking panel, written from what the panel holds: the words
+// that say whether the model is thinking or has thought, the count of the runs
+// that stand among the thoughts, and the time the thoughts have taken.
+//
+// The count is not asked for of the engine, but told from the blocks that stand
+// in the panel, so it is right for one panel of a train of thought as much as
+// for one thought alone, and it follows the writing of a call as it is written.
+// It stands only while the reader lets the runs stand inside the thinking, for
+// otherwise the runs are not in the panel at all. The time moves while the
+// thoughts come, and says nothing of a thought that has not begun to be timed.
+function thinkHeadSay(panel, ms, over) {
+  if (!panel) { return; }
+  var head = panel.firstElementChild;
+  if (!head) { return; }
+  var cap = head.querySelector('.cap');
+  var cnt = head.querySelector('.cnt');
+  var took = head.querySelector('.took');
+  if (!cap || !cnt) { return; }
+  var runs = 0;
+  if (chatting.inThink) {
+    var body = panel.querySelector('.words');
+    if (body) { runs = body.querySelectorAll('.tool').length; }
+  }
+  var words = thoughtWords(ms, over);
+  if (cap.textContent !== words) { cap.textContent = words; }
+  if (head.classList.contains('busy') === over) { head.classList.toggle('busy', !over); }
+  var num = cnt.querySelector('.num');
+  if (num && num.textContent !== String(runs)) { num.textContent = String(runs); }
+  if (cnt.classList.contains('hidden') === (runs > 0)) { cnt.classList.toggle('hidden', runs === 0); }
+  cnt.classList.toggle('pre', over && runs > 0);
+  cnt.classList.toggle('post', !over && runs > 0);
+  // A thought of no length at all says nothing of the time, and while the
+  // thoughts are coming the first second is too little a thing to report.
+  var line = (over || Number(ms) < 1000) ? '' : spanWords(ms);
+  if (took) {
+    if (took.textContent !== line) { took.textContent = line; }
+    if (took.classList.contains('hidden') !== (line === '')) {
+      took.classList.toggle('hidden', line === '');
+    }
+  }
+}
+
 // The head of a thinking panel: the mark, the words that say what the panel
 // holds, and the chevron that tells which way the panel stands.
 function thinkHead() {
@@ -3141,11 +3626,24 @@ function thinkHead() {
   dots.appendChild(make('i'));
   var label = make('span', 'cap');
   label.textContent = 'Thinking';
+  // The count of the runs that stand among the thoughts of this panel. It is
+  // written again whenever the panel is, for a model asks for one call after
+  // another and the count has to keep up with it.
+  var count = make('span', 'cnt hidden');
+  count.appendChild(mark(TOOL_MARK));
+  var number = make('span', 'num');
+  count.appendChild(number);
+  // The time the model has spent on the thoughts, while they are coming. When
+  // they are over the time stands in the words of the head instead.
+  var took = make('span', 'took hidden');
   head.appendChild(icon);
   head.appendChild(dots);
   head.appendChild(label);
+  head.appendChild(count);
+  head.appendChild(took);
   head.appendChild(mark('M4 6.4 8 10.4 12 6.4', 'fold'));
-  return { head: head, icon: icon, label: label, dots: dots };
+  return { head: head, icon: icon, label: label, dots: dots, count: count,
+    number: number, took: took };
 }
 
 // A thinking panel with a head that folds, as the head of a tool run folds.
@@ -3183,8 +3681,8 @@ function thoughtBlocks(m) {
 // the panel when the Chatting setting asks for that.
 function thoughtPanelOf(m) {
   var made = thinkPanel();
-  made.label.textContent = thoughtWords(m.reasoning_ms, true);
   made.words.appendChild(thoughtBlocks(m));
+  thinkHeadSay(made.panel, m.reasoning_ms, true);
   return made;
 }
 
@@ -3231,6 +3729,22 @@ var TOOL_SHAPES = {
     mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
     head: 'Looking at an image: ', word: 'image', end: 'result',
     empty: 'nothing to look at', begun: 'the image to look at'
+  },
+  // A file held out to the reader. The block of the run says which file was
+  // offered; the block of the offer itself, with the button, stands under the
+  // answer and not here.
+  download_file: {
+    mark: 'M8 2.4v6.4M5.4 6.4 8 9l2.6-2.6M3.2 12.6h9.6',
+    head: 'Offering a file: ', done: 'Offered a file: ', word: 'file', end: 'result',
+    empty: 'no file name', begun: 'a file, started', file: true
+  },
+  // A question the model put to the reader. The head says what was asked; under
+  // the second label stands the answer, or the word that the question was given
+  // up because no answer came.
+  ask_reader: {
+    mark: 'M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5',
+    head: 'Asking the reader: ', done: 'Asked the reader: ', word: 'question', end: 'answer',
+    empty: 'no question', begun: 'the question being written'
   }
 };
 
@@ -4095,10 +4609,12 @@ function writeThought() {
 function thinkHeadWords() {
   if (!ink.label) { return; }
   var over = ink.done && ink.shownMusing >= ink.musing.length;
-  ink.label.textContent = thoughtWords(ink.ms, over);
-  // The bulb makes way for the three dots while the thoughts are coming.
-  if (ink.head) { ink.head.classList.toggle('busy', !over); }
+  // The bulb makes way for the three dots while the thoughts are coming, the
+  // time moves with them, and the count of the calls the model has asked for
+  // follows the blocks that stand in the panel.
+  thinkHeadSay(ink.panel, ink.ms, over);
 }
+
 
 // One look of the writer. A few characters go on the page, and more of them
 // while the model is ahead of the reader.
@@ -4338,6 +4854,9 @@ function fill(turn, m) {
     if (m.reasoning && chatting.inThink) {
       var made = thoughtPanelOf(m);
       made.words.appendChild(toolBox(m));
+      // The run of the tool is part of the panel now, so the head of the panel
+      // says as much.
+      thinkHeadSay(made.panel, m.reasoning_ms, true);
       var plate = make('div', 'plain');
       plate.appendChild(made.panel);
       turn.appendChild(plate);
@@ -4368,11 +4887,101 @@ function fill(turn, m) {
     }
     turn.appendChild(words);
   }
-  if (m.when) {
-    var when = make('div', 'stamp');
-    when.textContent = m.when;
-    turn.appendChild(when);
+  var line = actLine(m);
+  if (line) { turn.appendChild(line); }
+}
+
+// The marks of what the reader may do with a message. They stand in the line
+// where the time of the message stands, and that line opens when the pointer goes
+// over the message. An answer that is still coming in has no place in the chat
+// yet, so it has no line and no mark.
+function actLine(m) {
+  if (!m || !m.id || m.id === 'live') { return null; }
+  var line = make('div', 'stamp');
+  var when = make('span', 'when');
+  when.textContent = m.when || '';
+  line.appendChild(when);
+  var acts = actsOf(m);
+  if (acts.firstChild) { line.appendChild(acts); }
+  if (!m.when && !acts.firstChild) { return null; }
+  return line;
+}
+
+// The marks themselves. Write it again takes the words of the message back into
+// the chat box, and the message goes out of the chat with everything that came
+// after it, for the model answered a talk that no longer reads that way. Write
+// the answer again cuts the talk back to this message and asks the model again
+// from there. Take it away removes the message and everything after it: a message
+// of the reader takes the answer it provoked along, and a message of the model
+// leaves the question behind. Go on with it stands only under an answer the
+// reader stopped while the model was still writing.
+function actsOf(m) {
+  var acts = make('div', 'acts');
+  if (m.role === 'You' || m.role === 'Assistant') {
+    acts.appendChild(actMark(ACT_EDIT,
+      m.role === 'You'
+        ? 'Write this message again. The words go into the chat box, and this message and everything after it go out of the chat.'
+        : 'Take these words back into the chat box. This answer and everything after it go out of the chat.',
+      function () { editMessage(m); }));
+    acts.appendChild(actMark(ACT_RETRY,
+      'Write the answer again, from this message. Everything after it goes out of the chat.',
+      function () { retryMessage(m); }));
+    acts.appendChild(actMark(ACT_REMOVE,
+      'Remove this message and everything after it. Files hung on those messages are removed with them.',
+      function () { deleteMessage(m); }));
   }
+  if (m.role === 'Assistant' && m.stopped) {
+    acts.appendChild(actMark(ACT_CONTINUE,
+      'Go on with this answer, from the word the model had reached.',
+      function () { continueMessage(m); }));
+  }
+  return acts;
+}
+
+// One mark of the line. A div is not a button, so the line stays open under the
+// pointer on a mark; the click is kept off the turn behind it, which is the
+// message and not the mark.
+function actMark(path, tip, doing) {
+  var button = make('button', 'act');
+  button.type = 'button';
+  button.title = tip;
+  button.setAttribute('aria-label', tip);
+  button.appendChild(mark(path, 'svg'));
+  button.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    doing();
+  });
+  return button;
+}
+
+// The marks of the line: a pencil for writing a message again, a round arrow for
+// the answer again, a waste bin for taking a message away, and an arrow for going
+// on with an answer that stopped.
+var ACT_EDIT = 'M11.5 2.4l2.1 2.1-8.2 8.2-2.9.8.8-2.9zM9.7 4.2l2.1 2.1';
+var ACT_RETRY = 'M13.2 8a5.2 5.2 0 1 1-1.6-3.8M13.4 2.2v2.9h-2.9';
+var ACT_REMOVE = 'M3.2 4.7h9.6M6.4 4.7V3.3h3.2v1.4M4.7 4.7l.7 8.1h5.2l.7-8.1';
+var ACT_CONTINUE = 'M3.4 8h7.4M7.6 4.6 11 8l-3.4 3.4';
+
+// Take the words of a message back into the chat box. The message goes out of the
+// chat with everything after it, so what the reader sends again is the talk as it
+// stood before that message.
+function editMessage(m) {
+  post('/api/delete_message', { id: m.id });
+  el.draft.value = m.body;
+  grow();
+  el.draft.focus();
+}
+
+function retryMessage(m) {
+  post('/api/retry_message', { id: m.id });
+}
+
+function deleteMessage(m) {
+  post('/api/delete_message', { id: m.id });
+}
+
+function continueMessage(m) {
+  post('/api/continue_message', { id: m.id });
 }
 
 // ------------------------------------------------ a train of thought
@@ -4524,9 +5133,7 @@ function syncGroup(turn, items, from, to, isLive) {
   if (isLive) { return; }
   var ms = 0;
   for (var n = from; n < to; n++) { ms += Number(items[n].reasoning_ms) || 0; }
-  var cap = panel.querySelector('.cap');
-  var said = thoughtWords(ms, true);
-  if (cap && cap.textContent !== said) { cap.textContent = said; }
+  thinkHeadSay(panel, ms, true);
 }
 
 // The rows of the thread: one for a panel of a train of thought, and one for a
@@ -4682,6 +5289,10 @@ function fillGroup(turn, items, from, to) {
     for (var j = 0; j < cut.length; j++) { said.appendChild(blockNode(cut[j])); }
     turn.appendChild(said);
   }
+  // The line under a train of thought belongs to the last message of it, which is
+  // the answer the thought led to, or the last run of a tool.
+  var line = actLine(items[to - 1]);
+  if (line) { turn.appendChild(line); }
   return { panel: made.panel, words: made.words, head: made.head,
     label: made.label, ms: ms };
 }
@@ -4694,7 +5305,7 @@ function sentParts(m) {
   for (var n = 0; n < m.attachments.length; n++) {
     var one = m.attachments[n];
     var block = partBlock({ name: one.name, kind: one.image ? 'image' : 'file',
-                             url: attUrls[one.id] || '' });
+                             url: attUrls[one.id] || '' }, undefined, lookOfSent(one, attUrls));
     row.appendChild(block);
     if (one.image && !attUrls[one.id]) {
       (function (id, block) {
@@ -4765,6 +5376,14 @@ function viewedPic(one) {
       }, function () {});
     }(one.id));
   }
+  // The reader may look at the picture the model was shown, at the size it is.
+  plate.classList.add('peek');
+  plate.title = one.name + ' — click to look at the picture';
+  plate.setAttribute('role', 'button');
+  plate.tabIndex = 0;
+  plate.addEventListener('click', function () {
+    openViewer({ name: one.name, kind: 'image', id: one.id, url: attUrls[one.id] || '' });
+  });
   var seen = 'The model can see this image.';
   var eye = make('span', 'seen');
   eye.title = seen;
@@ -4785,7 +5404,13 @@ function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
     (m.tool || '').length, /^running \.\.\.$/i.test(m.tool) ? 1 : 0,
     m.attachments ? m.attachments.length : 0, m.when || '',
-    m.cancelled ? 'cut' : ''].join('#');
+    // The blocks of an offer stand under the answer, so the row that carries them
+    // is made again when an offer comes in or goes out.
+    m.downloads ? 'gift' + m.downloads.length : '',
+    m.cancelled ? 'cut' : '',
+    // The line under a message carries the mark of going on with it, so the row
+    // is made again when the state says an answer was stopped.
+    m.stopped ? 'stopped' : ''].join('#');
 }
 
 // The chat box holds one turn for every message. A turn is made once and then
@@ -4844,6 +5469,7 @@ function drawThread(s) {
   // panel stands in the key, so the thread is made again when a panel grows.
   var spans = thoughtSpans(items);
   var rows = threadRows(items, spans);
+  var plan = giftPlan(items, rows);
   var key = items.map(function (m) { return m.id; }).join('|')
           + '#' + spans.map(function (r) { return r.from + '-' + r.to; }).join(',');
   var open = (s.chat && s.chat.id) || '';
@@ -4885,6 +5511,7 @@ function drawThread(s) {
       }
     }
     while (box.children.length > rows.length) { box.removeChild(box.lastChild); }
+    for (var p = 0; p < rows.length; p++) { placeGifts(box.children[p], plan[p]); }
     if (fresh) {
       // A chat that was opened or turned stands at the top.
       el.thread.scrollTop = 0;
@@ -4907,6 +5534,12 @@ function drawThread(s) {
     for (var k = rows.length - 3; k < rows.length; k++) {
       if (k >= 0) { syncTurn(box.children[k], items, rows[k]); }
     }
+    // The offers of the last answers are looked at again here as well: an offer
+    // that came in while the model was writing stands aside until the answer is
+    // over, and the row that carries it has nothing else to say when it ends.
+    for (var q = rows.length - 3; q < rows.length; q++) {
+      if (q >= 0) { placeGifts(box.children[q], plan[q]); }
+    }
   }
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
 }
@@ -4917,6 +5550,381 @@ el.thread.addEventListener('scroll', function () {
   var box = el.thread;
   stick = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
 });
+
+// ---------------------------------------------------- the offer of a file
+//
+// The download tool leaves the files it offered at the end of the answer that
+// offered them. A block is one file: the mark of the kind of file, its name with
+// the ending under the name, and the button that takes it. The blocks stand in
+// the middle of the chat, under the whole of an answer and never among its words,
+// for they are the work the answer left and not a saying of it. They stand only
+// once the model has stopped writing, for a file the model was still making is
+// not finished work, and they stand under the last word of the answer whatever
+// message of it the tool that offered the file ran in.
+
+// The mark of a kind of file. A page of a web browser and a table of numbers are
+// two different things to look at, so each has a shape of its own; a file that is
+// none of the shapes below is a sheet with a corner turned over.
+var GIFT_MARKS = {
+  document: 'M4 2.2h5.2l2.8 2.8v8.8H4zM9.2 2.2v3.2H12M6 8.6h4M6 10.8h4',
+  page: 'M2.4 3h11.2v10H2.4zM2.4 5.6h11.2M4.2 4.3h2.4',
+  image: 'M2.4 3.4h11.2v9.2H2.4zM4.6 10.4l2.2-2.6 1.8 2.2 1.4-1.8 1.6 2.4M11.2 5.6a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
+  code: 'M6.2 11.4 3 8l3.2-3.4M9.8 4.6 13 8l-3.2 3.4',
+  table: 'M2.4 3h11.2v10H2.4zM2.4 6.4h11.2M2.4 9.6h11.2M6.4 3v10M10.2 3v10',
+  archive: 'M2.6 3h10.8v3H2.6zM3.8 6h8.4v7H3.8zM6.6 8.4h2.8',
+  sound: 'M3 6.4h2.6L9 3.6v8.8L5.6 9.6H3zM11.2 6a2.8 2.8 0 0 1 0 4',
+  film: 'M2.4 4h11.2v8H2.4zM5.4 4v8M10.6 4v8M2.4 8h11.2',
+  program: 'M3 3h10v10H3zM6.4 6.2l3.6 1.8-3.6 1.8z',
+  font: 'M3.4 12.6 8 3.4l4.6 9.2M5.2 9.4h5.6',
+  file: 'M4 2.2h5.2l2.8 2.8v8.8H4zM9.2 2.2v3.2H12'
+};
+// The mark of the button of a block, and of the button of a whole offer.
+var GIFT_DOWN = 'M8 2.4v6.4M5.4 6.4 8 9l2.6-2.6M3.2 12.6h9.6';
+
+// The road of a file of the chat. The small server of the program answers for it,
+// and opens only the room of the chat that is open: the rule of the sandbox lies
+// over a download as it lies over a command.
+function giftHref(one) {
+  return '/api/gift?path=' + encodeURIComponent(one.path);
+}
+
+// The road of the whole of an offer, wound into one archive in the memory of the
+// program. Every file of the offer is one word of the ask.
+function giftZipHref(list) {
+  var parts = [];
+  for (var n = 0; n < list.length; n++) {
+    parts.push('path=' + encodeURIComponent(list[n].path));
+  }
+  return '/api/gift_zip?' + parts.join('&');
+}
+
+// The whole name of a file of an offer, which is the name the browser is given,
+// so it keeps the name the block showed and not the kind it guessed.
+function giftWhole(one) {
+  return one.extension ? one.name + '.' + one.extension : one.name;
+}
+
+// Take a file the browser has been given the road to.
+function takeDown(href, name) {
+  var link = document.createElement('a');
+  link.href = href;
+  if (name) { link.download = name; }
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+// The button says what went wrong, for a moment, rather than taking a file that
+// is not there. A block of an offer the reader was shown an hour ago names a
+// file that may have been written over since.
+function failGift(button, words) {
+  if (!button) { return; }
+  var said = button.querySelector('span');
+  if (!said) { return; }
+  var was = said.textContent;
+  said.textContent = words;
+  button.disabled = true;
+  window.setTimeout(function () {
+    said.textContent = was;
+    button.disabled = false;
+  }, 2400);
+}
+
+// Take one file of an offer. The bytes are asked for first, so a file that has
+// gone out of the room of the chat says so instead of bringing down nothing.
+function takeGift(one, button) {
+  window.fetch(giftHref(one)).then(function (answer) {
+    if (!answer.ok) { failGift(button, 'Not here'); return null; }
+    return answer.blob().then(function (made) {
+      takeDown(window.URL.createObjectURL(made), giftWhole(one));
+    });
+  }).catch(function () { failGift(button, 'Not here'); });
+}
+
+// Take the whole of an offer at once. The archive is made in the memory of the
+// program and is never written out to the room of the chat.
+function takeGifts(list, button) {
+  window.fetch(giftZipHref(list)).then(function (answer) {
+    if (!answer.ok) { failGift(button, 'Not here'); return null; }
+    return answer.blob().then(function (made) {
+      takeDown(window.URL.createObjectURL(made), giftWhole(list[0]) + '.zip');
+    });
+  }).catch(function () { failGift(button, 'Not here'); });
+}
+
+// One file of an offer: the mark of its kind, its name with the ending under it,
+// and the button at the right of the block.
+function giftBlock(one) {
+  var box = make('div', 'gift');
+  var plate = make('span', 'plate');
+  plate.appendChild(mark(GIFT_MARKS[one.kind] || GIFT_MARKS.file));
+  box.appendChild(plate);
+  var names = make('div', 'names');
+  var nm = make('div', 'nm');
+  nm.textContent = one.name || 'a file';
+  nm.title = one.path || '';
+  names.appendChild(nm);
+  if (one.extension) {
+    var tail = make('div', 'ext');
+    tail.textContent = one.extension;
+    names.appendChild(tail);
+  }
+  box.appendChild(names);
+  var get = make('button', 'get');
+  get.type = 'button';
+  get.appendChild(mark(GIFT_DOWN));
+  var said = make('span');
+  said.textContent = 'Download';
+  get.appendChild(said);
+  get.title = 'Take ' + giftWhole(one) + ' out of the chat';
+  get.addEventListener('click', function () { takeGift(one, get); });
+  box.appendChild(get);
+  return box;
+}
+
+// The blocks of one offer, with the button of the whole of it under them when
+// there is more than one file.
+function giftRow(list) {
+  var row = make('div', 'gifts');
+  for (var n = 0; n < list.length; n++) { row.appendChild(giftBlock(list[n])); }
+  if (list.length > 1) {
+    var all = make('button', 'all');
+    all.type = 'button';
+    all.appendChild(mark(GIFT_DOWN));
+    var said = make('span');
+    said.textContent = 'Download all';
+    all.appendChild(said);
+    all.title = 'Take all ' + list.length + ' files in one archive';
+    all.addEventListener('click', function () { takeGifts(list, all); });
+    row.appendChild(all);
+  }
+  return row;
+}
+
+// The answers of a chat, in the order they stand: where one begins, where it
+// ends, whether the model is still writing it, and what it offered. An answer is
+// the talk between one word of the reader and the next, which is why the offer
+// belongs to a whole answer and not to the one message the tool ran in.
+function chatAnswers(items) {
+  var out = [];
+  var begin = 0;
+  for (var n = 0; n <= items.length; n++) {
+    if (n === items.length || items[n].role === 'You') {
+      if (n > begin) {
+        var held = [];
+        var writing = false;
+        for (var k = begin; k < n; k++) {
+          if (items[k].id === 'live') { writing = true; }
+          var given = items[k].downloads;
+          if (given && given.length) {
+            for (var j = 0; j < given.length; j++) { held.push(given[j]); }
+          }
+        }
+        out.push({ from: begin, to: n, writing: writing, gifts: held });
+      }
+      begin = n + 1;
+    }
+  }
+  return out;
+}
+
+// Which row of the thread carries the offer of its answer, and what it is made
+// of. Only the last row of an answer carries it, and an answer that is still
+// being written carries nothing at all.
+function giftPlan(items, rows) {
+  var answers = chatAnswers(items);
+  var plan = [];
+  var at = 0;
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    while (at + 1 < answers.length && answers[at + 1].from <= row.from) { at += 1; }
+    var one = answers[at];
+    var given = (one && !one.writing && one.gifts.length
+      && row.from >= one.from && row.to === one.to) ? one.gifts : null;
+    plan.push(given);
+  }
+  return plan;
+}
+
+// The blocks of an offer are put under the row that carries them, or taken away,
+// or left alone. A row that was made again has lost them with the rest of its
+// words, so what stands in the row is looked at and not only what the row said
+// it was made of last.
+function placeGifts(turn, given) {
+  if (!turn) { return; }
+  var want = given ? given.map(function (one) {
+    return String(one.path) + ':' + String(one.size);
+  }).join('|') : '';
+  var held = null;
+  for (var n = 0; n < turn.children.length; n++) {
+    if (turn.children[n].classList.contains('gifts')) { held = turn.children[n]; break; }
+  }
+  if (turn.dataset.gifts === want && (held || !want)) { return; }
+  turn.dataset.gifts = want;
+  if (held) { turn.removeChild(held); }
+  if (given && given.length) { turn.appendChild(giftRow(given)); }
+}
+
+// ------------------------------------------------------ the question of the reader
+//
+// A model that cannot go on without a word from the reader asks, and the ask
+// stands above the chat box: the question and the reason for it at the top, the
+// answers the model offered under them, and a box for an answer the model did not
+// think of. A question of the ordinary kind counts its seconds down and is then
+// given up, and the model is told that you did not answer; a question the model
+// marked as one it cannot go on without waits until you answer. Both waits come
+// from the Chatting settings.
+
+// The ask the card was last made for. A question that is still the one standing
+// is not made again, or the words the reader was writing in the box would be
+// thrown away on every look of the state.
+var askHeld = '';
+// The seconds left, kept between the looks of the state so that the count moves
+// once a second and not once a poll.
+var askLeft = -1;
+var askTimer = null;
+var askWired = false;
+
+// The answers the model offered, in the order it offered them. Choosing one is
+// the same as writing it out, which is why it goes back the same road.
+function fillAskChoices(one) {
+  var box = el.askchoices;
+  if (!box) { return; }
+  box.innerHTML = '';
+  var list = one.choices || [];
+  for (var n = 0; n < list.length; n++) {
+    var choice = make('button', 'ask-choice');
+    choice.type = 'button';
+    var said = make('span');
+    said.textContent = list[n];
+    choice.appendChild(said);
+    choice.title = 'Answer: ' + list[n];
+    (function (words) {
+      choice.addEventListener('click', function () { answerAsk(words); });
+    })(list[n]);
+    box.appendChild(choice);
+  }
+  box.style.display = list.length ? '' : 'none';
+}
+
+// The words of the wait. A question that waits for ever says that it does, for a
+// reader who has been away from the machine should know that nothing was given up
+// while they were gone.
+function askWaitWords(one, left) {
+  if (left === null) { return 'It waits until you answer'; }
+  return left + (left === 1 ? ' second left' : ' seconds left');
+}
+
+function paintAskWait() {
+  if (!el.askwait || !cur || !cur.ask) { return; }
+  var left = askLeft < 0 ? null : askLeft;
+  el.askwait.textContent = askWaitWords(cur.ask, left);
+  el.askwait.className = 'ask-wait' + (left !== null && left <= 3 ? ' short' : '');
+}
+
+function startAskCount() {
+  stopAskCount();
+  askTimer = window.setInterval(function () {
+    if (!cur || !cur.ask) { stopAskCount(); return; }
+    if (askLeft > 0) { askLeft -= 1; }
+    paintAskWait();
+  }, 1000);
+}
+
+function stopAskCount() {
+  if (askTimer) { window.clearInterval(askTimer); askTimer = null; }
+}
+
+// The ask, put again on every look of the state. The card is made anew only when
+// the question changed; the wait is written again always, for it is always older.
+function drawAsk(s) {
+  var box = el.ask;
+  if (!box) { return; }
+  wireAsk();
+  var one = s.ask;
+  if (!one || !one.id) {
+    if (askHeld !== '') {
+      askHeld = '';
+      box.classList.add('hidden');
+      box.classList.remove('waiting', 'weighty');
+      if (el.askdraft) { el.askdraft.value = ''; }
+      if (el.asknote) { el.asknote.textContent = ''; }
+      stopAskCount();
+    }
+    return;
+  }
+  box.classList.remove('hidden');
+  box.classList.toggle('weighty', !!one.critical);
+  if (askHeld !== one.id) {
+    askHeld = one.id;
+    box.classList.remove('waiting');
+    if (el.asktitle) {
+      el.asktitle.textContent = one.question
+        || 'The model is waiting for a word from you.';
+    }
+    if (el.asknote) {
+      el.asknote.textContent = one.critical
+        ? 'The model says it cannot go on without your answer.'
+        : 'Choose one of the answers, or write an answer of your own.';
+    }
+    fillAskChoices(one);
+    if (el.askdraft) {
+      el.askdraft.value = '';
+      growAskDraft();
+      // The card rose over the chat box, and the field of an answer of their own
+      // is where most answers are made. A touch screen is left to reach for the
+      // keys itself, for the keyboard of such a machine covers the chat.
+      if (!touch) { el.askdraft.focus(); }
+    }
+    askLeft = (one.left === null || one.left === undefined) ? -1 : Number(one.left);
+    startAskCount();
+  }
+  paintAskWait();
+}
+
+// The answer of the reader, whichever way it was made. The card stills itself
+// while the run takes the answer in, so the same question is not answered twice;
+// the next look of the state takes the card away.
+function answerAsk(words) {
+  var text = String(words || '').trim();
+  if (!text || !cur || !cur.ask || !el.ask) { return; }
+  el.ask.classList.add('waiting');
+  if (el.asknote) {
+    el.asknote.textContent = 'Your answer is on its way to the model.';
+  }
+  post('/api/ask_answer', { id: cur.ask.id, answer: text });
+}
+
+// The field of an answer of the reader's own grows with the words, as the chat
+// box does, and stops at the height the card can hold.
+function growAskDraft() {
+  var field = el.askdraft;
+  if (!field) { return; }
+  field.style.height = 'auto';
+  var height = Math.min(field.scrollHeight, Math.round(window.innerHeight * 0.24));
+  field.style.height = Math.max(36, height) + 'px';
+}
+
+// The two roads an answer goes out by: a choice, or the field and its button.
+// Enter answers, as it does in the chat box, and Shift+Enter is a new line.
+function wireAsk() {
+  if (askWired) { return; }
+  askWired = true;
+  if (el.asksend) {
+    el.asksend.addEventListener('click', function () {
+      answerAsk(el.askdraft ? el.askdraft.value : '');
+    });
+  }
+  if (el.askdraft) {
+    el.askdraft.addEventListener('input', growAskDraft);
+    el.askdraft.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        answerAsk(el.askdraft.value);
+      }
+    });
+  }
+}
 
 // ------------------------------------------------------------ chapter line
 //
@@ -5281,7 +6289,10 @@ function holdFile(file) {
   var name = freeName(file.name || (file.type && file.type.indexOf('image/') === 0
     ? 'image.png' : 'attachment.bin'));
   var kind = fileKind(name, file.type);
-  var held = { name: name, mime: file.type || '', kind: kind, data: '', text: '', url: '' };
+  // The file itself stands beside its words, so a file of words that was never
+  // read yet can still be read when the reader asks for its words.
+  var held = { name: name, mime: file.type || '', kind: kind, data: '', text: '', url: '',
+    file: file };
   heldFiles.push(held);
   if (kind === 'image') {
     var reader = new FileReader();
@@ -5328,7 +6339,209 @@ function holdWords(words) {
 
 // One block of the box, or of a sent message. A place to drop from makes it
 // a block of the box, with the mark that takes the file away again.
-function partBlock(one, place) {
+// The words of a file the box holds. A file of words taken from the disk is read
+// when its words are asked for, for a long one may not have been read yet, and no
+// reader should wait for the whole of a disk before the first word of it can
+// stand in the box.
+// ---------------------------------------------------------- the looking window
+//
+// The window a picture or a file of words is looked at in. A block of an
+// attachment is a name with a thumb at best: the window shows the thing itself,
+// at the size it is. What the block never carried is asked for when the reader
+// looks at it, which is why the window says a moment of waiting rather than
+// showing nothing at all.
+
+var lookBack = null;      // what held the mark of the keys before the window came
+// The most words the window will write down. A file of words may be longer than
+// a screen of reading by a thousand turns, and a page of it is what is looked at.
+var LOOK_WORDS = 200000;
+
+// One picture, at the size it is. The window is scrolled when the picture is
+// bigger than the room it has.
+function showPicture(body, url, name) {
+  var pic = make('img');
+  pic.src = url;
+  pic.alt = name || '';
+  body.appendChild(pic);
+}
+
+// The words of a file. They are written as they stand, and never as marks of
+// markdown, for what is looked at here is the file, not an answer.
+function showWords(body, words) {
+  var text = String(words || '');
+  var held = document.createElement('pre');
+  if (text.length > LOOK_WORDS) {
+    held.textContent = text.slice(0, LOOK_WORDS);
+    body.appendChild(held);
+    var said = make('div', 'look-note');
+    said.textContent = 'The first ' + LOOK_WORDS.toLocaleString()
+      + ' words of ' + text.length.toLocaleString() + ' characters.';
+    body.appendChild(said);
+    return;
+  }
+  held.textContent = text;
+  body.appendChild(held);
+}
+
+function noteWaiting(body) {
+  var said = make('div', 'look-note');
+  said.textContent = 'Reading it …';
+  body.appendChild(said);
+}
+
+function sayNothing(body) {
+  var said = make('div', 'look-note');
+  said.textContent = 'Nothing of this file can be shown here.';
+  body.appendChild(said);
+}
+
+// The window is put up. `one` says what is to be looked at: its name, whether it
+// is a picture or a file of words, the bytes of a picture when they are already
+// known, the words when they are, the file when the words are still to be read,
+// and the number of the attachment when both are still to be asked for.
+function openViewer(one) {
+  var box = el.viewer;
+  if (!box || !one) { return; }
+  wireViewer();
+  lookBack = document.activeElement;
+  box.classList.remove('hidden');
+  if (el.lookname) { el.lookname.textContent = one.name || 'A file of the chat'; }
+  if (el.lookkind) { el.lookkind.textContent = one.kind === 'image' ? 'Image' : 'Text'; }
+  var body = el.lookbody;
+  if (!body) { return; }
+  body.innerHTML = '';
+  if (one.kind === 'image') {
+    if (one.url) { showPicture(body, one.url, one.name); return; }
+    if (one.id) {
+      noteWaiting(body);
+      (function (name) {
+        attachmentWords(one.id).then(function (record) {
+          var url = record && record.data ? record.data : '';
+          body.innerHTML = '';
+          if (url) { showPicture(body, url, name); } else { sayNothing(body); }
+        }, function () { sayNothing(body); });
+      }(one.name));
+      return;
+    }
+    sayNothing(body);
+    return;
+  }
+  if (one.words) { showWords(body, one.words); return; }
+  if (one.file) {
+    noteWaiting(body);
+    wordsOfHeld(one, function (words) {
+      body.innerHTML = '';
+      if (words) { showWords(body, words); } else { sayNothing(body); }
+    });
+    return;
+  }
+  if (one.id) {
+    noteWaiting(body);
+    (function (id) {
+      attachmentWords(id).then(function (record) {
+        var words = record && record.text ? record.text : '';
+        body.innerHTML = '';
+        if (words) { showWords(body, words); } else { sayNothing(body); }
+      }, function () { sayNothing(body); });
+    }(one.id));
+    return;
+  }
+  sayNothing(body);
+}
+
+// The window is put away, and the mark of the keys goes back where it stood, so
+// the chat is read on from the same place after a look.
+function closeViewer() {
+  var box = el.viewer;
+  if (!box || box.classList.contains('hidden')) { return; }
+  box.classList.add('hidden');
+  if (el.lookbody) { el.lookbody.innerHTML = ''; }
+  if (lookBack && lookBack.focus) { lookBack.focus(); }
+  lookBack = null;
+}
+
+// The three ways the window goes away again: its own mark, a click outside it,
+// and the key of escape. It is wired once, and the window is the only place the
+// key of escape is taken from the chat.
+var lookWired = false;
+function wireViewer() {
+  if (lookWired) { return; }
+  lookWired = true;
+  if (el.lookclose) {
+    el.lookclose.addEventListener('click', function () { closeViewer(); });
+  }
+  if (el.viewer) {
+    el.viewer.addEventListener('mousedown', function (event) {
+      if (event.target === el.viewer) { closeViewer(); }
+    });
+  }
+  window.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') { return; }
+    if (el.viewer && !el.viewer.classList.contains('hidden')) {
+      event.preventDefault();
+      closeViewer();
+    }
+  });
+}
+
+// The look of a file the chat box holds. The look is made afresh for every
+// block, so each block keeps the file it was made for: a look made in a ring of
+// numbers would look at whatever file the ring stopped on, which is the last of
+// them and not the one the reader clicked.
+function lookOfHeld(one) {
+  return function () {
+    openViewer({ name: one.name, kind: one.kind === 'image' ? 'image' : 'file',
+                 url: one.url || '', words: one.text || '', file: one.file });
+  };
+}
+
+// The look of a file hanging on a sent message. Its bytes are asked for by the
+// number of the attachment when the window is opened, unless they were brought
+// for the block already.
+function lookOfSent(one, pics) {
+  return function () {
+    openViewer({ name: one.name, kind: one.image ? 'image' : 'file',
+                 id: one.id, url: pics[one.id] || '' });
+  };
+}
+
+function wordsOfHeld(one, done) {
+  if (one.text) { done(one.text); return; }
+  if (!one.file) { done(''); return; }
+  var reader = new FileReader();
+  reader.onload = function () { one.text = String(reader.result); done(one.text); };
+  reader.onerror = function () { done(''); };
+  reader.readAsText(one.file);
+}
+
+// The words of a file of words, put into the chat box instead of going out with
+// the message. A long paste becomes a file of its own, and a reader who would
+// rather have the words back where they can be read and mended clicks the block
+// to have them. Words already standing in the box keep their place: what comes in
+// goes in at the mark the reader left, with a line between it and what stood
+// there before, and the block goes away, so the box is not left holding the words
+// twice over.
+function putWordsInBox(one) {
+  wordsOfHeld(one, function (words) {
+    if (!words) { return; }
+    var box = el.draft;
+    var at = (box.selectionStart === null || box.selectionStart === undefined)
+      ? box.value.length : box.selectionStart;
+    var before = box.value.slice(0, at), after = box.value.slice(at);
+    var gap1 = (!before || /\s$/.test(before)) ? '' : '\n';
+    var gap2 = (!after || /^\s/.test(after)) ? '' : '\n';
+    box.value = before + gap1 + words + gap2 + after;
+    var place = heldFiles.indexOf(one);
+    if (place >= 0) { heldFiles.splice(place, 1); }
+    drawParts();
+    grow();
+    box.focus();
+    var caret = before.length + gap1.length + words.length;
+    box.setSelectionRange(caret, caret);
+  });
+}
+
+function partBlock(one, place, look) {
   // A block of a picture and a block of a file are cut differently once they
   // stand under a sent message, so each carries word of what it is.
   var part = make('div', 'part ' + (one.kind === 'image' ? 'image' : 'file'));
@@ -5351,17 +6564,67 @@ function partBlock(one, place) {
   nm.textContent = one.name;
   part.appendChild(nm);
   if (place !== undefined) {
+    // The block of a file of words answers a click: its words go into the chat
+    // box, which is what a reader wants when a paste of theirs was turned into a
+    // file by the length of it.
+    if (one.kind === 'text') {
+      part.classList.add('pick');
+      part.title = one.name + ' — click to put the words in the chat box';
+      part.setAttribute('role', 'button');
+      part.tabIndex = 0;
+      part.addEventListener('click', function () { putWordsInBox(one); });
+      part.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          putWordsInBox(one);
+        }
+      });
+    }
     var x = make('button', 'x');
     x.type = 'button';
     x.title = 'Remove this file';
     x.setAttribute('aria-label', 'Remove ' + one.name + ' from the message');
     x.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true">'
       + '<path d="M4 4l8 8M12 4l-8 8"/></svg>';
-    x.addEventListener('click', function () {
+    x.addEventListener('click', function (event) {
+      // The mark of taking the file away is not the block of the file: a click on
+      // it takes the file out and puts nothing in the box.
+      event.stopPropagation();
       heldFiles.splice(place, 1);
       drawParts();
       grow();
     });
+  // A block may be looked at. A picture opens at a click on the block itself,
+  // and so does a file of words standing under a sent message; a file of words
+  // over the chat box has another work — a click on it puts its words in the box
+  // — so it is looked at through its own eye instead.
+  if (look) {
+    if (one.kind === 'image' || place === undefined) {
+      part.classList.add('peek');
+      part.title = (one.name || '') + ' — click to look at it';
+      part.setAttribute('role', 'button');
+      part.tabIndex = 0;
+      part.addEventListener('click', function () { look(); });
+      part.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          look();
+        }
+      });
+    } else {
+      var eye = make('button', 'eye');
+      eye.type = 'button';
+      eye.title = 'Read the words of this file';
+      eye.setAttribute('aria-label', 'Read ' + (one.name || 'this file'));
+      eye.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="'
+        + 'M1.9 8c1.6-2.9 3.6-4.3 6.1-4.3s4.5 1.4 6.1 4.3c-1.6 2.9-3.6 4.3-6.1 4.3S3.5 10.9 1.9 8z M8 9.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z' + '"/></svg>';
+      eye.addEventListener('click', function (event) {
+        event.stopPropagation();
+        look();
+      });
+      part.insertBefore(eye, part.querySelector('.x') || null);
+    }
+  }
     part.appendChild(x);
   }
   return part;
@@ -5372,7 +6635,7 @@ function drawParts() {
   el.parts.innerHTML = '';
   el.parts.classList.toggle('hidden', heldFiles.length === 0);
   for (var n = 0; n < heldFiles.length; n++) {
-    el.parts.appendChild(partBlock(heldFiles[n], n));
+    el.parts.appendChild(partBlock(heldFiles[n], n, lookOfHeld(heldFiles[n])));
   }
 }
 
@@ -5388,7 +6651,7 @@ function grow() {
   if (cur) {
     var live = anythingToSend() || !!cur.generating;
     el.send.classList.toggle('live', live && !cur.generating);
-    el.hint.innerHTML = hintFor(cur);
+    el.send.title = sendTitle(cur);
   }
 }
 
@@ -5438,7 +6701,21 @@ el.newrepo.addEventListener('click', function () {
 });
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
-el.code.addEventListener('click', function () { if (cur) { post('/api/code', { on: !cur.code }); } });
+// The badge of the tools is the switch over all of them, and the arrow beside its
+// name opens the drop-down where they are chosen one by one.
+el.code.addEventListener('click', function () {
+  closeToolMenu();
+  if (cur) { post('/api/code', { on: !cur.code }); }
+});
+el.codemenuCaret = el['codemenu-caret'];
+if (el.codemenuCaret) {
+  el.codemenuCaret.addEventListener('click', function (event) {
+    event.stopPropagation();
+    if (el.codemenu.classList.contains('hidden')) {
+      closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); openToolMenu();
+    } else { closeToolMenu(); }
+  });
+}
 el.search.addEventListener('click', function () { if (cur) { post('/api/search', { on: !cur.search }); } });
 // The sandbox badge is a drop-down, for what a command may reach is three
 // settings, and the reader must see all three together rather than cycle through
@@ -5459,7 +6736,8 @@ el.mcp.addEventListener('click', function (event) {
   if (el.mcpmenu.classList.contains('hidden')) { closeThinkMenu(); closeSandboxMenu(); openMcpMenu(); }
   else { closeMcpMenu(); }
 });
-document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); });
+document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); });
+
 el.darkbtn.addEventListener('click', function () { post('/api/dark', { on: !(cur && cur.dark) }); });
 el.draft.addEventListener('input', grow);
 el.draft.addEventListener('focus', function () {
@@ -5467,7 +6745,6 @@ el.draft.addEventListener('focus', function () {
 });
 el.draft.addEventListener('blur', function () {
   el.box.classList.remove('focus');
-  if (cur) { el.hint.innerHTML = hintFor(cur); }
 });
 
 el.draft.addEventListener('keydown', function (e) {
@@ -5848,11 +7125,16 @@ function loadProgram() {
     byId('fGrowThink').checked = cfg.chat_grow_thinking !== false;
     byId('fToolsInThink').checked = cfg.chat_tools_in_thinking !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
+    byId('fBoldMarkdown').checked = cfg.chat_bold_markdown !== false;
+    byId('fSilentRetries').value = (cfg.chat_silent_retries === undefined || cfg.chat_silent_retries === null)
+      ? 2 : cfg.chat_silent_retries;
     byId('fChapters').checked = cfg.chat_chapters !== false;
     byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
     byId('fPasteLimit').value = pasteLimitOf(cfg.pasted_text_char_limit);
     byId('fChatWidth').value = chatWidthOf(cfg.chat_width);
+    byId('fAskSeconds').value = askWaitOf(cfg.ask_seconds, 10);
+    byId('fAskCriticalSeconds').value = askWaitOf(cfg.ask_critical_seconds, 0);
     byId('fDateNewChat').checked = cfg.chat_date_new_chat !== false;
     byId('fCompaction').value = cfg.chat_compaction || 'handoff';
     byId('fCompactBy').value = cfg.chat_compact_by || 'percent';
@@ -6019,6 +7301,22 @@ function intOf(id, fallback) {
 function numOf(id, fallback) {
   var v = parseFloat(byId(id).value); return isNaN(v) ? (fallback || 0) : v;
 }
+
+// The two waits of a question the model put, as the sheet shows them. A set of
+// settings written before the waits existed holds nothing, and the wait of the
+// question itself is then stood in: ten seconds for an ordinary question, and as
+// long as it takes for one the model cannot go on without.
+function askWaitOf(value, fallback) {
+  return (value === undefined || value === null) ? fallback : value;
+}
+
+// A whole number of seconds out of a field of the sheet, kept between the two
+// bounds the field allows. The default stands where no number could be read.
+function holdSeconds(id, fallback, least, greatest) {
+  var made = Math.round(numOf(id, fallback));
+  if (isNaN(made)) { made = fallback; }
+  return Math.min(greatest, Math.max(least, made));
+}
 // The advanced fold of a section stands open when one of its fields has moved
 // away from the default the program gives a new set of settings.
 function advOpen(id, keys, defaults) {
@@ -6089,11 +7387,15 @@ function saveSheet() {
     cfg.chat_grow_thinking = byId('fGrowThink').checked;
     cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
     cfg.chat_highlight = byId('fHighlight').checked;
+    cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
+    cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);
     cfg.chat_chapters = byId('fChapters').checked;
     cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
     cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
     cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
     cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
+    cfg.ask_seconds = holdSeconds('fAskSeconds', 10, 1, 86400);
+    cfg.ask_critical_seconds = holdSeconds('fAskCriticalSeconds', 0, 0, 86400);
     cfg.chat_date_new_chat = byId('fDateNewChat').checked;
     cfg.chat_compaction = byId('fCompaction').value;
     cfg.chat_compact_by = byId('fCompactBy').value;
