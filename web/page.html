@@ -1820,6 +1820,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Bold words in the chat</span>
           <span class="sub">A word held between two marks of boldness is written in the heavier shape of the letters. Turn this off to read the marks as part of the words themselves.</span>
           <div class="ctl"><input id="fBoldMarkdown" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Ask a silence over</span>
+          <span class="sub">When the model stops by itself without writing a word, a command or a fault, the same ask goes out again this many times before the chat says the model gave no answer. A model that thought a while and then stopped very nearly always goes on when asked again. 0 leaves a silence alone.</span>
+          <div class="ctl"><input id="fSilentRetries" type="number" min="0" max="10" step="1" placeholder="2"><span class="unit">times</span></div></div>
         <div class="fld"><span class="lbl">Chapter markers</span>
           <span class="sub">The model may mark where a new part of the chat begins. The markers appear on a line at the left of the chat, and clicking one scrolls there. Turn this off to hide the line; the model is then not offered the tool.</span>
           <div class="ctl"><input id="fChapters" type="checkbox"></div></div>
@@ -6773,6 +6776,8 @@ function loadProgram() {
     byId('fToolsInThink').checked = cfg.chat_tools_in_thinking !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
     byId('fBoldMarkdown').checked = cfg.chat_bold_markdown !== false;
+    byId('fSilentRetries').value = (cfg.chat_silent_retries === undefined || cfg.chat_silent_retries === null)
+      ? 2 : cfg.chat_silent_retries;
     byId('fChapters').checked = cfg.chat_chapters !== false;
     byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
@@ -7033,6 +7038,7 @@ function saveSheet() {
     cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
     cfg.chat_highlight = byId('fHighlight').checked;
     cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
+    cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);
     cfg.chat_chapters = byId('fChapters').checked;
     cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
     cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);

@@ -898,6 +898,9 @@ pub struct Snap {
     // Whether the marks of boldness are read as boldness in the words of the
     // chat, or as part of the words themselves.
     pub chat_bold_markdown: bool,
+    // How many times an answer is asked over when the model came to its own end
+    // without a word, a call or a fault.
+    pub chat_silent_retries: i64,
     // Whether the model may mark the chapters of a chat, and whether the
     // chapter line stands beside it.
     pub chat_chapters: bool,
@@ -2318,6 +2321,7 @@ impl State {
             chat_date_new_chat: self.cfg.chat_date_new_chat,
             chat_highlight: self.cfg.chat_highlight,
             chat_bold_markdown: self.cfg.chat_bold_markdown,
+            chat_silent_retries: self.cfg.chat_silent_retries,
             chat_chapters: self.cfg.chat_chapters,
             mcp: self.mcp_snap(),
             chat_paste_limit: self.cfg.pasted_text_char_limit,
@@ -3765,6 +3769,7 @@ impl Snap {
             chat_date_new_chat: true,
             chat_highlight: true,
             chat_bold_markdown: true,
+            chat_silent_retries: 2,
             chat_chapters: true,
             chat_paste_limit: 6000,
             ask_seconds: 10,
@@ -4959,6 +4964,16 @@ fn kept_of(
     Kept::Note
 }
 
+// A silence worth asking over. The model came to its own end with nothing to
+// read, no command asked for and nothing that went wrong: it thought, and then
+// it stopped, which is not an end of the work it was given. A stop because the
+// room for the context was used up is not that kind of silence, for asking again
+// would only fill the same room again. How many times the silence was asked over
+// already, and how many times it may be, decide the rest.
+fn worth_a_silence(finish: &str, spent: usize, most: usize) -> bool {
+    finish != "length" && spent < most
+}
+
 // Answer one prompt. When the model asks for a terminal command, the command
 // runs and the model is asked again with the result. The files the reader
 // hung on the message are written to disk first, and the message of the
@@ -5182,6 +5197,13 @@ fn run_turn(
     // The hand is put up by the piece of the answer that speaks of a talk past the
     // limit, and looked at by the stream after every piece.
     let mut cuts = 0usize;
+    // How many times an answer of this one came back with nothing to read and was
+    // asked over again. The room for that is read from the Chatting settings.
+    let mut silences = 0usize;
+    let silence_room = {
+        let Ok(guard) = state.lock() else { return Ended::Halted };
+        guard.cfg.chat_silent_retries.max(0) as usize
+    };
     let room_cut = Arc::new(AtomicBool::new(false));
     let outcome = loop {
         steps += 1;
@@ -5757,10 +5779,32 @@ fn run_turn(
                 guard.push_message("Assistant", "", &answer_thinking, thought_ms, false)
             }
             // The model used tokens but left nothing to read, and asked for no
-            // command. This happens when the context ran full.
+            // command. This happens when the context ran full, and when the model
+            // came to its own end straight out of a thought.
             Kept::Note => {
+                // A silence of the second kind is asked over, rather than written
+                // off as an answer at once. The thought the model made stands in
+                // the talk, so it reads its own thinking again and goes on from
+                // there, and the reader is not left under a line about an answer
+                // that never came while the work was still before it.
+                if worth_a_silence(&answer.finish, silences, silence_room)
+                    && !cancel.load(Ordering::Relaxed)
+                {
+                    silences += 1;
+                    if !answer_thinking.trim().is_empty() {
+                        guard.push_message("Assistant", "", &answer_thinking, thought_ms, false);
+                    }
+                    guard.persist();
+                    // The step the silent ask took is given back: a model that said
+                    // nothing spent none of the room for steps.
+                    steps = steps.saturating_sub(1);
+                    guard.set_status("The model said nothing. It is asked again");
+                    continue;
+                }
                 let note = if answer.finish == "length" {
                     String::from("(the context was full before the model could answer)")
+                } else if silences > 0 {
+                    format!("(the model gave no answer, although it was asked {} times)", silences + 1)
                 } else {
                     String::from("(the model gave no answer)")
                 };
@@ -7359,6 +7403,23 @@ mod tests {
         assert_eq!(kept_of("", "", false, false, true), Kept::Nothing);
         // Nothing came in, and nothing failed. One quiet line is right.
         assert_eq!(kept_of("", "", false, false, false), Kept::Note);
+    }
+
+    // A model that came to its own end without a word is asked again, for the
+    // work was never finished; a model that used the room up is not, and neither
+    // is a silence that has already been asked over as often as it may be.
+    #[test]
+    fn a_silence_is_asked_over() {
+        // The silence of a model that simply stopped, and has tries left.
+        assert!(worth_a_silence("stop", 0, 2));
+        assert!(worth_a_silence("stop", 1, 2));
+        // The last try was spent, so the quiet line is written.
+        assert!(!worth_a_silence("stop", 2, 2));
+        // No room for tries at all leaves the silence alone.
+        assert!(!worth_a_silence("stop", 0, 0));
+        // A silence because the room for the context was used up is not mended by
+        // asking again, whatever the number of tries says.
+        assert!(!worth_a_silence("length", 0, 2));
     }
 
     // The thinking of a turn with no words of its own stands with the command

@@ -246,6 +246,12 @@ pub struct Config {
     // read as part of the words of the answer, as they were before.
     #[serde(default = "on_by_default")]
     pub chat_bold_markdown: bool,
+    // How many times an answer is asked over when the model came to its own end
+    // without a word, a call or a fault. A model that thought a while and then
+    // stopped has said nothing of the work it was given, and the same ask a second
+    // time very nearly always brings the words back. 0 leaves a silence alone.
+    #[serde(default = "silence_retries")]
+    pub chat_silent_retries: i64,
     // Let the model mark the chapters of a chat, and show them beside it.
     #[serde(default = "on_by_default")]
     pub chat_chapters: bool,
@@ -463,6 +469,12 @@ fn no_limit() -> i64 {
     -1
 }
 
+// How many times an answer is asked over when the model came to its own end
+// without a word, a call or a fault of its own.
+fn silence_retries() -> i64 {
+    2
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -481,6 +493,7 @@ impl Default for Config {
             chat_date_new_chat: true,
             chat_highlight: true,
             chat_bold_markdown: true,
+            chat_silent_retries: 2,
             chat_chapters: true,
             chat_max_tool_steps: -1,
             chat_max_answer_steps: -1,
