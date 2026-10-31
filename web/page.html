@@ -836,6 +836,54 @@ pre.code .t-p { color: var(--t-pun); }
   from { opacity: 0; transform: translateY(10px) scale(.985); }
   to { opacity: 1; transform: none; }
 }
+/* The window a picture or a file of words is looked at in. A block over the chat
+   box, or one standing under a sent message, is too small to read a picture or a
+   page of words from, so a click on it opens the thing here, at the size it
+   really is: a picture bigger than the window is scrolled instead of shrunk, and
+   words are read as words. The window rises into place over the chat and goes
+   away again with a click outside it, the mark of closing, or the key of escape. */
+.viewer {
+  position: fixed; inset: 0; z-index: 80; display: flex; align-items: center;
+  justify-content: center; padding: 26px; background: var(--scrim);
+}
+.viewer.hidden { display: none; }
+.look {
+  display: flex; flex-direction: column; width: min(1000px, 100%); max-height: 100%;
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--r-l); box-shadow: var(--shadow-2); overflow: hidden;
+  animation: look-rise 220ms cubic-bezier(.2, .8, .2, 1);
+}
+.look-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 11px 13px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.look-name { flex: 1 1 auto; min-width: 0; font-size: 13.5px; font-weight: 650;
+  color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.look-kind { flex: 0 0 auto; font-size: 10.5px; font-weight: 650; color: var(--dim);
+  text-transform: uppercase; letter-spacing: .07em; }
+.look-close {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface-2); cursor: pointer;
+}
+.look-close:hover { border-color: var(--accent-line); background: var(--tint); }
+.look-close .svg { width: 12px; height: 12px; stroke: var(--dim); stroke-width: 2.2; }
+.look-close:hover .svg { stroke: var(--ink); }
+.look-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px;
+  background: var(--surface-2); scrollbar-width: thin; }
+/* A picture is shown at the size it is: never stretched beyond it, and never
+   shrunk below the room the window has, for the point of the window is to see
+   what the block was too small to show. */
+.look-body img { display: block; max-width: 100%; height: auto; margin: 0 auto;
+  background: var(--surface); border-radius: var(--r-m); }
+.look-body pre { margin: 0; color: var(--text); white-space: pre-wrap;
+  overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.55;
+  font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace; }
+.look-note { font-size: 12.5px; color: var(--dim); }
+@keyframes look-rise {
+  from { opacity: 0; transform: translateY(12px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
 .dock { flex: 0 0 auto; padding: 0 14px 12px; }
 /* On the first screen the chat box stands with the mark and the words over it,
    and the group as a whole is put in the middle of the room: the space over the
@@ -922,6 +970,19 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .part.pick:hover .nm { color: var(--ink); }
 .part.pick:hover .mark .svg { stroke: var(--ink); }
 .part.pick:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+/* A block that may be looked at says so, and the eye that opens a file of words
+   matches the mark that takes a file away. */
+.part.peek, .tshot.peek { cursor: pointer; }
+.part.peek:hover { border-color: var(--accent-line); background: var(--tint); }
+.part.peek:hover .nm { color: var(--ink); }
+.part .eye {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; padding: 0; border: 0; border-radius: 6px; background: none;
+  cursor: pointer;
+}
+.part .eye:hover { background: var(--hover); }
+.part .eye .svg { width: 13px; height: 13px; stroke: var(--dim); stroke-width: 1.8; }
+.part .eye:hover .svg { stroke: var(--ink); }
 /* The files the model offered at the end of an answer. A block is one file: the
    mark of the kind of file, its name with the ending under the name, and the
    button that takes it. The blocks stand in the middle of the chat, under the
@@ -1299,6 +1360,7 @@ pre.code.line {
   .turn.in { animation: none; }
   .gifts { animation: none; }
   .ask { animation: none; }
+  .look { animation: none; }
   .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
   .gauge .spin { animation: none; }
   img.pic { animation: none; }
@@ -1659,6 +1721,23 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
   <!-- The chat box. The badges stand in a row of their own under the words, so
        no part of the box is left empty. -->
+  <!-- The window a picture or a file of words is looked at in. It covers the chat
+       and holds one thing: the picture at the size it is, or the words of a file
+       as they stand. A click outside it, the mark of closing, or the key of
+       escape puts it away again. -->
+  <div class="viewer hidden" id="viewer" role="dialog" aria-modal="true" aria-labelledby="lookname">
+    <div class="look">
+      <div class="look-head">
+        <span class="look-name" id="lookname"></span>
+        <span class="look-kind" id="lookkind"></span>
+        <button class="look-close" id="lookclose" type="button" title="Close this window">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </button>
+      </div>
+      <div class="look-body" id="lookbody"></div>
+    </div>
+  </div>
+
   <div class="dock" id="dock">
     <div class="box" id="box">
       <!-- How far the server is with the words it was sent. The number stands
@@ -2178,6 +2257,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
+  'viewer', 'lookname', 'lookkind', 'lookclose', 'lookbody',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
   'sumOverlay', 'sumTitle', 'sumMeta', 'sumWords', 'sumClose'];
 var el = {};
@@ -5225,7 +5305,7 @@ function sentParts(m) {
   for (var n = 0; n < m.attachments.length; n++) {
     var one = m.attachments[n];
     var block = partBlock({ name: one.name, kind: one.image ? 'image' : 'file',
-                             url: attUrls[one.id] || '' });
+                             url: attUrls[one.id] || '' }, undefined, lookOfSent(one, attUrls));
     row.appendChild(block);
     if (one.image && !attUrls[one.id]) {
       (function (id, block) {
@@ -5296,6 +5376,14 @@ function viewedPic(one) {
       }, function () {});
     }(one.id));
   }
+  // The reader may look at the picture the model was shown, at the size it is.
+  plate.classList.add('peek');
+  plate.title = one.name + ' — click to look at the picture';
+  plate.setAttribute('role', 'button');
+  plate.tabIndex = 0;
+  plate.addEventListener('click', function () {
+    openViewer({ name: one.name, kind: 'image', id: one.id, url: attUrls[one.id] || '' });
+  });
   var seen = 'The model can see this image.';
   var eye = make('span', 'seen');
   eye.title = seen;
@@ -6255,6 +6343,168 @@ function holdWords(words) {
 // when its words are asked for, for a long one may not have been read yet, and no
 // reader should wait for the whole of a disk before the first word of it can
 // stand in the box.
+// ---------------------------------------------------------- the looking window
+//
+// The window a picture or a file of words is looked at in. A block of an
+// attachment is a name with a thumb at best: the window shows the thing itself,
+// at the size it is. What the block never carried is asked for when the reader
+// looks at it, which is why the window says a moment of waiting rather than
+// showing nothing at all.
+
+var lookBack = null;      // what held the mark of the keys before the window came
+// The most words the window will write down. A file of words may be longer than
+// a screen of reading by a thousand turns, and a page of it is what is looked at.
+var LOOK_WORDS = 200000;
+
+// One picture, at the size it is. The window is scrolled when the picture is
+// bigger than the room it has.
+function showPicture(body, url, name) {
+  var pic = make('img');
+  pic.src = url;
+  pic.alt = name || '';
+  body.appendChild(pic);
+}
+
+// The words of a file. They are written as they stand, and never as marks of
+// markdown, for what is looked at here is the file, not an answer.
+function showWords(body, words) {
+  var text = String(words || '');
+  var held = document.createElement('pre');
+  if (text.length > LOOK_WORDS) {
+    held.textContent = text.slice(0, LOOK_WORDS);
+    body.appendChild(held);
+    var said = make('div', 'look-note');
+    said.textContent = 'The first ' + LOOK_WORDS.toLocaleString()
+      + ' words of ' + text.length.toLocaleString() + ' characters.';
+    body.appendChild(said);
+    return;
+  }
+  held.textContent = text;
+  body.appendChild(held);
+}
+
+function noteWaiting(body) {
+  var said = make('div', 'look-note');
+  said.textContent = 'Reading it …';
+  body.appendChild(said);
+}
+
+function sayNothing(body) {
+  var said = make('div', 'look-note');
+  said.textContent = 'Nothing of this file can be shown here.';
+  body.appendChild(said);
+}
+
+// The window is put up. `one` says what is to be looked at: its name, whether it
+// is a picture or a file of words, the bytes of a picture when they are already
+// known, the words when they are, the file when the words are still to be read,
+// and the number of the attachment when both are still to be asked for.
+function openViewer(one) {
+  var box = el.viewer;
+  if (!box || !one) { return; }
+  wireViewer();
+  lookBack = document.activeElement;
+  box.classList.remove('hidden');
+  if (el.lookname) { el.lookname.textContent = one.name || 'A file of the chat'; }
+  if (el.lookkind) { el.lookkind.textContent = one.kind === 'image' ? 'Image' : 'Text'; }
+  var body = el.lookbody;
+  if (!body) { return; }
+  body.innerHTML = '';
+  if (one.kind === 'image') {
+    if (one.url) { showPicture(body, one.url, one.name); return; }
+    if (one.id) {
+      noteWaiting(body);
+      (function (name) {
+        attachmentWords(one.id).then(function (record) {
+          var url = record && record.data ? record.data : '';
+          body.innerHTML = '';
+          if (url) { showPicture(body, url, name); } else { sayNothing(body); }
+        }, function () { sayNothing(body); });
+      }(one.name));
+      return;
+    }
+    sayNothing(body);
+    return;
+  }
+  if (one.words) { showWords(body, one.words); return; }
+  if (one.file) {
+    noteWaiting(body);
+    wordsOfHeld(one, function (words) {
+      body.innerHTML = '';
+      if (words) { showWords(body, words); } else { sayNothing(body); }
+    });
+    return;
+  }
+  if (one.id) {
+    noteWaiting(body);
+    (function (id) {
+      attachmentWords(id).then(function (record) {
+        var words = record && record.text ? record.text : '';
+        body.innerHTML = '';
+        if (words) { showWords(body, words); } else { sayNothing(body); }
+      }, function () { sayNothing(body); });
+    }(one.id));
+    return;
+  }
+  sayNothing(body);
+}
+
+// The window is put away, and the mark of the keys goes back where it stood, so
+// the chat is read on from the same place after a look.
+function closeViewer() {
+  var box = el.viewer;
+  if (!box || box.classList.contains('hidden')) { return; }
+  box.classList.add('hidden');
+  if (el.lookbody) { el.lookbody.innerHTML = ''; }
+  if (lookBack && lookBack.focus) { lookBack.focus(); }
+  lookBack = null;
+}
+
+// The three ways the window goes away again: its own mark, a click outside it,
+// and the key of escape. It is wired once, and the window is the only place the
+// key of escape is taken from the chat.
+var lookWired = false;
+function wireViewer() {
+  if (lookWired) { return; }
+  lookWired = true;
+  if (el.lookclose) {
+    el.lookclose.addEventListener('click', function () { closeViewer(); });
+  }
+  if (el.viewer) {
+    el.viewer.addEventListener('mousedown', function (event) {
+      if (event.target === el.viewer) { closeViewer(); }
+    });
+  }
+  window.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') { return; }
+    if (el.viewer && !el.viewer.classList.contains('hidden')) {
+      event.preventDefault();
+      closeViewer();
+    }
+  });
+}
+
+// The look of a file the chat box holds. The look is made afresh for every
+// block, so each block keeps the file it was made for: a look made in a ring of
+// numbers would look at whatever file the ring stopped on, which is the last of
+// them and not the one the reader clicked.
+function lookOfHeld(one) {
+  return function () {
+    openViewer({ name: one.name, kind: one.kind === 'image' ? 'image' : 'file',
+                 url: one.url || '', words: one.text || '', file: one.file });
+  };
+}
+
+// The look of a file hanging on a sent message. Its bytes are asked for by the
+// number of the attachment when the window is opened, unless they were brought
+// for the block already.
+function lookOfSent(one, pics) {
+  return function () {
+    openViewer({ name: one.name, kind: one.image ? 'image' : 'file',
+                 id: one.id, url: pics[one.id] || '' });
+  };
+}
+
 function wordsOfHeld(one, done) {
   if (one.text) { done(one.text); return; }
   if (!one.file) { done(''); return; }
@@ -6291,7 +6541,7 @@ function putWordsInBox(one) {
   });
 }
 
-function partBlock(one, place) {
+function partBlock(one, place, look) {
   // A block of a picture and a block of a file are cut differently once they
   // stand under a sent message, so each carries word of what it is.
   var part = make('div', 'part ' + (one.kind === 'image' ? 'image' : 'file'));
@@ -6344,6 +6594,37 @@ function partBlock(one, place) {
       drawParts();
       grow();
     });
+  // A block may be looked at. A picture opens at a click on the block itself,
+  // and so does a file of words standing under a sent message; a file of words
+  // over the chat box has another work — a click on it puts its words in the box
+  // — so it is looked at through its own eye instead.
+  if (look) {
+    if (one.kind === 'image' || place === undefined) {
+      part.classList.add('peek');
+      part.title = (one.name || '') + ' — click to look at it';
+      part.setAttribute('role', 'button');
+      part.tabIndex = 0;
+      part.addEventListener('click', function () { look(); });
+      part.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          look();
+        }
+      });
+    } else {
+      var eye = make('button', 'eye');
+      eye.type = 'button';
+      eye.title = 'Read the words of this file';
+      eye.setAttribute('aria-label', 'Read ' + (one.name || 'this file'));
+      eye.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="'
+        + 'M1.9 8c1.6-2.9 3.6-4.3 6.1-4.3s4.5 1.4 6.1 4.3c-1.6 2.9-3.6 4.3-6.1 4.3S3.5 10.9 1.9 8z M8 9.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z' + '"/></svg>';
+      eye.addEventListener('click', function (event) {
+        event.stopPropagation();
+        look();
+      });
+      part.insertBefore(eye, part.querySelector('.x') || null);
+    }
+  }
     part.appendChild(x);
   }
   return part;
@@ -6354,7 +6635,7 @@ function drawParts() {
   el.parts.innerHTML = '';
   el.parts.classList.toggle('hidden', heldFiles.length === 0);
   for (var n = 0; n < heldFiles.length; n++) {
-    el.parts.appendChild(partBlock(heldFiles[n], n));
+    el.parts.appendChild(partBlock(heldFiles[n], n, lookOfHeld(heldFiles[n])));
   }
 }
 
