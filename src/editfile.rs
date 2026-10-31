@@ -156,7 +156,7 @@ pub fn partial_words(raw: &str) -> String {
     String::new()
 }
 
-// The name of the file of a call that is finished. The reader sees this in the
+// The name of the file of a call that is finished. The user sees this in the
 // head of the block, so the whole name is worth having.
 pub fn file_of(raw: &str) -> String {
     match object(raw) {
@@ -165,8 +165,8 @@ pub fn file_of(raw: &str) -> String {
     }
 }
 
-// The words of a call that are still being written, as the reader is given
-// them. The reader sees the words of the call come in, as the reader watches a
+// The words of a call that are still being written, as the user is given
+// them. The user sees the words of the call come in, as the user watches a
 // command: the head names the file the call works on, and the body holds the
 // words the call is making. Nothing is made up of words that have not come in
 // yet.
@@ -180,13 +180,13 @@ pub fn live_params(name: &str, raw: &str) -> (String, String) {
 
 // The words of the changes of a call that is still being written, in the order
 // they stand. Each change is shown as the words that go out and the words that
-// come in, one line of a mark between the two, so the reader sees the change as
+// come in, one line of a mark between the two, so the user sees the change as
 // it is made.
 //
 // The two halves of a change are read side by side and not one inside the other,
 // for a model writes them in the order it likes. One that puts the words to come
 // in first is read as it comes: the mark of the change stands over those words
-// until the words to take out arrive, and the reader is not held looking at an
+// until the words to take out arrive, and the user is not held looking at an
 // empty block while the call is written. A change whose two halves are both
 // still nothing is left out, for a mark over nothing says nothing. The words to
 // take out are only worth a line when they are really words, since an empty
@@ -201,7 +201,7 @@ fn edit_params(raw: &str) -> String {
     for number in 0..olds.len().max(news.len()) {
         let old = olds.get(number).filter(|one| !one.trim().is_empty());
         // The words to put in count as come in when the model has written the
-        // mark that opens them, so the mark of a change shows the reader that
+        // mark that opens them, so the mark of a change shows the user that
         // the words behind it are on their way.
         let new = news.get(number);
         if old.is_none() && new.is_none() {
@@ -393,7 +393,7 @@ fn habit(name: &str) -> &str {
 }
 
 // True when a name leads into the folder the records of the attachments of the
-// chat stand in. Those files belong to the chat and to the reader, and a tool
+// chat stand in. Those files belong to the chat and to the user, and a tool
 // has no business with them.
 fn in_shelf(path: &Path) -> bool {
     let wanted = Component::Normal(std::ffi::OsStr::new(attach::FOLDER));
@@ -898,7 +898,7 @@ fn difference(before: &[&str], after: &[&str], context: usize, offset: usize) ->
             nw += 1;
         }
     }
-    // The lines a reader needs to see: each change, and the context about it.
+    // The lines a user needs to see: each change, and the context about it.
     let mut want = vec![false; marks.len()];
     for (k, (mark, _)) in marks.iter().enumerate() {
         if *mark == ' ' {
@@ -1471,8 +1471,8 @@ mod tests {
         assert!(!create(&root, r#"{"path":".attachments/ab12cd.json","text":"x"}"#).ok);
     }
 
-    // The words of the file of a call that is not finished yet. The reader
-    // watches the name of the file come in, as the reader watches a command.
+    // The words of the file of a call that is not finished yet. The user
+    // watches the name of the file come in, as the user watches a command.
     #[test]
     fn the_name_of_the_file_is_read_while_the_call_is_written() {
         assert_eq!(partial_words(""), String::new());
@@ -1503,7 +1503,7 @@ mod tests {
     // The two halves of a change are read in the order they come in, and not only
     // in the order the shape of the call asks for them. A model that writes the
     // words to put in before the words to take out is read while it writes, so
-    // the reader of the block is not left looking at an empty body until the two
+    // the user of the block is not left looking at an empty body until the two
     // halves happen to meet.
     #[test]
     fn the_two_halves_of_a_change_are_read_in_the_order_they_come() {
@@ -1523,7 +1523,7 @@ mod tests {
             "o\n> uno"
         );
         // The mark of a change is shown as soon as it has a half of its own, for
-        // a reader watching a block wants to see it move.
+        // a user watching a block wants to see it move.
         assert_eq!(edit_params(r#"{"edits":[{"new_string":""#), "> ");
         assert_eq!(
             edit_params(r#"{"edits":[{"old_string":"one","new_string":""#),
@@ -1587,7 +1587,7 @@ mod tests {
         assert_eq!(bodies[call.len()].as_str(), "one\n> uno\ntwo\n> dos");
         assert_eq!(names[call.len()].as_str(), "notes/todo.txt");
         // From the first character after the mark that opens the words to put in,
-        // every look holds a word of the change. This is the stretch the reader
+        // every look holds a word of the change. This is the stretch the user
         // used to sit out: the block stood blank, and the words of the change
         // popped in whole when the two halves of it happened to meet.
         let begun = call.find(opened).expect("the call opens its first words");

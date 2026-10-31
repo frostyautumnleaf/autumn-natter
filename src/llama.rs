@@ -103,7 +103,7 @@ fn shard_of(stem: &str) -> Option<(String, usize, usize)> {
 // their name without the mark of the split; the first of them is kept, for the
 // rest hang off it and are no choice of their own. A model that stands in a
 // folder of its own inside the folder of models is named for that folder, which
-// is the name the reader gave it when the files were put there.
+// is the name the user gave it when the files were put there.
 fn named_models(root: &Path, found: Vec<ModelInfo>) -> Vec<ModelInfo> {
     // One entry per model: the folder, the name without the mark of a split,
     // the number of the part kept, and the record the list is drawn from.
@@ -221,7 +221,7 @@ fn walk(dir: &Path, depth: usize, max_depth: usize, out: &mut Vec<ModelInfo>) {
 
 // Find the vision projector that belongs to a model. It is looked for where the
 // files of the model stand, which is a folder of its own when the model has one,
-// and not in the folder of models the reader pointed at.
+// and not in the folder of models the user pointed at.
 pub fn find_mmproj(model: &Path) -> Option<PathBuf> {
     let dir = model.parent()?;
     let stem = model.file_stem()?.to_string_lossy().to_lowercase();
@@ -305,7 +305,7 @@ impl Server {
     // chat may call a tool of any kind: a command, or a mark of a chapter.
     // `keep_talks` names the folder the server writes the talks it has worked
     // through into, and reads them back from -- see `slot_save_flags`. It is
-    // none when the reader has switched the keeping off, and nothing of a talk
+    // none when the user has switched the keeping off, and nothing of a talk
     // is then kept anywhere.
     #[allow(clippy::too_many_arguments)]
     pub fn start(
@@ -323,7 +323,7 @@ impl Server {
         // The folder has to stand before it is named to the server, for the
         // server throws out an argument that names no folder of the disk, and
         // the keeping of every talk would go missing with it. A folder that
-        // cannot be made is told to the reader; the server starts none the
+        // cannot be made is told to the user; the server starts none the
         // less, only without the keeping.
         let keeping = match keep_talks {
             Some(dir) => match fs::create_dir_all(dir) {
@@ -981,11 +981,11 @@ pub struct Answer {
 // the prompt work, as the server reports it while the prompt goes through.
 // on_context gets how full the room of the talk is, as the server reports it on
 // every piece of the answer. on_tool gets the calls of the model as they are
-// written, so the reader can see the words of a command as the model puts them
+// written, so the user can see the words of a command as the model puts them
 // down. The stream has a hand for everything the window shows at once, so the
 // call is a flat list of them.
 //
-// Two hands stop the stream. `cancel` is the reader's, and `interrupt` is the
+// Two hands stop the stream. `cancel` is the user's, and `interrupt` is the
 // program's own: it is put up when the talk has come to the room the program
 // meant to keep, and the stream is cut off at the next piece of the answer. The
 // one cannot wait for the other, for a model writing a tool call bigger than the
@@ -1026,7 +1026,7 @@ pub fn stream_chat(
         }
     };
 
-    let mut reader = response.into_reader();
+    let mut stream = response.into_reader();
     let mut pending: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4096];
     // The pieces of one read are worked through one after another, and the room of
@@ -1039,7 +1039,7 @@ pub fn stream_chat(
             answer.stopped = true;
             break;
         }
-        match reader.read(&mut chunk) {
+        match stream.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => {
                 pending.extend_from_slice(&chunk[..n]);
@@ -1621,7 +1621,7 @@ mod tests {
 
     // The words of a call of the model come in pieces, about one word at a
     // time. The whole of what is written so far is given back on every piece, so
-    // the reader can watch a command grow instead of waiting for the end of it.
+    // the user can watch a command grow instead of waiting for the end of it.
     #[test]
     fn the_words_of_a_call_are_given_back_as_they_come() {
         let mut answer = Answer::default();
@@ -1724,7 +1724,7 @@ mod tests {
     // A call of a file tool, streamed in the order a model likes rather than in
     // the order the shape of the call asks for: the words to put in first, the
     // words to take out after them, and the name of the file last of all. The
-    // words the reader of the chat is handed move with every piece of the stream,
+    // words the user of the chat is handed move with every piece of the stream,
     // so the block of the call holds the change from the first word of it, and is
     // never left blank while the model is still writing.
     #[test]
@@ -1746,7 +1746,7 @@ mod tests {
         };
         let mut answer = Answer::default();
         // The body of the block and the name of the file in the head, as the
-        // reader was handed them after every piece.
+        // user was handed them after every piece.
         let mut read: Vec<(String, String)> = Vec::new();
         let mut told = |made: &[ToolCall]| {
             read.push(editfile::live_params(editfile::EDIT_NAME, &made[0].arguments));
@@ -1821,7 +1821,7 @@ mod tests {
                 number
             );
         }
-        // The body of the block moved more than once, so the reader watched the
+        // The body of the block moved more than once, so the user watched the
         // change being written instead of waiting for the end of it.
         let moves = read
             .windows(2)

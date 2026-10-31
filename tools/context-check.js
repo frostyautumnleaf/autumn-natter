@@ -187,7 +187,7 @@ const STATES = STEPS.map(function (step, n) { return stateOf(Object.assign({ n: 
 
   // The numbers between the ones the engine sent belong to the roll: a meter
   // that is set straight from the state only ever shows the numbers it is
-  // given, and the reader sees it jump.
+  // given, and the user sees it jump.
   const sent = {};
   STEPS.forEach(function (step) { sent[step.used] = true; });
   const rolled = read.filter(function (n) { return n > 0 && !sent[n]; });

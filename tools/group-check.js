@@ -53,7 +53,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     // A thought long enough to be moved in, so the reading place of the panel
     // can be looked at. The Chatting setting that lets a panel grow is turned
     // off, for a panel that grows has no place of its own to read at.
-    var long = 'The reader wants the notes read. '
+    var long = 'The user wants the notes read. '
       + 'Every line of them has to be looked at, so the thought runs on and on.';
     var chat = { chatting: { collapse_thinking: false, grow_thinking: false,
                              tools_in_thinking: true, collapse_tools: false } };
@@ -98,7 +98,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
 
     // Two: the result of the run comes in while the model writes on. The block
     // must say what became of the command, and the panel must be the panel that
-    // stood before, at the place the reader had moved it to.
+    // stood before, at the place the user had moved it to.
     where = 'the result came in';
     var two = Object.assign({ messages: head.concat([run('the notes, read')]),
       generating: true, summarising: false, live: '',

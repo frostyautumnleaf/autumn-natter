@@ -6,7 +6,7 @@
 // Four things are looked at. A table, a quote and a rule are cut into blocks of
 // their own, and into the right ones. The nodes they make say the same words, in
 // the same order, with the head where the marks said it was, and no mark of the
-// table, of the quote or of the rule left for the reader. A link is made a link,
+// table, of the quote or of the rule left for the user. A link is made a link,
 // with its words on the page and its address in it, and an address that is not
 // one to follow is left as words. And an answer that grows a few characters at a
 // time keeps every word of a table, of a quote and of a link on the page, so the
@@ -156,14 +156,14 @@ const PAGE = process.env.AN_PAGE
       say('the third column does not stand in the middle as its colons said');
     }
     if (host.textContent.indexOf('|') >= 0) {
-      say('a wall of the table reached the reader');
+      say('a wall of the table reached the user');
     }
     var quoted = said(blocks(QUOTE));
     if (quoted.querySelector('.quote .marks li').textContent !== 'with a list inside') {
       say('the list inside the quote lost its words');
     }
     if (/(^|\n)\s*>/.test(quoted.querySelector('.quote').textContent)) {
-      say('the mark of the quote reached the reader');
+      say('the mark of the quote reached the user');
     }
     if (quoted.querySelectorAll('.quote').length !== 1) {
       say('the quote was made more than once');
@@ -261,7 +261,7 @@ const PAGE = process.env.AN_PAGE
     var linkBox = said(blocks(LINK));
     var link = linkBox.querySelector('a.link');
     if (!link) {
-      say('a link made nothing the reader may follow');
+      say('a link made nothing the user may follow');
     } else {
       if (link.getAttribute('href') !== 'https://example.com/autumn') {
         say('the address of the link is ' + link.getAttribute('href'));
@@ -283,7 +283,7 @@ const PAGE = process.env.AN_PAGE
       say('the words about the link are ' + JSON.stringify(linkBox.textContent));
     }
     if (/[[\]()]/.test(linkBox.textContent)) {
-      say('a mark of the link reached the reader');
+      say('a mark of the link reached the user');
     }
     if (link && window.getComputedStyle(link).color === window.getComputedStyle(words).color) {
       say('the link reads in the colour of the words about it');
@@ -369,7 +369,7 @@ const PAGE = process.env.AN_PAGE
       say('no link stands in a cell of a table');
     }
     if (everyBox.textContent.indexOf('[') >= 0) {
-      say('a mark of a link reached the reader');
+      say('a mark of a link reached the user');
     }
 
     // 6. An answer that grows a few characters at a time. Whatever the marks
@@ -468,7 +468,7 @@ const PAGE = process.env.AN_PAGE
         say('the answer ' + s + ' ended with other words than the marks say');
       }
       // Every link the marks name stands on the page, with its address, and no
-      // mark of the writing is left for the reader.
+      // mark of the writing is left for the user.
       var ends = [];
       var collect = function (made) {
         made.forEach(function (one) {

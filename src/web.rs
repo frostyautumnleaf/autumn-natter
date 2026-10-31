@@ -77,7 +77,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         .iter()
         .map(|m| {
             // The blocks of the attachments need the name and the kind of
-            // each file, in the order the reader hung them. The words of a
+            // each file, in the order the user hung them. The words of a
             // file and the bytes of a picture do not stand here: the page
             // asks for one of them by its id when it draws the block.
             let attachments: Vec<Value> = m
@@ -114,10 +114,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // stopped rather than the running of it failed.
                 "cancelled": m.cancelled,
                 // An answer of the model that never came to an end of its own,
-                // because the reader stopped it. The page puts the mark of going on
+                // because the user stopped it. The page puts the mark of going on
                 // with it under that answer alone.
                 "stopped": m.stopped,
-                // The files a run of the download tool offered to the reader. The
+                // The files a run of the download tool offered to the user. The
                 // page draws a block for each of them at the end of the answer
                 // that made the offer, and only once the model has stopped.
                 "downloads": m.downloads.iter().map(|one| json!({
@@ -208,11 +208,11 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "summarising": snap.summarising,
         // The calls the model is writing at this moment, in the order it writes
         // them. The window shows them as blocks of a command being written, so
-        // the reader sees the words of it and does not wait for the run.
+        // the user sees the words of it and does not wait for the run.
         "live_tools": live_tools,
-        // The question the model has put to the reader and is waiting on, when it
+        // The question the model has put to the user and is waiting on, when it
         // has put one. The popup of the ask stands above the chat box, and the
-        // reader answers it there: by choosing one of the answers the model
+        // user answers it there: by choosing one of the answers the model
         // offered, or by writing an answer of their own.
         "ask": snap.ask.as_ref().map(|one| json!({
             "id": one.id,
@@ -287,7 +287,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox_note": snap.sandbox_note,
         // The three settings of the sandbox, for the menu of the badge. All three
         // stand off, and each is opened on its own line of the menu.
-        // The servers of the reader's own, for the menu of the MCP badge and
+        // The servers of the user's own, for the menu of the MCP badge and
         // for the MCP tab of the settings. The words of the code of a server of
         // the program itself are kept out of here, for this is asked for about
         // six times a second: the sheet asks for them by a call of its own.
@@ -328,7 +328,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "paste_limit": snap.chat_paste_limit,
             "width": snap.chat_width,
             // How long the model waits for an answer to a question it put to the
-            // reader: the short wait of an ordinary question, and the wait of one
+            // user: the short wait of an ordinary question, and the wait of one
             // the model cannot go on without.
             "ask_seconds": snap.ask_seconds,
             "ask_critical_seconds": snap.ask_critical_seconds,
@@ -349,7 +349,7 @@ fn ratio(snap: &Snap) -> f64 {
 // A speed of the work, to a tenth of a token to the second. The server measures
 // the two speeds over the whole of the work it has done, and says them again on
 // every piece of the answer; the tenth keeps the number the page shows from
-// shivering under the reader. A speed that is nothing, or that makes no sense,
+// shivering under the user. A speed that is nothing, or that makes no sense,
 // reads as nothing, and the page then keeps the number away.
 fn rate(per: f64) -> f64 {
     if !per.is_finite() || per <= 0.0 {
@@ -359,7 +359,7 @@ fn rate(per: f64) -> f64 {
 }
 
 // The lists the side bar is made of: every repository with the chats that stand
-// in it, the chats that belong to no repository, and the chats the reader put
+// in it, the chats that belong to no repository, and the chats the user put
 // away. The page asks for these when a list changed, and not with every look at
 // the state, for the chats are read from the disk and can be many.
 //
@@ -374,7 +374,7 @@ pub fn lists_value(engine: &crate::engine::Engine) -> Value {
             "id": chat.meta.id,
             "title": chat.meta.title,
             "repo": chat.meta.repo_id,
-            // The line of the group the chat stands in, in words the reader of
+            // The line of the group the chat stands in, in words the user of
             // the pinned group can use.
             "when": store::format_when(chat.meta.updated),
             "pinned": chat.meta.pinned,
@@ -588,11 +588,11 @@ pub fn log_value(id: &str, most: Option<u64>) -> Value {
     }
 }
 
-// The servers of the reader's own, whole: what the MCP tab of the settings is
+// The servers of the user's own, whole: what the MCP tab of the settings is
 // filled from. The line that starts a server, the address of it, and the words
 // of a server of the program itself all come here, and nowhere else, for the tab
 // is opened now and then and the state is asked for always.
-// One file the reader was offered, for the window that has no web server of its
+// One file the user was offered, for the window that has no web server of its
 // own. The name, the kind of the bytes, and the bytes as a data URL: the window
 // hangs the data URL on a link and the file comes down, which is what the button
 // of a block does over http as well. A name that leaves the room of the open chat
@@ -613,7 +613,7 @@ pub fn gift_value(engine: &crate::engine::Engine, asked: &str) -> Value {
     }
 }
 
-// Several files the reader was offered, wound into one archive for the same
+// Several files the user was offered, wound into one archive for the same
 // window. The archive is made in the memory and is never written out, so taking
 // the whole of an offer leaves no file of its own behind.
 pub fn gift_zip_value(engine: &crate::engine::Engine, paths: &[String]) -> Value {
@@ -686,8 +686,8 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
     match path {
         "/api/send" | "send" => {
             let text = text_field(&value, "text");
-            // The files the reader hung on the message, in the order the
-            // reader hung them. A message of files and no words is a real
+            // The files the user hung on the message, in the order the
+            // user hung them. A message of files and no words is a real
             // message, so only a message of nothing at all is refused.
             let files = crate::attach::parse_incoming(
                 value.get("attachments").cloned().unwrap_or(serde_json::Value::Null),
@@ -702,7 +702,7 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.cancel();
             done()
         }
-        // The reader answered the question the model put with the tool of that
+        // The user answered the question the model put with the tool of that
         // name. The id is the one the ask carried, so an answer that comes late --
         // after the question was given up, or after another answer took it -- does
         // nothing at all.
@@ -724,12 +724,12 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             done()
         }
         // Write the answer of a message again. The talk is cut back to the message
-        // the reader is going on from, and the model is asked again from there.
+        // the user is going on from, and the model is asked again from there.
         "/api/retry_message" | "retry_message" => {
             engine.retry_message(text_field(&value, "id"));
             done()
         }
-        // Go on with an answer the reader stopped while the model was writing it.
+        // Go on with an answer the user stopped while the model was writing it.
         "/api/continue_message" | "continue_message" => {
             engine.continue_message(text_field(&value, "id"));
             done()
@@ -772,7 +772,7 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.set_sandbox_setting(setting, flag(&value, "on"));
             done()
         }
-        // One server of the reader's own, switched on or off for this chat. The
+        // One server of the user's own, switched on or off for this chat. The
         // menu of the badge sends the id of the server it drew.
         "/api/mcp_on" | "mcp_on" => {
             engine.set_mcp(&text_field(&value, "id"), flag(&value, "on"));

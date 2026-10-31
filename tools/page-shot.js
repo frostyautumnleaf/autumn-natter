@@ -21,7 +21,7 @@
 //   AN_SUMMARIES=6 node page-shot.js rich p.png   # that many handoff summaries
 //   AN_NOTIMELINE=1 node page-shot.js rich p.png  # the line turned off
 //   AN_BROKEN=1 node page-shot.js rich p.png      # the newest one never written
-//   AN_CUT=1 node page-shot.js rich p.png         # a tool call the reader stopped
+//   AN_CUT=1 node page-shot.js rich p.png         # a tool call the user stopped
 //   AN_GIFTS=1 node page-shot.js rich p.png       # the talk ends with the blocks
 //     of the files the download tool offered, with their buttons
 //   AN_SUMMARISING=1 node page-shot.js rich p.png # a summary being written,
@@ -46,7 +46,7 @@
 //   AN_PROGRESS=42 AN_WHAT=image node page-shot.js processing p.png
 //   AN_PROGRESS and AN_WHAT stand for the gauge above the chat box.
 //   AN_PASTE=1 hangs a picture and a file of words on the chat box, as the
-//   reader's Ctrl+V would, so the blocks over the words can be looked at.
+//   user's Ctrl+V would, so the blocks over the words can be looked at.
 //   AN_DROP=1 hangs them as a file let go over the box would, which is the
 //   other road on to the box, and the one Tauri used to eat.
 //   AN_PICFILE=pic.png makes the pictures of the attachments real, so the
@@ -92,7 +92,7 @@ function theTemplate() {
 
 const MCP_TEMPLATE = theTemplate();
 
-// The servers of the fake reader, for the MCP tab and the menu of the badge.
+// The servers of the fake user, for the MCP tab and the menu of the badge.
 const MCP_HELD = { ok: true, python: 'python3', template: MCP_TEMPLATE, servers: [
   { id: 'mcpdemo0001', name: 'Bookshop', kind: 'stdio', icon: 7, shown: true, on: true,
     tools: ['look_up', 'reserve'], fault: '' },
@@ -147,7 +147,7 @@ function said(id, role, body, extra) {
 // a line from the program. The first run of the tool came out of a turn with
 // no words of its own, so the thinking of that turn stands above the command.
 const FULL = [
-  // The first message of the reader hangs two files on its words, so the
+  // The first message of the user hangs two files on its words, so the
   // blocks under the bubble are drawn in both skins.
   said(1, 'You', 'Can you show the plan for the parser, and run the tests?', {
     attachments: [
@@ -225,7 +225,7 @@ const FULL = [
   }),
   // A picture handed to the model. The block carries the receipt of the run and
   // the picture itself: the bytes go to the model with the receipt, and the
-  // reader looks at the same picture, under an eye that says the model can see it.
+  // user looks at the same picture, under an eye that says the model can see it.
   said(10, 'Tool', 'notes/cat.png', {
     tool_name: 'view_image',
     tool: 'Opened an image: notes/cat.png (PNG, 1024 by 768 pixels, 188 KiB). '
@@ -246,7 +246,7 @@ const TALK = [
   said(4, 'Assistant', 'mmap is the default. It costs less memory.'),
 ];
 
-// A talk whose only point is the blocks under the words of the reader: a
+// A talk whose only point is the blocks under the words of the user: a
 // picture of the usual shape, a picture taller than it is wide, a name too
 // long for a block, a message of files and no words, and a file whose name is
 // made of many parts. The second picture is asked for by an attachment whose
@@ -280,9 +280,9 @@ const WRITING_NAMES = {
   view_image: 'notes/cat.png'
 };
 
-// The words a file tool is making, as the reader is given them while the call
+// The words a file tool is making, as the user is given them while the call
 // is written. The head of the block names the file, and the body holds these
-// words, so the reader sees the change as it is made.
+// words, so the user sees the change as it is made.
 const WRITING_WORDS = {
   edit_file: 'the old words of the plan\n> the new words of the plan',
   create_file: 'a short plan of the day, written down so it is not lost'
@@ -446,7 +446,7 @@ function scene(name, dark) {
     start.chats = chats(name === 'previews' ? 9 : 3, 1);
     start.carousel = { index: 1, count: start.chats.length, blank: false };
     start.messages = name === 'rich' ? FULL : name === 'parts' ? PARTS : TALK;
-    // AN_CUT=1 turns the run of the file tool into a call the reader stopped with
+    // AN_CUT=1 turns the run of the file tool into a call the user stopped with
     // their own hand. The block stays in the chat, its pill says 'cancelled', and
     // under the second label stands the word of the stop and not a result.
     if (process.env.AN_CUT === '1') {
@@ -469,8 +469,8 @@ function scene(name, dark) {
     if (process.env.AN_GIFTS === '1') {
       start.messages = start.messages.concat([
         said(21, 'Tool', 'a-page-of-the-work.html', {
-          tool_name: 'download_file',
-          tool: '2 files are offered to the reader in download blocks: '
+          tool_name: 'offer_files',
+          tool: '2 files are offered to the user in download blocks: '
             + 'a-page-of-the-work.html, counts/of-the-run.csv',
           downloads: [
             { name: 'a-page-of-the-work', extension: 'html', kind: 'page',
@@ -576,7 +576,7 @@ function scene(name, dark) {
     // A block of code that is still being written, so the colours of it are
     // painted again while it grows.
     start.generating = true;
-    start.live = 'The reader of the fence is small:\n\n'
+    start.live = 'The user of the fence is small:\n\n'
       + '```python\ndef read(line):\n    # a fence opens the block\n'
       + '    return line.startswith("```")  # and closes it';
     // The fence is left open on purpose: the block is still being written.
@@ -661,7 +661,7 @@ function scene(name, dark) {
         ? WRITING_WHY.slice(0, have - WRITING.length) : ''
     }];
     if (named) {
-      // A reader of the picture should not wonder why the chat box asks for a
+      // A user of the picture should not wonder why the chat box asks for a
       // command over the block of a file tool, nor why a look about the web
       // stands under a word about files.
       var asked = {
@@ -1201,7 +1201,7 @@ async function main() {
     await new Promise(function (r) { setTimeout(r, 250); });
   }
   // AN_HOVER=selector puts the mouse over one thing, so a look that only
-  // shows when the reader hovers over it can be seen. It comes before AN_CLICK,
+  // shows when the user hovers over it can be seen. It comes before AN_CLICK,
   // so a click may land on a thing that stands in a card under the pointer.
   // AN_PICK=selector draws a picture of each thing that matches, of its own,
   // instead of the page.

@@ -1,11 +1,11 @@
-// Check that a fold the reader moved by hand stays where the reader put it.
+// Check that a fold the user moved by hand stays where the user put it.
 //
 // A row of the chat is made again whenever the state of the chat moves: the
 // answer that was coming in becomes a message of the chat, a run of a tool comes
 // in among the thoughts, the words of an answer are written again. A fold kept
-// only in the class of a panel went with the panel, and the reader who had opened
+// only in the class of a panel went with the panel, and the user who had opened
 // a thinking panel saw it close itself when the model called a tool inside it, and
-// a reader who had opened a block of a run saw it shut when the model finished
+// a user who had opened a block of a run saw it shut when the model finished
 // writing. The folds are now read off a row before it is made again and put back
 // after. The page is loaded as it stands, with no bridge and no engine.
 const fs = require('fs');
@@ -47,7 +47,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       return m;
     }
 
-    // The head of a panel is what the reader clicks.
+    // The head of a panel is what the user clicks.
     function open(node) {
       var head = node.querySelector('.thead');
       if (!head) { faults.push('no head to click ' + where); return; }
@@ -58,11 +58,11 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var chat = { collapse_thinking: true, collapse_tools: true, tools_in_thinking: true };
     var head = [
       said('m1', 'You', 'look at the box and tell me what you find'),
-      said('m2', 'Assistant', 'I will look.', { reasoning: 'The reader wants a look.',
+      said('m2', 'Assistant', 'I will look.', { reasoning: 'The user wants a look.',
         reasoning_ms: 1200 })
     ];
 
-    // One: a thinking panel that starts closed. The reader opens it while the
+    // One: a thinking panel that starts closed. The user opens it while the
     // answer is coming in; the answer then becomes a message of the chat, which
     // makes the row again. The panel must stand open still.
     where = 'a thinking panel opened over an answer that finished';
@@ -91,12 +91,12 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var again = thinks[thinks.length - 1];
     if (!again) { faults.push('the thinking panel went away ' + where); }
     else if (closed(again)) {
-      faults.push('the thinking panel the reader opened closed itself when the answer '
+      faults.push('the thinking panel the user opened closed itself when the answer '
         + 'became a message of the chat, ' + where);
     }
 
     // Two: a block of a run inside a thinking panel, folded as the setting has it.
-    // The reader opens it; the model then writes on, and the part of the panel is
+    // The user opens it; the model then writes on, and the part of the panel is
     // made again with the new words of the run. The block must stand open still.
     where = 'a block of a run opened inside a thinking panel';
     var three = { messages: head.concat([
@@ -123,14 +123,14 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var block2 = box.querySelector('.think .tool');
     if (!block2) { faults.push('the block of the run went away ' + where); }
     else if (closed(block2)) {
-      faults.push('the block of a run the reader opened shut itself when the model '
+      faults.push('the block of a run the user opened shut itself when the model '
         + 'finished writing, ' + where);
     }
 
-    // Three: a fold the reader never moved follows the setting, whatever the
+    // Three: a fold the user never moved follows the setting, whatever the
     // making of the row did. A panel of the chat that stands closed must not be
     // forced open by the folds of another row.
-    where = 'a fold the reader never moved';
+    where = 'a fold the user never moved';
     var five = { messages: head.concat([
         said('m7', 'Assistant', 'And here are the words.', { reasoning: 'A thought of its own.',
           reasoning_ms: 400 })
@@ -143,7 +143,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var ownPanel = last.querySelector('.think');
     if (!ownPanel) { faults.push('the last message has no thinking panel ' + where); }
     else if (!closed(ownPanel)) {
-      faults.push('a thinking panel the reader never touched stood open though the '
+      faults.push('a thinking panel the user never touched stood open though the '
         + 'setting folds it, ' + where);
     }
 
@@ -154,7 +154,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     console.error(out.join('\n'));
     process.exit(1);
   }
-  console.log('a fold the reader moved stays: a thinking panel opened over an answer '
+  console.log('a fold the user moved stays: a thinking panel opened over an answer '
     + 'that finished, and a block of a run opened inside a thinking panel; a fold the '
-    + 'reader never moved still follows the setting');
+    + 'user never moved still follows the setting');
 })().catch(function (e) { console.error(e); process.exit(1); });

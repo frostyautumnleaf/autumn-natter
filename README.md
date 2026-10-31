@@ -55,7 +55,7 @@ as it fills. The Compaction section of the settings decides how.
   the limit. What was written stays in the chat, the call is recorded after the
   summarisation with a `cancelled` mark, and its words are sent back as the text
   of a turn rather than as a call. Three cut-offs in one answer is a text that
-  no window will hold, and the reader is informed.
+  no window will hold, and the user is informed.
 
 The rule lives in `compaction_wanted` in `src/config.rs`, the work in
 `run_handoff`, `maybe_compact`, and `make_room` in `src/engine.rs`, and the

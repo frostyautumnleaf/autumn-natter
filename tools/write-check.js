@@ -1,7 +1,7 @@
 // Check the block of a tool call that is being written. The page is loaded as
 // it stands, with no bridge and no engine: the writer of the live answer is
 // driven by hand, with a command that grows a few characters at a time. After
-// every look the block is read back. Two things the reader sees while a call is
+// every look the block is read back. Two things the user sees while a call is
 // written are looked at too: only one mark beats, and the block does not stand
 // hard against the words above it.
 const fs = require('fs');
@@ -33,7 +33,7 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
       + 'and I will read it back to you.';
 
     // The marks of the beat that really stand. A mark put away with no display
-    // does not beat, and the reader cannot see it.
+    // does not beat, and the user cannot see it.
     function beating(box) {
       var found = box.querySelectorAll('.caret'), shown = [];
       for (var n = 0; n < found.length; n++) {
@@ -147,7 +147,7 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
     // two halves of a change, and the name of the file, in the order it likes.
     // The states below are the ones a call hands out that puts the words to come
     // in before the words to take out, and the name of the file after both.
-    // Two things the reader sees are looked at: a word of the change stands in
+    // Two things the user sees are looked at: a word of the change stands in
     // the body as soon as there is one, and the head names a file, or says a
     // file is begun, but never wears a word of the change as a name of a file.
     var CALLS = [

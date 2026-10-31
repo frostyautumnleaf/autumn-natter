@@ -104,7 +104,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('a call asked for after the answer was written stands in the thinking '
         + 'panel that closed before the words ' + where);
     }
-    // And it stands after the words of the answer, where a reader looks for it.
+    // And it stands after the words of the answer, where a user looks for it.
     var words = box.querySelector('.turn:last-child .plain');
     if (node && words && !(node.compareDocumentPosition(words) & Node.DOCUMENT_POSITION_PRECEDING)) {
       faults.push('the block of the call stands before the words of the answer ' + where);

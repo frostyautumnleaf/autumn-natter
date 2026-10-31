@@ -1,4 +1,4 @@
-// Check that the chat box takes files the way a reader offers them: a file let
+// Check that the chat box takes files the way a user offers them: a file let
 // go over the page, a file pasted into the box, and a paste whose event carries
 // its file in the list of items only. The last shape is what a web view of a
 // window hands over where the list of files is left empty, so the box must
@@ -51,7 +51,7 @@ function stateOf(dark) {
   };
 }
 
-// The blocks over the words of the box, as the reader sees them: one name each,
+// The blocks over the words of the box, as the user sees them: one name each,
 // whether the row stands, the words of the box and the mark of send.
 function readHeld() {
   var row = document.getElementById('parts');
@@ -179,7 +179,7 @@ async function main() {
   if (!pick.pick) { faults.push('the block of a file of words does not say it may be clicked'); }
   if (pick.tab < 0) { faults.push('the block of a file of words cannot be reached from the keys'); }
 
-  // Two: the block is clicked, and its words go into the box where the reader
+  // Two: the block is clicked, and its words go into the box where the user
   // left the mark. The block goes away, so the box does not hold them twice.
   await page.evaluate(function () {
     var row = document.getElementById('parts');
@@ -193,7 +193,7 @@ async function main() {
       + JSON.stringify(held.names));
   }
   if (held.words.indexOf('Lead: aaaaa') !== 0) {
-    faults.push('the words did not land where the reader left the mark: '
+    faults.push('the words did not land where the user left the mark: '
       + JSON.stringify(held.words.slice(0, 40)));
   }
   if (held.words.length < 6400) {

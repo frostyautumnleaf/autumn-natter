@@ -4,10 +4,10 @@
 // then thinks again. A tool block that stands inside a thinking panel must be to
 // be seen while the panel is open. A train of thought that runs over a run of
 // tools must stand in one panel, and not in a row of them. More than one tool
-// call must fit inside one thinking block. A panel that the reader folded must
+// call must fit inside one thinking block. A panel that the user folded must
 // put its whole body away, the runs among the thoughts as well. And with the
 // Chatting setting off the old shape must stand, so nothing is taken away from a
-// reader who does not want it.
+// user who does not want it.
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
@@ -30,7 +30,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var faults = [];
     var where = 'at the start';
 
-    // A block the reader can see: it has a box, and no part of the page above
+    // A block the user can see: it has a box, and no part of the page above
     // it stands with display none. A tool block folded away inside a thinking
     // panel is the fault this check was written for.
     function shown(node) {
@@ -64,7 +64,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
 
     var head = [
       said('m1', 'You', 'look at the box and tell me what you find'),
-      said('m2', 'Assistant', 'I will look.', { reasoning: 'The reader wants a look.',
+      said('m2', 'Assistant', 'I will look.', { reasoning: 'The user wants a look.',
         reasoning_ms: 1200 })
     ];
 
@@ -199,7 +199,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (allTools.length !== 0) {
       faults.push('with the setting off ' + allTools.length + ' runs still stand inside a thinking panel, ' + where);
     }
-    // Seven: the fold. A panel the reader closed puts the whole of its body
+    // Seven: the fold. A panel the user closed puts the whole of its body
     // away: the thoughts, and the blocks of the runs that stand among them. A
     // run that stayed to be seen under a closed head read as a fault of the
     // fold. The head is all that is left, and it opens the panel again.

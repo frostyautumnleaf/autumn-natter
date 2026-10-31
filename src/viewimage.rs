@@ -9,7 +9,7 @@
 // a picture reaches a vision model here: as a part of the answer of the tool,
 // and not as a run of base64 in the middle of a sentence.
 //
-// The block the reader sees holds the receipt and nothing else. The bytes go to
+// The block the user sees holds the receipt and nothing else. The bytes go to
 // the model alone, so no block of the chat can ever hold a wall of base64.
 //
 // A picture can only be shown to a model that can look at pictures: the vision
@@ -43,7 +43,7 @@ const MAX_PICTURE_BYTES: usize = 12 * 1024 * 1024;
 // a projector uses, and every one of them is paid for in the room of the talk.
 const MOST_PIXELS: u64 = 40_000_000;
 
-// The words of the call, and the words the reader is shown.
+// The words of the call, and the words the user is shown.
 pub fn definition() -> Value {
     json!({
         "type": "function",
@@ -88,7 +88,7 @@ pub fn parts_of(raw: &str) -> (String, String) {
     )
 }
 
-// The one thing the call named, as far as it has come. The reader watches this
+// The one thing the call named, as far as it has come. The user watches this
 // while the call is written. A name of a file is worth showing whole, for the
 // address may not have come yet.
 pub fn partial_words(raw: &str) -> String {
@@ -247,8 +247,8 @@ fn fetch(address: &str) -> Result<Vec<u8>, String> {
         Err(problem) => return Err(format!("the image at {} could not be read: {}", address, first_words(&problem.to_string(), 200))),
     };
     let mut bytes: Vec<u8> = Vec::new();
-    let mut reader = response.into_reader();
-    let _ = reader
+    let mut stream = response.into_reader();
+    let _ = stream
         .by_ref()
         .take((MAX_PICTURE_BYTES + 1) as u64)
         .read_to_end(&mut bytes);
@@ -646,7 +646,7 @@ mod tests {
     }
 
     // A name of a file may come in any of the shapes a model reaches for, and the
-    // reader is shown the name of the picture while the call is written.
+    // user is shown the name of the picture while the call is written.
     #[test]
     fn the_names_a_model_uses_for_its_two_parts() {
         assert_eq!(parts_of("{\"file\":\"cat.png\"}").0, "cat.png");

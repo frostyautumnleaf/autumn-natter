@@ -156,7 +156,7 @@ fn handle(engine: &Engine, mut request: Request) {
         // The logs of llama.cpp, for the Logs tab. The list is asked for on its
         // own, and one log with it, for a log is far too big to come with the
         // state of the page.
-        // The servers of the reader's own, whole, for the MCP tab of the
+        // The servers of the user's own, whole, for the MCP tab of the
         // settings. The state carries their names and their tools, and nothing
         // of the words a server of the program itself is made of.
         ("GET", "/api/mcp") => {
@@ -179,7 +179,7 @@ fn handle(engine: &Engine, mut request: Request) {
                 },
             );
         }
-        // A file the reader was offered by the download tool. The name is the one
+        // A file the user was offered by the download tool. The name is the one
         // the block carries, and only the room of the open chat is opened for it:
         // the rule of the sandbox lies over a download as it lies over a command.
         // The bytes come back as an attachment, so the browser keeps the name the
@@ -301,7 +301,7 @@ fn json_response(value: &serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>
         .with_header(content_type("application/json; charset=utf-8"))
 }
 
-// The bytes of a file the reader was offered. The name goes into the answer as an
+// The bytes of a file the user was offered. The name goes into the answer as an
 // attachment, so the browser keeps the name the block showed instead of the kind
 // it guessed, and the file is never opened in the page. A name of another alphabet
 // is written twice over: once the plain way, for a browser that reads only that,
