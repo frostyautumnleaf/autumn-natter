@@ -241,6 +241,11 @@ pub struct Config {
     // Give the words of a block of code the colours of their kind.
     #[serde(default = "on_by_default")]
     pub chat_highlight: bool,
+    // Let the marks of boldness stand for boldness: a word held between two marks
+    // is written in the heavier shape of the letters. Turned off, the marks are
+    // read as part of the words of the answer, as they were before.
+    #[serde(default = "on_by_default")]
+    pub chat_bold_markdown: bool,
     // Let the model mark the chapters of a chat, and show them beside it.
     #[serde(default = "on_by_default")]
     pub chat_chapters: bool,
@@ -475,6 +480,7 @@ impl Default for Config {
             chat_collapse_tools: true,
             chat_date_new_chat: true,
             chat_highlight: true,
+            chat_bold_markdown: true,
             chat_chapters: true,
             chat_max_tool_steps: -1,
             chat_max_answer_steps: -1,

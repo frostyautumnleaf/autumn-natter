@@ -1818,6 +1818,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Colour code blocks</span>
           <span class="sub">Text in a code block is coloured by kind: comment, keyword, string, number. Turn this off to show a block in one colour.</span>
           <div class="ctl"><input id="fHighlight" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Bold words in the chat</span>
+          <span class="sub">A word held between two marks of boldness is written in the heavier shape of the letters. Turn this off to read the marks as part of the words themselves.</span>
+          <div class="ctl"><input id="fBoldMarkdown" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Chapter markers</span>
           <span class="sub">The model may mark where a new part of the chat begins. The markers appear on a line at the left of the chat, and clicking one scrolls there. Turn this off to hide the line; the model is then not offered the tool.</span>
           <div class="ctl"><input id="fChapters" type="checkbox"></div></div>
@@ -2189,7 +2192,7 @@ var cur = null;        // the last state
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
-  highlight: true, chapters: true, paste: 6000, width: 780 };
+  highlight: true, bold: true, chapters: true, paste: 6000, width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -2304,6 +2307,7 @@ function readChatting(s) {
   chatting.inThink = chat.tools_in_thinking !== false;
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
+  chatting.bold = chat.bold_markdown !== false;
   chatting.chapters = chat.chapters !== false;
   chatting.paste = chat.paste_limit || 6000;
   chatting.width = Number(chat.width) || CHAT_LEAST;
@@ -3077,6 +3081,30 @@ function linkAt(words, at) {
 // bracket with a line before it is an escaped bracket and starts nothing, and a
 // bracket with a mark of exclamation before it is a picture, which is read as
 // words here as it always was.
+// A word held between marks of boldness: two marks of the same kind, the same
+// marks again further along the line, and a word of its own between them. The
+// word may stand in the middle of another word when the marks are of the asterisk
+// kind, for that is how a name of a file is written out; the mark of the line
+// between words is kept for the marks that stand between words, so a name with
+// such marks in it is not read as a bold word at all.
+function boldAt(words, at) {
+  var mark = words.charAt(at);
+  if (!chatting.bold || words.charAt(at + 1) !== mark) { return null; }
+  var before = at > 0 ? words.charAt(at - 1) : '';
+  if (mark === '_' && before && /[A-Za-z0-9_]/.test(before)) { return null; }
+  var rest = words.slice(at + 2), near = 0;
+  for (;;) {
+    var close = rest.indexOf(mark + mark, near);
+    if (close < 0) { return null; }
+    var said = rest.slice(0, close), after = rest.charAt(close + 2);
+    if (said && !/^\s/.test(said) && !/[\s\\]$/.test(said)
+        && (mark !== '_' || !after || !/[A-Za-z0-9_]/.test(after))) {
+      return { words: said, end: at + 2 + close + 2 };
+    }
+    near = close + 2;
+  }
+}
+
 function lineParts(line, out) {
   var words = String(line || ''), run = '', n = 0;
   while (n < words.length) {
@@ -3088,6 +3116,15 @@ function lineParts(line, out) {
         if (run) { out.push({ words: plain(run) }); run = ''; }
         out.push({ words: plain(link.words), href: link.href });
         n = link.end;
+        continue;
+      }
+    }
+    if (ch === '*' || ch === '_') {
+      var held = boldAt(words, n);
+      if (held) {
+        if (run) { out.push({ words: plain(run) }); run = ''; }
+        out.push({ words: plain(held.words), bold: true });
+        n = held.end;
         continue;
       }
     }
@@ -3151,13 +3188,25 @@ function linkNode(words, href, fade) {
   return link;
 }
 
+// A bold word. The heavier shape of the letters comes from the skin; the words
+// are set as words and never as marks, and a link that stands inside a bold word
+// keeps the road of a link.
+function boldNode(words, href, fade) {
+  var held = make('strong');
+  if (href) { held.appendChild(linkNode(words, href, fade)); }
+  else if (fade) { fresh(held, words); }
+  else { held.textContent = words; }
+  return held;
+}
+
 // The parts of a run of words put into a node. `fade` puts the words behind a
 // fade, as the new words of an answer are.
 function inlineInto(node, parts, fade) {
   for (var n = 0; n < parts.length; n++) {
     var part = parts[n];
     if (!part.words) { continue; }
-    if (part.href) { putLast(node, linkNode(part.words, part.href, fade)); }
+    if (part.bold) { putLast(node, boldNode(part.words, part.href, fade)); }
+    else if (part.href) { putLast(node, linkNode(part.words, part.href, fade)); }
     else if (fade) { fresh(node, part.words); }
     else { putLast(node, document.createTextNode(part.words)); }
   }
@@ -6838,6 +6887,7 @@ function loadProgram() {
     byId('fGrowThink').checked = cfg.chat_grow_thinking !== false;
     byId('fToolsInThink').checked = cfg.chat_tools_in_thinking !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
+    byId('fBoldMarkdown').checked = cfg.chat_bold_markdown !== false;
     byId('fChapters').checked = cfg.chat_chapters !== false;
     byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
@@ -7096,6 +7146,7 @@ function saveSheet() {
     cfg.chat_grow_thinking = byId('fGrowThink').checked;
     cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
     cfg.chat_highlight = byId('fHighlight').checked;
+    cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
     cfg.chat_chapters = byId('fChapters').checked;
     cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
     cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);

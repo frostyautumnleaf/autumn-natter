@@ -895,6 +895,9 @@ pub struct Snap {
     pub chat_date_new_chat: bool,
     // Whether a block of code takes the colours of the kinds of word in it.
     pub chat_highlight: bool,
+    // Whether the marks of boldness are read as boldness in the words of the
+    // chat, or as part of the words themselves.
+    pub chat_bold_markdown: bool,
     // Whether the model may mark the chapters of a chat, and whether the
     // chapter line stands beside it.
     pub chat_chapters: bool,
@@ -2314,6 +2317,7 @@ impl State {
             chat_collapse_tools: self.cfg.chat_collapse_tools,
             chat_date_new_chat: self.cfg.chat_date_new_chat,
             chat_highlight: self.cfg.chat_highlight,
+            chat_bold_markdown: self.cfg.chat_bold_markdown,
             chat_chapters: self.cfg.chat_chapters,
             mcp: self.mcp_snap(),
             chat_paste_limit: self.cfg.pasted_text_char_limit,
@@ -3760,6 +3764,7 @@ impl Snap {
             chat_collapse_tools: true,
             chat_date_new_chat: true,
             chat_highlight: true,
+            chat_bold_markdown: true,
             chat_chapters: true,
             chat_paste_limit: 6000,
             ask_seconds: 10,

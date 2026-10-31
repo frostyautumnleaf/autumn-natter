@@ -317,6 +317,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "collapse_tools": snap.chat_collapse_tools,
             "date_new_chat": snap.chat_date_new_chat,
             "highlight": snap.chat_highlight,
+            "bold_markdown": snap.chat_bold_markdown,
             "chapters": snap.chat_chapters,
             "paste_limit": snap.chat_paste_limit,
             "width": snap.chat_width,
