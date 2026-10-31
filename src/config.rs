@@ -255,6 +255,15 @@ pub struct Config {
     // Let the model mark the chapters of a chat, and show them beside it.
     #[serde(default = "on_by_default")]
     pub chat_chapters: bool,
+    // Keep the talk of a chat that the model has worked its way through in a
+    // file of the program, so the chat does not have to be read through again
+    // when it comes back: after another chat took the model, or after the program
+    // was shut down and started again. What stands in the file is what the model
+    // understood of the talk, and not the talk itself -- that stands where it
+    // always stood -- so the file is only ever a saving of the reading, and it
+    // may be thrown away whenever the reader likes.
+    #[serde(default = "on_by_default")]
+    pub chat_context_files: bool,
     // How many terminal commands one answer may run. -1 leaves no limit, so a
     // model may run a command as often as it wants inside one answer.
     #[serde(default = "no_limit")]
@@ -495,6 +504,7 @@ impl Default for Config {
             chat_bold_markdown: true,
             chat_silent_retries: 2,
             chat_chapters: true,
+            chat_context_files: true,
             chat_max_tool_steps: -1,
             chat_max_answer_steps: -1,
             pasted_text_char_limit: default_pasted_text_char_limit(),
@@ -542,6 +552,12 @@ pub struct Paths {
     // The logs of llama-server, one file for every start of it, the ten newest
     // of them. The Logs tab of the sheet of settings reads them.
     pub logs: PathBuf,
+    // The talks the model has worked its way through, one file for every chat
+    // that had the keeping of them switched on. They stand here, and not in the
+    // folder of a repository, for a model that works in a repository must not
+    // read or write over what another chat left of itself. llama-server is given
+    // this folder when it starts, and it writes the files into it by name.
+    pub contexts: PathBuf,
     // Default repositories directory.
     pub repositories: PathBuf,
     // Default models directory.
@@ -579,6 +595,7 @@ pub fn paths() -> Paths {
         repo_chats: data.join("repo_chats"),
         repo_records: data.join("repo_records"),
         logs: data.join("logs"),
+        contexts: data.join("contexts"),
         repositories: data.join("repositories"),
         models: data.join("models"),
         settings_file: data.join("settings.json"),
@@ -608,6 +625,7 @@ pub fn ensure_dirs() -> std::io::Result<()> {
     fs::create_dir_all(&p.repo_chats)?;
     fs::create_dir_all(&p.repo_records)?;
     fs::create_dir_all(&p.logs)?;
+    fs::create_dir_all(&p.contexts)?;
     fs::create_dir_all(&p.models)?;
     Ok(())
 }
@@ -663,6 +681,7 @@ mod tests {
         assert!(cfg.chat_date_new_chat);
         assert!(cfg.chat_highlight);
         assert!(cfg.chat_chapters);
+        assert!(cfg.chat_context_files);
         assert_eq!(cfg.chat_max_tool_steps, -1);
         assert_eq!(cfg.chat_max_answer_steps, -1);
     }
@@ -734,6 +753,10 @@ mod tests {
         assert!(read.chat_date_new_chat);
         assert!(read.chat_highlight);
         assert!(read.chat_chapters);
+        // The keeping of the talks was not in the file either, and it reads on
+        // rather than off: a reader who never heard of it is not left with the
+        // chats read through again on every coming back.
+        assert!(read.chat_context_files);
         // The two rooms for steps were not in the file either, so they read as
         // unlimited rather than as a ceiling of nothing.
         assert_eq!(read.chat_max_tool_steps, -1);
