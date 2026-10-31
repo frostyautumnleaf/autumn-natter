@@ -32,7 +32,7 @@ use crate::util;
 pub const TOOL_NAME: &str = "run_terminal";
 
 // Name the model uses to mark the start of a chapter of the chat. The call is
-// of the program's own: the reader never sees it, and the model is asked not to
+// of the program's own: the user never sees it, and the model is asked not to
 // speak of it.
 pub const CHAPTER_TOOL_NAME: &str = "chapter";
 
@@ -82,7 +82,7 @@ const ETC_PATHS: [&str; 12] = [
 
 // What a command of the jail may reach beyond its own folder. Every part of it
 // stands off, so a command sees nothing of the machine and reaches nothing
-// beyond the working directory of the chat until the reader opens it in the menu
+// beyond the working directory of the chat until the user opens it in the menu
 // of the sandbox badge. The three stand off for a new chat, and for a chat
 // written before they existed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -107,12 +107,12 @@ impl Access {
 
 // The tool description handed to the model. The call is asked for one thing: the
 // command. No reason for the command is asked for, for a model told to say why
-// it runs something spends its words on a line the reader can work out from the
+// it runs something spends its words on a line the user can work out from the
 // command itself. A model that gives a reason of its own is still read, and the
-// reader still sees it, so a chat written before this change keeps what it had.
+// user still sees it, so a chat written before this change keeps what it had.
 //
 // The words follow what the chat allows, so the model is not told a command has
-// no network when the reader opened the network, and is not left to find out by
+// no network when the user opened the network, and is not left to find out by
 // running something that fails.
 pub fn definition(access: Access) -> Value {
     let mut reach = String::from(
@@ -155,7 +155,7 @@ pub fn definition(access: Access) -> Value {
 // The tool description for a chapter of the chat.
 pub fn chapter_definition() -> Value {
     let said = with_rule(String::from(
-        "Mark the start of a new chapter in this chat. This tool is offered only while the reader has turned the chapters of a chat on. Call it when a new part of the work begins: a new task, a new question, a new phase, or the next chapter of a story you are writing. You may call it as often as you like, including in the middle of your work. Call it just before you write the part it marks, then continue writing. The result only confirms that the marker was added, and you continue where you stopped. The one thing it asks for is the name, a short phrase that says what the part is about. Do not mark the same part twice, do not describe this call, and do not mention chapters in your answer.",
+        "Mark the start of a new chapter in this chat. This tool is offered only while the user has turned the chapters of a chat on. Call it when a new part of the work begins: a new task, a new question, a new phase, or the next chapter of a story you are writing. You may call it as often as you like, including in the middle of your work. Call it just before you write the part it marks, then continue writing. The result only confirms that the marker was added, and you continue where you stopped. The one thing it asks for is the name, a short phrase that says what the part is about. Do not mark the same part twice, do not describe this call, and do not mention chapters in your answer.",
     ));
     json!({
         "type": "function",
@@ -184,7 +184,7 @@ pub fn chapter_definition() -> Value {
 // Those words come out as thinking before an answer that goes on as if none of
 // it had been said. The rule is the same one a person works under already, and
 // saying it once takes the argument out of the model's way.
-pub const CALL_RULE: &str = "Use a tool only when the reader asked for something a tool can do, or when it is plainly needed for the work. Never call a tool to fill a turn: answering in words is the right thing when no tool is wanted.";
+pub const CALL_RULE: &str = "Use a tool only when the user asked for something a tool can do, or when it is plainly needed for the work. Never call a tool to fill a turn: answering in words is the right thing when no tool is wanted.";
 
 // Hang the rule of the tools on the description of one of them. A tool keeps its
 // own words first, so what it does is read before the rule that says when to use
@@ -536,7 +536,7 @@ fn jail_failure(capture: &util::Capture) -> Option<String> {
 }
 
 // The commands that fetch a file of the web by name. They are kept out of the
-// reach of a command until the reader lets them, for fetching a page is the
+// reach of a command until the user lets them, for fetching a page is the
 // usual first step of a command that reaches further than the chat should.
 const FETCH_NAMES: [&str; 3] = ["wget", "curl", "fetch"];
 
@@ -631,13 +631,13 @@ pub fn uses_pip(command: &str) -> bool {
 pub fn refused(command: &str, access: Access) -> Option<String> {
     if !access.fetch && uses_fetch(command) {
         return Some(format!(
-            "The command was not run: fetching with {} is off for this chat, and only the reader can turn it on in the menu of the Sandbox badge. Do not try the command again, and do not look for another way to the web. Say in words that this chat does not let a command reach the web, and go on without it.",
+            "The command was not run: fetching with {} is off for this chat, and only the user can turn it on in the menu of the Sandbox badge. Do not try the command again, and do not look for another way to the web. Say in words that this chat does not let a command reach the web, and go on without it.",
             FETCH_NAMES.join(", ")
         ));
     }
     if !access.pip && uses_pip(command) {
         return Some(
-            "The command was not run: Python package installs are off for this chat, and only the reader can turn them on. Do not try the command again, and do not look for another way to install. Say in words that this chat does not let a command install packages, and go on without them.".to_string(),
+            "The command was not run: Python package installs are off for this chat, and only the user can turn them on. Do not try the command again, and do not look for another way to install. Say in words that this chat does not let a command install packages, and go on without them.".to_string(),
         );
     }
     None
@@ -1027,7 +1027,7 @@ pub fn partial_arguments(raw: &str) -> (String, String) {
 // The words of one named part of an object that may not be finished. The name
 // is looked for, and the text behind it is read to the closing mark, or to the
 // end of what has come in so far. A part this page does not know, or a number
-// where a text was looked for, gives nothing. Every tool that lets the reader
+// where a text was looked for, gives nothing. Every tool that lets the user
 // watch a call being written reads its own part out with this.
 pub fn partial_text(text: &str, wanted: &str) -> String {
     let key = format!("\"{}\"", wanted);
@@ -1121,7 +1121,7 @@ pub fn extract_object(text: &str) -> Option<&str> {
 mod tests {
     use super::*;
 
-    // The name of a chapter is what the reader sees beside the chat, so it is
+    // The name of a chapter is what the user sees beside the chat, so it is
     // made one line and kept short.
     #[test]
     fn a_chapter_name_is_one_line_and_short() {
@@ -1345,12 +1345,12 @@ mod tests {
         let off = Access::default();
         let fetch = refused("wget https://example.com", off).expect("the fetch is refused");
         assert!(fetch.contains("wget"));
-        // The reader is told what to open, and the model is told plainly not to
+        // The user is told what to open, and the model is told plainly not to
         // try again or to look for another way round it: a refusal that only
         // names the fault is read by a model as a thing to work round.
         assert!(fetch.contains("menu of the Sandbox badge"));
         assert!(fetch.contains("Do not try the command again"));
-        assert!(fetch.contains("only the reader can turn it on"));
+        assert!(fetch.contains("only the user can turn it on"));
         let pip = refused("pip install requests", off).expect("the install is refused");
         assert!(pip.contains("Python package installs"));
         assert!(pip.contains("Do not try the command again"));
@@ -1369,7 +1369,7 @@ mod tests {
     }
 
     // The words handed to the model follow what the chat allows, so the model is
-    // not told there is no network where the reader opened one.
+    // not told there is no network where the user opened one.
     #[test]
     fn the_tool_says_what_the_chat_allows() {
         let off = definition(Access::default());
@@ -1485,7 +1485,7 @@ mod tests {
         );
         assert!(clean.output.contains("CLEAN"), "{}", clean.output);
         // A command that is not wrapped says so plainly, and is marked as not
-        // sandboxed, so the window can tell the reader.
+        // sandboxed, so the window can tell the user.
         let plain = run("cat ../secret 2>&1", &workdir, false, Access::default(), Duration::from_secs(20));
         assert!(!plain.sandboxed);
         assert!(plain.output.contains("NOT-FOR-A-JAIL"), "{}", plain.output);

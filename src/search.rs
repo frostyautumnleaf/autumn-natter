@@ -3,7 +3,7 @@
 // One name does two things. Given words to look for, the tool asks the engines
 // in order and gives back the titles, the addresses and the short words of the
 // places it found. Given an address, it reads that page and gives back its
-// words, cut of their marks and cut short. The model is the reader of both
+// words, cut of their marks and cut short. The model is the user of both
 // answers, and the model reads words, so nothing of the marks of a page is kept
 // unless they say something.
 //
@@ -13,7 +13,7 @@
 // again here, from what the engine actually sends back.
 //
 // No new part is added to the program for this. The words of a page are read by
-// a small reader of its own, and the marks of a page are taken out by a rule of
+// a small user of its own, and the marks of a page are taken out by a rule of
 // its own, so the binary keeps the weight it had.
 
 use serde_json::{json, Value};
@@ -69,7 +69,7 @@ const ENCYCLOPEDIA_PAGE: &str = "https://en.wikipedia.org/wiki/";
 // engine that is not shown a browser answers with a test instead of an answer.
 const AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
 
-// The words of the call, and the words the reader is shown.
+// The words of the call, and the words the user is shown.
 pub fn definition() -> Value {
     json!({
         "type": "function",
@@ -118,7 +118,7 @@ pub fn words_of(raw: &str) -> (String, String) {
     )
 }
 
-// The one thing the call named, as far as it has come. The reader watches this
+// The one thing the call named, as far as it has come. The user watches this
 // while the call is written. An address is worth showing whole, for the words to
 // look for may not have come yet.
 pub fn partial_words(raw: &str) -> String {
@@ -424,15 +424,15 @@ fn fetch(address: &str) -> Result<String, String> {
         Err(problem) => return Err(first_words(&problem.to_string(), 200)),
     };
     let mut bytes: Vec<u8> = Vec::new();
-    let mut reader = response.into_reader();
-    let _ = reader
+    let mut stream = response.into_reader();
+    let _ = stream
         .by_ref()
         .take(MAX_FETCH_BYTES as u64)
         .read_to_end(&mut bytes);
     Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
-// The words of a page of marks. The parts that hold no words for a reader are
+// The words of a page of marks. The parts that hold no words for a user are
 // dropped whole: the head of the page, the programmes of it, the styles of it,
 // and the notes of the writer. A mark that ends a block of words leaves a new
 // line behind, and the mark of a list leaves a dash. The rest of the marks go.
@@ -448,7 +448,7 @@ fn to_words(page: &str) -> String {
         if guard > 100_000 {
             break;
         }
-        // A part with no words for a reader is left out whole.
+        // A part with no words for a user is left out whole.
         if let Some(after) = dropped(rest, at) {
             rest = after;
             continue;
@@ -468,7 +468,7 @@ fn to_words(page: &str) -> String {
     tidy_words(&out)
 }
 
-// The parts of a page that hold nothing a reader would want to read, with the
+// The parts of a page that hold nothing a user would want to read, with the
 // mark that closes each of them. Marks of a page are written in either half of
 // the alphabet, so each pair is looked for without minding the case.
 //
@@ -494,7 +494,7 @@ const DROPS: [(&str, &str); 11] = [
 // asked for opens such a part. Nothing is left when the mark that ends the part
 // is not in the page at all, which is how a page cut short in the middle of a
 // programme of its own is left standing there. The words of such a programme are
-// no words for a reader, and reading them would fill the answer of them.
+// no words for a user, and reading them would fill the answer of them.
 fn dropped(page: &str, at: usize) -> Option<&str> {
     let head = page.get(at..)?;
     for (open, close) in DROPS {
@@ -687,7 +687,7 @@ fn mark_end(text: &str) -> Option<usize> {
         }
     }
     // A mark whose quote never ends is read to its first sign, which is what a
-    // reader without the words between the quotes would have done.
+    // browser makes of the words between the quotes.
     text.find('>')
 }
 
@@ -869,7 +869,7 @@ mod tests {
 
     // A page cut short in the middle of a programme of its own holds no words
     // past the place it was cut at, for the words of a programme are no words
-    // for a reader. The menu of the house of a page, the tools at its side and
+    // for a user. The menu of the house of a page, the tools at its side and
     // the words at its foot are left out whole.
     #[test]
     fn the_house_of_a_page_is_left_out_of_its_words() {

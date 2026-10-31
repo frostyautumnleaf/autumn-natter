@@ -231,7 +231,7 @@ pub const PRESERVE_KEYS: [&str; 4] = [
 
 impl ThinkingOptions {
     /// The modes the badge of the chat offers, in the order they are listed.
-    /// There is no "auto": the reader chooses, and thinking is off unless it
+    /// There is no "auto": the user chooses, and thinking is off unless it
     /// is asked for. An empty list means the model has no thinking mode.
     pub fn modes(&self) -> Vec<&'static str> {
         if self.has_effort {

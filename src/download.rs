@@ -1,8 +1,8 @@
-// The tool that hands a file of the chat to the reader.
+// The tool that hands a file of the chat to the user.
 //
 // The model names one or more files that stand in the room of the chat, and the
 // program puts blocks of its own into the talk: the mark of the kind of file,
-// the name of it, the extension under the name, and a button. The reader presses
+// the name of it, the extension under the name, and a button. The user presses
 // the button and the file comes down. Nothing is fetched, and nothing is written:
 // the file stands where the model put it, and the block only names it.
 //
@@ -27,8 +27,8 @@ use std::path::{Path, PathBuf};
 
 use crate::tools::with_rule;
 
-// Name the model uses to ask for a file to be handed to the reader.
-pub const NAME: &str = "download_file";
+// Name the model uses to ask for a file to be handed to the user.
+pub const NAME: &str = "offer_files";
 
 // The longest name of a file the block may show. A name above this is cut in
 // the middle, so the block keeps its shape.
@@ -36,10 +36,10 @@ pub const GREATEST_NAME: usize = 90;
 
 // The most files one call may offer. A model that wants to hand over the whole of
 // a repository was not asked to, and a block for every file of it is not a thing
-// a reader looks at.
+// a user looks at.
 pub const GREATEST_FILES: usize = 8;
 
-// The most bytes of one file that are kept for the reader. A file above this is
+// The most bytes of one file that are kept for the user. A file above this is
 // named but not handed out, for a block that fills the memory of the window is no
 // use to anyone.
 pub const GREATEST_FILE: u64 = 64 * 1024 * 1024;
@@ -51,7 +51,7 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Offer one or more files of the working directory to the reader, so the reader can take each of them with the button of a block in the chat. Use it when the work left a file the reader asked for: a page, a document, a picture, an archive of the work. Call it at the end of the answer, once the work is done; the blocks stand under the answer, and never while it is being written. The block shows the kind of the file, its name without the extension, the extension under the name, and the button. A file that is not there, or that is bigger than 64 MiB, is answered and no block stands for it.",
+                "Offer one or more files of the working directory to the user, so the user can take each of them with the button of a block in the chat. Use it when the work left a file the user asked for: a page, a document, a picture, an archive of the work. Call it at the end of the answer, once the work is done; the blocks stand under the answer, and never while it is being written. The block shows the kind of the file, its name without the extension, the extension under the name, and the button. A file that is not there, or that is bigger than 64 MiB, is answered and no block stands for it.",
             )),
             "parameters": {
                 "type": "object",
@@ -59,7 +59,7 @@ pub fn definition() -> Value {
                     "paths": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "The files to offer to the reader. Every name is relative to the working directory of the chat, for example 'page.html' or 'reports/summary.md'. One name is enough; up to eight are taken."
+                        "description": "The files to offer to the user. Every name is relative to the working directory of the chat, for example 'page.html' or 'reports/summary.md'. One name is enough; up to eight are taken."
                     },
                     "path": {
                         "type": "string",
@@ -79,7 +79,7 @@ pub fn definition() -> Value {
 // One file a block offers. The record of the message holds these, so the blocks
 // are drawn again when the chat is opened another day, and in the page of the
 // remote mode. `path` is the name the file has in the room of the chat, which is
-// what the reader's click asks the program for.
+// what the user's click asks the program for.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Gift {
     pub name: String,
@@ -110,7 +110,7 @@ pub fn offer(workdir: &Path, arguments: &str) -> Made {
         return Made {
             report: crate::tools::Report {
                 ok: false,
-                output: String::from("No file was named, so nothing is offered to the reader"),
+                output: String::from("No file was named, so nothing is offered to the user"),
             },
             gifts: Vec::new(),
             note,
@@ -155,7 +155,7 @@ pub fn offer(workdir: &Path, arguments: &str) -> Made {
     }
     if gifts.is_empty() {
         let said = if missed.is_empty() {
-            String::from("No file was named, so nothing is offered to the reader")
+            String::from("No file was named, so nothing is offered to the user")
         } else {
             format!(
                 "Nothing is offered: {}. Check the names and the sizes.",
@@ -174,12 +174,12 @@ pub fn offer(workdir: &Path, arguments: &str) -> Made {
     let shown: Vec<String> = gifts.iter().map(full_name).collect();
     let mut output = if gifts.len() == 1 {
         format!(
-            "The file {} is offered to the reader in a download block.",
+            "The file {} is offered to the user in a download block.",
             shown[0]
         )
     } else {
         format!(
-            "{} files are offered to the reader in download blocks: {}.",
+            "{} files are offered to the user in download blocks: {}.",
             gifts.len(),
             shown.join(", ")
         )
@@ -308,7 +308,7 @@ fn cut(name: &str) -> String {
 }
 
 // The kind of a file, from its extension. The block draws one mark for each of
-// these, so the reader knows what is offered without reading the extension. A
+// these, so the user knows what is offered without reading the extension. A
 // page of a web browser stands on its own, for it is the thing a chat most often
 // hands over; a table of numbers does too.
 pub fn kind(extension: &str) -> &'static str {
@@ -437,7 +437,7 @@ fn place_of(workdir: &Path, asked: &str) -> Option<PathBuf> {
     Some(held)
 }
 
-// The bytes of a file the reader was offered. The name is read as the tool reads
+// The bytes of a file the user was offered. The name is read as the tool reads
 // it, and only the room of the chat is opened: a name that tries to leave the
 // room gives nothing, and neither does a file above the size one block may carry.
 // This is the road the button of a block comes down.
@@ -455,11 +455,11 @@ pub fn bytes_of(workdir: &Path, asked: &str) -> Option<(String, Vec<u8>)> {
     Some((name, bytes))
 }
 
-// The archive of several files, made in memory and handed to the reader under one
+// The archive of several files, made in memory and handed to the user under one
 // button. The files are kept as they are, without compressing them: the point is
 // one download rather than several, and the work of a chat is not what
 // compressing is for. Only the name of a file stands in the archive, not the
-// folders it came out of, so what the reader unpacks is what they were offered.
+// folders it came out of, so what the user unpacks is what they were offered.
 pub fn zip_of(files: Vec<(String, Vec<u8>)>) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
     let mut book: Vec<(String, u32, u32, u32)> = Vec::new();
@@ -657,7 +657,7 @@ mod tests {
         let _ = fs::remove_dir_all(&place);
     }
 
-    // The archive of several files is a zip the reader can open: it begins with
+    // The archive of several files is a zip the user can open: it begins with
     // the mark of an entry, holds every name, keeps the bytes of each file whole,
     // and ends with the mark of the list of them.
     #[test]

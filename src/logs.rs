@@ -20,7 +20,7 @@ use crate::store;
 
 // The name of a log begins with these words and ends with this ending. Only a
 // file of that shape is listed, and only such a file is thrown away, so a file
-// the reader put in the folder himself is left where it stands.
+// the user put in the folder himself is left where it stands.
 pub const FIRST: &str = "server-";
 pub const LAST: &str = ".log";
 
@@ -28,7 +28,7 @@ pub const LAST: &str = ".log";
 // server that was asked to say everything writes a great deal.
 pub const MOST_LOGS: usize = 10;
 
-// The most bytes of one log that go to the page. The reader is told when the log
+// The most bytes of one log that go to the page. The user is told when the log
 // is longer than this, and the search of the page looks at what was read.
 pub const GREATEST_READ: usize = 512 * 1024;
 

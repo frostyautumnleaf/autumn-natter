@@ -1,5 +1,5 @@
 // Check the MCP badge and the MCP tab. The badge is a door to the servers of
-// the reader's own: it holds one line for each server that stands in the menu,
+// the user's own: it holds one line for each server that stands in the menu,
 // and a line turns a server on or off for this chat alone. The tab holds every
 // server, the mark chosen for it, and the words of one that is written in the
 // program itself. The page is loaded as it stands, with no bridge and no
@@ -162,15 +162,15 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (byId('mcCode').value !== EXAMPLE) {
       faults.push('the field of the code did not take the example: ' + byId('mcCode').value);
     }
-    // What the reader wrote is never written over, and the example is offered
+    // What the user wrote is never written over, and the example is offered
     // again when the field still holds the example whole.
-    byId('mcCode').value = 'the words of the reader';
+    byId('mcCode').value = 'the words of the user';
     kind.value = 'stdio';
     kind.dispatchEvent(new Event('change', { bubbles: true }));
     kind.value = 'internal';
     kind.dispatchEvent(new Event('change', { bubbles: true }));
-    if (byId('mcCode').value !== 'the words of the reader') {
-      faults.push('the example was written over the words of the reader');
+    if (byId('mcCode').value !== 'the words of the user') {
+      faults.push('the example was written over the words of the user');
     }
     byId('mcCode').value = EXAMPLE;
     kind.value = 'stdio';
@@ -180,7 +180,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (byId('mcCode').value !== EXAMPLE) {
       faults.push('the example could not be offered again to a fresh field');
     }
-    // A page that never got the example leaves the field as the reader left it.
+    // A page that never got the example leaves the field as the user left it.
     mcpTemplate = '';
     byId('mcCode').value = '';
     kind.value = 'stdio';
@@ -191,7 +191,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('a field was filled with nothing at all');
     }
     // A tool of a server is drawn in the shape of a tool of a server, and the
-    // name the reader sees is the name the server gave it.
+    // name the user sees is the name the server gave it.
     var shape = toolShape('mcp__bookshop__look_up');
     if (String(shape.head).indexOf('Calling') < 0) {
       faults.push('a tool of a server is not drawn as one');
@@ -211,5 +211,5 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     + 'the tab holds every server with its mark, its kind and what became of the look, '
     + 'the picker offers sixteen marks, the kind moves which fields stand, the field of '
     + 'the code of a server of the program itself begins with the example the program '
-    + 'sends and keeps what the reader wrote, and Save sends what the fields hold');
+    + 'sends and keeps what the user wrote, and Save sends what the fields hold');
 })();

@@ -1,6 +1,6 @@
 // Check the menu of the sandbox badge. The badge used to turn the jail on and
 // off with one click; now it opens a menu, for what a command of the chat may
-// reach is three things beside the jail itself, and the reader must see all of
+// reach is three things beside the jail itself, and the user must see all of
 // them at once and open them one by one. All three stand off until they are
 // opened. The page is loaded as it stands, with no bridge and no engine: the
 // menu is filled by hand with the states the engine hands out. The box of the
@@ -136,7 +136,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (!el.sandboxmenu.classList.contains('hidden')) {
       faults.push('the menu stood open after a click elsewhere in the page');
     }
-    // The words of the badge say what a command may reach, so a reader who does
+    // The words of the badge say what a command may reach, so a user who does
     // not open the menu is not left guessing. Everything stands shut again first.
     state.sandbox_pip = false;
     state.sandbox_fetch = false;

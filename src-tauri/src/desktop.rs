@@ -127,7 +127,7 @@ fn calm_the_web_view_on_wayland() {}
 // The page is told three things, and nothing of the file itself: that a drag
 // stands over the window (for the box to say so), that the drag has gone away,
 // and that a file was let go with the places of the files. The files are then
-// read by take_files in commands.rs, which is the same reader the clipboard of
+// read by take_files in commands.rs, which is the same user the clipboard of
 // the machine uses.
 
 // Word to the page of the window: "over", "away", or "down" with the places of

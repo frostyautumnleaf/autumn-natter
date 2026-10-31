@@ -1,4 +1,4 @@
-// Check that the chat box takes files the way a reader offers them: a file let
+// Check that the chat box takes files the way a user offers them: a file let
 // go over the page, a file pasted into the box, and a paste whose event carries
 // its file in the list of items only. The last shape is what a web view of a
 // window hands over where the list of files is left empty, so the box must
@@ -51,7 +51,7 @@ function stateOf(dark) {
   };
 }
 
-// The blocks over the words of the box, as the reader sees them: one name each,
+// The blocks over the words of the box, as the user sees them: one name each,
 // whether the row stands, the words of the box and the mark of send.
 function readHeld() {
   var row = document.getElementById('parts');

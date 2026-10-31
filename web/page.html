@@ -59,7 +59,7 @@
      of a chat giving way to the three dots of its row, a mark of the bar
      changing colour. `--t-key` is the colour of a keyword of code and no pace at
      all, and a transition written with it is thrown away whole by the page, so
-     what the reader saw where a move was meant was a snap. */
+     what the user saw where a move was meant was a snap. */
   --t-move: 180ms;
 }
 body.dark {
@@ -258,7 +258,7 @@ body.home .stage { display: none; }
    nodes are always the same distance apart, whatever the chat holds between
    them. Without a chapter there is no node, and no line either. A chat with
    more chapters than the window is tall for draws them closer together, so the
-   last one stands where the reader can still reach it. */
+   last one stands where the user can still reach it. */
 .chapters {
   position: absolute; left: calc(var(--rail, 116px) / 2); top: 50%;
   transform: translate(-50%, -50%);
@@ -323,7 +323,7 @@ body.home .stage { display: none; }
 }
 /* A summarisation that was never written is said with the colour of a fault, for
    the chat stands at that place until the words come. While the words are coming
-   the node wears the accent, so the reader sees the program at work. */
+   the node wears the accent, so the user sees the program at work. */
 .tnode.writing { background: var(--accent); }
 .tnode.owed { background: var(--ink-fail); }
 .tnode:hover, .tnode:focus-visible { background: var(--accent); transform: scale(1.35); outline: none; }
@@ -347,10 +347,10 @@ body.home .stage { display: none; }
 .tnode .cprev.none { font-style: italic; opacity: .8; }
 
 /* ------------------------------------------------------------ summarisation */
-/* A handoff summary is not a saying of the model to the reader, so it stands
+/* A handoff summary is not a saying of the model to the user, so it stands
    among the words with none of the marks of a turn: a hairline with the count of
    the summarisation in the middle. Everything else of it is read on the card that
-   comes up when the reader hovers over the hairline: the day and the hour it
+   comes up when the user hovers over the hairline: the day and the hour it
    stood, the room of the talk before it and the room the summary itself takes,
    and a little of what it says. */
 /* The hairline and the count of it stand in a row: the line gives way to the
@@ -394,7 +394,7 @@ body.home .stage { display: none; }
 }
 .sumhead .sbtn:hover { border-color: var(--accent); color: var(--accent); }
 /* The three dots under the heading of a summarisation that is being written. The
-   words of a summary are never shown, so the dots are all the reader is given of
+   words of a summary are never shown, so the dots are all the user is given of
    the writing, and they nod the same nod as the dots of a thinking block.
    The name is kept apart from `.sdots`, the three dots of a row in the side bar:
    two marks of one name in a page reach one another, and the margin that lifts
@@ -407,7 +407,7 @@ body.home .stage { display: none; }
 .sumdots i:nth-child(2) { animation-delay: .15s; }
 .sumdots i:nth-child(3) { animation-delay: .3s; }
 /* The whole of a handoff summary, over the chat. The words of a summary are never
-   written among the turns, so the reader asks for them from the card over the
+   written among the turns, so the user asks for them from the card over the
    heading: they stand in a sheet of their own, read the way the words of the model
    are read. */
 .overlay { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
@@ -462,9 +462,9 @@ body.home .stage { display: none; }
   white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
 }
 .plain { min-width: 0; }
-/* The time of a message. It takes no room of its own until the reader hovers
+/* The time of a message. It takes no room of its own until the user hovers
    over the message; then it opens out below the words. Only what hangs under
-   the message moves, so the message the reader points at, and every message
+   the message moves, so the message the user points at, and every message
    above it, stand exactly where they stood. */
 .stamp { font-size: 11px; color: var(--faint); opacity: 0; height: 0;
   margin-top: 0; overflow: hidden; line-height: 15px;
@@ -472,7 +472,7 @@ body.home .stage { display: none; }
   font-variant-numeric: tabular-nums; }
 .turn:hover .stamp { opacity: 1; height: 15px; margin-top: 5px; }
 .turn.t-you .stamp { padding-right: 2px; }
-/* What the reader may do with a message. The marks stand in the line where the
+/* What the user may do with a message. The marks stand in the line where the
    time of the message stands, and that line opens when the pointer goes over the
    message, as the time of it alone did before. A mark is a button and not a piece
    of a word, so the line stays open under the pointer on a mark, and the mark may
@@ -552,7 +552,7 @@ hr.mdrule:first-child { margin-top: 2px; }
 hr.mdrule:last-child { margin-bottom: 0; }
 /* A link of the markdown. Its words stand in the bright accent of the skin, with
    a rule under them that is a mix of the accent and not the accent itself, so a
-   link reads as a word the reader may follow and not as the mark of a live
+   link reads as a word the user may follow and not as the mark of a live
    state. The address of it is in the tip, and it is opened away from this page,
    so the chat is never navigated away from. */
 a.link { color: var(--ink); overflow-wrap: anywhere;
@@ -597,7 +597,7 @@ pre.code .t-p { color: var(--t-pun); }
 /* The thinking of the model: a look inside the answer, so it is kept small and
    behind a rule of colour. The head of the panel folds the words away in the
    same way as the head of a tool run, and carries the chevron that says which
-   way the panel stands. The words are cut off at a height, and the reader can
+   way the panel stands. The words are cut off at a height, and the user can
    scroll inside the panel. */
 .think { position: relative; margin: 0 0 11px; background: var(--think-bg);
   border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; }
@@ -642,7 +642,7 @@ pre.code .t-p { color: var(--t-pun); }
 .think > .thead .cnt.pre::before { margin: 0 7px 0 0; }
 .think > .thead .cnt.post::after { margin: 0 0 0 7px; }
 /* While the model is thinking there is no bulb: three dots stand in its place
-   and nod at one another, so the reader sees that the block is not finished.
+   and nod at one another, so the user sees that the block is not finished.
    When the thoughts stop the bulb comes back. */
 .think > .thead .dots { display: none; gap: 3px; align-items: center;
   justify-content: center; width: 12px; height: 12px; }
@@ -662,7 +662,7 @@ pre.code .t-p { color: var(--t-pun); }
    panel. With it off the fixed height above stands, as it always did. */
 .think.grow .words { max-height: none; overflow-y: visible; }
 /* The fold puts the whole body of the panel away: the thoughts, and the blocks
-   of the runs that stand among them. A reader who closed a panel asked not to
+   of the runs that stand among them. A user who closed a panel asked not to
    see any of it, so a tool block that stayed to be read under a closed head read
    as a fault of the fold. The head of the panel is all that is left. */
 .think.closed .words { display: none; }
@@ -780,7 +780,7 @@ pre.code .t-p { color: var(--t-pun); }
 /* ------------------------------------------------------------------ dock */
 /* The chat box, and the line of state under it. The box holds its badges in a
    row of their own, so no part of the box is left empty. */
-/* The question the model has put to the reader. It stands over the chat box, in a
+/* The question the model has put to the user. It stands over the chat box, in a
    card of its own: the question and the reason for it at the top, the answers the
    model offered under them, and a box for an answer the model did not think of.
    The card rises into place, and the border of a question the model cannot go on
@@ -805,7 +805,7 @@ pre.code .t-p { color: var(--t-pun); }
   background: var(--surface-2); font-variant-numeric: tabular-nums;
 }
 /* The last three seconds of a question that may be waited out are said in the
-   colour of a fault, so the reader looks up before the question is gone. */
+   colour of a fault, so the user looks up before the question is gone. */
 .ask-wait.short { color: var(--ink-fail); border-color: var(--accent-line); }
 .ask-choices { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
 .ask-choice {
@@ -945,7 +945,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 }
 #draft::placeholder { color: var(--faint); }
 /* The files that hang on a message: held in the chat box before the message
-   goes out, and shown under the words of the reader after it. A block is a
+   goes out, and shown under the words of the user after it. A block is a
    chip: the picture or a mark of the file, its whole name with the ending,
    and, in the box, a mark to take the file away again. */
 .parts { display: flex; flex-wrap: wrap; gap: 6px; padding: 9px 10px 0 12px; }
@@ -1033,8 +1033,8 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .gifts .all { align-self: center; }
 /* The box says that a file let go there would land in it. */
 .box.drop { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line); }
-/* The files that hang on a message the reader has sent stand under its words,
-   inside the bubble, on the reader's side. They are not chips: a chip is a
+/* The files that hang on a message the user has sent stand under its words,
+   inside the bubble, on the user's side. They are not chips: a chip is a
    thing in the chat box that may still be thrown away. Here the file has gone
    out, so a picture is laid out as a plate — the picture, and under it its
    whole name with the ending — and a file of words is a card no taller than
@@ -1102,7 +1102,7 @@ img.pic { animation: plate-in 180ms ease-out; }
 .badge[disabled] { opacity: .5; cursor: default; }
 .badge.static { cursor: default; }
 /* The drop-down of a badge. The menu stands over the badge that opened it and
-   holds one line for each thing the reader may choose, with a mark against the
+   holds one line for each thing the user may choose, with a mark against the
    thing chosen now. The box is as wide as the longest of its lines, so a setting
    with a long name is read on one line rather than broken in two; it is never
    wider than the window, and only a line too long for what is left of the window
@@ -1200,7 +1200,7 @@ img.pic { animation: plate-in 180ms ease-out; }
   white-space: nowrap; }
 .status.hot { color: var(--ink); font-weight: 600; }
 /* The speed of the work. The numbers of it line up as they change, so the line
-   does not shift under the reader's eye. */
+   does not shift under the user's eye. */
 .rate { font-size: 11.5px; color: var(--faint); white-space: nowrap;
   font-variant-numeric: tabular-nums; }
 .quiet {
@@ -1282,7 +1282,7 @@ pre.code.line {
    the window. The lines stand on the panel of code, in the small writing of a
    log, with the number of the line before them. A line that holds a fault is
    read in the colour of a fault, and a warning in the accent, for those are the
-   lines a reader looks for first. */
+   lines a user looks for first. */
 .logbody { position: relative; margin: 0; min-height: 170px; max-height: 46vh;
   overflow: auto; scrollbar-width: thin; background: var(--code-bg);
   border: 1px solid var(--code-line); border-radius: 10px; padding: 10px 0 12px;
@@ -1375,8 +1375,8 @@ pre.code.line {
 
 /* ------------------------------------------------------------------ side bar
    The bar stands at the left of the window. The window is pushed aside by the
-   width of the bar, and the bar slides out of the way when the reader hides
-   it. --side-w is the width the reader dragged it to. */
+   width of the bar, and the bar slides out of the way when the user hides
+   it. --side-w is the width the user dragged it to. */
 :root { --side-w: 292px; }
 /* The window of the program: the bar of the top, the talk, and the chat box,
    one under the other. They are a column, so the talk takes the room between
@@ -1481,7 +1481,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 .srow .stitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 13px; color: var(--text); }
 .srow:hover .stitle { color: var(--ink); }
-/* The chat that is open. Its name is set in bold, for the reader looks down the
+/* The chat that is open. Its name is set in bold, for the user looks down the
    bar for its own chat among the others, and a name that is merely tinted is a
    name the eye passes over. A weight between the standard ones is not trusted:
    the faces a window has to offer are not always cut at such a height. */
@@ -1589,7 +1589,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 <!-- The side bar. Chats stand here, the chats of a repository under it, and
      chats that belong to no repository by themselves. The right edge is drawn
      out to make the bar wider or narrower, and the bar goes away when the
-     reader wants the whole window for the talk. -->
+     user wants the whole window for the talk. -->
 <aside class="side" id="side">
   <div class="side-top">
     <button class="side-new" id="sideNew" title="Create new chat">
@@ -1701,7 +1701,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     
   </div>
 
-  <!-- The question the model has put to the reader. It stands over the chat box,
+  <!-- The question the model has put to the user. It stands over the chat box,
        in a card of its own: the question and the reason for the ask at the top,
        the answers the model offered under them, and a box for an answer the model
        did not think of. An ordinary question counts its seconds down and is then
@@ -1762,7 +1762,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         </span>
         <span class="what" id="gaugeText">Processing text...</span>
       </div>
-      <!-- The files the reader has hung on the message that has not gone out
+      <!-- The files the user has hung on the message that has not gone out
            yet. A block stands over the words for each of them, and the mark
            on a block takes that file away again. -->
       <div class="parts hidden" id="parts"></div>
@@ -1784,7 +1784,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
               <span id="searchtext">Search</span>
             </button>
             <div class="menuwrap" id="mcpwrap">
-              <button class="badge" id="mcp" title="The servers of the reader's own, spoken to over MCP. Click to switch one on or off for this chat. A server runs in the program and not in the sandbox of a command.">
+              <button class="badge" id="mcp" title="The servers of the user's own, spoken to over MCP. Click to switch one on or off for this chat. A server runs in the program and not in the sandbox of a command.">
                 <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14"/></svg>
                 <span id="mcptext">MCP</span>
                 <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
@@ -2129,7 +2129,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
            read again by itself, so the words of a start that is going on now come
            up as they are written. Nothing of a log comes with the state of the
            page: a server that was told to say everything writes far too much. -->
-      <!-- The servers of the reader's own, spoken to over MCP. A server is a
+      <!-- The servers of the user's own, spoken to over MCP. A server is a
            program of this machine, a server on the network, or words of Python
            the program runs. The menu of the MCP badge holds the ones that stand
            in it, and each of them is switched on or off for one chat there. -->
@@ -2229,7 +2229,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
 <!-- The whole of a handoff summary, asked for from the card over the heading of a
      summarisation. The words of a summary are never written in the chat, so this
-     is the one place the reader can read them. -->
+     is the one place the user can read them. -->
 <div class="overlay hidden" id="sumOverlay">
   <div class="sumview" role="dialog" aria-modal="true" aria-label="The handoff summary">
     <div class="vhead">
@@ -2289,7 +2289,7 @@ var cur = null;        // the last state
 // Chatting. The two switches of the Chatting section of the settings, as the
 // engine gives them. The page of the browser has no sheet of settings, so it
 // reads the two here and follows them. A panel that is folded as it comes in
-// stands closed from the first look, and the reader opens it with a click.
+// stands closed from the first look, and the user opens it with a click.
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
@@ -2366,7 +2366,7 @@ function draw(s) {
   drawContext(s);
   drawProgress(s);
   drawBadges(s);
-  // The question the model has put to the reader stands over the chat box, and
+  // The question the model has put to the user stands over the chat box, and
   // the wait it set is counted down under the question.
   drawAsk(s);
 
@@ -2520,7 +2520,7 @@ function drawContext(s) {
 // its ring is therefore a little under 120.
 var ARC = 119.4;
 
-// What the program is working on, in the words the reader sees. The engine
+// What the program is working on, in the words the user sees. The engine
 // keeps the short name, as it does for the names of the thinking modes.
 var PROGRESS_WORDS = {
   text: 'Processing text...', image: 'Processing image...',
@@ -2546,7 +2546,7 @@ function drawProgress(s) {
 }
 
 // The three marks of the chat: the tool, the jail, and the thinking.
-// The thinking modes in the words the reader sees. The engine keeps the short
+// The thinking modes in the words the user sees. The engine keeps the short
 // names, which are what the server is started with; only here do they get a
 // long one. A mode this page does not know is shown as it is.
 var THINK_WORDS = {
@@ -2623,9 +2623,9 @@ function closeThinkMenu() {
 }
 
 // The menu of the sandbox badge. The badge no longer turns one thing on or off:
-// what a command may reach is three separate things, and the reader must be able
+// what a command may reach is three separate things, and the user must be able
 // to see all three at once. Each line is a switch of its own, and all three stand
-// off until the reader opens one of them in this menu.
+// off until the user opens one of them in this menu.
 function fillSandboxMenu(s) {
   var menu = el.sandboxmenu;
   if (!menu) { return; }
@@ -2690,7 +2690,7 @@ function closeSandboxMenu() {
 
 /* ------------------------------------------------------------------ MCP
 
-   The servers of the reader's own. The badge holds the ones that stand in the
+   The servers of the user's own. The badge holds the ones that stand in the
    menu, and each is switched on or off for this chat; the MCP tab of the sheet
    adds them, changes them and takes them away. A server runs in the program and
    never in the sandbox of a command, for the jail has no network and no program
@@ -2764,7 +2764,7 @@ function fillMcpMenu(s) {
   }
 }
 
-// The servers the menu shows: the ones the reader put in the menu, and any one
+// The servers the menu shows: the ones the user put in the menu, and any one
 // this chat has switched on, so a choice is never out of reach.
 function mcpMenuServers(s) {
   var held = (s && s.mcp && s.mcp.servers) || [];
@@ -2841,7 +2841,7 @@ var TOOL_LINES = [
    'The model may change a file of the chat and make a new one. Both work in the working directory of the chat and nowhere else, and they run in the program, so the sandbox of a command is not between them.'],
   ['picture', 'Look at a picture',
    'The model may look at a picture of the chat. The picture is read in the program and shown to the model, and never written out again.'],
-  ['hand_out', 'Hand a file to the reader',
+  ['hand_out', 'Hand a file to the user',
    'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all.'],
   ['ask', 'Ask you a question',
    'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.']
@@ -2865,7 +2865,7 @@ function toolLine(part, word, tip, on) {
 }
 
 // The menu of the badge of the tools. The badge no longer turns one thing on or
-// off: the tools of the program are several kinds of thing, and the reader must
+// off: the tools of the program are several kinds of thing, and the user must
 // be able to see which of them the model may reach. The badge itself stands at
 // the head of its own menu, as the jail stands at the head of the menu of the
 // sandbox, for it is the door over all of them.
@@ -2906,7 +2906,7 @@ function closeToolMenu() {
 }
 
 // The badge itself: the door over every tool of the program. The tip says how
-// many the reader has taken out of the chat, for a badge that stands on can
+// many the user has taken out of the chat, for a badge that stands on can
 // still be hiding a tool.
 function drawTools(s) {
   if (!el.code) { return; }
@@ -2957,7 +2957,7 @@ function drawBadges(s) {
   // chat does not leave it standing with the old lines.
   if (!el.thinkmenu.classList.contains('hidden')) { fillThinkMenu(s); }
   // The menu of the sandbox is filled again while it stands open, so a switch
-  // the reader has just moved is seen to move, and a new chat does not leave the
+  // the user has just moved is seen to move, and a new chat does not leave the
   // old lines standing.
   if (el.sandboxmenu && !el.sandboxmenu.classList.contains('hidden')) { fillSandboxMenu(s); }
   drawMcp(s);
@@ -2988,7 +2988,7 @@ function drawRate(s) {
 }
 
 // The number of a speed: to one decimal while it is small, and whole once it is
-// over ten, for 26.4 tokens to the second is a finer tale than the reader wants.
+// over ten, for 26.4 tokens to the second is a finer tale than the user wants.
 function rateWords(per) {
   return per >= 10 ? String(Math.round(per)) : per.toFixed(1);
 }
@@ -2996,7 +2996,7 @@ function rateWords(per) {
 // One line of keys next to the box. It says what the box needs at this moment.
 // What the mark of sending does, in its tip. The words of the keys stood beside
 // it once, and took the room the badges need: the mark now says the same thing
-// when the reader rests the pointer on it.
+// when the user rests the pointer on it.
 function sendTitle(s) {
   if (s && s.generating) { return 'Stop the answer (Esc)'; }
   return 'Send (Enter). Shift + Enter makes a new line.';
@@ -3092,7 +3092,7 @@ function addNoteBit(box, text, first) {
 // page, and plain words. The marks of the words inside a block are taken out, so
 // a bold word reads as a plain word. A link is kept as a link: its words stand
 // where they fall and its address stands in the link itself. No mark of the
-// writing reaches the reader.
+// writing reaches the user.
 
 // The words of a run with the marks of markdown taken out. A link that the
 // cutting of the parts made nothing of is answered here as it always was: its
@@ -3129,14 +3129,14 @@ function stripOnce(text) {
 // -------------------------------------------------- the words inside a block
 //
 // The words of a block are cut into parts: words, and the links in them. A link
-// is the one mark of the writing that is kept, for a reader may follow it. Every
+// is the one mark of the writing that is kept, for a user may follow it. Every
 // other mark is taken out, as it always was. The run is read line by line, so a
 // stroke of emphasis in one line is never paired with a stroke in another.
 
 // The address of a link, or nothing when it is not an address to follow. Only
-// the addresses a reader means to reach are let through: a web page, and a mail.
+// the addresses a user means to reach are let through: a web page, and a mail.
 // The rest - a script of its own, a file of the machine, a road from this page -
-// is left as words, so the reader sees what was written and the program makes
+// is left as words, so the user sees what was written and the program makes
 // nothing of it.
 function linkHref(address) {
   var path = String(address || '');
@@ -3251,7 +3251,7 @@ function inlineParts(text) {
   return out;
 }
 
-// The words of a list of parts, as the reader sees them.
+// The words of a list of parts, as the user sees them.
 function inlineWords(parts) {
   var said = '';
   for (var n = 0; n < parts.length; n++) { said += parts[n].words; }
@@ -3548,7 +3548,7 @@ function mark(path, cls) {
 var THINK_MARK = 'M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4';
 // The mark of a tool, for the count of the runs that stand inside a thinking
 // panel. It is the wrench of the badge of the tools, which is the shape the
-// reader already knows as the place where the tools are switched on.
+// user already knows as the place where the tools are switched on.
 var TOOL_MARK = 'M9.8 4.2a0.67 0.67 0 0 0 0 0.94l1.07 1.07a0.67 0.67 0 0 0 0.94 0l2.51-2.51a4 4 0 0 1-5.29 5.29l-4.61 4.61a1.41 1.41 0 1 1-2-2l4.61-4.61a4 4 0 0 1 5.29-5.29l-2.51 2.51z';
 
 // A length of time in words, as the head of a thinking panel says it: so many
@@ -3585,7 +3585,7 @@ function thoughtWords(ms, over) {
 // The count is not asked for of the engine, but told from the blocks that stand
 // in the panel, so it is right for one panel of a train of thought as much as
 // for one thought alone, and it follows the writing of a call as it is written.
-// It stands only while the reader lets the runs stand inside the thinking, for
+// It stands only while the user lets the runs stand inside the thinking, for
 // otherwise the runs are not in the panel at all. The time moves while the
 // thoughts come, and says nothing of a thought that has not begun to be timed.
 function thinkHeadSay(panel, ms, over, given) {
@@ -3692,7 +3692,7 @@ function thoughtBlocks(m) {
 }
 
 // The thinking of the model: a look inside the answer, kept small, behind a
-// rule of colour, and cut off at a height the reader can move in. The thoughts
+// rule of colour, and cut off at a height the user can move in. The thoughts
 // are markdown, as the answer is, so they stand in the same kinds of block.
 // Every part of the panel is given back, so the run of a tool can stand inside
 // the panel when the Chatting setting asks for that.
@@ -3709,7 +3709,7 @@ function thinkingBox(m) {
 
 // The mark beside the head of a tool block, the words that stand before the
 // name in the head, and the two words the body of the block gives its parts.
-// Every tool has a mark of its own, so the reader knows which one it is by the
+// Every tool has a mark of its own, so the user knows which one it is by the
 // shape at the left of the head. The mark of the terminal tool is the box it has
 // always had.
 var TOOL_SHAPES = {
@@ -3747,29 +3747,29 @@ var TOOL_SHAPES = {
     head: 'Looking at an image: ', word: 'image', end: 'result',
     empty: 'nothing to look at', begun: 'the image to look at'
   },
-  // A file held out to the reader. The block of the run says which file was
+  // A file held out to the user. The block of the run says which file was
   // offered; the block of the offer itself, with the button, stands under the
   // answer and not here.
-  download_file: {
+  offer_files: {
     mark: 'M8 2.4v6.4M5.4 6.4 8 9l2.6-2.6M3.2 12.6h9.6',
     head: 'Offering a file: ', done: 'Offered a file: ', word: 'file', end: 'result',
     empty: 'no file name', begun: 'a file, started', file: true
   },
-  // A question the model put to the reader. The head says what was asked; under
+  // A question the model put to the user. The head says what was asked; under
   // the second label stands the answer, or the word that the question was given
   // up because no answer came.
-  ask_reader: {
+  ask_user: {
     mark: 'M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5',
-    head: 'Asking the reader: ', done: 'Asked the reader: ', word: 'question', end: 'answer',
+    head: 'Asking the user: ', done: 'Asked the user: ', word: 'question', end: 'answer',
     empty: 'no question', begun: 'the question being written'
   }
 };
 
 // The shape of one tool. A name the page does not know is drawn as a run of the
-// terminal tool, for that is the shape the reader knows best.
+// terminal tool, for that is the shape the user knows best.
 function toolShape(name) {
   var key = String(name || '');
-  // A tool of a server of the reader's own is named for the server it came
+  // A tool of a server of the user's own is named for the server it came
   // from, and the mark of that server stands beside its name.
   if (key.indexOf('mcp__') === 0) {
     var one = mcpServerOf(key);
@@ -3795,7 +3795,7 @@ function headWords(shape, named, over) {
 }
 
 // The one thing the head of a call being written names. A file tool is named
-// for the file it works on, and the reader must wait for that name: the words of
+// for the file it works on, and the user must wait for that name: the words of
 // a change are not a name of a file, and a head that reads 'Editing file:
 // .marquee {' says something that is not true. A model that writes the changes
 // before the name of the file is answered with 'a file, started' until the name
@@ -3856,7 +3856,7 @@ function toolBox(m) {
   space.appendChild(commandText);
   // A picture the model was shown stands in the block of the run that opened
   // it, under the name of the picture and above the receipt of the run. The
-  // reader has else no way of seeing what the model was asked about, for the
+  // user has else no way of seeing what the model was asked about, for the
   // bytes of a picture are sent to the model and never written into the block.
   var shots = viewedPics(m);
   if (shots) { space.appendChild(shots); }
@@ -3880,7 +3880,7 @@ function toolBox(m) {
 // One block of a call that is being written. It stands like the panel of a run,
 // so the block that comes after it, when the command runs, is of the same shape.
 // The command is open while it is written, whatever the Chatting settings say of
-// a run that is over: what the reader is asked to look at here is the command
+// a run that is over: what the user is asked to look at here is the command
 // itself, and a fold would hide the writing.
 function writeBox(one) {
   var shape = toolShape(one.name);
@@ -3998,7 +3998,7 @@ function feedWrite(list) {
     }
     if (box.words.nodeValue !== one.command) {
       box.words.nodeValue = one.command;
-      // The end of a command is followed while it is written, unless the reader
+      // The end of a command is followed while it is written, unless the user
       // has gone up in the block to read the start of it.
       if (box.text.scrollHeight - (box.text.scrollTop + box.text.clientHeight) < 40) {
         box.text.scrollTop = box.text.scrollHeight;
@@ -4036,12 +4036,12 @@ function roleClass(m) {
 
 // ---------------------------------------------------- the colours of a code block
 //
-// A block of code is read by a small reader of its own, so its words are not
-// all of one colour. The reader cuts a block into parts: a comment, a word of
+// A block of code is read by a small user of its own, so its words are not
+// all of one colour. The user cuts a block into parts: a comment, a word of
 // the language, a word in quotes, a number, a name, and a mark of punctuation.
 // Every part takes a colour of this program: one of the five accents, a
 // neutral, or a mix of the two. Nothing is fetched and nothing is loaded, so
-// the page stays a page of the machine it stands on. A kind of file the reader
+// the page stays a page of the machine it stands on. A kind of file the user
 // does not know is painted as it came in, which reads better than wrong
 // colours.
 
@@ -4611,7 +4611,7 @@ function writeThought() {
   if (!node) { return; }
   writeBlocks(node, ink.thoughtShape, ink.musing.slice(0, ink.shownMusing));
   // The end of the thinking is what matters while it comes in, unless the
-  // reader has gone up in the panel to read the start of it. The body of the
+  // user has gone up in the panel to read the start of it. The body of the
   // panel is what moves, for the thoughts stand inside it.
   var box = ink.panelWords || node;
   if (box.scrollHeight - (box.scrollTop + box.clientHeight) < 60) {
@@ -4634,7 +4634,7 @@ function thinkHeadWords() {
 
 
 // One look of the writer. A few characters go on the page, and more of them
-// while the model is ahead of the reader.
+// while the model is ahead of the user.
 function stepInk(now) {
   ink.frame = 0;
   if (!ink.words) { return; }
@@ -4793,9 +4793,9 @@ function fill(turn, m) {
   }
   if (m.role === 'Summary') {
     // The handoff summary of a compaction. It is not a saying of the model to the
-    // reader, so it stands with none of the marks of a turn: a hairline with the
+    // user, so it stands with none of the marks of a turn: a hairline with the
     // count of the summarisation in the middle. The rest of it is read on the card
-    // that comes up when the reader hovers over the hairline, and the mark to
+    // that comes up when the user hovers over the hairline, and the mark to
     // start a summary that was never written stands in that card.
     var cut = make('div', 'sumhead');
     var one = handoffOf(m.id);
@@ -4837,7 +4837,7 @@ function fill(turn, m) {
       again.addEventListener('click', function () { post('/api/handoff', {}); });
       card.appendChild(again);
     } else if (full) {
-      // The words of a summary are never written in the chat, so the reader is
+      // The words of a summary are never written in the chat, so the user is
       // asked for them here: the whole of it comes up over the chat.
       var look = make('button', 'sbtn');
       look.type = 'button';
@@ -4849,7 +4849,7 @@ function fill(turn, m) {
     cut.appendChild(card);
     turn.appendChild(cut);
     // The words of a summary are never shown, so while it is being written the
-    // reader is given three dots under the heading. They nod the same nod as the
+    // user is given three dots under the heading. They nod the same nod as the
     // dots of a thinking block, and they say that the program is at work where
     // the gauge over the chat box has nothing left to say.
     if (writing) {
@@ -4894,7 +4894,7 @@ function fill(turn, m) {
       said.textContent = m.body;
       words.appendChild(said);
       // The files that hung on the message keep their blocks under the
-      // words, in the order the reader hung them.
+      // words, in the order the user hung them.
       if (m.attachments && m.attachments.length) {
         words.appendChild(sentParts(m));
       }
@@ -4908,7 +4908,7 @@ function fill(turn, m) {
   if (line) { turn.appendChild(line); }
 }
 
-// The marks of what the reader may do with a message. They stand in the line
+// The marks of what the user may do with a message. They stand in the line
 // where the time of the message stands, and that line opens when the pointer goes
 // over the message. An answer that is still coming in has no place in the chat
 // yet, so it has no line and no mark.
@@ -4929,9 +4929,9 @@ function actLine(m) {
 // after it, for the model answered a talk that no longer reads that way. Write
 // the answer again cuts the talk back to this message and asks the model again
 // from there. Take it away removes the message and everything after it: a message
-// of the reader takes the answer it provoked along, and a message of the model
+// of the user takes the answer it provoked along, and a message of the model
 // leaves the question behind. Go on with it stands only under an answer the
-// reader stopped while the model was still writing.
+// user stopped while the model was still writing.
 function actsOf(m) {
   var acts = make('div', 'acts');
   if (m.role === 'You' || m.role === 'Assistant') {
@@ -4980,7 +4980,7 @@ var ACT_REMOVE = 'M3.2 4.7h9.6M6.4 4.7V3.3h3.2v1.4M4.7 4.7l.7 8.1h5.2l.7-8.1';
 var ACT_CONTINUE = 'M3.4 8h7.4M7.6 4.6 11 8l-3.4 3.4';
 
 // Take the words of a message back into the chat box. The message goes out of the
-// chat with everything after it, so what the reader sends again is the talk as it
+// chat with everything after it, so what the user sends again is the talk as it
 // stood before that message.
 function editMessage(m) {
   post('/api/delete_message', { id: m.id });
@@ -5118,7 +5118,7 @@ function partNode(part) {
 // The panel of a train of thought is gone through part by part: only a part that
 // said something new is made again, and every other part is left where it
 // stands. The panel was built again whole before, and that threw the reading
-// place of the panel away, so the thought the reader was looking at jumped back
+// place of the panel away, so the thought the user was looking at jumped back
 // to its start and the whole of it faded in a second time when the result of a
 // run came in among the thoughts.
 function syncGroup(turn, items, from, to, isLive) {
@@ -5194,12 +5194,12 @@ function sameTalk(was, now) {
 
 // The folds of a row, in the order the panels stand in it.
 //
-// A fold is the reader's own choice, and a row of the chat is made again whenever
+// A fold is the user's own choice, and a row of the chat is made again whenever
 // the state of the chat moves: the answer that was coming in becomes a message of
 // the chat, a run of a tool comes in among the thoughts, the words of an answer
 // are written again. A fold kept only in the class of a panel went with the panel
-// when the panel went, so a thinking panel the reader opened closed itself again
-// under a tool call, and a block of a run the reader opened shut of its own when
+// when the panel went, so a thinking panel the user opened closed itself again
+// under a tool call, and a block of a run the user opened shut of its own when
 // the model finished writing. The folds are therefore read off the row before it
 // is made again, and put back on the panels as they stand now, in order.
 function foldsOf(turn) {
@@ -5213,9 +5213,9 @@ function foldsOf(turn) {
 }
 
 // The folds that stood in a row are put back on the panels of the row as it
-// stands now. A panel the reader never touched comes back as the Chatting
+// stands now. A panel the user never touched comes back as the Chatting
 // settings have it, for what stands in the record is the state the panel was in,
-// and that state was the setting until the reader moved it.
+// and that state was the setting until the user moved it.
 function unfoldRow(turn, folds) {
   if (!turn || !folds || !folds.length) { return; }
   var nodes = turn.querySelectorAll('.think, .tool');
@@ -5249,7 +5249,7 @@ function drawRow(turn, items, row) {
 }
 
 // One row of the thread is put again when it said something new. A panel of a
-// train of thought is gone through part by part, so the thought the reader is
+// train of thought is gone through part by part, so the thought the user is
 // looking at keeps its place; the turn of one message is written again whole.
 function syncTurn(turn, items, row) {
   if (!turn) { return; }
@@ -5259,7 +5259,7 @@ function syncTurn(turn, items, row) {
     turn.dataset.stamp = stamp;
     // A part of the panel is made again when it said something new, and the panel
     // of a run made new stands closed as the settings have it. The folds the
-    // reader moved in this row are kept over the making.
+    // user moved in this row are kept over the making.
     var kept = foldMoved ? null : foldsOf(turn);
     syncGroup(turn, items, row.from, row.live ? row.to - 1 : row.to, row.live);
     unfoldRow(turn, kept);
@@ -5319,8 +5319,8 @@ function fillGroup(turn, items, from, to) {
     label: made.label, ms: ms };
 }
 
-// The blocks of the files that hang on a message of the reader, in the order
-// the reader hung them. A picture asks the small server for its bytes once,
+// The blocks of the files that hang on a message of the user, in the order
+// the user hung them. A picture asks the small server for its bytes once,
 // and keeps them, so a chat that is drawn again asks nothing again.
 function sentParts(m) {
   var row = make('div', 'parts');
@@ -5360,7 +5360,7 @@ function fillPic(block, url, name) {
 }
 
 // The mark of the eyes of the model: an eye, with the ball of it within it. It
-// stands at the top right of every picture the model was shown, so the reader
+// stands at the top right of every picture the model was shown, so the user
 // sees at a glance which pictures the model has looked at and which it has not.
 var EYE_MARK = 'M1.9 8c1.6-2.9 3.6-4.3 6.1-4.3s4.5 1.4 6.1 4.3c-1.6 2.9-3.6 4.3-6.1 4.3'
   + 'S3.5 10.9 1.9 8z M8 9.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z';
@@ -5398,7 +5398,7 @@ function viewedPic(one) {
       }, function () {});
     }(one.id));
   }
-  // The reader may look at the picture the model was shown, at the size it is.
+  // The user may look at the picture the model was shown, at the size it is.
   plate.classList.add('peek');
   plate.title = one.name + ' — click to look at the picture';
   plate.setAttribute('role', 'button');
@@ -5440,7 +5440,7 @@ function roleStamp(m) {
 // fades up and an answer that grows does not shake the page.
 // The setting of the panels the last look was drawn under, and whether it has
 // moved since. A panel that starts folded is folded by the Chatting settings, and
-// a move of those settings is the reader asking for the panels to stand the other
+// a move of those settings is the user asking for the panels to stand the other
 // way; so what stood in the rows before is not carried over the look that first
 // draws them in the new way, or the setting would seem to do nothing.
 var foldSetting = '';
@@ -5506,7 +5506,7 @@ function drawThread(s) {
     // kept; a row whose words changed is put again on its own; a row that is new
     // is added, and the rows that are no longer there are taken away. The chat
     // that stood here was built again for one row that came in, which read as the
-    // whole chat refreshing under the reader.
+    // whole chat refreshing under the user.
     for (var r = 0; r < rows.length; r++) {
       var ids = rowStamp(items, rows[r]);
       var child = box.children[r];
@@ -5518,7 +5518,7 @@ function drawThread(s) {
         if (r === rows.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
         box.appendChild(turn);
       } else if (child.dataset.row !== ids) {
-        // The row is made again in a new turn. The folds the reader moved are read
+        // The row is made again in a new turn. The folds the user moved are read
         // off the old one and put back on the new one, but only when the two rows
         // are made of the same talk: a row that stands where another row stood
         // after a message went out of the chat is a different part of the talk,
@@ -5566,8 +5566,8 @@ function drawThread(s) {
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
 }
 
-// The words of the chat are followed while the reader stands near the bottom,
-// and left alone when the reader has gone up to read.
+// The words of the chat are followed while the user stands near the bottom,
+// and left alone when the user has gone up to read.
 el.thread.addEventListener('scroll', function () {
   var box = el.thread;
   stick = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
@@ -5637,7 +5637,7 @@ function takeDown(href, name) {
 }
 
 // The button says what went wrong, for a moment, rather than taking a file that
-// is not there. A block of an offer the reader was shown an hour ago names a
+// is not there. A block of an offer the user was shown an hour ago names a
 // file that may have been written over since.
 function failGift(button, words) {
   if (!button) { return; }
@@ -5725,7 +5725,7 @@ function giftRow(list) {
 
 // The answers of a chat, in the order they stand: where one begins, where it
 // ends, whether the model is still writing it, and what it offered. An answer is
-// the talk between one word of the reader and the next, which is why the offer
+// the talk between one word of the user and the next, which is why the offer
 // belongs to a whole answer and not to the one message the tool ran in.
 function chatAnswers(items) {
   var out = [];
@@ -5787,9 +5787,9 @@ function placeGifts(turn, given) {
   if (given && given.length) { turn.appendChild(giftRow(given)); }
 }
 
-// ------------------------------------------------------ the question of the reader
+// ------------------------------------------------------ the question of the user
 //
-// A model that cannot go on without a word from the reader asks, and the ask
+// A model that cannot go on without a word from the user asks, and the ask
 // stands above the chat box: the question and the reason for it at the top, the
 // answers the model offered under them, and a box for an answer the model did not
 // think of. A question of the ordinary kind counts its seconds down and is then
@@ -5798,7 +5798,7 @@ function placeGifts(turn, given) {
 // from the Chatting settings.
 
 // The ask the card was last made for. A question that is still the one standing
-// is not made again, or the words the reader was writing in the box would be
+// is not made again, or the words the user was writing in the box would be
 // thrown away on every look of the state.
 var askHeld = '';
 // The seconds left, kept between the looks of the state so that the count moves
@@ -5830,7 +5830,7 @@ function fillAskChoices(one) {
 }
 
 // The words of the wait. A question that waits for ever says that it does, for a
-// reader who has been away from the machine should know that nothing was given up
+// user who has been away from the machine should know that nothing was given up
 // while they were gone.
 function askWaitWords(one, left) {
   if (left === null) { return 'It waits until you answer'; }
@@ -5904,7 +5904,7 @@ function drawAsk(s) {
   paintAskWait();
 }
 
-// The answer of the reader, whichever way it was made. The card stills itself
+// The answer of the user, whichever way it was made. The card stills itself
 // while the run takes the answer in, so the same question is not answered twice;
 // the next look of the state takes the card away.
 function answerAsk(words) {
@@ -5917,7 +5917,7 @@ function answerAsk(words) {
   post('/api/ask_answer', { id: cur.ask.id, answer: text });
 }
 
-// The field of an answer of the reader's own grows with the words, as the chat
+// The field of an answer of the user's own grows with the words, as the chat
 // box does, and stops at the height the card can hold.
 function growAskDraft() {
   var field = el.askdraft;
@@ -5952,7 +5952,7 @@ function wireAsk() {
 //
 // The model can mark the start of a chapter of the chat. The marks are not
 // shown among the words: they stand on a line at the left of the chat, one node
-// each, always the same distance apart. A node that the reader hovers over says
+// each, always the same distance apart. A node that the user hovers over says
 // which chapter it is and shows a little of it; a click on it takes the chat
 // there. A chat with no chapter has no line at all.
 
@@ -6026,7 +6026,7 @@ var CHAPTER_NODE = 11;
 // The nodes stand the same distance apart, and that distance is the same for
 // two nodes as for forty. A chat with more chapters than the window is tall for
 // cannot show them all at the usual distance, so the distance is made less until
-// the last node stands in the window too -- a node the reader cannot reach is of
+// the last node stands in the window too -- a node the user cannot reach is of
 // no use to them.
 function fitChapters(box, stage, count) {
   var gap = CHAPTER_GAP;
@@ -6081,7 +6081,7 @@ function drawChapters(s) {
 
 // Take the chat to the place one chapter begins. The words above that place are
 // brought up to the top of the view, and the chat stops following the answer,
-// for the reader has gone looking somewhere else.
+// for the user has gone looking somewhere else.
 function gotoChapter(chapter) {
   var node = null;
   if (!chapter.after) {
@@ -6103,7 +6103,7 @@ function gotoChapter(chapter) {
 // -------------------------------------------------------- summarisation line
 //
 // Every time the talk was made short a node stands on a line at the right of the
-// chat, the oldest at the top. A node the reader hovers over says which
+// chat, the oldest at the top. A node the user hovers over says which
 // summarisation it is, when it stood, what the talk cost before it and what the
 // handoff summary costs, and shows a little of what the summary says. A click on
 // a node takes the chat to the hairline of that summarisation.
@@ -6243,7 +6243,7 @@ document.addEventListener('keydown', function (e) {
 }, true);
 
 // Take the chat to the hairline of one summarisation. The chat stops following
-// the answer, for the reader has gone looking somewhere else.
+// the answer, for the user has gone looking somewhere else.
 function gotoSummary(one) {
   var node = el.col.querySelector('[data-mid="' + one.id + '"]');
   if (!node) { return; }
@@ -6262,7 +6262,7 @@ function gotoSummary(one) {
 // The box grows with the words, up to a height. The round mark knows whether
 // there is anything to send, and turns into the stop mark while an answer comes.
 
-// The files the reader has hung on the message that has not gone out yet.
+// The files the user has hung on the message that has not gone out yet.
 // A block stands over the words of the box for each of them. The order of
 // this list is the order of the blocks, and it goes out with the message, so
 // the model can be told which attachment it meant by its number.
@@ -6305,14 +6305,14 @@ function freeName(base) {
 }
 
 // Hold one file: its name, its kind, and its words or its data URL as soon
-// as it has been read. The block stands at once, so the reader sees the file
+// as it has been read. The block stands at once, so the user sees the file
 // even while it is coming in.
 function holdFile(file) {
   var name = freeName(file.name || (file.type && file.type.indexOf('image/') === 0
     ? 'image.png' : 'attachment.bin'));
   var kind = fileKind(name, file.type);
   // The file itself stands beside its words, so a file of words that was never
-  // read yet can still be read when the reader asks for its words.
+  // read yet can still be read when the user asks for its words.
   var held = { name: name, mime: file.type || '', kind: kind, data: '', text: '', url: '',
     file: file };
   heldFiles.push(held);
@@ -6363,13 +6363,13 @@ function holdWords(words) {
 // a block of the box, with the mark that takes the file away again.
 // The words of a file the box holds. A file of words taken from the disk is read
 // when its words are asked for, for a long one may not have been read yet, and no
-// reader should wait for the whole of a disk before the first word of it can
+// user should wait for the whole of a disk before the first word of it can
 // stand in the box.
 // ---------------------------------------------------------- the looking window
 //
 // The window a picture or a file of words is looked at in. A block of an
 // attachment is a name with a thumb at best: the window shows the thing itself,
-// at the size it is. What the block never carried is asked for when the reader
+// at the size it is. What the block never carried is asked for when the user
 // looks at it, which is why the window says a moment of waiting rather than
 // showing nothing at all.
 
@@ -6509,7 +6509,7 @@ function wireViewer() {
 // The look of a file the chat box holds. The look is made afresh for every
 // block, so each block keeps the file it was made for: a look made in a ring of
 // numbers would look at whatever file the ring stopped on, which is the last of
-// them and not the one the reader clicked.
+// them and not the one the user clicked.
 function lookOfHeld(one) {
   return function () {
     openViewer({ name: one.name, kind: one.kind === 'image' ? 'image' : 'file',
@@ -6537,10 +6537,10 @@ function wordsOfHeld(one, done) {
 }
 
 // The words of a file of words, put into the chat box instead of going out with
-// the message. A long paste becomes a file of its own, and a reader who would
+// the message. A long paste becomes a file of its own, and a user who would
 // rather have the words back where they can be read and mended clicks the block
 // to have them. Words already standing in the box keep their place: what comes in
-// goes in at the mark the reader left, with a line between it and what stood
+// goes in at the mark the user left, with a line between it and what stood
 // there before, and the block goes away, so the box is not left holding the words
 // twice over.
 function putWordsInBox(one) {
@@ -6587,7 +6587,7 @@ function partBlock(one, place, look) {
   part.appendChild(nm);
   if (place !== undefined) {
     // The block of a file of words answers a click: its words go into the chat
-    // box, which is what a reader wants when a paste of theirs was turned into a
+    // box, which is what a user wants when a paste of theirs was turned into a
     // file by the length of it.
     if (one.kind === 'text') {
       part.classList.add('pick');
@@ -6740,14 +6740,14 @@ if (el.codemenuCaret) {
 }
 el.search.addEventListener('click', function () { if (cur) { post('/api/search', { on: !cur.search }); } });
 // The sandbox badge is a drop-down, for what a command may reach is three
-// settings, and the reader must see all three together rather than cycle through
+// settings, and the user must see all three together rather than cycle through
 // them blind.
 el.sandbox.addEventListener('click', function (event) {
   event.stopPropagation();
   if (el.sandboxmenu.classList.contains('hidden')) { closeThinkMenu(); openSandboxMenu(); } else { closeSandboxMenu(); }
 });
 // The thinking badge is a drop-down, for a mode is chosen and not cycled
-// through: the reader must be able to see what is on offer.
+// through: the user must be able to see what is on offer.
 el.think.addEventListener('click', function (event) {
   event.stopPropagation();
   if (el.thinkmenu.classList.contains('hidden')) { closeSandboxMenu(); openThinkMenu(); } else { closeThinkMenu(); }
@@ -6829,7 +6829,7 @@ function takePaste(e) {
 
 // True when a paste belongs to the chat box: the box itself, or a part of the
 // page that is no field of its own. A field keeps its paste, so a path or an
-// address stands where the reader put it.
+// address stands where the user put it.
 function pasteForTheBox(e) {
   var from = e.target;
   if (!from || from === el.draft || from === document.body) { return true; }
@@ -6838,7 +6838,7 @@ function pasteForTheBox(e) {
 }
 
 // The paste is taken from the whole page, as the file let go is: a Ctrl+V over
-// message, and the reader need not find the box first.
+// message, and the user need not find the box first.
 document.addEventListener('paste', function (e) {
   if (!pasteForTheBox(e)) { return; }
   takePaste(e);
@@ -6903,7 +6903,7 @@ function setOption(text, value) {
 
 /* ------------------------------------------------------------------ MCP tab
 
-   The servers of the reader's own. Every row of the list says what a server is,
+   The servers of the user's own. Every row of the list says what a server is,
    what it has to offer, and whether it stands in the menu of the badge. The
    editor below holds one server, a new one or one being changed. */
 
@@ -6912,7 +6912,7 @@ var mcpEdit = '';     // the id of the server in the editor, empty for a new one
 var mcpIcon = 0;      // the mark chosen in the picker of the editor
 var mcpTemplate = ''; // the words a server of the program itself begins with
 
-// The servers of the reader's own, read from the program.
+// The servers of the user's own, read from the program.
 // The servers, with the words of them, for the MCP tab of the sheet.
 function mcpRead() { return ask('mcp'); }
 
@@ -6942,7 +6942,7 @@ function loadMcp() {
 }
 
 // One row of the list: the mark, the name, what the server is, what it offered
-// the last time it was looked at, and four things the reader may do with it.
+// the last time it was looked at, and four things the user may do with it.
 function mcpRow(one) {
   var row = make('div', 'mcprow');
   var ico = make('span', 'ico');
@@ -6962,7 +6962,7 @@ function mcpRow(one) {
     : (tools.length ? tools.length + ' tools: ' + tools.slice(0, 8).join(', ') : 'Nothing to offer yet.');
   body.appendChild(said);
   row.appendChild(body);
-  // The four things the reader may do with a server stand in a block of their
+  // The four things the user may do with a server stand in a block of their
   // own at the right of the row, two above two, so none of them is stretched
   // over the words of the row or cut by its edge.
   var acts = make('div', 'acts');
@@ -6998,7 +6998,7 @@ function mcpButton(tip, word, on, go) {
   return node;
 }
 
-// What a kind of server is called in the words a reader is given.
+// What a kind of server is called in the words a user is given.
 function mcpKindWords(kind) {
   if (kind === 'http') { return 'Server on the network (HTTP)'; }
   if (kind === 'internal') { return 'Built in the program (Python)'; }
@@ -7035,7 +7035,7 @@ function mcpKindRows() {
 }
 
 // Put the example of a server of the program itself in the field of the code.
-// What the reader wrote is never written over: only an empty field, or one that
+// What the user wrote is never written over: only an empty field, or one that
 // still holds the example whole, is filled again. The head of the example is
 // written for an AI, so the field may be handed over as it stands.
 function mcpTemplateHold() {
@@ -7064,7 +7064,7 @@ function mcpFillPicker() {
 }
 
 // Keep what stands in the editor. The server is looked at as soon as it is
-// kept, so the tools it has are read without the reader being asked to press
+// kept, so the tools it has are read without the user being asked to press
 // anything else.
 function mcpSave() {
   var server = {
@@ -7450,7 +7450,7 @@ function saveSheet() {
 // page: a server that was told to say everything writes far too much for a poll
 // of six times a second. The log this run is writing is read again by itself
 // while the update of the tab stands on live or on five seconds, and a manual
-// read stands still until the reader presses the button. The search shows the
+// read stands still until the user presses the button. The search shows the
 // lines that hold the words looked for, each with its number, and the two steps
 // go from one to the next.
 
@@ -7493,7 +7493,7 @@ function logPace() {
 // stands open. The list is read again quietly while the tab stands in front, so a
 // server that was started again is seen. The field of the choice is filled in
 // again only when the list has really moved, for a field must not be pulled away
-// from the reader while it is being written in.
+// from the user while it is being written in.
 function loadLogs(quiet) {
   Promise.all([getLogs(), getConfig()]).then(function (res) {
     var made = res[0] || {};
@@ -7515,7 +7515,7 @@ function loadLogs(quiet) {
 
 // The field of the choice: every log that is kept, newest first, with the day and
 // the hour it stands at and its size. The log this run is writing says so, and is
-// the one chosen. A choice the reader made himself is kept, and a log that has
+// the one chosen. A choice the user made himself is kept, and a log that has
 // gone takes the newest in its place.
 function fillLogPick() {
   var sel = byId('logPick');
@@ -7530,7 +7530,7 @@ function fillLogPick() {
   for (var i = 0; i < logs.length; i++) {
     var one = logs[i];
     var words = (one.when || 'no time on it') + ' (' + (one.size || '0 B') + ')';
-    // The log this run is writing is marked, so the reader can see which of the
+    // The log this run is writing is marked, so the user can see which of the
     // ten stands for the server that answers now.
     if (one.current) { words = 'Now: ' + words; }
     sel.appendChild(setOption(words, one.id));
@@ -7610,14 +7610,14 @@ function drawLog(note) {
   body.innerHTML = '';
   body.appendChild(box);
   sayLog(note, needle, shown, holds, from);
-  // The end of the log is followed while the reader stands there and while
-  // nothing is being looked for; a reader who has gone up to read is left alone.
+  // The end of the log is followed while the user stands there and while
+  // nothing is being looked for; a user who has gone up to read is left alone.
   if (logFollow && !needle.length) { body.scrollTop = body.scrollHeight; }
 }
 
 // The kind of a line, for its colour. A line that holds the word of a fault is
 // read in the colour of a fault, and a warning in the accent, for those are the
-// lines a reader looks for first. Nothing further is read out of a line.
+// lines a user looks for first. Nothing further is read out of a line.
 function logKind(line) {
   var low = line.toLowerCase();
   if (low.indexOf('error') >= 0 || low.indexOf('fail') >= 0 || low.indexOf('panic') >= 0) { return 'err'; }
@@ -7693,7 +7693,7 @@ function logSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MiB';
 }
 
-// The clock of this machine, to the second, so the reader can see how old the
+// The clock of this machine, to the second, so the user can see how old the
 // words on the sheet are.
 function logClock() {
   var d = new Date();
@@ -7719,7 +7719,7 @@ function logStep(step) {
 function logsGo() {
   logsStop();
   // Refresh belongs to manual alone. While the log is read by itself there is
-  // nothing left for the reader to press, so the button stands greyed.
+  // nothing left for the user to press, so the button stands greyed.
   byId('logRefresh').disabled = byId('logRate').value !== 'manual';
   var pace = logPace();
   if (!pace) { return; }
@@ -7733,7 +7733,7 @@ function logsStop() {
   if (logTimer) { clearInterval(logTimer); logTimer = 0; }
 }
 
-// Whether the view stands at the last line. Reading up is the reader asking to be
+// Whether the view stands at the last line. Reading up is the user asking to be
 // left alone, as he is in the chat.
 function logNearEnd() {
   var body = byId('logBody');
@@ -7829,8 +7829,8 @@ window.setTimeout(function () { el.draft.focus(); }, 60);
 // The bar at the left holds every chat: the ones that were pinned at the top,
 // then the chats of each repository under their repository, then the chats that
 // belong to no repository. A repository group shows five of its chats until the
-// reader asks for the rest. The loose chats grow as the reader scrolls down and
-// fall back again when the reader goes back to the top.
+// user asks for the rest. The loose chats grow as the user scrolls down and
+// fall back again when the user goes back to the top.
 //
 // The bar is drawn out at its right edge, hidden with the mark in the bar, and
 // the window is pushed aside by its width.
@@ -7994,7 +7994,7 @@ function sideChatRow(c, where, at) {
 }
 
 // A head that folds. The whole of it opens or shuts the group under it: a mark
-// that answers on one part of the line only is a mark the reader hunts for.
+// that answers on one part of the line only is a mark the user hunts for.
 function sideHeadFold(group, head, key) {
   head.addEventListener('click', function (e) {
     if (e.target.closest && e.target.closest('.sdots')) { return; }
@@ -8013,7 +8013,7 @@ function sideHeadMark(key) {
 }
 
 // A repository: the head that folds, and the chats under it. The head is worked
-// in from its own menu, where the reader says which repository to stand in.
+// in from its own menu, where the user says which repository to stand in.
 function sideRepoGroup(repo, chats, where) {
   var group = sideNode('div', 'sgroup');
   var head = sideNode('div', 'shead');
@@ -8059,7 +8059,7 @@ function sideRepoGroup(repo, chats, where) {
 
 // What the bar is made of, so it is not made again on every look at the
 // window. A bar that is made again whole loses the move a row is in, the row
-// the pointer stands on, and the place the reader had reached in the list.
+// the pointer stands on, and the place the user had reached in the list.
 function sideShape() {
   var folds = Object.keys(side.fold).sort().map(function (k) {
     return k + (side.fold[k] ? '1' : '0');
@@ -8410,8 +8410,8 @@ function sideCloseMenu() {
   sideMenuFor = null;
 }
 
-// The small window that asks. It answers with the words the reader wrote, or
-// with nothing when the reader goes away.
+// The small window that asks. It answers with the words the user wrote, or
+// with nothing when the user goes away.
 function sideAskText(title, note, value, then, okLabel) {
   var ask = sEl('sideAsk');
   ask.classList.add('on', 'asking');
@@ -8489,8 +8489,8 @@ function sideArch(on) {
   });
 })();
 
-// The loose chats come in as the reader scrolls down, and fall back when the
-// reader goes back to the top of the bar.
+// The loose chats come in as the user scrolls down, and fall back when the
+// user goes back to the top of the bar.
 (function () {
   var body = sEl('sideBody');
   if (!body) { return; }

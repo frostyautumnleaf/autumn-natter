@@ -1,6 +1,6 @@
-// Attachments: the files a reader hangs on a message.
+// Attachments: the files a user hangs on a message.
 //
-// A reader drags files on to the chat box, or pastes them, and each file
+// A user drags files on to the chat box, or pastes them, and each file
 // becomes an attachment. The page reads a picture as a data URL and a file
 // of words as its words, and sends both with the message. The engine keeps
 // the words of one attachment in a record of its own, and keeps the id, the
@@ -11,13 +11,13 @@
 // folder the program gave a chat with no repository. A chat and its files
 // therefore stand together, so the files of a chat are still there when the
 // chat is opened again the next day, and they go with the repository when the
-// reader moves it. A command of the tool sees them too, for the folder stands
+// user moves it. A command of the tool sees them too, for the folder stands
 // in the room the command works in.
 //
 // The words that go to the model name every attachment with its place in
-// the order the reader attached it, and its whole file name, ending
+// the order the user attached it, and its whole file name, ending
 // included. Pictures go out in that same order, each one spoken of by its
-// number just before it stands. A reader can then write about the third
+// number just before it stands. A user can then write about the third
 // image, and the model knows which picture that is. A file of words goes
 // out as its words. A file of neither goes out by its name alone, for
 // nothing else of it would mean anything to the model.
@@ -179,7 +179,7 @@ fn looks_like_id(id: &str) -> bool {
 pub fn is_image(mime: &str, name: &str) -> bool {
     if mime.starts_with("image/") {
         // The web page kind of a picture is words, and this program has no
-        // reader for it. It stands among the files of words instead.
+        // user for it. It stands among the files of words instead.
         return !mime.contains("svg");
     }
     if mime.starts_with("text/") || !mime.is_empty() && mime != "application/octet-stream" {
@@ -287,7 +287,7 @@ pub fn tidy_name(raw: &str) -> String {
 
 // The attachments of a send call, in the order the page sent them. An entry
 // with no name is dropped, and so is a picture or a text that is larger
-// than the room. The order of what is left stands as the reader made it.
+// than the room. The order of what is left stands as the user made it.
 pub fn parse_incoming(value: Value) -> Vec<Incoming> {
     let Some(items) = value.as_array() else {
         return Vec::new();
@@ -330,7 +330,7 @@ pub fn parse_incoming(value: Value) -> Vec<Incoming> {
 
 // Write the records of new attachments in the folder of the chat that holds
 // them, and give back the marks the message keeps. A record that cannot be
-// written loses that attachment, and the reader is told of it by the count
+// written loses that attachment, and the user is told of it by the count
 // that comes back short.
 pub fn save_at(place: &Path, files: &[Incoming]) -> Vec<store::Attachment> {
     let _ = fs::create_dir_all(place);
@@ -421,9 +421,9 @@ fn record_path(place: &Path, id: &str) -> PathBuf {
 }
 
 // The content of a user message for the API. With no attachments this is
-// the words of the reader, exactly as they were before.
+// the words of the user, exactly as they were before.
 //
-// With attachments it is a list of parts. The words of the reader come
+// With attachments it is a list of parts. The words of the user come
 // first, and after them the list of the attachments with their numbers.
 // Then, in the same order, a file of words follows as a part of its own,
 // and a picture follows as an image part with one line of words before it
@@ -695,7 +695,7 @@ mod tests {
         remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
     }
 
-    // Two pictures take two numbers in the order the reader attached them.
+    // Two pictures take two numbers in the order the user attached them.
     // With the vision switch off, no picture goes out, and the list says
     // why.
     #[test]

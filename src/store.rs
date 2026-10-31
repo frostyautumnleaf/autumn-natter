@@ -236,9 +236,9 @@ pub struct Repo {
     pub created: i64,
     #[serde(default)]
     pub last_used: i64,
-    // A repository the reader pinned stands in the `Pinned` group of the side
+    // A repository the user pinned stands in the `Pinned` group of the side
     // bar, above the other groups of the list. A chat of a pinned repository is
-    // not pinned with it: the reader pins a chat on its own.
+    // not pinned with it: the user pins a chat on its own.
     #[serde(default)]
     pub pinned: bool,
     // Full path of the repository directory. It is not stored in repo.json.
@@ -265,10 +265,10 @@ pub struct ToolSwitches {
     // A picture of the chat may be looked at.
     #[serde(default = "switch_on")]
     pub picture: bool,
-    // A file of the chat may be handed to the reader in a download block.
+    // A file of the chat may be handed to the user in a download block.
     #[serde(default = "switch_on")]
     pub hand_out: bool,
-    // The model may stop and ask the reader a question.
+    // The model may stop and ask the user a question.
     #[serde(default = "switch_on")]
     pub ask: bool,
 }
@@ -351,7 +351,7 @@ pub struct ChatMeta {
     // Run the tool inside bubblewrap when this is true.
     pub sandbox_enabled: bool,
     // The three settings of the sandbox. All of them stand off, for a chat and
-    // its commands reach nothing beyond the working directory until the reader
+    // its commands reach nothing beyond the working directory until the user
     // opens one of them in the menu of the sandbox badge. A chat written before
     // they existed carries none of them and reads with all three off.
     // A command may reach the network.
@@ -372,11 +372,11 @@ pub struct ChatMeta {
     // the switch existed reads as kept.
     #[serde(default = "preserve_thinking_on")]
     pub preserve_thinking: bool,
-    // A chat the reader pinned stands in the `Pinned` group of the side bar,
+    // A chat the user pinned stands in the `Pinned` group of the side bar,
     // above the groups of the repositories.
     #[serde(default)]
     pub pinned: bool,
-    // A chat the reader put away. It stands in no group of the side bar, and is
+    // A chat the user put away. It stands in no group of the side bar, and is
     // read again from the list of the archived chats, where it can be brought
     // back.
     #[serde(default)]
@@ -386,9 +386,9 @@ pub struct ChatMeta {
     // stands where the time of its last message puts it.
     #[serde(default)]
     pub opened: i64,
-    // The MCP servers the reader switched on for this chat, by their id. A
+    // The MCP servers the user switched on for this chat, by their id. A
     // chat written before the badge existed carries none of them, and stands
-    // with no server of the reader's own.
+    // with no server of the user's own.
     #[serde(default)]
     pub mcp: Vec<String>,
     // Which of the tools of the program the model may reach, now that the badge
@@ -415,7 +415,7 @@ impl Default for ChatMeta {
             created: 0,
             updated: 0,
             code_enabled: false,
-            // Every tool of the program stands offered until the reader takes one
+            // Every tool of the program stands offered until the user takes one
             // out of the drop-down of the badge.
             tools: ToolSwitches::default(),
             search_enabled: false,
@@ -426,7 +426,7 @@ impl Default for ChatMeta {
             sandbox_network: false,
             sandbox_pip: false,
             sandbox_fetch: false,
-            // No MCP server of the reader's own stands in a new chat.
+            // No MCP server of the user's own stands in a new chat.
             mcp: Vec::new(),
             thinking_mode: String::from("auto"),
             preserve_thinking: true,
@@ -446,7 +446,7 @@ impl Default for ChatMeta {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Attachment {
     pub id: String,
-    // The whole file name, ending included, as the reader knew it.
+    // The whole file name, ending included, as the user knew it.
     pub name: String,
     // The kind of the file, as the page named it. Empty when the page could
     // not tell.
@@ -469,8 +469,8 @@ pub struct Message {
     pub id: String,
     pub role: String,
     pub body: String,
-    // The files the reader hung on the message, in the order the reader hung
-    // them. A message of the reader carries the files it sent. A message of a
+    // The files the user hung on the message, in the order the user hung
+    // them. A message of the user carries the files it sent. A message of a
     // tool run carries the pictures that run opened, which is how a picture is
     // shown to the model again when the talk is asked again.
     #[serde(default)]
@@ -506,22 +506,23 @@ pub struct Message {
     // server that read the broken words as arguments would fault over them.
     #[serde(default)]
     pub cancelled: bool,
-    // True of a tool call the reader stopped with their own hand while the model
+    // True of a tool call the user stopped with their own hand while the model
     // was still writing it. It never ran either, and its words go back the same
     // way. The two are told apart, for a call the room gave out under had its
-    // room made after it by a handoff summary, and a call the reader stopped had
-    // nothing after it at all.
-    #[serde(default)]
-    pub reader_stopped: bool,
+    // room made after it by a handoff summary, and a call the user stopped had
+    // nothing after it at all. The mark was named for the reader in the chats of
+    // before, so that name is still read.
+    #[serde(default, alias = "reader_stopped")]
+    pub user_stopped: bool,
     // True of an answer of the model that never came to an end of its own,
-    // because the reader stopped it. It is not the same thing as
-    // `reader_stopped`, which stands for a call that was cancelled: this says
+    // because the user stopped it. It is not the same thing as
+    // `user_stopped`, which stands for a call that was cancelled: this says
     // that the words of the model stopped in the middle. The mark stands on the
     // newest answer only, so the page may put the mark of going on with it under
     // that answer and nowhere else.
     #[serde(default)]
     pub stopped: bool,
-    // The files a run of the download tool offered to the reader. The blocks of
+    // The files a run of the download tool offered to the user. The blocks of
     // the offer stand at the end of the answer that made them, and never while
     // the model is still writing.
     #[serde(default)]
@@ -615,7 +616,7 @@ impl Chat {
 
     // True when the newest summarisation of this chat was asked for and never
     // came back. The mark of it stands in the talk with nothing in it, which is
-    // what a summary the server never finished leaves behind. The reader is
+    // what a summary the server never finished leaves behind. The user is
     // asked to start it again before the chat goes on.
     //
     // Only the newest mark is looked at. An older mark that was written later
@@ -675,7 +676,7 @@ impl Store {
 
     // Move the chats of every repository out of the directory of that
     // repository, into the folder of the talks under the data directory. This
-    // runs once, when the program starts, and again when the reader points the
+    // runs once, when the program starts, and again when the user points the
     // program at another folder of repositories. See the head of this file.
     pub fn migrate_chats_out(&self) {
         migrate_repo_chats(&self.repos_dir, &self.chats_root);
@@ -685,7 +686,7 @@ impl Store {
     // repository, into the folder of the records under the data directory. The
     // record used to stand in the directory, where a command of the terminal
     // tool could read it and write over it. This runs once, when the program
-    // starts, and again when the reader points the program at another folder of
+    // starts, and again when the user points the program at another folder of
     // repositories.
     pub fn migrate_records_out(&self) {
         migrate_repo_records(&self.repos_dir, &self.records_root);
@@ -793,7 +794,7 @@ impl Store {
             name: raw_name.trim().to_string(),
             created: now,
             last_used: now,
-            // A new repository is not pinned. The reader pins it in the side
+            // A new repository is not pinned. The user pins it in the side
             // bar when they want it above the others.
             pinned: false,
             path: path.clone(),
@@ -914,7 +915,7 @@ impl Store {
     // Write the record of a repository back to the folder of the records. The
     // path of the directory is not kept in the record, and a record of a
     // repository the program did not make is never written: a folder of the
-    // reader's own, put into the folder of repositories, is left as it stands.
+    // user's own, put into the folder of repositories, is left as it stands.
     pub fn save_repo(&self, repo: &Repo) {
         let Some(record) = self.record_of(repo) else { return };
         if record.is_file() {
@@ -1357,18 +1358,23 @@ mod tests {
         let again = serde_json::to_string(&cut).expect("the cut-off call is written");
         let back: Message = serde_json::from_str(&again).expect("and read");
         assert!(back.cancelled);
-        // Such a call was not stopped by the reader, and a chat written before the
+        // Such a call was not stopped by the user, and a chat written before the
         // two were told apart reads the same way: the room gave out under it.
-        assert!(!back.reader_stopped);
-        // A call the reader stopped keeps a mark of its own, so the words that go
+        assert!(!back.user_stopped);
+        // A call the user stopped keeps a mark of its own, so the words that go
         // back to the model tell which of the two hands stopped it.
-        let stopped = r#"{"id":"c","role":"Tool","body":"a file","tool_name":"edit_file","cancelled":true,"reader_stopped":true}"#;
-        let stopped: Message = serde_json::from_str(stopped).expect("a call the reader stopped reads");
+        let stopped = r#"{"id":"c","role":"Tool","body":"a file","tool_name":"edit_file","cancelled":true,"user_stopped":true}"#;
+        let stopped: Message = serde_json::from_str(stopped).expect("a call the user stopped reads");
         assert!(stopped.cancelled);
-        assert!(stopped.reader_stopped);
+        assert!(stopped.user_stopped);
         let again = serde_json::to_string(&stopped).expect("it is written");
         let back: Message = serde_json::from_str(&again).expect("and read again");
-        assert!(back.reader_stopped);
+        assert!(back.user_stopped);
+        // A chat written while the mark carried the other name is read the same
+        // way, so nothing is lost of a call stopped by hand.
+        let elder = r#"{"id":"c2","role":"Tool","body":"a file","tool_name":"edit_file","cancelled":true,"reader_stopped":true}"#;
+        let elder: Message = serde_json::from_str(elder).expect("the old name reads");
+        assert!(elder.user_stopped);
         // A handoff summary holds the two numbers of the room, and is written
         // and read back whole.
         let summary = Message {

@@ -56,7 +56,7 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
       }
       // The words before the mark are the words of the answer so far, and all
       // of them: the blocks of the part written, joined.
-      // The words of the part written, as the reader sees them: the blocks
+      // The words of the part written, as the user sees them: the blocks
       // joined, with the marks of the writing taken out and the words of a link
       // standing for the link.
       var made = blocks(story.slice(0, shown));

@@ -1,23 +1,23 @@
-// The tool that stays with a question the model has put to the reader.
+// The tool that stays with a question the model has put to the user.
 //
-// A model that cannot go on without a word from the reader — a token that was
+// A model that cannot go on without a word from the user — a token that was
 // never given, a name that was never chosen, a yes or a no that the work turns
 // on — asks instead of guessing. The program puts the question above the chat
 // box, with the choices the model offered under it and a box of its own for an
-// answer the model did not think of, and waits. What the reader says goes back
+// answer the model did not think of, and waits. What the user says goes back
 // to the model as the result of the call, and the model goes on from there.
 //
 // A question of the ordinary kind is waited for a short while: ten seconds by
 // default, from the Chatting settings. When the time is gone the model is told
-// that the reader did not answer, and it is left to go on as best it can. A
+// that the user did not answer, and it is left to go on as best it can. A
 // question the model has marked as one it cannot go on without is waited for as
 // long as it takes, for a model that was told to ask only when it must is a
 // model whose question had better be answered. Both waits are read from the
 // settings, and a wait of nothing at all turns the timeout away.
 //
 // The call stands in the chat as the block of a run, as every other tool does:
-// the reader sees the question being written, then sees the block say what the
-// question came to. The popup is only the front of it. A run the reader stopped
+// the user sees the question being written, then sees the block say what the
+// question came to. The popup is only the front of it. A run the user stopped
 // with their own hand leaves the popup as well, and the model is told that the
 // answer never came.
 //
@@ -28,8 +28,8 @@ use serde_json::{json, Value};
 
 use crate::tools::with_rule;
 
-// Name the model uses to put a question to the reader.
-pub const NAME: &str = "ask_reader";
+// Name the model uses to put a question to the user.
+pub const NAME: &str = "ask_user";
 
 // The most choices one question may carry. A question with ten roads under it is
 // not a question but a form, and a popup of a form is a thing to be read through
@@ -68,7 +68,7 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Put a question to the reader and wait for the answer. Use it only when the work cannot go on without a word from the reader: a secret or token that was never given, a choice the reader has to make, a permission that has to be given. Ask one question, and offer up to five short answers the reader may choose from; the reader may always write an answer of their own instead. Say in the question why you are asking, for it is shown as the title of the ask. An ordinary question is waited for a short while and then given up, and you are told the reader did not answer; use 'critical' only when you truly cannot go on, for such a question waits until the reader answers.",
+                "Put a question to the user and wait for the answer. Use it only when the work cannot go on without a word from the user: a secret or token that was never given, a choice the user has to make, a permission that has to be given. Ask one question, and offer up to five short answers the user may choose from; the user may always write an answer of their own instead. Say in the question why you are asking, for it is shown as the title of the ask. An ordinary question is waited for a short while and then given up, and you are told the user did not answer; use 'critical' only when you truly cannot go on, for such a question waits until the user answers.",
             )),
             "parameters": {
                 "type": "object",
@@ -80,12 +80,12 @@ pub fn definition() -> Value {
                     "choices": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Up to five short answers the reader may choose from, such as \"Yes, go on\" or \"Only the first file\". Leave it out when the answer cannot be guessed at; the reader can write an answer whatever you offer."
+                        "description": "Up to five short answers the user may choose from, such as \"Yes, go on\" or \"Only the first file\". Leave it out when the answer cannot be guessed at; the user can write an answer whatever you offer."
                     },
                     "kind": {
                         "type": "string",
                         "enum": ["normal", "critical"],
-                        "description": "How long to wait. 'normal', which is the default, is given up after the short wait in the settings and you are told the reader did not answer. 'critical' waits until the reader answers, and is only for a question you cannot go on without."
+                        "description": "How long to wait. 'normal', which is the default, is given up after the short wait in the settings and you are told the user did not answer. 'critical' waits until the user answers, and is only for a question you cannot go on without."
                     }
                 },
                 "required": ["question"]
@@ -94,7 +94,7 @@ pub fn definition() -> Value {
     })
 }
 
-// True when this name of a tool is the question of the reader.
+// True when this name of a tool is the question of the user.
 pub fn is_tool(name: &str) -> bool {
     name == NAME
 }
@@ -203,29 +203,29 @@ pub fn wait_of(critical: bool, ordinary: u32, weighty: u32) -> u32 {
 }
 
 // The result of a call that was answered. The words go back to the model, so
-// they say what the reader said and nothing else.
+// they say what the user said and nothing else.
 pub fn answered_words(answer: &str) -> String {
     let said = answer.trim();
     if said.is_empty() {
-        return String::from("The reader answered, and their answer was nothing at all");
+        return String::from("The user answered, and their answer was nothing at all");
     }
-    format!("The reader answered: {}", one_line(said, 2000))
+    format!("The user answered: {}", one_line(said, 2000))
 }
 
 // The result of a question that was given up. The model is told the wait it set
 // itself, so it can weigh whether to ask again in another way.
 pub fn given_up_words(seconds: u32) -> String {
     format!(
-        "The reader did not answer within {} {}. You may go on without their answer, or ask again for what you truly need",
+        "The user did not answer within {} {}. You may go on without their answer, or ask again for what you truly need",
         seconds,
         if seconds == 1 { "second" } else { "seconds" }
     )
 }
 
-// The result of a run the reader stopped with their own hand. The question was
+// The result of a run the user stopped with their own hand. The question was
 // never answered, and the popup went with the run.
 pub fn stopped_words() -> String {
-    String::from("The reader stopped the answer, so the question was never answered")
+    String::from("The user stopped the answer, so the question was never answered")
 }
 
 // One line of words, cut at a length. Marks of a new line are turned into spaces,
@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(part["kind"]["enum"][1], "critical");
         assert_eq!(tool["parameters"]["required"][0], "question");
         assert!(is_tool(NAME));
-        assert!(!is_tool("download_file"));
+        assert!(!is_tool("offer_files"));
     }
 
     // The words of the call are read the long way and the short way, and the
@@ -320,7 +320,7 @@ mod tests {
     // The three receipts the model is given.
     #[test]
     fn the_receipt_says_what_became_of_the_question() {
-        assert_eq!(answered_words("  the first one  "), "The reader answered: the first one");
+        assert_eq!(answered_words("  the first one  "), "The user answered: the first one");
         assert!(answered_words("   ").contains("nothing at all"));
         assert!(given_up_words(10).contains("10 seconds"));
         assert!(given_up_words(1).contains("1 second"));

@@ -55,7 +55,7 @@ pub async fn get_attachment(engine: State<'_, Engine>, id: String) -> Result<Val
     }
 }
 
-// A file the reader was offered by the download tool, and the whole of such an
+// A file the user was offered by the download tool, and the whole of such an
 // offer wound into one archive. The window has no web server between it and the
 // engine, so the bytes come back as a data URL and the window hangs them on a
 // link; the remote page asks for the same two things over http. Only the room of
@@ -111,7 +111,7 @@ pub async fn save_model_settings(
     Ok(web::save_model_settings(&engine, &id, settings))
 }
 
-// The servers of the reader's own, for the MCP tab of the sheet of settings.
+// The servers of the user's own, for the MCP tab of the sheet of settings.
 // The state carries their names, their icons and their tools; the whole of a
 // server, its code included, comes from here.
 #[tauri::command]
@@ -128,7 +128,7 @@ pub async fn get_logs() -> Result<Value, String> {
 }
 
 // One log, from its end. The page asks again by itself while the update of the
-// tab stands on live or on five seconds, and once when the reader presses the
+// tab stands on live or on five seconds, and once when the user presses the
 // button of it. A name that is not the name of a log gives back the words of a
 // fault, as the page of the remote mode does.
 #[tauri::command]
@@ -205,7 +205,7 @@ fn take_one(place: &str) -> Option<Value> {
             if kind == "image" {
                 let made = format!("data:{mime};base64,{}", STANDARD.encode(&bytes));
                 // A picture that no longer fits a message once it is written
-                // out goes by its name too, and the reader is told no lie
+                // out goes by its name too, and the user is told no lie
                 // about what stands on the message.
                 if made.len() <= attach::MAX_DATA_CHARS {
                     data = made;
@@ -248,7 +248,7 @@ fn read_small(path: &Path) -> Option<Vec<u8>> {
 }
 
 // The files of a drop the window saw. The window is told the places of the
-// files, and the reader put each of them in front of the program by letting go
+// files, and the user put each of them in front of the program by letting go
 // of it, so they are read as they stand.
 #[tauri::command]
 pub async fn take_files(paths: Vec<String>) -> Result<Value, String> {

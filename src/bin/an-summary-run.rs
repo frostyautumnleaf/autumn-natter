@@ -123,10 +123,10 @@ fn main() {
     settings.reasoning_budget = 6000;
     settings.no_context_shift = true;
     // The llama-server of the box is a CUDA build and the card of the box is
-    // busy with the server of the reader, so the model is kept off the card.
+    // busy with the server of the user, so the model is kept off the card.
     settings.extra_args = String::from("--device none -ngl 0 --fit off");
     engine.select_model(model.id());
-    // The card of the box is busy with the server of the reader, and its free
+    // The card of the box is busy with the server of the user, and its free
     // memory reads as nought, so a CUDA start of a second server dies of it. Every
     // device of the engine is therefore switched off here, so the model of the run
     // is kept on the CPU throughout.

@@ -29,7 +29,7 @@ fn on_by_default() -> bool {
 // The compaction says how that is done: either nothing at all, or a handoff
 // summary. The summary is written by the model itself when the talk nears the
 // end of its room, and the words before it are then left out of what goes back
-// to the model. Only the first message of the reader and the newest summary go
+// to the model. Only the first message of the user and the newest summary go
 // on, beside the words that came after the summary.
 
 // No compaction. The chat is sent whole until the room is gone.
@@ -47,7 +47,7 @@ pub const COMPACT_BY_TOKENS: &str = "tokens";
 pub const GREATEST_HANDOFF_PROMPT: usize = 4096;
 
 // The prompt that is given to the model when it is asked for the handoff
-// summary. The reader may write another one in the settings.
+// summary. The user may write another one in the settings.
 pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a detailed but concise handoff summary for AI consumption (no styling) that can be given to an AI to continue working from the current state of the session. Include the context of the session that an AI needs to carry on. Say what has been done so far and what needs to be done next. The AI will only receive the first initial prompt that the user sent, along with this handoff summary. Name the file paths that matter, one short line each, with what each file is used for. Keep the summary to about three hundred words: it must come to an end, for a summary that runs on for ever leaves the room it was asked to make unmade.";
 
 // The second ask for a handoff summary. The first is given all the room that
@@ -222,7 +222,7 @@ pub struct Config {
     #[serde(default = "on_by_default")]
     pub chat_collapse_thinking: bool,
     // Let a thinking panel grow with its words instead of stopping at a height
-    // the reader moves in. Off, every thinking panel keeps the fixed height it
+    // the user moves in. Off, every thinking panel keeps the fixed height it
     // always had.
     #[serde(default = "on_by_default")]
     pub chat_grow_thinking: bool,
@@ -261,7 +261,7 @@ pub struct Config {
     // was shut down and started again. What stands in the file is what the model
     // understood of the talk, and not the talk itself -- that stands where it
     // always stood -- so the file is only ever a saving of the reading, and it
-    // may be thrown away whenever the reader likes.
+    // may be thrown away whenever the user likes.
     #[serde(default = "on_by_default")]
     pub chat_context_files: bool,
     // How many terminal commands one answer may run. -1 leaves no limit, so a
@@ -285,15 +285,15 @@ pub struct Config {
     // have taken their room.
     #[serde(default = "default_chat_width")]
     pub chat_width: u32,
-    // How long the model waits for an answer to a question it put to the reader.
-    // When the time is gone the reader is asked no more, the model is told that
-    // the reader did not answer, and it is left to go on as well as it can.
+    // How long the model waits for an answer to a question it put to the user.
+    // When the time is gone the user is asked no more, the model is told that
+    // the user did not answer, and it is left to go on as well as it can.
     #[serde(default = "default_ask_seconds")]
     pub ask_seconds: u32,
     // The same for a question the model marked as one it cannot go on without.
-    // Nothing at all, which is the default, waits until the reader answers: a
+    // Nothing at all, which is the default, waits until the user answers: a
     // model that was told to ask only when it must should not have its question
-    // taken away for a reader who stepped away from the machine.
+    // taken away for a user who stepped away from the machine.
     #[serde(default)]
     pub ask_critical_seconds: u32,
     // Compaction. Either "off", which leaves the chat alone until the room is
@@ -323,7 +323,7 @@ pub struct Config {
     pub chat_compact_prompt_short: String,
     // The vertical timeline of the summarisations, at the right of the chat.
     #[serde(default = "on_by_default")]
-    pub chat_timeline: bool,    // The servers of the reader's own, spoken to over MCP. They stand here and
+    pub chat_timeline: bool,    // The servers of the user's own, spoken to over MCP. They stand here and
     // not in a folder of their own, for the sheet writes the whole list again
     // whenever one of them moves. A set of settings written before this stood
     // reads with no server at all.
@@ -436,8 +436,8 @@ fn default_pasted_text_char_limit() -> u32 {
     6000
 }
 
-// The short wait of a question the model put to the reader. Ten seconds is long
-// enough to read a line and press a key, and short enough that a reader who is
+// The short wait of a question the model put to the user. Ten seconds is long
+// enough to read a line and press a key, and short enough that a user who is
 // not there is not waited for.
 fn default_ask_seconds() -> u32 {
     10
@@ -512,7 +512,7 @@ impl Default for Config {
             ask_seconds: default_ask_seconds(),
             ask_critical_seconds: 0,
             // The handoff summary stands between the first message of the
-            // reader and the end of the room, so a chat can go on for ever.
+            // user and the end of the room, so a chat can go on for ever.
             chat_compaction: default_compaction(),
             chat_compact_by: default_compact_by(),
             chat_compact_percent: default_compact_percent(),
@@ -520,7 +520,7 @@ impl Default for Config {
             chat_compact_prompt: default_handoff_prompt(),
             chat_compact_prompt_short: default_handoff_prompt_short(),
             chat_timeline: true,
-            // No server of the reader's own stands in a new set of settings.
+            // No server of the user's own stands in a new set of settings.
             mcp_servers: Vec::new(),
         }
     }
@@ -754,7 +754,7 @@ mod tests {
         assert!(read.chat_highlight);
         assert!(read.chat_chapters);
         // The keeping of the talks was not in the file either, and it reads on
-        // rather than off: a reader who never heard of it is not left with the
+        // rather than off: a user who never heard of it is not left with the
         // chats read through again on every coming back.
         assert!(read.chat_context_files);
         // The two rooms for steps were not in the file either, so they read as
@@ -854,7 +854,7 @@ mod tests {
     fn the_compaction_fields_are_kept_inside_their_bounds() {
         assert_eq!(sanitize_compaction("off"), COMPACTION_OFF);
         assert_eq!(sanitize_compaction("handoff"), COMPACTION_HANDOFF);
-        assert_eq!(sanitize_compaction("a word of the reader"), COMPACTION_HANDOFF);
+        assert_eq!(sanitize_compaction("a word of the user"), COMPACTION_HANDOFF);
         assert_eq!(sanitize_compact_by("tokens"), COMPACT_BY_TOKENS);
         assert_eq!(sanitize_compact_by("percent"), COMPACT_BY_PERCENT);
         assert_eq!(sanitize_compact_by(""), COMPACT_BY_PERCENT);
@@ -864,7 +864,7 @@ mod tests {
         assert_eq!(sanitize_compact_reserve(0), 1);
         assert_eq!(sanitize_compact_reserve(10240), 10240);
         assert_eq!(sanitize_compact_reserve(9_000_000), 1_000_000);
-        // The prompt of the reader is kept, and a long one is cut at the ceiling
+        // The prompt of the user is kept, and a long one is cut at the ceiling
         // rather than refused.
         assert_eq!(sanitize_handoff_prompt("say something short"), "say something short");
         let long = "x".repeat(GREATEST_HANDOFF_PROMPT + 500);

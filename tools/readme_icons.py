@@ -55,7 +55,7 @@ ICONS = {
     "warning": "berry",
 }
 
-# The words a reader of the picture is given, since a shape of lines says little
+# The words a user of the picture is given, since a shape of lines says little
 # on its own.
 LABELS = {
     "chat": "Chats",
