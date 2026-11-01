@@ -117,14 +117,14 @@ pub fn create_definition() -> Value {
         "function": {
             "name": CREATE_NAME,
             "description": with_rule(String::from(
-                "Create a new file in the working directory of the chat, with the text given for it. A file that already exists is left unchanged, because this tool never overwrites one: use edit_file to change a file. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
+                "Create a new file in the working directory of the chat, with the text given for it. This tool never overwrites a file and never empties one: if a file of that name already stands with words in it, the call fails, the file is left exactly as it was, and edit_file is the tool that changes it. So look first whether the file is there, and when a file that exists is wanted changed rather than made, call edit_file instead. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file to create. The name is relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'."
+                        "description": "The file to create. The name is relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'. A file that already exists is never overwritten and never emptied: such a call fails and the file stands unchanged."
                     },
                     "text": {
                         "type": "string",
