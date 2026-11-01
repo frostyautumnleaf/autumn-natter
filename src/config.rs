@@ -702,6 +702,55 @@ pub fn repositories_dir(cfg: &Config) -> PathBuf {
     dir
 }
 
+// Look for the llama-server binary in the usual build places.
+fn default_llama_dir() -> String {
+    let mut tried: Vec<PathBuf> = Vec::new();
+    if let Ok(env) = std::env::var("AUTUMN_NATTER_LLAMA_DIR") {
+        if !env.trim().is_empty() {
+            tried.push(PathBuf::from(env));
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            tried.push(dir.to_path_buf());
+            tried.push(dir.join("llama"));
+            tried.push(dir.join("../llamacpp/build/bin"));
+            tried.push(dir.join("../../llamacpp/build/bin"));
+        }
+    }
+    // A checkout next to the program is common during development.
+    if let Ok(cwd) = std::env::current_dir() {
+        tried.push(cwd.join("llamacpp/build/bin"));
+    }
+    tried.push(PathBuf::from("/usr/local/bin"));
+    tried.push(PathBuf::from("/usr/bin"));
+    for dir in tried {
+        if server_in(&dir).is_some() {
+            return dir.display().to_string();
+        }
+    }
+    String::new()
+}
+
+// Return the llama-server binary inside a directory, if it is there.
+pub fn server_in(dir: &Path) -> Option<PathBuf> {
+    let names = [
+        "llama-server",
+        "llama-server.exe",
+        "bin/llama/llama-server",
+        "bin/llama/llama-server.exe",
+        "bin/llama-server",
+        "bin/llama-server.exe",
+    ];
+    for name in names {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -964,53 +1013,4 @@ mod tests {
         assert!(!compaction_wanted(&off, 9000, 8192));
         assert!(!compaction_wanted(&off, 8192, 8192));
     }
-}
-
-// Look for the llama-server binary in the usual build places.
-fn default_llama_dir() -> String {
-    let mut tried: Vec<PathBuf> = Vec::new();
-    if let Ok(env) = std::env::var("AUTUMN_NATTER_LLAMA_DIR") {
-        if !env.trim().is_empty() {
-            tried.push(PathBuf::from(env));
-        }
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            tried.push(dir.to_path_buf());
-            tried.push(dir.join("llama"));
-            tried.push(dir.join("../llamacpp/build/bin"));
-            tried.push(dir.join("../../llamacpp/build/bin"));
-        }
-    }
-    // A checkout next to the program is common during development.
-    if let Ok(cwd) = std::env::current_dir() {
-        tried.push(cwd.join("llamacpp/build/bin"));
-    }
-    tried.push(PathBuf::from("/usr/local/bin"));
-    tried.push(PathBuf::from("/usr/bin"));
-    for dir in tried {
-        if server_in(&dir).is_some() {
-            return dir.display().to_string();
-        }
-    }
-    String::new()
-}
-
-// Return the llama-server binary inside a directory, if it is there.
-pub fn server_in(dir: &Path) -> Option<PathBuf> {
-    let names = [
-        "llama-server",
-        "llama-server.exe",
-        "bin/llama/llama-server",
-        "bin/llama/llama-server.exe",
-        "bin/llama-server",
-        "bin/llama-server.exe",
-    ];
-    for name in names {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
 }

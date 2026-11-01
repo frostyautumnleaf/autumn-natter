@@ -283,9 +283,7 @@ mod tests {
             .write(true)
             .open(&place)
             .and_then(|file| {
-                file.set_modified(SystemTime::from(
-                    UNIX_EPOCH + std::time::Duration::from_secs(second as u64),
-                ))
+                file.set_modified(UNIX_EPOCH + std::time::Duration::from_secs(second as u64))
             });
         place
     }

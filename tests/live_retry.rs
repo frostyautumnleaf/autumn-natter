@@ -4,7 +4,7 @@
 
 use autumn_natter_core::config::{self, Config, ModelSettings};
 use autumn_natter_core::engine::Engine;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -19,7 +19,7 @@ fn wait_for<T>(what: &str, mut look: impl FnMut() -> Option<T>) -> T {
     }
 }
 
-fn engine_for(root: &PathBuf, name: &str) -> Engine {
+fn engine_for(root: &Path, name: &str) -> Engine {
     let scratch = root.join("probe/send");
     let data = root.join(format!("uidata/{}", name));
     let _ = std::fs::remove_dir_all(&data);
@@ -31,13 +31,17 @@ fn engine_for(root: &PathBuf, name: &str) -> Engine {
         .expect("a model file to choose")
         .display()
         .to_string();
-    let mut ms = ModelSettings::default();
-    ms.ctx_size = 8192;
-    ms.gpu_enabled = vec![false; 8];
-    let mut cfg = Config::default();
-    cfg.llama_dir = scratch.display().to_string();
-    cfg.models_dir = root.join("testing_model").display().to_string();
-    cfg.model_id = model.clone();
+    let ms = ModelSettings {
+        ctx_size: 8192,
+        gpu_enabled: vec![false; 8],
+        ..Default::default()
+    };
+    let mut cfg = Config {
+        llama_dir: scratch.display().to_string(),
+        models_dir: root.join("testing_model").display().to_string(),
+        model_id: model.clone(),
+        ..Default::default()
+    };
     cfg.model_settings.insert(model, ms);
     cfg.chat_compaction = "handoff".to_string();
     cfg.chat_compact_by = "percent".to_string();

@@ -15,7 +15,7 @@
 
 use autumn_natter_core::config::{self, Config, ModelSettings};
 use autumn_natter_core::engine::Engine;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -34,14 +34,14 @@ fn wait_for<T>(what: &str, mut look: impl FnMut() -> Option<T>) -> T {
 // The asks the script answered, out of its log. The script counts every ask, and
 // the program sends one kind of ask that is not a saying of the talk at all (it
 // asks for the number of tokens), so only the asks with a shape of their own count.
-fn kinds(scratch: &PathBuf) -> Vec<String> {
+fn kinds(scratch: &Path) -> Vec<String> {
     let text = std::fs::read_to_string(scratch.join("asks.jsonl")).unwrap_or_default();
     text.lines()
         .filter_map(|line| {
             serde_json::from_str::<serde_json::Value>(line)
                 .ok()
                 .and_then(|one| one["kind"].as_str().map(String::from))
-                .filter(|kind| kind != &"none")
+                .filter(|kind| kind != "none")
         })
         .collect()
 }
@@ -50,7 +50,7 @@ fn kinds(scratch: &PathBuf) -> Vec<String> {
 // minutes have passed. The state of the program is not looked at here, for it is
 // idle before the worker has begun and idle again after it, and a check that only
 // waits for idle passes at once.
-fn wait_asks(scratch: &PathBuf, most: usize) -> Vec<String> {
+fn wait_asks(scratch: &Path, most: usize) -> Vec<String> {
     let until = Instant::now() + Duration::from_secs(120);
     loop {
         let found = kinds(scratch);
@@ -93,13 +93,17 @@ fn start(named: &str, scratch_name: &str) -> (Engine, PathBuf) {
         .expect("a model file to choose")
         .display()
         .to_string();
-    let mut ms = ModelSettings::default();
-    ms.ctx_size = 4096;
-    ms.gpu_enabled = vec![false; 8];
-    let mut cfg = Config::default();
-    cfg.llama_dir = scratch.display().to_string();
-    cfg.models_dir = root.join("testing_model").display().to_string();
-    cfg.model_id = model.clone();
+    let ms = ModelSettings {
+        ctx_size: 4096,
+        gpu_enabled: vec![false; 8],
+        ..Default::default()
+    };
+    let mut cfg = Config {
+        llama_dir: scratch.display().to_string(),
+        models_dir: root.join("testing_model").display().to_string(),
+        model_id: model.clone(),
+        ..Default::default()
+    };
     cfg.model_settings.insert(model, ms);
     let engine = Engine::start(cfg);
     engine.new_chat();

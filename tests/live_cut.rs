@@ -53,15 +53,19 @@ fn a_tool_call_bigger_than_the_room_is_cut_off_and_told_of() {
         .expect("a model file to choose")
         .display()
         .to_string();
-    let mut ms = ModelSettings::default();
     // A small room, so a few hundred words of a file run past the limit of it.
-    ms.ctx_size = 1024;
-    ms.max_tokens = 200;
-    ms.gpu_enabled = vec![false; 8];
-    let mut cfg = Config::default();
-    cfg.llama_dir = scratch.display().to_string();
-    cfg.models_dir = root.join("testing_model").display().to_string();
-    cfg.model_id = model.clone();
+    let ms = ModelSettings {
+        ctx_size: 1024,
+        max_tokens: 200,
+        gpu_enabled: vec![false; 8],
+        ..Default::default()
+    };
+    let mut cfg = Config {
+        llama_dir: scratch.display().to_string(),
+        models_dir: root.join("testing_model").display().to_string(),
+        model_id: model.clone(),
+        ..Default::default()
+    };
     cfg.model_settings.insert(model, ms);
     // The limit the settings stand at by default: the handoff summary, at a share
     // of the room.

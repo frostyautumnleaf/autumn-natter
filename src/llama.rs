@@ -1273,15 +1273,17 @@ mod tests {
     // the defaults of the program stand in a new set of settings.
     #[test]
     fn the_sampling_values_go_to_the_server() {
-        let mut settings = ModelSettings::default();
-        settings.temperature = 0.2;
-        settings.top_p = 0.5;
-        settings.top_k = 7;
-        settings.min_p = 0.1;
-        settings.repeat_penalty = 1.1;
-        settings.presence_penalty = 0.2;
-        settings.max_tokens = 256;
-        settings.seed = 42;
+        let settings = ModelSettings {
+            temperature: 0.2,
+            top_p: 0.5,
+            top_k: 7,
+            min_p: 0.1,
+            repeat_penalty: 1.1,
+            presence_penalty: 0.2,
+            max_tokens: 256,
+            seed: 42,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1334,9 +1336,11 @@ mod tests {
     // the defaults of the program stand in a new set of settings.
     #[test]
     fn the_checkpoints_and_the_cache_ram_go_to_the_server() {
-        let mut settings = ModelSettings::default();
-        settings.ctx_checkpoints = 4;
-        settings.cache_ram = -1;
+        let settings = ModelSettings {
+            ctx_checkpoints: 4,
+            cache_ram: -1,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1387,8 +1391,10 @@ mod tests {
         assert!(args.iter().any(|a| a == "--cache-prompt"));
         assert!(!args.iter().any(|a| a == "--no-cache-prompt"));
 
-        let mut settings = ModelSettings::default();
-        settings.cache_prompt = false;
+        let settings = ModelSettings {
+            cache_prompt: false,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1410,10 +1416,12 @@ mod tests {
     // the value inside the model file stands.
     #[test]
     fn the_image_tokens_go_to_the_server_with_vision() {
-        let mut settings = ModelSettings::default();
-        settings.vision = true;
-        settings.image_min_tokens = 256;
-        settings.image_max_tokens = 1024;
+        let settings = ModelSettings {
+            vision: true,
+            image_min_tokens: 256,
+            image_max_tokens: 1024,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1444,8 +1452,10 @@ mod tests {
         assert!(!args.iter().any(|a| a == "--image-min-tokens"));
         assert!(!args.iter().any(|a| a == "--image-max-tokens"));
 
-        let mut settings = ModelSettings::default();
-        settings.vision = true;
+        let settings = ModelSettings {
+            vision: true,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1499,8 +1509,10 @@ mod tests {
         );
         assert!(!args.iter().any(|a| a == "--no-context-shift"));
 
-        let mut settings = ModelSettings::default();
-        settings.no_context_shift = true;
+        let settings = ModelSettings {
+            no_context_shift: true,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1534,9 +1546,11 @@ mod tests {
         );
         assert!(!args.iter().any(|a| a == "--no-mmproj-offload"));
 
-        let mut settings = ModelSettings::default();
-        settings.vision = true;
-        settings.mmproj_cpu = true;
+        let settings = ModelSettings {
+            vision: true,
+            mmproj_cpu: true,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),

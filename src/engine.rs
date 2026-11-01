@@ -8188,7 +8188,7 @@ mod tests {
         let worker = {
             let call = call.clone();
             std::thread::spawn(move || {
-                run_program_tool(&call, "", 0, &held, &std::path::Path::new("."), &waiter)
+                run_program_tool(&call, "", 0, &held, std::path::Path::new("."), &waiter)
             })
         };
         // The ask stands while the run waits for a word. A weighty question is
@@ -8241,7 +8241,7 @@ mod tests {
         let worker = {
             let call = call.clone();
             std::thread::spawn(move || {
-                run_program_tool(&call, "", 0, &held, &std::path::Path::new("."), &waiter)
+                run_program_tool(&call, "", 0, &held, std::path::Path::new("."), &waiter)
             })
         };
         let asked = asked_of(&engine);
@@ -10122,8 +10122,10 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
-        let mut cfg = Config::default();
-        cfg.chat_date_new_chat = false;
+        let cfg = Config {
+            chat_date_new_chat: false,
+            ..Default::default()
+        };
         dated_chat(&mut state, &cfg);
         let history = state.build_history();
         assert!(date_lines(&history).is_empty());
@@ -10719,9 +10721,11 @@ mod tests {
         // without the telling reads under it.
         state.ctx_total = 2048;
         state.ctx_used = 1600;
-        let mut cfg = Config::default();
-        cfg.chat_compact_by = config::COMPACT_BY_TOKENS.to_string();
-        cfg.chat_compact_reserve = 1500;
+        let cfg = Config {
+            chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
+            chat_compact_reserve: 1500,
+            ..Default::default()
+        };
         state.cfg = cfg;
         // The room is made: the summary is written into the mark, and the meter
         // is read again from the talk as it stands.
@@ -10775,9 +10779,11 @@ mod tests {
         // the limit.
         state.ctx_total = 2048;
         state.ctx_used = 1600;
-        let mut cfg = Config::default();
-        cfg.chat_compact_by = config::COMPACT_BY_TOKENS.to_string();
-        cfg.chat_compact_reserve = 1500;
+        let cfg = Config {
+            chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
+            chat_compact_reserve: 1500,
+            ..Default::default()
+        };
         state.cfg = cfg;
         // The summary of the talk frees the room, and the meter is read again
         // from the talk as it stands.
