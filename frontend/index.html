@@ -2642,24 +2642,9 @@ function fillSandboxMenu(s) {
   var menu = el.sandboxmenu;
   if (!menu) { return; }
   menu.innerHTML = '';
-  // The jail itself stands at the head of the menu, for the three settings below
-  // are the gates of that jail.
-  var jail = make('button', 'toggle' + (s.sandbox ? ' on' : ''));
-  jail.type = 'button';
-  jail.title = s.sandbox_available
-    ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.'
-    : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox.');
-  var jailWord = make('span', 'word');
-  jailWord.textContent = 'Sandbox';
-  jail.appendChild(jailWord);
-  jail.appendChild(make('span', 'sw'));
-  jail.addEventListener('click', function (event) {
-    event.stopPropagation();
-    post('/api/sandbox', { on: !(cur && cur.sandbox) });
-  });
-  menu.appendChild(jail);
-  menu.appendChild(make('div', 'sep'));
-  // The three gates. They are asked for one at a time, and each stands off.
+  // The three gates. The jail itself is not a line in here: the badge of the
+  // sandbox is the switch of the jail, and this menu holds only what a command
+  // may reach beyond the jail once it is on. They are asked for one at a time, and each stands off.
   var gates = [
     ['network', 'Network access',
       'A command of this chat may reach the network: downloads, package updates, and other machines. Off unless you open it.'],
@@ -2859,6 +2844,18 @@ var TOOL_LINES = [
    'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.']
 ];
 
+// Whether any kind of tool stands switched on for this chat. They stand on from
+// the beginning, so a chat offers its tools until the user takes them away - and
+// the question is asked of the state rather than of the menu, for the menu is
+// filled only when it is next opened.
+function anyToolOn(s) {
+  var held = (s && s.tool_switches) || {};
+  for (var n = 0; n < TOOL_LINES.length; n++) {
+    if (held[TOOL_LINES[n][0]] !== false) { return true; }
+  }
+  return false;
+}
+
 // One line of the menu of the badge: a kind of tool, with a switch at the end of
 // it. The menu stays open under a click, so the switch is seen to move.
 function toolLine(part, word, tip, on) {
@@ -2876,28 +2873,14 @@ function toolLine(part, word, tip, on) {
   return line;
 }
 
-// The menu of the badge of the tools. The badge no longer turns one thing on or
-// off: the tools of the program are several kinds of thing, and the user must
-// be able to see which of them the model may reach. The badge itself stands at
-// the head of its own menu, as the jail stands at the head of the menu of the
-// sandbox, for it is the door over all of them.
+// The menu of the badge of the tools: one line for every kind of tool the model
+// may reach. The badge of the tools is not a line in its own menu, for it is the
+// door over all of them and answers from where it stands in the row rather than
+// from within the list of what it lets through.
 function fillToolMenu(s) {
   var menu = el.codemenu;
   if (!menu) { return; }
   menu.innerHTML = '';
-  var all = make('button', 'toggle' + (s.code ? ' on' : ''));
-  all.type = 'button';
-  all.title = 'Every tool of the program at once. A tool that is switched off in this menu stays off when the badge comes back on.';
-  var allWord = make('span', 'word');
-  allWord.textContent = 'All the tools';
-  all.appendChild(allWord);
-  all.appendChild(make('span', 'sw'));
-  all.addEventListener('click', function (event) {
-    event.stopPropagation();
-    post('/api/code', { on: !(cur && cur.code) });
-  });
-  menu.appendChild(all);
-  menu.appendChild(make('div', 'sep'));
   var held = s.tool_switches || {};
   for (var n = 0; n < TOOL_LINES.length; n++) {
     var one = TOOL_LINES[n];
@@ -2932,7 +2915,8 @@ function drawTools(s) {
       ? 'The model may reach the tools of the program in this chat.'
       : 'No tool of the program is offered to the model in this chat.')
     + (off ? ' ' + off + ' of ' + TOOL_LINES.length + ' are switched off in the menu.' : '')
-    + ' Click to switch all of them on or off; click the arrow to choose them one by one.';
+    + ' Click to switch all of them on or off; the arrow at the right, or a right click over the badge, chooses them one by one.'
+    + (off ? '' : ' With none of them switched on, the badge opens that menu instead.');
   if (el.codemenu && !el.codemenu.classList.contains('hidden')) { fillToolMenu(s); }
 }
 
@@ -2953,7 +2937,7 @@ function drawBadges(s) {
     + (reached.length
       ? 'Open to a command of this chat: ' + reached.join(', ') + '.'
       : 'A command has no network, no package installs, and no fetch.')
-    + ' Click to open the settings of the sandbox.';
+    + ' Click to put the jail on or off; the arrow at the right, or a right click over the badge, opens what a command may reach beyond it.';
   var thinking = s.thinking || { mode: 'off', available: false, modes: [] };
   // The badge says what the model will do, in the words of this page. The
   // short names stay between the page and the server.
@@ -6874,41 +6858,60 @@ wireRightClick(el.code, openToolMenu);
 wireRightClick(el.sandbox, openSandboxMenu);
 wireRightClick(el.think, openThinkMenu);
 wireRightClick(el.mcp, openMcpMenu);
-// The badge of the tools is the switch over all of them, and the arrow beside its
-// name opens the drop-down where they are chosen one by one.
-el.code.addEventListener('click', function () {
-  closeToolMenu();
-  if (cur) { post('/api/code', { on: !cur.code }); }
-});
-el.codemenuCaret = el['codemenu-caret'];
-if (el.codemenuCaret) {
-  el.codemenuCaret.addEventListener('click', function (event) {
+// A badge that holds a drop-down of its own answers two places of itself. The
+// right of the badge, from its arrow to its edge, is the way into the menu; the
+// rest of the badge is the switch of the thing the badge stands for. Where that
+// thing is a group of switches and none of them stands on, the badge has nothing
+// to switch, so it opens the menu instead, which is where the switches are.
+function wireMenuBadge(badge, menu, open, onMain, switchedOn) {
+  if (!badge || !menu) { return; }
+  // A click on a badge whose menu stands open puts the menu away; any other
+  // brings it up over the badge.
+  var turn = function () {
+    if (menu.classList.contains('hidden')) { showOnly(open); }
+    else { menu.classList.add('hidden'); }
+  };
+  badge.addEventListener('click', function (event) {
     event.stopPropagation();
-    if (el.codemenu.classList.contains('hidden')) {
-      closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); openToolMenu();
-    } else { closeToolMenu(); }
+    if (badge.disabled) { return; }
+    // The right of the badge, from its arrow to the edge of the badge, is the way
+    // into the menu. The arrow by itself is a mark eleven pixels wide, which is
+    // no way at all to a choice a finger has to make, so the whole of the right
+    // side of the badge answers for it.
+    var zone = badge.querySelector('.down');
+    if (zone && event.clientX >= zone.getBoundingClientRect().left - 4) { turn(); return; }
+    // With nothing switched on in the menu there is nothing for the rest of the
+    // badge to switch, and the menu is where the switches are.
+    if (switchedOn && !switchedOn()) { showOnly(open); return; }
+    // A badge whose whole being is the choice held in its menu has no switch of
+    // its own to answer with, and opens the menu from anywhere else too.
+    if (onMain) { onMain(); } else { turn(); }
   });
 }
+
+// The badge of the tools is the switch over all of them, and the right of the
+// badge - its arrow, or a right click anywhere over the badge - opens the
+// drop-down where they are chosen one by one. With none of them chosen there is
+// nothing for the badge to switch, so the badge opens the drop-down instead.
+wireMenuBadge(el.code, el.codemenu, openToolMenu, function () {
+  closeToolMenu();
+  if (cur) { post('/api/code', { on: !cur.code }); }
+}, function () { return anyToolOn(cur); });
 el.search.addEventListener('click', function () { if (cur) { post('/api/search', { on: !cur.search }); } });
-// The sandbox badge is a drop-down, for what a command may reach is three
-// settings, and the user must see all three together rather than cycle through
-// them blind.
-el.sandbox.addEventListener('click', function (event) {
-  event.stopPropagation();
-  if (el.sandboxmenu.classList.contains('hidden')) { closeThinkMenu(); openSandboxMenu(); } else { closeSandboxMenu(); }
+// The badge of the sandbox is the jail: it is put on or off from the badge
+// whatever the three settings say, for a command is either in the jail or out of
+// it. What a command may reach beyond the jail is opened from the right of the
+// badge, and never switched from the list.
+wireMenuBadge(el.sandbox, el.sandboxmenu, openSandboxMenu, function () {
+  if (cur) { post('/api/sandbox', { on: !cur.sandbox }); }
 });
 // The thinking badge is a drop-down, for a mode is chosen and not cycled
 // through: the user must be able to see what is on offer.
-el.think.addEventListener('click', function (event) {
-  event.stopPropagation();
-  if (el.thinkmenu.classList.contains('hidden')) { closeSandboxMenu(); openThinkMenu(); } else { closeThinkMenu(); }
-});
+wireMenuBadge(el.think, el.thinkmenu, openThinkMenu);
+// The badge of the servers of the user's own opens the list of them, for every
+// server is switched on its own and there is nothing to switch as a whole.
+wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
 // A click anywhere else in the page puts the menus away.
-el.mcp.addEventListener('click', function (event) {
-  event.stopPropagation();
-  if (el.mcpmenu.classList.contains('hidden')) { closeThinkMenu(); closeSandboxMenu(); openMcpMenu(); }
-  else { closeMcpMenu(); }
-});
 document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); });
 
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
