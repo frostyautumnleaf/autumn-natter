@@ -526,7 +526,10 @@ ol.marks li::marker { color: var(--ink-leaf); font-weight: 600; }
    more; a table of many columns is wrapped to the width of the chat, as the
    words of a block of code are, and the frame is kept as a way out in case the
    words of a cell cannot be broken at all. */
-.tablewrap { margin: 4px 0 11px; overflow: auto; max-height: 420px;
+/* A table stands in the middle of the chat. The frame takes the width of the
+   table and no more, so the width it takes is centred: a table of three short
+   columns at the left hand edge of a wide chat reads as a thing that fell over. */
+.tablewrap { margin: 4px auto 11px; overflow: auto; max-height: 420px;
   width: fit-content; max-width: 100%; border: 1px solid var(--code-line);
   border-radius: 10px; background: var(--code-bg);
   scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
