@@ -33,7 +33,8 @@
   --accent-soft: rgba(237, 116, 1, .12);
   --accent-line: rgba(237, 116, 1, .42);
 
-  --bg: #faf2e6; --surface: #fffdf8; --surface-2: #f4e9d8; --surface-3: #efe1cc;
+  --bg: #faf2e6; --fade-top: rgba(250,242,230,1); --fade-out: rgba(250,242,230,0);
+  --surface: #fffdf8; --surface-2: #f4e9d8; --surface-3: #efe1cc;
   --line: #e7d8c3; --line-soft: #efe2d1; --line-strong: #d8c2a4;
   --text: #241b12; --text-2: #4b3e30; --dim: #7c6b58; --faint: #a2917c;
   --hover: #f7ebd9; --tint: #fbe6d1; --on-accent: #fffaf2;
@@ -69,7 +70,8 @@ body.dark {
   /* The ground is of the autumn family, so every part stood on it is of the
      same family too: one hue, with the steps of lightness the grey ladder had.
      A surface of no colour at all would stand apart from a ground this warm. */
-  --bg: #0a0400; --surface: #231a13; --surface-2: #2c221a; --surface-3: #362a20;
+  --bg: #0a0400; --fade-top: rgba(10,4,0,1); --fade-out: rgba(10,4,0,0);
+  --surface: #231a13; --surface-2: #2c221a; --surface-3: #362a20;
   --line: #3a2e24; --line-soft: #30261e; --line-strong: #503d2d;
   --text: #f2ebe2; --text-2: #d9cfc3; --dim: #a4998c; --faint: #857c71;
   --hover: #2d231b; --tint: #2c1d10; --on-accent: #fff8ef;
@@ -250,12 +252,6 @@ body.home .stage { display: none; }
 .thread {
   position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain;
   padding: 22px 0 26px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
-  /* The chat fades out into the background at the very top: the words thin away
-     over the first stretch of the thread, so nothing stops dead at its edge. The
-     mark rides the thread itself, so the words under it are still words of the
-     chat, to be read, marked and taken hold of. */
-  mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0, #000 34px);
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0, #000 34px);
 }
 /* The chat makes room at the left when a chat has chapters, so the line never
    stands over the words. A window too narrow for a margin of its own does not show
@@ -946,6 +942,16 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   to { opacity: 1; transform: none; }
 }
 .dock { flex: 0 0 auto; padding: 0 14px 12px; }
+
+/* The chat fades out into the background at the very top. The wash stands over
+   the head of the thread, where the words come up out of nothing: it is the colour
+   of the background, whole at the top edge and gone a finger lower, so the words
+   thin away instead of stopping dead. Nothing of it catches the hand. */
+.topfade {
+  position: absolute; left: 0; right: 0; top: 0; height: 34px;
+  pointer-events: none; z-index: 3;
+  background: linear-gradient(to bottom, var(--fade-top), var(--fade-out));
+}
 
 /* ------------------------------------------------------------ waiting list */
 /* The messages the user put by while the model was writing. The list stands in
@@ -1834,6 +1840,12 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     <div class="thread" id="thread">
       <div class="col" id="col"></div>
     </div>
+    <!-- The chat fades out into the background at the very top. The wash is the
+         colour of the background, thick at the top edge and gone a finger lower,
+         and it stands over the words: the words under it are still words of the
+         chat, to be read, marked and taken hold of, for the wash never catches
+         the hand. -->
+    <div class="topfade" aria-hidden="true"></div>
     
     
 
