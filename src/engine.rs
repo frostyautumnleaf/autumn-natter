@@ -6520,6 +6520,7 @@ fn run_turn(
         // The marks first: they cost nothing, and the user sees the parts of
         // the talk in the order the model asked for them.
         take_marks(state, &step_marks, &mut marks);
+        let mut offered = false;
         for call in step_runs.iter() {
             // Only a command of the terminal tool eats the room for commands.
             // The other tools work in the room of the chat in the program
@@ -6564,6 +6565,27 @@ fn run_turn(
             } else {
                 run_program_tool(call, &thinking, thought_ms, state, &workdir, cancel);
             }
+            if call.name == download::NAME {
+                offered = true;
+            }
+        }
+        // The offer of a file is the foot of an answer. The blocks stand below the
+        // words of the answer, and the work the model was given is done once they
+        // are put out, so nothing is left to go on with. The model is not asked
+        // again after such a run: the talk ends on the receipt of the offer, and
+        // the next ask reads to the model as a fresh request for the same thing,
+        // which it then does over - it writes the file again, or offers it a
+        // second time. The tool says the offer is the last thing of an answer, so
+        // the answer ends with it.
+        if offered {
+            let Ok(mut guard) = state.lock() else {
+                return Ended::Halted;
+            };
+            guard.generating = false;
+            guard.clear_stopped_marks();
+            guard.set_status("Ready");
+            guard.persist();
+            break Ended::Done;
         }
         if !thoughts.is_empty() {
             // The turn asked for marks and for nothing a user could look at,
