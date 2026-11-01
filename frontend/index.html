@@ -5766,12 +5766,22 @@ function drawThread(s) {
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
 }
 
-// The words of the chat are followed while the user stands near the bottom,
-// and left alone when the user has gone up to read.
+// The words of the chat are followed while the user stands at the end of them,
+// and left alone the moment the user goes up to read. The end is meant exactly:
+// a chat that was followed a finger's breadth away from the end used to be
+// taken back down the moment the model wrote the next word, so one turn of the
+// wheel upwards was no halt at all. Following is taken up again when the user
+// comes down to the last word of the chat of their own accord.
 el.thread.addEventListener('scroll', function () {
   var box = el.thread;
-  stick = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
+  stick = box.scrollHeight - (box.scrollTop + box.clientHeight) < 4;
 });
+// A wheel turned upwards is the hand of the user going up to read, and it says
+// so before the chat has finished moving: the following stops at once, and the
+// chat stands where the user left it.
+el.thread.addEventListener('wheel', function (ev) {
+  if (ev.deltaY < 0) { stick = false; }
+}, { passive: true });
 
 // ---------------------------------------------------- the offer of a file
 //
