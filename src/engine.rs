@@ -6923,9 +6923,21 @@ fn run_program_tool(
         guard.finish_gifts(&message_id, &made.report.output, made.report.ok, made.gifts);
         return;
     }
+    // The wall of the chat. While the jail stands the file tools work in the
+    // room of the chat and nowhere else, for that room is the one room the jail
+    // is written in. With the jail off they reach the machine as a command of
+    // the terminal tool does, and a name outside the room of the chat is a name
+    // like any other.
+    let jailed = match state.lock() {
+        Ok(guard) => guard
+            .chat()
+            .map(|one| one.meta.sandbox_enabled)
+            .unwrap_or(false),
+        Err(_) => false,
+    };
     let report = match call.name.as_str() {
-        editfile::EDIT_NAME => editfile::edit(workdir, &call.arguments),
-        editfile::CREATE_NAME => editfile::create(workdir, &call.arguments),
+        editfile::EDIT_NAME => editfile::edit_room(workdir, &call.arguments, jailed),
+        editfile::CREATE_NAME => editfile::create_room(workdir, &call.arguments, jailed),
         // The web search needs no room of the chat: it reads what stands on the
         // web, and nothing of the machine.
         search::NAME => search::run(&call.arguments),

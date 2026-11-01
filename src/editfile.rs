@@ -78,7 +78,7 @@ pub fn edit_definition() -> Value {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file to change. The name is relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'."
+                        "description": "The file to change. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name from the root of the machine. While the sandbox stands, only the working directory of the chat may be worked on; with the sandbox off any file of this machine may be."
                     },
                     "edits": {
                         "type": "array",
@@ -124,7 +124,7 @@ pub fn create_definition() -> Value {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file to create. The name is relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'. A file that already exists is never overwritten and never emptied: such a call fails and the file stands unchanged."
+                        "description": "The file to create. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name from the root of the machine. While the sandbox stands, only the working directory of the chat may be worked on; with the sandbox off any file of this machine may be. A file that already exists is never overwritten and never emptied: such a call fails and the file stands unchanged."
                     },
                     "text": {
                         "type": "string",
@@ -430,6 +430,18 @@ fn as_far_as_stands(path: &Path) -> PathBuf {
 // attachments. The place that comes back has been followed through its links,
 // so it cannot be led out of the room by a link planted inside it.
 pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
+    place_kept(workdir, raw, true)
+}
+
+// The same, with the wall made known. A chat that stands in the jail works in
+// the room of the chat and nowhere else, for that room is the one room the jail
+// is written in. A chat with the jail off reaches the machine as a command of
+// the terminal tool does, so a name that stands outside the room of the chat is
+// taken as it is given: absolute, or relative to the room, with the road
+// through '..' among the parts of it. The store of the files the user hung on
+// the chat is kept out of reach either way, for those are nobody's to touch but
+// the user's.
+pub fn place_kept(workdir: &Path, raw: &str, in_room: bool) -> Result<PathBuf, String> {
     let name = raw.trim();
     if name.is_empty() {
         return Err(String::from("The name of the file is required"));
@@ -441,13 +453,15 @@ pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
     } else {
         the_room.join(cut)
     };
-    for part in joined.components() {
-        if part == Component::ParentDir {
-            return Err(format!(
-                "'{}' points outside the working directory of the chat. That directory is the only place the file tools work, so give a name relative to it, as '{}'.",
-                name,
-                last(&joined)
-            ));
+    if in_room {
+        for part in joined.components() {
+            if part == Component::ParentDir {
+                return Err(format!(
+                    "'{}' points outside the working directory of the chat. While the sandbox stands, that directory is the only place the file tools work, so give a name relative to it, as '{}'.",
+                    name,
+                    last(&joined)
+                ));
+            }
         }
     }
     if in_shelf(&joined) {
@@ -456,15 +470,46 @@ pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
             name
         ));
     }
-    let checked = as_far_as_stands(&joined);
-    if !under(&the_room, &checked) {
+    let checked = if in_room {
+        as_far_as_stands(&joined)
+    } else {
+        neat(&joined)
+    };
+    if in_room && !under(&the_room, &checked) {
         return Err(format!(
-            "'{}' is outside the working directory of the chat, which is the only place the file tools work. Give a name relative to it, as '{}'.",
+            "'{}' is outside the working directory of the chat, which while the sandbox stands is the only place the file tools work. Give a name relative to it, as '{}', or turn the sandbox off to work on the machine as a command does.",
             name,
             last(&joined)
         ));
     }
     Ok(checked)
+}
+
+// A name of a file made neat -- without the parts that stand for the folder
+// itself, and without the parts that go back a step -- but nothing asked of the
+// machine: a file that is not there yet is a name all the same.
+fn neat(path: &Path) -> PathBuf {
+    let mut made = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                made.pop();
+            }
+            other => made.push(other.as_os_str()),
+        }
+    }
+    made
+}
+
+// The room the file tools stand in. With the wall up it is the room of the chat;
+// without it, the whole machine, which is what a name that is not kept to a
+// room leaves.
+fn room_for(workdir: &Path, in_room: bool) -> PathBuf {
+    if in_room {
+        return room(workdir);
+    }
+    PathBuf::from(std::path::MAIN_SEPARATOR_STR)
 }
 
 // The name of a file, for a word to the model.
@@ -1032,6 +1077,11 @@ fn wrong_shape(edit_tool: bool) -> String {
 // Change a file of the chat. Every change of the call is made, or none of them
 // is, and the answer says which of the two happened.
 pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
+    edit_room(workdir, raw, true)
+}
+
+// The same, with the wall made known: see `place_kept`.
+pub fn edit_room(workdir: &Path, raw: &str, in_room: bool) -> tools::Report {
     let failed = |output: String| tools::Report {
         ok: false,
         output,
@@ -1046,7 +1096,7 @@ pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
         Ok(made) => made,
         Err(problem) => return failed(problem),
     };
-    let place = match place_in(workdir, &name) {
+    let place = match place_kept(workdir, &name, in_room) {
         Ok(place) => place,
         Err(problem) => return failed(problem),
     };
@@ -1065,7 +1115,7 @@ pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
         bom: standing.bom.clone(),
         bytes: Vec::new(),
     };
-    let the_room = room(workdir);
+    let the_room = room_for(workdir, in_room);
     match write_words(&the_room, &place, &after, &standing.bytes) {
         Ok(()) => tools::Report {
             ok: true,
@@ -1079,6 +1129,11 @@ pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
 // in it is left as it is. The one exception is a file of nothing at all, for no
 // change can match nothing, and such a file would else never be filled.
 pub fn create(workdir: &Path, raw: &str) -> tools::Report {
+    create_room(workdir, raw, true)
+}
+
+// The same, with the wall made known: see `place_kept`.
+pub fn create_room(workdir: &Path, raw: &str, in_room: bool) -> tools::Report {
     let failed = |output: String| tools::Report {
         ok: false,
         output,
@@ -1110,11 +1165,11 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
             name, MAX_FILE_BYTES
         ));
     }
-    let place = match place_in(workdir, &name) {
+    let place = match place_kept(workdir, &name, in_room) {
         Ok(place) => place,
         Err(problem) => return failed(problem),
     };
-    let the_room = room(workdir);
+    let the_room = room_for(workdir, in_room);
     if let Some(parent) = place.parent() {
         if let Err(problem) = std::fs::create_dir_all(parent) {
             return failed(format!(
@@ -1355,6 +1410,50 @@ mod tests {
             let whole = room(&root).join("notes.txt").display().to_string();
             assert!(place_in(&root, &whole).is_ok());
         }
+    }
+
+    // With the sandbox down the file tools reach the machine, as a command of
+    // the terminal tool does: a name outside the room of the chat is then a name
+    // like any other, and a road that goes back a step is a part of it. The
+    // store of the files the user hung on the chat is kept out of reach either
+    // way, and the wall is the sandbox alone.
+    #[test]
+    fn a_name_outside_the_room_is_worked_on_while_the_jail_is_down() {
+        let root = room_of("wide");
+        let elsewhere = room_of("yonder");
+        let far = elsewhere.join("plan.txt");
+        let said = format!(
+            "{{\"path\":\"{}\",\"text\":\"written outside the room\\n\"}}",
+            far.display()
+        );
+        // The wall up: the same name is refused, and nothing stands there.
+        let kept = create_room(&root, &said, true);
+        assert!(!kept.ok, "a name outside the room was let through");
+        assert!(!far.exists());
+        // The wall down: the file is made where it was named.
+        let made = create_room(&root, &said, false);
+        assert!(made.ok, "{}", made.output);
+        assert!(far.is_file(), "the file was not written where it was named");
+        // A name that goes back a step is a road of the machine, and not a way
+        // out of anything, when there is no wall about the room.
+        let back = format!(
+            "{}/sub/../up.txt",
+            elsewhere.display()
+        );
+        let stepped = create_room(
+            &root,
+            &format!("{{\"path\":\"{}\",\"text\":\"up\\n\"}}", back),
+            false,
+        );
+        assert!(stepped.ok, "{}", stepped.output);
+        assert!(elsewhere.join("up.txt").is_file());
+        // The store of the files of the chat is out of reach with the wall down
+        // as well as with the wall up.
+        let shelf = format!(
+            "{}/.attachments/ab12cd.json",
+            room(&root).display()
+        );
+        assert!(place_kept(&root, &shelf, false).is_err());
     }
 
     // A batch is written all at once, or not at all, and the answer says what
