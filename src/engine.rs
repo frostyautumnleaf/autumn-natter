@@ -436,7 +436,7 @@ fn call_of_a_tool(text: &str) -> bool {
 fn summary_snippet(text: &str) -> String {
     let flat = text
         .replace("```", " ")
-        .replace(|c| matches!(c, '#' | '*' | '`' | '>' | '~'), "")
+        .replace(['#', '*', '`', '>', '~'], "")
         .split_whitespace()
         .collect::<Vec<&str>>()
         .join(" ");
@@ -2662,21 +2662,12 @@ pub fn access_of(meta: &store::ChatMeta) -> tools::Access {
 // are in it and were not put away, and the chats that belong to no repository
 // stand on their own. A repository the user pinned keeps its mark, and so
 // does a chat; the page puts the pinned things in the group above the rest.
+#[derive(Default)]
 pub struct Lists {
     pub repositories: Vec<(Repo, Vec<Chat>)>,
     pub loose: Vec<Chat>,
     // The chats the user put away, newest first, of every place.
     pub archived: Vec<Chat>,
-}
-
-impl Default for Lists {
-    fn default() -> Self {
-        Lists {
-            repositories: Vec::new(),
-            loose: Vec::new(),
-            archived: Vec::new(),
-        }
-    }
 }
 
 // Put the chats of one group in the order the side bar shows them: the chat
@@ -3634,7 +3625,7 @@ impl Engine {
         };
         let room = state
             .chat()
-            .map(|chat| state.attach_place_for(&chat))
+            .map(|chat| state.attach_place_for(chat))
             .unwrap_or_default();
         if let Some(chat) = state.chat_mut() {
             chat.messages.truncate(index);
@@ -3721,7 +3712,7 @@ impl Engine {
         };
         let room = state
             .chat()
-            .map(|chat| state.attach_place_for(&chat))
+            .map(|chat| state.attach_place_for(chat))
             .unwrap_or_default();
         if let Some(chat) = state.chat_mut() {
             chat.messages.truncate(cut);

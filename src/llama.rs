@@ -83,13 +83,13 @@ pub fn list_models(dir: &Path) -> Vec<ModelInfo> {
 // all. A name with no mark gives nothing, so a model of eight billion parameters
 // called `llama-3-8b` keeps its name.
 fn shard_of(stem: &str) -> Option<(String, usize, usize)> {
-    let (before, total) = stem.rsplit_once(|c| c == '-' || c == '_')?;
+    let (before, total) = stem.rsplit_once(['-', '_'])?;
     let total: usize = total.parse().ok()?;
-    let (before_of, word) = before.rsplit_once(|c| c == '-' || c == '_')?;
-    if word.to_ascii_lowercase() != "of" {
+    let (before_of, word) = before.rsplit_once(['-', '_'])?;
+    if !word.eq_ignore_ascii_case("of") {
         return None;
     }
-    let (base, number) = before_of.rsplit_once(|c| c == '-' || c == '_')?;
+    let (base, number) = before_of.rsplit_once(['-', '_'])?;
     let number: usize = number.parse().ok()?;
     // A name that is nothing but the mark of a split names no model.
     if base.is_empty() || number == 0 {

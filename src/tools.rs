@@ -587,7 +587,7 @@ fn head_word(part: &str) -> (String, Vec<String>) {
             // A variable set for one command alone, as `PIP_NO_INPUT=1 pip
             // install x`, says nothing of what the command runs.
             if let Some((name, rest)) = word.split_once('=') {
-                if !name.is_empty() && rest.len() > 0 {
+                if !name.is_empty() && !rest.is_empty() {
                     continue;
                 }
             }
