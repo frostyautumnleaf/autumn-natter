@@ -4558,6 +4558,27 @@ pub fn carrying_the_cut(history: &Value) -> u64 {
     estimate_tokens(&Value::Array(items))
 }
 
+// Whether the telling of a call that was stopped where the model wrote it stands
+// among the words that go out. `carrying_the_cut` leaves it out of the weighing,
+// and while it stands the number the server spoke is no measure of the talk the
+// next ask carries either, for it holds the words of the call the program spoke
+// of. The mark of the telling is its first words, which no word of a model and
+// no receipt of a tool reads as.
+fn cut_telling_stands(history: &Value) -> bool {
+    history
+        .as_array()
+        .map(|items| {
+            items.iter().any(|item| {
+                item.get("role").and_then(|r| r.as_str()) == Some("assistant")
+                    && item
+                        .get("content")
+                        .and_then(|c| c.as_str())
+                        .is_some_and(|said| said.starts_with(CUT_TOLD_FIRST))
+            })
+        })
+        .unwrap_or(false)
+}
+
 // The ask for a handoff summary: the talk exactly as it stands, and the ask for
 // the summary after it as a message of the user.
 //
@@ -4775,6 +4796,13 @@ fn tell(state: &Arc<Mutex<State>>, words: &str) {
     }
 }
 
+// The least room that stands over while a handoff summary is being written. The
+// hand over a summary is put up when the talk has come within this of the whole
+// of the room, so the writing of it is stopped while a piece of the room is left
+// and not after the server has nothing left to answer with. A piece the size of
+// a call of the meter is enough, for the hand is looked at on every piece.
+const LEAST_SUMMARY_ROOM: u64 = 64;
+
 // Ask the server for a handoff summary once, with the words the model is to be
 // given, and gather what it writes.
 //
@@ -4813,10 +4841,18 @@ fn ask_summary(
         guard.live_thought_ms = 0;
         guard.live_thought_done = false;
     }
-    // A summary is asked for with no hand from the program over it: it is the
-    // making of the room and not the spending of it, and to stop a summary at the
-    // limit would be to cut off the very words the limit was come to.
-    let no_cut = std::sync::atomic::AtomicBool::new(false);
+    // A summary is asked for with no hand of the summarisation limit over it: it
+    // is the making of the room and not the spending of it, the ask carries the
+    // whole of the talk, and the talk stands past that limit before a word of
+    // the summary comes. The end of the room is another matter, and the hand
+    // over a summary is put up there. A model with a great deal to say can fill
+    // what stands over to the last word of it, and the ask then comes back with
+    // a wall of words and no end of itself: the summary of that wall is what the
+    // room was come to make, and the room is spent besides. So the writing of a
+    // summary is stopped at the edge of the room, the words it gave stand, and
+    // the ask is made again for a short one -- which is what the second prompt
+    // of the settings is there for.
+    let hand = std::sync::atomic::AtomicBool::new(false);
     // The words of the summary are gathered here, out of the sight of the window.
     let mut said = String::new();
     let gauge_state = state.clone();
@@ -4825,7 +4861,7 @@ fn ask_summary(
         base_url,
         body,
         cancel,
-        &no_cut,
+        &hand,
         &mut |piece: &str| {
             said.push_str(piece);
             // The first word is here, so the words that were sent are worked
@@ -4862,6 +4898,18 @@ fn ask_summary(
                 if climb_context_paced(&mut guard, made.used(), Instant::now()) {
                     guard.touch();
                 }
+                // The end of the room is where a summary is stopped, and the
+                // least that stands over is the room of one more piece, so the
+                // hand goes up before the last of the room is taken and the
+                // words the model gave stand whole.
+                if guard.ctx_total > 0
+                    && made
+                        .used()
+                        .saturating_add(LEAST_SUMMARY_ROOM)
+                        >= guard.ctx_total
+                {
+                    hand.store(true, Ordering::Relaxed);
+                }
             }
         },
         // A summary is not written with a command, so the words of a call are
@@ -4876,12 +4924,24 @@ fn ask_summary(
     };
     SummaryShot {
         text,
-        finish: answer.finish.clone(),
+        // A summary stopped at the edge of the room came to no end of its own,
+        // which is what the short ask of the settings is made for: the same hand
+        // that stops the wall of words says so to the rest of the program.
+        finish: if answer.interrupted {
+            String::from("length")
+        } else {
+            answer.finish.clone()
+        },
         calls: answer.tool_calls.clone(),
         stopped: answer.stopped,
         error: answer.error.clone(),
     }
 }
+
+// The least room that stands over while a handoff summary is being written. The
+// hand over a summary is put up when the talk has come within this of the whole
+// of the room, so the writing is stopped while a piece of room is left and not
+// after the server has nothing left to answer with.
 
 // Ask the model for the handoff summary of the chat that is open, and write it
 // into the mark of the summarisation. After this the words before the mark are
@@ -5187,8 +5247,23 @@ fn maybe_compact(
             false
         } else {
             let used = match weigh {
-                Weigh::Room => guard.ctx_used,
-                Weigh::Talk => carrying_the_cut(&guard.build_history()),
+                Weigh::Room => used_after(guard.ctx_used, &guard.build_history()),
+                // The talk as it stands, with the telling of a call that was cut
+                // left out. The number the server spoke is weighed with it, and
+                // the larger kept, whenever no such telling stands in the way:
+                // the estimate of a talk of code, of receipts and of the words
+                // of a tool reads under what a server counts of it, and a chat
+                // the server stands past the limit of was else told it had room
+                // to spare, send by send, until the room was gone.
+                Weigh::Talk => {
+                    let history = guard.build_history();
+                    let told = carrying_the_cut(&history);
+                    if cut_telling_stands(&history) {
+                        told
+                    } else {
+                        told.max(guard.ctx_used)
+                    }
+                }
             };
             config::compaction_wanted(&guard.cfg, used, guard.ctx_total)
         }
@@ -5197,6 +5272,21 @@ fn maybe_compact(
         return run_handoff(state, server, cancel);
     }
     false
+}
+
+// Whether the talk that is going out to the server stands past the limit set
+// for the summarisation. Both numbers are weighed and the larger kept: the one
+// the server spoke last, and the estimate of the talk as it stands, for the
+// words written into the chat after that number -- the answer of the model and
+// the receipt of a tool it asked for -- stand in the estimate and in no number
+// of the server yet. The rule of the limit itself stands in
+// `config::compaction_wanted`, as ever.
+fn room_past_the_limit(state: &Arc<Mutex<State>>, history: &Value) -> bool {
+    let Ok(guard) = state.lock() else {
+        return false;
+    };
+    let used = used_after(guard.ctx_used, history);
+    config::compaction_wanted(&guard.cfg, used, guard.ctx_total)
 }
 
 // Make the room in the middle of an answer, and say whether it was made. The
@@ -5771,7 +5861,7 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (history, code_on, search_on, chapters_on, switches) = {
+        let (mut history, code_on, search_on, chapters_on, switches) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 go_on_words(&guard, carried_prompt),
@@ -5787,6 +5877,53 @@ fn run_turn(
                     .unwrap_or_default(),
             )
         };
+        // The room of the talk is weighed before the ask goes out, and the room
+        // is made out of a handoff summary when the talk stands past the limit.
+        // It cannot wait for the ask, as the hand over an answer does: a talk
+        // that goes out past the limit is cut off under its first piece, the
+        // model never comes to a word, and the answer ends under the words of a
+        // space that gave out. That is read as a fault of the program, and it is
+        // the very fault the summarisation was set aside to keep the talk out
+        // of. The receipt of a tool is the commonest road there, for it is
+        // written into the chat after the last number the server spoke: the talk
+        // stands past the limit only from that moment, and the next ask would
+        // else go out over it.
+        if room_past_the_limit(state, &history) {
+            // The answer is laid aside while the summary takes the chat, as it
+            // is when the writing is stopped under the weight of an answer.
+            let made = make_room(state, server, cancel);
+            let Ok(mut guard) = state.lock() else { return Ended::Halted };
+            if !made {
+                // Either a summary is owed, which the user is asked of in the
+                // usual way, or the summary never came. Sending the ask over the
+                // limit anyway is what leaves the chat under an empty turn, so
+                // the answer ends here and the reason stands where the user
+                // reads it.
+                guard.generating = false;
+                guard.busy = false;
+                if guard.handoff_owed() {
+                    guard.set_status(
+                        "The handoff summary was not written. Start it again from the summarisation timeline",
+                    );
+                } else {
+                    guard.push_note(
+                        "The conversation is past the summarisation limit and no space could be made, so the answer ends here. Ask for the work in parts small enough for the context, or give the model a larger context",
+                        false,
+                    );
+                    guard.set_status(
+                        "The conversation is past the summarisation limit and no space could be made",
+                    );
+                }
+                guard.persist();
+                break Ended::Halted;
+            }
+            // The talk the ask goes out with is another talk now: the words the
+            // summary stands for are left out of it, and the summary itself
+            // stands at the end of it.
+            history = go_on_words(&guard, carried_prompt);
+            guard.generating = true;
+            guard.set_status("Space was made. The model is going on with the answer");
+        }
         // The tools of the servers of the user's own. A server whose tools
         // were never read is looked at here, out of the lock, and once: what
         // the server answered is kept, so the next step and the next answer of
@@ -6010,13 +6147,19 @@ fn run_turn(
                     }
                     // The limit of the summarisation is looked at here, with the
                     // same two numbers the meter of the context is made of, and
-                    // the writing is stopped at once when the limit is come to. It
-                    // cannot wait for the end of the answer, for a model writing a
-                    // tool call bigger than the room it has never comes to an end
-                    // of itself: it writes until the room is gone, which is the
-                    // very thing the limit was set aside to prevent. What the
-                    // model has written so far stands, and goes back to it.
-                    if config::compaction_wanted(&guard.cfg, guard.ctx_used, guard.ctx_total) {
+                    // the writing is stopped at once when the limit is come to.
+                    // It cannot wait for the end of the answer, for a model
+                    // writing a tool call bigger than the room it has never comes
+                    // to an end of itself: it writes until the room is gone,
+                    // which is the very thing the limit was set aside to prevent.
+                    // What the model has written so far stands, and goes back to
+                    // it. The number the server spoke on this piece is weighed
+                    // and not the meter of the talk, for the meter is paced and a
+                    // number turned away by the pace would else leave the writing
+                    // running on past the limit -- over a short answer, past the
+                    // whole of the room.
+                    let spoken = made.used().max(guard.ctx_used);
+                    if config::compaction_wanted(&guard.cfg, spoken, guard.ctx_total) {
                         cut_flag.store(true, Ordering::Relaxed);
                     }
                 }
@@ -6133,15 +6276,32 @@ fn run_turn(
             // mark of an empty turn again, which is the chat the user saw: no
             // answer, and a room spent. The row of the turn of nothing is written as
             // ever, and the word about the space that gave out stands after it. The
-            // room of the overfull chat is still made after the send, as it is for
-            // every chat past the limit.
+            // room is made here, before the answer is ended and not after the send:
+            // the talk of an overfull chat is weighed on the number the server spoke
+            // and not on a guess beside it, for the guess of a talk of code and of
+            // receipts reads under the limit while the server stands past it, and a
+            // room left unmade on this turn is the ask over the limit of the next.
             if cut.is_empty() && answer_text.trim().is_empty() && answer_thinking.trim().is_empty()
             {
                 guard.push_message("Assistant", "", &thoughts, thought_ms, false);
+                guard.persist();
+                drop(guard);
+                let room = make_room(state, server, cancel);
+                let Ok(mut guard) = state.lock() else { return Ended::Halted };
+                let used_now = guard.ctx_used;
+                if let Some(chat) = guard.chat_mut() {
+                    chat.meta.context_used = used_now;
+                    chat.meta.updated = store::now_secs();
+                }
                 guard.push_note(EMPTY_TURN_CUT_WORDS, false);
                 guard.persist();
                 guard.generating = false;
-                guard.set_status(EMPTY_TURN_CUT_WORDS);
+                let text = if room {
+                    "The space gave out while the model wrote neither words nor a call. Space was made, so the message may be sent again"
+                } else {
+                    EMPTY_TURN_CUT_WORDS
+                };
+                guard.set_status(text);
                 break Ended::Halted;
             }
             // The user is told before the room is made, for the making of it puts

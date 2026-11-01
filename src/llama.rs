@@ -602,9 +602,18 @@ pub fn build_args(
         }
     }
 
-    // The fit of the model into the cards is asked for always, and needs no
-    // setting of its own. The server is told the room of the talk the chat was
-    // given, and how much of every card is to stand over: the share the user set
+    // A model spread over more than one card has its graphs made on each card,
+    // and a graph of one card does not stand with the memory of another: the
+    // server is then asked to make no graphs at all, which costs a little speed
+    // and saves the start.
+    if offload.len() > 1 {
+        args.push("--no-cuda-graph".into());
+    }
+
+    // The fit of the model into the cards is asked for whenever the user holds
+    // any of a card back, and needs no setting of its own. The server is
+    // told the room of the talk the chat was given, and how much of every
+    // card is to stand over: the share the user set
     // is what the model may work in, and what is left of a card is the margin.
     // A margin never falls below the least a server needs to stand up in, which
     // is what a slider at the whole of the cards comes to -- for the whole of
@@ -619,7 +628,7 @@ pub fn build_args(
         .filter(|g| g.is_offload)
         .map(|g| g.memory_mb)
         .sum();
-    if total > 0 {
+    if total > 0 && share < 100.0 {
         args.push("--fit".into());
         args.push("on".into());
         args.push("--fit-ctx".into());
@@ -1098,6 +1107,27 @@ pub fn stream_chat(
     answer
 }
 
+// The words of a thing the server said. Words stand as one string, or as a list
+// of parts, of which the words of a part ride under `text` and a picture of one
+// under `image_url`: a list of pictures alone says nothing at all, and is said
+// so. Nothing is given when the thing is neither of those shapes, so a silence
+// is told from a saying by the caller.
+fn said_words(said: &Value) -> Option<String> {
+    match said {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(parts) => {
+            let mut made = String::new();
+            for part in parts {
+                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                    made.push_str(text);
+                }
+            }
+            Some(made)
+        }
+        _ => None,
+    }
+}
+
 // Read one SSE payload. False means the stream is over.
 fn apply_event(
     payload: &str,
@@ -1166,17 +1196,33 @@ fn apply_event(
         answer.finish = finish.to_string();
     }
     let delta = choice.get("delta").unwrap_or(&Value::Null);
-    if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+    // The words of an answer come as one string, or as a list of parts of which
+    // the words and the pictures are mixed: a server of the OpenAI shape may
+    // send either, and the parts of a picture carry no words to read. Both are
+    // read, for a program that reads only the string sees an answer of parts as
+    // a turn with nothing in it and asks the model again over its own answer.
+    if let Some(content) = said_words(delta.get("content").unwrap_or(&Value::Null)) {
         if !content.is_empty() {
-            answer.text.push_str(content);
-            on_text(content);
+            answer.text.push_str(&content);
+            on_text(&content);
         }
     }
-    // Reasoning models stream their thinking in a separate field.
-    if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
+    // Reasoning models stream their thinking in a field of its own. The name of
+    // that field is not settled between the servers: llama.cpp gives back
+    // `reasoning_content`, and a server of the same shape gives the same words
+    // under `reasoning`. Both are read, and the first of them that holds words
+    // is the thinking of this piece, for a program that sees neither reads the
+    // turn as an empty one and goes on asking the model over words it had
+    // already written.
+    if let Some(reasoning) = delta
+        .get("reasoning_content")
+        .and_then(said_words)
+        .filter(|said| !said.is_empty())
+        .or_else(|| delta.get("reasoning").and_then(|v| v.as_str()).map(String::from))
+    {
         if !reasoning.is_empty() {
-            answer.reasoning.push_str(reasoning);
-            on_reasoning(reasoning);
+            answer.reasoning.push_str(&reasoning);
+            on_reasoning(&reasoning);
         }
     }
     // Tool calls arrive in pieces. They are joined by their index.
