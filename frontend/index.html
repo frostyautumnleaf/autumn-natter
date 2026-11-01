@@ -1700,37 +1700,12 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     
     
 
-
     
     
   </div>
 
   <!-- The chat box. The badges stand in a row of their own under the words, so
        no part of the box is left empty. -->
-  <!-- The question the model has put to the user. It stands over the chat box,
-       in a card of its own: the question and the reason for the ask at the top,
-       the answers the model offered under them, and a box for an answer the model
-       did not think of. An ordinary question counts its seconds down and is then
-       given up; a question the model cannot go on without waits, and says so. -->
-  <div class="ask hidden" id="ask">
-    <div class="ask-head">
-      <span class="ask-mark">
-        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5"/></svg>
-      </span>
-      <span class="ask-title" id="asktitle"></span>
-      <span class="ask-wait" id="askwait"></span>
-    </div>
-    <div class="ask-choices" id="askchoices"></div>
-    <div class="ask-own">
-      <textarea id="askdraft" rows="1" spellcheck="false"
-        placeholder="Answer in your own words"></textarea>
-      <button class="ask-send" id="asksend" title="Send your answer to the model">
-        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.6V3.4M4.2 7.2 8 3.4l3.8 3.8"/></svg>
-        <span>Send</span>
-      </button>
-    </div>
-    <div class="ask-note" id="asknote"></div>
-  </div>
 
   <!-- The chat box. The badges stand in a row of their own under the words, so
        no part of the box is left empty. -->
@@ -1752,6 +1727,31 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
   </div>
 
   <div class="dock" id="dock">
+    <!-- The question the model has put to the user. It stands over the chat box,
+         in a card of its own: the question and the reason for the ask at the top,
+         the answers the model offered under them, and a box for an answer the model
+         did not think of. An ordinary question counts its seconds down and is then
+         given up; a question the model cannot go on without waits, and says so. -->
+    <div class="ask hidden" id="ask">
+      <div class="ask-head">
+        <span class="ask-mark">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5"/></svg>
+        </span>
+        <span class="ask-title" id="asktitle"></span>
+        <span class="ask-wait" id="askwait"></span>
+      </div>
+      <div class="ask-choices" id="askchoices"></div>
+      <div class="ask-own">
+        <textarea id="askdraft" rows="1" spellcheck="false"
+          placeholder="Answer in your own words"></textarea>
+        <button class="ask-send" id="asksend" title="Send your answer to the model">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.6V3.4M4.2 7.2 8 3.4l3.8 3.8"/></svg>
+          <span>Send</span>
+        </button>
+      </div>
+      <div class="ask-note" id="asknote"></div>
+    </div>
+
     <div class="box" id="box">
       <!-- How far the server is with the words it was sent. The number stands
            in the middle of a ring that fills with it, and the words under the
@@ -1844,7 +1844,6 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
 </div>
 </div>
-
 
 <!-- The settings, in three tabs over the window. -->
 <div class="overlay hidden" id="overlay">
@@ -2379,7 +2378,6 @@ function draw(s) {
   // the wait it set is counted down under the question.
   drawAsk(s);
 
-
   // The line of state. The mark beats while the program is at work, and it
   // goes red while an answer can still be stopped.
   var busy = !!s.generating || !!s.busy;
@@ -2697,8 +2695,6 @@ function openSandboxMenu() {
 function closeSandboxMenu() {
   if (el.sandboxmenu) { el.sandboxmenu.classList.add('hidden'); }
 }
-
-
 
 /* ------------------------------------------------------------------ MCP
 
@@ -3094,7 +3090,6 @@ function addNoteBit(box, text, first) {
   span.textContent = text;
   box.appendChild(span);
 }
-
 
 // ---------------------------------------------------------------- the words
 //
@@ -4669,7 +4664,6 @@ function thinkHeadWords() {
   thinkHeadSay(ink.panel, ink.ms, over);
 }
 
-
 // One look of the writer. A few characters go on the page, and more of them
 // while the model is ahead of the user.
 function stepInk(now) {
@@ -5841,7 +5835,6 @@ function placeGifts(turn, given) {
   if (given && given.length) { turn.appendChild(giftRow(given)); }
 }
 
-
 // The ask the card was last made for. A question that is still the one standing
 // is not made again, or the words the user was writing in the box would be
 // thrown away on every look of the state.
@@ -6292,7 +6285,6 @@ function gotoSummary(one) {
     behavior: reduce ? 'auto' : 'smooth'
   });
 }
-
 
 // ---------------------------------------------------------------- the box
 //
@@ -7027,7 +7019,6 @@ el.box.addEventListener('dragleave', function (e) {
 
 function openChat(id) { post('/api/open_chat', { id: id }); }
 
-
 // ---------------------------------------------------------------- settings
 //
 // The three tabs stand in one sheet over the window. The Program tab reads the
@@ -7584,7 +7575,6 @@ function saveSheet() {
   }
 }
 
-
 // ---------------------------------------------------------------- logs
 //
 // The logs of llama.cpp, read in the sheet of settings. One log stands for one
@@ -7605,7 +7595,6 @@ function saveSheet() {
 function getLogs() { return invoke('get_logs'); }
 function getLog(id, tail) { return invoke('get_log', { id: id, tail: tail }); }
 function getConfig() { return invoke('get_config'); }
-
 
 var logs = [];        // the logs the program listed, newest first
 var logIds = '';      // the ids of that list, to know when the list has moved
