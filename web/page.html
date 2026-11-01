@@ -4671,6 +4671,8 @@ var ink = {
   panel: null,      // the panel of the thinking, kept out while there is none
   panelWords: null, // the body of that panel: the thoughts and the runs of tools
   thought: null,    // the words of the thinking, one part of the body above
+  thoughtHome: null, // where in the thoughts the mark of an unfinished answer
+                     // stands, while the answer has no words of its own
   base: 0,          // what the thoughts before this one took, in milliseconds
   words: null,      // where the words of the answer stand
   caret: null,      // the mark that says the answer is not over
@@ -4886,8 +4888,11 @@ function writeSaid() {
   if (!ink.words) { return; }
   var holder = writeBlocks(ink.words, ink, ink.said.slice(0, ink.shown));
   // The mark of an answer that is not over stands behind the last words, and
-  // not on a line of its own when those words are plain words.
-  var home = (holder && holder.classList.contains('body')) ? holder : ink.words;
+  // not on a line of its own: it goes wherever the words that can still grow
+  // stand, so it follows them into a list, a heading, a quote or a table.
+  // While the thoughts are the last words on the page it stands among them.
+  var home = (holder && holder.nodeType === 1) ? holder : ink.words;
+  if (!ink.said && ink.thoughtHome) { home = ink.thoughtHome; }
   if (ink.caret && ink.caret.parentNode !== home) { home.appendChild(ink.caret); }
 }
 
@@ -4896,7 +4901,15 @@ function writeSaid() {
 function writeThought() {
   var node = ink.thought;
   if (!node) { return; }
-  writeBlocks(node, ink.thoughtShape, ink.musing.slice(0, ink.shownMusing));
+  var grown = writeBlocks(node, ink.thoughtShape, ink.musing.slice(0, ink.shownMusing));
+  // While the answer has no words of its own the thoughts are the last words
+  // on the page, so the mark of an answer that is not over stands among them
+  // and not below the panel, where it read as a fault of its own.
+  ink.thoughtHome = (grown && grown.nodeType === 1) ? grown : null;
+  if (!ink.said && ink.thoughtHome && ink.caret
+      && ink.caret.parentNode !== ink.thoughtHome) {
+    ink.thoughtHome.appendChild(ink.caret);
+  }
   // The end of the thinking is what matters while it comes in, unless the
   // user has gone up in the panel to read the start of it. The body of the
   // panel is what moves, for the thoughts stand inside it.
@@ -5003,6 +5016,7 @@ function stopInk() {
   }
   if (ink.frame) { cancelAnimationFrame(ink.frame); }
   ink.turn = null; ink.panel = null; ink.panelWords = null; ink.thought = null;
+  ink.thoughtHome = null;
   ink.words = null; ink.base = 0;
   ink.head = null; ink.label = null; ink.ms = 0; ink.done = false;
   ink.caret = null; ink.said = ''; ink.musing = ''; ink.shown = 0;
