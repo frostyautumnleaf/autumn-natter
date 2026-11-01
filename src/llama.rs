@@ -361,6 +361,9 @@ impl Server {
             let log = open_log(log_place.as_deref());
             let mut command = Command::new(binary);
             command.args(&args).stdin(Stdio::null());
+            if graphs_of_a_spread_model(gpus) {
+                command.env("GGML_CUDA_DISABLE_GRAPHS", "1");
+            }
             match log {
                 Some(file) => {
                     // Both output pipes go to the same log file.
@@ -523,6 +526,14 @@ fn read_tail(path: Option<&Path>, max_bytes: usize) -> String {
     text[idx..].to_string()
 }
 
+// A model spread over more than one card has its graphs made on each of them,
+// and a graph of one card does not stand with the memory of another: such a
+// server is told to make no graphs at all, which costs a little speed and
+// saves the start.
+pub fn graphs_of_a_spread_model(gpus: &[Gpu]) -> bool {
+    gpus.iter().filter(|g| g.enabled && g.is_offload).count() > 1
+}
+
 // Build the command line for llama-server. The server takes many knobs,
 // so the call is a flat list.
 #[allow(clippy::too_many_arguments)]
@@ -603,12 +614,11 @@ pub fn build_args(
     }
 
     // A model spread over more than one card has its graphs made on each card,
-    // and a graph of one card does not stand with the memory of another: the
-    // server is then asked to make no graphs at all, which costs a little speed
-    // and saves the start.
-    if offload.len() > 1 {
-        args.push("--no-cuda-graph".into());
-    }
+    // and a graph of one card does not stand with the memory of another, which
+    // the server answers by failing to make the graph at all. Such a server is
+    // told to make no graphs, which costs a little speed and saves the start.
+    // There is no word for this on the command line, so it is carried in the
+    // touch of the server instead. See `graphs_of_a_spread_model`.
 
     // The fit of the model into the cards is asked for whenever the user holds
     // any of a card back, and needs no setting of its own. The server is
