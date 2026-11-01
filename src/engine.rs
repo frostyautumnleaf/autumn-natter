@@ -2202,6 +2202,25 @@ impl State {
         self.cfg.model_id.clone()
     }
 
+    // What a server is started with, written as one line. A server comes from
+    // the folder of llama-server, the model in hand, the settings of that
+    // model, and the one switch of the chatting settings the server is told
+    // about while it starts. Nothing else in the settings reaches it, so two
+    // sets of settings that give the same line may share a loaded model: the
+    // model has no reason to go because of a setting that only the program
+    // reads.
+    pub fn server_stamp(&self) -> String {
+        let id = self.current_model_id();
+        serde_json::to_string(&(
+            &self.cfg.llama_dir,
+            &self.cfg.models_dir,
+            &id,
+            self.cfg.model(&id),
+            self.cfg.chat_context_files,
+        ))
+        .unwrap_or_default()
+    }
+
     // Settings for one model, with the device list fitted to the machine.
     fn settings_for(&self, model: &ModelInfo) -> ModelSettings {
         let mut settings = self.cfg.model(&model.id());
@@ -3736,6 +3755,10 @@ impl Engine {
             state.set_status("Wait for the answer to finish");
             return;
         }
+        // What the running server was started with, before these settings take
+        // any hold of it. The same line afterwards means the model may stay
+        // loaded, however much of the setting was written over.
+        let before = state.server_stamp();
         let mut cfg = cfg;
         // The chat box turns a long paste of words into a file, and the number
         // it does this at is kept inside the two bounds here.
@@ -3761,7 +3784,13 @@ impl Engine {
         state.refresh_lists();
         state.reload_chats();
         state.set_status("Settings saved");
-        let _ = self.jobs.send(Job::SettingsChanged);
+        // A model that is loaded is only sent away when the settings a server
+        // is started with truly moved. The rest of the settings belong to the
+        // program alone, and saving one of them while a model stands loaded
+        // used to cost the user the loading of it again for nothing.
+        if before != state.server_stamp() {
+            let _ = self.jobs.send(Job::SettingsChanged);
+        }
     }
 
     // The colour palette. The browser page has this switch too.
@@ -3790,16 +3819,23 @@ impl Engine {
     }
 
     // Save the settings of one model. A running server gets stopped, because it
-    // was started with the old values.
+    // was started with the old values -- but only when the values it was
+    // started with are among those that moved. Settings of a model that is not
+    // the one loaded, and settings that came to no change at all, leave a
+    // loaded model where it stands.
     pub fn save_model_settings(&self, id: String, settings: ModelSettings) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        let before = state.server_stamp();
         state.cfg.model_settings.insert(id.clone(), settings);
+        let moved = before != state.server_stamp();
         let _ = config::save(&state.cfg);
         state.touch_structure();
         drop(state);
-        let _ = self.jobs.send(Job::SettingsChanged);
+        if moved {
+            let _ = self.jobs.send(Job::SettingsChanged);
+        }
     }
 
     // Ask the worker to stop, so the model is unloaded.

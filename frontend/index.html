@@ -7073,6 +7073,8 @@ var setTab = 'program';
 var progCfg = null;      // the settings read for the Program tab
 var mdl = null;          // the whole answer of get_model_settings
 var mdlId = '';          // the model the Model tab shows
+var progDirty = false;   // the Program tab holds words that were never written
+var mdlDirty = false;    // the Model tab holds words that were never written
 var prevTimer = 0;       // the timer that asks for the command line
 
 function byId(id) { return document.getElementById(id); }
@@ -7271,7 +7273,10 @@ function openSettings(tab) {
     : tab === 'mcp' ? 'mcp' : 'program';
   byId('overlay').classList.remove('hidden');
   showSetTab(setTab);
-  if (setTab === 'program') { loadProgram(); } else if (setTab === 'model') { loadModel(); }
+  // A tab that holds words never written is left standing as it is, for the
+  // settings read again would put the old words back over them.
+  if (setTab === 'program') { if (!progDirty) { loadProgram(); } }
+  else if (setTab === 'model') { if (!mdlDirty) { loadModel(); } }
   else if (setTab === 'mcp') { loadMcp(); }
 }
 
@@ -7305,7 +7310,7 @@ function showSetTab(tab) {
     ? 'The folders are read again the next time the program looks.'
     : tab === 'logs' ? 'llama-server writes the logs. Nothing here is saved.'
     : tab === 'mcp' ? 'Each server is kept as soon as it is saved here. Nothing of a server runs in the sandbox.'
-    : 'Saving stops a running server, because it was started with the old values.';
+    : 'A model that is loaded goes only when a value the server itself starts with has moved.';
   // Nothing of the Logs tab is saved, so the button for saving stands away.
   byId('saveSheet').style.display = (tab === 'logs' || tab === 'mcp') ? 'none' : '';
 }
@@ -7354,6 +7359,7 @@ function loadProgram() {
     sel.appendChild(setOption('No repository', ''));
     for (var i = 0; i < repos.length; i++) { sel.appendChild(setOption(repos[i].name, repos[i].id)); }
     sel.value = (cur && cur.repository && cur.repository.id) || '';
+    progDirty = false;
   }, function () {});
 }
 
@@ -7429,6 +7435,7 @@ function loadModel() {
     byId('mTemplate').value = s.chat_template || '';
     byId('mExtra').value = s.extra_args || '';
     refreshPreview();
+    mdlDirty = false;
   }, function () {});
 }
 
@@ -7571,51 +7578,82 @@ function refreshPreview() {
   }, 140);
 }
 
+// The settings of the Program tab, read back from the fields. The settings that
+// came from the program stand under them as they came, so a setting with no
+// field in this tab of the sheet is written back exactly as it was read.
+function readProgram() {
+  var cfg = progCfg || {};
+  cfg.llama_dir = byId('fLlama').value;
+  cfg.models_dir = byId('fModels').value;
+  cfg.repositories_dir = byId('fRepos').value;
+  var port = parseInt(byId('fPort').value, 10);
+  cfg.remote_port = isNaN(port) ? (cfg.remote_port || 8723) : port;
+  cfg.upnp_enabled = byId('fUpnp').checked;
+  cfg.dark_mode = byId('fDark').checked;
+  cfg.chat_collapse_thinking = byId('fFoldThink').checked;
+  cfg.chat_collapse_tools = byId('fFoldTools').checked;
+  cfg.chat_grow_thinking = byId('fGrowThink').checked;
+  cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
+  cfg.chat_highlight = byId('fHighlight').checked;
+  cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
+  cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);
+  cfg.chat_chapters = byId('fChapters').checked;
+  cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
+  cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
+  cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
+  cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
+  cfg.ask_seconds = holdSeconds('fAskSeconds', 30, 1, 86400);
+  cfg.ask_critical_seconds = holdSeconds('fAskCriticalSeconds', 0, 0, 86400);
+  cfg.chat_date_new_chat = byId('fDateNewChat').checked;
+  cfg.chat_context_files = byId('fContextFiles').checked;
+  cfg.chat_compaction = byId('fCompaction').value;
+  cfg.chat_compact_by = byId('fCompactBy').value;
+  var percent = parseInt(byId('fCompactPercent').value, 10);
+  cfg.chat_compact_percent = isNaN(percent) ? (cfg.chat_compact_percent || 85) : percent;
+  var reserve = parseInt(byId('fCompactReserve').value, 10);
+  cfg.chat_compact_reserve = isNaN(reserve) ? (cfg.chat_compact_reserve || 10240) : reserve;
+  cfg.chat_compact_prompt = byId('fCompactPrompt').value;
+  cfg.chat_compact_prompt_short = byId('fCompactPromptShort').value;
+  cfg.chat_timeline = byId('fTimeline').checked;
+  return cfg;
+}
+
 // The Save button, for whichever tab stands in front. The Logs tab has nothing to
-// save, and its button is not drawn at all.
+// save, and its button is not drawn at all. Words changed in the tab that is not
+// in front are written at the same moment, so nothing changed in one tab is left
+// behind for the other tab to walk over.
 function saveSheet() {
   if (setTab === 'logs') { closeSettings(); return; }
+  var steps = [];
   if (setTab === 'program') {
-    var cfg = progCfg || {};
-    cfg.llama_dir = byId('fLlama').value;
-    cfg.models_dir = byId('fModels').value;
-    cfg.repositories_dir = byId('fRepos').value;
-    var port = parseInt(byId('fPort').value, 10);
-    cfg.remote_port = isNaN(port) ? (cfg.remote_port || 8723) : port;
-    cfg.upnp_enabled = byId('fUpnp').checked;
-    cfg.dark_mode = byId('fDark').checked;
-    cfg.chat_collapse_thinking = byId('fFoldThink').checked;
-    cfg.chat_collapse_tools = byId('fFoldTools').checked;
-    cfg.chat_grow_thinking = byId('fGrowThink').checked;
-    cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
-    cfg.chat_highlight = byId('fHighlight').checked;
-    cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
-    cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);
-    cfg.chat_chapters = byId('fChapters').checked;
-    cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
-    cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
-    cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
-    cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
-    cfg.ask_seconds = holdSeconds('fAskSeconds', 30, 1, 86400);
-    cfg.ask_critical_seconds = holdSeconds('fAskCriticalSeconds', 0, 0, 86400);
-    cfg.chat_date_new_chat = byId('fDateNewChat').checked;
-    cfg.chat_context_files = byId('fContextFiles').checked;
-    cfg.chat_compaction = byId('fCompaction').value;
-    cfg.chat_compact_by = byId('fCompactBy').value;
-    var percent = parseInt(byId('fCompactPercent').value, 10);
-    cfg.chat_compact_percent = isNaN(percent) ? (cfg.chat_compact_percent || 85) : percent;
-    var reserve = parseInt(byId('fCompactReserve').value, 10);
-    cfg.chat_compact_reserve = isNaN(reserve) ? (cfg.chat_compact_reserve || 10240) : reserve;
-    cfg.chat_compact_prompt = byId('fCompactPrompt').value;
-    cfg.chat_compact_prompt_short = byId('fCompactPromptShort').value;
-    cfg.chat_timeline = byId('fTimeline').checked;
-    invoke('save_config', { config: cfg }).then(function () { poll(); closeSettings(); },
-      function () { poll(); closeSettings(); });
+    var cfg = readProgram();
+    // The Model tab may hold the settings of one model that were never
+    // written. This write covers the whole of the settings, so those settings
+    // ride along inside it instead of being put back as they were.
+    if (mdlId && mdlDirty) {
+      cfg.model_settings = cfg.model_settings || {};
+      cfg.model_settings[mdlId] = readModel();
+    }
+    steps.push(function () { return invoke('save_config', { config: cfg }); });
   } else {
-    if (!mdl) { closeSettings(); return; }
-    invoke('save_model_settings', { id: mdlId, settings: readModel() })
-      .then(function () { poll(); closeSettings(); }, function () { poll(); closeSettings(); });
+    if (progDirty) {
+      var kept = readProgram();
+      steps.push(function () { return invoke('save_config', { config: kept }); });
+    }
+    if (mdl) {
+      var mine = readModel();
+      var mineId = mdlId;
+      steps.push(function () { return invoke('save_model_settings', { id: mineId, settings: mine }); });
+    }
   }
+  progDirty = false;
+  mdlDirty = false;
+  var finish = function () { poll(); closeSettings(); };
+  // The writes go one after the other, for the second reads what the first
+  // wrote; the sheet is put away once the last of them is settled.
+  steps.reduceRight(function (next, step) {
+    return function () { step().then(next, next); };
+  }, finish)();
 }
 
 // ---------------------------------------------------------------- logs
@@ -7935,8 +7973,18 @@ byId('logBody').addEventListener('scroll', function () {
   }
 });
 
-byId('tabProgram').addEventListener('click', function () { showSetTab('program'); loadProgram(); });
-byId('tabModel').addEventListener('click', function () { showSetTab('model'); loadModel(); });
+byId('tabProgram').addEventListener('click', function () {
+  showSetTab('program'); if (!progDirty) { loadProgram(); }
+});
+byId('tabModel').addEventListener('click', function () {
+  showSetTab('model'); if (!mdlDirty) { loadModel(); }
+});
+// A field that moved marks its tab as holding words never written, so that
+// moving to another tab and back never reads the old words over the new ones.
+byId('paneProgram').addEventListener('input', function () { progDirty = true; });
+byId('paneProgram').addEventListener('change', function () { progDirty = true; });
+byId('paneModel').addEventListener('input', function () { mdlDirty = true; });
+byId('paneModel').addEventListener('change', function () { mdlDirty = true; });
 byId('tabLogs').addEventListener('click', function () { showSetTab('logs'); });
 byId('tabMcp').addEventListener('click', function () { showSetTab('mcp'); });
 // The editor of the MCP tab: the kind moves which fields stand, and the two
