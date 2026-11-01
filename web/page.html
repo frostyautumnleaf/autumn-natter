@@ -2990,18 +2990,25 @@ function closeToolMenu() {
 // still be hiding a tool.
 function drawTools(s) {
   if (!el.code) { return; }
-  el.code.classList.toggle('on', !!s.code);
   var held = s.tool_switches || {};
   var off = 0;
   for (var n = 0; n < TOOL_LINES.length; n++) {
     if (held[TOOL_LINES[n][0]] === false) { off += 1; }
   }
-  el.code.title = (s.code
+  // The badge is the door over every tool of the program, and a door that
+  // stands on with nothing behind it reads as a fault: with every line of the
+  // drop-down switched off no tool is offered at all, whatever the door was
+  // last told. The engine shuts the door along with the last line, so the two
+  // stand together from here on; a chat written before that is read as it is.
+  var shown = !!s.code && anyToolOn(s);
+  el.code.classList.toggle('on', shown);
+  el.code.title = (shown
       ? 'The model may reach the tools of the program in this chat.'
       : 'No tool of the program is offered to the model in this chat.')
     + (off ? ' ' + off + ' of ' + TOOL_LINES.length + ' are switched off in the menu.' : '')
     + ' Click to switch all of them on or off; the arrow at the right, or a right click over the badge, chooses them one by one.'
-    + (off ? '' : ' With none of them switched on, the badge opens that menu instead.');
+    + (off === TOOL_LINES.length
+      ? ' With none of them switched on, the badge opens that menu instead.' : '');
   if (el.codemenu && !el.codemenu.classList.contains('hidden')) { fillToolMenu(s); }
 }
 

@@ -2920,12 +2920,18 @@ impl Engine {
             if !chat.meta.tools.set(part, on) {
                 return;
             }
+            // The badge of the tools is the door over all of them. A line of the
+            // drop-down that is switched on opens that door, for a tool behind a
+            // shut door is no tool at all; and when the last line goes out the
+            // door shuts with it, so the badge never stands on over nothing.
+            chat.meta.code_enabled = chat.meta.tools.any_on();
         }
         // The same choice opens the next chat too, whatever stands open now, as
         // with the badge of the tools itself.
         if !state.new_tools.set(part, on) {
             return;
         }
+        state.new_code = state.new_tools.any_on();
         state.persist();
         let word = tool_group_word(part);
         let words = if on {
@@ -7158,10 +7164,15 @@ mod tests {
         for part in lines.iter() {
             engine.set_tool_switch(part, false);
         }
+        // The door of the badge shuts along with the last line, so it never
+        // stands on over nothing the model could reach.
+        assert!(!engine.snapshot().code_enabled, "the badge went out with the last line");
         assert!(words(true, &engine.snapshot().tool_switches).is_none());
         // The badge is the door over all of them: with the badge off, a line that
-        // stands on offers nothing.
+        // stands on offers nothing. A line switched on again opens the door, for
+        // a tool behind a shut door is no tool at all.
         engine.set_tool_switch("commands", true);
+        assert!(engine.snapshot().code_enabled, "the badge came on with the line");
         engine.set_code(false);
         assert!(words(false, &engine.snapshot().tool_switches).is_none());
         // The next chat opens with the same lines, as the user left them.
