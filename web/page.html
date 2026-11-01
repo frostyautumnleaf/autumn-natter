@@ -787,7 +787,9 @@ pre.code .t-p { color: var(--t-pun); }
    without stands warmer than the border of one that may be waited out. */
 .ask {
   margin: 0 0 10px; padding: 13px 14px 12px; border: 1px solid var(--accent-line);
-  border-radius: var(--r-l); background: var(--surface); box-shadow: var(--shadow-2);
+  /* The card of a question is square about the corners, as the box it stands
+     over is: the two are read as one stack of work. */
+  border-radius: 0; background: var(--surface); box-shadow: var(--shadow-2);
   animation: ask-rise 260ms cubic-bezier(.2, .8, .2, 1);
 }
 .ask.hidden { display: none; }
@@ -901,7 +903,9 @@ pre.code .t-p { color: var(--t-pun); }
 body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px; }
 .box {
   position: relative;
-  border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface);
+  /* The box stands with sharp corners. It is a slab the words are written on,
+     and a round at its foot only made a seam against the row of badges. */
+  border: 1px solid var(--line); border-radius: 0; background: var(--surface);
   box-shadow: var(--shadow-1); transition: border-color 160ms, box-shadow 160ms;
 }
 .box.focus { border-color: var(--line-strong); box-shadow: var(--shadow-1), var(--ring); }
