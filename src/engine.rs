@@ -2203,10 +2203,26 @@ impl State {
         // The badge no longer offers "auto": the user chooses, and thinking
         // is off unless it is asked for. A chat left with the old mode starts
         // with thinking off, which is what the badge then shows.
+        let mut stamped = false;
         for chat in self.chats.iter_mut() {
             if chat.meta.thinking_mode.is_empty() || chat.meta.thinking_mode == "auto" {
                 chat.meta.thinking_mode = String::from("off");
             }
+            // The moment the chat was begun is the moment the line of the day is
+            // written from, and it must never move. That line stands at the head
+            // of the talk: a head that changes between two asks of one chat is a
+            // different talk to the server, which then throws away the work it
+            // cached on all the words behind the head, or answers from a state of
+            // its cache that is not the state of the talk. A chat written before
+            // this moment was kept is named from this moment, and keeps it from
+            // then on, as a chat begun now does.
+            if chat.meta.created <= 0 {
+                chat.meta.created = store::now_secs();
+                stamped = true;
+            }
+        }
+        if stamped {
+            self.persist();
         }
         // Keep the open chat when it is still there, and forget the number of
         // the talk when it is not. A place is never opened by itself: the first
@@ -9997,6 +10013,39 @@ mod tests {
             })
             .cloned()
             .collect()
+    }
+
+    // The line of the day stands at the head of the talk, and it must not move
+    // from one ask of a chat to the next. A head that changes is a different talk
+    // to the server: the work it cached on the words behind the head goes away, or
+    // an answer comes from a state of the cache that is not the state of the talk.
+    // The line is therefore written from the moment the chat was begun, which the
+    // chat carries with it, and never from the clock of the ask.
+    #[test]
+    fn the_line_of_the_day_does_not_move_between_the_asks_of_one_chat() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let named = state.chat().unwrap().meta.created;
+            assert!(named > 0, "a chat begun now carries the moment it was begun");
+            let first = date_lines(&state.build_history());
+            let again = date_lines(&state.build_history());
+            assert_eq!(first.len(), 1, "the line of the day stands once, at the head");
+            assert_eq!(first, again, "the head of the talk moved between two asks");
+            assert!(
+                first[0].starts_with(DATE_HEAD),
+                "the line of the day stands at the head: {}",
+                first[0]
+            );
+            assert_eq!(
+                state.chat().unwrap().meta.created,
+                named,
+                "the moment of the chat moved between two asks"
+            );
+        }
     }
 
     // The lines of the day and the clock time of a talk, in the order they stand.
