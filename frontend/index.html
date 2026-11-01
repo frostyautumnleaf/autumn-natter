@@ -1197,6 +1197,18 @@ img.pic { animation: plate-in 180ms ease-out; }
 .send.stop .mark-send { display: none; }
 .send.stop .mark-stop { display: inline; }
 
+/* The tooltip of the page. The tooltip of the machine is a grey box that answers
+   to none of the colours of the chat, and in the window of the program it is not
+   even that. So the page draws its own out of the words a part carries in its
+   `title`, and borrows the `title` while it stands, for two tooltips over one part
+   read as a fault of the page. */
+.tip { position: fixed; z-index: 90; max-width: 340px; padding: 7px 9px;
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 7px; box-shadow: var(--shadow); color: var(--text-2);
+  font-size: 11.5px; line-height: 1.45; pointer-events: none;
+  opacity: 0; transition: opacity 120ms; white-space: pre-line; }
+.tip.on { opacity: 1; }
+
 /* The line of state under the box. */
 .state-line { display: flex; align-items: center; gap: 9px; padding: 9px 4px 0; }
 .pulse { width: 7px; height: 7px; border-radius: 999px; background: var(--faint); flex: 0 0 auto;
@@ -8699,6 +8711,109 @@ sEl('askInput') && sEl('askInput').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') { e.preventDefault(); if (sideAskGo) { sideAskGo(true); } }
 });
 sEl('sidebtn') && sEl('sidebtn').addEventListener('click', function () { sideShow(!side.open); });
+
+// The tooltips of the page are drawn by the page itself. The tooltip of the
+// machine is a grey box that answers to none of the colours of the chat, and in
+// the window of the program it is not even themed; so the words a part carries in
+// its `title` are borrowed for a tooltip of the chat's own colours. The `title` is
+// taken away while the tooltip stands, for two tooltips over one part read as a
+// fault, and is put back when the pointer leaves - nothing else about the part
+// changes, a screen reader still reads the words, and any part of the page that
+// writes its own words is none the wiser.
+var tipBox = null, tipOwner = null, tipWords = '', tipTimer = null, tipWatch = null;
+
+function tipPlace(one) {
+  var r = one.getBoundingClientRect();
+  var b = tipBox.getBoundingClientRect();
+  var left = Math.round(Math.min(Math.max(8, r.left + r.width / 2 - b.width / 2),
+    window.innerWidth - b.width - 8));
+  var top = Math.round(r.bottom + 8);
+  if (top + b.height > window.innerHeight - 8) { top = Math.round(r.top - b.height - 8); }
+  if (top < 8) { top = 8; }
+  tipBox.style.left = left + 'px';
+  tipBox.style.top = top + 'px';
+}
+
+// The page writes the words of some parts again on every poll - the words of a
+// badge follow the state - so the borrowed `title` would come back the moment it
+// was taken. The part is watched instead: fresh words are read, taken again, and
+// stood in the tooltip, so a tooltip that stands over a badge keeps up with it.
+function tipWatchStart(one) {
+  if (!window.MutationObserver) { return; }
+  tipWatch = new MutationObserver(function (rows) {
+    if (!tipOwner) { return; }
+    for (var n = 0; n < rows.length; n++) {
+      if (rows[n].attributeName !== 'title' || !tipOwner.hasAttribute('title')) { continue; }
+      tipWords = String(tipOwner.getAttribute('title') || '');
+      tipOwner.removeAttribute('title');
+      if (tipBox && tipBox.classList.contains('on')) {
+        tipBox.textContent = tipWords;
+        tipPlace(tipOwner);
+      }
+    }
+  });
+  tipWatch.observe(one, { attributes: true, attributeFilter: ['title'] });
+}
+
+function tipWatchStop() {
+  if (tipWatch) { tipWatch.disconnect(); tipWatch = null; }
+}
+
+// The words go back to the part they came from, unless that part was written over
+// while the tooltip stood - the words of a badge change with the state.
+function tipPutBack() {
+  if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
+  tipWatchStop();
+  if (tipOwner && tipWords && !tipOwner.hasAttribute('title')) {
+    tipOwner.setAttribute('title', tipWords);
+  }
+  tipOwner = null; tipWords = '';
+  if (tipBox) { tipBox.classList.remove('on'); tipBox.textContent = ''; }
+}
+
+function tipShow() {
+  tipTimer = null;
+  if (!tipOwner || !tipWords || !document.body.contains(tipOwner)) { return; }
+  if (!tipBox) {
+    tipBox = document.createElement('div');
+    tipBox.className = 'tip';
+    tipBox.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(tipBox);
+  }
+  tipBox.textContent = tipWords;
+  tipBox.classList.add('on');
+  tipPlace(tipOwner);
+}
+
+document.addEventListener('mouseover', function (event) {
+  var one = event.target && event.target.closest ? event.target.closest('[title]') : null;
+  if (one === tipOwner) { return; }
+  tipPutBack();
+  if (!one) { return; }
+  var words = String(one.getAttribute('title') || '');
+  if (!words.trim()) { return; }
+  tipOwner = one;
+  tipWords = words;
+  one.removeAttribute('title');
+  tipWatchStart(one);
+  // The tooltip of the machine does not come up at once either: a pointer on its
+  // way across a row of badges is not asking for the words of every one of them.
+  tipTimer = setTimeout(tipShow, 320);
+}, true);
+
+document.addEventListener('mouseout', function (event) {
+  if (!tipOwner) { return; }
+  var to = event.relatedTarget;
+  if (to && tipOwner.contains(to)) { return; }
+  tipPutBack();
+}, true);
+
+// A scroll, a click or a key puts the tooltip away, for the part it spoke of has
+// moved under it or the user has moved on to something else.
+window.addEventListener('scroll', tipPutBack, true);
+window.addEventListener('resize', tipPutBack, true);
+document.addEventListener('click', tipPutBack, true);
+document.addEventListener('keydown', tipPutBack, true);
 
 sideLoad();
 sideApply();
