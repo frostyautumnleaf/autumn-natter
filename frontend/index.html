@@ -6850,6 +6850,30 @@ el.newrepo.addEventListener('click', function () {
     post('/api/create_repository', { name: text });
   }, 'Create');
 });
+// Bring one drop-down up and every other one down, for two menus over one row of
+// badges read as a fault of the page.
+function showOnly(opener) {
+  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu();
+  if (opener) { opener(); }
+}
+
+// The right button of the mouse anywhere over a badge that holds a drop-down
+// opens that drop-down. The menu of the window would otherwise come up over the
+// badge, and the choice the user was reaching for would stay out of reach.
+function wireRightClick(badge, opener) {
+  if (!badge) { return; }
+  badge.addEventListener('contextmenu', function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (badge.disabled) { return; }
+    showOnly(opener);
+  });
+}
+
+wireRightClick(el.code, openToolMenu);
+wireRightClick(el.sandbox, openSandboxMenu);
+wireRightClick(el.think, openThinkMenu);
+wireRightClick(el.mcp, openMcpMenu);
 // The badge of the tools is the switch over all of them, and the arrow beside its
 // name opens the drop-down where they are chosen one by one.
 el.code.addEventListener('click', function () {
