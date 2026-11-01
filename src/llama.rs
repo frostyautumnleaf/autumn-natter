@@ -1867,7 +1867,7 @@ mod tests {
         assert_eq!(
             read.last(),
             Some(&(
-                String::from("one\n> uno"),
+                String::from("change 1 · what stands now\no one\nchange 1 · what it becomes\nr uno\n"),
                 String::from("notes/todo.txt")
             ))
         );
@@ -1882,7 +1882,7 @@ mod tests {
         // to put in are the only words that have come so far. A block that waited
         // for the words to take out would show them first, over a mark.
         assert!(
-            read[words].0.starts_with("> "),
+            read[words].0.starts_with("change 1 · what it becomes\nr "),
             "the block first showed {:?}, and not a word under the mark of a change",
             read[words].0
         );

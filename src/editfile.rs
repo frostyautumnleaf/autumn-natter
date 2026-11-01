@@ -210,16 +210,32 @@ fn edit_params(raw: &str) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
+        // Each half of the change stands under a word of its own, and every
+        // line of it carries the mark of the half: (o) for the words that stand
+        // now, (r) for the words they are to become. The number of the change
+        // is written with the word, so several changes in one call can still be
+        // told apart.
         if let Some(words) = old {
-            out.push_str(words);
+            out.push_str(&format!("change {} · what stands now\n", number + 1));
+            out.push_str(&half_of_change('o', words));
         }
         if let Some(words) = new {
-            if old.is_some() {
-                out.push('\n');
-            }
-            out.push_str("> ");
-            out.push_str(words);
+            out.push_str(&format!("change {} · what it becomes\n", number + 1));
+            out.push_str(&half_of_change('r', words));
         }
+    }
+    out
+}
+
+// The words of one half of a change, with the mark of the half before every
+// line. A half that is still being written is given as it stands.
+fn half_of_change(mark: char, words: &str) -> String {
+    let mut out = String::new();
+    for line in words.split('\n') {
+        out.push(mark);
+        out.push(' ');
+        out.push_str(line);
+        out.push('\n');
     }
     out
 }
@@ -1643,29 +1659,35 @@ mod tests {
         // in join them when their mark is written.
         assert_eq!(
             edit_params(r#"{"path":"notes/todo.txt","edits":[{"old_string":"one","new_string":"u"#),
-            "one\n> u"
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr u\n"
         );
         // The other way about. The mark of the change stands over the words that
         // have come, and the words to take out walk in front of them when they
         // arrive.
-        assert_eq!(edit_params(r#"{"edits":[{"new_string":"un"#), "> un");
+        assert_eq!(
+            edit_params(r#"{"edits":[{"new_string":"un"#),
+            "change 1 · what it becomes\nr un\n"
+        );
         assert_eq!(
             edit_params(r#"{"edits":[{"new_string":"uno","old_string":"o"#),
-            "o\n> uno"
+            "change 1 · what stands now\no o\nchange 1 · what it becomes\nr uno\n"
         );
         // The mark of a change is shown as soon as it has a half of its own, for
         // a user watching a block wants to see it move.
-        assert_eq!(edit_params(r#"{"edits":[{"new_string":""#), "> ");
+        assert_eq!(
+            edit_params(r#"{"edits":[{"new_string":""#),
+            "change 1 · what it becomes\nr \n"
+        );
         assert_eq!(
             edit_params(r#"{"edits":[{"old_string":"one","new_string":""#),
-            "one\n> "
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr \n"
         );
         // Two changes written the other way about are read side by side, so each
         // half of each change stands where it belongs.
         assert_eq!(
             edit_params(
                 r#"{"edits":[{"new_string":"uno","old_string":"one"},{"new_string":"dos","old_string":"tw"#),
-            "one\n> uno\ntw\n> dos"
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr uno\n\nchange 2 · what stands now\no tw\nchange 2 · what it becomes\nr dos\n"
         );
         // A change with no words at all in it is left out, and so is a change of
         // nothing but a space between the words to take out, for a mark over
@@ -1678,13 +1700,13 @@ mod tests {
             edit_params(
                 r#"{"edits":[{"new_string":"uno","old_string":"one"}],"path":"notes/todo.txt"}"#
             ),
-            "one\n> uno"
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr uno\n"
         );
         // Both halves of a call that is still being written: the name of the file
         // in the head, and the words of the change in the body, each as far as it
         // has come.
         let (body, name) = live_params(EDIT_NAME, r#"{"edits":[{"new_string":"un"#);
-        assert_eq!(body, "> un");
+        assert_eq!(body, "change 1 · what it becomes\nr un\n");
         assert_eq!(name, String::new());
         let (body, name) = live_params(EDIT_NAME, r#"{"edits":[],"path":"notes/to"#);
         assert_eq!(body, String::new());
@@ -1715,7 +1737,10 @@ mod tests {
             names.push(name);
         }
         // The whole of the call reads as the whole of any other call does.
-        assert_eq!(bodies[call.len()].as_str(), "one\n> uno\ntwo\n> dos");
+        assert_eq!(
+            bodies[call.len()].as_str(),
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr uno\n\nchange 2 · what stands now\no two\nchange 2 · what it becomes\nr dos\n"
+        );
         assert_eq!(names[call.len()].as_str(), "notes/todo.txt");
         // From the first character after the mark that opens the words to put in,
         // every look holds a word of the change. This is the stretch the user

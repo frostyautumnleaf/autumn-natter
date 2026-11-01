@@ -8945,7 +8945,7 @@ mod tests {
         // The head names the file the call works on, and the body holds the
         // words of the change the call is making.
         assert_eq!(made[0].target, "notes/todo.txt");
-        assert_eq!(made[0].command, "one\n> two");
+        assert_eq!(made[0].command, "change 1 · what stands now\no one\nchange 1 · what it becomes\nr two\n");
         assert!(made[0].purpose.is_empty(), "{}", made[0].purpose);
         // A name of a file that is still coming in is shown as far as it has
         // come, as a command is, and the words of a new file stand in the body
@@ -8976,14 +8976,17 @@ mod tests {
             arguments: String::from("{\"edits\":[{\"new_string\":\"un"),
         };
         let read = watched(std::slice::from_ref(&backwards));
-        assert_eq!(read[0].command, "> un");
+        assert_eq!(read[0].command, "change 1 · what it becomes\nr un\n");
         assert_eq!(read[0].target, String::new());
         let half_read = ToolCall {
             id: String::from("call-half-read"),
             name: String::from(editfile::EDIT_NAME),
             arguments: String::from("{\"edits\":[{\"new_string\":\"uno\",\"old_string\":\"on"),
         };
-        assert_eq!(watched(std::slice::from_ref(&half_read))[0].command, "on\n> uno");
+        assert_eq!(
+            watched(std::slice::from_ref(&half_read))[0].command,
+            "change 1 · what stands now\no on\nchange 1 · what it becomes\nr uno\n"
+        );
         // The name of the file is the head of the block whichever half of the
         // call it stands in, so a model that writes the changes first names the
         // file as soon as the name begins.
@@ -8996,7 +8999,7 @@ mod tests {
         };
         let read = watched(std::slice::from_ref(&named_last));
         assert_eq!(read[0].target, "notes/to");
-        assert_eq!(read[0].command, "one\n> uno");
+        assert_eq!(read[0].command, "change 1 · what stands now\no one\nchange 1 · what it becomes\nr uno\n");
     }
 
     // The calls being written stand in the snapshot, and go away with the step
