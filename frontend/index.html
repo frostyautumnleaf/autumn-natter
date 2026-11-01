@@ -4650,6 +4650,7 @@ function blockNode(block) {
   if (block.kind === 'code') {
     var code = make('pre', 'code');
     code.dataset.lang = block.lang || '';
+    watchCode(code);
     paintCode(code, block.text, block.lang);
     return code;
   }
@@ -4795,13 +4796,42 @@ function settle(node) {
   node.normalize();
 }
 
+// A block of code the user has gone into with the wheel, or with a drag of the
+// finger, is the user's from that moment. The writing that goes on at the end of
+// it is no longer followed, and the place the user reached is put back after the
+// block is painted again for its colours. A block that is too short to scroll is
+// not marked, for a wheel over it moves the chat and not the block.
+function watchCode(one) {
+  var take = function () {
+    if (one.scrollHeight > one.clientHeight) { one.dataset.looked = '1'; }
+  };
+  one.addEventListener('wheel', take, { passive: true });
+  one.addEventListener('touchmove', take, { passive: true });
+}
+
+// A block of code that has just been painted stands at its first line again,
+// for painting takes the place it was scrolled to along with the words. The
+// place is therefore put back after every painting: the block of code that was
+// being written is kept at its end, where the writing is, and a block the user
+// was reading in the middle is kept in the middle.
+function placeCode(holder) {
+  if (holder.dataset.looked === '1') { return; }
+  holder.scrollTop = holder.scrollHeight;
+}
+
 // The new words of the block that can still grow. They are given as they were
 // written, and put on the page as parts. A block of code is painted again whole,
 // so its colours stay right while the words come in; a block of words takes the
 // new words at its end, behind a fade.
 function putTail(holder, written, rebuilt) {
   if (holder.classList.contains('code')) {
+    // The place the block stood at is kept across the painting, for a block of
+    // code the user was reading in the middle must not be sent back to its first
+    // line because a colour was put on a word of it.
+    var place = holder.scrollTop;
     paintCode(holder, written, holder.dataset.lang || '');
+    if (holder.dataset.looked === '1') { holder.scrollTop = place; }
+    else { placeCode(holder); }
     return;
   }
   var parts = inlineParts(written);
@@ -4962,6 +4992,14 @@ function feedInk(m) {
 
 // The answer is over, or another chat stands in the way of the writer.
 function stopInk() {
+  // The writing of the answer is over. A block of code that was being written
+  // goes back to its first line, for a block is read from its beginning and the
+  // end of the writing is not the beginning of the block. A block the user
+  // looked about in is left where the user left it.
+  if (ink.turn || ink.frame) {
+    backToTop(ink.turn);
+    backToTop(ink.panelWords);
+  }
   if (ink.frame) { cancelAnimationFrame(ink.frame); }
   ink.turn = null; ink.panel = null; ink.panelWords = null; ink.thought = null;
   ink.words = null; ink.base = 0;
@@ -5822,6 +5860,18 @@ function drawThread(s) {
     }
   }
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
+}
+
+// Send the blocks of code of a part of the chat back to their first line, when
+// the user never went into them.
+function backToTop(where) {
+  if (!where || !where.querySelectorAll) { return; }
+  var codes = where.querySelectorAll('pre.code');
+  for (var i = 0; i < codes.length; i++) {
+    var one = codes[i];
+    if (one.dataset.looked === '1') { continue; }
+    if (one.scrollHeight > one.clientHeight) { one.scrollTop = 0; }
+  }
 }
 
 // The words of the chat are followed while the user stands at the end of them,
