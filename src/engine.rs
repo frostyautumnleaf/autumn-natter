@@ -989,6 +989,9 @@ pub struct Snap {
     // Whether the marks of boldness are read as boldness in the words of the
     // chat, or as part of the words themselves.
     pub chat_bold_markdown: bool,
+    // Whether the chat reads as one piece of writing, with nothing drawn about
+    // a panel of the thoughts or of a call.
+    pub chat_seamless: bool,
     // How many times an answer is asked over when the model came to its own end
     // without a word, a call or a fault.
     pub chat_silent_retries: i64,
@@ -2526,6 +2529,7 @@ impl State {
             chat_date_new_chat: self.cfg.chat_date_new_chat,
             chat_highlight: self.cfg.chat_highlight,
             chat_bold_markdown: self.cfg.chat_bold_markdown,
+            chat_seamless: self.cfg.chat_seamless,
             chat_silent_retries: self.cfg.chat_silent_retries,
             chat_chapters: self.cfg.chat_chapters,
             chat_context_files: self.cfg.chat_context_files,
@@ -4029,6 +4033,7 @@ impl Snap {
             chat_date_new_chat: true,
             chat_highlight: true,
             chat_bold_markdown: true,
+            chat_seamless: false,
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_context_files: true,

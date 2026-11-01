@@ -318,6 +318,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "date_new_chat": snap.chat_date_new_chat,
             "highlight": snap.chat_highlight,
             "bold_markdown": snap.chat_bold_markdown,
+            "seamless": snap.chat_seamless,
             "silent_retries": snap.chat_silent_retries,
             "chapters": snap.chat_chapters,
             // Whether the talk a chat worked through is kept in a file, so that

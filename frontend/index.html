@@ -612,6 +612,19 @@ pre.code .t-p { color: var(--t-pun); }
   border-radius: 9px 0 0 9px; pointer-events: none; }
 
 .think > .thead { gap: 7px; min-height: 31px; padding: 6px 11px 6px 15px; }
+/* The seamless chat. The panels of the thoughts and of the calls stand on the
+   chat itself, for the setting asks that a chat read as one piece of writing:
+   no ground under a panel, no line about it, and no rule of colour down the
+   left hand edge of a thought. The mark that opens and closes a panel comes
+   round beside the heading it belongs to, and the room that is left over goes
+   after it, so the head of a panel keeps its shape while nothing stands about
+   it. */
+body.seamless .think, body.seamless .tool { background: none; border-color: transparent; }
+body.seamless .think::before { display: none; }
+body.seamless .think > .thead { padding-left: 11px; }
+body.seamless .thead .fold { margin-left: 0; }
+body.seamless .thead .cmd { flex: 0 1 auto; }
+body.seamless .thead::after { content: ""; flex: 1 1 auto; }
 .think > .thead:hover { background: var(--hover); }
 .think > .thead .svg { width: 12px; height: 12px; stroke: var(--ink); }
 .think > .thead .cap { font-size: 10.5px; font-weight: 650; letter-spacing: .08em;
@@ -1951,6 +1964,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Bold words in the chat</span>
           <span class="sub">A word held between two marks of boldness is written in the heavier shape of the letters. Turn this off to read the marks as part of the words themselves.</span>
           <div class="ctl"><input id="fBoldMarkdown" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Seamless chat</span>
+          <span class="sub">The panels of the thoughts and of the calls stand on the chat itself: no ground of their own, no line about them, and no rule of colour down the left hand edge of a thought. The mark that opens a panel then stands beside its heading, instead of at the far right of it, for with nothing drawn about a panel the far right is a long way from the words the mark belongs to.</span>
+          <div class="ctl"><input id="fSeamless" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Ask a silence over</span>
           <span class="sub">When the model stops by itself without writing a word, a command or a fault, the same ask goes out again this many times before the chat says the model gave no answer. A model that thought a while and then stopped very nearly always goes on when asked again. 0 leaves a silence alone.</span>
           <div class="ctl"><input id="fSilentRetries" type="number" min="0" max="10" step="1" placeholder="2"><span class="unit">times</span></div></div>
@@ -2333,7 +2349,7 @@ var cur = null;        // the last state
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
-  highlight: true, bold: true, chapters: true, paste: 6000, width: 780 };
+  highlight: true, bold: true, seamless: false, chapters: true, paste: 6000, width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -2451,6 +2467,10 @@ function readChatting(s) {
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
   chatting.bold = chat.bold_markdown !== false;
+  chatting.seamless = !!chat.seamless;
+  // The seamless chat is a look over the whole thread, so it stands on the page
+  // itself and not on one part of it.
+  document.body.classList.toggle('seamless', chatting.seamless);
   chatting.chapters = chat.chapters !== false;
   chatting.paste = chat.paste_limit || 6000;
   chatting.width = Number(chat.width) || CHAT_LEAST;
@@ -7480,6 +7500,7 @@ function loadProgram() {
     byId('fToolsInThink').checked = cfg.chat_tools_in_thinking !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
     byId('fBoldMarkdown').checked = cfg.chat_bold_markdown !== false;
+    byId('fSeamless').checked = !!cfg.chat_seamless;
     byId('fSilentRetries').value = (cfg.chat_silent_retries === undefined || cfg.chat_silent_retries === null)
       ? 2 : cfg.chat_silent_retries;
     byId('fChapters').checked = cfg.chat_chapters !== false;
@@ -7745,6 +7766,7 @@ function readProgram() {
   cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
   cfg.chat_highlight = byId('fHighlight').checked;
   cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
+  cfg.chat_seamless = byId('fSeamless').checked;
   cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);
   cfg.chat_chapters = byId('fChapters').checked;
   cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);

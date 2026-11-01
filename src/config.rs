@@ -251,6 +251,13 @@ pub struct Config {
     // read as part of the words of the answer, as they were before.
     #[serde(default = "on_by_default")]
     pub chat_bold_markdown: bool,
+    // Read the chat as one piece of writing. The panels of the thoughts and of
+    // the calls then stand on the chat itself: no ground of their own, no line
+    // about them, and no rule of colour down the left hand edge of a thought.
+    // The mark that opens a panel stands beside its heading, for with nothing
+    // drawn about a panel the far right of its head is far from the words.
+    #[serde(default)]
+    pub chat_seamless: bool,
     // How many times an answer is asked over when the model came to its own end
     // without a word, a call or a fault. A model that thought a while and then
     // stopped has said nothing of the work it was given, and the same ask a second
@@ -514,6 +521,7 @@ impl Default for Config {
             chat_date_new_chat: true,
             chat_highlight: true,
             chat_bold_markdown: true,
+            chat_seamless: false,
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_context_files: true,
