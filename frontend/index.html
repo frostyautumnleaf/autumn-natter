@@ -946,6 +946,67 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   to { opacity: 1; transform: none; }
 }
 .dock { flex: 0 0 auto; padding: 0 14px 12px; }
+
+/* ------------------------------------------------------------ waiting list */
+/* The messages the user put by while the model was writing. The list stands in
+   the dock above the chat box, in a row of its own: nothing is laid over the
+   box, so the widget of the work in hand, which stands within the box, and the
+   question of the model, which stands above it, keep their places and never
+   fall over the list. The head is one line; the list under it opens when the
+   user opens it, and the oldest message stands at the bottom. */
+.queue { display: flex; flex-direction: column; gap: 4px; margin: 0 2px 6px; }
+.queue-head {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  background: none; border: 1px solid var(--line); border-radius: var(--r);
+  padding: 5px 9px; color: var(--dim); cursor: pointer;
+  font-family: var(--ui); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+}
+.queue-head:hover { color: var(--text-2); border-color: var(--line-strong); }
+.qcaret { width: 12px; height: 12px; flex: 0 0 auto; transition: transform .16s ease; }
+.queue.open .qcaret { transform: rotate(90deg); }
+.qcount {
+  margin-left: auto; min-width: 18px; text-align: center; flex: 0 0 auto;
+  border-radius: 999px; background: var(--surface); border: 1px solid var(--line);
+  padding: 1px 6px; color: var(--faint); font-size: 10px; letter-spacing: .04em;
+}
+.queue-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 244px; overflow-y: auto; scrollbar-width: thin;
+}
+/* A row is one message: the mark to take hold of, the first words of it, and
+   the two marks of the hand at the side. */
+.qrow {
+  display: flex; align-items: center; gap: 7px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  padding: 5px 6px 5px 5px; background: var(--surface);
+}
+.qrow.dragging { opacity: .5; border-style: dashed; }
+/* The line a row is to be put in front of, while a row is being dragged. */
+.qrow.qbefore { box-shadow: 0 -2px 0 0 var(--line-strong); }
+.qrow.qafter  { box-shadow: 0 2px 0 0 var(--line-strong); }
+.qgrip { color: var(--faint); display: flex; align-items: center; cursor: grab; flex: 0 0 auto; }
+.qgrip svg { width: 13px; height: 13px; }
+.qtext {
+  flex: 1 1 auto; min-width: 0; color: var(--text-2); font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.qfiles { color: var(--faint); font-size: 10.5px; flex: 0 0 auto; }
+.qbtns { display: flex; gap: 3px; flex: 0 0 auto; }
+.qbtn {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border-radius: 6px;
+  border: 1px solid var(--line); background: none; color: var(--faint); cursor: pointer;
+}
+.qbtn:hover { color: var(--text-2); border-color: var(--line-strong); }
+.qbtn.fault:hover { color: var(--ink-fail); border-color: var(--ink-fail); }
+.qbtn svg { width: 12px; height: 12px; }
+/* The words of a message being written again stand in the row itself. */
+.qedit-box {
+  flex: 1 1 auto; display: block; min-width: 0; resize: none;
+  font-family: var(--body); font-size: 12.5px; color: var(--text-2);
+  background: none; border: 1px solid var(--line-strong); border-radius: 6px;
+  padding: 3px 6px; max-height: 120px; overflow-y: auto; scrollbar-width: thin;
+}
 /* On the first screen the chat box stands with the mark and the words over it,
    and the group as a whole is put in the middle of the room: the space over the
    mark and the space under the line of state are the same. The room under the
@@ -968,7 +1029,10 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    program is at work while one batch of words takes its time. It has no ground
    of its own, so the ring and the words stand over the chat directly. */
 .gauge {
-  position: absolute; bottom: calc(100% + 10px); left: 50%; z-index: 5;
+  /* The widget stands over the box. The list of messages waiting stands above
+     the box too, and is not to be covered: the height of that list is written
+     into --queue-h by the page, and the widget stands over both. */
+  position: absolute; bottom: calc(100% + 10px + var(--queue-h, 0px)); left: 50%; z-index: 5;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   transform: translate(-50%, 6px); opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity 200ms ease-out, transform 200ms ease-out, visibility 200ms;
@@ -1825,6 +1889,21 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       <div class="ask-note" id="asknote"></div>
     </div>
 
+    <!-- The messages the user has put by for later. A model that is still
+         writing takes them one after another when it comes to the end of the
+         answer, the oldest first, and the oldest stands at the bottom of the
+         list. The list is shut up to one line until the user opens it, and it
+         stands over the chat box in the room of its own, so the widget of the
+         work in hand and the question of the model never stand over it. -->
+    <div class="queue hidden" id="queue">
+      <button class="queue-head" id="queuehead" title="Open the list of the messages waiting to go">
+        <svg class="svg qcaret" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>
+        <span class="qtitle">Waiting to go</span>
+        <span class="qcount" id="queuecount">0</span>
+      </button>
+      <div class="queue-list hidden" id="queuelist"></div>
+    </div>
+
     <div class="box" id="box">
       <!-- How far the server is with the words it was sent. The number stands
            in the middle of a ring that fills with it, and the words under the
@@ -2351,7 +2430,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'think', 'thinktext', 'thinkwrap',
-  'thinkmenu', 'draft', 'send', 'parts',
+  'thinkmenu', 'draft', 'send', 'parts', 'queue', 'queuehead', 'queuecount', 'queuelist',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
   'viewer', 'lookname', 'lookkind', 'lookclose', 'lookbody',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
@@ -2432,6 +2511,12 @@ var CHAT_LEAST = 780;
 
 function draw(s) {
   cur = s;
+  // A message that was put by while the model was writing goes out when the
+  // answer it waited for is over.
+  flushQueue(s);
+  // The box says what it does with the words written in it now: the mark of
+  // send, and the words of the box itself, follow whether the model is writing.
+  sendLook();
   // The clock of a call that is running is taken up here, so it moves with the
   // state and not with the block that happens to be on the screen.
   takeRunClock(s);
@@ -7101,30 +7186,275 @@ function anythingToSend() {
 function grow() {
   el.draft.style.height = 'auto';
   el.draft.style.height = Math.min(el.draft.scrollHeight, window.innerHeight * 0.4) + 'px';
-  if (cur) {
-    var live = anythingToSend() || !!cur.generating;
-    el.send.classList.toggle('live', live && !cur.generating);
-    el.send.title = sendTitle(cur);
+  sendLook();
+}
+
+// What the box does with the words written in it now. While the model is
+// writing, the mark of send is the mark of stop and the box says that a message
+// is put by for later instead of going out at once.
+function sendLook() {
+  if (!cur) { return; }
+  var live = anythingToSend() || !!cur.generating;
+  el.send.classList.toggle('live', live && !cur.generating);
+  el.send.title = sendTitle(cur);
+  el.draft.placeholder = cur.generating
+    ? 'The model is writing - press Enter to put this message by for later'
+    : 'Write a message for the model';
+}
+
+// ---------------------------------------------------------- the waiting list
+// A message written while the model is still writing is not put over the
+// answer: it stands in the list over the box and goes out when the answer it
+// waited for is over. The list keeps the messages in the order they are to go
+// out in, the next one first, and writes them out the other way about, so the
+// oldest stands at the bottom and the newest at the top. The user opens and
+// shuts the list, writes a message again, takes one out, and drags the rows
+// past one another.
+var queue = [];
+var queueOpen = false;
+var queueSeq = 0;
+var queueSentAt = 0;
+var queueChat = null;
+var queueDrag = -1;
+
+function chatIdOf(s) { return (s && s.chat && s.chat.id) || ''; }
+
+// The body of the ask, from the words of one message and the files hung on it.
+// The files go out in the order of the blocks over the box, each with its whole
+// name, ending included.
+function messageBody(text, files) {
+  var body = { text: text };
+  if (files && files.length > 0) {
+    body.attachments = files.map(function (one) {
+      return { name: one.name, mime: one.mime, data: one.data, text: one.text };
+    });
   }
+  return body;
 }
 
 function send() {
   var text = el.draft.value.trim();
   if (!text && heldFiles.length === 0) { return; }
-  var body = { text: text };
-  if (heldFiles.length > 0) {
-    // The files go out in the order of the blocks over the box, each with
-    // its whole name, ending included.
-    body.attachments = heldFiles.map(function (one) {
-      return { name: one.name, mime: one.mime, data: one.data, text: one.text };
-    });
-  }
+  var files = heldFiles.slice();
   el.draft.value = '';
   heldFiles = [];
   drawParts();
   grow();
-  post('/api/send', body);
+  // The model is still writing, so the message waits its turn in the list.
+  if (cur && cur.generating) {
+    queueSeq += 1;
+    queue.push({ id: queueSeq, text: text, files: files });
+    if (queueChat === null) { queueChat = chatIdOf(cur); }
+    drawQueue();
+    return;
+  }
+  post('/api/send', messageBody(text, files));
 }
+
+// Send the oldest message of the list when the chat has come to the end of an
+// answer. The list belongs to one chat: another chat under the list takes the
+// list away, for a message written for one chat is not meant for another. A
+// message that has gone out needs a moment before the chat says it is writing
+// again, and without that moment the next message would go out beside it.
+function flushQueue(s) {
+  var id = chatIdOf(s);
+  if (queueChat !== null && queueChat !== id) {
+    queue.length = 0;
+    queueChat = null;
+    drawQueue();
+    return;
+  }
+  if (queue.length === 0 || s.generating || s.busy) { return; }
+  if (queueChat === null) { queueChat = id; }
+  if (Date.now() - queueSentAt < 1500) { return; }
+  var one = queue.shift();
+  queueSentAt = Date.now();
+  drawQueue();
+  post('/api/send', messageBody(one.text, one.files));
+}
+
+// The head of the list and, while it is open, the rows under it. The rows are
+// written from the newest message to the oldest, which is the list the other
+// way about from the order the messages go out in.
+function drawQueue() {
+  if (!el.queue) { return; }
+  var n = queue.length;
+  el.queue.classList.toggle('hidden', n === 0);
+  el.queue.classList.toggle('open', queueOpen);
+  if (el.queuecount) { el.queuecount.textContent = String(n); }
+  if (el.queuehead) {
+    el.queuehead.title = queueOpen
+      ? 'Shut the list of the messages waiting to go'
+      : 'Open the list of the messages waiting to go';
+  }
+  if (!el.queuelist) { return; }
+  el.queuelist.classList.toggle('hidden', !queueOpen);
+  queueRoom();
+  if (!queueOpen) { return; }
+  var vis = queue.slice().reverse();
+  el.queuelist.textContent = '';
+  for (var at = 0; at < vis.length; at++) {
+    el.queuelist.appendChild(queueRow(vis[at], at));
+  }
+  queueRoom();
+}
+
+// How much room the list takes over the box. The widget of the work in hand
+// stands over the box, and is not to stand over the list, so the height of the
+// list is written into --queue-h and the widget is put above both.
+function queueRoom() {
+  var room = 0;
+  if (el.queue && !el.queue.classList.contains('hidden')) {
+    room = el.queue.offsetHeight + 6;
+  }
+  document.documentElement.style.setProperty('--queue-h', room + 'px');
+}
+
+// The first words of a message, as they stand in the row: the first line of the
+// words, or the name of a file when the message is nothing but files.
+function queueWords(one) {
+  var first = one.text ? String(one.text).split('\n')[0] : '';
+  if (!first && one.files.length > 0) {
+    return one.files.length === 1
+      ? one.files[0].name
+      : one.files.length + ' files';
+  }
+  return first;
+}
+
+// Take the mark of a row being dragged, and the line under it, away again.
+function clearQueueMarks() {
+  if (!el.queuelist) { return; }
+  var rows = el.queuelist.querySelectorAll('.qrow');
+  for (var i = 0; i < rows.length; i++) {
+    rows[i].classList.remove('dragging', 'qbefore', 'qafter');
+  }
+}
+
+// Put one row of the list where another stands. The rows are seen the other way
+// about from the list of messages, so the going is done in the order of the
+// rows and the list of messages is then turned back again.
+function moveQueueRow(from, to, before) {
+  var vis = queue.slice().reverse();
+  if (from < 0 || from >= vis.length) { return; }
+  var one = vis.splice(from, 1)[0];
+  var at = to > from ? to - 1 : to;
+  at = Math.max(0, Math.min(vis.length, at + (before ? 0 : 1)));
+  vis.splice(at, 0, one);
+  queue = vis.reverse();
+  drawQueue();
+}
+
+// Write the words of a message again, in the row itself.
+function editQueueRow(row, one) {
+  var box = document.createElement('textarea');
+  box.className = 'qedit-box';
+  box.rows = 2;
+  box.value = one.text;
+  row.textContent = '';
+  row.draggable = false;
+  row.appendChild(box);
+  box.focus();
+  var done = false;
+  var end = function (keep) {
+    if (done) { return; }
+    done = true;
+    if (keep) {
+      var words = box.value.trim();
+      if (words) { one.text = words; }
+    }
+    drawQueue();
+  };
+  box.addEventListener('keydown', function (ev) {
+    ev.stopPropagation();
+    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); end(true); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); end(false); }
+  });
+  box.addEventListener('blur', function () { end(true); });
+}
+
+// One row: the mark to take hold of, the first words of the message, and the
+// two marks of the hand at the side, for writing it again and taking it out.
+function queueRow(one, at) {
+  var row = document.createElement('div');
+  row.className = 'qrow';
+  row.draggable = true;
+  var grip = document.createElement('span');
+  grip.className = 'qgrip';
+  grip.title = 'Take hold of this mark and drag the message up or down the list';
+  grip.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 5.5h8M4 10.5h8"/></svg>';
+  row.appendChild(grip);
+  var words = document.createElement('span');
+  words.className = 'qtext';
+  var shown = queueWords(one);
+  words.textContent = shown;
+  words.title = one.text || shown;
+  row.appendChild(words);
+  if (one.files.length > 0 && one.text) {
+    var files = document.createElement('span');
+    files.className = 'qfiles';
+    files.textContent = one.files.length === 1 ? '1 file' : one.files.length + ' files';
+    row.appendChild(files);
+  }
+  var marks = document.createElement('span');
+  marks.className = 'qbtns';
+  var again = document.createElement('button');
+  again.className = 'qbtn';
+  again.title = 'Write this message again';
+  again.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 12.6h2.2l6-6-2.2-2.2-6 6v2.2zM10 3.6l2.2 2.2"/></svg>';
+  again.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    editQueueRow(row, one);
+  });
+  var out = document.createElement('button');
+  out.className = 'qbtn fault';
+  out.title = 'Take this message out of the list';
+  out.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>';
+  out.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    var at = queue.indexOf(one);
+    if (at >= 0) { queue.splice(at, 1); }
+    drawQueue();
+  });
+  marks.appendChild(again);
+  marks.appendChild(out);
+  row.appendChild(marks);
+  row.addEventListener('dragstart', function (ev) {
+    queueDrag = at;
+    row.classList.add('dragging');
+    if (ev.dataTransfer) {
+      ev.dataTransfer.effectAllowed = 'move';
+      try { ev.dataTransfer.setData('text/plain', String(one.id)); } catch (e) { /* nothing else to carry */ }
+    }
+  });
+  row.addEventListener('dragend', clearQueueMarks);
+  row.addEventListener('dragover', function (ev) {
+    if (queueDrag < 0) { return; }
+    ev.preventDefault();
+    var box = row.getBoundingClientRect();
+    var before = (ev.clientY - box.top) < box.height / 2;
+    clearQueueMarks();
+    row.classList.add(before ? 'qbefore' : 'qafter');
+  });
+  row.addEventListener('drop', function (ev) {
+    ev.preventDefault();
+    var box = row.getBoundingClientRect();
+    var before = (ev.clientY - box.top) < box.height / 2;
+    var from = queueDrag;
+    clearQueueMarks();
+    if (from < 0 || from === at) { return; }
+    moveQueueRow(from, at, before);
+  });
+  return row;
+}
+
+if (el.queuehead) {
+  el.queuehead.addEventListener('click', function () {
+    queueOpen = !queueOpen;
+    drawQueue();
+  });
+}
+
 
 el.send.addEventListener('click', function () {
   if (cur && cur.generating) { post('/api/cancel'); return; }
