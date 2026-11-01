@@ -767,7 +767,7 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   white-space: nowrap; }
 .thead .clock.short { color: var(--ink-fail); }
 .thead .tmark { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
-  font-size: 10.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+  font-family: inherit; font-size: 10.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
   color: var(--dim); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line);
   background: var(--surface); cursor: pointer; white-space: nowrap; }
 .thead .tmark:hover { color: var(--ink); border-color: var(--line-strong); }
@@ -4085,8 +4085,11 @@ function paintRunClock() {
 // One of the two marks of a running call. A mark stands in the head of the
 // block, and the head is a button itself, so a mark is words and not a button
 // of its own: a button within a button answers to neither of them.
+// The marks of a call that is running are marks of the hand: they are buttons,
+// so the keyboard reaches them, and the tip says what each does.
 function runMark(path, words, tip) {
-  var one = document.createElement('span');
+  var one = document.createElement('button');
+  one.type = 'button';
   one.className = 'tmark';
   one.title = tip;
   one.appendChild(mark(path));
@@ -4186,16 +4189,18 @@ function toolBox(m) {
   // A change of a file says how many lines it wrote and how many it took away.
   var hunks = hunkCount(m);
   if (hunks) { head.appendChild(hunkMarks(hunks)); }
-  var state = make('span', 'state' + (running ? ' run' : '')
-    + (cut ? ' cut' : (m.failed ? ' fail' : '')));
-  state.textContent = running ? 'running' : (cut ? 'cancelled' : (m.failed ? 'failed' : 'done'));
-  head.appendChild(state);
   // A call that is running may be cut short, or given more time, from the head
-  // of its block. The marks stand while the call runs and go when it is over.
+  // of its block. The marks stand while the call runs and go when it is over,
+  // and they stand before the word of the state, which keeps the far right of
+  // the head whatever else the head carries.
   if (running) {
     var extra = runMarks(m);
     if (extra) { head.appendChild(extra); }
   }
+  var state = make('span', 'state' + (running ? ' run' : '')
+    + (cut ? ' cut' : (m.failed ? ' fail' : '')));
+  state.textContent = running ? 'running' : (cut ? 'cancelled' : (m.failed ? 'failed' : 'done'));
+  head.appendChild(state);
   head.appendChild(mark('M4 6.4 8 10.4 12 6.4', 'fold'));
   // The fold is of this panel alone, so it is lost when the row is made again.
   head.addEventListener('click', function () { panel.classList.toggle('closed'); });

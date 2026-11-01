@@ -8420,6 +8420,28 @@ mod tests {
         assert!(snap.ask.is_none(), "the ask went away with the wait");
     }
 
+    // The clock of a running call, the mark that gives it five minutes more and
+    // the mark that cuts it short are made out of the state, so the state has to
+    // carry the call that is running with the whole of the time it was given and
+    // the time it has left. This record was left out of the words the page is
+    // given, and no running block wore a mark at all.
+    #[test]
+    fn the_state_carries_the_call_that_is_running_with_its_time() {
+        let engine = Engine::start(Config::default());
+        let clean = engine.snapshot();
+        assert!(crate::web::state(&clean, None)["running"].is_null());
+        let mut snap = engine.snapshot();
+        snap.running = Some(RunningTool {
+            id: String::from("call-one"),
+            timeout: Some(600),
+            left: Some(593),
+        });
+        let value = crate::web::state(&snap, None);
+        assert_eq!(value["running"]["id"], "call-one");
+        assert_eq!(value["running"]["timeout"], 600);
+        assert_eq!(value["running"]["left"], 593);
+    }
+
     // A run of the download tool leaves its offer on the message of the run, and
     // the user reaches the file by the name the block carries. A name that steps
     // out of the room of the chat is answered and never offered, which is the rule

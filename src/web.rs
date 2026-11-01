@@ -224,6 +224,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "left": one.left(),
             "seconds": one.seconds,
         })),
+        // The call of a tool that is running right now, with the whole of the time
+        // it was given and the seconds it has left. The head of the block of the
+        // call wears the clock and the two marks of a running call out of this.
+        // A call that was given no time to come back within carries nothing in
+        // either number, and wears neither clock nor mark.
+        "running": snap.running.as_ref().map(|one| json!({
+            "id": one.id,
+            "timeout": one.timeout,
+            "left": one.left,
+        })),
         // The thinking that comes with a live answer, how long it lasted and
         // whether it has stopped. The page writes the last two on the head of
         // the panel.
