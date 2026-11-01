@@ -91,6 +91,12 @@ body.dark {
    under it for a web view without color-mix. */
 :root { --ink: var(--strong); --ink-leaf: var(--leaf); --ink-fail: var(--deep); }
 body.dark { --ink: #f08a2a; --ink-leaf: #d9713f; --ink-fail: #e0603a; }
+/* The two counts of a change of a file. Green for what was written and red for
+   what was taken away are the colours the eye knows for the two already; they
+   are kept pale, so that they sit with the warm colours of the skin instead of
+   shouting over them, in the pale colours and the dark ones alike. */
+:root { --hunk-add: #4d7a35; --hunk-cut: #b04a35; }
+body.dark { --hunk-add: #a3c98c; --hunk-cut: #e09b86; }
 @supports (color: color-mix(in oklab, red, blue)) {
   body.dark {
     --ink: color-mix(in oklab, var(--accent) 74%, #fff6ec);
@@ -776,6 +782,12 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
 .thead .tmark:hover { color: var(--ink); border-color: var(--line-strong); }
 .thead .tmark.danger:hover { color: var(--ink-fail); border-color: var(--ink-fail); }
 .thead .tmark .svg { width: 11px; height: 11px; stroke: currentColor; }
+/* The two counts of a change of a file stand in the head of the block of the
+   run, beside the words of it: what was written, and what was taken away. */
+.thead .hunk { flex: 0 0 auto; display: inline-flex; gap: 7px; font-size: 11px;
+  font-weight: 650; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.thead .hunk .plus { color: var(--hunk-add); }
+.thead .hunk .minus { color: var(--hunk-cut); }
 .thead .fold { margin-left: 4px; transition: transform 180ms; stroke: var(--faint); }
 .tool.closed .fold { transform: rotate(-90deg); }
 .tbody { display: flex; gap: 12px; padding: 2px 12px 12px 13px; }
@@ -4013,6 +4025,34 @@ function runMarks(m) {
   return box;
 }
 
+// The two counts of a change of a file, read out of the receipt of the run. The
+// receipt says what was written and what was taken away, and the head of the
+// block says the same again in the two colours the eye already knows for them.
+// A run of another tool, or a change that came to no words at all, has nothing
+// to show and shows nothing.
+function hunkCount(m) {
+  var line = String(m.tool || '').split('\n')[0];
+  var found = /\+([0-9]+) -([0-9]+)/.exec(line);
+  if (!found) { return null; }
+  return { added: Number(found[1]), removed: Number(found[2]) };
+}
+
+// The two counts, as they stand in the head of the block.
+function hunkMarks(one) {
+  var pair = document.createElement('span');
+  pair.className = 'hunk';
+  pair.title = 'Lines written, and lines taken away, by this change of the file.';
+  var plus = document.createElement('span');
+  plus.className = 'plus';
+  plus.textContent = '+' + one.added;
+  var minus = document.createElement('span');
+  minus.className = 'minus';
+  minus.textContent = '-' + one.removed;
+  pair.appendChild(plus);
+  pair.appendChild(minus);
+  return pair;
+}
+
 // One run of a tool. The head says which tool it is, what it was pointed at, and
 // what became of it. The body keeps what the call named and what came back under
 // their own small labels, each cut off at a height. A run with no result yet
@@ -4039,6 +4079,9 @@ function toolBox(m) {
     ? offerHead(shape, m, !running && !m.failed && !cut)
     : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
+  // A change of a file says how many lines it wrote and how many it took away.
+  var hunks = hunkCount(m);
+  if (hunks) { head.appendChild(hunkMarks(hunks)); }
   var state = make('span', 'state' + (running ? ' run' : '')
     + (cut ? ' cut' : (m.failed ? ' fail' : '')));
   state.textContent = running ? 'running' : (cut ? 'cancelled' : (m.failed ? 'failed' : 'done'));

@@ -329,6 +329,11 @@ struct Made {
     // A few words of what went out, and of what came in.
     taken: String,
     put: String,
+    // How many lines of the file were written, and how many were taken away,
+    // over the whole of the call. The two stand in the head of the block of the
+    // run, for a change of a file is judged by what it did to the lines of it.
+    added: usize,
+    removed: usize,
 }
 
 // The words of a file, and the two marks that say how it stood: the marks of
@@ -785,12 +790,18 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
         // nothing else is there to cover the same words with it.
         if change.everywhere && changes.len() == 1 {
             let first = before.find(&change.before).unwrap_or(0);
+            let out = lines_in(&change.before);
+            let written = lines_in(&change.after);
             return Ok(Made {
                 after: before.replace(&change.before, &change.after),
                 count: found,
                 first,
                 taken: change.before.clone(),
                 put: change.after.clone(),
+                // Every place of the file took the same change, so the lines of
+                // one place are the lines of all of them.
+                added: written * found,
+                removed: out * found,
             });
         }
         if change.everywhere && found > MAX_MATCHES {
@@ -820,9 +831,13 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
     }
     let mut out = String::with_capacity(before.len());
     let mut cursor = 0usize;
+    let mut added = 0usize;
+    let mut removed = 0usize;
     for (start, end, words, _) in &places {
         out.push_str(&before[cursor..*start]);
         out.push_str(words);
+        added += lines_in(words);
+        removed += lines_in(&before[*start..*end]);
         cursor = *end;
     }
     out.push_str(&before[cursor..]);
@@ -834,7 +849,19 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
         first: start,
         taken: before[start..end].to_string(),
         put: places[0].2.to_string(),
+        added,
+        removed,
     })
+}
+
+// How many lines a stretch of a file holds, counted the way the lines of a file
+// are counted: a mark of a new line closes the line it stands on and does not
+// open another. Nothing at all is no lines.
+fn lines_in(words: &str) -> usize {
+    if words.is_empty() {
+        return 0;
+    }
+    words.matches('\n').count() + if words.ends_with('\n') { 0 } else { 1 }
 }
 
 // How many lines words make, said the way a line of the answer says it. A file
@@ -1005,7 +1032,12 @@ fn difference(before: &[&str], after: &[&str], context: usize, offset: usize) ->
 // the whole file. The file itself is where the whole of it is read again.
 fn receipt(name: &str, before: &str, made: &Made) -> String {
     let plural = if made.count == 1 { "" } else { "s" };
-    let head = format!("Edited {} ({} replacement{})", name, made.count, plural);
+    // The two counts of the change stand with the words of it: what was written,
+    // and what was taken away. The page reads them into the head of the block.
+    let head = format!(
+        "Edited {} ({} replacement{}, +{} -{})",
+        name, made.count, plural, made.added, made.removed
+    );
     // The window about the first change, kept wide enough to hold the change
     // whole, and cut again at a bound of lines so the table of the difference
     // stays small for a change that runs long.
@@ -1474,7 +1506,7 @@ mod tests {
         let out = edit(&root, whole);
         assert!(out.ok, "{}", out.output);
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "uno\ntwo\ntri\n");
-        assert!(out.output.starts_with("Edited notes.txt (2 replacements)"), "{}", out.output);
+        assert!(out.output.starts_with("Edited notes.txt (2 replacements,"), "{}", out.output);
         assert!(out.output.contains("@@ -1,3 +1,3 @@"), "{}", out.output);
         assert!(out.output.contains("-one"), "{}", out.output);
         assert!(out.output.contains("+uno"), "{}", out.output);
@@ -1482,7 +1514,7 @@ mod tests {
         // and the words that went out and came in stand in the difference.
         let next = r#"{"path":"notes.txt","edits":[{"old_string":"two","new_string":"deux"}]}"#;
         let out = edit(&root, next);
-        assert!(out.output.starts_with("Edited notes.txt (1 replacement)"), "{}", out.output);
+        assert!(out.output.starts_with("Edited notes.txt (1 replacement,"), "{}", out.output);
         assert!(out.output.contains("-two"), "{}", out.output);
         assert!(out.output.contains("+deux"), "{}", out.output);
     }
