@@ -143,6 +143,18 @@ textarea, input { font: inherit; color: inherit; }
   background: var(--surface); border-bottom: 1px solid var(--line);
   position: relative; z-index: 20;
 }
+
+/* The chat comes into focus as it comes down from under the bar. A strip of the
+   chat that stands below the bar is blurred and veiled for a finger's breadth,
+   and the veil thins out as it goes down, so the words do not stop dead at the
+   edge of the bar. Nothing of it catches the hand: the words under it are still
+   words of the chat, to be read, marked and taken hold of. */
+.bar::after { content: ""; position: absolute; left: 0; right: 0; top: 100%;
+  height: 22px; pointer-events: none;
+  background: linear-gradient(to bottom, var(--surface), rgba(255,255,255,0));
+  backdrop-filter: blur(2.5px); -webkit-backdrop-filter: blur(2.5px);
+  mask-image: linear-gradient(to bottom, #000 12%, rgba(0,0,0,0));
+  -webkit-mask-image: linear-gradient(to bottom, #000 12%, rgba(0,0,0,0)); }
 .brand { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; padding-right: 2px; }
 .brand .mark { width: 21px; height: 21px; display: block; }
 .brand .word { font-size: 14.5px; font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
