@@ -731,6 +731,23 @@ pre.code .t-p { color: var(--t-pun); }
    writing of it was stopped in the middle. The pill says so in the colour of a
    fault, with a line broken like the words of the call were. */
 .state.cut { color: var(--ink-fail); border-color: var(--ink-fail); border-style: dashed; }
+/* A call that is running says what time it has left, and gives the two hands
+   that go with a running call: the one that cuts the call short, and the one
+   that gives it five minutes more. The three stand in the head of the block of
+   the call and go when the call is over, for a call that has come back has
+   nothing left to press. A call with no time to run out wears none of them. */
+.thead .runer { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 8px; }
+.thead .clock { font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--dim); font-variant-numeric: tabular-nums;
+  white-space: nowrap; }
+.thead .clock.short { color: var(--ink-fail); }
+.thead .tmark { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
+  font-size: 10.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--dim); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); cursor: pointer; white-space: nowrap; }
+.thead .tmark:hover { color: var(--ink); border-color: var(--line-strong); }
+.thead .tmark.danger:hover { color: var(--ink-fail); border-color: var(--ink-fail); }
+.thead .tmark .svg { width: 11px; height: 11px; stroke: currentColor; }
 .thead .fold { margin-left: 4px; transition: transform 180ms; stroke: var(--faint); }
 .tool.closed .fold { transform: rotate(-90deg); }
 .tbody { display: flex; gap: 12px; padding: 2px 12px 12px 13px; }
@@ -1946,6 +1963,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Steps in one answer</span>
           <span class="sub">How many turns of the model one answer may take. Each command is followed by another turn, so a long task needs room here. -1 means no limit: the answer ends only when the model stops by itself.</span>
           <div class="ctl"><input id="fAnswerSteps" type="number" min="-1" max="1000000" step="1" placeholder="-1"><span class="unit">turns, -1 for no limit</span></div></div>
+        <div class="fld"><span class="lbl">Time for one tool call</span>
+          <span class="sub">How long a call of a tool is given to come back within. A call that is still running when its time is gone is stopped, and the model is told that it ran out of time; everything the call had given by then still goes back to it. While a call runs, its block offers a mark to stop it and a mark to give it five minutes more. 0 gives a call no time at all, so it may run as long as it likes.</span>
+          <div class="ctl"><input id="fToolSeconds" type="number" min="0" max="86400" step="30" placeholder="600"><span class="unit">seconds, 0 for no limit</span></div></div>
         <div class="fld"><span class="lbl">A long paste becomes a file</span>
           <span class="sub">When a paste into the chat box is longer than this, the text is attached to the message as a file instead of being written in the box. The least is 100.</span>
           <div class="ctl"><input id="fPasteLimit" type="number" min="100" max="1000000" step="1" placeholder="6000"><span class="unit">characters</span></div></div>
@@ -2369,6 +2389,9 @@ var CHAT_LEAST = 780;
 
 function draw(s) {
   cur = s;
+  // The clock of a call that is running is taken up here, so it moves with the
+  // state and not with the block that happens to be on the screen.
+  takeRunClock(s);
   document.body.classList.toggle('dark', !!s.dark);
   readChatting(s);
   drawHome(s);
@@ -3837,6 +3860,124 @@ function headName(one, shape) {
   return shape && shape.file ? '' : firstLine(one.command);
 }
 
+// ------------------------------------------------- a call that is running
+//
+// Every call of a tool is given a time to come back within, from the Chatting
+// settings. While a call runs, its block says what time it has left and wears
+// two marks: the hand that cuts the call short, and the hand that gives it five
+// minutes more. The engine counts the seconds and the page reads them; between
+// two looks at the state the page counts them on its own, so the number in the
+// head of a block never stands still.
+
+var runLeft = -1;    // the seconds left, as the last look of the state gave them
+var runAt = 0;       // the moment those seconds were counted from
+var runTimer = 0;    // the timer that writes the number again every second
+
+// The words of the clock. Nothing is said of a call with no time to run out,
+// for such a call has nothing left and nothing to press.
+function clockWords(left) {
+  if (left < 0) { return ''; }
+  if (left >= 60) {
+    var minutes = Math.floor(left / 60);
+    var seconds = left % 60;
+    return minutes + ' min' + (seconds ? ' ' + seconds + ' s' : '') + ' left';
+  }
+  return left + (left === 1 ? ' second left' : ' seconds left');
+}
+
+// The seconds left now, counted from the last look at the state rather than
+// read out of it again, for the state is only read so often.
+function runLeftNow() {
+  if (runLeft < 0) { return -1; }
+  var gone = Math.floor((Date.now() - runAt) / 1000);
+  return Math.max(0, runLeft - gone);
+}
+
+// Take up the clock of the call that is running, from the state just looked at.
+// When nothing stands running the clock is put away with the marks.
+function takeRunClock(s) {
+  var one = s && s.running;
+  if (!one || one.left === null || one.left === undefined) {
+    runLeft = -1;
+    stopRunClock();
+    return;
+  }
+  runLeft = Number(one.left);
+  runAt = Date.now();
+  startRunClock();
+}
+
+function startRunClock() {
+  if (runTimer) { return; }
+  runTimer = window.setInterval(function () {
+    if (runLeft < 0) { stopRunClock(); return; }
+    paintRunClock();
+  }, 1000);
+}
+
+function stopRunClock() {
+  if (runTimer) { window.clearInterval(runTimer); runTimer = 0; }
+}
+
+// Write the seconds left on every clock that stands in the chat. Only one call
+// runs at a time, but two blocks wearing a clock is no fault of the page, and
+// both of them should tell the truth.
+function paintRunClock() {
+  var left = runLeftNow();
+  var clocks = document.querySelectorAll('.thead .clock');
+  for (var i = 0; i < clocks.length; i++) {
+    clocks[i].textContent = clockWords(left);
+    if (left >= 0 && left <= 30) { clocks[i].classList.add('short'); }
+  }
+}
+
+// One of the two marks of a running call. A mark stands in the head of the
+// block, and the head is a button itself, so a mark is words and not a button
+// of its own: a button within a button answers to neither of them.
+function runMark(path, words, tip) {
+  var one = document.createElement('span');
+  one.className = 'tmark';
+  one.title = tip;
+  one.appendChild(mark(path));
+  var said = document.createElement('span');
+  said.textContent = words;
+  one.appendChild(said);
+  return one;
+}
+
+// The marks of a call that is running, and the time it has left. A call with no
+// time to run out wears none of the three, for there is nothing to cut short and
+// nothing to add. The marks answer for themselves alone: the head of the block
+// opens and closes the block, and a mark is not the head.
+function runMarks(m) {
+  var one = cur && cur.running;
+  if (!one || one.id !== m.id) { return null; }
+  if (one.timeout === null || one.timeout === undefined) { return null; }
+  var box = document.createElement('span');
+  box.className = 'runer';
+  var left = runLeftNow();
+  var clock = document.createElement('span');
+  clock.className = 'clock' + (left >= 0 && left <= 30 ? ' short' : '');
+  clock.textContent = clockWords(left);
+  box.appendChild(clock);
+  var more = runMark('M8 3.6v8.8M3.6 8h8.8', '+5 min',
+    'Give this call five minutes more to come back within.');
+  var stop = runMark('M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2', 'stop',
+    'Stop this call now. Everything it has given by then still goes back to the model.');
+  stop.classList.add('danger');
+  more.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    post('/api/tool_extend', {});
+  });
+  stop.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    post('/api/tool_cancel', {});
+  });
+  box.appendChild(more);
+  box.appendChild(stop);
+  return box;
+}
+
 // One run of a tool. The head says which tool it is, what it was pointed at, and
 // what became of it. The body keeps what the call named and what came back under
 // their own small labels, each cut off at a height. A run with no result yet
@@ -3867,6 +4008,12 @@ function toolBox(m) {
     + (cut ? ' cut' : (m.failed ? ' fail' : '')));
   state.textContent = running ? 'running' : (cut ? 'cancelled' : (m.failed ? 'failed' : 'done'));
   head.appendChild(state);
+  // A call that is running may be cut short, or given more time, from the head
+  // of its block. The marks stand while the call runs and go when it is over.
+  if (running) {
+    var extra = runMarks(m);
+    if (extra) { head.appendChild(extra); }
+  }
   head.appendChild(mark('M4 6.4 8 10.4 12 6.4', 'fold'));
   // The fold is of this panel alone, so it is lost when the row is made again.
   head.addEventListener('click', function () { panel.classList.toggle('closed'); });
@@ -7338,6 +7485,8 @@ function loadProgram() {
     byId('fChapters').checked = cfg.chat_chapters !== false;
     byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
+    byId('fToolSeconds').value = (cfg.chat_tool_timeout === undefined || cfg.chat_tool_timeout === null)
+      ? 600 : cfg.chat_tool_timeout;
     byId('fPasteLimit').value = pasteLimitOf(cfg.pasted_text_char_limit);
     byId('fChatWidth').value = chatWidthOf(cfg.chat_width);
     byId('fAskSeconds').value = askWaitOf(cfg.ask_seconds, 30);
@@ -7600,6 +7749,7 @@ function readProgram() {
   cfg.chat_chapters = byId('fChapters').checked;
   cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
   cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
+  cfg.chat_tool_timeout = holdSeconds('fToolSeconds', 600, 0, 86400);
   cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
   cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
   cfg.ask_seconds = holdSeconds('fAskSeconds', 30, 1, 86400);

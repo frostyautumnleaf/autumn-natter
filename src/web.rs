@@ -717,6 +717,20 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             }
             done()
         }
+        // The user cut short the call of a tool that is running, from the head
+        // of its block. The command that was started is stopped, and everything
+        // it had printed by then still goes back to the model.
+        "/api/tool_cancel" | "tool_cancel" => {
+            engine.cancel_running_tool();
+            done()
+        }
+        // The user gave the call of a tool that is running more time to come
+        // back within, from the head of its block. Each press adds the same
+        // time, and a call may be given more time as often as the user likes.
+        "/api/tool_extend" | "tool_extend" => {
+            engine.extend_running_tool();
+            done()
+        }
         // Take one message out of the talk, with everything that came after it.
         // The page asks under a message, when the pointer goes over it.
         "/api/delete_message" | "delete_message" => {

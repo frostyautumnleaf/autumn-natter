@@ -29,8 +29,10 @@ use crate::store::{self, Chat, Message, Repo};
 use crate::tools;
 use crate::viewimage;
 
-// Longest wait for one terminal command.
-const TOOL_TIMEOUT: Duration = Duration::from_secs(120);
+// The time each press of the mark adds to a call that is still running. The
+// mark stands in the head of the block of the call, and a call may be given
+// more time as often as the user presses it.
+const TOOL_EXTEND: Duration = Duration::from_secs(300);
 // How many terminal commands one answer may run, and how many round trips one
 // answer may take in all, both read from the Chatting settings. A mark of a
 // chapter is not a command: it runs nothing, so it eats neither room. The two
@@ -198,6 +200,47 @@ pub struct LiveTool {
     // written. The block says so, and the run of the tool stands in the chat in
     // its place when the step of the answer is over.
     pub done: bool,
+}
+
+// The call of a tool that is running right now, and the clock it runs against.
+// Every call is given a time to come back within, so that nothing of a model's
+// answer stands still for ever behind a call that never returns. The clock
+// stands here so the two marks of a running call -- the one that cuts it short
+// and the one that gives it more time -- have a clock to speak to.
+#[derive(Clone, Debug)]
+pub struct Running {
+    // The message of the block of the call, so the marks stand on the call they
+    // belong to and on no other.
+    pub id: String,
+    // The clock of the call. It is shared with the program that was started.
+    watch: crate::util::Watch,
+}
+
+// The same, as a page is given it. The time left is counted again whenever the
+// state is looked at, so a page has nothing to count on its own.
+#[derive(Clone, Debug, Default)]
+pub struct RunningTool {
+    pub id: String,
+    // The whole of the time the call was given, in seconds. Nothing at all for
+    // a call that was given no time to come back within, for then there is no
+    // time to run out and no mark to stand.
+    pub timeout: Option<u32>,
+    // The seconds left of that time, of a call with a time to run out.
+    pub left: Option<u32>,
+}
+
+// The clock a call of a tool is put under, from the Chatting settings. Nothing
+// at all for a call when the user turned the feature off, which is the same as
+// a call that may take as long as it likes.
+fn tool_watch(state: &Arc<Mutex<State>>) -> crate::util::Watch {
+    let seconds = match state.lock() {
+        Ok(guard) => guard.cfg.chat_tool_timeout,
+        Err(_) => 0,
+    };
+    if seconds == 0 {
+        return crate::util::Watch::unbounded();
+    }
+    crate::util::Watch::new(Duration::from_secs(seconds as u64))
 }
 
 // A question the model has put to the user, and the wait that stands with it.
@@ -1024,6 +1067,10 @@ pub struct Snap {
     // The question the model has put to the user and is waiting on, when it has
     // put one. The popup of the ask stands above the chat box.
     pub ask: Option<Asking>,
+    // The call of a tool that is running right now, with the time it has left.
+    // The head of the block of the call wears the marks of a running call while
+    // this stands.
+    pub running: Option<RunningTool>,
     // Goes up when a message changes, so the window redraws them.
     pub rev: u64,
     // Goes up when a list changes, so the window rebuilds it.
@@ -1076,6 +1123,9 @@ pub struct State {
     // put one. The ask stands above the chat box until it is answered, given up,
     // or stopped with the answer.
     pub asking: Option<Asking>,
+    // The call of a tool that is running right now, and the clock it runs
+    // against. Nothing stands here between two calls.
+    pub running: Option<Running>,
     // The moments the thinking of the live answer began and last stopped. The
     // two together are the length of it.
     thought_start: Option<Instant>,
@@ -1789,13 +1839,15 @@ impl State {
     // of the answer, and only once the model has stopped writing. See
     // `gifts_till` for the offer of a turn.
     fn finish_gifts(&mut self, id: &str, output: &str, ok: bool, gifts: Vec<download::Gift>) {
+        let text = self.with_stopped_head(output);
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
-                message.tool = output.to_string();
+                message.tool = text;
                 message.failed = !ok;
                 message.downloads = gifts;
             }
         }
+        self.running = None;
         self.persist();
         self.touch();
     }
@@ -1812,15 +1864,75 @@ impl State {
         ok: bool,
         pictures: Vec<Attachment>,
     ) {
+        let text = self.with_stopped_head(output);
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
-                message.tool = output.to_string();
+                message.tool = text;
                 message.failed = !ok;
                 message.attachments = pictures;
             }
         }
+        self.running = None;
         self.persist();
         self.touch();
+    }
+
+    // Put a call that is running under a clock, and remember which block of the
+    // chat it stands in. The marks of a running call -- the one that cuts the
+    // call short and the one that gives it more time -- speak to this clock.
+    fn begin_running(&mut self, id: &str, watch: &crate::util::Watch) {
+        self.running = Some(Running {
+            id: id.to_string(),
+            watch: watch.clone(),
+        });
+        self.touch();
+    }
+
+    // The words that stand above the output of a call that was stopped before it
+    // came back: its time ran out, or the user cut it short. Nothing is put in
+    // front of a call that came back of its own accord. What the call had given
+    // by then is kept below these words, for a model that reads the block has to
+    // know what the call managed to do before it was stopped.
+    fn stopped_head(&self, gave_something: bool) -> Option<String> {
+        let one = self.running.as_ref()?;
+        let why: String = if one.watch.stopped() {
+            String::from("The user stopped this call before it came back.")
+        } else if one.watch.expired() {
+            let given = one.watch.limit()?.as_secs();
+            let when = if given >= 60 {
+                let minutes = given / 60;
+                let seconds = given % 60;
+                if seconds == 0 {
+                    format!("{} minutes", minutes)
+                } else {
+                    format!("{} minutes {} seconds", minutes, seconds)
+                }
+            } else {
+                format!("{} seconds", given)
+            };
+            format!("The call ran out of time after {} and was stopped.", when)
+        } else {
+            return None;
+        };
+        Some(format!(
+            "{} {}",
+            why,
+            if gave_something {
+                "Everything it had given by then stands below."
+            } else {
+                "It had given nothing by then."
+            }
+        ))
+    }
+
+    // The output of a call, with the words of a stopped call in front of it when
+    // the call was stopped.
+    fn with_stopped_head(&self, output: &str) -> String {
+        match self.stopped_head(!output.trim().is_empty()) {
+            None => output.to_string(),
+            Some(head) if output.trim().is_empty() => head,
+            Some(head) => format!("{}\n{}", head, output),
+        }
     }
 
     // Write down a tool call that the room gave out under. The call stands in the
@@ -2467,6 +2579,11 @@ impl State {
             answer_rate: self.answer_rate,
             live_tools: self.live_tools.clone(),
             ask: self.asking.clone(),
+            running: self.running.as_ref().map(|one| RunningTool {
+                id: one.id.clone(),
+                timeout: one.watch.limit().map(|given| given.as_secs() as u32),
+                left: one.watch.left().map(|left| left.as_secs() as u32),
+            }),
             rev: self.rev,
             structure_rev: self.structure_rev,
         }
@@ -2599,6 +2716,7 @@ impl Engine {
             rate_start: None,
             live_tools: Vec::new(),
             asking: None,
+            running: None,
             thought_start: None,
             thought_end: None,
             // The meter of the context moves at most twice a second, so the
@@ -3838,6 +3956,35 @@ impl Engine {
         }
     }
 
+    // Cut a running call of a tool short. The command that was started is
+    // stopped, and everything it had printed by then still goes back to the
+    // model, under the word that the user stopped it.
+    pub fn cancel_running_tool(&self) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if let Some(one) = state.running.as_ref() {
+            one.watch.stop_now();
+            state.set_status("The call is being stopped");
+        }
+    }
+
+    // Give the call of a tool that is running more time to come back within.
+    // Each press adds the same time to what stands left, and a call may be
+    // given more time as often as the user likes.
+    pub fn extend_running_tool(&self) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if let Some(one) = state.running.as_ref() {
+            one.watch.extend(TOOL_EXTEND);
+            let left = one.watch.left().map(|left| left.as_secs()).unwrap_or(0);
+            let text = format!("The call has {} seconds left", left);
+            state.set_status(&text);
+            state.touch();
+        }
+    }
+
     // Ask the worker to stop, so the model is unloaded.
     pub fn shutdown(&self) {
         self.cancel.store(true, Ordering::SeqCst);
@@ -3917,6 +4064,7 @@ impl Snap {
             answer_rate: 0.0,
             live_tools: Vec::new(),
             ask: None,
+            running: None,
             rev: 0,
             structure_rev: 0,
         }
@@ -6549,6 +6697,22 @@ fn wait_for_answer(
         if seconds > 0 && began.elapsed().as_secs() >= seconds as u64 {
             return None;
         }
+        // The user cut the call short from the head of its block. A question
+        // that was to be waited for for ever is given up with the call it stood
+        // in, and the model is told that the call was stopped.
+        if state
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .running
+                    .as_ref()
+                    .map(|one| one.watch.stopped())
+            })
+            .unwrap_or(false)
+        {
+            return None;
+        }
         std::thread::sleep(Duration::from_millis(150));
     }
 }
@@ -6572,15 +6736,21 @@ fn run_command(
     } else {
         format!("{}\nreason: {}", command, purpose)
     };
+    // The clock of the call, from the Chatting settings.
+    let watch = tool_watch(state);
     let message_id = {
         let Ok(mut guard) = state.lock() else { return };
         let id = guard.begin_tool(call, &shown, thinking, thought_ms);
+        guard.begin_running(&id, &watch);
         let text = format!("Running a command: {}", first_line(&command));
         guard.set_status(&text);
         id
     };
-    let outcome = tools::run(&command, workdir, sandbox_on, access, TOOL_TIMEOUT);
-    let mut output = outcome.summary();
+    // The command runs under the clock of the call: it is stopped when its time
+    // is gone, or when the user asks for it, and all it had printed by then
+    // comes back with it.
+    let outcome = tools::run_watched(&command, workdir, sandbox_on, access, &watch);
+    let mut output = outcome.output;
     // The chat asked for the sandbox, so say when it was not used. The run
     // itself already says why, and it did not run at all then.
     if sandbox_on && !outcome.sandboxed {
@@ -6613,6 +6783,8 @@ fn run_program_tool(
     // asked is given up with the answer, for the run that asked it is going away.
     cancel: &Arc<AtomicBool>,
 ) {
+    // The clock of the call, from the Chatting settings.
+    let watch = tool_watch(state);
     // The words of the call, and the words of the state line, are settled first:
     // the block has to stand in the chat before the work begins.
     let (shown, _, target) = words_of(&call.name, &call.arguments);
@@ -6632,10 +6804,17 @@ fn run_program_tool(
     let message_id = {
         let Ok(mut guard) = state.lock() else { return };
         let id = guard.begin_tool(call, &shown, thinking, thought_ms);
+        guard.begin_running(&id, &watch);
         let text = format!("{}: {}", doing, first_line(&shown));
         guard.set_status(&text);
         id
     };
+    // The clock of the call. A call of the program is stopped by the user in the
+    // same way as a command: the mark stands in the head of the block, and a
+    // call that is waited for -- the question put to the user, above all --
+    // gives up the moment the mark is pressed. A call of the program that runs
+    // on its own has its own, shorter, time to come back within, and it keeps
+    // that time: the clock here is what stands over all of them.
     // A tool of a server of the user's own. The server is named by the part
     // of the name of the tool that stands for it, and it is reached out of the
     // program: never inside the jail of a command, for a command has no network

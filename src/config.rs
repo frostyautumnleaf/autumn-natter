@@ -57,6 +57,11 @@ pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a detailed but concise handoff s
 // so the words come to an end inside the room that is left.
 pub const DEFAULT_HANDOFF_PROMPT_SHORT: &str = "Write a very short handoff summary for AI consumption (no styling). The context window of the model is nearly full, so the whole summary must end within a few hundred words. Keep only what an AI needs to continue the work from this point: what is done, what is half done, and what to do next. Name the files that matter, one short line each. Do not repeat the conversation, do not review finished work, and do not add detail that is not needed to continue.";
 
+// The time one call of a tool is given, of a new set of settings: ten minutes.
+fn default_tool_seconds() -> u32 {
+    600
+}
+
 // The share of the room of the talk at which the handoff summary is asked for.
 fn default_compact_percent() -> u32 {
     85
@@ -268,6 +273,13 @@ pub struct Config {
     // model may run a command as often as it wants inside one answer.
     #[serde(default = "no_limit")]
     pub chat_max_tool_steps: i64,
+    // How long one call of a tool is given to come back within, in seconds. A
+    // call that is still running when its time is gone is stopped, and the
+    // model is told that it ran out of time; a command that is stopped leaves
+    // behind everything it had printed. Nothing at all gives a call no time to
+    // come back within, which is the same as not having the feature at all.
+    #[serde(default = "default_tool_seconds")]
+    pub chat_tool_timeout: u32,
     // How many round trips one answer may take in all: a round trip is one turn
     // of the model, and one more follows every command it asks for. -1 leaves
     // no limit, so an answer ends only when the model stops by itself.
@@ -506,6 +518,7 @@ impl Default for Config {
             chat_chapters: true,
             chat_context_files: true,
             chat_max_tool_steps: -1,
+            chat_tool_timeout: default_tool_seconds(),
             chat_max_answer_steps: -1,
             pasted_text_char_limit: default_pasted_text_char_limit(),
             chat_width: default_chat_width(),

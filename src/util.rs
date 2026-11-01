@@ -3,7 +3,7 @@
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -40,6 +40,104 @@ impl Capture {
     }
 }
 
+// The clock of one call that is running. The call is given a time to come back
+// within, and the program that started it reads the same clock: the user may
+// lengthen the time or cut the call short while it runs, and a command that is
+// stopped leaves behind everything it had printed by then.
+#[derive(Clone, Debug)]
+pub struct Watch {
+    began: Instant,
+    // Milliseconds the call may take, counted from the moment it began. The
+    // greatest number stands for no limit at all, which is what a call is
+    // given when the user turned the feature off.
+    limit: Arc<AtomicU64>,
+    // The user asked for the call to end now.
+    stop: Arc<AtomicBool>,
+}
+
+// The number that stands for a call with no end of time.
+const NO_LIMIT: u64 = u64::MAX / 2;
+
+impl Watch {
+    // A call that must come back within the time given.
+    pub fn new(limit: Duration) -> Watch {
+        Watch::held(limit.as_millis() as u64)
+    }
+
+    // The same, from milliseconds. The greatest number stands for no limit.
+    fn held(millis: u64) -> Watch {
+        Watch {
+            began: Instant::now(),
+            limit: Arc::new(AtomicU64::new(millis.min(NO_LIMIT))),
+            stop: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    // A call that is given no time at all: it runs until it comes back.
+    pub fn unbounded() -> Watch {
+        Watch::held(NO_LIMIT)
+    }
+
+    // The time the call was given, or nothing when it was given no limit.
+    pub fn limit(&self) -> Option<Duration> {
+        let held = self.limit.load(Ordering::Relaxed);
+        if held >= NO_LIMIT {
+            return None;
+        }
+        Some(Duration::from_millis(held))
+    }
+
+    // How long the call has been running.
+    pub fn elapsed(&self) -> Duration {
+        self.began.elapsed()
+    }
+
+    // The time the call has left, or nothing when it was given no limit. A call
+    // that is over its time has nothing left, and never less.
+    pub fn left(&self) -> Option<Duration> {
+        let given = self.limit()?;
+        let gone = self.began.elapsed();
+        Some(given.checked_sub(gone).unwrap_or(Duration::ZERO))
+    }
+
+    // Give the call more time. Each press of the mark adds to the time that is
+    // left, so a call that was near its end has the whole of the new time in
+    // front of it.
+    pub fn extend(&self, by: Duration) {
+        // A call with no limit has nothing to add to.
+        if self.limit().is_none() {
+            return;
+        }
+        let left = self.left().unwrap_or(Duration::ZERO);
+        self.limit.store(
+            self.began.elapsed().as_millis() as u64 + left.as_millis() as u64 + by.as_millis() as u64,
+            Ordering::Relaxed,
+        );
+    }
+
+    // The user asked for the call to end. The clock is not moved: the call ends
+    // because the flag stands, and the words that come back say who stopped it.
+    pub fn stop_now(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
+    // True when the user asked for the call to end.
+    pub fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
+
+    // True when there is nothing left to wait for: the time is gone, or the
+    // user asked for the call to end.
+    pub fn expired(&self) -> bool {
+        self.stopped() || self.left().is_some_and(|left| left.is_zero())
+    }
+
+    // The wait steps back every so often, so a long time costs nothing.
+    pub fn pause(&self) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 // Run a program and read what it prints. The call never waits longer than the
 // timeout. A program that cannot be started gives a failed Capture.
 pub fn capture<A: AsRef<std::ffi::OsStr>>(program: &str, args: &[A], timeout: Duration) -> Capture {
@@ -52,6 +150,19 @@ pub fn capture_in<A: AsRef<std::ffi::OsStr>>(
     args: &[A],
     cwd: Option<&Path>,
     timeout: Duration,
+) -> Capture {
+    capture_watch_in(program, args, cwd, &Watch::new(timeout))
+}
+
+// The same, with a clock the user may lengthen or cut short while the program
+// runs. Everything the program printed before it was stopped stands in the
+// answer, for a model that is told a call ran out of time still has to know
+// what the call managed to say.
+pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
+    program: &str,
+    args: &[A],
+    cwd: Option<&Path>,
+    watch: &Watch,
 ) -> Capture {
     let mut command = Command::new(program);
     command.args(args.iter().map(|arg| arg.as_ref()));
@@ -73,19 +184,20 @@ pub fn capture_in<A: AsRef<std::ffi::OsStr>>(
     let killed = Arc::new(AtomicBool::new(false));
     let flag = finished.clone();
     let killed_flag = killed.clone();
-    // The watchdog stops a program that does not end by itself.
-    std::thread::spawn(move || {
-        let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
-            if flag.load(Ordering::Relaxed) {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(100));
+    // The watchdog stops a program that does not end by itself, and it stops
+    // one the user asked to be cut short. The clock is read again on every
+    // step, so a call that was given more time is left alone.
+    let clock = watch.clone();
+    std::thread::spawn(move || loop {
+        if flag.load(Ordering::Relaxed) {
+            return;
         }
-        if !flag.load(Ordering::Relaxed) {
+        if clock.expired() {
             killed_flag.store(true, Ordering::Relaxed);
             kill_pid(pid);
+            return;
         }
+        clock.pause();
     });
 
     // Read the two output pipes at the same time. One pipe must not wait for
@@ -271,5 +383,31 @@ mod tests {
         // A character of more than one byte is bytes, and not a character, to
         // the table.
         assert_eq!(b64("\u{e9}".as_bytes()), "w6k=");
+    }
+
+    // The clock of a call: the time it has left, the time added to it, and the
+    // hand of the user. A call that was given no time at all is left alone by
+    // all three.
+    #[test]
+    fn the_clock_of_a_call_counts_and_can_be_moved() {
+        let watch = Watch::new(Duration::from_millis(40));
+        assert!(!watch.expired());
+        assert!(watch.left().is_some());
+        std::thread::sleep(Duration::from_millis(90));
+        assert!(watch.expired());
+        assert_eq!(watch.left(), Some(Duration::ZERO));
+        // More time puts the end of the call back, so the call is no longer over.
+        watch.extend(Duration::from_millis(400));
+        assert!(!watch.expired());
+        // The hand of the user ends the call at once, and says who ended it.
+        watch.stop_now();
+        assert!(watch.expired());
+        assert!(watch.stopped());
+        let free = Watch::unbounded();
+        assert!(free.limit().is_none());
+        assert!(free.left().is_none());
+        assert!(!free.expired());
+        free.extend(Duration::from_secs(60));
+        assert!(free.limit().is_none());
     }
 }
