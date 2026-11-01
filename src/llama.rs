@@ -602,23 +602,35 @@ pub fn build_args(
         }
     }
 
-    // A VRAM budget below the total makes llama.cpp fit the model into it.
+    // The fit of the model into the cards is asked for always, and needs no
+    // setting of its own. The server is told the room of the talk the chat was
+    // given, and how much of every card is to stand over: the share the user set
+    // is what the model may work in, and what is left of a card is the margin.
+    // A margin never falls below the least a server needs to stand up in, which
+    // is what a slider at the whole of the cards comes to -- for the whole of
+    // the cards would else ask for a margin of nothing at all.
+    // The least a server may be left standing over: below this there is no
+    // room for the talk, and a model loaded with such a margin would have
+    // nowhere to put it.
+    const LEAST_FIT_TARGET: u64 = 256;
+    let share = crate::config::sanitize_vram_budget(settings.vram_budget);
     let total: u64 = gpus
         .iter()
         .filter(|g| g.is_offload)
         .map(|g| g.memory_mb)
         .sum();
-    if settings.vram_budget > 0.0 && total > 0 && (settings.vram_budget as u64) < total {
+    if total > 0 {
         args.push("--fit".into());
         args.push("on".into());
+        args.push("--fit-ctx".into());
+        args.push(settings.ctx_size.to_string());
         let margins: Vec<String> = gpus
             .iter()
             .filter(|g| g.is_offload)
             .map(|g| {
-                let share = g.memory_mb as f64 * (settings.vram_budget / total as f64);
-                let used = share.min(g.memory_mb as f64);
-                let margin = (g.memory_mb as f64 - used).max(32.0) as u64;
-                margin.to_string()
+                let left = g.memory_mb as f64 * (100.0 - share) / 100.0;
+                let margin = (left.round() as u64).max(LEAST_FIT_TARGET);
+                margin.min(g.memory_mb).to_string()
             })
             .collect();
         args.push("--fit-target".into());

@@ -83,6 +83,17 @@ fn default_handoff_prompt_short() -> String {
     String::from(DEFAULT_HANDOFF_PROMPT_SHORT)
 }
 
+// The share of the cards the model may work in. A number that is no share at
+// all -- nothing, or more than a hundred -- is the share a new set of settings
+// stands on, so a settings file written when this field held mebibytes comes
+// back as a share instead of as a surprise.
+pub fn sanitize_vram_budget(share: f64) -> f64 {
+    if !(1.0..=100.0).contains(&share) {
+        return 90.0;
+    }
+    share
+}
+
 // The room for steps of one answer, as the engine wants it. The setting is -1
 // for no limit, so the answer is None. A number below -1 is read as no limit
 // too, for a ceiling of minus five means nothing. The engine crate keeps this
@@ -152,7 +163,12 @@ pub struct ModelSettings {
     // Index inside the model load mode list in llama.rs.
     pub load_index: usize,
     pub extra_args: String,
-    // VRAM budget in mebibytes. 0 means use every device fully.
+    // How much of the cards the model may work in, as a share of what the
+    // cards hold together: 90 means nine tenths of the cards, and the tenth
+    // stands over. The fit of the model into the cards is asked for of
+    // llama.cpp always, so this is not a switch but a share. A number outside
+    // one hundred is read as the share a new set of settings stands on, which
+    // takes care of a settings file written when this held mebibytes.
     pub vram_budget: f64,
     // One flag per detected device, in detection order.
     pub gpu_enabled: Vec<bool>,
@@ -192,7 +208,7 @@ impl Default for ModelSettings {
             // mmap keeps the model in the file cache.
             load_index: 1,
             extra_args: String::new(),
-            vram_budget: 0.0,
+            vram_budget: 90.0,
             gpu_enabled: Vec::new(),
         }
     }

@@ -2340,6 +2340,7 @@ impl State {
     fn settings_for(&self, model: &ModelInfo) -> ModelSettings {
         let mut settings = self.cfg.model(&model.id());
         settings.resize_gpus(self.gpus.len());
+        settings.vram_budget = config::sanitize_vram_budget(settings.vram_budget);
         settings
     }
 
@@ -3934,6 +3935,7 @@ impl Engine {
             Ok(state) => {
                 let mut settings = state.cfg.model(id);
                 settings.resize_gpus(state.gpus.len());
+                settings.vram_budget = config::sanitize_vram_budget(settings.vram_budget);
                 (settings, state.gpus.clone())
             }
             Err(_) => (ModelSettings::default(), Vec::new()),

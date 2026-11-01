@@ -2162,8 +2162,8 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
         <div class="sec">Graphics cards</div>
         <div class="fld wide"><span class="lbl">VRAM budget</span>
-          <span class="sub">How much of the cards is used for the model. Using all of it fills every card.</span>
-          <div class="ctl"><input id="mVram" type="range" min="0" max="1" step="128" value="0"><span class="unit" id="mVramText">0 MiB</span></div></div>
+          <span class="sub">How much of the cards the model may work in. What is left of them stands over for the server and for the talk. The fit of the model into the cards is asked for always, with the context size you set, and what stands over of a card never falls below 256 MiB.</span>
+          <div class="ctl"><input id="mVram" type="range" min="1" max="100" step="1" value="90"><span class="unit" id="mVramText">90%</span></div></div>
 
         <div class="sec">Template</div>
         <div class="fld wide"><span class="lbl">Chat template</span>
@@ -7599,9 +7599,9 @@ function loadModel() {
     }
     var total = 0;
     for (var j = 0; j < gpus.length; j++) { if (gpus[j].is_offload) { total += gpus[j].memory_mb; } }
-    var rng = byId('mVram'); rng.min = 0; rng.max = Math.max(1, total); rng.step = 128;
-    rng.value = s.vram_budget || 0;
-    byId('mVramText').textContent = Math.round(s.vram_budget || 0) + ' MiB';
+    var rng = byId('mVram'); rng.min = 1; rng.max = 100; rng.step = 1;
+    rng.value = vramShareOf(s.vram_budget);
+    byId('mVramText').textContent = vramShareOf(s.vram_budget) + '%';
     byId('mTemplate').value = s.chat_template || '';
     byId('mExtra').value = s.extra_args || '';
     refreshPreview();
@@ -7665,7 +7665,7 @@ function readModel() {
   s.tensor_parallel = byId('mTensor').checked;
   s.chat_template = byId('mTemplate').value;
   s.extra_args = byId('mExtra').value;
-  s.vram_budget = Number(byId('mVram').value) || 0;
+  s.vram_budget = vramShareOf(byId('mVram').value);
   var arr = [];
   var boxes = byId('mCards').querySelectorAll('input[data-i]');
   for (var k = 0; k < boxes.length; k++) { arr[Number(boxes[k].dataset.i)] = boxes[k].checked; }
@@ -7718,6 +7718,15 @@ function askWaitOf(value, fallback) {
 
 // A whole number of seconds out of a field of the sheet, kept between the two
 // bounds the field allows. The default stands where no number could be read.
+// The share of the cards the model may work in. The slider stands at ninety per
+// cent; a number that is no share at all -- which is what a settings file from
+// before the slider was a share holds -- is read as that.
+function vramShareOf(value) {
+  var made = Math.round(Number(value));
+  if (!isFinite(made) || made < 1 || made > 100) { return 90; }
+  return made;
+}
+
 function holdSeconds(id, fallback, least, greatest) {
   var made = Math.round(numOf(id, fallback));
   if (isNaN(made)) { made = fallback; }
@@ -8202,7 +8211,7 @@ byId('fDark').addEventListener('change', function (e) {
   'mTemplate', 'mExtra'].forEach(function (id) {
   var node = byId(id);
   node.addEventListener('input', function () {
-    if (id === 'mVram') { byId('mVramText').textContent = Math.round(Number(node.value) || 0) + ' MiB'; }
+    if (id === 'mVram') { byId('mVramText').textContent = vramShareOf(node.value) + '%'; }
     refreshPreview();
   });
   node.addEventListener('change', refreshPreview);
