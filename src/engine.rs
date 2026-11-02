@@ -4789,6 +4789,10 @@ struct SummaryShot {
     stopped: bool,
     // The fault of the stream, when there was one.
     error: Option<String>,
+    // The room of the words the server was sent on the ask, as the pieces of it
+    // spoke it. Nought when the server said nothing of the talk at all, which is how
+    // an ask that never reached the model reads.
+    sent: u64,
 }
 
 // The mark that says the program is writing a handoff summary. It is taken off
@@ -4853,6 +4857,7 @@ fn ask_summary(
                 calls: Vec::new(),
                 stopped: true,
                 error: Some(String::from("The program state is gone")),
+                sent: 0,
             };
         };
         // The gauge stands for this ask alone. The words under the number follow
@@ -4999,6 +5004,7 @@ fn ask_summary(
         calls: answer.tool_calls.clone(),
         stopped: answer.stopped,
         error: answer.error.clone(),
+        sent: answer.sent(),
     }
 }
 
@@ -5253,11 +5259,15 @@ fn run_handoff(
     let kept = shot.error.is_none() && !shot.stopped && !summary.trim().is_empty();
     if !kept {
         guard.finish_summary(&id, "", before, 0, &why);
-        // The meter goes back to what the talk of itself costs. The ask that
-        // faulted was carrying the whole of the window, and the words of the
-        // summary that never came are not kept, so the number of that ask says
-        // nothing of the chat that still stands there.
-        let made = estimate_tokens(&guard.build_history());
+        // The meter keeps the room of the words the server was sent on the ask. The
+        // chat keeps every word it had, and those words are the whole of what that
+        // ask was sent, so the number the pieces of it spoke is the number of the
+        // chat that still stands there; only the words of the summary that never
+        // came are not kept, and they stand in no number of it either. Weighed on the
+        // measure of the words alone, the meter of a chat the server stood near the
+        // end of the room with fell to the half of it, and read as a chat with room
+        // to spare: see `meter_after`, and the fault of the meter that fell.
+        let made = meter_after(0, shot.sent, &guard.build_history());
         guard.ctx_used = made;
         if let Some(chat) = guard.chat_mut() {
             chat.meta.context_used = made;
@@ -5265,8 +5275,16 @@ fn run_handoff(
         proglog::note(
             proglog::SUMMARY,
             &format!(
-                "the handoff summary was not written: {}. The chat keeps every word it had, and the meter goes back to the measure of the talk, {}",
-                why, made
+                "the handoff summary was not written: {}. The chat keeps every word it had; the meter stands at {}, weighed on {}",
+                why,
+                made,
+                if shot.sent > 0 {
+                    format!("the {} words the server was sent on the ask", shot.sent)
+                } else {
+                    String::from(
+                        "the measure of the words that stand, for the server said nothing of the talk",
+                    )
+                }
             ),
         );
         guard.set_status("The handoff summary was not written. Start it again from the summarisation timeline");
@@ -5700,19 +5718,49 @@ fn climb_context_paced(state: &mut State, made: u64, now: Instant) -> bool {
     moved
 }
 
-// The number of the talk at the end of an answer. The number the server gives
-// with the last piece is the room the words of that ask took; the talk holds more
-// than it did when the ask went out, for the answer of the model and the runs of
-// the tools it asked for were written into the chat on the way. The meter therefore
-// keeps the larger of the two, which is the room the next ask takes.
+// The number of the talk at the end of an ask. `spoken` is what the server said of
+// the whole talk: the number of the last piece when the ask came to its end, and
+// the number the meter stands at when an ask is weighed before it goes out. The
+// talk holds more than it did when the ask went out, for the answer of the model and
+// the runs of the tools it asked for were written into the chat on the way, so the
+// larger of that number and the measure of the words that stand is kept, which is
+// the room the next ask takes.
 //
-// When no number came back -- the user stopped the answer, or the server could
-// not be reached -- the talk that stands is the measure. A stopped answer takes the
-// words the model had written out of the chat again, so the live number of that
-// answer is a number of a talk that no longer exists, and a meter that held it could
-// not climb away from it.
-fn used_after(usage: u64, history: &Value) -> u64 {
-    usage.max(estimate_tokens(history))
+// An ask that spoke no number at its end is not weighed here. `meter_after` keeps
+// the room of the words the server was sent for that, and comes down to this rule
+// when the server said nothing of the talk either.
+fn used_after(spoken: u64, history: &Value) -> u64 {
+    spoken.max(estimate_tokens(history))
+}
+
+// What the meter keeps at the end of an ask. `usage` is the number the last piece
+// spoke of the whole talk, `sent` is the room of the words the server was sent on
+// this ask as the server spoke it -- `llama::Answer::sent`, out of the timings of
+// the pieces and the progress of the prompt -- and `history` is the talk as it
+// stands now.
+//
+// An ask that came to its end speaks `usage`, and that stands, as it always did.
+//
+// An ask the user stopped speaks nothing at the end, for the way back to the server
+// is closed before the last piece comes. It is weighed instead on the words the
+// server was sent, for those words stand in the talk whichever way the ask ends, and
+// the server spoke their number on every piece of the answer. The live number of the
+// writing that was stopped is not kept: a stop takes words away, the writing of a
+// call that was stopped is bounded when it goes back to the model, and a meter that
+// held the number of a writing that is part gone could read a chat as full and ask
+// for a summarisation the talk had no need of. What the stopped answer left in the
+// chat is weighed by the measure of the words that stand, which is the floor under
+// both as it is everywhere else, so the number is never over the talk and never
+// under the words the server was sent. Weighing the ask on that measure alone was
+// the fault of the meter that fell: an ask that carried 213,797 words of the talk
+// came back and left 102,514 standing, for the measure of a talk of code and of
+// receipts reads at half what a server counts of the same talk, and the meter stood
+// there, and read as a chat that had room to spare, until the next ask made the
+// server speak again. Where the server said nothing of the talk at all, neither
+// number stands, and the caller weighs on the number the meter stood at before the
+// ask instead: see the end of an ask in `run_turn`, and `used_after`.
+fn meter_after(usage: u64, sent: u64, history: &Value) -> u64 {
+    used_after(usage.max(sent), history)
 }
 
 // How many pictures the message that is being worked through carries. That is
@@ -6996,26 +7044,43 @@ fn run_turn(
         // than it did when the ask went out: the answer of the model, and the run
         // of the tool it asked for. The meter therefore keeps the larger of the
         // two, the room the ask took and what the talk of itself costs now, which
-        // is the room the next ask will take. An answer the user stopped gives
-        // no number at all, and the words it had written went out of the talk with
-        // it, so there the talk that stands is the measure.
+        // is the room the next ask will take. An answer the user stopped gives no
+        // number at all, and is weighed on the room of the words the server was
+        // sent, which every piece of the answer spoke: those words stand in the
+        // talk whichever way the ask ends, and the number of the writing that was
+        // stopped is not kept over them. See `meter_after`.
         let used = answer.prompt_tokens + answer.completion_tokens;
+        let sent = answer.sent();
         let told = guard.build_history();
         let was_meter = guard.ctx_used;
-        guard.ctx_used = used_after(used, &told);
+        // An ask that said nothing of the talk at all, which is a way back to the
+        // server that failed before the first piece came, leaves the meter where the
+        // ask before it stood, with the measure of the words for a floor under it.
+        // The talk did not change while the server never saw it, and the measure of
+        // the words reads at the half of what the server counted of the same talk.
+        guard.ctx_used = if used == 0 && sent == 0 {
+            used_after(was_meter, &told)
+        } else {
+            meter_after(used, sent, &told)
+        };
         // What the meter was made of at the end of an ask is the one thing a reader
         // of the log of the program has to have to follow the rest of it. An ask that
-        // spoke no number at all leaves the meter to the measure of the words that
-        // stand, and that measure reads under what the server counted of the same
-        // talk: the meter of a stopped answer falls, and the next ask puts it right
-        // again. Both numbers stand here, and which of the two was taken.
+        // spoke no number at its end says which of the two other numbers it stood on,
+        // for the room of the words the server was sent and the measure of the words
+        // that stand read far apart on the same talk. All three stand here, and which
+        // of them was taken.
         proglog::note(
             proglog::METER,
             &format!(
                 "{}; the meter stands at {}, and was {}",
-                if used == 0 {
+                if used == 0 && sent == 0 {
                     String::from(
-                        "the ask spoke no number at all, so the measure of the words that stand was taken",
+                        "the ask spoke nothing of the talk at all, so the meter was left where the ask before it stood, with the measure of the words that stand for a floor under it",
+                    )
+                } else if used == 0 {
+                    format!(
+                        "the ask spoke no number at the end of it, so the room of the words the server was sent on it stood, which it gave as {}",
+                        sent
                     )
                 } else {
                     format!(
@@ -9890,6 +9955,7 @@ mod tests {
             calls: Vec::new(),
             stopped,
             error: error.map(String::from),
+            sent: 0,
         };
         // The room ran full: ask again, of the short prompt.
         assert!(summary_too_long(&shot("length", false, None)));
@@ -10905,21 +10971,33 @@ mod tests {
         assert!(room_told.contains("summarisation") && !told.contains("summarisation"));
     }
 
-    // The meter of the context is read again when the server gave no number at the
-    // end of an answer. An answer the user stopped leaves the words the model had
-    // written out of the talk again, so the live number of that answer is the
-    // number of a talk that no longer exists, and a meter that held it could never
-    // climb away from it again.
+    // The meter of the context at the end of an ask. An ask that came to its end
+    // stands on the number it spoke of the whole talk. An ask the user stopped
+    // speaks no number at the end, and stands on the room of the words the server
+    // was sent, which the pieces of the answer spoke: the words of the answer that
+    // never came went out of the talk with the answer, as ever, but the words the
+    // server was sent stand in the talk still. The measure of the words that stand
+    // is the floor under both, and all there is when the server said nothing of the
+    // talk at all. See `meter_after`, and the fault of the meter that fell.
     #[test]
-    fn the_meter_is_read_again_when_no_number_came_back() {
+    fn the_meter_of_a_stopped_ask_keeps_the_words_the_server_was_sent() {
         let talk = json!([
             { "role": "user", "content": "the first prompt" },
             { "role": "assistant", "content": "the answer of it" },
         ]);
-        // The server spoke the number of the whole answer: that stands.
-        assert_eq!(used_after(4321, &talk), 4321);
-        // Nothing came back, so the talk that stands in the chat is measured.
-        assert_eq!(used_after(0, &talk), estimate_tokens(&talk));
+        // The server spoke the number of the whole answer: that stands, and the
+        // room of the words it was sent has nothing to say against it.
+        assert_eq!(meter_after(4321, 4000, &talk), 4321);
+        // Nothing came back at the end of the ask, so the room of the words the
+        // server was sent stands: the meter does not fall to the measure of the
+        // words, which reads at the half of a talk of code and of receipts.
+        assert_eq!(meter_after(0, 4000, &talk), 4000);
+        // The server said nothing of the words it was sent either, which is how an
+        // ask that never reached it reads: the talk that stands in the chat is
+        // measured, as it was.
+        assert_eq!(meter_after(0, 0, &talk), estimate_tokens(&talk));
+        // And the measure of the words is the floor, whichever way the numbers fall.
+        assert_eq!(meter_after(0, 1, &talk), estimate_tokens(&talk));
 
         let _guard = config::test_turn();
         setup();
@@ -10927,15 +11005,21 @@ mod tests {
         let mut state = engine.state.lock().unwrap();
         state.start_chat();
         add_message(&mut state, "You", "the first prompt");
-        // The meter climbed while the model wrote a call, as it does. The user
-        // stopped, and the words the number counted are not in the chat.
+        // The meter climbed while the model wrote, as it does, and stood at the
+        // whole of the room. The user stopped the answer. The words that number
+        // counted are not in the chat, and are not kept; the room of the words the
+        // server was sent is, and the meter does not fall away under it.
         state.ctx_used = 900_000;
         let told = state.build_history();
-        state.ctx_used = used_after(0, &told);
+        let sent = 213_797;
+        state.ctx_used = meter_after(0, sent, &told);
         assert_eq!(
-            state.ctx_used,
-            estimate_tokens(&told),
-            "the number of a talk that is gone was kept over the chat"
+            state.ctx_used, sent,
+            "the meter fell to the measure of the words, which was the fault"
+        );
+        assert!(
+            state.ctx_used < 900_000,
+            "the words of an answer that never came were kept over the talk"
         );
     }
 

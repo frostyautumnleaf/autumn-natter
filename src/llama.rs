@@ -981,6 +981,15 @@ impl Context {
     pub fn used(&self) -> u64 {
         self.prompt + self.cache + self.written
     }
+
+    // The words the server was sent, and none of the words it has written back: the
+    // words it worked through and the words it kept from an earlier turn. This is the
+    // room the talk took when the ask went out. The words sent stand in the talk
+    // whichever way the ask ends, and it is the one number of it the server speaks
+    // that is still true of the talk when an answer was stopped before its end.
+    pub fn sent(&self) -> u64 {
+        self.prompt + self.cache
+    }
 }
 
 // What one streamed answer gave.
@@ -995,6 +1004,12 @@ pub struct Answer {
     pub completion_tokens: u64,
     // The last word the server said about the prompt it was working through.
     pub progress: Progress,
+    // The last word the server said about the room of the talk. A piece of no words
+    // says nothing of the talk and is passed over in silence, as `on_context` is, so
+    // this stands at nought for an ask that never said anything of the room.
+    // `Answer::sent`, read out of it, is the number the meter of the context keeps
+    // when an ask speaks no number of the talk at its end.
+    pub context: Context,
     // The user stopped the answer.
     pub stopped: bool,
     // The program stopped the answer itself, because the talk came to the room it
@@ -1005,6 +1020,22 @@ pub struct Answer {
     pub interrupted: bool,
     // A transport problem, or the message from the server.
     pub error: Option<String>,
+}
+
+impl Answer {
+    // The room of the words the server was sent on this ask, as the server spoke it.
+    // It speaks the same room in two places: on every piece of the answer, in the
+    // timings of the talk, and on the progress of the words being worked through, as
+    // the whole of the prompt. Either can be all there is, for the progress of the
+    // prompt is spoken before the first word of the talk is counted, and the timings
+    // go on saying the room while the model writes and stop with the answer. The
+    // larger of the two is the room, since the two count the selfsame words.
+    //
+    // This is what the meter of the context stands on when an ask speaks no number
+    // at its end: see `meter_after` in the engine.
+    pub fn sent(&self) -> u64 {
+        self.context.sent().max(self.progress.total)
+    }
 }
 
 // Send one chat request and stream the answer. on_text gets every piece of new
@@ -1196,6 +1227,10 @@ fn apply_event(
             decode_per_second: speed("predicted_per_second"),
         };
         if told.used() > 0 {
+            // Every number of it is given again in one go, as it is for the progress
+            // of the prompt above, so the last piece that said anything of the talk
+            // is the piece that stands when the ask is over.
+            answer.context = told;
             on_context(told);
         }
     }
@@ -1971,6 +2006,72 @@ mod tests {
         // 327 words worked through, 14 kept from an earlier turn, and 9 words
         // written by the model.
         assert_eq!(seen, vec![350]);
+    }
+
+    // The room of the words the server was sent stands by itself on the answer, for
+    // an ask that speaks no number at its end is weighed on those words and not on
+    // the words the model had written when it was stopped. See the meter of the
+    // context, and `Answer::context`.
+    #[test]
+    fn the_words_the_server_was_sent_stand_by_themselves() {
+        let mut answer = Answer::default();
+        // Nothing has been said of the talk yet, which is how an ask that the server
+        // never answered reads.
+        assert_eq!(answer.context.used(), 0);
+        assert_eq!(answer.context.sent(), 0);
+        let piece = concat!(
+            "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Now\"}}],",
+            "\"timings\":{\"cache_n\":14,\"prompt_n\":327,\"predicted_n\":9}}"
+        );
+        let going_on = apply_event(
+            piece,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_made: Context| {},
+            &mut |_| {},
+        );
+        assert!(going_on);
+        // 341 words were sent to the server, 9 had been written back, and the last
+        // word of the kind stands on the answer whichever way the ask ends.
+        assert_eq!(answer.context.used(), 350);
+        assert_eq!(answer.context.sent(), 341);
+        // A piece of no words at all says nothing of the talk, so it leaves the
+        // number that stands alone.
+        let hush = "{\"choices\":[{\"index\":0,\"delta\":{}}],\"timings\":{\"prompt_n\":0}}";
+        apply_event(
+            hush,
+            &mut answer,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_made: Context| {},
+            &mut |_| {},
+        );
+        assert_eq!(answer.context.sent(), 341);
+        // The answer gives the room of the words it was sent out of the two numbers
+        // the server speaks of them, whichever it has.
+        assert_eq!(answer.sent(), 341);
+        // The progress of the prompt speaks the whole of the words that were sent
+        // before a word of the talk is counted, which is all there is to stand on
+        // for an answer the user stopped while the server was still working them
+        // through.
+        let mut early = Answer::default();
+        apply_event(
+            concat!(
+                "{\"prompt_progress\":{\"total\":213797,\"cache\":0,",
+                "\"processed\":98304,\"time_ms\":4000}}"
+            ),
+            &mut early,
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_| {},
+            &mut |_made: Context| {},
+            &mut |_| {},
+        );
+        assert_eq!(early.context.sent(), 0, "nothing was said of the talk itself");
+        assert_eq!(early.sent(), 213_797);
     }
 
     // The two speeds of the work stand on the same piece of the answer as the
