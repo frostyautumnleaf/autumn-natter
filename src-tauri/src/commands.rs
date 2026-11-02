@@ -17,6 +17,7 @@ use tauri::State;
 use autumn_natter_core::attach;
 
 use autumn_natter_core::engine::Engine;
+use autumn_natter_core::logs;
 use autumn_natter_core::web;
 
 // The state as JSON. The page sends the number it already has (since). When
@@ -119,12 +120,16 @@ pub async fn get_mcp(engine: State<'_, Engine>) -> Result<Value, String> {
     Ok(web::mcp_value(&engine))
 }
 
-// The logs of llama.cpp, for the Logs tab of the sheet of settings. The list is
-// small: the name of every log that is kept, the day and the hour it stands at,
-// its size, and which of them this run of the program is writing.
+// The logs, for the Logs tab of the sheet of settings: the output of llama-server,
+// and the log the program writes of its own work. The list is small: the name of
+// every log of that kind that is kept, the day and the hour it stands at, its size,
+// and which of them this run of the program is writing. The kind comes with the
+// ask, and a word that is neither kind is read as the log of llama-server.
 #[tauri::command]
-pub async fn get_logs() -> Result<Value, String> {
-    Ok(web::logs_value())
+pub async fn get_logs(kind: Option<String>) -> Result<Value, String> {
+    Ok(web::logs_value(logs::Kind::of_word(
+        kind.as_deref().unwrap_or_default(),
+    )))
 }
 
 // One log, from its end. The page asks again by itself while the update of the
@@ -132,8 +137,12 @@ pub async fn get_logs() -> Result<Value, String> {
 // button of it. A name that is not the name of a log gives back the words of a
 // fault, as the page of the remote mode does.
 #[tauri::command]
-pub async fn get_log(id: String, tail: Option<u64>) -> Result<Value, String> {
-    Ok(web::log_value(&id, tail))
+pub async fn get_log(id: String, tail: Option<u64>, kind: Option<String>) -> Result<Value, String> {
+    Ok(web::log_value(
+        logs::Kind::of_word(kind.as_deref().unwrap_or_default()),
+        &id,
+        tail,
+    ))
 }
 
 // The command line the next answer will use, read again whenever a field of the

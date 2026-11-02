@@ -33,6 +33,9 @@
 //   AN_RATE=manual node page-shot.js sheet-logs p.png
 //     puts the pace of the log on manual, which is how the button of Refresh is
 //     looked at standing live; the other two paces leave it greyed
+//   AN_LOGKIND=program node page-shot.js sheet-logs p.png
+//     reads the log of the program instead of the output of llama.cpp, which is
+//     how the switch at the head of the Logs tab is looked at
 //   AN_SUMMARIES, AN_NOTIMELINE, AN_BROKEN and AN_SUMMARISING stand for the
 //   Compaction section.
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
@@ -858,6 +861,7 @@ const LOG_TEXT = [
 ].join('\n');
 
 const LOGS = {
+  kind: 'server',
   dir: '/home/user/.config/autumn_natter/logs',
   version: '0.1.0',
   kept: 10,
@@ -871,13 +875,42 @@ const LOGS = {
   ]
 };
 
+// The log the program writes of its own work, for the other face of the Logs tab.
+// The lines are of the shape the program writes them in: the moment to the
+// millisecond, one word for the part it came from, and the thing that happened.
+const PROG_TEXT = [
+  '2026-11-02 03:01:41.902 start the log of this run is begun. Autumn Natter 0.1.0',
+  '2026-11-02 03:02:18.047 meter the meter moved from 412 to 1,284 while an answer was coming in',
+  '2026-11-02 03:02:19.115 room the room of the talk is weighed on 6,964, which is weighed on the talk as it stands, the telling of a call that was stopped left out of it; the room of the model is 8,192, the limit set for the summarisation stands at 6,554; a handoff summary is wanted',
+  '2026-11-02 03:02:19.118 summary a handoff summary is begun. The meter of the talk stands at 6,964, and the words that go out with the ask measure 6,902',
+  '2026-11-02 03:02:24.604 summary an ask for the summary came back: the server spoke 6,902 words in and 412 out; the writing of it is at an end, it came to its end with stop',
+  '2026-11-02 03:02:24.711 summary the handoff summary #1 is kept: 6,964 of the talk stood for 412 in the summary, and the meter of the talk goes back to 1,041',
+  '2026-11-02 03:04:02.330 cut the writing is stopped at 6,588 of 8,192, for the limit set for the summarisation stands at 6,554; the model was writing the words of a tool call',
+  '2026-11-02 03:04:02.331 room no summary is asked for: one stands owed from before and was never written, so the user is asked to start it again',
+  '2026-11-02 03:04:02.340 cut the answer ends at the cut. The rule that ended it: the summary was never written. The next ask would carry 2,412, the ask that was cut carried 6,588, the talk without the telling of the call measures 1,980, the limit stands at 6,554 of 8,192'
+].join('\n');
+
+const LOGS_PROGRAM = {
+  dir: '/home/user/.config/autumn_natter/logs',
+  kind: 'program',
+  version: '0.1.0',
+  kept: 10,
+  logs: [
+    { id: 'program-1762146101.log', when: '2026-11-02, 03:01', size: '6 KiB',
+      bytes: 6184, current: true },
+    { id: 'program-1762140120.log', when: '2026-10-23, 19:22', size: '44 KiB',
+      bytes: 45056, current: false }
+  ]
+};
+
 // One log of the record above. The older one stands for a start that wrote more
 // than is read, so the sheet says that the front of the log is not shown. The
 // two answers stand as data, for the bridge is handed out as words and can carry
 // no function of this file.
 const LOG_ONE = {
-  now: { id: 'server-1762146344.log', text: LOG_TEXT, bytes: 18942, cut: false },
-  old: { id: 'server-1762140120.log', text: LOG_TEXT, bytes: 1258291, cut: true }
+  now: { id: 'server-1762146344.log', kind: 'server', text: LOG_TEXT, bytes: 18942, cut: false },
+  old: { id: 'server-1762140120.log', kind: 'server', text: LOG_TEXT, bytes: 1258291, cut: true },
+  program: { id: 'program-1762146101.log', kind: 'program', text: PROG_TEXT, bytes: 6184, cut: false }
 };
 
 async function main() {
@@ -945,7 +978,7 @@ async function main() {
   view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
   view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
 
-  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, one, pic, pic2, listsOf, mcpHeld) {
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, logsProgram, one, pic, pic2, listsOf, mcpHeld) {
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
@@ -983,13 +1016,16 @@ async function main() {
             return Promise.resolve(JSON.parse(JSON.stringify(mcpHeld))); } });
         }
         if (String(url).indexOf('/api/logs') === 0) {
+          // The kind of the log stands in the address the page asked with.
+          var madeList = String(url).indexOf('kind=program') < 0 ? logs : logsProgram;
           return Promise.resolve({ json: function () {
-            return Promise.resolve(JSON.parse(JSON.stringify(logs))); } });
+            return Promise.resolve(JSON.parse(JSON.stringify(madeList))); } });
         }
         if (String(url).indexOf('/api/log') === 0) {
           // The older log of the record was longer than what is read.
           return Promise.resolve({ json: function () {
-            return Promise.resolve(String(url).indexOf('1762140120') < 0 ? one.now : one.old); } });
+            if (String(url).indexOf('kind=program') >= 0) { return one.program; }
+            return String(url).indexOf('1762140120') < 0 ? one.now : one.old; } });
         }
         if (String(url).indexOf('/api/attachment') === 0) {
           // One attachment record, as the small server of the remote mode
@@ -1031,9 +1067,12 @@ async function main() {
             return Promise.resolve(JSON.parse(JSON.stringify(mcpHeld)));
           }
           if (command === 'get_logs') {
-            return Promise.resolve(JSON.parse(JSON.stringify(logs)));
+            // The kind of the log stands in the ask.
+            var listed = (args && args.kind) === 'program' ? logsProgram : logs;
+            return Promise.resolve(JSON.parse(JSON.stringify(listed)));
           }
           if (command === 'get_log') {
+            if (args && args.kind === 'program') { return Promise.resolve(one.program); }
             return Promise.resolve(String((args && args.id) || '').indexOf('1762140120') < 0
               ? one.now : one.old);
           }
@@ -1048,7 +1087,7 @@ async function main() {
         }
       }
     };
-  }, useFetch, state, CONFIG, MODEL, LOGS, LOG_ONE, ATT_PIC, ATT_TALL, lists(state), MCP_HELD);
+  }, useFetch, state, CONFIG, MODEL, LOGS, LOGS_PROGRAM, LOG_ONE, ATT_PIC, ATT_TALL, lists(state), MCP_HELD);
 
   await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
   await new Promise(function (r) { setTimeout(r, 700); });
@@ -1184,6 +1223,17 @@ async function main() {
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     }, process.env.AN_RATE);
     await new Promise(function (r) { setTimeout(r, 400); });
+  }
+  // AN_LOGKIND stands for the face of the Logs tab: `program` reads the log the
+  // program writes of its own work, and `server` the output of llama.cpp, which is
+  // the face the tab had alone. It is how the switch at the head of the tab and the
+  // words of the other log are looked at.
+  if (process.env.AN_LOGKIND && name === 'sheet-logs') {
+    await view.evaluate(function (kind) {
+      var b = document.getElementById(kind === 'program' ? 'logFaceProgram' : 'logFaceServer');
+      if (b) { b.click(); }
+    }, process.env.AN_LOGKIND);
+    await new Promise(function (r) { setTimeout(r, 500); });
   }
   if (process.env.AN_SCROLL === 'top') {
     await view.evaluate(function () {

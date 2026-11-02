@@ -2299,12 +2299,14 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         </div>
       </div>
 
-      <!-- The logs of llama.cpp. One file stands for one start of the server, and
-           the newest ten are kept, so a start that went wrong can still be read
-           after the next one has taken its place. The log this run is writing is
-           read again by itself, so the words of a start that is going on now come
-           up as they are written. Nothing of a log comes with the state of the
-           page: a server that was told to say everything writes far too much. -->
+      <!-- The logs. One file stands for one start of the server and one for one
+           run of the program, and the newest ten of each are kept, so a start that
+           went wrong can still be read after the next one has taken its place. The
+           log this run is writing is read again by itself, so the words of a start
+           that is going on now come up as they are written. The switch at the head
+           of the pane chooses which of the two is read. Nothing of a log comes with
+           the state of the page: a server that was told to say everything writes far
+           too much. -->
       <!-- The servers of the user's own, spoken to over MCP. A server is a
            program of this machine, a server on the network, or words of Python
            the program runs. The menu of the MCP badge holds the ones that stand
@@ -2352,9 +2354,15 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       </div>
 
       <div class="pane hidden" id="paneLogs">
-        <div class="sec">llama.cpp logs</div>
+        <div class="sec">Logs</div>
+        <div class="fld"><span class="lbl">Which log</span>
+          <span class="sub">llama.cpp writes the log of the server. The program writes a log of its own work: the room of the talk, the handoff summary and the meter of the context. Both stand in the same folder, and the ten newest of each are kept.</span>
+          <div class="ctl"><div class="seg" id="logFace" role="group" aria-label="Which log to read">
+              <button class="on" id="logFaceServer" type="button">llama.cpp</button>
+              <button id="logFaceProgram" type="button">Program</button>
+            </div></div></div>
         <div class="fld"><span class="lbl">Log</span>
-          <span class="sub">One log for every start of llama-server. The newest ten are kept and older ones are removed. The log this run of the program is writing is marked Now and is chosen by itself.</span>
+          <span class="sub">One log for every start of llama-server, or one for every run of the program. The newest ten of the kind that is chosen are kept and older ones are removed. The log this run of the program is writing is marked Now and is chosen by itself.</span>
           <div class="ctl"><select id="logPick" title="Which log to read"></select></div></div>
         <div class="fld"><span class="lbl">Update</span>
           <span class="sub">How often the log is read again while this tab stands in front. Manual reads nothing until Refresh is pressed; for the other two that button stands greyed, for there is nothing to press.</span>
@@ -2382,7 +2390,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
         <div class="sec">About this run</div>
         <div class="fld wide"><span class="lbl">Log folder</span>
-          <span class="sub">The folder the logs of llama-server stand in. The whole of a log is taken from here when a fault is reported.</span>
+          <span class="sub">The folder both logs stand in, apart by the words their names begin with. The whole of a log is taken from here when a fault is reported.</span>
           <div class="ctl"><span class="ro" id="logDir"></span></div></div>
         <div class="fld"><span class="lbl">Program version</span>
           <span class="sub">The build of Autumn Natter that is running now.</span>
@@ -7956,12 +7964,12 @@ function showSetTab(tab) {
   if (tab === 'mcp') { loadMcp(); }
   byId('sheetSub').textContent = tab === 'program'
     ? 'The settings of this program'
-    : tab === 'logs' ? 'The output of llama-server, for the last ten starts'
+    : tab === 'logs' ? 'The output of llama-server, and the log of the program itself'
     : tab === 'mcp' ? 'Servers of your own, reached over MCP'
     : 'One model, and the command line it will use';
   byId('sheetNote').textContent = tab === 'program'
     ? 'The folders are read again the next time the program looks.'
-    : tab === 'logs' ? 'llama-server writes the logs. Nothing here is saved.'
+    : tab === 'logs' ? 'llama-server writes its log, and the program writes its own. Nothing here is saved.'
     : tab === 'mcp' ? 'Each server is kept as soon as it is saved here. Nothing of a server runs in the sandbox.'
     : 'A model that is loaded goes only when a value the server itself starts with has moved.';
   // Nothing of the Logs tab is saved, so the button for saving stands away.
@@ -8325,9 +8333,11 @@ function saveSheet() {
 
 // ---------------------------------------------------------------- logs
 //
-// The logs of llama.cpp, read in the sheet of settings. One log stands for one
-// start of the server, and the newest ten are kept, so a start that went wrong
-// can still be read after the next one has taken its place.
+// The logs, read in the sheet of settings: the output of llama.cpp, and the log
+// the program writes of its own work. One log stands for one start of the server,
+// and one for one run of the program, and the newest ten of each are kept, so a
+// start that went wrong can still be read after the next one has taken its place.
+// The switch at the head of the pane chooses which of the two is read.
 //
 // The words of a log are asked for on their own and never with the state of the
 // page: a server that was told to say everything writes far too much for a poll
@@ -8339,13 +8349,15 @@ function saveSheet() {
 
 // The three calls of this tab, through the bridge of the window. The page of the
 // remote mode makes the same three through the small server that serves it, and
-// both end in the same functions of the core.
-function getLogs() { return invoke('get_logs'); }
-function getLog(id, tail) { return invoke('get_log', { id: id, tail: tail }); }
+// both end in the same functions of the core. The kind of the log travels with
+// every ask.
+function getLogs(kind) { return invoke('get_logs', { kind: kind }); }
+function getLog(id, tail, kind) { return invoke('get_log', { id: id, tail: tail, kind: kind }); }
 function getConfig() { return invoke('get_config'); }
 
-var logs = [];        // the logs the program listed, newest first
+var logs = [];        // the logs of the kind that stands open, newest first
 var logIds = '';      // the ids of that list, to know when the list has moved
+var logFace = 'server'; // which face of the tab stands open: 'server' or 'program'
 var logText = '';     // the words of the log that stands open
 var logLines = [];    // the same words, cut into lines
 var logName = '';     // the log that stands open, for the line of words over it
@@ -8371,15 +8383,42 @@ function logPace() {
   return mode === 'live' ? 1000 : mode === '5' ? 5000 : 0;
 }
 
-// Read the list of the logs, the words of the run under them, and the log that
-// stands open. The list is read again quietly while the tab stands in front, so a
-// server that was started again is seen. The field of the choice is filled in
-// again only when the list has really moved, for a field must not be pulled away
-// from the user while it is being written in.
+// The switch at the head of the tab: the log of llama.cpp, or the log the program
+// writes of its own work. The two are read by the same rules, and stand in the same
+// folder apart by the words their names begin with, so only the kind travels with
+// the ask. A log that was chosen is a name of one kind and not of the other, so the
+// choice is begun again from the newest log of the kind that is now open. The words
+// that were being looked for are left in the field, for the same fault is often
+// looked for in both logs. The name of the kind of a line, which is what gives a
+// line its colour, is another thing and stands elsewhere.
+function showLogFace(face) {
+  var want = face === 'program' ? 'program' : 'server';
+  if (want === logFace) { return; }
+  logFace = want;
+  byId('logFaceServer').classList.toggle('on', logFace === 'server');
+  byId('logFaceProgram').classList.toggle('on', logFace === 'program');
+  logIds = '';   // the names of the list belong to the kind that stood open
+  logHit = -1;
+  logName = '';
+  byId('logBody').setAttribute('aria-label', logFace === 'program'
+    ? 'The log of the program'
+    : 'The log of llama-server');
+  loadLogs(false);
+}
+
+// Read the list of the logs of the kind that stands open, the words of the run
+// under them, and the log that stands open. The list is read again quietly while
+// the tab stands in front, so a server that was started again is seen. The field
+// of the choice is filled in again only when the list has really moved, for a field
+// must not be pulled away from the user while it is being written in.
 function loadLogs(quiet) {
-  Promise.all([getLogs(), getConfig()]).then(function (res) {
+  var kind = logFace;
+  Promise.all([getLogs(kind), getConfig()]).then(function (res) {
     var made = res[0] || {};
     var cfg = res[1] || {};
+    // The answer of an ask that came back after the tab had gone on to the other
+    // kind of log is thrown away, for its list is not the list the tab shows.
+    if (made.kind && made.kind !== kind) { return; }
     logs = made.logs || [];
     var ids = logs.map(function (one) { return one.id; }).join(' ');
     byId('logDir').textContent = made.dir || '';
@@ -8424,6 +8463,7 @@ function fillLogPick() {
 
 // Read the log the field of the choice stands on, from its end.
 function readLog() {
+  var kind = logFace;
   var id = byId('logPick').value;
   logName = id;
   if (!id) {
@@ -8431,7 +8471,10 @@ function readLog() {
     drawLog('no log stands in the folder yet');
     return;
   }
-  getLog(id, LOG_BYTES).then(function (one) {
+  getLog(id, LOG_BYTES, kind).then(function (one) {
+    // The same rule as the list: words of the other log are not put over the log
+    // the tab stands on.
+    if (one && one.kind && one.kind !== kind) { return; }
     if (!one || one.ok === false) {
       logText = ''; logLines = [];
       drawLog((one && one.status) ? one.status : 'that log is not here');
@@ -8623,6 +8666,8 @@ function logNearEnd() {
 }
 
 byId('logPick').addEventListener('change', function () { logHit = -1; readLog(); });
+byId('logFaceServer').addEventListener('click', function () { showLogFace('server'); });
+byId('logFaceProgram').addEventListener('click', function () { showLogFace('program'); });
 byId('logRate').addEventListener('change', function () { logsGo(); });
 byId('logRefresh').addEventListener('click', function () { logHit = -1; loadLogs(false); });
 byId('logSearch').addEventListener('input', function () { logHit = -1; drawLog(''); });
