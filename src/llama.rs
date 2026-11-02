@@ -608,8 +608,14 @@ pub fn build_args(
             };
             args.push("--device".into());
             args.push(names.join(","));
+            // The whole of the layers go to the cards, which is what putting a
+            // model on a card means. llama.cpp reads any negative number as the
+            // whole of the layers, and -1 is its own way of saying it; a great
+            // number of layers said the same thing in the end, but read as a
+            // count the model was over, and left the server nothing to say about
+            // the layers of a model that would not fit.
             args.push("-ngl".into());
-            args.push("999".into());
+            args.push("-1".into());
         }
     }
 
@@ -781,16 +787,21 @@ pub fn build_args(
         }
     }
 
-    // Tool support needs the chat template of the model.
-    if use_tools {
+    // Both the tools of the chat and a template of the user's own need the chat
+    // template of the model, and `--jinja` is the word that says so. The two asks
+    // are the commonest pair there is -- a chat with the tools turned on, and a
+    // template written into the Model tab -- and each of them used to push the
+    // flag for itself, so the command line carried `--jinja` twice. It is one
+    // switch of the server, and it stands here once, for the pair of them.
+    let template = settings.chat_template.trim().to_string();
+    if use_tools || !template.is_empty() {
         args.push("--jinja".into());
     }
 
     // A custom chat template replaces the one embedded in the model.
-    if !settings.chat_template.trim().is_empty() {
-        args.push("--jinja".into());
+    if !template.is_empty() {
         args.push("--chat-template".into());
-        args.push(settings.chat_template.trim().to_string());
+        args.push(template);
     }
 
     // Free form arguments of the user come last, so they win.
@@ -1421,6 +1432,109 @@ mod tests {
         assert_eq!(find_flag(&args, "--presence-penalty"), "0");
         assert_eq!(find_flag(&args, "--n-predict"), "-1");
         assert_eq!(find_flag(&args, "--seed"), "-1");
+    }
+
+    // The chat template of the model is asked for once, whichever of the two
+    // asks for it: the tools of the chat, or a template of the user's own. The
+    // two asks are the commonest pair there is, and each of them used to push the
+    // flag for itself, so a chat with its tools turned on and a template written
+    // in the Model tab sent `--jinja` to the server twice.
+    #[test]
+    fn the_chat_template_is_asked_for_once() {
+        let templated = ModelSettings {
+            chat_template: String::from("{% for message in messages %}{{ message.content }}{% endfor %}"),
+            ..Default::default()
+        };
+        // How many times the flag stands on the command line.
+        let asked = |settings: &ModelSettings, tools: bool| -> usize {
+            let mut notes = Vec::new();
+            let args = build_args(
+                std::path::Path::new(""),
+                &model(),
+                settings,
+                &[],
+                8080,
+                tools,
+                "off",
+                None,
+                &mut notes,
+            );
+            args.iter().filter(|a| a.as_str() == "--jinja").count()
+        };
+        let plain = ModelSettings::default();
+        // Neither ask, and the model keeps its own ways with the flag away.
+        assert_eq!(asked(&plain, false), 0);
+        // One ask apiece.
+        assert_eq!(asked(&plain, true), 1);
+        assert_eq!(asked(&templated, false), 1);
+        // Both together, which is the pair that used to write it twice.
+        assert_eq!(asked(&templated, true), 1);
+        // And the template of the user still goes to the server beside the ask.
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &templated,
+            &[],
+            8080,
+            true,
+            "off",
+            None,
+            &mut notes,
+        );
+        assert_eq!(
+            find_flag(&args, "--chat-template"),
+            "{% for message in messages %}{{ message.content }}{% endfor %}"
+        );
+    }
+
+    // The whole of the layers go to the cards, and llama.cpp is read with its
+    // own number for that -- a negative one -- rather than with a count of layers
+    // the model cannot be over.
+    #[test]
+    fn the_layers_go_to_the_cards_as_a_negative_number() {
+        let card = Gpu {
+            device: String::from("CUDA0"),
+            name: String::from("A card"),
+            memory_mb: 12288,
+            enabled: true,
+            is_offload: true,
+        };
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            std::slice::from_ref(&card),
+            8080,
+            false,
+            "off",
+            None,
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--device"), "CUDA0");
+        assert_eq!(find_flag(&args, "-ngl"), "-1");
+
+        // A card the user kept back is no card at all, and the layers stay in the
+        // memory of the machine with the model.
+        let back = Gpu {
+            enabled: false,
+            ..card
+        };
+        let mut notes = Vec::new();
+        let held = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[back],
+            8080,
+            false,
+            "off",
+            None,
+            &mut notes,
+        );
+        assert_eq!(find_flag(&held, "--device"), "none");
+        assert_eq!(find_flag(&held, "-ngl"), "0");
     }
 
     // The checkpoints and the ceiling of the talk memory go to the server, and

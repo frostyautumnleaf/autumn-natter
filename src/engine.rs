@@ -3989,6 +3989,69 @@ impl Engine {
         }
     }
 
+    // The presets of the settings of a model: the shapes of the settings that
+    // the user has named. They come back in the order of the names, which is the
+    // order the menu of the Model tab shows them in, and each with the whole of
+    // the settings it was kept with.
+    pub fn model_presets(&self) -> Vec<(String, ModelSettings)> {
+        match self.state.lock() {
+            Ok(state) => state
+                .cfg
+                .model_presets
+                .iter()
+                .map(|(name, settings)| (name.clone(), settings.clone()))
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    // Keep one shape of the settings under a name of the user's own. A preset of
+    // that name stands where this one is asked for, then what stood there is
+    // written over: the words that stand in the tab are the newest shape of the
+    // same thing, and a preset the user cannot write over is a note they cannot
+    // mend. Nothing of a server that runs is moved, for a preset is a shape kept
+    // for a model to be put into afterwards, and no setting of anything that
+    // runs now.
+    pub fn model_preset_save(
+        &self,
+        name: String,
+        settings: ModelSettings,
+    ) -> Result<String, String> {
+        let name = config::sanitize_preset_name(&name);
+        if name.is_empty() {
+            return Err(String::from(
+                "A preset needs a name before it can be kept. Write one in the field first",
+            ));
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return Err(String::from("The program is busy"));
+        };
+        let written_over = state.cfg.model_presets.contains_key(&name);
+        state.cfg.model_presets.insert(name.clone(), settings);
+        let _ = config::save(&state.cfg);
+        state.set_status(if written_over {
+            "The preset is written over with these settings"
+        } else {
+            "The preset is kept"
+        });
+        Ok(name)
+    }
+
+    // Throw a preset away. The settings of every model stand where they stood: a
+    // preset was never a setting of a model, only a shape of one that the user
+    // kept for later.
+    pub fn model_preset_remove(&self, name: &str) -> Result<String, String> {
+        let Ok(mut state) = self.state.lock() else {
+            return Err(String::from("The program is busy"));
+        };
+        if state.cfg.model_presets.remove(name).is_none() {
+            return Err(String::from("No preset stands under that name"));
+        }
+        let _ = config::save(&state.cfg);
+        state.set_status("The preset was taken away");
+        Ok(String::from("gone"))
+    }
+
     // Cut a running call of a tool short. The command that was started is
     // stopped, and everything it had printed by then still goes back to the
     // model, under the word that the user stopped it.
@@ -10969,6 +11032,62 @@ mod tests {
         let room_told = cut_words(editfile::EDIT_NAME, "{\"path\":\"a");
         assert!(told.contains("user stopped") && !room_told.contains("user stopped"));
         assert!(room_told.contains("summarisation") && !told.contains("summarisation"));
+    }
+
+    // A preset is one shape of the settings of a model, kept under a name the
+    // user wrote. The same name again writes the shape over, for the words that
+    // stand in the tab of the model are the newest shape of the same thing and a
+    // preset the user cannot mend is a note they cannot correct. A name of nothing
+    // at all is refused, for a preset nobody can name is a preset nobody can find
+    // again, and taking one away takes nothing of the settings of any model.
+    #[test]
+    fn a_preset_is_kept_under_its_name_and_written_over() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let long = ModelSettings {
+            ctx_size: 65_536,
+            temperature: 0.2,
+            ..Default::default()
+        };
+        let short = ModelSettings {
+            ctx_size: 4096,
+            ..Default::default()
+        };
+        assert_eq!(
+            engine.model_preset_save(String::from("the long answers"), long.clone()),
+            Ok(String::from("the long answers"))
+        );
+        let held = engine.model_presets();
+        assert_eq!(held.len(), 1, "the preset was not kept");
+        assert_eq!(held[0].0, "the long answers");
+        assert_eq!(held[0].1.ctx_size, 65_536);
+        // The same name again, with other words: the shape is written over, and
+        // no second preset of a like name comes in beside it.
+        assert!(engine
+            .model_preset_save(String::from("the long answers"), short.clone())
+            .is_ok());
+        let held = engine.model_presets();
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].1.ctx_size, 4096);
+        // A name of nothing at all is no name.
+        assert!(engine
+            .model_preset_save(String::from("   "), long.clone())
+            .is_err());
+        // Two names stand apart, in the order of the names.
+        assert!(engine
+            .model_preset_save(String::from("a short chat"), short)
+            .is_ok());
+        let names: Vec<String> = engine
+            .model_presets()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, vec![String::from("a short chat"), String::from("the long answers")]);
+        // Taken away, and the settings of the models stand where they stood.
+        assert!(engine.model_preset_remove("the long answers").is_ok());
+        assert_eq!(engine.model_presets().len(), 1);
+        assert!(engine.model_preset_remove("the long answers").is_err());
     }
 
     // The meter of the context at the end of an ask. An ask that came to its end
