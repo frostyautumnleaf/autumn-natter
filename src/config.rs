@@ -440,23 +440,34 @@ pub fn sanitize_handoff_prompt_short(value: &str) -> String {
 // server gives. The rule stands here and nowhere else, so the field of the
 // window and the check of the worker cannot drift apart.
 pub fn compaction_wanted(cfg: &Config, used: u64, total: u64) -> bool {
-    if sanitize_compaction(&cfg.chat_compaction) != COMPACTION_HANDOFF {
-        return false;
-    }
     // Nothing is known of the room, so nothing can be said about running out.
     if total == 0 {
         return false;
     }
-    // A talk that stands over the room is past any threshold there can be.
-    if used >= total {
-        return true;
+    used >= compaction_room(cfg, total)
+}
+
+// Where the limit set for the handoff summary stands, in the words of the talk:
+// the least room that `compaction_wanted` answers as past the limit. It is asked
+// for by a thing that is paid for out of the room the summarisation makes -- the
+// telling of a call that was stopped where the model wrote it -- which has to be
+// measured against the limit and not against the whole of the window, for a talk
+// that stands past the limit is stopped at the first word of the answer. With the
+// summarisation switched off, or with nothing known of the room, there is no limit
+// to stand at, and the greatest number there is is given: the whole of the room is
+// then free.
+pub fn compaction_room(cfg: &Config, total: u64) -> u64 {
+    if sanitize_compaction(&cfg.chat_compaction) != COMPACTION_HANDOFF || total == 0 {
+        return u64::MAX;
     }
     if sanitize_compact_by(&cfg.chat_compact_by) == COMPACT_BY_TOKENS {
         let reserve = cfg.chat_compact_reserve.max(1) as u64;
-        return total - used <= reserve;
+        return total.saturating_sub(reserve);
     }
     let percent = cfg.chat_compact_percent.clamp(1, 100) as u64;
-    used * 100 >= total * percent
+    // The least number that is past the share, so the rule answers the same way
+    // as the multiplication it stands beside.
+    (total * percent).div_ceil(100)
 }
 
 // The least a paste limit may be set to. Smaller numbers are lifted to it.
@@ -990,8 +1001,12 @@ mod tests {
         assert!(compaction_wanted(&by_percent, 6964, 8192));
         assert!(compaction_wanted(&by_percent, 8192, 8192));
         assert!(compaction_wanted(&by_percent, 9000, 8192));
+        // Where the limit stands is the least room that is answered as past it, so
+        // a thing paid for out of the room can be measured against it.
+        assert_eq!(compaction_room(&by_percent, 8192), 6964);
         // Nothing is known of the room, so nothing is said about running out.
         assert!(!compaction_wanted(&by_percent, 4000, 0));
+        assert_eq!(compaction_room(&by_percent, 0), u64::MAX);
 
         let by_tokens = Config {
             chat_compact_by: String::from(COMPACT_BY_TOKENS),
@@ -1004,6 +1019,8 @@ mod tests {
         assert!(!compaction_wanted(&by_tokens, 20768, 32768));
         // The number of the share does not matter on this road.
         assert!(compaction_wanted(&by_tokens, 7000, 8192));
+        // The room left over is the limit on this road: 32 768 with 10 240 kept.
+        assert_eq!(compaction_room(&by_tokens, 32768), 22528);
 
         // No compaction at all, whatever the talk.
         let off = Config {
@@ -1012,5 +1029,8 @@ mod tests {
         };
         assert!(!compaction_wanted(&off, 9000, 8192));
         assert!(!compaction_wanted(&off, 8192, 8192));
+        // With the summarisation switched off there is no limit to stand at, so the
+        // whole of the room is free.
+        assert_eq!(compaction_room(&off, 8192), u64::MAX);
     }
 }
