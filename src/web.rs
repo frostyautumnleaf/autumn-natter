@@ -547,21 +547,27 @@ pub fn preview_line(engine: &crate::engine::Engine, id: &str, settings: Value) -
 
 // ------------------------------------------------------------------ the logs
 //
-// The logs of llama.cpp, for the Logs tab of the sheet of settings. They are
-// asked for on their own and never with the state, for one log of a server that
-// was told to say everything is far too big to read six times a second.
+// The logs, for the Logs tab of the sheet of settings: the output of llama-server,
+// and the log the program writes of its own work. They are asked for on their own
+// and never with the state, for one log of a server that was told to say everything
+// is far too big to read six times a second. The kind of the log comes with the
+// ask, so the two faces of the tab ask the same way.
 
-// Every log that is kept, newest first, with the folder they stand in and the
-// version of the program that wrote them. The last two are of use when
+// Every log of one kind that is kept, newest first, with the folder they stand in
+// and the version of the program that wrote them. The last two are of use when
 // something is wrong: one says where to look, and the other says what ran.
-pub fn logs_value() -> Value {
+pub fn logs_value(kind: crate::logs::Kind) -> Value {
     json!({
+        // Which kind of log this list is, in the one word the page asked with. The
+        // page knows the kind it asked for, but the answer of an ask that came back
+        // after the tab had moved on to the other kind is thrown away by it.
+        "kind": kind.word(),
         "dir": crate::logs::dir().display().to_string(),
         "version": env!("CARGO_PKG_VERSION"),
-        // How many logs are kept. The words of the tab say that older ones were
-        // thrown away.
+        // How many logs of one kind are kept. The words of the tab say that older
+        // ones were thrown away.
         "kept": crate::logs::MOST_LOGS as u64,
-        "logs": crate::logs::list()
+        "logs": crate::logs::list(kind)
             .iter()
             .map(|one| json!({
                 // The name of the file, which the page asks with.
@@ -578,16 +584,18 @@ pub fn logs_value() -> Value {
     })
 }
 
-// One log, from its end. A name that is not the name of a log of this program
-// gives back nothing, so the page cannot ask for a file of the machine.
-pub fn log_value(id: &str, most: Option<u64>) -> Value {
+// One log, from its end. A name that is not the name of a log of this kind of this
+// program gives back nothing, so the page cannot ask for a file of the machine.
+pub fn log_value(kind: crate::logs::Kind, id: &str, most: Option<u64>) -> Value {
     // The bytes the page asked for, with the ceiling of the core over them. No
     // ask at all means the most that may be read.
     let want = most.unwrap_or(crate::logs::GREATEST_READ as u64);
     let cap = want.clamp(1, crate::logs::GREATEST_READ as u64) as usize;
-    match crate::logs::read(id, cap) {
+    match crate::logs::read(kind, id, cap) {
         Some(read) => json!({
             "id": id,
+            // Which kind of log these are the words of.
+            "kind": kind.word(),
             "text": read.text,
             // The whole size of the log, and true when its front was left
             // behind because the log is longer than what is read.

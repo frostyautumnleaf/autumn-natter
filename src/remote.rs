@@ -153,9 +153,11 @@ fn handle(engine: &Engine, mut request: Request) {
             let id = query_value(&query, "id");
             let _ = request.respond(json_response(&web::model_settings_value(engine, &id)));
         }
-        // The logs of llama.cpp, for the Logs tab. The list is asked for on its
-        // own, and one log with it, for a log is far too big to come with the
-        // state of the page.
+        // The logs, for the Logs tab: the output of llama-server, and the log the
+        // program writes of its own work. The list is asked for on its own, and one
+        // log with it, for a log is far too big to come with the state of the page.
+        // The kind of the log comes with the ask, and a word that is neither kind
+        // is read as the log of llama-server.
         // The servers of the user's own, whole, for the MCP tab of the
         // settings. The state carries their names and their tools, and nothing
         // of the words a server of the program itself is made of.
@@ -163,11 +165,13 @@ fn handle(engine: &Engine, mut request: Request) {
             let _ = request.respond(json_response(&web::mcp_value(engine)));
         }
         ("GET", "/api/logs") => {
-            let _ = request.respond(json_response(&web::logs_value()));
+            let kind = crate::logs::Kind::of_word(&query_value(&query, "kind"));
+            let _ = request.respond(json_response(&web::logs_value(kind)));
         }
         ("GET", "/api/log") => {
+            let kind = crate::logs::Kind::of_word(&query_value(&query, "kind"));
             let id = query_value(&query, "id");
-            let value = web::log_value(&id, query_u64(&query, "tail"));
+            let value = web::log_value(kind, &id, query_u64(&query, "tail"));
             // A log that is not here answers with the words of a fault, and with
             // the number that says so as well.
             let answer = json_response(&value);

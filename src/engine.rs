@@ -24,6 +24,7 @@ use crate::gpu::{self, Gpu};
 use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
 use crate::mcp;
+use crate::proglog;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
 use crate::tools;
@@ -2704,6 +2705,10 @@ pub struct Engine {
 impl Engine {
     // Start the engine and its worker thread.
     pub fn start(cfg: Config) -> Engine {
+        // The log of this run is begun before anything else has a thing to say, so
+        // the run stands in the log even when it came to nothing. The window and the
+        // browser page both come through here, so both faces are logged.
+        proglog::start();
         let store = store::Store::new(config::repositories_dir(&cfg));
         // The badge stands on only when the jail has been tried and kept what
         // it promises, so a machine with bubblewrap installed and user
@@ -4724,6 +4729,16 @@ fn ask_summary_for_handoff(
         && !cancel.load(Ordering::Relaxed)
     {
         tries += 1;
+        // The ask is made again here because the model answered the ask for a
+        // summary with a call. The number of the try stands in the line, for the
+        // ask is made at most `SUMMARY_CALL_TRIES` times over one summary.
+        proglog::note(
+            proglog::SUMMARY,
+            &format!(
+                "the summary asked for a tool instead of for words, so the call was cancelled and the summary is asked for again: try {} of the {} that are made over one summary",
+                tries, SUMMARY_CALL_TRIES
+            ),
+        );
         tell(
             state,
             "The summary asked for a tool. The call was cancelled and the summary is asked for again",
@@ -4921,6 +4936,20 @@ fn ask_summary(
                         .saturating_add(LEAST_SUMMARY_ROOM)
                         >= guard.ctx_total
                 {
+                    // Once, for the pieces that come after the hand stands tell the
+                    // same thing over again until the way back to the server is shut.
+                    if !hand.load(Ordering::Relaxed) {
+                        proglog::note(
+                            proglog::SUMMARY,
+                            &format!(
+                                "the hand is put up over the writing of the summary: the talk stands at {} of {} and {} of the room is left, which is less than the {} of one more piece",
+                                made.used(),
+                                guard.ctx_total,
+                                guard.ctx_total.saturating_sub(made.used()),
+                                LEAST_SUMMARY_ROOM
+                            ),
+                        );
+                    }
                     hand.store(true, Ordering::Relaxed);
                 }
             }
@@ -4935,6 +4964,28 @@ fn ask_summary(
     } else {
         said
     };
+    // Every ask for a summary stands in the log of the program with the numbers the
+    // server spoke of it and the reason the writing ended. The words of the summary
+    // are not written out again here: they stand in the mark of the summarisation,
+    // which the user may read whole.
+    let ending = if let Some(problem) = answer.error.as_deref() {
+        format!("the way back to the server failed: {}", problem)
+    } else if answer.stopped {
+        String::from("the user stopped it")
+    } else if answer.interrupted {
+        String::from("the hand was put up at the edge of the room")
+    } else if answer.finish.is_empty() {
+        String::from("the server gave no reason for the end of it")
+    } else {
+        format!("it came to its end with {}", answer.finish)
+    };
+    proglog::note(
+        proglog::SUMMARY,
+        &format!(
+            "an ask for the summary came back: the server spoke {} words in and {} out; the writing of it is at an end, {}",
+            answer.prompt_tokens, answer.completion_tokens, ending
+        ),
+    );
     SummaryShot {
         text,
         // A summary stopped at the edge of the room came to no end of its own,
@@ -5026,6 +5077,17 @@ fn run_handoff(
     let _writing = SummaryWriting {
         state: state.clone(),
     };
+    // The ask that is made now is the whole of the talk as it stands, so the two
+    // numbers of it say what the server is about to be given: the meter the user
+    // is shown, and the measure of the words that go out.
+    proglog::note(
+        proglog::SUMMARY,
+        &format!(
+            "a handoff summary is begun. The meter of the talk stands at {}, and the words that go out with the ask measure {}",
+            before,
+            estimate_tokens(&history)
+        ),
+    );
 
     // A server that went away is started again, as in an answer. The lock of the
     // state is not held while the model is being loaded.
@@ -5038,6 +5100,10 @@ fn run_handoff(
             guard.ctx_total = total;
         }
         Err(problem) => {
+            proglog::note(
+                proglog::SUMMARY,
+                &format!("the handoff summary was not begun after all: the model could not be started again. {}", problem),
+            );
             let Ok(mut guard) = state.lock() else {
                 return false;
             };
@@ -5073,6 +5139,13 @@ fn run_handoff(
     // fault that leaves no words at all is asked once more before the user is
     // told. A stop of the user's own is never asked again.
     if shot.error.is_some() && !shot.stopped && !cancel.load(Ordering::Relaxed) {
+        proglog::note(
+            proglog::SUMMARY,
+            &format!(
+                "the ask for the summary did not come back: {}. It is asked once more before the user is told.",
+                shot.error.as_deref().unwrap_or("the server closed the connection")
+            ),
+        );
         tell(state, "The summary did not arrive. Asking once more");
         shot = ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), slot, cancel);
     }
@@ -5090,6 +5163,14 @@ fn run_handoff(
         && !shot.stopped
         && !cancel.load(Ordering::Relaxed)
     {
+        // The line above this one in the log says what the server spoke of the ask
+        // that has just come back, and whether the room filled under it. This line
+        // says only what the program made of it, for the two are read apart by the
+        // words a user is shown here.
+        proglog::note(
+            proglog::SUMMARY,
+            "the model gave no words at all for the summary, although the ask came back with no fault of its own. The ask is made again with the short prompt of the settings.",
+        );
         tell(
             state,
             "The summary filled the context without a word of itself. Asking for a shorter one",
@@ -5109,6 +5190,14 @@ fn run_handoff(
     // of the room the first one had. The long summary is kept for all that it
     // stops short when the short one does not come at all.
     if summary_too_long(&shot) {
+        proglog::note(
+            proglog::SUMMARY,
+            &if asked_short {
+                "the summary came to no end of itself again, and the short ask had been made already, so the words that stand are kept with the end of them missing".to_string()
+            } else {
+                "the summary came to no end of itself, for the room filled under it. The ask is made again for a short one.".to_string()
+            },
+        );
         tell(
             state,
             "The summary filled the context. Asking again for a shorter one",
@@ -5173,6 +5262,13 @@ fn run_handoff(
         if let Some(chat) = guard.chat_mut() {
             chat.meta.context_used = made;
         }
+        proglog::note(
+            proglog::SUMMARY,
+            &format!(
+                "the handoff summary was not written: {}. The chat keeps every word it had, and the meter goes back to the measure of the talk, {}",
+                why, made
+            ),
+        );
         guard.set_status("The handoff summary was not written. Start it again from the summarisation timeline");
         guard.persist();
         return false;
@@ -5195,6 +5291,25 @@ fn run_handoff(
         chat.meta.updated = store::now_secs();
     }
     let count = guard.handoffs().len();
+    // What the summary won, in the same two numbers the card of the summarisation
+    // shows the user. A summary that was kept although the room filled under it
+    // says so here too, for `why` holds those words and the user reads them beside
+    // the heading.
+    proglog::note(
+        proglog::SUMMARY,
+        &format!(
+            "the handoff summary #{} is kept: {} of the talk stood for {} in the summary, and the meter of the talk goes back to {}{}",
+            count,
+            before,
+            after,
+            made,
+            if why.is_empty() {
+                String::new()
+            } else {
+                format!(". Note: {}", why)
+            }
+        ),
+    );
     guard.set_status(&format!(
         "Summarised #{} of the chat. The conversation now takes {}",
         count, made
@@ -5253,10 +5368,18 @@ fn maybe_compact(
         } else if guard.handoff_owed() {
             // A summary is wanted and never came. The user is asked to start it
             // again: the program does not put a model to work behind their back.
+            proglog::note(
+                proglog::ROOM,
+                "no summary is asked for: one stands owed from before and was never written, so the user is asked to start it again",
+            );
             false
         } else if guard.chat().map(ends_on_summary).unwrap_or(false) {
             // The newest thing of the chat is a summarisation already, so there
             // is nothing new that is worth a summary of its own.
+            proglog::note(
+                proglog::ROOM,
+                "no summary is asked for: the newest thing of the chat is a summarisation already, so nothing new stands that is worth a summary of its own",
+            );
             false
         } else {
             let used = match weigh {
@@ -5278,7 +5401,26 @@ fn maybe_compact(
                     }
                 }
             };
-            config::compaction_wanted(&guard.cfg, used, guard.ctx_total)
+            let wants = config::compaction_wanted(&guard.cfg, used, guard.ctx_total);
+            // The weighing itself, with the three numbers it was read from. The way
+            // it is weighed is told as well, for the two ways answer differently at
+            // the two places an answer is weighed, and a reader of the log has to
+            // know which of them a number came from.
+            proglog::note(
+                proglog::ROOM,
+                &format!(
+                    "the room of the talk is weighed on {}, which is weighed {}; the room of the model is {}, the limit set for the summarisation stands at {}; a handoff summary is {}",
+                    used,
+                    match weigh {
+                        Weigh::Room => "on the number the server spoke of the ask in hand, the words of the cut writing held in it",
+                        Weigh::Talk => "on the talk as it stands, the telling of a call that was stopped left out of it",
+                    },
+                    guard.ctx_total,
+                    config::compaction_room(&guard.cfg, guard.ctx_total),
+                    if wants { "wanted" } else { "not wanted" }
+                ),
+            );
+            wants
         }
     };
     if wanted {
@@ -5305,7 +5447,26 @@ fn room_past_the_limit(state: &Arc<Mutex<State>>, history: &Value) -> bool {
     // made first, and where it will not come under the limit again the work is too
     // big for the room and the answer is ended under the word that says so.
     let used = used_after(guard.ctx_used, history);
-    config::compaction_wanted(&guard.cfg, used, guard.ctx_total)
+    let past = config::compaction_wanted(&guard.cfg, used, guard.ctx_total);
+    // The ask is weighed on the words that go out with it, which is a different
+    // talk from the one that stands in the chat: the telling of a call that was
+    // stopped rides with it. The number of the server is weighed with it too, and
+    // the larger of the two is what the ask is judged by.
+    proglog::note(
+        proglog::ROOM,
+        &format!(
+            "the ask is weighed before it goes out on {}, the talk that stands and the number the server spoke, whichever is the larger: the room of the model is {}, the limit set for the summarisation stands at {}; the ask is {}",
+            used,
+            guard.ctx_total,
+            config::compaction_room(&guard.cfg, guard.ctx_total),
+            if past {
+                "held back, for the room is made first"
+            } else {
+                "sent out"
+            }
+        ),
+    );
+    past
 }
 
 // Make the room in the middle of an answer, and say whether it was made. The
@@ -5463,26 +5624,49 @@ fn end_writing_calls(state: &mut State) -> bool {
 // may be smaller, for a stop takes words away. True when the number moved, so
 // the caller says that the messages changed.
 fn climb_context(state: &mut State, made: u64) -> bool {
-    if made == 0 {
-        return false;
-    }
+    let was = state.ctx_used;
     // The first number of a new ask is the measure of the talk as the server has
-    // it now, so it is taken where it stands. A number kept from an answer that
-    // was stopped is not a measure of anything: the words it counted went out of
-    // the talk with the answer.
-    if state.ctx_fresh {
+    // it now, so it is taken where it stands, smaller or larger. A number kept from
+    // an answer that was stopped is not a measure of anything: the words it counted
+    // went out of the talk with the answer. From that number on the meter only
+    // climbs, for the words of an answer that is still coming are not taken back.
+    let moved = if made == 0 {
+        false
+    } else if state.ctx_fresh {
         state.ctx_fresh = false;
         if made == state.ctx_used {
-            return false;
+            false
+        } else {
+            state.ctx_used = made;
+            true
         }
+    } else if made <= state.ctx_used {
+        false
+    } else {
         state.ctx_used = made;
-        return true;
+        true
+    };
+    // Every move of the meter stands in the log of the program. The meter is paced
+    // at two moves a second at most, so a long answer writes a great many lines and
+    // no more than that: the number the server gave, the number it gave before, and
+    // which ask was filling the talk. A number that was turned away is not written,
+    // for it said nothing of the talk.
+    if moved {
+        proglog::note(
+            proglog::METER,
+            &format!(
+                "the meter moved from {} to {} while {}",
+                was,
+                made,
+                if state.summarising {
+                    "a handoff summary was being written"
+                } else {
+                    "an answer was coming in"
+                }
+            ),
+        );
     }
-    if made <= state.ctx_used {
-        return false;
-    }
-    state.ctx_used = made;
-    true
+    moved
 }
 
 // How often the meter of the context may move while an answer comes in. The
@@ -6244,6 +6428,25 @@ fn run_turn(
                         if climb_context(&mut guard, spoken) {
                             guard.touch();
                         }
+                        // The hand goes up once, and so does the line about it, for
+                        // the pieces that come after the hand stands tell the same
+                        // thing over again until the way back to the server is shut.
+                        if !cut_flag.load(Ordering::Relaxed) {
+                            proglog::note(
+                                proglog::CUT,
+                                &format!(
+                                    "the writing is stopped at {} of {}, for the limit set for the summarisation stands at {}; the model was writing {}",
+                                    spoken,
+                                    guard.ctx_total,
+                                    config::compaction_room(&guard.cfg, guard.ctx_total),
+                                    if guard.live_tools.is_empty() {
+                                        "words of its answer"
+                                    } else {
+                                        "the words of a tool call"
+                                    }
+                                ),
+                            );
+                        }
                         cut_flag.store(true, Ordering::Relaxed);
                     }
                 }
@@ -6448,6 +6651,24 @@ fn run_turn(
             // takes the meter where it stands, as it always does.
             let made = estimate_tokens(&guard.build_history());
             guard.ctx_used = made;
+            // The room that was made, and what the talk costs after it. The number
+            // is the measure of the words that stand, as it always is at this point:
+            // the ask that was cut ended at the limit, so the number of the server
+            // says nothing of the room the summary had just made.
+            proglog::note(
+                proglog::CUT,
+                &format!(
+                    "space was asked for, cut {} of an answer: {}; the talk now measures {}, and the limit set for the summarisation stands at {}",
+                    cuts,
+                    if room {
+                        "the summary was kept"
+                    } else {
+                        "the summary was not kept"
+                    },
+                    made,
+                    config::compaction_room(&guard.cfg, guard.ctx_total)
+                ),
+            );
             // How much of the words of the stopped call the room that was made can
             // carry. A call whose whole of words were sent back would fill the
             // room again, and the model would be stopped before it had a word.
@@ -6531,6 +6752,30 @@ fn run_turn(
                     "The summarisation made no space, so the answer ends here"
                 };
                 guard.set_status(text);
+                // Which rule ended the answer, and the numbers the rule was weighed
+                // on. The three of them are read differently on purpose: the talk as
+                // it stands, the talk with the telling of the stopped call left out,
+                // and the talk the ask that was cut carried.
+                proglog::note(
+                    proglog::CUT,
+                    &format!(
+                        "the answer ends at the cut. The rule that ended it: {}. The next ask would carry {}, the ask that was cut carried {}, the talk without the telling of the call measures {}, the limit stands at {} of {}",
+                        if guard.handoff_owed() {
+                            "the summary was never written"
+                        } else if still_full {
+                            "the room is still past the limit"
+                        } else if won_nothing {
+                            "the summarisation won no room"
+                        } else {
+                            "no space was made"
+                        },
+                        ask_now,
+                        asked_room,
+                        room_asked,
+                        config::compaction_room(&guard.cfg, guard.ctx_total),
+                        guard.ctx_total
+                    ),
+                );
                 break Ended::Halted;
             }
             // The talk that the words of the stopped call went into ends on the
@@ -6557,6 +6802,13 @@ fn run_turn(
             // stands, so the work is not begun again.
             guard.generating = true;
             guard.set_status("Space was made. The model is continuing the answer");
+            proglog::note(
+                proglog::CUT,
+                &format!(
+                    "the answer is asked on from the talk as it stands, which measures {}; the words of the call that was stopped went back to the model bounded to {} characters",
+                    ask_now, bound
+                ),
+            );
             continue;
         }
 
@@ -6749,7 +7001,32 @@ fn run_turn(
         // it, so there the talk that stands is the measure.
         let used = answer.prompt_tokens + answer.completion_tokens;
         let told = guard.build_history();
+        let was_meter = guard.ctx_used;
         guard.ctx_used = used_after(used, &told);
+        // What the meter was made of at the end of an ask is the one thing a reader
+        // of the log of the program has to have to follow the rest of it. An ask that
+        // spoke no number at all leaves the meter to the measure of the words that
+        // stand, and that measure reads under what the server counted of the same
+        // talk: the meter of a stopped answer falls, and the next ask puts it right
+        // again. Both numbers stand here, and which of the two was taken.
+        proglog::note(
+            proglog::METER,
+            &format!(
+                "{}; the meter stands at {}, and was {}",
+                if used == 0 {
+                    String::from(
+                        "the ask spoke no number at all, so the measure of the words that stand was taken",
+                    )
+                } else {
+                    format!(
+                        "the ask spoke {} words in and {} out, and the larger of that and the measure of the words that stand was taken",
+                        answer.prompt_tokens, answer.completion_tokens
+                    )
+                },
+                guard.ctx_used,
+                was_meter
+            ),
+        );
         let used_now = guard.ctx_used;
         if let Some(chat) = guard.chat_mut() {
             chat.meta.context_used = used_now;

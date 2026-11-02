@@ -32,6 +32,7 @@ pub mod llama;
 pub mod logs;
 pub mod markdown;
 pub mod mcp;
+pub mod proglog;
 pub mod remote;
 pub mod search;
 pub mod store;

@@ -151,8 +151,10 @@ pub fn format_clock(secs: i64) -> String {
 }
 
 // Days since the epoch to a year, month and day. This is the civil from days
-// algorithm. It avoids a date crate.
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
+// algorithm. It avoids a date crate. The log of the program reads it when the
+// machine has no local time to give, which is the case the clock above gives back
+// as a count of seconds.
+pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = (z - era * 146097).max(0);

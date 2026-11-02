@@ -354,7 +354,7 @@ impl Server {
         // One log for this start of the server, under the logs of the program.
         // The Logs tab of the sheet of settings reads it, and the ten newest of
         // them, so a start that went wrong can still be read after the next one.
-        let log_place = crate::logs::start();
+        let log_place = crate::logs::start(crate::logs::Kind::Server);
         let mut attempt = 0;
         loop {
             attempt += 1;

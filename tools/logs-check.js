@@ -243,6 +243,68 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     rate.dispatchEvent(new Event('change'));
     if (!refresh.disabled) { faults.push('Refresh did not go back to standing greyed with the log'); }
 
+    // The switch at the head of the tab. The log of the program is a second list,
+    // with names of its own and words of its own, and the kind travels with the ask
+    // for it. The words that were being looked for are left in their field, for the
+    // same fault is often looked for in both logs.
+    var prog = [];
+    prog.push('2026-11-02 03:01:44.123 meter the meter moved from 412 to 900 while an answer was coming in');
+    prog.push('2026-11-02 03:01:45.004 summary the handoff summary #2 is kept: 6964 of the talk stood for 412');
+    prog.push('2026-11-02 03:01:46.500 cut the writing is stopped at 240112 of 262144');
+    var asked = [];
+    getLogs = function (kind) {
+      asked.push(kind);
+      return Promise.resolve({
+        kind: kind, dir: '/data/autumn_natter/logs', version: '0.1.0', kept: 10,
+        logs: kind === 'program' ? [
+          { id: 'program-9.log', when: '2026-10-23, 22:01', size: '9 KiB', bytes: 9216, current: true },
+          { id: 'program-8.log', when: '2026-10-23, 20:02', size: '1 KiB', bytes: 1024, current: false }
+        ] : [
+          { id: 'server-2.log', when: '2026-10-23, 21:19', size: '4 KiB', bytes: 4096, current: true },
+          { id: 'server-1.log', when: '2026-10-23, 20:04', size: '1 KiB', bytes: 1024, current: false }
+        ]
+      });
+    };
+    getLog = function (id, tail, kind) {
+      reads++;
+      return Promise.resolve({
+        id: id, kind: kind, bytes: 4096, cut: false,
+        text: (kind === 'program' ? prog.join('\n') : held.join('\n')) + '\n'
+      });
+    };
+    by('logFaceProgram').click();
+    await wait(140);
+    if (asked[asked.length - 1] !== 'program') {
+      faults.push('the ask for the list did not carry the kind: ' + asked[asked.length - 1]);
+    }
+    if (!by('logFaceProgram').classList.contains('on')) {
+      faults.push('the switch does not mark the log of the program as the one in front');
+    }
+    if (by('logFaceServer').classList.contains('on')) {
+      faults.push('the switch marks both faces at once');
+    }
+    if (by('logPick').value !== 'program-9.log') {
+      faults.push('the log of the program chosen by itself is ' + by('logPick').value + ' and not the current one');
+    }
+    if (lastLine().indexOf('the writing is stopped at 240112') < 0) {
+      faults.push('the words of the log of the program are not shown: ' + lastLine());
+    }
+    if (by('logBody').getAttribute('aria-label').indexOf('program') < 0) {
+      faults.push('the log of the program is named for the server to a reader of the page');
+    }
+    // And back to the log of llama.cpp, which is read again the same way.
+    by('logFaceServer').click();
+    await wait(140);
+    if (by('logPick').value !== 'server-2.log') {
+      faults.push('the log of the server is not come at again: ' + by('logPick').value);
+    }
+    if (lastLine().indexOf('five second wait') < 0) {
+      faults.push('the words of the log of the server are not put back: ' + lastLine());
+    }
+    if (by('logBody').getAttribute('aria-label').indexOf('llama-server') < 0) {
+      faults.push('the log of the server is not named for a reader of the page');
+    }
+
     // Back on the tab that has a button for saving, the foot stands as it did:
     // the note at one end and the two buttons on one line at the other.
     showSetTab('program');
@@ -270,6 +332,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
   console.log('update stands on live or on five seconds and stands still on manual, shows the');
   console.log('lines that hold the words looked for with the words marked and the two steps');
   console.log('between them, colours a line of a fault, and stops reading when the sheet is put');
-  console.log('away; Refresh stands greyed outside manual, and the foot of the sheet stands as');
-  console.log('it did, with its note and its buttons on one line at the bottom of the window');
+  console.log('away; Refresh stands greyed outside manual, the switch at the head reads the log');
+  console.log('of the program and the log of llama.cpp by the same rules, and the foot of the');
+  console.log('sheet stands as it did, with its note and its buttons on one line at the bottom');
 })().catch(function (e) { console.error(e); process.exit(1); });
