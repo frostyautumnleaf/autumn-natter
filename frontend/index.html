@@ -1414,6 +1414,11 @@ img.pic { animation: plate-in 180ms ease-out; }
 .ro { font-size: 12px; color: var(--dim); word-break: break-all;
   font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; }
 .unit { font-size: 12px; color: var(--dim); flex: 0 0 auto; }
+/* The line of words under a button of the Model tab: what the button did just
+   now, or the reason it could not do it. It is read after the click, so it is
+   small, and a fault among them stands in the colour of a fault. */
+.carried { font-size: 12px; color: var(--dim); }
+.carried.bad { color: var(--ink-fail); }
 .head-model { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .path { font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; font-size: 11.5px;
   color: var(--faint); word-break: break-all; }
@@ -2161,6 +2166,32 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <span class="path" id="mId"></span>
         </div>
         <div id="mForm">
+        <!-- The settings of this model, carried about. A copy takes the whole of
+             the tab, the fields and the cards and the extra arguments, as one
+             piece of text, so that a model can be set up again somewhere else
+             from what stands here. A preset is the same piece of text kept under
+             a name of the user's own instead of being put on the clipboard.
+             Neither writes to the model: the words go into the fields, and the
+             Save button of the sheet does the writing, as it does for every other
+             field of this tab. -->
+        <div class="sec">Copy and presets</div>
+        <div id="mCarry">
+          <div class="fld wide"><span class="lbl">These settings as words</span>
+            <span class="sub">The whole of this tab in one piece of text, so that it can be put on another model, kept in a file, or sent to someone else. Copy takes what stands in the fields now, words not yet saved included, and puts it in the box below and on the clipboard. Paste reads such words and puts them into the fields. A setting the words say nothing about stands where it stood. Nothing reaches the model until you press Save.</span>
+            <div class="ctl"><button class="btn" id="mCopy" type="button">Copy</button><button class="btn" id="mPaste" type="button">Paste</button><span class="carried" id="mCarryNote"></span></div>
+            <div class="ctl"><textarea id="mCarryBox" spellcheck="false" autocomplete="off" placeholder="The settings of this model as words. A page over the network is shut out of the clipboard: copy them out of this box by hand, or paste them into it and then press Paste."></textarea></div>
+          </div>
+          <div class="fld"><span class="lbl">Preset</span>
+            <span class="sub">A shape of the settings you want to keep, under a name of your own. A preset belongs to no model, for it is one way of setting a model up rather than the settings of one model: long answers on the big card, or a chat that never shifts the context. Presets are kept with the settings of the program, so every model can reach them.</span>
+            <div class="ctl"><select id="mPreset"></select></div></div>
+          <div class="fld"><span class="lbl">Name of the preset</span>
+            <span class="sub">The name the shape is kept under. Choosing a preset above writes its name here, so keeping again writes over that preset. Up to 60 characters.</span>
+            <div class="ctl"><input class="txt" id="mPresetName" type="text" maxlength="60" placeholder="the long answers" spellcheck="false"></div></div>
+          <div class="fld wide" style="border-bottom:0"><span class="lbl">Keep, load, throw away</span>
+            <span class="sub">Keeping takes the settings that stand in the fields of this tab. Loading puts a preset into the fields, and throwing away takes a preset out of the list. Neither of them changes a model until you press Save.</span>
+            <div class="ctl"><button class="btn go" id="mPresetSave" type="button">Keep these settings</button><button class="btn" id="mPresetLoad" type="button">Load</button><button class="btn" id="mPresetRemove" type="button">Throw away</button><span class="carried" id="mPresetNote"></span></div>
+          </div>
+        </div>
         <div class="sec">Sizing</div>
         <div class="fld"><span class="lbl">Context size</span>
           <span class="sub">How much of the conversation the model keeps in mind at once. More uses more memory.</span>
@@ -8039,68 +8070,90 @@ function loadModel() {
     return;
   }
   byId('mForm').style.display = '';
-  invoke('get_model_settings', { id: id }).then(function (m) {
+    invoke('get_model_settings', { id: id }).then(function (m) {
     mdl = m; mdlId = id;
-    var s = m.settings || {};
-    byId('mName').textContent = m.name || '';
-    byId('mKind').textContent = m.kind || '';
-    byId('mId').textContent = id;
-    byId('mCtx').value = s.ctx_size;
-    setChoices('mKv', m.kinds, s.kv_index);
-    setChoices('mLoad', m.loads, s.load_index);
-    byId('mCheckpoints').value = s.ctx_checkpoints;
-    byId('mCacheRam').value = s.cache_ram;
-    byId('mCachePrompt').checked = s.cache_prompt !== false;
-    byId('mNoShift').checked = !!s.no_context_shift;
-    advOpen('advSizing', ['ctx_checkpoints', 'cache_ram', 'cache_prompt', 'no_context_shift'],
-      { ctx_checkpoints: 32, cache_ram: 8192, cache_prompt: true, no_context_shift: false });
-    setChoices('mSpec', m.specs, s.spec_index);
-    byId('mTemp').value = s.temperature;
-    byId('mTopP').value = s.top_p;
-    byId('mTopK').value = s.top_k;
-    byId('mMinP').value = s.min_p;
-    byId('mRepeatPen').value = s.repeat_penalty;
-    byId('mPresencePen').value = s.presence_penalty;
-    byId('mMaxTokens').value = s.max_tokens;
-    byId('mSeed').value = s.seed;
-    advOpen('advSampling',
-      ['repeat_penalty', 'presence_penalty', 'max_tokens', 'seed'],
-      { repeat_penalty: 1, presence_penalty: 0, max_tokens: -1, seed: -1 });
-    byId('mDraft').value = s.draft_model || '';
-    byId('mDraftTokens').value = s.draft_tokens;
-    byId('mParallel').value = s.parallel;
-    byId('mBatch').value = s.batch_size;
-    byId('mUbatch').value = s.ubatch_size;
-    byId('mVision').checked = !!s.vision;
-    byId('mImgMin').value = s.image_min_tokens;
-    byId('mImgMax').value = s.image_max_tokens;
-    byId('mMmprojCpu').checked = !!s.mmproj_cpu;
-    advOpen('advWorking', ['image_min_tokens', 'image_max_tokens', 'mmproj_cpu'],
-      { image_min_tokens: 0, image_max_tokens: 0, mmproj_cpu: false });
-    byId('mBudget').value = s.reasoning_budget;
-    byId('mReasonMsg').value = s.reasoning_message || '';
-    byId('mTensor').checked = !!s.tensor_parallel;
-    advOpen('advCards', ['tensor_parallel'], { tensor_parallel: false });
-    var box = byId('mCards'); box.innerHTML = '';
-    var gpus = m.gpus || [];
-    if (!gpus.length) {
-      var none = document.createElement('div');
-      none.className = 'sub'; none.textContent = 'No card was found.';
-      box.appendChild(none);
-    }
-    for (var i = 0; i < gpus.length; i++) {
-      box.appendChild(cardRow(gpus[i], i, (s.gpu_enabled && s.gpu_enabled[i]) || false));
-    }
-    var total = 0;
-    for (var j = 0; j < gpus.length; j++) { if (gpus[j].is_offload) { total += gpus[j].memory_mb; } }
-    var rng = byId('mVram'); rng.min = 1; rng.max = 100; rng.step = 1;
-    rng.value = vramShareOf(s.vram_budget);
-    byId('mVramText').textContent = vramShareOf(s.vram_budget) + '%';
-    byId('mTemplate').value = s.chat_template || '';
-    byId('mExtra').value = s.extra_args || '';
-    refreshPreview();
+    fillModelForm(m.settings || {});
+    // The presets come with the settings of the model, so the menu of the presets
+    // is filled again whenever this tab reads the model. The box of words and the
+    // name of a preset belong to the model that stood here before, and are emptied
+    // with it.
+    fillPresetMenu(m.presets || [], '');
+    byId('mCarryBox').value = '';
+    byId('mPresetName').value = '';
+    carryNote('', false);
+    presetNote('', false);
     mdlDirty = false;
   }, function () {});
+}
+
+// Put one shape of the settings into the fields of the Model tab. The whole of the
+// settings of the open model goes through here, and so do the words of a preset or
+// of a copy. A shape that says nothing about a setting leaves that setting as it
+// stood in the tab, for words carried over for the shape of an answer should not
+// also move the cards of the machine or the extra arguments. The words stand under
+// the fields afterwards, so that the two advanced folds open by them and a read of
+// the fields finds them complete.
+function fillModelForm(given) {
+  var s = copyOf((mdl && mdl.settings) ? mdl.settings : {});
+  var words = copyOf(given);
+  for (var key in words) {
+    if (Object.prototype.hasOwnProperty.call(words, key)) { s[key] = words[key]; }
+  }
+  if (mdl) { mdl.settings = s; }
+  byId('mCtx').value = s.ctx_size;
+  setChoices('mKv', (mdl && mdl.kinds) || [], s.kv_index);
+  setChoices('mLoad', (mdl && mdl.loads) || [], s.load_index);
+  byId('mCheckpoints').value = s.ctx_checkpoints;
+  byId('mCacheRam').value = s.cache_ram;
+  byId('mCachePrompt').checked = s.cache_prompt !== false;
+  byId('mNoShift').checked = !!s.no_context_shift;
+  advOpen('advSizing', ['ctx_checkpoints', 'cache_ram', 'cache_prompt', 'no_context_shift'],
+    { ctx_checkpoints: 32, cache_ram: 8192, cache_prompt: true, no_context_shift: false });
+  setChoices('mSpec', (mdl && mdl.specs) || [], s.spec_index);
+  byId('mTemp').value = s.temperature;
+  byId('mTopP').value = s.top_p;
+  byId('mTopK').value = s.top_k;
+  byId('mMinP').value = s.min_p;
+  byId('mRepeatPen').value = s.repeat_penalty;
+  byId('mPresencePen').value = s.presence_penalty;
+  byId('mMaxTokens').value = s.max_tokens;
+  byId('mSeed').value = s.seed;
+  advOpen('advSampling',
+    ['repeat_penalty', 'presence_penalty', 'max_tokens', 'seed'],
+    { repeat_penalty: 1, presence_penalty: 0, max_tokens: -1, seed: -1 });
+  byId('mDraft').value = s.draft_model || '';
+  byId('mDraftTokens').value = s.draft_tokens;
+  byId('mParallel').value = s.parallel;
+  byId('mBatch').value = s.batch_size;
+  byId('mUbatch').value = s.ubatch_size;
+  byId('mVision').checked = !!s.vision;
+  byId('mImgMin').value = s.image_min_tokens;
+  byId('mImgMax').value = s.image_max_tokens;
+  byId('mMmprojCpu').checked = !!s.mmproj_cpu;
+  advOpen('advWorking', ['image_min_tokens', 'image_max_tokens', 'mmproj_cpu'],
+    { image_min_tokens: 0, image_max_tokens: 0, mmproj_cpu: false });
+  byId('mBudget').value = s.reasoning_budget;
+  byId('mReasonMsg').value = s.reasoning_message || '';
+  byId('mTensor').checked = !!s.tensor_parallel;
+  advOpen('advCards', ['tensor_parallel'], { tensor_parallel: false });
+  var box = byId('mCards'); box.innerHTML = '';
+  var gpus = (mdl && mdl.gpus) || [];
+  if (!gpus.length) {
+    var none = document.createElement('div');
+    none.className = 'sub'; none.textContent = 'No card was found.';
+    box.appendChild(none);
+  }
+  for (var i = 0; i < gpus.length; i++) {
+    box.appendChild(cardRow(gpus[i], i, (s.gpu_enabled && s.gpu_enabled[i]) || false));
+  }
+  var total = 0;
+  for (var j = 0; j < gpus.length; j++) { if (gpus[j].is_offload) { total += gpus[j].memory_mb; } }
+  var rng = byId('mVram'); rng.min = 1; rng.max = 100; rng.step = 1;
+  rng.value = vramShareOf(s.vram_budget);
+  byId('mVramText').textContent = vramShareOf(s.vram_budget) + '%';
+  byId('mTemplate').value = s.chat_template || '';
+  byId('mExtra').value = s.extra_args || '';
+  refreshPreview();
 }
 
 function setChoices(id, arr, index) {
@@ -8249,6 +8302,298 @@ function refreshPreview() {
       byId('mPreview').textContent = line;
     }, function () {});
   }, 140);
+}
+
+// ---------------------------------------------------------------- carry
+//
+// The settings of a model, carried about: one piece of words that holds the whole
+// of the Model tab, and the shapes of it that the user keeps under names of their
+// own. A copy takes what stands in the fields, and not what was written to the
+// model last, so a shape that was tried out and never saved can still be carried.
+// Neither a copy nor a load writes anything to a model: the words go into the
+// fields, and the Save button of the sheet does the writing, as it does for every
+// other field of the tab.
+//
+// The clipboard is asked for first, both ways. It is shut to a page that is not
+// served over a secure address, which is every page of the remote mode reached
+// over the local network, and no command of a page ever reads the clipboard. So
+// the words stand in a box of their own under the two buttons as well, and the
+// words of the last copy are held in this tab: a shape can be moved from one model
+// to another here even where the clipboard is shut, and a copy of a whole day of
+// work can be read out of the box by hand.
+
+var mdlCopied = '';   // the words this tab copied last, for a clipboard that is shut
+var mdlPresets = [];  // the presets the program holds, in the order of the names
+
+// A shape of the settings of its own, so that the fields and the words they were
+// filled from never hold the same thing. A read of the fields writes into the words
+// it stands on, and a preset that changed along with them would be no shape kept at
+// all.
+function copyOf(settings) {
+  return JSON.parse(JSON.stringify(settings || {}));
+}
+
+// The whole of the Model tab as words: the fields, the cards and the extra
+// arguments, in the shape the program keeps them in.
+function modelWords() {
+  return JSON.stringify(readModel(), null, 2);
+}
+
+// Words of the settings out of the box or off the clipboard, or nothing at all when
+// they are not such words. Text that reads as a list, as a number, or as an object
+// with no setting of a model in it is refused, for a paste of the wrong words would
+// empty every field of this tab, and the fault would only be seen when the model
+// was started again.
+function settingsFromWords(words) {
+  var text = String(words === undefined || words === null ? '' : words).trim();
+  if (!text) { return null; }
+  var made;
+  try { made = JSON.parse(text); } catch (e) { return null; }
+  if (!made || typeof made !== 'object') { return null; }
+  if (Object.prototype.toString.call(made) === '[object Array]') { return null; }
+  var known = (mdl && mdl.settings) ? mdl.settings : {};
+  for (var key in made) {
+    // One setting of a model in the words is enough to call them settings: words
+    // of a shape that stands for a while may carry a word this program has not
+    // heard of yet, and a setting of the future is left where it stands.
+    if (Object.prototype.hasOwnProperty.call(made, key)
+      && Object.prototype.hasOwnProperty.call(known, key)) { return made; }
+  }
+  return null;
+}
+
+// Words on to the clipboard. The clipboard of the system is asked first; where it
+// will not have the program, the copy command of the page is tried instead. The
+// answer says whether either of the two took the words.
+function clipWrite(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).then(function () { return true; },
+      function () { return clipWriteOfPage(text); });
+  }
+  return Promise.resolve(clipWriteOfPage(text));
+}
+
+// The copy command of the page: the words go into a box of their own, off the
+// sight, which is marked out and copied as any field of the page is.
+function clipWriteOfPage(text) {
+  var box = document.createElement('textarea');
+  box.value = text;
+  box.setAttribute('readonly', 'readonly');
+  box.style.position = 'fixed'; box.style.top = '-1200px'; box.style.opacity = '0';
+  document.body.appendChild(box);
+  box.select();
+  var made = false;
+  try { made = document.execCommand('copy'); } catch (e) { made = false; }
+  document.body.removeChild(box);
+  return Promise.resolve(made);
+}
+
+// Words off the clipboard, or nothing at all when the clipboard will not be read.
+// The box under the two buttons is the other way in.
+function clipRead() {
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    return navigator.clipboard.readText().then(function (words) { return words || ''; },
+      function () { return ''; });
+  }
+  return Promise.resolve('');
+}
+
+// The Copy button. The words go into the box, on to the clipboard where it will
+// have them, and into the memory of this tab, so that the Paste button of this same
+// tab still works where the clipboard is shut.
+function copyModel() {
+  var words = modelWords();
+  mdlCopied = words;
+  byId('mCarryBox').value = words;
+  clipWrite(words).then(function (made) {
+    carryNote(made
+      ? 'The settings are copied. ' + words.length + ' characters.'
+      : 'The clipboard would not have the words. They stand in the box below, so that you can copy them out of it by hand.',
+      !made);
+  });
+}
+
+// The Paste button. The clipboard is asked first, then the box, then the words this
+// tab copied last: the first of them that holds a shape of the settings goes into
+// the fields.
+function pasteModel() {
+  clipRead().then(function (words) {
+    var made = settingsFromWords(words)
+      || settingsFromWords(byId('mCarryBox').value)
+      || settingsFromWords(mdlCopied);
+    if (!made) {
+      carryNote('There was nothing to paste. Copy the settings of a model first, or put the words into the box below.', true);
+      return;
+    }
+    putInFields(made);
+    carryNote('The settings are in the fields. Press Save to write them to this model.', false);
+  });
+}
+
+// One shape of the settings into the fields, and the command line asked for again.
+// The tab then holds words that were never written, as it would if the user had
+// moved the fields by hand.
+function putInFields(made) {
+  fillModelForm(made);
+  mdlDirty = true;
+  refreshPreview();
+}
+
+// The line of words under the buttons: what was just done, or the reason it could
+// not be done. A fault stands in the colour of a fault, so that it is not read as
+// a thing that worked.
+function carryNote(words, bad) {
+  var node = byId('mCarryNote');
+  node.textContent = words || '';
+  node.classList.toggle('bad', !!bad);
+}
+
+function presetNote(words, bad) {
+  var node = byId('mPresetNote');
+  node.textContent = words || '';
+  node.classList.toggle('bad', !!bad);
+}
+
+// The menu of the presets. The list is the one the program answered with, in the
+// order of the names. Where a name is asked for and is still kept, it stands chosen
+// again; after a preset was thrown away, nothing stands chosen.
+function fillPresetMenu(list, chosen) {
+  mdlPresets = list || [];
+  var sel = byId('mPreset');
+  var was = sel.value;
+  sel.innerHTML = '';
+  sel.appendChild(setOption(mdlPresets.length ? 'Choose a preset' : 'No preset is kept yet', ''));
+  for (var i = 0; i < mdlPresets.length; i++) {
+    sel.appendChild(setOption(mdlPresets[i].name, mdlPresets[i].name));
+  }
+  var want = (chosen === undefined || chosen === null) ? was : chosen;
+  sel.value = presetHeld(want) ? want : '';
+  presetButtons();
+}
+
+// True when a preset of that name is kept in the list of this page.
+function presetHeld(name) {
+  if (!name) { return false; }
+  for (var i = 0; i < mdlPresets.length; i++) { if (mdlPresets[i].name === name) { return true; } }
+  return false;
+}
+
+// The preset that stands chosen in the menu, or nothing at all.
+function presetChosen() {
+  var name = byId('mPreset').value;
+  for (var i = 0; i < mdlPresets.length; i++) {
+    if (mdlPresets[i].name === name) { return mdlPresets[i]; }
+  }
+  return null;
+}
+
+// Load and Throw away stand only where a preset is chosen, so that neither can be
+// pressed against the first line of the menu, which is no preset.
+function presetButtons() {
+  var on = !!presetChosen();
+  byId('mPresetLoad').disabled = !on;
+  byId('mPresetRemove').disabled = !on;
+}
+
+// Whether a call of the program answered that nothing was done. The words of the
+// refusal are the ones the program wrote, and they go under the buttons, where the
+// user can read them.
+function refused(answer) { return !answer || answer.ok === false; }
+
+// Load: the words of the preset into the fields, and its name into the field of the
+// name, so that keeping again writes over the same preset. Nothing of the model
+// moves until the sheet is saved.
+function loadPreset() {
+  var held = presetChosen();
+  if (!held) { presetNote('Choose a preset to load first.', true); return; }
+  putInFields(held.settings || {});
+  byId('mPresetName').value = held.name;
+  presetNote('The preset "' + held.name + '" is in the fields. Press Save to write them to this model.', false);
+}
+
+// Keep: the settings that stand in the fields, under a name of the user's own. A
+// name that stands already is written over, for the fields hold the newest shape of
+// the same thing, and a preset the user cannot mend is a note they cannot correct.
+// The name the program kept with is the name the list of this page holds, for the
+// program makes the space in a name even and cuts a long name to what the menu
+// holds.
+function keepPreset() {
+  var name = byId('mPresetName').value.trim();
+  if (!name) { presetNote('A preset needs a name before it can be kept. Write one in the field first.', true); return; }
+  var mine = copyOf(readModel());
+  presetCall({ op: 'save', name: name, settings: mine }).then(function (answer) {
+    if (refused(answer)) {
+      presetNote((answer && answer.status) ? answer.status : 'The preset could not be kept.', true);
+      return;
+    }
+    var kept = (answer && answer.name) ? answer.name : name;
+    // The list of this page holds the shape now, and is mended here rather than
+    // read from the program again: a fresh read would bring the settings of the
+    // model with it, and stand over the words of the fields that were never saved.
+    var over = putPresetHeld(kept, mine);
+    fillPresetMenu(mdlPresets, kept);
+    byId('mPresetName').value = kept;
+    presetNote(over
+      ? 'The preset "' + kept + '" is written over with these settings.'
+      : 'The preset "' + kept + '" is kept.', false);
+  }, function () {
+    presetNote('The program did not answer. The preset is not kept.', true);
+  });
+}
+
+// Throw away: the preset is taken out of the list. The settings of every model
+// stand where they stood, for a preset was never a setting of a model.
+function removePreset() {
+  var held = presetChosen();
+  if (!held) { presetNote('Choose the preset to throw away first.', true); return; }
+  var name = held.name;
+  presetCall({ op: 'remove', name: name }).then(function (answer) {
+    if (refused(answer)) {
+      presetNote((answer && answer.status) ? answer.status : 'The preset could not be thrown away.', true);
+      return;
+    }
+    dropPresetHeld(name);
+    fillPresetMenu(mdlPresets, '');
+    if (byId('mPresetName').value === name) { byId('mPresetName').value = ''; }
+    presetNote('The preset "' + name + '" was thrown away. The settings of every model stand where they stood.', false);
+  }, function () {
+    presetNote('The program did not answer. The preset stands where it stood.', true);
+  });
+}
+
+// A shape into the list of this page, written over where its name stands there
+// already. True when a name stood there before. The list stands in the order of the
+// names, as the program answers it.
+function putPresetHeld(name, settings) {
+  for (var i = 0; i < mdlPresets.length; i++) {
+    if (mdlPresets[i].name === name) { mdlPresets[i].settings = settings; return true; }
+  }
+  mdlPresets.push({ name: name, settings: settings });
+  mdlPresets.sort(function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); });
+  return false;
+}
+
+// A shape out of the list of this page.
+function dropPresetHeld(name) {
+  var kept = [];
+  for (var i = 0; i < mdlPresets.length; i++) {
+    if (mdlPresets[i].name !== name) { kept.push(mdlPresets[i]); }
+  }
+  mdlPresets = kept;
+}
+
+
+// The one call of the carry block that the two faces make differently: the window
+// goes to the program through the bridge, the page of the remote mode through the
+// small server that serves it. Both end in the same function of the program.
+function presetCall(body) {
+  return invoke('action', { path: 'model_preset', body: body });
+}
+
+// True for the two boxes, the menu, the field and the six buttons of the carry
+// block, which hold words of their own and no setting of the model.
+function inCarry(node) {
+  return !!(node && node.closest && node.closest('#mCarry'));
 }
 
 // The settings of the Program tab, read back from the fields. The settings that
@@ -8695,8 +9040,31 @@ byId('tabModel').addEventListener('click', function () {
 // moving to another tab and back never reads the old words over the new ones.
 byId('paneProgram').addEventListener('input', function () { progDirty = true; });
 byId('paneProgram').addEventListener('change', function () { progDirty = true; });
-byId('paneModel').addEventListener('input', function () { mdlDirty = true; });
-byId('paneModel').addEventListener('change', function () { mdlDirty = true; });
+// The box of words and the name of a preset are not settings of the model, so
+// words moved in them do not make this tab hold words that were never written.
+byId('paneModel').addEventListener('input', function (e) {
+  if (inCarry(e.target)) { return; }
+  mdlDirty = true;
+});
+byId('paneModel').addEventListener('change', function (e) {
+  if (inCarry(e.target)) { return; }
+  mdlDirty = true;
+});
+// The six marks of the carry block. The two of the clipboard work on the fields
+// that stand in front of them; the three of the presets keep a shape, put one into
+// the fields, or take one out of the list. Choosing a preset writes its name into
+// the field of the name, so that keeping again writes over that same preset.
+byId('mCopy').addEventListener('click', copyModel);
+byId('mPaste').addEventListener('click', pasteModel);
+byId('mPreset').addEventListener('change', function () {
+  var name = byId('mPreset').value;
+  if (name) { byId('mPresetName').value = name; }
+  presetButtons();
+  presetNote('', false);
+});
+byId('mPresetSave').addEventListener('click', keepPreset);
+byId('mPresetLoad').addEventListener('click', loadPreset);
+byId('mPresetRemove').addEventListener('click', removePreset);
 byId('tabLogs').addEventListener('click', function () { showSetTab('logs'); });
 byId('tabMcp').addEventListener('click', function () { showSetTab('mcp'); });
 // The editor of the MCP tab: the kind moves which fields stand, and the two

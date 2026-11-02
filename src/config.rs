@@ -238,6 +238,15 @@ pub struct Config {
     pub model_id: String,
     // Per model settings. The key is the full model path.
     pub model_settings: BTreeMap<String, ModelSettings>,
+    // The presets of the settings of a model: named shapes of the whole of those
+    // settings, which the Model tab of the sheet keeps for the user. A preset is
+    // tied to no model, for it is one way of setting a model up rather than the
+    // setting of one model -- a chat of long answers on the big card, say, or a
+    // chat that never shifts the context. The words are the whole of the settings
+    // of a model, and stand in the same shape, so a preset and a model are told
+    // apart by the name alone.
+    #[serde(default)]
+    pub model_presets: BTreeMap<String, ModelSettings>,
     // Chatting. How the chat of the window shows the parts of an answer.
     // Fold a thinking panel up while the thinking of the model comes in.
     #[serde(default = "on_by_default")]
@@ -411,6 +420,21 @@ pub fn sanitize_compact_reserve(value: i64) -> u32 {
 // The handoff prompt, kept inside the ceiling of its length. A field left
 // empty gives the prompt of the program again, for a chat without a prompt
 // would ask the model for nothing at all.
+// The greatest length of the name of a preset, in characters. The name is read
+// from a field of the sheet and shown again in the menu of the presets, where a
+// name longer than a line of the menu reads worse than the short one it was cut
+// to.
+pub const GREATEST_PRESET_NAME: usize = 60;
+
+// The name a preset is kept under: the words the user wrote, with the space off
+// the ends and the space inside made even, and cut to the length the menu holds.
+// A name of nothing at all comes back as nothing, which is how the caller learns
+// that there was no name there to keep.
+pub fn sanitize_preset_name(given: &str) -> String {
+    let words = given.split_whitespace().collect::<Vec<_>>().join(" ");
+    words.chars().take(GREATEST_PRESET_NAME).collect()
+}
+
 pub fn sanitize_handoff_prompt(value: &str) -> String {
     let text = value.trim();
     if text.is_empty() {
@@ -541,6 +565,7 @@ impl Default for Config {
             upnp_enabled: false,
             model_id: String::new(),
             model_settings: BTreeMap::new(),
+            model_presets: BTreeMap::new(),
             chat_collapse_thinking: true,
             chat_grow_thinking: true,
             chat_tools_in_thinking: true,
@@ -765,6 +790,24 @@ pub fn server_in(dir: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The name a preset is kept under: the words the user wrote, with the space
+    // off the ends and the space inside made even, and cut to the length the menu
+    // of the presets holds. A name of nothing at all comes back as nothing, which
+    // is how the caller learns that there was no name there.
+    #[test]
+    fn the_name_of_a_preset_is_made_even() {
+        assert_eq!(sanitize_preset_name("  the   long answers  "), "the long answers");
+        assert_eq!(sanitize_preset_name("\tnew   chat   card\t"), "new chat card");
+        assert_eq!(sanitize_preset_name("   "), "");
+        assert_eq!(sanitize_preset_name(""), "");
+        // A name longer than the menu holds is cut to it, and stays one name.
+        let long = format!("{} and more words beyond the name", "a".repeat(80));
+        let cut = sanitize_preset_name(&long);
+        assert_eq!(cut.chars().count(), GREATEST_PRESET_NAME);
+        // A new set of settings holds no preset at all.
+        assert!(Config::default().model_presets.is_empty());
+    }
 
     // The switches of the Chatting section stand on for a new set of settings,
     // and the two rooms for steps stand unlimited.

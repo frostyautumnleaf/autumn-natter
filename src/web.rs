@@ -478,6 +478,19 @@ pub fn model_settings_value(engine: &crate::engine::Engine, id: &str) -> Value {
         "kinds": llama::KV_TYPES.to_vec(),
         "loads": llama::LOAD_MODES.to_vec(),
         "specs": llama::SPEC_TYPES.to_vec(),
+        // The shapes of the settings that the user has named. They come with the
+        // settings of the model, for the tab that shows the one shows the other,
+        // and a preset is nothing but settings with a name stood before them.
+        "presets": engine
+            .model_presets()
+            .into_iter()
+            .map(|(name, held)| {
+                json!({
+                    "name": name,
+                    "settings": serde_json::to_value(&held).unwrap_or_else(|_| json!({})),
+                })
+            })
+            .collect::<Vec<_>>(),
     })
 }
 
@@ -838,6 +851,34 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
                     engine.mcp_look(&text_field(&value, "id"));
                     done()
                 }
+                other => refused(&format!("Nothing is done by \"{}\"", other)),
+            }
+        }
+        // The presets of the Model tab. A shape of the settings is kept under a
+        // name of the user's own, or a name is thrown away. Loading a preset is
+        // nothing of the program's: the page puts the words of one into the fields
+        // of the tab, and the user writes them to the model with the Save button,
+        // as they would any other words of the tab.
+        "/api/model_preset" | "model_preset" => {
+            let name = text_field(&value, "name");
+            match text_field(&value, "op").as_str() {
+                "save" => {
+                    let held = value.get("settings").cloned().unwrap_or(Value::Null);
+                    match serde_json::from_value::<ModelSettings>(held) {
+                        Ok(made) => match engine.model_preset_save(name, made) {
+                            Ok(kept) => json!({ "ok": true, "name": kept }),
+                            Err(problem) => refused(&problem),
+                        },
+                        Err(problem) => refused(&format!(
+                            "The model settings could not be read: {}",
+                            problem
+                        )),
+                    }
+                }
+                "remove" => match engine.model_preset_remove(&name) {
+                    Ok(_) => done(),
+                    Err(problem) => refused(&problem),
+                },
                 other => refused(&format!("Nothing is done by \"{}\"", other)),
             }
         }
