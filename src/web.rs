@@ -224,6 +224,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "left": one.left(),
             "seconds": one.seconds,
         })),
+        // The call of a tool that is running right now, with the whole of the time
+        // it was given and the seconds it has left. The head of the block of the
+        // call wears the clock and the two marks of a running call out of this.
+        // A call that was given no time to come back within carries nothing in
+        // either number, and wears neither clock nor mark.
+        "running": snap.running.as_ref().map(|one| json!({
+            "id": one.id,
+            "timeout": one.timeout,
+            "left": one.left,
+        })),
         // The thinking that comes with a live answer, how long it lasted and
         // whether it has stopped. The page writes the last two on the head of
         // the panel.
@@ -318,6 +328,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "date_new_chat": snap.chat_date_new_chat,
             "highlight": snap.chat_highlight,
             "bold_markdown": snap.chat_bold_markdown,
+            "seamless": snap.chat_seamless,
             "silent_retries": snap.chat_silent_retries,
             "chapters": snap.chat_chapters,
             // Whether the talk a chat worked through is kept in a file, so that
@@ -715,6 +726,20 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             if !engine.answer_ask(&id, &answer) {
                 return refused("That question is answered already, or is over");
             }
+            done()
+        }
+        // The user cut short the call of a tool that is running, from the head
+        // of its block. The command that was started is stopped, and everything
+        // it had printed by then still goes back to the model.
+        "/api/tool_cancel" | "tool_cancel" => {
+            engine.cancel_running_tool();
+            done()
+        }
+        // The user gave the call of a tool that is running more time to come
+        // back within, from the head of its block. Each press adds the same
+        // time, and a call may be given more time as often as the user likes.
+        "/api/tool_extend" | "tool_extend" => {
+            engine.extend_running_tool();
             done()
         }
         // Take one message out of the talk, with everything that came after it.

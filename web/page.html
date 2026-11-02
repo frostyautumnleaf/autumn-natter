@@ -33,7 +33,8 @@
   --accent-soft: rgba(237, 116, 1, .12);
   --accent-line: rgba(237, 116, 1, .42);
 
-  --bg: #faf2e6; --surface: #fffdf8; --surface-2: #f4e9d8; --surface-3: #efe1cc;
+  --bg: #faf2e6; --fade-top: rgba(250,242,230,1); --fade-out: rgba(250,242,230,0);
+  --surface: #fffdf8; --surface-2: #f4e9d8; --surface-3: #efe1cc;
   --line: #e7d8c3; --line-soft: #efe2d1; --line-strong: #d8c2a4;
   --text: #241b12; --text-2: #4b3e30; --dim: #7c6b58; --faint: #a2917c;
   --hover: #f7ebd9; --tint: #fbe6d1; --on-accent: #fffaf2;
@@ -69,7 +70,8 @@ body.dark {
   /* The ground is of the autumn family, so every part stood on it is of the
      same family too: one hue, with the steps of lightness the grey ladder had.
      A surface of no colour at all would stand apart from a ground this warm. */
-  --bg: #0a0400; --surface: #231a13; --surface-2: #2c221a; --surface-3: #362a20;
+  --bg: #0a0400; --fade-top: rgba(10,4,0,1); --fade-out: rgba(10,4,0,0);
+  --surface: #231a13; --surface-2: #2c221a; --surface-3: #362a20;
   --line: #3a2e24; --line-soft: #30261e; --line-strong: #503d2d;
   --text: #f2ebe2; --text-2: #d9cfc3; --dim: #a4998c; --faint: #857c71;
   --hover: #2d231b; --tint: #2c1d10; --on-accent: #fff8ef;
@@ -91,6 +93,12 @@ body.dark {
    under it for a web view without color-mix. */
 :root { --ink: var(--strong); --ink-leaf: var(--leaf); --ink-fail: var(--deep); }
 body.dark { --ink: #f08a2a; --ink-leaf: #d9713f; --ink-fail: #e0603a; }
+/* The two counts of a change of a file. Green for what was written and red for
+   what was taken away are the colours the eye knows for the two already; they
+   are kept pale, so that they sit with the warm colours of the skin instead of
+   shouting over them, in the pale colours and the dark ones alike. */
+:root { --hunk-add: #4d7a35; --hunk-cut: #b04a35; }
+body.dark { --hunk-add: #a3c98c; --hunk-cut: #e09b86; }
 @supports (color: color-mix(in oklab, red, blue)) {
   body.dark {
     --ink: color-mix(in oklab, var(--accent) 74%, #fff6ec);
@@ -143,6 +151,7 @@ textarea, input { font: inherit; color: inherit; }
   background: var(--surface); border-bottom: 1px solid var(--line);
   position: relative; z-index: 20;
 }
+
 .brand { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; padding-right: 2px; }
 .brand .mark { width: 21px; height: 21px; display: block; }
 .brand .word { font-size: 14.5px; font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
@@ -526,7 +535,10 @@ ol.marks li::marker { color: var(--ink-leaf); font-weight: 600; }
    more; a table of many columns is wrapped to the width of the chat, as the
    words of a block of code are, and the frame is kept as a way out in case the
    words of a cell cannot be broken at all. */
-.tablewrap { margin: 4px 0 11px; overflow: auto; max-height: 420px;
+/* A table stands in the middle of the chat. The frame takes the width of the
+   table and no more, so the width it takes is centred: a table of three short
+   columns at the left hand edge of a wide chat reads as a thing that fell over. */
+.tablewrap { margin: 4px auto 11px; overflow: auto; max-height: 420px;
   width: fit-content; max-width: 100%; border: 1px solid var(--code-line);
   border-radius: 10px; background: var(--code-bg);
   scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
@@ -612,6 +624,19 @@ pre.code .t-p { color: var(--t-pun); }
   border-radius: 9px 0 0 9px; pointer-events: none; }
 
 .think > .thead { gap: 7px; min-height: 31px; padding: 6px 11px 6px 15px; }
+/* The seamless chat. The panels of the thoughts and of the calls stand on the
+   chat itself, for the setting asks that a chat read as one piece of writing:
+   no ground under a panel, no line about it, and no rule of colour down the
+   left hand edge of a thought. The mark that opens and closes a panel comes
+   round beside the heading it belongs to, and the room that is left over goes
+   after it, so the head of a panel keeps its shape while nothing stands about
+   it. */
+body.seamless .think, body.seamless .tool { background: none; border-color: transparent; }
+body.seamless .think::before { display: none; }
+body.seamless .think > .thead { padding-left: 11px; }
+body.seamless .thead .fold { margin-left: 0; }
+body.seamless .thead .cmd { flex: 0 1 auto; }
+body.seamless .thead::after { content: ""; flex: 1 1 auto; }
 .think > .thead:hover { background: var(--hover); }
 .think > .thead .svg { width: 12px; height: 12px; stroke: var(--ink); }
 .think > .thead .cap { font-size: 10.5px; font-weight: 650; letter-spacing: .08em;
@@ -731,6 +756,29 @@ pre.code .t-p { color: var(--t-pun); }
    writing of it was stopped in the middle. The pill says so in the colour of a
    fault, with a line broken like the words of the call were. */
 .state.cut { color: var(--ink-fail); border-color: var(--ink-fail); border-style: dashed; }
+/* A call that is running says what time it has left, and gives the two hands
+   that go with a running call: the one that cuts the call short, and the one
+   that gives it five minutes more. The three stand in the head of the block of
+   the call and go when the call is over, for a call that has come back has
+   nothing left to press. A call with no time to run out wears none of them. */
+.thead .runer { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 8px; }
+.thead .clock { font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--dim); font-variant-numeric: tabular-nums;
+  white-space: nowrap; }
+.thead .clock.short { color: var(--ink-fail); }
+.thead .tmark { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
+  font-family: inherit; font-size: 10.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--dim); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); cursor: pointer; white-space: nowrap; }
+.thead .tmark:hover { color: var(--ink); border-color: var(--line-strong); }
+.thead .tmark.danger:hover { color: var(--ink-fail); border-color: var(--ink-fail); }
+.thead .tmark .svg { width: 11px; height: 11px; stroke: currentColor; }
+/* The two counts of a change of a file stand in the head of the block of the
+   run, beside the words of it: what was written, and what was taken away. */
+.thead .hunk { flex: 0 0 auto; display: inline-flex; gap: 7px; font-size: 11px;
+  font-weight: 650; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.thead .hunk .plus { color: var(--hunk-add); }
+.thead .hunk .minus { color: var(--hunk-cut); }
 .thead .fold { margin-left: 4px; transition: transform 180ms; stroke: var(--faint); }
 .tool.closed .fold { transform: rotate(-90deg); }
 .tbody { display: flex; gap: 12px; padding: 2px 12px 12px 13px; }
@@ -787,7 +835,9 @@ pre.code .t-p { color: var(--t-pun); }
    without stands warmer than the border of one that may be waited out. */
 .ask {
   margin: 0 0 10px; padding: 13px 14px 12px; border: 1px solid var(--accent-line);
-  border-radius: var(--r-l); background: var(--surface); box-shadow: var(--shadow-2);
+  /* The card of a question is square about the corners, as the box it stands
+     over is: the two are read as one stack of work. */
+  border-radius: 0; background: var(--surface); box-shadow: var(--shadow-2);
   animation: ask-rise 260ms cubic-bezier(.2, .8, .2, 1);
 }
 .ask.hidden { display: none; }
@@ -892,6 +942,77 @@ pre.code .t-p { color: var(--t-pun); }
   to { opacity: 1; transform: none; }
 }
 .dock { flex: 0 0 auto; padding: 0 14px 12px; }
+
+/* The chat fades out into the background at the very top. The wash stands over
+   the head of the thread, where the words come up out of nothing: it is the colour
+   of the background, whole at the top edge and gone a finger lower, so the words
+   thin away instead of stopping dead. Nothing of it catches the hand. */
+.topfade {
+  position: absolute; left: 0; right: 0; top: 0; height: 34px;
+  pointer-events: none; z-index: 3;
+  background: linear-gradient(to bottom, var(--fade-top), var(--fade-out));
+}
+
+/* ------------------------------------------------------------ waiting list */
+/* The messages the user put by while the model was writing. The list stands in
+   the dock above the chat box, in a row of its own: nothing is laid over the
+   box, so the widget of the work in hand, which stands within the box, and the
+   question of the model, which stands above it, keep their places and never
+   fall over the list. The head is one line; the list under it opens when the
+   user opens it, and the oldest message stands at the bottom. */
+.queue { display: flex; flex-direction: column; gap: 4px; margin: 0 2px 6px; }
+.queue-head {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  background: none; border: 1px solid var(--line); border-radius: var(--r);
+  padding: 5px 9px; color: var(--dim); cursor: pointer;
+  font-family: var(--ui); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+}
+.queue-head:hover { color: var(--text-2); border-color: var(--line-strong); }
+.qcaret { width: 12px; height: 12px; flex: 0 0 auto; transition: transform .16s ease; }
+.queue.open .qcaret { transform: rotate(90deg); }
+.qcount {
+  margin-left: auto; min-width: 18px; text-align: center; flex: 0 0 auto;
+  border-radius: 999px; background: var(--surface); border: 1px solid var(--line);
+  padding: 1px 6px; color: var(--faint); font-size: 10px; letter-spacing: .04em;
+}
+.queue-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 244px; overflow-y: auto; scrollbar-width: thin;
+}
+/* A row is one message: the mark to take hold of, the first words of it, and
+   the two marks of the hand at the side. */
+.qrow {
+  display: flex; align-items: center; gap: 7px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  padding: 5px 6px 5px 5px; background: var(--surface);
+}
+.qrow.dragging { opacity: .5; border-style: dashed; }
+/* The line a row is to be put in front of, while a row is being dragged. */
+.qrow.qbefore { box-shadow: 0 -2px 0 0 var(--line-strong); }
+.qrow.qafter  { box-shadow: 0 2px 0 0 var(--line-strong); }
+.qgrip { color: var(--faint); display: flex; align-items: center; cursor: grab; flex: 0 0 auto; }
+.qgrip svg { width: 13px; height: 13px; }
+.qtext {
+  flex: 1 1 auto; min-width: 0; color: var(--text-2); font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.qfiles { color: var(--faint); font-size: 10.5px; flex: 0 0 auto; }
+.qbtns { display: flex; gap: 3px; flex: 0 0 auto; }
+.qbtn {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border-radius: 6px;
+  border: 1px solid var(--line); background: none; color: var(--faint); cursor: pointer;
+}
+.qbtn:hover { color: var(--text-2); border-color: var(--line-strong); }
+.qbtn.fault:hover { color: var(--ink-fail); border-color: var(--ink-fail); }
+.qbtn svg { width: 12px; height: 12px; }
+/* The words of a message being written again stand in the row itself. */
+.qedit-box {
+  flex: 1 1 auto; display: block; min-width: 0; resize: none;
+  font-family: var(--body); font-size: 12.5px; color: var(--text-2);
+  background: none; border: 1px solid var(--line-strong); border-radius: 6px;
+  padding: 3px 6px; max-height: 120px; overflow-y: auto; scrollbar-width: thin;
+}
 /* On the first screen the chat box stands with the mark and the words over it,
    and the group as a whole is put in the middle of the room: the space over the
    mark and the space under the line of state are the same. The room under the
@@ -901,7 +1022,9 @@ pre.code .t-p { color: var(--t-pun); }
 body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px; }
 .box {
   position: relative;
-  border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface);
+  /* The box stands with sharp corners. It is a slab the words are written on,
+     and a round at its foot only made a seam against the row of badges. */
+  border: 1px solid var(--line); border-radius: 0; background: var(--surface);
   box-shadow: var(--shadow-1); transition: border-color 160ms, box-shadow 160ms;
 }
 .box.focus { border-color: var(--line-strong); box-shadow: var(--shadow-1), var(--ring); }
@@ -912,7 +1035,10 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    program is at work while one batch of words takes its time. It has no ground
    of its own, so the ring and the words stand over the chat directly. */
 .gauge {
-  position: absolute; bottom: calc(100% + 10px); left: 50%; z-index: 5;
+  /* The widget stands over the box. The list of messages waiting stands above
+     the box too, and is not to be covered: the height of that list is written
+     into --queue-h by the page, and the widget stands over both. */
+  position: absolute; bottom: calc(100% + 10px + var(--queue-h, 0px)); left: 50%; z-index: 5;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   transform: translate(-50%, 6px); opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity 200ms ease-out, transform 200ms ease-out, visibility 200ms;
@@ -1152,9 +1278,14 @@ img.pic { animation: plate-in 180ms ease-out; }
 .mcprow .body { min-width: 0; }
 .mcprow .name { font-size: 13.5px; color: var(--text); }
 .mcprow .kind { font-size: 11.5px; color: var(--text-2); margin-top: 2px; overflow-wrap: anywhere; }
-.mcprow .acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end;
-  max-width: 168px; flex: 0 0 auto; }
-.mcprow .acts .btn { flex: 0 0 auto; }
+/* The four things the user may do with a server stand in two rows of two in a
+   place of their own, so none of them ever stands over the words of the row
+   nor is cut by the edge of the sheet: words of their own are the reason two
+   of these rows read as one fault before. */
+.mcprow .acts { display: grid; grid-template-columns: repeat(2, 74px); gap: 6px;
+  justify-content: end; flex: 0 0 auto; }
+.mcprow .acts .btn { width: 74px; min-width: 0; justify-content: center;
+  padding: 0 4px; font-size: 12.5px; white-space: nowrap; }
 .iconpick { display: flex; flex-wrap: wrap; gap: 4px; }
 .iconpick button { display: flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px;
@@ -1192,6 +1323,18 @@ img.pic { animation: plate-in 180ms ease-out; }
 .send.stop:hover { background: var(--deep); }
 .send.stop .mark-send { display: none; }
 .send.stop .mark-stop { display: inline; }
+
+/* The tooltip of the page. The tooltip of the machine is a grey box that answers
+   to none of the colours of the chat, and in the window of the program it is not
+   even that. So the page draws its own out of the words a part carries in its
+   `title`, and borrows the `title` while it stands, for two tooltips over one part
+   read as a fault of the page. */
+.tip { position: fixed; z-index: 90; max-width: 340px; padding: 7px 9px;
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 7px; box-shadow: var(--shadow); color: var(--text-2);
+  font-size: 11.5px; line-height: 1.45; pointer-events: none;
+  opacity: 0; transition: opacity 120ms; white-space: pre-line; }
+.tip.on { opacity: 1; }
 
 /* The line of state under the box. */
 .state-line { display: flex; align-items: center; gap: 9px; padding: 9px 4px 0; }
@@ -1697,6 +1840,12 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     <div class="thread" id="thread">
       <div class="col" id="col"></div>
     </div>
+    <!-- The chat fades out into the background at the very top. The wash is the
+         colour of the background, thick at the top edge and gone a finger lower,
+         and it stands over the words: the words under it are still words of the
+         chat, to be read, marked and taken hold of, for the wash never catches
+         the hand. -->
+    <div class="topfade" aria-hidden="true"></div>
     
     
 
@@ -1705,30 +1854,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     
   </div>
 
-  <!-- The question the model has put to the user. It stands over the chat box,
-       in a card of its own: the question and the reason for the ask at the top,
-       the answers the model offered under them, and a box for an answer the model
-       did not think of. An ordinary question counts its seconds down and is then
-       given up; a question the model cannot go on without waits, and says so. -->
-  <div class="ask hidden" id="ask">
-    <div class="ask-head">
-      <span class="ask-mark">
-        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5"/></svg>
-      </span>
-      <span class="ask-title" id="asktitle"></span>
-      <span class="ask-wait" id="askwait"></span>
-    </div>
-    <div class="ask-choices" id="askchoices"></div>
-    <div class="ask-own">
-      <textarea id="askdraft" rows="1" spellcheck="false"
-        placeholder="Answer in your own words"></textarea>
-      <button class="ask-send" id="asksend" title="Send your answer to the model">
-        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.6V3.4M4.2 7.2 8 3.4l3.8 3.8"/></svg>
-        <span>Send</span>
-      </button>
-    </div>
-    <div class="ask-note" id="asknote"></div>
-  </div>
+
 
   <!-- The chat box. The badges stand in a row of their own under the words, so
        no part of the box is left empty. -->
@@ -1750,6 +1876,46 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
   </div>
 
   <div class="dock" id="dock">
+    <!-- The question the model has put to the user. It stands over the chat box,
+         in a card of its own: the question and the reason for the ask at the top,
+         the answers the model offered under them, and a box for an answer the model
+         did not think of. An ordinary question counts its seconds down and is then
+         given up; a question the model cannot go on without waits, and says so. -->
+    <div class="ask hidden" id="ask">
+      <div class="ask-head">
+        <span class="ask-mark">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5"/></svg>
+        </span>
+        <span class="ask-title" id="asktitle"></span>
+        <span class="ask-wait" id="askwait"></span>
+      </div>
+      <div class="ask-choices" id="askchoices"></div>
+      <div class="ask-own">
+        <textarea id="askdraft" rows="1" spellcheck="false"
+          placeholder="Answer in your own words"></textarea>
+        <button class="ask-send" id="asksend" title="Send your answer to the model">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.6V3.4M4.2 7.2 8 3.4l3.8 3.8"/></svg>
+          <span>Send</span>
+        </button>
+      </div>
+      <div class="ask-note" id="asknote"></div>
+    </div>
+
+    <!-- The messages the user has put by for later. A model that is still
+         writing takes them one after another when it comes to the end of the
+         answer, the oldest first, and the oldest stands at the bottom of the
+         list. The list is shut up to one line until the user opens it, and it
+         stands over the chat box in the room of its own, so the widget of the
+         work in hand and the question of the model never stand over it. -->
+    <div class="queue hidden" id="queue">
+      <button class="queue-head" id="queuehead" title="Open the list of the messages waiting to go">
+        <svg class="svg qcaret" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>
+        <span class="qtitle">Waiting to go</span>
+        <span class="qcount" id="queuecount">0</span>
+      </button>
+      <div class="queue-list hidden" id="queuelist"></div>
+    </div>
+
     <div class="box" id="box">
       <!-- How far the server is with the words it was sent. The number stands
            in the middle of a ring that fills with it, and the words under the
@@ -1917,6 +2083,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Bold words in the chat</span>
           <span class="sub">A word held between two marks of boldness is written in the heavier shape of the letters. Turn this off to read the marks as part of the words themselves.</span>
           <div class="ctl"><input id="fBoldMarkdown" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Seamless chat</span>
+          <span class="sub">The panels of the thoughts and of the calls stand on the chat itself: no ground of their own, no line about them, and no rule of colour down the left hand edge of a thought. The mark that opens a panel then stands beside its heading, instead of at the far right of it, for with nothing drawn about a panel the far right is a long way from the words the mark belongs to.</span>
+          <div class="ctl"><input id="fSeamless" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Ask a silence over</span>
           <span class="sub">When the model stops by itself without writing a word, a command or a fault, the same ask goes out again this many times before the chat says the model gave no answer. A model that thought a while and then stopped very nearly always goes on when asked again. 0 leaves a silence alone.</span>
           <div class="ctl"><input id="fSilentRetries" type="number" min="0" max="10" step="1" placeholder="2"><span class="unit">times</span></div></div>
@@ -1929,6 +2098,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Steps in one answer</span>
           <span class="sub">How many turns of the model one answer may take. Each command is followed by another turn, so a long task needs room here. -1 means no limit: the answer ends only when the model stops by itself.</span>
           <div class="ctl"><input id="fAnswerSteps" type="number" min="-1" max="1000000" step="1" placeholder="-1"><span class="unit">turns, -1 for no limit</span></div></div>
+        <div class="fld"><span class="lbl">Time for one tool call</span>
+          <span class="sub">How long a call of a tool is given to come back within. A call that is still running when its time is gone is stopped, and the model is told that it ran out of time; everything the call had given by then still goes back to it. While a call runs, its block offers a mark to stop it and a mark to give it five minutes more. 0 gives a call no time at all, so it may run as long as it likes.</span>
+          <div class="ctl"><input id="fToolSeconds" type="number" min="0" max="86400" step="30" placeholder="600"><span class="unit">seconds, 0 for no limit</span></div></div>
         <div class="fld"><span class="lbl">A long paste becomes a file</span>
           <span class="sub">When a paste into the chat box is longer than this, the text is attached to the message as a file instead of being written in the box. The least is 100.</span>
           <div class="ctl"><input id="fPasteLimit" type="number" min="100" max="1000000" step="1" placeholder="6000"><span class="unit">characters</span></div></div>
@@ -1938,7 +2110,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
         <div class="fld"><span class="lbl">A question of the model waits</span>
           <span class="sub">How long the model waits for you to answer a question it put to you before it goes on without an answer and is told that you did not reply. Questions of this kind are the ordinary ones: the model could go on, but would rather ask.</span>
-          <div class="ctl"><input id="fAskSeconds" type="number" min="1" max="86400" step="1" placeholder="10"><span class="unit">seconds</span></div></div>
+          <div class="ctl"><input id="fAskSeconds" type="number" min="1" max="86400" step="1" placeholder="30"><span class="unit">seconds</span></div></div>
         <div class="fld"><span class="lbl">A weighty question waits</span>
           <span class="sub">How long the model waits for a question it marked as one it cannot go on without — a token that was never given, a choice only you can make. 0 means it waits until you answer, which is what such a question asks for.</span>
           <div class="ctl"><input id="fAskCriticalSeconds" type="number" min="0" max="86400" step="1" placeholder="0"><span class="unit">seconds, 0 for as long as it takes</span></div></div>
@@ -2108,8 +2280,8 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
         <div class="sec">Graphics cards</div>
         <div class="fld wide"><span class="lbl">VRAM budget</span>
-          <span class="sub">How much of the cards is used for the model. Using all of it fills every card.</span>
-          <div class="ctl"><input id="mVram" type="range" min="0" max="1" step="128" value="0"><span class="unit" id="mVramText">0 MiB</span></div></div>
+          <span class="sub">How much of the cards the model may work in. What is left of them stands over for the server and for the talk. The fit of the model into the cards is asked for always, with the context size you set, and what stands over of a card never falls below 256 MiB.</span>
+          <div class="ctl"><input id="mVram" type="range" min="1" max="100" step="1" value="90"><span class="unit" id="mVramText">90%</span></div></div>
 
         <div class="sec">Template</div>
         <div class="fld wide"><span class="lbl">Chat template</span>
@@ -2270,7 +2442,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'think', 'thinktext', 'thinkwrap',
-  'thinkmenu', 'draft', 'send', 'parts',
+  'thinkmenu', 'draft', 'send', 'parts', 'queue', 'queuehead', 'queuecount', 'queuelist',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
   'viewer', 'lookname', 'lookkind', 'lookclose', 'lookbody',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
@@ -2297,7 +2469,7 @@ var cur = null;        // the last state
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
-  highlight: true, bold: true, chapters: true, paste: 6000, width: 780 };
+  highlight: true, bold: true, seamless: false, chapters: true, paste: 6000, width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -2348,6 +2520,15 @@ var CHAT_LEAST = 780;
 
 function draw(s) {
   cur = s;
+  // A message that was put by while the model was writing goes out when the
+  // answer it waited for is over.
+  flushQueue(s);
+  // The box says what it does with the words written in it now: the mark of
+  // send, and the words of the box itself, follow whether the model is writing.
+  sendLook();
+  // The clock of a call that is running is taken up here, so it moves with the
+  // state and not with the block that happens to be on the screen.
+  takeRunClock(s);
   document.body.classList.toggle('dark', !!s.dark);
   readChatting(s);
   el.darkbtn.title = s.dark ? 'Switch to the pale colours' : 'Switch to the dark colours';
@@ -2408,6 +2589,10 @@ function readChatting(s) {
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
   chatting.bold = chat.bold_markdown !== false;
+  chatting.seamless = !!chat.seamless;
+  // The seamless chat is a look over the whole thread, so it stands on the page
+  // itself and not on one part of it.
+  document.body.classList.toggle('seamless', chatting.seamless);
   chatting.chapters = chat.chapters !== false;
   chatting.paste = chat.paste_limit || 6000;
   chatting.width = Number(chat.width) || CHAT_LEAST;
@@ -2634,24 +2819,9 @@ function fillSandboxMenu(s) {
   var menu = el.sandboxmenu;
   if (!menu) { return; }
   menu.innerHTML = '';
-  // The jail itself stands at the head of the menu, for the three settings below
-  // are the gates of that jail.
-  var jail = make('button', 'toggle' + (s.sandbox ? ' on' : ''));
-  jail.type = 'button';
-  jail.title = s.sandbox_available
-    ? 'Run every terminal command inside a bubblewrap jail. A command sees only the working directory and has no network. In a repository, commands start in the repository folder.'
-    : (s.sandbox_note || 'bubblewrap (bwrap) was not found. Install it to run terminal commands in the sandbox.');
-  var jailWord = make('span', 'word');
-  jailWord.textContent = 'Sandbox';
-  jail.appendChild(jailWord);
-  jail.appendChild(make('span', 'sw'));
-  jail.addEventListener('click', function (event) {
-    event.stopPropagation();
-    post('/api/sandbox', { on: !(cur && cur.sandbox) });
-  });
-  menu.appendChild(jail);
-  menu.appendChild(make('div', 'sep'));
-  // The three gates. They are asked for one at a time, and each stands off.
+  // The three gates. The jail itself is not a line in here: the badge of the
+  // sandbox is the switch of the jail, and this menu holds only what a command
+  // may reach beyond the jail once it is on. They are asked for one at a time, and each stands off.
   var gates = [
     ['network', 'Network access',
       'A command of this chat may reach the network: downloads, package updates, and other machines. Off unless you open it.'],
@@ -2843,13 +3013,25 @@ var TOOL_LINES = [
    'The model may run a command. A command runs in the sandbox when the sandbox is on, and reaches only the working directory of the chat unless the menu of the sandbox badge opens more.'],
   ['files', 'File management',
    'The model may change a file of the chat and make a new one. Both work in the working directory of the chat and nowhere else, and they run in the program, so the sandbox of a command is not between them.'],
-  ['picture', 'Look at a picture',
+  ['picture', 'View images',
    'The model may look at a picture of the chat. The picture is read in the program and shown to the model, and never written out again.'],
-  ['hand_out', 'Hand a file to the user',
+  ['hand_out', 'Offer files for download',
    'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all.'],
-  ['ask', 'Ask you a question',
+  ['ask', 'Ask questions',
    'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.']
 ];
+
+// Whether any kind of tool stands switched on for this chat. They stand on from
+// the beginning, so a chat offers its tools until the user takes them away - and
+// the question is asked of the state rather than of the menu, for the menu is
+// filled only when it is next opened.
+function anyToolOn(s) {
+  var held = (s && s.tool_switches) || {};
+  for (var n = 0; n < TOOL_LINES.length; n++) {
+    if (held[TOOL_LINES[n][0]] !== false) { return true; }
+  }
+  return false;
+}
 
 // One line of the menu of the badge: a kind of tool, with a switch at the end of
 // it. The menu stays open under a click, so the switch is seen to move.
@@ -2868,28 +3050,14 @@ function toolLine(part, word, tip, on) {
   return line;
 }
 
-// The menu of the badge of the tools. The badge no longer turns one thing on or
-// off: the tools of the program are several kinds of thing, and the user must
-// be able to see which of them the model may reach. The badge itself stands at
-// the head of its own menu, as the jail stands at the head of the menu of the
-// sandbox, for it is the door over all of them.
+// The menu of the badge of the tools: one line for every kind of tool the model
+// may reach. The badge of the tools is not a line in its own menu, for it is the
+// door over all of them and answers from where it stands in the row rather than
+// from within the list of what it lets through.
 function fillToolMenu(s) {
   var menu = el.codemenu;
   if (!menu) { return; }
   menu.innerHTML = '';
-  var all = make('button', 'toggle' + (s.code ? ' on' : ''));
-  all.type = 'button';
-  all.title = 'Every tool of the program at once. A tool that is switched off in this menu stays off when the badge comes back on.';
-  var allWord = make('span', 'word');
-  allWord.textContent = 'All the tools';
-  all.appendChild(allWord);
-  all.appendChild(make('span', 'sw'));
-  all.addEventListener('click', function (event) {
-    event.stopPropagation();
-    post('/api/code', { on: !(cur && cur.code) });
-  });
-  menu.appendChild(all);
-  menu.appendChild(make('div', 'sep'));
   var held = s.tool_switches || {};
   for (var n = 0; n < TOOL_LINES.length; n++) {
     var one = TOOL_LINES[n];
@@ -2914,17 +3082,25 @@ function closeToolMenu() {
 // still be hiding a tool.
 function drawTools(s) {
   if (!el.code) { return; }
-  el.code.classList.toggle('on', !!s.code);
   var held = s.tool_switches || {};
   var off = 0;
   for (var n = 0; n < TOOL_LINES.length; n++) {
     if (held[TOOL_LINES[n][0]] === false) { off += 1; }
   }
-  el.code.title = (s.code
+  // The badge is the door over every tool of the program, and a door that
+  // stands on with nothing behind it reads as a fault: with every line of the
+  // drop-down switched off no tool is offered at all, whatever the door was
+  // last told. The engine shuts the door along with the last line, so the two
+  // stand together from here on; a chat written before that is read as it is.
+  var shown = !!s.code && anyToolOn(s);
+  el.code.classList.toggle('on', shown);
+  el.code.title = (shown
       ? 'The model may reach the tools of the program in this chat.'
       : 'No tool of the program is offered to the model in this chat.')
     + (off ? ' ' + off + ' of ' + TOOL_LINES.length + ' are switched off in the menu.' : '')
-    + ' Click to switch all of them on or off; click the arrow to choose them one by one.';
+    + ' Click to switch all of them on or off; the arrow at the right, or a right click over the badge, chooses them one by one.'
+    + (off === TOOL_LINES.length
+      ? ' With none of them switched on, the badge opens that menu instead.' : '');
   if (el.codemenu && !el.codemenu.classList.contains('hidden')) { fillToolMenu(s); }
 }
 
@@ -2945,7 +3121,7 @@ function drawBadges(s) {
     + (reached.length
       ? 'Open to a command of this chat: ' + reached.join(', ') + '.'
       : 'A command has no network, no package installs, and no fetch.')
-    + ' Click to open the settings of the sandbox.';
+    + ' Click to put the jail on or off; the arrow at the right, or a right click over the badge, opens what a command may reach beyond it.';
   var thinking = s.thinking || { mode: 'off', available: false, modes: [] };
   // The badge says what the model will do, in the words of this page. The
   // short names stay between the page and the server.
@@ -3835,6 +4011,155 @@ function headName(one, shape) {
   return shape && shape.file ? '' : firstLine(one.command);
 }
 
+// ------------------------------------------------- a call that is running
+//
+// Every call of a tool is given a time to come back within, from the Chatting
+// settings. While a call runs, its block says what time it has left and wears
+// two marks: the hand that cuts the call short, and the hand that gives it five
+// minutes more. The engine counts the seconds and the page reads them; between
+// two looks at the state the page counts them on its own, so the number in the
+// head of a block never stands still.
+
+var runLeft = -1;    // the seconds left, as the last look of the state gave them
+var runAt = 0;       // the moment those seconds were counted from
+var runTimer = 0;    // the timer that writes the number again every second
+
+// The words of the clock. Nothing is said of a call with no time to run out,
+// for such a call has nothing left and nothing to press.
+function clockWords(left) {
+  if (left < 0) { return ''; }
+  if (left >= 60) {
+    var minutes = Math.floor(left / 60);
+    var seconds = left % 60;
+    return minutes + ' min' + (seconds ? ' ' + seconds + ' s' : '') + ' left';
+  }
+  return left + (left === 1 ? ' second left' : ' seconds left');
+}
+
+// The seconds left now, counted from the last look at the state rather than
+// read out of it again, for the state is only read so often.
+function runLeftNow() {
+  if (runLeft < 0) { return -1; }
+  var gone = Math.floor((Date.now() - runAt) / 1000);
+  return Math.max(0, runLeft - gone);
+}
+
+// Take up the clock of the call that is running, from the state just looked at.
+// When nothing stands running the clock is put away with the marks.
+function takeRunClock(s) {
+  var one = s && s.running;
+  if (!one || one.left === null || one.left === undefined) {
+    runLeft = -1;
+    stopRunClock();
+    return;
+  }
+  runLeft = Number(one.left);
+  runAt = Date.now();
+  startRunClock();
+}
+
+function startRunClock() {
+  if (runTimer) { return; }
+  runTimer = window.setInterval(function () {
+    if (runLeft < 0) { stopRunClock(); return; }
+    paintRunClock();
+  }, 1000);
+}
+
+function stopRunClock() {
+  if (runTimer) { window.clearInterval(runTimer); runTimer = 0; }
+}
+
+// Write the seconds left on every clock that stands in the chat. Only one call
+// runs at a time, but two blocks wearing a clock is no fault of the page, and
+// both of them should tell the truth.
+function paintRunClock() {
+  var left = runLeftNow();
+  var clocks = document.querySelectorAll('.thead .clock');
+  for (var i = 0; i < clocks.length; i++) {
+    clocks[i].textContent = clockWords(left);
+    if (left >= 0 && left <= 30) { clocks[i].classList.add('short'); }
+  }
+}
+
+// One of the two marks of a running call. A mark stands in the head of the
+// block, and the head is a button itself, so a mark is words and not a button
+// of its own: a button within a button answers to neither of them.
+// The marks of a call that is running are marks of the hand: they are buttons,
+// so the keyboard reaches them, and the tip says what each does.
+function runMark(path, words, tip) {
+  var one = document.createElement('button');
+  one.type = 'button';
+  one.className = 'tmark';
+  one.title = tip;
+  one.appendChild(mark(path));
+  var said = document.createElement('span');
+  said.textContent = words;
+  one.appendChild(said);
+  return one;
+}
+
+// The marks of a call that is running, and the time it has left. A call with no
+// time to run out wears none of the three, for there is nothing to cut short and
+// nothing to add. The marks answer for themselves alone: the head of the block
+// opens and closes the block, and a mark is not the head.
+function runMarks(m) {
+  var one = cur && cur.running;
+  if (!one || one.id !== m.id) { return null; }
+  if (one.timeout === null || one.timeout === undefined) { return null; }
+  var box = document.createElement('span');
+  box.className = 'runer';
+  var left = runLeftNow();
+  var clock = document.createElement('span');
+  clock.className = 'clock' + (left >= 0 && left <= 30 ? ' short' : '');
+  clock.textContent = clockWords(left);
+  box.appendChild(clock);
+  var more = runMark('M8 3.6v8.8M3.6 8h8.8', '+5 min',
+    'Give this call five minutes more to come back within.');
+  var stop = runMark('M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2', 'stop',
+    'Stop this call now. Everything it has given by then still goes back to the model.');
+  stop.classList.add('danger');
+  more.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    post('/api/tool_extend', {});
+  });
+  stop.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    post('/api/tool_cancel', {});
+  });
+  box.appendChild(more);
+  box.appendChild(stop);
+  return box;
+}
+
+// The two counts of a change of a file, read out of the receipt of the run. The
+// receipt says what was written and what was taken away, and the head of the
+// block says the same again in the two colours the eye already knows for them.
+// A run of another tool, or a change that came to no words at all, has nothing
+// to show and shows nothing.
+function hunkCount(m) {
+  var line = String(m.tool || '').split('\n')[0];
+  var found = /\+([0-9]+) -([0-9]+)/.exec(line);
+  if (!found) { return null; }
+  return { added: Number(found[1]), removed: Number(found[2]) };
+}
+
+// The two counts, as they stand in the head of the block.
+function hunkMarks(one) {
+  var pair = document.createElement('span');
+  pair.className = 'hunk';
+  pair.title = 'Lines written, and lines taken away, by this change of the file.';
+  var plus = document.createElement('span');
+  plus.className = 'plus';
+  plus.textContent = '+' + one.added;
+  var minus = document.createElement('span');
+  minus.className = 'minus';
+  minus.textContent = '-' + one.removed;
+  pair.appendChild(plus);
+  pair.appendChild(minus);
+  return pair;
+}
+
 // One run of a tool. The head says which tool it is, what it was pointed at, and
 // what became of it. The body keeps what the call named and what came back under
 // their own small labels, each cut off at a height. A run with no result yet
@@ -3861,6 +4186,17 @@ function toolBox(m) {
     ? offerHead(shape, m, !running && !m.failed && !cut)
     : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
+  // A change of a file says how many lines it wrote and how many it took away.
+  var hunks = hunkCount(m);
+  if (hunks) { head.appendChild(hunkMarks(hunks)); }
+  // A call that is running may be cut short, or given more time, from the head
+  // of its block. The marks stand while the call runs and go when it is over,
+  // and they stand before the word of the state, which keeps the far right of
+  // the head whatever else the head carries.
+  if (running) {
+    var extra = runMarks(m);
+    if (extra) { head.appendChild(extra); }
+  }
   var state = make('span', 'state' + (running ? ' run' : '')
     + (cut ? ' cut' : (m.failed ? ' fail' : '')));
   state.textContent = running ? 'running' : (cut ? 'cancelled' : (m.failed ? 'failed' : 'done'));
@@ -4423,6 +4759,7 @@ function blockNode(block) {
   if (block.kind === 'code') {
     var code = make('pre', 'code');
     code.dataset.lang = block.lang || '';
+    watchCode(code);
     paintCode(code, block.text, block.lang);
     return code;
   }
@@ -4443,6 +4780,8 @@ var ink = {
   panel: null,      // the panel of the thinking, kept out while there is none
   panelWords: null, // the body of that panel: the thoughts and the runs of tools
   thought: null,    // the words of the thinking, one part of the body above
+  thoughtHome: null, // where in the thoughts the mark of an unfinished answer
+                     // stands, while the answer has no words of its own
   base: 0,          // what the thoughts before this one took, in milliseconds
   words: null,      // where the words of the answer stand
   caret: null,      // the mark that says the answer is not over
@@ -4568,13 +4907,42 @@ function settle(node) {
   node.normalize();
 }
 
+// A block of code the user has gone into with the wheel, or with a drag of the
+// finger, is the user's from that moment. The writing that goes on at the end of
+// it is no longer followed, and the place the user reached is put back after the
+// block is painted again for its colours. A block that is too short to scroll is
+// not marked, for a wheel over it moves the chat and not the block.
+function watchCode(one) {
+  var take = function () {
+    if (one.scrollHeight > one.clientHeight) { one.dataset.looked = '1'; }
+  };
+  one.addEventListener('wheel', take, { passive: true });
+  one.addEventListener('touchmove', take, { passive: true });
+}
+
+// A block of code that has just been painted stands at its first line again,
+// for painting takes the place it was scrolled to along with the words. The
+// place is therefore put back after every painting: the block of code that was
+// being written is kept at its end, where the writing is, and a block the user
+// was reading in the middle is kept in the middle.
+function placeCode(holder) {
+  if (holder.dataset.looked === '1') { return; }
+  holder.scrollTop = holder.scrollHeight;
+}
+
 // The new words of the block that can still grow. They are given as they were
 // written, and put on the page as parts. A block of code is painted again whole,
 // so its colours stay right while the words come in; a block of words takes the
 // new words at its end, behind a fade.
 function putTail(holder, written, rebuilt) {
   if (holder.classList.contains('code')) {
+    // The place the block stood at is kept across the painting, for a block of
+    // code the user was reading in the middle must not be sent back to its first
+    // line because a colour was put on a word of it.
+    var place = holder.scrollTop;
     paintCode(holder, written, holder.dataset.lang || '');
+    if (holder.dataset.looked === '1') { holder.scrollTop = place; }
+    else { placeCode(holder); }
     return;
   }
   var parts = inlineParts(written);
@@ -4629,8 +4997,11 @@ function writeSaid() {
   if (!ink.words) { return; }
   var holder = writeBlocks(ink.words, ink, ink.said.slice(0, ink.shown));
   // The mark of an answer that is not over stands behind the last words, and
-  // not on a line of its own when those words are plain words.
-  var home = (holder && holder.classList.contains('body')) ? holder : ink.words;
+  // not on a line of its own: it goes wherever the words that can still grow
+  // stand, so it follows them into a list, a heading, a quote or a table.
+  // While the thoughts are the last words on the page it stands among them.
+  var home = (holder && holder.nodeType === 1) ? holder : ink.words;
+  if (!ink.said && ink.thoughtHome) { home = ink.thoughtHome; }
   if (ink.caret && ink.caret.parentNode !== home) { home.appendChild(ink.caret); }
 }
 
@@ -4639,7 +5010,15 @@ function writeSaid() {
 function writeThought() {
   var node = ink.thought;
   if (!node) { return; }
-  writeBlocks(node, ink.thoughtShape, ink.musing.slice(0, ink.shownMusing));
+  var grown = writeBlocks(node, ink.thoughtShape, ink.musing.slice(0, ink.shownMusing));
+  // While the answer has no words of its own the thoughts are the last words
+  // on the page, so the mark of an answer that is not over stands among them
+  // and not below the panel, where it read as a fault of its own.
+  ink.thoughtHome = (grown && grown.nodeType === 1) ? grown : null;
+  if (!ink.said && ink.thoughtHome && ink.caret
+      && ink.caret.parentNode !== ink.thoughtHome) {
+    ink.thoughtHome.appendChild(ink.caret);
+  }
   // The end of the thinking is what matters while it comes in, unless the
   // user has gone up in the panel to read the start of it. The body of the
   // panel is what moves, for the thoughts stand inside it.
@@ -4736,8 +5115,17 @@ function feedInk(m) {
 
 // The answer is over, or another chat stands in the way of the writer.
 function stopInk() {
+  // The writing of the answer is over. A block of code that was being written
+  // goes back to its first line, for a block is read from its beginning and the
+  // end of the writing is not the beginning of the block. A block the user
+  // looked about in is left where the user left it.
+  if (ink.turn || ink.frame) {
+    backToTop(ink.turn);
+    backToTop(ink.panelWords);
+  }
   if (ink.frame) { cancelAnimationFrame(ink.frame); }
   ink.turn = null; ink.panel = null; ink.panelWords = null; ink.thought = null;
+  ink.thoughtHome = null;
   ink.words = null; ink.base = 0;
   ink.head = null; ink.label = null; ink.ms = 0; ink.done = false;
   ink.caret = null; ink.said = ''; ink.musing = ''; ink.shown = 0;
@@ -5596,12 +5984,34 @@ function drawThread(s) {
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
 }
 
-// The words of the chat are followed while the user stands near the bottom,
-// and left alone when the user has gone up to read.
+// Send the blocks of code of a part of the chat back to their first line, when
+// the user never went into them.
+function backToTop(where) {
+  if (!where || !where.querySelectorAll) { return; }
+  var codes = where.querySelectorAll('pre.code');
+  for (var i = 0; i < codes.length; i++) {
+    var one = codes[i];
+    if (one.dataset.looked === '1') { continue; }
+    if (one.scrollHeight > one.clientHeight) { one.scrollTop = 0; }
+  }
+}
+
+// The words of the chat are followed while the user stands at the end of them,
+// and left alone the moment the user goes up to read. The end is meant exactly:
+// a chat that was followed a finger's breadth away from the end used to be
+// taken back down the moment the model wrote the next word, so one turn of the
+// wheel upwards was no halt at all. Following is taken up again when the user
+// comes down to the last word of the chat of their own accord.
 el.thread.addEventListener('scroll', function () {
   var box = el.thread;
-  stick = box.scrollHeight - (box.scrollTop + box.clientHeight) < 90;
+  stick = box.scrollHeight - (box.scrollTop + box.clientHeight) < 4;
 });
+// A wheel turned upwards is the hand of the user going up to read, and it says
+// so before the chat has finished moving: the following stops at once, and the
+// chat stands where the user left it.
+el.thread.addEventListener('wheel', function (ev) {
+  if (ev.deltaY < 0) { stick = false; }
+}, { passive: true });
 
 // ---------------------------------------------------- the offer of a file
 //
@@ -6700,29 +7110,273 @@ function anythingToSend() {
 function grow() {
   el.draft.style.height = 'auto';
   el.draft.style.height = Math.min(el.draft.scrollHeight, window.innerHeight * 0.4) + 'px';
-  if (cur) {
-    var live = anythingToSend() || !!cur.generating;
-    el.send.classList.toggle('live', live && !cur.generating);
-    el.send.title = sendTitle(cur);
+  sendLook();
+}
+
+// What the box does with the words written in it now. While the model is
+// writing, the mark of send is the mark of stop and the box says that a message
+// is put by for later instead of going out at once.
+function sendLook() {
+  if (!cur) { return; }
+  var live = anythingToSend() || !!cur.generating;
+  el.send.classList.toggle('live', live && !cur.generating);
+  el.send.title = sendTitle(cur);
+  el.draft.placeholder = cur.generating
+    ? 'The model is writing - press Enter to put this message by for later'
+    : 'Write a message for the model';
+}
+
+// ---------------------------------------------------------- the waiting list
+// A message written while the model is still writing is not put over the
+// answer: it stands in the list over the box and goes out when the answer it
+// waited for is over. The list keeps the messages in the order they are to go
+// out in, the next one first, and writes them out the other way about, so the
+// oldest stands at the bottom and the newest at the top. The user opens and
+// shuts the list, writes a message again, takes one out, and drags the rows
+// past one another.
+var queue = [];
+var queueOpen = false;
+var queueSeq = 0;
+var queueSentAt = 0;
+var queueChat = null;
+var queueDrag = -1;
+
+function chatIdOf(s) { return (s && s.chat && s.chat.id) || ''; }
+
+// The body of the ask, from the words of one message and the files hung on it.
+// The files go out in the order of the blocks over the box, each with its whole
+// name, ending included.
+function messageBody(text, files) {
+  var body = { text: text };
+  if (files && files.length > 0) {
+    body.attachments = files.map(function (one) {
+      return { name: one.name, mime: one.mime, data: one.data, text: one.text };
+    });
   }
+  return body;
 }
 
 function send() {
   var text = el.draft.value.trim();
   if (!text && heldFiles.length === 0) { return; }
-  var body = { text: text };
-  if (heldFiles.length > 0) {
-    // The files go out in the order of the blocks over the box, each with
-    // its whole name, ending included.
-    body.attachments = heldFiles.map(function (one) {
-      return { name: one.name, mime: one.mime, data: one.data, text: one.text };
-    });
-  }
+  var files = heldFiles.slice();
   el.draft.value = '';
   heldFiles = [];
   drawParts();
   grow();
-  post('/api/send', body);
+  // The model is still writing, so the message waits its turn in the list.
+  if (cur && cur.generating) {
+    queueSeq += 1;
+    queue.push({ id: queueSeq, text: text, files: files });
+    if (queueChat === null) { queueChat = chatIdOf(cur); }
+    drawQueue();
+    return;
+  }
+  post('/api/send', messageBody(text, files));
+}
+
+// Send the oldest message of the list when the chat has come to the end of an
+// answer. The list belongs to one chat: another chat under the list takes the
+// list away, for a message written for one chat is not meant for another. A
+// message that has gone out needs a moment before the chat says it is writing
+// again, and without that moment the next message would go out beside it.
+function flushQueue(s) {
+  var id = chatIdOf(s);
+  if (queueChat !== null && queueChat !== id) {
+    queue.length = 0;
+    queueChat = null;
+    drawQueue();
+    return;
+  }
+  if (queue.length === 0 || s.generating || s.busy) { return; }
+  if (queueChat === null) { queueChat = id; }
+  if (Date.now() - queueSentAt < 1500) { return; }
+  var one = queue.shift();
+  queueSentAt = Date.now();
+  drawQueue();
+  post('/api/send', messageBody(one.text, one.files));
+}
+
+// The head of the list and, while it is open, the rows under it. The rows are
+// written from the newest message to the oldest, which is the list the other
+// way about from the order the messages go out in.
+function drawQueue() {
+  if (!el.queue) { return; }
+  var n = queue.length;
+  el.queue.classList.toggle('hidden', n === 0);
+  el.queue.classList.toggle('open', queueOpen);
+  if (el.queuecount) { el.queuecount.textContent = String(n); }
+  if (el.queuehead) {
+    el.queuehead.title = queueOpen
+      ? 'Shut the list of the messages waiting to go'
+      : 'Open the list of the messages waiting to go';
+  }
+  if (!el.queuelist) { return; }
+  el.queuelist.classList.toggle('hidden', !queueOpen);
+  queueRoom();
+  if (!queueOpen) { return; }
+  var vis = queue.slice().reverse();
+  el.queuelist.textContent = '';
+  for (var at = 0; at < vis.length; at++) {
+    el.queuelist.appendChild(queueRow(vis[at], at));
+  }
+  queueRoom();
+}
+
+// How much room the list takes over the box. The widget of the work in hand
+// stands over the box, and is not to stand over the list, so the height of the
+// list is written into --queue-h and the widget is put above both.
+function queueRoom() {
+  var room = 0;
+  if (el.queue && !el.queue.classList.contains('hidden')) {
+    room = el.queue.offsetHeight + 6;
+  }
+  document.documentElement.style.setProperty('--queue-h', room + 'px');
+}
+
+// The first words of a message, as they stand in the row: the first line of the
+// words, or the name of a file when the message is nothing but files.
+function queueWords(one) {
+  var first = one.text ? String(one.text).split('\n')[0] : '';
+  if (!first && one.files.length > 0) {
+    return one.files.length === 1
+      ? one.files[0].name
+      : one.files.length + ' files';
+  }
+  return first;
+}
+
+// Take the mark of a row being dragged, and the line under it, away again.
+function clearQueueMarks() {
+  if (!el.queuelist) { return; }
+  var rows = el.queuelist.querySelectorAll('.qrow');
+  for (var i = 0; i < rows.length; i++) {
+    rows[i].classList.remove('dragging', 'qbefore', 'qafter');
+  }
+}
+
+// Put one row of the list where another stands. The rows are seen the other way
+// about from the list of messages, so the going is done in the order of the
+// rows and the list of messages is then turned back again.
+function moveQueueRow(from, to, before) {
+  var vis = queue.slice().reverse();
+  if (from < 0 || from >= vis.length) { return; }
+  var one = vis.splice(from, 1)[0];
+  var at = to > from ? to - 1 : to;
+  at = Math.max(0, Math.min(vis.length, at + (before ? 0 : 1)));
+  vis.splice(at, 0, one);
+  queue = vis.reverse();
+  drawQueue();
+}
+
+// Write the words of a message again, in the row itself.
+function editQueueRow(row, one) {
+  var box = document.createElement('textarea');
+  box.className = 'qedit-box';
+  box.rows = 2;
+  box.value = one.text;
+  row.textContent = '';
+  row.draggable = false;
+  row.appendChild(box);
+  box.focus();
+  var done = false;
+  var end = function (keep) {
+    if (done) { return; }
+    done = true;
+    if (keep) {
+      var words = box.value.trim();
+      if (words) { one.text = words; }
+    }
+    drawQueue();
+  };
+  box.addEventListener('keydown', function (ev) {
+    ev.stopPropagation();
+    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); end(true); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); end(false); }
+  });
+  box.addEventListener('blur', function () { end(true); });
+}
+
+// One row: the mark to take hold of, the first words of the message, and the
+// two marks of the hand at the side, for writing it again and taking it out.
+function queueRow(one, at) {
+  var row = document.createElement('div');
+  row.className = 'qrow';
+  row.draggable = true;
+  var grip = document.createElement('span');
+  grip.className = 'qgrip';
+  grip.title = 'Take hold of this mark and drag the message up or down the list';
+  grip.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 5.5h8M4 10.5h8"/></svg>';
+  row.appendChild(grip);
+  var words = document.createElement('span');
+  words.className = 'qtext';
+  var shown = queueWords(one);
+  words.textContent = shown;
+  words.title = one.text || shown;
+  row.appendChild(words);
+  if (one.files.length > 0 && one.text) {
+    var files = document.createElement('span');
+    files.className = 'qfiles';
+    files.textContent = one.files.length === 1 ? '1 file' : one.files.length + ' files';
+    row.appendChild(files);
+  }
+  var marks = document.createElement('span');
+  marks.className = 'qbtns';
+  var again = document.createElement('button');
+  again.className = 'qbtn';
+  again.title = 'Write this message again';
+  again.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 12.6h2.2l6-6-2.2-2.2-6 6v2.2zM10 3.6l2.2 2.2"/></svg>';
+  again.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    editQueueRow(row, one);
+  });
+  var out = document.createElement('button');
+  out.className = 'qbtn fault';
+  out.title = 'Take this message out of the list';
+  out.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>';
+  out.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    var at = queue.indexOf(one);
+    if (at >= 0) { queue.splice(at, 1); }
+    drawQueue();
+  });
+  marks.appendChild(again);
+  marks.appendChild(out);
+  row.appendChild(marks);
+  row.addEventListener('dragstart', function (ev) {
+    queueDrag = at;
+    row.classList.add('dragging');
+    if (ev.dataTransfer) {
+      ev.dataTransfer.effectAllowed = 'move';
+      try { ev.dataTransfer.setData('text/plain', String(one.id)); } catch (e) { /* nothing else to carry */ }
+    }
+  });
+  row.addEventListener('dragend', clearQueueMarks);
+  row.addEventListener('dragover', function (ev) {
+    if (queueDrag < 0) { return; }
+    ev.preventDefault();
+    var box = row.getBoundingClientRect();
+    var before = (ev.clientY - box.top) < box.height / 2;
+    clearQueueMarks();
+    row.classList.add(before ? 'qbefore' : 'qafter');
+  });
+  row.addEventListener('drop', function (ev) {
+    ev.preventDefault();
+    var box = row.getBoundingClientRect();
+    var before = (ev.clientY - box.top) < box.height / 2;
+    var from = queueDrag;
+    clearQueueMarks();
+    if (from < 0 || from === at) { return; }
+    moveQueueRow(from, at, before);
+  });
+  return row;
+}
+
+if (el.queuehead) {
+  el.queuehead.addEventListener('click', function () {
+    queueOpen = !queueOpen;
+    drawQueue();
+  });
 }
 
 el.send.addEventListener('click', function () {
@@ -6753,41 +7407,84 @@ el.newrepo.addEventListener('click', function () {
 });
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
-// The badge of the tools is the switch over all of them, and the arrow beside its
-// name opens the drop-down where they are chosen one by one.
-el.code.addEventListener('click', function () {
-  closeToolMenu();
-  if (cur) { post('/api/code', { on: !cur.code }); }
-});
-el.codemenuCaret = el['codemenu-caret'];
-if (el.codemenuCaret) {
-  el.codemenuCaret.addEventListener('click', function (event) {
+// Bring one drop-down up and every other one down, for two menus over one row of
+// badges read as a fault of the page.
+function showOnly(opener) {
+  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu();
+  if (opener) { opener(); }
+}
+
+// The right button of the mouse anywhere over a badge that holds a drop-down
+// opens that drop-down. The menu of the window would otherwise come up over the
+// badge, and the choice the user was reaching for would stay out of reach.
+function wireRightClick(badge, opener) {
+  if (!badge) { return; }
+  badge.addEventListener('contextmenu', function (event) {
+    event.preventDefault();
     event.stopPropagation();
-    if (el.codemenu.classList.contains('hidden')) {
-      closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); openToolMenu();
-    } else { closeToolMenu(); }
+    if (badge.disabled) { return; }
+    showOnly(opener);
   });
 }
+
+wireRightClick(el.code, openToolMenu);
+wireRightClick(el.sandbox, openSandboxMenu);
+wireRightClick(el.think, openThinkMenu);
+wireRightClick(el.mcp, openMcpMenu);
+// A badge that holds a drop-down of its own answers two places of itself. The
+// right of the badge, from its arrow to its edge, is the way into the menu; the
+// rest of the badge is the switch of the thing the badge stands for. Where that
+// thing is a group of switches and none of them stands on, the badge has nothing
+// to switch, so it opens the menu instead, which is where the switches are.
+function wireMenuBadge(badge, menu, open, onMain, switchedOn) {
+  if (!badge || !menu) { return; }
+  // A click on a badge whose menu stands open puts the menu away; any other
+  // brings it up over the badge.
+  var turn = function () {
+    if (menu.classList.contains('hidden')) { showOnly(open); }
+    else { menu.classList.add('hidden'); }
+  };
+  badge.addEventListener('click', function (event) {
+    event.stopPropagation();
+    if (badge.disabled) { return; }
+    // The right of the badge, from its arrow to the edge of the badge, is the way
+    // into the menu. The arrow by itself is a mark eleven pixels wide, which is
+    // no way at all to a choice a finger has to make, so the whole of the right
+    // side of the badge answers for it.
+    var zone = badge.querySelector('.down');
+    if (zone && event.clientX >= zone.getBoundingClientRect().left - 4) { turn(); return; }
+    // With nothing switched on in the menu there is nothing for the rest of the
+    // badge to switch, and the menu is where the switches are.
+    if (switchedOn && !switchedOn()) { showOnly(open); return; }
+    // A badge whose whole being is the choice held in its menu has no switch of
+    // its own to answer with, and opens the menu from anywhere else too.
+    if (onMain) { onMain(); } else { turn(); }
+  });
+}
+
+// The badge of the tools is the switch over all of them, and the right of the
+// badge - its arrow, or a right click anywhere over the badge - opens the
+// drop-down where they are chosen one by one. With none of them chosen there is
+// nothing for the badge to switch, so the badge opens the drop-down instead.
+wireMenuBadge(el.code, el.codemenu, openToolMenu, function () {
+  closeToolMenu();
+  if (cur) { post('/api/code', { on: !cur.code }); }
+}, function () { return anyToolOn(cur); });
 el.search.addEventListener('click', function () { if (cur) { post('/api/search', { on: !cur.search }); } });
-// The sandbox badge is a drop-down, for what a command may reach is three
-// settings, and the user must see all three together rather than cycle through
-// them blind.
-el.sandbox.addEventListener('click', function (event) {
-  event.stopPropagation();
-  if (el.sandboxmenu.classList.contains('hidden')) { closeThinkMenu(); openSandboxMenu(); } else { closeSandboxMenu(); }
+// The badge of the sandbox is the jail: it is put on or off from the badge
+// whatever the three settings say, for a command is either in the jail or out of
+// it. What a command may reach beyond the jail is opened from the right of the
+// badge, and never switched from the list.
+wireMenuBadge(el.sandbox, el.sandboxmenu, openSandboxMenu, function () {
+  if (cur) { post('/api/sandbox', { on: !cur.sandbox }); }
 });
 // The thinking badge is a drop-down, for a mode is chosen and not cycled
 // through: the user must be able to see what is on offer.
-el.think.addEventListener('click', function (event) {
-  event.stopPropagation();
-  if (el.thinkmenu.classList.contains('hidden')) { closeSandboxMenu(); openThinkMenu(); } else { closeThinkMenu(); }
-});
+wireMenuBadge(el.think, el.thinkmenu, openThinkMenu);
+// The badge of the servers of the user's own opens the list of them, for every
+// server is switched on its own and there is nothing to switch as a whole.
+wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
 // A click anywhere else in the page puts the menus away.
-el.mcp.addEventListener('click', function (event) {
-  event.stopPropagation();
-  if (el.mcpmenu.classList.contains('hidden')) { closeThinkMenu(); closeSandboxMenu(); openMcpMenu(); }
-  else { closeMcpMenu(); }
-});
 document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); });
 
 el.darkbtn.addEventListener('click', function () { post('/api/dark', { on: !(cur && cur.dark) }); });
@@ -6923,6 +7620,8 @@ var setTab = 'program';
 var progCfg = null;      // the settings read for the Program tab
 var mdl = null;          // the whole answer of get_model_settings
 var mdlId = '';          // the model the Model tab shows
+var progDirty = false;   // the Program tab holds words that were never written
+var mdlDirty = false;    // the Model tab holds words that were never written
 var prevTimer = 0;       // the timer that asks for the command line
 
 function byId(id) { return document.getElementById(id); }
@@ -7121,7 +7820,10 @@ function openSettings(tab) {
     : tab === 'mcp' ? 'mcp' : 'program';
   byId('overlay').classList.remove('hidden');
   showSetTab(setTab);
-  if (setTab === 'program') { loadProgram(); } else if (setTab === 'model') { loadModel(); }
+  // A tab that holds words never written is left standing as it is, for the
+  // settings read again would put the old words back over them.
+  if (setTab === 'program') { if (!progDirty) { loadProgram(); } }
+  else if (setTab === 'model') { if (!mdlDirty) { loadModel(); } }
   else if (setTab === 'mcp') { loadMcp(); }
 }
 
@@ -7155,7 +7857,7 @@ function showSetTab(tab) {
     ? 'The folders are read again the next time the program looks.'
     : tab === 'logs' ? 'llama-server writes the logs. Nothing here is saved.'
     : tab === 'mcp' ? 'Each server is kept as soon as it is saved here. Nothing of a server runs in the sandbox.'
-    : 'Saving stops a running server, because it was started with the old values.';
+    : 'A model that is loaded goes only when a value the server itself starts with has moved.';
   // Nothing of the Logs tab is saved, so the button for saving stands away.
   byId('saveSheet').style.display = (tab === 'logs' || tab === 'mcp') ? 'none' : '';
 }
@@ -7178,14 +7880,17 @@ function loadProgram() {
     byId('fToolsInThink').checked = cfg.chat_tools_in_thinking !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
     byId('fBoldMarkdown').checked = cfg.chat_bold_markdown !== false;
+    byId('fSeamless').checked = !!cfg.chat_seamless;
     byId('fSilentRetries').value = (cfg.chat_silent_retries === undefined || cfg.chat_silent_retries === null)
       ? 2 : cfg.chat_silent_retries;
     byId('fChapters').checked = cfg.chat_chapters !== false;
     byId('fToolSteps').value = stepsOf(cfg.chat_max_tool_steps);
     byId('fAnswerSteps').value = stepsOf(cfg.chat_max_answer_steps);
+    byId('fToolSeconds').value = (cfg.chat_tool_timeout === undefined || cfg.chat_tool_timeout === null)
+      ? 600 : cfg.chat_tool_timeout;
     byId('fPasteLimit').value = pasteLimitOf(cfg.pasted_text_char_limit);
     byId('fChatWidth').value = chatWidthOf(cfg.chat_width);
-    byId('fAskSeconds').value = askWaitOf(cfg.ask_seconds, 10);
+    byId('fAskSeconds').value = askWaitOf(cfg.ask_seconds, 30);
     byId('fAskCriticalSeconds').value = askWaitOf(cfg.ask_critical_seconds, 0);
     byId('fDateNewChat').checked = cfg.chat_date_new_chat !== false;
     byId('fContextFiles').checked = cfg.chat_context_files !== false;
@@ -7204,6 +7909,7 @@ function loadProgram() {
     sel.appendChild(setOption('No repository', ''));
     for (var i = 0; i < repos.length; i++) { sel.appendChild(setOption(repos[i].name, repos[i].id)); }
     sel.value = (cur && cur.repository && cur.repository.id) || '';
+    progDirty = false;
   }, function () {});
 }
 
@@ -7273,12 +7979,13 @@ function loadModel() {
     }
     var total = 0;
     for (var j = 0; j < gpus.length; j++) { if (gpus[j].is_offload) { total += gpus[j].memory_mb; } }
-    var rng = byId('mVram'); rng.min = 0; rng.max = Math.max(1, total); rng.step = 128;
-    rng.value = s.vram_budget || 0;
-    byId('mVramText').textContent = Math.round(s.vram_budget || 0) + ' MiB';
+    var rng = byId('mVram'); rng.min = 1; rng.max = 100; rng.step = 1;
+    rng.value = vramShareOf(s.vram_budget);
+    byId('mVramText').textContent = vramShareOf(s.vram_budget) + '%';
     byId('mTemplate').value = s.chat_template || '';
     byId('mExtra').value = s.extra_args || '';
     refreshPreview();
+    mdlDirty = false;
   }, function () {});
 }
 
@@ -7338,7 +8045,7 @@ function readModel() {
   s.tensor_parallel = byId('mTensor').checked;
   s.chat_template = byId('mTemplate').value;
   s.extra_args = byId('mExtra').value;
-  s.vram_budget = Number(byId('mVram').value) || 0;
+  s.vram_budget = vramShareOf(byId('mVram').value);
   var arr = [];
   var boxes = byId('mCards').querySelectorAll('input[data-i]');
   for (var k = 0; k < boxes.length; k++) { arr[Number(boxes[k].dataset.i)] = boxes[k].checked; }
@@ -7357,7 +8064,7 @@ function numOf(id, fallback) {
 
 // The two waits of a question the model put, as the sheet shows them. A set of
 // settings written before the waits existed holds nothing, and the wait of the
-// question itself is then stood in: ten seconds for an ordinary question, and as
+// question itself is then stood in: thirty seconds for an ordinary question, and as
 // long as it takes for one the model cannot go on without.
 function askWaitOf(value, fallback) {
   return (value === undefined || value === null) ? fallback : value;
@@ -7365,6 +8072,15 @@ function askWaitOf(value, fallback) {
 
 // A whole number of seconds out of a field of the sheet, kept between the two
 // bounds the field allows. The default stands where no number could be read.
+// The share of the cards the model may work in. The slider stands at ninety per
+// cent; a number that is no share at all -- which is what a settings file from
+// before the slider was a share holds -- is read as that.
+function vramShareOf(value) {
+  var made = Math.round(Number(value));
+  if (!isFinite(made) || made < 1 || made > 100) { return 90; }
+  return made;
+}
+
 function holdSeconds(id, fallback, least, greatest) {
   var made = Math.round(numOf(id, fallback));
   if (isNaN(made)) { made = fallback; }
@@ -7422,51 +8138,84 @@ function refreshPreview() {
   }, 140);
 }
 
+// The settings of the Program tab, read back from the fields. The settings that
+// came from the program stand under them as they came, so a setting with no
+// field in this tab of the sheet is written back exactly as it was read.
+function readProgram() {
+  var cfg = progCfg || {};
+  cfg.llama_dir = byId('fLlama').value;
+  cfg.models_dir = byId('fModels').value;
+  cfg.repositories_dir = byId('fRepos').value;
+  var port = parseInt(byId('fPort').value, 10);
+  cfg.remote_port = isNaN(port) ? (cfg.remote_port || 8723) : port;
+  cfg.upnp_enabled = byId('fUpnp').checked;
+  cfg.dark_mode = byId('fDark').checked;
+  cfg.chat_collapse_thinking = byId('fFoldThink').checked;
+  cfg.chat_collapse_tools = byId('fFoldTools').checked;
+  cfg.chat_grow_thinking = byId('fGrowThink').checked;
+  cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
+  cfg.chat_highlight = byId('fHighlight').checked;
+  cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
+  cfg.chat_seamless = byId('fSeamless').checked;
+  cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);
+  cfg.chat_chapters = byId('fChapters').checked;
+  cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
+  cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
+  cfg.chat_tool_timeout = holdSeconds('fToolSeconds', 600, 0, 86400);
+  cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
+  cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
+  cfg.ask_seconds = holdSeconds('fAskSeconds', 30, 1, 86400);
+  cfg.ask_critical_seconds = holdSeconds('fAskCriticalSeconds', 0, 0, 86400);
+  cfg.chat_date_new_chat = byId('fDateNewChat').checked;
+  cfg.chat_context_files = byId('fContextFiles').checked;
+  cfg.chat_compaction = byId('fCompaction').value;
+  cfg.chat_compact_by = byId('fCompactBy').value;
+  var percent = parseInt(byId('fCompactPercent').value, 10);
+  cfg.chat_compact_percent = isNaN(percent) ? (cfg.chat_compact_percent || 85) : percent;
+  var reserve = parseInt(byId('fCompactReserve').value, 10);
+  cfg.chat_compact_reserve = isNaN(reserve) ? (cfg.chat_compact_reserve || 10240) : reserve;
+  cfg.chat_compact_prompt = byId('fCompactPrompt').value;
+  cfg.chat_compact_prompt_short = byId('fCompactPromptShort').value;
+  cfg.chat_timeline = byId('fTimeline').checked;
+  return cfg;
+}
+
 // The Save button, for whichever tab stands in front. The Logs tab has nothing to
-// save, and its button is not drawn at all.
+// save, and its button is not drawn at all. Words changed in the tab that is not
+// in front are written at the same moment, so nothing changed in one tab is left
+// behind for the other tab to walk over.
 function saveSheet() {
   if (setTab === 'logs') { closeSettings(); return; }
+  var steps = [];
   if (setTab === 'program') {
-    var cfg = progCfg || {};
-    cfg.llama_dir = byId('fLlama').value;
-    cfg.models_dir = byId('fModels').value;
-    cfg.repositories_dir = byId('fRepos').value;
-    var port = parseInt(byId('fPort').value, 10);
-    cfg.remote_port = isNaN(port) ? (cfg.remote_port || 8723) : port;
-    cfg.upnp_enabled = byId('fUpnp').checked;
-    cfg.dark_mode = byId('fDark').checked;
-    cfg.chat_collapse_thinking = byId('fFoldThink').checked;
-    cfg.chat_collapse_tools = byId('fFoldTools').checked;
-    cfg.chat_grow_thinking = byId('fGrowThink').checked;
-    cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
-    cfg.chat_highlight = byId('fHighlight').checked;
-    cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
-    cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);
-    cfg.chat_chapters = byId('fChapters').checked;
-    cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);
-    cfg.chat_max_answer_steps = stepsOf(byId('fAnswerSteps').value);
-    cfg.pasted_text_char_limit = pasteLimitOf(byId('fPasteLimit').value);
-    cfg.chat_width = chatWidthOf(byId('fChatWidth').value);
-    cfg.ask_seconds = holdSeconds('fAskSeconds', 10, 1, 86400);
-    cfg.ask_critical_seconds = holdSeconds('fAskCriticalSeconds', 0, 0, 86400);
-    cfg.chat_date_new_chat = byId('fDateNewChat').checked;
-    cfg.chat_context_files = byId('fContextFiles').checked;
-    cfg.chat_compaction = byId('fCompaction').value;
-    cfg.chat_compact_by = byId('fCompactBy').value;
-    var percent = parseInt(byId('fCompactPercent').value, 10);
-    cfg.chat_compact_percent = isNaN(percent) ? (cfg.chat_compact_percent || 85) : percent;
-    var reserve = parseInt(byId('fCompactReserve').value, 10);
-    cfg.chat_compact_reserve = isNaN(reserve) ? (cfg.chat_compact_reserve || 10240) : reserve;
-    cfg.chat_compact_prompt = byId('fCompactPrompt').value;
-    cfg.chat_compact_prompt_short = byId('fCompactPromptShort').value;
-    cfg.chat_timeline = byId('fTimeline').checked;
-    ask('config', { config: cfg }).then(function () { poll(); closeSettings(); },
-      function () { poll(); closeSettings(); });
+    var cfg = readProgram();
+    // The Model tab may hold the settings of one model that were never
+    // written. This write covers the whole of the settings, so those settings
+    // ride along inside it instead of being put back as they were.
+    if (mdlId && mdlDirty) {
+      cfg.model_settings = cfg.model_settings || {};
+      cfg.model_settings[mdlId] = readModel();
+    }
+    steps.push(function () { return ask('config', { config: cfg }); });
   } else {
-    if (!mdl) { closeSettings(); return; }
-    ask('model_settings', { id: mdlId, settings: readModel() })
-      .then(function () { poll(); closeSettings(); }, function () { poll(); closeSettings(); });
+    if (progDirty) {
+      var kept = readProgram();
+      steps.push(function () { return ask('config', { config: kept }); });
+    }
+    if (mdl) {
+      var mine = readModel();
+      var mineId = mdlId;
+      steps.push(function () { return ask('model_settings', { id: mineId, settings: mine }); });
+    }
   }
+  progDirty = false;
+  mdlDirty = false;
+  var finish = function () { poll(); closeSettings(); };
+  // The writes go one after the other, for the second reads what the first
+  // wrote; the sheet is put away once the last of them is settled.
+  steps.reduceRight(function (next, step) {
+    return function () { step().then(next, next); };
+  }, finish)();
 }
 
 
@@ -7788,8 +8537,18 @@ byId('logBody').addEventListener('scroll', function () {
   }
 });
 
-byId('tabProgram').addEventListener('click', function () { showSetTab('program'); loadProgram(); });
-byId('tabModel').addEventListener('click', function () { showSetTab('model'); loadModel(); });
+byId('tabProgram').addEventListener('click', function () {
+  showSetTab('program'); if (!progDirty) { loadProgram(); }
+});
+byId('tabModel').addEventListener('click', function () {
+  showSetTab('model'); if (!mdlDirty) { loadModel(); }
+});
+// A field that moved marks its tab as holding words never written, so that
+// moving to another tab and back never reads the old words over the new ones.
+byId('paneProgram').addEventListener('input', function () { progDirty = true; });
+byId('paneProgram').addEventListener('change', function () { progDirty = true; });
+byId('paneModel').addEventListener('input', function () { mdlDirty = true; });
+byId('paneModel').addEventListener('change', function () { mdlDirty = true; });
 byId('tabLogs').addEventListener('click', function () { showSetTab('logs'); });
 byId('tabMcp').addEventListener('click', function () { showSetTab('mcp'); });
 // The editor of the MCP tab: the kind moves which fields stand, and the two
@@ -7835,7 +8594,7 @@ byId('fDark').addEventListener('change', function (e) {
   'mTemplate', 'mExtra'].forEach(function (id) {
   var node = byId(id);
   node.addEventListener('input', function () {
-    if (id === 'mVram') { byId('mVramText').textContent = Math.round(Number(node.value) || 0) + ' MiB'; }
+    if (id === 'mVram') { byId('mVramText').textContent = vramShareOf(node.value) + '%'; }
     refreshPreview();
   });
   node.addEventListener('change', refreshPreview);
@@ -8558,6 +9317,109 @@ sEl('askInput') && sEl('askInput').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') { e.preventDefault(); if (sideAskGo) { sideAskGo(true); } }
 });
 sEl('sidebtn') && sEl('sidebtn').addEventListener('click', function () { sideShow(!side.open); });
+
+// The tooltips of the page are drawn by the page itself. The tooltip of the
+// machine is a grey box that answers to none of the colours of the chat, and in
+// the window of the program it is not even themed; so the words a part carries in
+// its `title` are borrowed for a tooltip of the chat's own colours. The `title` is
+// taken away while the tooltip stands, for two tooltips over one part read as a
+// fault, and is put back when the pointer leaves - nothing else about the part
+// changes, a screen reader still reads the words, and any part of the page that
+// writes its own words is none the wiser.
+var tipBox = null, tipOwner = null, tipWords = '', tipTimer = null, tipWatch = null;
+
+function tipPlace(one) {
+  var r = one.getBoundingClientRect();
+  var b = tipBox.getBoundingClientRect();
+  var left = Math.round(Math.min(Math.max(8, r.left + r.width / 2 - b.width / 2),
+    window.innerWidth - b.width - 8));
+  var top = Math.round(r.bottom + 8);
+  if (top + b.height > window.innerHeight - 8) { top = Math.round(r.top - b.height - 8); }
+  if (top < 8) { top = 8; }
+  tipBox.style.left = left + 'px';
+  tipBox.style.top = top + 'px';
+}
+
+// The page writes the words of some parts again on every poll - the words of a
+// badge follow the state - so the borrowed `title` would come back the moment it
+// was taken. The part is watched instead: fresh words are read, taken again, and
+// stood in the tooltip, so a tooltip that stands over a badge keeps up with it.
+function tipWatchStart(one) {
+  if (!window.MutationObserver) { return; }
+  tipWatch = new MutationObserver(function (rows) {
+    if (!tipOwner) { return; }
+    for (var n = 0; n < rows.length; n++) {
+      if (rows[n].attributeName !== 'title' || !tipOwner.hasAttribute('title')) { continue; }
+      tipWords = String(tipOwner.getAttribute('title') || '');
+      tipOwner.removeAttribute('title');
+      if (tipBox && tipBox.classList.contains('on')) {
+        tipBox.textContent = tipWords;
+        tipPlace(tipOwner);
+      }
+    }
+  });
+  tipWatch.observe(one, { attributes: true, attributeFilter: ['title'] });
+}
+
+function tipWatchStop() {
+  if (tipWatch) { tipWatch.disconnect(); tipWatch = null; }
+}
+
+// The words go back to the part they came from, unless that part was written over
+// while the tooltip stood - the words of a badge change with the state.
+function tipPutBack() {
+  if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
+  tipWatchStop();
+  if (tipOwner && tipWords && !tipOwner.hasAttribute('title')) {
+    tipOwner.setAttribute('title', tipWords);
+  }
+  tipOwner = null; tipWords = '';
+  if (tipBox) { tipBox.classList.remove('on'); tipBox.textContent = ''; }
+}
+
+function tipShow() {
+  tipTimer = null;
+  if (!tipOwner || !tipWords || !document.body.contains(tipOwner)) { return; }
+  if (!tipBox) {
+    tipBox = document.createElement('div');
+    tipBox.className = 'tip';
+    tipBox.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(tipBox);
+  }
+  tipBox.textContent = tipWords;
+  tipBox.classList.add('on');
+  tipPlace(tipOwner);
+}
+
+document.addEventListener('mouseover', function (event) {
+  var one = event.target && event.target.closest ? event.target.closest('[title]') : null;
+  if (one === tipOwner) { return; }
+  tipPutBack();
+  if (!one) { return; }
+  var words = String(one.getAttribute('title') || '');
+  if (!words.trim()) { return; }
+  tipOwner = one;
+  tipWords = words;
+  one.removeAttribute('title');
+  tipWatchStart(one);
+  // The tooltip of the machine does not come up at once either: a pointer on its
+  // way across a row of badges is not asking for the words of every one of them.
+  tipTimer = setTimeout(tipShow, 320);
+}, true);
+
+document.addEventListener('mouseout', function (event) {
+  if (!tipOwner) { return; }
+  var to = event.relatedTarget;
+  if (to && tipOwner.contains(to)) { return; }
+  tipPutBack();
+}, true);
+
+// A scroll, a click or a key puts the tooltip away, for the part it spoke of has
+// moved under it or the user has moved on to something else.
+window.addEventListener('scroll', tipPutBack, true);
+window.addEventListener('resize', tipPutBack, true);
+document.addEventListener('click', tipPutBack, true);
+document.addEventListener('keydown', tipPutBack, true);
 
 sideLoad();
 sideApply();

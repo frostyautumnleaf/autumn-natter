@@ -23,13 +23,17 @@ fn a_tool_written_between_thoughts_comes_to_an_end() {
         .expect("a model file to choose")
         .display()
         .to_string();
-    let mut ms = ModelSettings::default();
-    ms.ctx_size = 4096;
-    ms.gpu_enabled = vec![false; 8];
-    let mut cfg = Config::default();
-    cfg.llama_dir = scratch.display().to_string();
-    cfg.models_dir = root.join("testing_model").display().to_string();
-    cfg.model_id = model.clone();
+    let ms = ModelSettings {
+        ctx_size: 4096,
+        gpu_enabled: vec![false; 8],
+        ..Default::default()
+    };
+    let mut cfg = Config {
+        llama_dir: scratch.display().to_string(),
+        models_dir: root.join("testing_model").display().to_string(),
+        model_id: model.clone(),
+        ..Default::default()
+    };
     cfg.model_settings.insert(model, ms);
     cfg.chat_compaction = "off".to_string();
 
@@ -41,7 +45,7 @@ fn a_tool_written_between_thoughts_comes_to_an_end() {
     println!("status just after: {} / model={:?}", engine.snapshot().status, engine.snapshot().model_id);
 
     let until = Instant::now() + Duration::from_secs(60);
-    let mut last = String::new();
+    let _last = String::new();
     loop {
         let s = engine.snapshot();
         let line = format!(
@@ -55,7 +59,7 @@ fn a_tool_written_between_thoughts_comes_to_an_end() {
                     "{}:{}:{}",
                     m.role,
                     if m.failed { 'F' } else { '.' },
-                    m.body.replace('\n', " ")[..m.body.len().min(22)].to_string()
+                    &m.body.replace('\n', " ")[..m.body.len().min(22)]
                 ))
                 .collect::<Vec<_>>()
                 .join(", ")

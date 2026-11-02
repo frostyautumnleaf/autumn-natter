@@ -47,10 +47,12 @@ fn a_picture_hung_on_a_message_comes_back_as_words() {
         .expect("the testing model")
         .display()
         .to_string();
-    let mut ms = ModelSettings::default();
-    ms.vision = true;
-    ms.ctx_size = 4096;
-    ms.max_tokens = 60;
+    let mut ms = ModelSettings {
+        vision: true,
+        ctx_size: 4096,
+        max_tokens: 60,
+        ..Default::default()
+    };
     // The CPU only: the list of flags is fitted to the devices of the machine,
     // and a short list is padded with enabled ones.
     ms.gpu_enabled = vec![false; 8];
@@ -58,10 +60,12 @@ fn a_picture_hung_on_a_message_comes_back_as_words() {
     // the engine are added by hand. The card of the box is full of another
     // model, and a server left to itself would fall over trying to use it.
     ms.extra_args = "--device none -ngl 0".to_string();
-    let mut cfg = Config::default();
-    cfg.llama_dir = root.join("llamacpp/build/bin").display().to_string();
-    cfg.models_dir = root.join("testing_model").display().to_string();
-    cfg.model_id = model.clone();
+    let mut cfg = Config {
+        llama_dir: root.join("llamacpp/build/bin").display().to_string(),
+        models_dir: root.join("testing_model").display().to_string(),
+        model_id: model.clone(),
+        ..Default::default()
+    };
     cfg.model_settings.insert(model, ms);
 
     let engine = Engine::start(cfg);
@@ -108,18 +112,14 @@ fn a_picture_hung_on_a_message_comes_back_as_words() {
     println!("status: {}", snap.status);
     let user = snap
         .messages
-        .iter()
-        .filter(|m| m.role == "You")
-        .last()
+        .iter().rfind(|m| m.role == "You")
         .expect("the reader's message");
     assert_eq!(user.attachments.len(), 1, "the picture did not hang on the message");
     assert_eq!(user.attachments[0].name, "orange-swatch.png");
     assert!(user.attachments[0].image, "the picture is not marked as one");
     let answer = snap
         .messages
-        .iter()
-        .filter(|m| m.role == "Assistant")
-        .last()
+        .iter().rfind(|m| m.role == "Assistant")
         .expect("the model's answer");
     println!("the model said: {}", answer.body.trim());
     assert!(

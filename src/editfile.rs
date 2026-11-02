@@ -78,7 +78,7 @@ pub fn edit_definition() -> Value {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file to change. The name is relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'."
+                        "description": "The file to change. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name from the root of the machine. While the sandbox stands, only the working directory of the chat may be worked on; with the sandbox off any file of this machine may be."
                     },
                     "edits": {
                         "type": "array",
@@ -117,14 +117,14 @@ pub fn create_definition() -> Value {
         "function": {
             "name": CREATE_NAME,
             "description": with_rule(String::from(
-                "Create a new file in the working directory of the chat, with the text given for it. A file that already exists is left unchanged, because this tool never overwrites one: use edit_file to change a file. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
+                "Create a new file in the working directory of the chat, with the text given for it. This tool never overwrites a file and never empties one: if a file of that name already stands with words in it, the call fails, the file is left exactly as it was, and edit_file is the tool that changes it. So look first whether the file is there, and when a file that exists is wanted changed rather than made, call edit_file instead. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file to create. The name is relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'."
+                        "description": "The file to create. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name from the root of the machine. While the sandbox stands, only the working directory of the chat may be worked on; with the sandbox off any file of this machine may be. A file that already exists is never overwritten and never emptied: such a call fails and the file stands unchanged."
                     },
                     "text": {
                         "type": "string",
@@ -210,16 +210,32 @@ fn edit_params(raw: &str) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
+        // Each half of the change stands under a word of its own, and every
+        // line of it carries the mark of the half: (o) for the words that stand
+        // now, (r) for the words they are to become. The number of the change
+        // is written with the word, so several changes in one call can still be
+        // told apart.
         if let Some(words) = old {
-            out.push_str(words);
+            out.push_str(&format!("change {} · what stands now\n", number + 1));
+            out.push_str(&half_of_change('o', words));
         }
         if let Some(words) = new {
-            if old.is_some() {
-                out.push('\n');
-            }
-            out.push_str("> ");
-            out.push_str(words);
+            out.push_str(&format!("change {} · what it becomes\n", number + 1));
+            out.push_str(&half_of_change('r', words));
         }
+    }
+    out
+}
+
+// The words of one half of a change, with the mark of the half before every
+// line. A half that is still being written is given as it stands.
+fn half_of_change(mark: char, words: &str) -> String {
+    let mut out = String::new();
+    for line in words.split('\n') {
+        out.push(mark);
+        out.push(' ');
+        out.push_str(line);
+        out.push('\n');
     }
     out
 }
@@ -329,6 +345,11 @@ struct Made {
     // A few words of what went out, and of what came in.
     taken: String,
     put: String,
+    // How many lines of the file were written, and how many were taken away,
+    // over the whole of the call. The two stand in the head of the block of the
+    // run, for a change of a file is judged by what it did to the lines of it.
+    added: usize,
+    removed: usize,
 }
 
 // The words of a file, and the two marks that say how it stood: the marks of
@@ -430,6 +451,18 @@ fn as_far_as_stands(path: &Path) -> PathBuf {
 // attachments. The place that comes back has been followed through its links,
 // so it cannot be led out of the room by a link planted inside it.
 pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
+    place_kept(workdir, raw, true)
+}
+
+// The same, with the wall made known. A chat that stands in the jail works in
+// the room of the chat and nowhere else, for that room is the one room the jail
+// is written in. A chat with the jail off reaches the machine as a command of
+// the terminal tool does, so a name that stands outside the room of the chat is
+// taken as it is given: absolute, or relative to the room, with the road
+// through '..' among the parts of it. The store of the files the user hung on
+// the chat is kept out of reach either way, for those are nobody's to touch but
+// the user's.
+pub fn place_kept(workdir: &Path, raw: &str, in_room: bool) -> Result<PathBuf, String> {
     let name = raw.trim();
     if name.is_empty() {
         return Err(String::from("The name of the file is required"));
@@ -441,13 +474,15 @@ pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
     } else {
         the_room.join(cut)
     };
-    for part in joined.components() {
-        if part == Component::ParentDir {
-            return Err(format!(
-                "'{}' points outside the working directory of the chat. That directory is the only place the file tools work, so give a name relative to it, as '{}'.",
-                name,
-                last(&joined)
-            ));
+    if in_room {
+        for part in joined.components() {
+            if part == Component::ParentDir {
+                return Err(format!(
+                    "'{}' points outside the working directory of the chat. While the sandbox stands, that directory is the only place the file tools work, so give a name relative to it, as '{}'.",
+                    name,
+                    last(&joined)
+                ));
+            }
         }
     }
     if in_shelf(&joined) {
@@ -456,15 +491,46 @@ pub fn place_in(workdir: &Path, raw: &str) -> Result<PathBuf, String> {
             name
         ));
     }
-    let checked = as_far_as_stands(&joined);
-    if !under(&the_room, &checked) {
+    let checked = if in_room {
+        as_far_as_stands(&joined)
+    } else {
+        neat(&joined)
+    };
+    if in_room && !under(&the_room, &checked) {
         return Err(format!(
-            "'{}' is outside the working directory of the chat, which is the only place the file tools work. Give a name relative to it, as '{}'.",
+            "'{}' is outside the working directory of the chat, which while the sandbox stands is the only place the file tools work. Give a name relative to it, as '{}', or turn the sandbox off to work on the machine as a command does.",
             name,
             last(&joined)
         ));
     }
     Ok(checked)
+}
+
+// A name of a file made neat -- without the parts that stand for the folder
+// itself, and without the parts that go back a step -- but nothing asked of the
+// machine: a file that is not there yet is a name all the same.
+fn neat(path: &Path) -> PathBuf {
+    let mut made = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                made.pop();
+            }
+            other => made.push(other.as_os_str()),
+        }
+    }
+    made
+}
+
+// The room the file tools stand in. With the wall up it is the room of the chat;
+// without it, the whole machine, which is what a name that is not kept to a
+// room leaves.
+fn room_for(workdir: &Path, in_room: bool) -> PathBuf {
+    if in_room {
+        return room(workdir);
+    }
+    PathBuf::from(std::path::MAIN_SEPARATOR_STR)
 }
 
 // The name of a file, for a word to the model.
@@ -740,12 +806,18 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
         // nothing else is there to cover the same words with it.
         if change.everywhere && changes.len() == 1 {
             let first = before.find(&change.before).unwrap_or(0);
+            let out = lines_in(&change.before);
+            let written = lines_in(&change.after);
             return Ok(Made {
                 after: before.replace(&change.before, &change.after),
                 count: found,
                 first,
                 taken: change.before.clone(),
                 put: change.after.clone(),
+                // Every place of the file took the same change, so the lines of
+                // one place are the lines of all of them.
+                added: written * found,
+                removed: out * found,
             });
         }
         if change.everywhere && found > MAX_MATCHES {
@@ -775,9 +847,13 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
     }
     let mut out = String::with_capacity(before.len());
     let mut cursor = 0usize;
+    let mut added = 0usize;
+    let mut removed = 0usize;
     for (start, end, words, _) in &places {
         out.push_str(&before[cursor..*start]);
         out.push_str(words);
+        added += lines_in(words);
+        removed += lines_in(&before[*start..*end]);
         cursor = *end;
     }
     out.push_str(&before[cursor..]);
@@ -789,7 +865,19 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
         first: start,
         taken: before[start..end].to_string(),
         put: places[0].2.to_string(),
+        added,
+        removed,
     })
+}
+
+// How many lines a stretch of a file holds, counted the way the lines of a file
+// are counted: a mark of a new line closes the line it stands on and does not
+// open another. Nothing at all is no lines.
+fn lines_in(words: &str) -> usize {
+    if words.is_empty() {
+        return 0;
+    }
+    words.matches('\n').count() + if words.ends_with('\n') { 0 } else { 1 }
 }
 
 // How many lines words make, said the way a line of the answer says it. A file
@@ -960,7 +1048,12 @@ fn difference(before: &[&str], after: &[&str], context: usize, offset: usize) ->
 // the whole file. The file itself is where the whole of it is read again.
 fn receipt(name: &str, before: &str, made: &Made) -> String {
     let plural = if made.count == 1 { "" } else { "s" };
-    let head = format!("Edited {} ({} replacement{})", name, made.count, plural);
+    // The two counts of the change stand with the words of it: what was written,
+    // and what was taken away. The page reads them into the head of the block.
+    let head = format!(
+        "Edited {} ({} replacement{}, +{} -{})",
+        name, made.count, plural, made.added, made.removed
+    );
     // The window about the first change, kept wide enough to hold the change
     // whole, and cut again at a bound of lines so the table of the difference
     // stays small for a change that runs long.
@@ -1032,6 +1125,11 @@ fn wrong_shape(edit_tool: bool) -> String {
 // Change a file of the chat. Every change of the call is made, or none of them
 // is, and the answer says which of the two happened.
 pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
+    edit_room(workdir, raw, true)
+}
+
+// The same, with the wall made known: see `place_kept`.
+pub fn edit_room(workdir: &Path, raw: &str, in_room: bool) -> tools::Report {
     let failed = |output: String| tools::Report {
         ok: false,
         output,
@@ -1046,7 +1144,7 @@ pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
         Ok(made) => made,
         Err(problem) => return failed(problem),
     };
-    let place = match place_in(workdir, &name) {
+    let place = match place_kept(workdir, &name, in_room) {
         Ok(place) => place,
         Err(problem) => return failed(problem),
     };
@@ -1065,7 +1163,7 @@ pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
         bom: standing.bom.clone(),
         bytes: Vec::new(),
     };
-    let the_room = room(workdir);
+    let the_room = room_for(workdir, in_room);
     match write_words(&the_room, &place, &after, &standing.bytes) {
         Ok(()) => tools::Report {
             ok: true,
@@ -1079,6 +1177,11 @@ pub fn edit(workdir: &Path, raw: &str) -> tools::Report {
 // in it is left as it is. The one exception is a file of nothing at all, for no
 // change can match nothing, and such a file would else never be filled.
 pub fn create(workdir: &Path, raw: &str) -> tools::Report {
+    create_room(workdir, raw, true)
+}
+
+// The same, with the wall made known: see `place_kept`.
+pub fn create_room(workdir: &Path, raw: &str, in_room: bool) -> tools::Report {
     let failed = |output: String| tools::Report {
         ok: false,
         output,
@@ -1110,11 +1213,11 @@ pub fn create(workdir: &Path, raw: &str) -> tools::Report {
             name, MAX_FILE_BYTES
         ));
     }
-    let place = match place_in(workdir, &name) {
+    let place = match place_kept(workdir, &name, in_room) {
         Ok(place) => place,
         Err(problem) => return failed(problem),
     };
-    let the_room = room(workdir);
+    let the_room = room_for(workdir, in_room);
     if let Some(parent) = place.parent() {
         if let Err(problem) = std::fs::create_dir_all(parent) {
             return failed(format!(
@@ -1357,6 +1460,50 @@ mod tests {
         }
     }
 
+    // With the sandbox down the file tools reach the machine, as a command of
+    // the terminal tool does: a name outside the room of the chat is then a name
+    // like any other, and a road that goes back a step is a part of it. The
+    // store of the files the user hung on the chat is kept out of reach either
+    // way, and the wall is the sandbox alone.
+    #[test]
+    fn a_name_outside_the_room_is_worked_on_while_the_jail_is_down() {
+        let root = room_of("wide");
+        let elsewhere = room_of("yonder");
+        let far = elsewhere.join("plan.txt");
+        let said = format!(
+            "{{\"path\":\"{}\",\"text\":\"written outside the room\\n\"}}",
+            far.display()
+        );
+        // The wall up: the same name is refused, and nothing stands there.
+        let kept = create_room(&root, &said, true);
+        assert!(!kept.ok, "a name outside the room was let through");
+        assert!(!far.exists());
+        // The wall down: the file is made where it was named.
+        let made = create_room(&root, &said, false);
+        assert!(made.ok, "{}", made.output);
+        assert!(far.is_file(), "the file was not written where it was named");
+        // A name that goes back a step is a road of the machine, and not a way
+        // out of anything, when there is no wall about the room.
+        let back = format!(
+            "{}/sub/../up.txt",
+            elsewhere.display()
+        );
+        let stepped = create_room(
+            &root,
+            &format!("{{\"path\":\"{}\",\"text\":\"up\\n\"}}", back),
+            false,
+        );
+        assert!(stepped.ok, "{}", stepped.output);
+        assert!(elsewhere.join("up.txt").is_file());
+        // The store of the files of the chat is out of reach with the wall down
+        // as well as with the wall up.
+        let shelf = format!(
+            "{}/.attachments/ab12cd.json",
+            room(&root).display()
+        );
+        assert!(place_kept(&root, &shelf, false).is_err());
+    }
+
     // A batch is written all at once, or not at all, and the answer says what
     // was changed, as a difference numbered against the file.
     #[test]
@@ -1375,7 +1522,7 @@ mod tests {
         let out = edit(&root, whole);
         assert!(out.ok, "{}", out.output);
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "uno\ntwo\ntri\n");
-        assert!(out.output.starts_with("Edited notes.txt (2 replacements)"), "{}", out.output);
+        assert!(out.output.starts_with("Edited notes.txt (2 replacements,"), "{}", out.output);
         assert!(out.output.contains("@@ -1,3 +1,3 @@"), "{}", out.output);
         assert!(out.output.contains("-one"), "{}", out.output);
         assert!(out.output.contains("+uno"), "{}", out.output);
@@ -1383,7 +1530,7 @@ mod tests {
         // and the words that went out and came in stand in the difference.
         let next = r#"{"path":"notes.txt","edits":[{"old_string":"two","new_string":"deux"}]}"#;
         let out = edit(&root, next);
-        assert!(out.output.starts_with("Edited notes.txt (1 replacement)"), "{}", out.output);
+        assert!(out.output.starts_with("Edited notes.txt (1 replacement,"), "{}", out.output);
         assert!(out.output.contains("-two"), "{}", out.output);
         assert!(out.output.contains("+deux"), "{}", out.output);
     }
@@ -1512,29 +1659,35 @@ mod tests {
         // in join them when their mark is written.
         assert_eq!(
             edit_params(r#"{"path":"notes/todo.txt","edits":[{"old_string":"one","new_string":"u"#),
-            "one\n> u"
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr u\n"
         );
         // The other way about. The mark of the change stands over the words that
         // have come, and the words to take out walk in front of them when they
         // arrive.
-        assert_eq!(edit_params(r#"{"edits":[{"new_string":"un"#), "> un");
+        assert_eq!(
+            edit_params(r#"{"edits":[{"new_string":"un"#),
+            "change 1 · what it becomes\nr un\n"
+        );
         assert_eq!(
             edit_params(r#"{"edits":[{"new_string":"uno","old_string":"o"#),
-            "o\n> uno"
+            "change 1 · what stands now\no o\nchange 1 · what it becomes\nr uno\n"
         );
         // The mark of a change is shown as soon as it has a half of its own, for
         // a user watching a block wants to see it move.
-        assert_eq!(edit_params(r#"{"edits":[{"new_string":""#), "> ");
+        assert_eq!(
+            edit_params(r#"{"edits":[{"new_string":""#),
+            "change 1 · what it becomes\nr \n"
+        );
         assert_eq!(
             edit_params(r#"{"edits":[{"old_string":"one","new_string":""#),
-            "one\n> "
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr \n"
         );
         // Two changes written the other way about are read side by side, so each
         // half of each change stands where it belongs.
         assert_eq!(
             edit_params(
                 r#"{"edits":[{"new_string":"uno","old_string":"one"},{"new_string":"dos","old_string":"tw"#),
-            "one\n> uno\ntw\n> dos"
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr uno\n\nchange 2 · what stands now\no tw\nchange 2 · what it becomes\nr dos\n"
         );
         // A change with no words at all in it is left out, and so is a change of
         // nothing but a space between the words to take out, for a mark over
@@ -1547,13 +1700,13 @@ mod tests {
             edit_params(
                 r#"{"edits":[{"new_string":"uno","old_string":"one"}],"path":"notes/todo.txt"}"#
             ),
-            "one\n> uno"
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr uno\n"
         );
         // Both halves of a call that is still being written: the name of the file
         // in the head, and the words of the change in the body, each as far as it
         // has come.
         let (body, name) = live_params(EDIT_NAME, r#"{"edits":[{"new_string":"un"#);
-        assert_eq!(body, "> un");
+        assert_eq!(body, "change 1 · what it becomes\nr un\n");
         assert_eq!(name, String::new());
         let (body, name) = live_params(EDIT_NAME, r#"{"edits":[],"path":"notes/to"#);
         assert_eq!(body, String::new());
@@ -1584,7 +1737,10 @@ mod tests {
             names.push(name);
         }
         // The whole of the call reads as the whole of any other call does.
-        assert_eq!(bodies[call.len()].as_str(), "one\n> uno\ntwo\n> dos");
+        assert_eq!(
+            bodies[call.len()].as_str(),
+            "change 1 · what stands now\no one\nchange 1 · what it becomes\nr uno\n\nchange 2 · what stands now\no two\nchange 2 · what it becomes\nr dos\n"
+        );
         assert_eq!(names[call.len()].as_str(), "notes/todo.txt");
         // From the first character after the mark that opens the words to put in,
         // every look holds a word of the change. This is the stretch the user

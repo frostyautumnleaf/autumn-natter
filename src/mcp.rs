@@ -1645,7 +1645,7 @@ mod tests {
         let (_, tool) = split_tool("mcp__shop__a__b").expect("the parts of the name");
         assert_eq!(tool, "a__b");
         // The whole name stands inside the shape a chat template reads.
-        let long = tool_name(&slug_of(&"a very long name of a server indeed"), &"t".repeat(90));
+        let long = tool_name(&slug_of("a very long name of a server indeed"), &"t".repeat(90));
         assert!(long.chars().count() <= GREATEST_NAME);
         assert!(long.starts_with(NAME_MARK));
     }

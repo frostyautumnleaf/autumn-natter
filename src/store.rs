@@ -317,6 +317,12 @@ impl ToolSwitches {
         ]
     }
 
+    // Whether any line of the drop-down stands on. With none of them on the
+    // badge of the tools has nothing to let through, and so cannot stand on.
+    pub fn any_on(&self) -> bool {
+        self.words().iter().any(|(_, on)| *on)
+    }
+
     // What one line of the drop-down stands on. A name of another kind reads as
     // on, for a tool nothing switches off is offered.
     pub fn value_of(&self, part: &str) -> bool {

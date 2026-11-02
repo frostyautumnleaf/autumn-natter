@@ -44,13 +44,17 @@ fn a_message_may_be_sent_after_a_summarisation() {
         .expect("a model file to choose")
         .display()
         .to_string();
-    let mut ms = ModelSettings::default();
-    ms.ctx_size = 8192;
-    ms.gpu_enabled = vec![false; 8];
-    let mut cfg = Config::default();
-    cfg.llama_dir = scratch.display().to_string();
-    cfg.models_dir = root.join("testing_model").display().to_string();
-    cfg.model_id = model.clone();
+    let ms = ModelSettings {
+        ctx_size: 8192,
+        gpu_enabled: vec![false; 8],
+        ..Default::default()
+    };
+    let mut cfg = Config {
+        llama_dir: scratch.display().to_string(),
+        models_dir: root.join("testing_model").display().to_string(),
+        model_id: model.clone(),
+        ..Default::default()
+    };
     cfg.model_settings.insert(model, ms);
     cfg.chat_compaction = "handoff".to_string();
     cfg.chat_compact_by = "percent".to_string();

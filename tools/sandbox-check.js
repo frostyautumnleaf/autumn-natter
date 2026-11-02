@@ -1,9 +1,9 @@
-// Check the menu of the sandbox badge. The badge used to turn the jail on and
-// off with one click; now it opens a menu, for what a command of the chat may
-// reach is three things beside the jail itself, and the user must see all of
-// them at once and open them one by one. All three stand off until they are
-// opened. The page is loaded as it stands, with no bridge and no engine: the
-// menu is filled by hand with the states the engine hands out. The box of the
+// Check the menu of the sandbox badge. The badge is the jail: it is put on and
+// off from the badge itself, whatever the three settings say, and only the right
+// of the badge - its arrow - opens the menu of what a command may reach beyond
+// the jail. The jail is no line of that menu. All three settings stand off until
+// they are opened. The page is loaded as it stands, with no bridge and no engine:
+// the menu is filled by hand with the states the engine hands out. The box of the
 // menu is measured as well, for a setting with a long name must be read on one
 // line of a box that grew to hold it, and never cut off.
 const path = require('path');
@@ -32,31 +32,41 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       thinking: { mode: 'off', available: false, modes: [] } };
     cur = state;
 
-    // The badge opens the menu rather than turning the jail off.
+    // A click on the left of the badge is the switch of the jail, and does not
+    // open the menu: the jail was put on, so the badge asks for it to be taken
+    // away. The right of the badge, over its arrow, is the way into the menu.
     el.sandbox.click();
-    if (el.sandboxmenu.classList.contains('hidden')) {
-      faults.push('the badge did not open the menu of the sandbox');
+    if (sent.length !== 1 || sent[0][0] !== '/api/sandbox' || sent[0][1].on !== false) {
+      faults.push('the badge did not switch the jail: ' + JSON.stringify(sent));
     }
-    if (sent.length) { faults.push('the badge asked the engine at once: ' + JSON.stringify(sent)); }
+    if (!el.sandboxmenu.classList.contains('hidden')) {
+      faults.push('the badge opened the menu of the sandbox as well as switching');
+    }
+    el.sandbox.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true,
+      clientX: 9999 }));
+    if (el.sandboxmenu.classList.contains('hidden')) {
+      faults.push('the arrow did not open the menu of the sandbox');
+    }
 
     var lines = el.sandboxmenu.querySelectorAll('button');
-    if (lines.length !== 4) {
-      faults.push('the menu holds ' + lines.length + ' lines, not the jail and three settings');
+    if (lines.length !== 3) {
+      faults.push('the menu holds ' + lines.length + ' lines, not the three settings');
     }
     var words = [];
     for (var i = 0; i < lines.length; i++) { words.push(lines[i].textContent); }
-    var wanted = ['Sandbox', 'Network access', 'Allow pip install', 'Allow wget and fetch'];
+    if (words.join('|').indexOf('Sandbox') >= 0) {
+      faults.push('the jail stands as a line of its own menu');
+    }
+    var wanted = ['Network access', 'Allow pip install', 'Allow wget and fetch'];
     for (var w = 0; w < wanted.length; w++) {
       if (words.join('|').indexOf(wanted[w]) < 0) {
         faults.push('the menu has no line for ' + wanted[w]);
       }
     }
-    // All three stand off, and the switches say so. The jail is a line of the
-    // menu too, and it stands where the state has it, so the three settings are
-    // counted after it: the jail stands at the head of the menu.
+    // All three stand off, and the switches say so.
     function gates() {
       var all = el.sandboxmenu.querySelectorAll('button.toggle');
-      return Array.prototype.slice.call(all, 1);
+      return Array.prototype.slice.call(all, 0);
     }
     // The number of lines of words a node is set in. A line of the menu that is
     // broken in two reads badly, and it is what these measurements are for.
@@ -216,8 +226,10 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     console.error(out.join('\n'));
     process.exit(1);
   }
-  console.log('the sandbox badge opens a menu of the jail and three settings, named '
-    + 'Sandbox, Network access, Allow pip install and Allow wget and fetch; all three '
-    + 'stand off, each is asked for on its own, the words of the badge say what a '
-    + 'command may reach, and the box of the menu is as wide as the longest of its lines');
+  console.log('the sandbox badge switches the jail from itself and opens its menu '
+    + 'only from its arrow; the menu holds the three settings - Network access, '
+    + 'Allow pip install and Allow wget and fetch - and no line for the jail, all '
+    + 'three stand off, each is asked for on its own, the words of the badge say '
+    + 'what a command may reach, and the box of the menu is as wide as the longest '
+    + 'of its lines');
 })().catch(function (e) { console.error(e); process.exit(1); });

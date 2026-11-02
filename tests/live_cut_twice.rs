@@ -52,15 +52,19 @@ fn a_call_cut_short_is_followed_by_an_answer_and_not_by_a_turn_with_none() {
         .expect("a model file to choose")
         .display()
         .to_string();
-    let mut ms = ModelSettings::default();
     // A small room, so a few hundred words of a file run past the limit of it.
-    ms.ctx_size = 1024;
-    ms.max_tokens = 200;
-    ms.gpu_enabled = vec![false; 8];
-    let mut cfg = Config::default();
-    cfg.llama_dir = scratch.display().to_string();
-    cfg.models_dir = root.join("testing_model").display().to_string();
-    cfg.model_id = model.clone();
+    let ms = ModelSettings {
+        ctx_size: 1024,
+        max_tokens: 200,
+        gpu_enabled: vec![false; 8],
+        ..Default::default()
+    };
+    let mut cfg = Config {
+        llama_dir: scratch.display().to_string(),
+        models_dir: root.join("testing_model").display().to_string(),
+        model_id: model.clone(),
+        ..Default::default()
+    };
     cfg.model_settings.insert(model, ms);
     assert_eq!(cfg.chat_compaction, "handoff");
     assert_eq!(cfg.chat_compact_by, "percent");

@@ -798,10 +798,10 @@ mod tests {
         let chat = rooms.join("chat-one");
         let files = vec![incoming("found.txt", "text/plain", "", "here")];
         let kept = save_at(&shelf(&chat), &files);
-        let made = find_in(&[rooms.clone()], &kept[0].id).expect("the record is found");
+        let made = find_in(std::slice::from_ref(&rooms), &kept[0].id).expect("the record is found");
         assert_eq!(made.name, "found.txt");
-        assert!(find_in(&[rooms.clone()], "0000000000").is_none());
-        assert!(find_in(&[rooms.clone()], "../outside").is_none());
+        assert!(find_in(std::slice::from_ref(&rooms), "0000000000").is_none());
+        assert!(find_in(std::slice::from_ref(&rooms), "../outside").is_none());
         let _ = fs::remove_dir_all(&rooms);
     }
 

@@ -57,6 +57,11 @@ pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a detailed but concise handoff s
 // so the words come to an end inside the room that is left.
 pub const DEFAULT_HANDOFF_PROMPT_SHORT: &str = "Write a very short handoff summary for AI consumption (no styling). The context window of the model is nearly full, so the whole summary must end within a few hundred words. Keep only what an AI needs to continue the work from this point: what is done, what is half done, and what to do next. Name the files that matter, one short line each. Do not repeat the conversation, do not review finished work, and do not add detail that is not needed to continue.";
 
+// The time one call of a tool is given, of a new set of settings: ten minutes.
+fn default_tool_seconds() -> u32 {
+    600
+}
+
 // The share of the room of the talk at which the handoff summary is asked for.
 fn default_compact_percent() -> u32 {
     85
@@ -76,6 +81,17 @@ fn default_handoff_prompt() -> String {
 // The handoff prompt of the second ask, of a new set of settings.
 fn default_handoff_prompt_short() -> String {
     String::from(DEFAULT_HANDOFF_PROMPT_SHORT)
+}
+
+// The share of the cards the model may work in. A number that is no share at
+// all -- nothing, or more than a hundred -- is the share a new set of settings
+// stands on, so a settings file written when this field held mebibytes comes
+// back as a share instead of as a surprise.
+pub fn sanitize_vram_budget(share: f64) -> f64 {
+    if !(1.0..=100.0).contains(&share) {
+        return 90.0;
+    }
+    share
 }
 
 // The room for steps of one answer, as the engine wants it. The setting is -1
@@ -147,7 +163,12 @@ pub struct ModelSettings {
     // Index inside the model load mode list in llama.rs.
     pub load_index: usize,
     pub extra_args: String,
-    // VRAM budget in mebibytes. 0 means use every device fully.
+    // How much of the cards the model may work in, as a share of what the
+    // cards hold together: 90 means nine tenths of the cards, and the tenth
+    // stands over. The fit of the model into the cards is asked for of
+    // llama.cpp always, so this is not a switch but a share. A number outside
+    // one hundred is read as the share a new set of settings stands on, which
+    // takes care of a settings file written when this held mebibytes.
     pub vram_budget: f64,
     // One flag per detected device, in detection order.
     pub gpu_enabled: Vec<bool>,
@@ -187,7 +208,7 @@ impl Default for ModelSettings {
             // mmap keeps the model in the file cache.
             load_index: 1,
             extra_args: String::new(),
-            vram_budget: 0.0,
+            vram_budget: 90.0,
             gpu_enabled: Vec::new(),
         }
     }
@@ -246,6 +267,13 @@ pub struct Config {
     // read as part of the words of the answer, as they were before.
     #[serde(default = "on_by_default")]
     pub chat_bold_markdown: bool,
+    // Read the chat as one piece of writing. The panels of the thoughts and of
+    // the calls then stand on the chat itself: no ground of their own, no line
+    // about them, and no rule of colour down the left hand edge of a thought.
+    // The mark that opens a panel stands beside its heading, for with nothing
+    // drawn about a panel the far right of its head is far from the words.
+    #[serde(default)]
+    pub chat_seamless: bool,
     // How many times an answer is asked over when the model came to its own end
     // without a word, a call or a fault. A model that thought a while and then
     // stopped has said nothing of the work it was given, and the same ask a second
@@ -268,6 +296,13 @@ pub struct Config {
     // model may run a command as often as it wants inside one answer.
     #[serde(default = "no_limit")]
     pub chat_max_tool_steps: i64,
+    // How long one call of a tool is given to come back within, in seconds. A
+    // call that is still running when its time is gone is stopped, and the
+    // model is told that it ran out of time; a command that is stopped leaves
+    // behind everything it had printed. Nothing at all gives a call no time to
+    // come back within, which is the same as not having the feature at all.
+    #[serde(default = "default_tool_seconds")]
+    pub chat_tool_timeout: u32,
     // How many round trips one answer may take in all: a round trip is one turn
     // of the model, and one more follows every command it asks for. -1 leaves
     // no limit, so an answer ends only when the model stops by itself.
@@ -436,11 +471,11 @@ fn default_pasted_text_char_limit() -> u32 {
     6000
 }
 
-// The short wait of a question the model put to the user. Ten seconds is long
-// enough to read a line and press a key, and short enough that a user who is
-// not there is not waited for.
+// The short wait of a question the model put to the user. Thirty seconds is long
+// enough to read the question, weigh it and answer it, and short enough that a
+// user who has gone away is not waited for while the model sits on its question.
 fn default_ask_seconds() -> u32 {
-    10
+    30
 }
 
 // The longest wait either kind of question may be set to. A day of waiting is
@@ -502,10 +537,12 @@ impl Default for Config {
             chat_date_new_chat: true,
             chat_highlight: true,
             chat_bold_markdown: true,
+            chat_seamless: false,
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_context_files: true,
             chat_max_tool_steps: -1,
+            chat_tool_timeout: default_tool_seconds(),
             chat_max_answer_steps: -1,
             pasted_text_char_limit: default_pasted_text_char_limit(),
             chat_width: default_chat_width(),
@@ -663,6 +700,55 @@ pub fn repositories_dir(cfg: &Config) -> PathBuf {
     };
     let _ = fs::create_dir_all(&dir);
     dir
+}
+
+// Look for the llama-server binary in the usual build places.
+fn default_llama_dir() -> String {
+    let mut tried: Vec<PathBuf> = Vec::new();
+    if let Ok(env) = std::env::var("AUTUMN_NATTER_LLAMA_DIR") {
+        if !env.trim().is_empty() {
+            tried.push(PathBuf::from(env));
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            tried.push(dir.to_path_buf());
+            tried.push(dir.join("llama"));
+            tried.push(dir.join("../llamacpp/build/bin"));
+            tried.push(dir.join("../../llamacpp/build/bin"));
+        }
+    }
+    // A checkout next to the program is common during development.
+    if let Ok(cwd) = std::env::current_dir() {
+        tried.push(cwd.join("llamacpp/build/bin"));
+    }
+    tried.push(PathBuf::from("/usr/local/bin"));
+    tried.push(PathBuf::from("/usr/bin"));
+    for dir in tried {
+        if server_in(&dir).is_some() {
+            return dir.display().to_string();
+        }
+    }
+    String::new()
+}
+
+// Return the llama-server binary inside a directory, if it is there.
+pub fn server_in(dir: &Path) -> Option<PathBuf> {
+    let names = [
+        "llama-server",
+        "llama-server.exe",
+        "bin/llama/llama-server",
+        "bin/llama/llama-server.exe",
+        "bin/llama-server",
+        "bin/llama-server.exe",
+    ];
+    for name in names {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -927,53 +1013,4 @@ mod tests {
         assert!(!compaction_wanted(&off, 9000, 8192));
         assert!(!compaction_wanted(&off, 8192, 8192));
     }
-}
-
-// Look for the llama-server binary in the usual build places.
-fn default_llama_dir() -> String {
-    let mut tried: Vec<PathBuf> = Vec::new();
-    if let Ok(env) = std::env::var("AUTUMN_NATTER_LLAMA_DIR") {
-        if !env.trim().is_empty() {
-            tried.push(PathBuf::from(env));
-        }
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            tried.push(dir.to_path_buf());
-            tried.push(dir.join("llama"));
-            tried.push(dir.join("../llamacpp/build/bin"));
-            tried.push(dir.join("../../llamacpp/build/bin"));
-        }
-    }
-    // A checkout next to the program is common during development.
-    if let Ok(cwd) = std::env::current_dir() {
-        tried.push(cwd.join("llamacpp/build/bin"));
-    }
-    tried.push(PathBuf::from("/usr/local/bin"));
-    tried.push(PathBuf::from("/usr/bin"));
-    for dir in tried {
-        if server_in(&dir).is_some() {
-            return dir.display().to_string();
-        }
-    }
-    String::new()
-}
-
-// Return the llama-server binary inside a directory, if it is there.
-pub fn server_in(dir: &Path) -> Option<PathBuf> {
-    let names = [
-        "llama-server",
-        "llama-server.exe",
-        "bin/llama/llama-server",
-        "bin/llama/llama-server.exe",
-        "bin/llama-server",
-        "bin/llama-server.exe",
-    ];
-    for name in names {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
 }

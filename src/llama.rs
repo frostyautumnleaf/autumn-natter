@@ -83,13 +83,13 @@ pub fn list_models(dir: &Path) -> Vec<ModelInfo> {
 // all. A name with no mark gives nothing, so a model of eight billion parameters
 // called `llama-3-8b` keeps its name.
 fn shard_of(stem: &str) -> Option<(String, usize, usize)> {
-    let (before, total) = stem.rsplit_once(|c| c == '-' || c == '_')?;
+    let (before, total) = stem.rsplit_once(['-', '_'])?;
     let total: usize = total.parse().ok()?;
-    let (before_of, word) = before.rsplit_once(|c| c == '-' || c == '_')?;
-    if word.to_ascii_lowercase() != "of" {
+    let (before_of, word) = before.rsplit_once(['-', '_'])?;
+    if !word.eq_ignore_ascii_case("of") {
         return None;
     }
-    let (base, number) = before_of.rsplit_once(|c| c == '-' || c == '_')?;
+    let (base, number) = before_of.rsplit_once(['-', '_'])?;
     let number: usize = number.parse().ok()?;
     // A name that is nothing but the mark of a split names no model.
     if base.is_empty() || number == 0 {
@@ -361,6 +361,9 @@ impl Server {
             let log = open_log(log_place.as_deref());
             let mut command = Command::new(binary);
             command.args(&args).stdin(Stdio::null());
+            if graphs_of_a_spread_model(gpus) {
+                command.env("GGML_CUDA_DISABLE_GRAPHS", "1");
+            }
             match log {
                 Some(file) => {
                     // Both output pipes go to the same log file.
@@ -523,6 +526,14 @@ fn read_tail(path: Option<&Path>, max_bytes: usize) -> String {
     text[idx..].to_string()
 }
 
+// A model spread over more than one card has its graphs made on each of them,
+// and a graph of one card does not stand with the memory of another: such a
+// server is told to make no graphs at all, which costs a little speed and
+// saves the start.
+pub fn graphs_of_a_spread_model(gpus: &[Gpu]) -> bool {
+    gpus.iter().filter(|g| g.enabled && g.is_offload).count() > 1
+}
+
 // Build the command line for llama-server. The server takes many knobs,
 // so the call is a flat list.
 #[allow(clippy::too_many_arguments)]
@@ -602,23 +613,43 @@ pub fn build_args(
         }
     }
 
-    // A VRAM budget below the total makes llama.cpp fit the model into it.
+    // A model spread over more than one card has its graphs made on each card,
+    // and a graph of one card does not stand with the memory of another, which
+    // the server answers by failing to make the graph at all. Such a server is
+    // told to make no graphs, which costs a little speed and saves the start.
+    // There is no word for this on the command line, so it is carried in the
+    // touch of the server instead. See `graphs_of_a_spread_model`.
+
+    // The fit of the model into the cards is asked for whenever the user holds
+    // any of a card back, and needs no setting of its own. The server is
+    // told the room of the talk the chat was given, and how much of every
+    // card is to stand over: the share the user set
+    // is what the model may work in, and what is left of a card is the margin.
+    // A margin never falls below the least a server needs to stand up in, which
+    // is what a slider at the whole of the cards comes to -- for the whole of
+    // the cards would else ask for a margin of nothing at all.
+    // The least a server may be left standing over: below this there is no
+    // room for the talk, and a model loaded with such a margin would have
+    // nowhere to put it.
+    const LEAST_FIT_TARGET: u64 = 256;
+    let share = crate::config::sanitize_vram_budget(settings.vram_budget);
     let total: u64 = gpus
         .iter()
         .filter(|g| g.is_offload)
         .map(|g| g.memory_mb)
         .sum();
-    if settings.vram_budget > 0.0 && total > 0 && (settings.vram_budget as u64) < total {
+    if total > 0 && share < 100.0 {
         args.push("--fit".into());
         args.push("on".into());
+        args.push("--fit-ctx".into());
+        args.push(settings.ctx_size.to_string());
         let margins: Vec<String> = gpus
             .iter()
             .filter(|g| g.is_offload)
             .map(|g| {
-                let share = g.memory_mb as f64 * (settings.vram_budget / total as f64);
-                let used = share.min(g.memory_mb as f64);
-                let margin = (g.memory_mb as f64 - used).max(32.0) as u64;
-                margin.to_string()
+                let left = g.memory_mb as f64 * (100.0 - share) / 100.0;
+                let margin = (left.round() as u64).max(LEAST_FIT_TARGET);
+                margin.min(g.memory_mb).to_string()
             })
             .collect();
         args.push("--fit-target".into());
@@ -1086,6 +1117,27 @@ pub fn stream_chat(
     answer
 }
 
+// The words of a thing the server said. Words stand as one string, or as a list
+// of parts, of which the words of a part ride under `text` and a picture of one
+// under `image_url`: a list of pictures alone says nothing at all, and is said
+// so. Nothing is given when the thing is neither of those shapes, so a silence
+// is told from a saying by the caller.
+fn said_words(said: &Value) -> Option<String> {
+    match said {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(parts) => {
+            let mut made = String::new();
+            for part in parts {
+                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                    made.push_str(text);
+                }
+            }
+            Some(made)
+        }
+        _ => None,
+    }
+}
+
 // Read one SSE payload. False means the stream is over.
 fn apply_event(
     payload: &str,
@@ -1154,17 +1206,33 @@ fn apply_event(
         answer.finish = finish.to_string();
     }
     let delta = choice.get("delta").unwrap_or(&Value::Null);
-    if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+    // The words of an answer come as one string, or as a list of parts of which
+    // the words and the pictures are mixed: a server of the OpenAI shape may
+    // send either, and the parts of a picture carry no words to read. Both are
+    // read, for a program that reads only the string sees an answer of parts as
+    // a turn with nothing in it and asks the model again over its own answer.
+    if let Some(content) = said_words(delta.get("content").unwrap_or(&Value::Null)) {
         if !content.is_empty() {
-            answer.text.push_str(content);
-            on_text(content);
+            answer.text.push_str(&content);
+            on_text(&content);
         }
     }
-    // Reasoning models stream their thinking in a separate field.
-    if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
+    // Reasoning models stream their thinking in a field of its own. The name of
+    // that field is not settled between the servers: llama.cpp gives back
+    // `reasoning_content`, and a server of the same shape gives the same words
+    // under `reasoning`. Both are read, and the first of them that holds words
+    // is the thinking of this piece, for a program that sees neither reads the
+    // turn as an empty one and goes on asking the model over words it had
+    // already written.
+    if let Some(reasoning) = delta
+        .get("reasoning_content")
+        .and_then(said_words)
+        .filter(|said| !said.is_empty())
+        .or_else(|| delta.get("reasoning").and_then(|v| v.as_str()).map(String::from))
+    {
         if !reasoning.is_empty() {
-            answer.reasoning.push_str(reasoning);
-            on_reasoning(reasoning);
+            answer.reasoning.push_str(&reasoning);
+            on_reasoning(&reasoning);
         }
     }
     // Tool calls arrive in pieces. They are joined by their index.
@@ -1261,15 +1329,17 @@ mod tests {
     // the defaults of the program stand in a new set of settings.
     #[test]
     fn the_sampling_values_go_to_the_server() {
-        let mut settings = ModelSettings::default();
-        settings.temperature = 0.2;
-        settings.top_p = 0.5;
-        settings.top_k = 7;
-        settings.min_p = 0.1;
-        settings.repeat_penalty = 1.1;
-        settings.presence_penalty = 0.2;
-        settings.max_tokens = 256;
-        settings.seed = 42;
+        let settings = ModelSettings {
+            temperature: 0.2,
+            top_p: 0.5,
+            top_k: 7,
+            min_p: 0.1,
+            repeat_penalty: 1.1,
+            presence_penalty: 0.2,
+            max_tokens: 256,
+            seed: 42,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1322,9 +1392,11 @@ mod tests {
     // the defaults of the program stand in a new set of settings.
     #[test]
     fn the_checkpoints_and_the_cache_ram_go_to_the_server() {
-        let mut settings = ModelSettings::default();
-        settings.ctx_checkpoints = 4;
-        settings.cache_ram = -1;
+        let settings = ModelSettings {
+            ctx_checkpoints: 4,
+            cache_ram: -1,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1375,8 +1447,10 @@ mod tests {
         assert!(args.iter().any(|a| a == "--cache-prompt"));
         assert!(!args.iter().any(|a| a == "--no-cache-prompt"));
 
-        let mut settings = ModelSettings::default();
-        settings.cache_prompt = false;
+        let settings = ModelSettings {
+            cache_prompt: false,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1398,10 +1472,12 @@ mod tests {
     // the value inside the model file stands.
     #[test]
     fn the_image_tokens_go_to_the_server_with_vision() {
-        let mut settings = ModelSettings::default();
-        settings.vision = true;
-        settings.image_min_tokens = 256;
-        settings.image_max_tokens = 1024;
+        let settings = ModelSettings {
+            vision: true,
+            image_min_tokens: 256,
+            image_max_tokens: 1024,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1432,8 +1508,10 @@ mod tests {
         assert!(!args.iter().any(|a| a == "--image-min-tokens"));
         assert!(!args.iter().any(|a| a == "--image-max-tokens"));
 
-        let mut settings = ModelSettings::default();
-        settings.vision = true;
+        let settings = ModelSettings {
+            vision: true,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1487,8 +1565,10 @@ mod tests {
         );
         assert!(!args.iter().any(|a| a == "--no-context-shift"));
 
-        let mut settings = ModelSettings::default();
-        settings.no_context_shift = true;
+        let settings = ModelSettings {
+            no_context_shift: true,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1522,9 +1602,11 @@ mod tests {
         );
         assert!(!args.iter().any(|a| a == "--no-mmproj-offload"));
 
-        let mut settings = ModelSettings::default();
-        settings.vision = true;
-        settings.mmproj_cpu = true;
+        let settings = ModelSettings {
+            vision: true,
+            mmproj_cpu: true,
+            ..Default::default()
+        };
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1785,7 +1867,7 @@ mod tests {
         assert_eq!(
             read.last(),
             Some(&(
-                String::from("one\n> uno"),
+                String::from("change 1 · what stands now\no one\nchange 1 · what it becomes\nr uno\n"),
                 String::from("notes/todo.txt")
             ))
         );
@@ -1800,7 +1882,7 @@ mod tests {
         // to put in are the only words that have come so far. A block that waited
         // for the words to take out would show them first, over a mark.
         assert!(
-            read[words].0.starts_with("> "),
+            read[words].0.starts_with("change 1 · what it becomes\nr "),
             "the block first showed {:?}, and not a word under the mark of a change",
             read[words].0
         );

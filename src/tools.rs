@@ -235,7 +235,19 @@ impl Outcome {
     // Text for the tool block in the chat window.
     pub fn summary(&self) -> String {
         if self.timed_out {
-            return "The command timed out and was stopped".to_string();
+            // Whatever the command printed before it was stopped is kept. A
+            // model that is told a call ran out of time still has to know what
+            // the call had to say up to that moment, and throwing the words
+            // away loses the one thing the run managed to do.
+            if self.output.trim().is_empty() {
+                return String::from(
+                    "The call ran out of time and was stopped. It had printed nothing by then.",
+                );
+            }
+            return format!(
+                "The call ran out of time and was stopped. Everything it had printed by then stands below.\n{}",
+                self.output
+            );
         }
         self.output.clone()
     }
@@ -575,7 +587,7 @@ fn head_word(part: &str) -> (String, Vec<String>) {
             // A variable set for one command alone, as `PIP_NO_INPUT=1 pip
             // install x`, says nothing of what the command runs.
             if let Some((name, rest)) = word.split_once('=') {
-                if !name.is_empty() && rest.len() > 0 {
+                if !name.is_empty() && !rest.is_empty() {
                     continue;
                 }
             }
@@ -653,6 +665,25 @@ pub fn run(
     access: Access,
     timeout: Duration,
 ) -> Outcome {
+    run_watched(
+        command,
+        workdir,
+        sandbox,
+        access,
+        &util::Watch::new(timeout),
+    )
+}
+
+// The same, with the clock of the call itself. The time a command is given may
+// be lengthened while it runs, and the user may cut it short; either way the
+// command is stopped and all it had printed comes back.
+pub fn run_watched(
+    command: &str,
+    workdir: &Path,
+    sandbox: bool,
+    access: Access,
+    watch: &util::Watch,
+) -> Outcome {
     if command.trim().is_empty() {
         return Outcome {
             ok: false,
@@ -676,9 +707,9 @@ pub fn run(
     #[cfg(unix)]
     {
         if sandbox {
-            return run_jailed(command, workdir, access, timeout);
+            return run_jailed(command, workdir, access, watch);
         }
-        let capture = util::capture_in(SHELL, &["-c", command, "natter"], Some(workdir), timeout);
+        let capture = util::capture_watch_in(SHELL, &["-c", command, "natter"], Some(workdir), watch);
         finish(capture, false)
     }
     #[cfg(not(unix))]
@@ -703,12 +734,12 @@ pub fn run(
             // Windows has no jail. The command runs in the working directory
             // with cmd.exe, and the window shows that the sandbox is
             // unavailable.
-            let capture = util::capture_in("cmd.exe", &["/C", command], Some(workdir), timeout);
+            let capture = util::capture_watch_in("cmd.exe", &["/C", command], Some(workdir), watch);
             finish(capture, false)
         }
         #[cfg(not(windows))]
         {
-            let _ = timeout;
+            let _ = watch;
             Outcome {
                 ok: false,
                 output: "No shell is available on this system".to_string(),
@@ -732,7 +763,7 @@ pub fn run(
 // does not run at all: a chat that asked for the sandbox is never given a plain
 // run behind its back.
 #[cfg(unix)]
-fn run_jailed(command: &str, workdir: &Path, access: Access, timeout: Duration) -> Outcome {
+fn run_jailed(command: &str, workdir: &Path, access: Access, watch: &util::Watch) -> Outcome {
     let failed = |reason: String| Outcome {
         ok: false,
         output: format!("The sandbox did not run this command: {}", reason),
@@ -753,7 +784,7 @@ fn run_jailed(command: &str, workdir: &Path, access: Access, timeout: Duration) 
     args.push("-c".into());
     args.push(command.to_string());
     let program = bwrap.display().to_string();
-    let capture = util::capture_in(&program, &args, Some(workdir), timeout);
+    let capture = util::capture_watch_in(&program, &args, Some(workdir), watch);
     if let Some(problem) = jail_failure(&capture) {
         return failed(problem);
     }
