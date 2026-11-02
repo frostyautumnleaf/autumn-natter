@@ -624,25 +624,16 @@ pub const LEAST_CUT_ARGS: usize = 120;
 // summarisation made is spent on the words of the call as much as on anything
 // else, and a telling that filled the room again would have the model stopped a
 // second time before it had a word to give -- which is what the limit is looked
-// at for. The telling is therefore bounded by the limit set for the summarisation
-// and not by the whole of the window: the ask that carries the telling is weighed
-// against that limit, and a telling that stands the ask past it brings the
-// writing to a stop again at the first word of the answer, the room is made
-// again, and the selfsame call is asked for again with no end to it. A tenth of
-// the limit is held back over it besides, for the answer the model is to write,
-// and the telling itself is given at most a tenth of the limit: it is the echo of
-// a call that never ran, and the room it takes is room the work has not. What is
-// left is turned into characters at the four characters to a token the estimate of
-// a talk goes by.
-pub fn cut_bound(used: u64, limit: u64) -> usize {
-    if limit == 0 || limit == u64::MAX {
-        // Nothing is known of the room, or no limit stands at all, so the most a
-        // telling is ever given.
+// at for. A tenth of the room is therefore held back over it, for the answer the
+// model is to write, and what is left over is turned into characters at the four
+// characters to a token the estimate of a talk goes by.
+pub fn cut_bound(used: u64, total: u64) -> usize {
+    if total == 0 {
+        // Nothing is known of the room, so the most a telling is ever given.
         return GREATEST_CUT_ARGS;
     }
-    let left = limit.saturating_sub(used + limit / 10);
-    let allowed = left.min(limit / 10);
-    (allowed as usize * 4).clamp(LEAST_CUT_ARGS, GREATEST_CUT_ARGS)
+    let left = total.saturating_sub(used + total / 10);
+    (left as usize * 4).clamp(LEAST_CUT_ARGS, GREATEST_CUT_ARGS)
 }
 
 // The first `wanted` characters of a text, counted as characters and not as
@@ -4538,17 +4529,13 @@ const EMPTY_TURN_ROOF: usize = 2;
 const EMPTY_TURN_END_WORDS: &str = "The model gave no answer twice over, so the answer ends here. Send the message again, or ask for the work in parts small enough for the context";
 
 // The word the user is given when the writing was stopped at the limit of the
-// summarisation over a turn that left nothing of itself behind, and no room could
-// be made behind it. The answer is ended where it stands, and the user is told what
-// to do: the same thing as above, but of one turn and not of two.
+// summarisation over a turn that left nothing of itself behind. The model wrote
+// neither words nor a call, so the room that a summarisation makes would be spent
+// on the words before the turn and on the turn of nothing with them, and the ask
+// that followed would be put to go on with nothing again. The answer is ended
+// where it stands, and the user is told what to do: the same thing as above, but
+// of one turn and not of two.
 const EMPTY_TURN_CUT_WORDS: &str = "The space gave out while the model wrote neither words nor a call, so the answer ends here. Send the message again, or ask for the work in parts small enough for the context";
-
-// The word the user is given when a room was made behind such a turn, the model
-// was asked again from behind the handoff block, and it gave neither words nor a
-// call out of the room that had just been made. The first stop is gone on with, for
-// that is what a summary is written for; a second has no room left to make and no
-// word to say with it, so the answer ends and the user is told.
-const EMPTY_TURN_TWICE_WORDS: &str = "The model wrote neither words nor a call after the space was made, so the answer ends here. Send the message again, or ask for the work in parts small enough for the context";
 
 // How much room the talk takes when the telling of a call that was stopped where
 // the model wrote it is left out of it. The telling is the longest message of a
@@ -5298,12 +5285,6 @@ fn room_past_the_limit(state: &Arc<Mutex<State>>, history: &Value) -> bool {
     let Ok(guard) = state.lock() else {
         return false;
     };
-    // The room is weighed on the talk as it stands, for this is the talk that goes
-    // out to the server: the telling of a call that was stopped rides with it, as
-    // much as the words of the talk itself. The ask is never sent out over the
-    // limit, where the model is stopped before it has a word to give: the room is
-    // made first, and where it will not come under the limit again the work is too
-    // big for the room and the answer is ended under the word that says so.
     let used = used_after(guard.ctx_used, history);
     config::compaction_wanted(&guard.cfg, used, guard.ctx_total)
 }
@@ -5838,19 +5819,6 @@ fn run_turn(
     // The hand is put up by the piece of the answer that speaks of a talk past the
     // limit, and looked at by the stream after every piece.
     let mut cuts = 0usize;
-    // How many times the writing has been stopped over a turn that left nothing of
-    // itself behind, in this answer. Such a stop is ended after one room has been
-    // made behind it: a model that gives neither words nor a call out of a talk the
-    // summarisation made small has nothing to give, and a second room for it would
-    // be a room spent on nothing.
-    let mut empty_cuts = 0usize;
-    // The room of the talk that went out with the ask that was last made, read the
-    // way the program reads a talk. A stop of the writing behind a room that won
-    // nothing over that ask is the selfsame work asked for again with nothing left
-    // over for it, and the answer is ended rather than the room spent on summaries
-    // of one call for ever. The number is put in before every ask goes out, and is
-    // read only after one.
-    let mut asked_room: u64;
     // How many times an answer of this one came back with nothing to read and was
     // asked over again. The room for that is read from the Chatting settings.
     let mut silences = 0usize;
@@ -5951,25 +5919,7 @@ fn run_turn(
             }
             // The talk the ask goes out with is another talk now: the words the
             // summary stands for are left out of it, and the summary itself
-            // stands at the end of it. A word carried over from the step before was
-            // looked for in the talk as it stood before the room was made, and it
-            // spoke of a turn of nothing or of a call that stood at the end of the
-            // talk. Behind a handoff block neither stands there any more: the block
-            // ends the talk and says in its own words that the work is to be gone on
-            // with, so the word is dropped rather than paid for a second time out of
-            // the room the summarisation was come to win.
-            let talk = guard.build_history();
-            if ends_on_summary_mark(&talk) {
-                carried = None;
-            }
-            // The word of this ask is read again the same way it is read at the top
-            // of every step, so that dropping the stale one leaves the word of a
-            // turn that only goes on standing where it stood.
-            let carried_prompt: &str = match &carried {
-                Some(word) => word.as_str(),
-                None if going_on => CONTINUE_PROMPT,
-                None => "",
-            };
+            // stands at the end of it.
             history = go_on_words(&guard, carried_prompt);
             guard.generating = true;
             guard.set_status("Space was made. The model is going on with the answer");
@@ -6066,7 +6016,6 @@ fn run_turn(
         let progress_state = state.clone();
         let context_state = state.clone();
         let tool_state = state.clone();
-        asked_room = estimate_tokens(&body["messages"]);
         let answer = llama::stream_chat(
             &base_url,
             &body,
@@ -6209,41 +6158,8 @@ fn run_turn(
                     // number turned away by the pace would else leave the writing
                     // running on past the limit -- over a short answer, past the
                     // whole of the room.
-                    //
-                    // The hand is over the writing, and there is nothing to stop
-                    // while the model has written no word of its own. A step that
-                    // gave neither words nor thinking nor a call costs nothing to
-                    // let come to its end, and putting the hand up over it is what
-                    // ended a chat under the words of a space that gave out: the
-                    // room was made, and the answer was stopped all the same,
-                    // because the step that had been stopped held no word of the
-                    // model to carry on. The room of such a step is made after the
-                    // turn instead, on the number the server spoke of it, and the
-                    // model is put back to work behind the summary, which is what a
-                    // summary is written for. Note that the room of the talk is
-                    // weighed here on the numbers of the server, and that they hold
-                    // the list of the tools the template puts before the words: a
-                    // talk the program reads as small can stand past the limit the
-                    // moment it is sent, and the model then has nothing to say.
                     let spoken = made.used().max(guard.ctx_used);
-                    let wrote = !guard.live_text.is_empty()
-                        || !guard.live_reasoning.is_empty()
-                        || !guard.live_tools.is_empty();
-                    if wrote && config::compaction_wanted(&guard.cfg, spoken, guard.ctx_total) {
-                        // The number the server spoke on this piece goes into the
-                        // meter with the stop. The meter is paced, and a number
-                        // turned away by the pace leaves the meter behind the room
-                        // that was come to: the room of the summarisation is weighed
-                        // on the meter, and a cut that stopped the writing at nine
-                        // hundred words of a room of a thousand was then weighed as
-                        // though the talk had never passed the limit, so the summary
-                        // that the stop was made for was never asked for. The stop
-                        // is the moment the room is known, so the number is kept at
-                        // that moment and not at the next piece that the pace lets
-                        // through.
-                        if climb_context(&mut guard, spoken) {
-                            guard.touch();
-                        }
+                    if config::compaction_wanted(&guard.cfg, spoken, guard.ctx_total) {
                         cut_flag.store(true, Ordering::Relaxed);
                     }
                 }
@@ -6377,41 +6293,11 @@ fn run_turn(
                     chat.meta.context_used = used_now;
                     chat.meta.updated = store::now_secs();
                 }
-                // A room that was made is the work being gone on with, and that is
-                // all the reason this branch needs for going on with it: a handoff
-                // summary is written so that the talk may go on, and the words the
-                // summary stands for - the whole of the talk, this turn of nothing
-                // among them - go back to the model no more. The talk that stands
-                // after the mark is the first message of the user and the block of
-                // the summarisation, which is the shape the model is to be asked
-                // with: the room begun afresh from the first prompt of the chat, and
-                // the state of the work laid out in front of it. The block ends that
-                // talk, and it says in its own words that the work is to be gone on
-                // with, so no word of the program goes out behind it. The answer is
-                // ended only where the room never came, or where a room was already
-                // made behind a turn of nothing and the model gave nothing again out
-                // of it: there is then nothing left to make room for.
-                if room && empty_cuts == 0 {
-                    empty_cuts += 1;
-                    cuts += 1;
-                    // The word of the step before spoke of a turn of nothing, and
-                    // the room that was made here took that turn out of the talk:
-                    // the block of the summarisation stands at the end of it now and
-                    // says in its own words what the work was and that it is to be
-                    // gone on with, so no word of the program rides after it.
-                    carried = None;
-                    guard.generating = true;
-                    guard.set_status("Space was made. The model is going on with the answer");
-                    continue;
-                }
-                guard.push_note(
-                    if room { EMPTY_TURN_TWICE_WORDS } else { EMPTY_TURN_CUT_WORDS },
-                    false,
-                );
+                guard.push_note(EMPTY_TURN_CUT_WORDS, false);
                 guard.persist();
                 guard.generating = false;
                 let text = if room {
-                    EMPTY_TURN_TWICE_WORDS
+                    "The space gave out while the model wrote neither words nor a call. Space was made, so the message may be sent again"
                 } else {
                     EMPTY_TURN_CUT_WORDS
                 };
@@ -6451,10 +6337,7 @@ fn run_turn(
             // How much of the words of the stopped call the room that was made can
             // carry. A call whose whole of words were sent back would fill the
             // room again, and the model would be stopped before it had a word.
-            let bound = cut_bound(
-                guard.ctx_used,
-                config::compaction_room(&guard.cfg, guard.ctx_total),
-            );
+            let bound = cut_bound(guard.ctx_used, guard.ctx_total);
             // The calls that were stopped are written down after the summarisation
             // and never before it, for the words that stand before a summarisation
             // go back to the model no more. The model has to be told what it was
@@ -6504,17 +6387,7 @@ fn run_turn(
             // spent for ever.
             let room_asked = carrying_the_cut(&guard.build_history());
             let still_full = config::compaction_wanted(&guard.cfg, room_asked, guard.ctx_total);
-            // The room the next ask carries, telling and all, weighed the way the
-            // ask itself is weighed. A summarisation that will not bring this number
-            // under the number of the ask that was just stopped won no room: the
-            // talk is then the telling of a call the model is asked to write again,
-            // and behind every summarisation it writes to the limit and stops there
-            // again, so the same room is made and spent with no end to it. The model
-            // is writing something no room will hold, and the room the summaries take
-            // is room the user paid for with nothing of the work in it.
-            let ask_now = estimate_tokens(&guard.build_history());
-            let won_nothing = cuts > 1 && ask_now >= asked_room;
-            if !room || (still_full && cuts > 1) || won_nothing {
+            if !room || (still_full && cuts > 1) {
                 // Either the summary never came, which the user is asked of in
                 // the usual way, or the room is still past the limit even with the
                 // telling of the stopped call left out of it. Either way the answer
@@ -6525,8 +6398,6 @@ fn run_turn(
                     "The handoff summary was not written. Start it again from the summarisation timeline"
                 } else if still_full {
                     "The context is still over the summarisation limit, so the answer ends here. Ask for the work in parts small enough for the context, or give the model a larger context"
-                } else if won_nothing {
-                    "The space that was made is taken up by the work itself, so the answer ends here. Ask for the work in parts small enough for the context, or give the model a larger context"
                 } else {
                     "The summarisation made no space, so the answer ends here"
                 };
@@ -10695,27 +10566,22 @@ mod tests {
     }
 
     // The room the summarisation made is spent on the words of a stopped call as
-    // much as on anything else, so what goes back is bounded by what is left over
-    // against the limit and not against the whole of the window: a telling that
-    // stands the ask past the limit has the model stopped a second time before it
-    // had a word to give.
+    // much as on anything else, so what goes back is bounded by what is left over:
+    // a telling that filled the room again would have the model stopped a second
+    // time before it had a word to give.
     #[test]
     fn the_words_of_a_cut_call_are_kept_to_the_room() {
-        // A limit nearly full keeps the least the telling is ever given, for the
-        // head of a call is what names the work it was and less of it is of no use.
+        // A room nothing has been spent on yet gives the most a telling is ever
+        // given, and a room nearly full keeps the least -- but never nothing, for
+        // the head of a call is what names the work it was.
+        assert_eq!(cut_bound(0, 8192), GREATEST_CUT_ARGS);
         assert_eq!(cut_bound(8100, 8192), LEAST_CUT_ARGS);
-        // A limit nothing has been spent on is given a tenth of itself for the
-        // telling: the telling is the echo of a call that never ran, and the room
-        // the summarisation cleared is for the work, not for the echo.
-        assert_eq!(cut_bound(0, 8192), 3276);
-        // In between, a tenth of the limit is held back for the answer the model
-        // is to write, and what is left over is turned into characters at the four
+        // In between, a tenth of the room is held back for the answer the model is
+        // to write, and what is left over is turned into characters at the four
         // characters to a token the estimate of a talk goes by.
         assert_eq!(cut_bound(6873, 8192), 2000);
-        assert_eq!(cut_bound(5000, 6554), 2620);
         // Nothing is known of the room, so the most is given rather than nothing.
         assert_eq!(cut_bound(9000, 0), GREATEST_CUT_ARGS);
-        assert_eq!(cut_bound(9000, u64::MAX), GREATEST_CUT_ARGS);
 
         let _guard = config::test_turn();
         setup();
