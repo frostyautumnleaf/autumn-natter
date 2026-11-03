@@ -980,6 +980,8 @@ pub struct Snap {
     pub thinking_preserve_available: bool,
     pub status: String,
     pub dark_mode: bool,
+    // The skin the pages are drawn in: `light`, `dark` or `corporate`.
+    pub theme: String,
     pub data_dir: String,
     // What the sandbox can do on this machine, for the settings window.
     pub sandbox_note: String,
@@ -2547,6 +2549,7 @@ impl State {
             thinking_preserve_available: self.thinking.has_preserve,
             status: self.status.clone(),
             dark_mode: self.cfg.dark_mode,
+            theme: config::theme_word(&self.cfg.theme, self.cfg.dark_mode),
             data_dir: config::paths().data.display().to_string(),
             sandbox_note: self.sandbox_note.clone(),
             chat_collapse_thinking: self.cfg.chat_collapse_thinking,
@@ -3924,6 +3927,11 @@ impl Engine {
         cfg.chat_compact_prompt = config::sanitize_handoff_prompt(&cfg.chat_compact_prompt);
         cfg.chat_compact_prompt_short =
             config::sanitize_handoff_prompt_short(&cfg.chat_compact_prompt_short);
+        // The skin of the pages is kept to one of the three words, and the switch of
+        // the two that stood before them keeps its old meaning: it is on for the dark
+        // skin alone.
+        cfg.theme = config::theme_word(&cfg.theme, cfg.dark_mode);
+        cfg.dark_mode = cfg.theme == config::THEME_DARK;
         state.cfg = cfg;
         let _ = config::save(&state.cfg);
         state.store = store::Store::new(config::repositories_dir(&state.cfg));
@@ -3943,15 +3951,22 @@ impl Engine {
         }
     }
 
-    // The colour palette. The browser page has this switch too.
-    pub fn set_dark_mode(&self, dark: bool) {
+    // The skin of the pages: `light`, `dark` or `corporate`. The browser page has
+    // this switch too. Nothing of a server moves with a skin, so the pages put the
+    // new skin on before this answers. The switch of the two skins that stood before
+    // the third keeps its old meaning and is on for the dark skin alone: the third
+    // skin is a dark ground too, but a program written for two knows no other dark
+    // skin than the one it has, and the pale skin is an honest fall back.
+    pub fn set_theme(&self, word: &str) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.cfg.dark_mode == dark {
+        let made = config::theme_word(word, state.cfg.dark_mode);
+        if state.cfg.theme == made {
             return;
         }
-        state.cfg.dark_mode = dark;
+        state.cfg.theme = made.clone();
+        state.cfg.dark_mode = made == config::THEME_DARK;
         let _ = config::save(&state.cfg);
         state.touch_structure();
     }
@@ -4116,6 +4131,7 @@ impl Snap {
             thinking_preserve_available: false,
             status: String::new(),
             dark_mode: false,
+            theme: String::new(),
             data_dir: String::new(),
             sandbox_note: String::new(),
             chat_collapse_thinking: true,
@@ -11032,6 +11048,41 @@ mod tests {
         let room_told = cut_words(editfile::EDIT_NAME, "{\"path\":\"a");
         assert!(told.contains("user stopped") && !room_told.contains("user stopped"));
         assert!(room_told.contains("summarisation") && !told.contains("summarisation"));
+    }
+
+    // The skin of the pages. The word of the skin is what the page is told, and the
+    // switch of the two skins that stood before the third is kept in step with it, so
+    // that a settings file of this program can still be read by a program written when
+    // there were two. A word that is none of the three is read as the pale skin, and a
+    // settings file with no word of one answers with the switch it holds.
+    #[test]
+    fn the_skin_of_the_pages_keeps_the_old_switch_in_step() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        assert_eq!(engine.snapshot().theme, "light");
+        assert!(!engine.snapshot().dark_mode);
+        // The third skin stands on a dark ground, but it is not the dark skin, so the
+        // old switch stays off: a program written for two skins reads the pale one,
+        // which is an honest fall back.
+        engine.set_theme("corporate");
+        assert_eq!(engine.snapshot().theme, "corporate");
+        assert!(!engine.snapshot().dark_mode);
+        engine.set_theme("dark");
+        assert_eq!(engine.snapshot().theme, "dark");
+        assert!(engine.snapshot().dark_mode);
+        // A word that is none of the three is the pale skin.
+        engine.set_theme("nothing_of_a_skin");
+        assert_eq!(engine.snapshot().theme, "light");
+        assert!(!engine.snapshot().dark_mode);
+        // A settings file written before there were three skins holds no word, and
+        // the switch it holds answers for it.
+        let before = Config {
+            dark_mode: true,
+            ..Default::default()
+        };
+        let engine = Engine::start(before);
+        assert_eq!(engine.snapshot().theme, "dark");
     }
 
     // A preset is one shape of the settings of a model, kept under a name the

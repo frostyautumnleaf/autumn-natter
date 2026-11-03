@@ -230,6 +230,14 @@ pub struct Config {
     pub models_dir: String,
     // Directory that holds the repositories. Empty means the default place.
     pub repositories_dir: String,
+    // The skin the pages are drawn in: `light`, `dark` or `corporate`. An empty
+    // word marks a settings file written before there were three skins, and the
+    // switch below answers for it.
+    #[serde(default)]
+    pub theme: String,
+    // The switch of the two skins that stood before the third. It is kept in step
+    // with the skin above, so that a settings file of this program can still be
+    // read by a program written when there were two.
     pub dark_mode: bool,
     #[serde(default = "default_remote_port")]
     pub remote_port: u16,
@@ -426,6 +434,27 @@ pub fn sanitize_compact_reserve(value: i64) -> u32 {
 // to.
 pub const GREATEST_PRESET_NAME: usize = 60;
 
+// The three skins the pages can be drawn in. `light` is the pale ground the
+// program is cut for, `dark` the same colours on a ground near black, and
+// `corporate` grey and white and the shades between them alone.
+pub const THEME_LIGHT: &str = "light";
+pub const THEME_DARK: &str = "dark";
+pub const THEME_CORPORATE: &str = "corporate";
+
+// The word of a skin. A word that is none of the three answers as the pale skin,
+// which is the one a new set of settings stands on. An empty word is the mark of a
+// settings file written before there were three skins, and the switch of the two
+// that such a file holds answers for it.
+pub fn theme_word(value: &str, dark: bool) -> String {
+    match value {
+        THEME_DARK => THEME_DARK,
+        THEME_CORPORATE => THEME_CORPORATE,
+        "" if dark => THEME_DARK,
+        _ => THEME_LIGHT,
+    }
+    .to_string()
+}
+
 // The name a preset is kept under: the words the user wrote, with the space off
 // the ends and the space inside made even, and cut to the length the menu holds.
 // A name of nothing at all comes back as nothing, which is how the caller learns
@@ -560,6 +589,7 @@ impl Default for Config {
             llama_dir: default_llama_dir(),
             models_dir: paths().models.display().to_string(),
             repositories_dir: String::new(),
+            theme: String::new(),
             dark_mode: false,
             remote_port: DEFAULT_REMOTE_PORT,
             upnp_enabled: false,
@@ -709,10 +739,15 @@ pub fn ensure_dirs() -> std::io::Result<()> {
 // folders of the model and of llama.cpp follow it.
 pub fn load() -> Config {
     let file = paths().settings_file;
-    match fs::read_to_string(&file) {
+    let mut cfg: Config = match fs::read_to_string(&file) {
         Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
         Err(_) => Config::default(),
-    }
+    };
+    // A settings file written before there were three skins holds no word of one.
+    // The switch of the two that such a file holds answers for it, so a chat that
+    // stood on the dark skin does not wake up pale.
+    cfg.theme = theme_word(&cfg.theme, cfg.dark_mode);
+    cfg
 }
 
 // Write settings.json. Parent directories are created when needed.
@@ -790,6 +825,24 @@ pub fn server_in(dir: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The word of a skin: the three words stand, a word that is none of them is
+    // read as the pale skin, and an empty word -- the mark of a settings file
+    // written before there were three -- answers with the switch of the two that
+    // such a file holds, so a chat that stood on the dark skin does not wake up
+    // pale. A new set of settings holds no word of its own, which is read as the
+    // pale skin.
+    #[test]
+    fn the_word_of_a_skin_is_kept_or_read_as_the_pale_one() {
+        assert_eq!(theme_word(THEME_LIGHT, false), "light");
+        assert_eq!(theme_word(THEME_DARK, false), "dark");
+        assert_eq!(theme_word(THEME_CORPORATE, true), "corporate");
+        assert_eq!(theme_word("", true), "dark");
+        assert_eq!(theme_word("", false), "light");
+        assert_eq!(theme_word("shiny_and_blue", true), "light");
+        let fresh = Config::default();
+        assert_eq!(theme_word(&fresh.theme, fresh.dark_mode), THEME_LIGHT);
+    }
 
     // The name a preset is kept under: the words the user wrote, with the space
     // off the ends and the space inside made even, and cut to the length the menu

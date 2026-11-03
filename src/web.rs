@@ -318,6 +318,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox_fetch": snap.sandbox_access.fetch,
         "status": snap.status,
         "dark": snap.dark_mode,
+        // The skin of the pages: `light`, `dark` or `corporate`. The word of the skin
+        // travels beside the switch of the two that stood before the third, so a page
+        // written for the two of them still reads a skin.
+        "theme": snap.theme,
         // Chatting. How the page shows a thinking panel, a tool panel and a
         // block of code.
         "chatting": {
@@ -945,8 +949,8 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.create_repository(text_field(&value, "name"));
             done()
         }
-        "/api/dark" | "dark" => {
-            engine.set_dark_mode(flag(&value, "on"));
+        "/api/theme" | "theme" => {
+            engine.set_theme(&text_field(&value, "theme"));
             done()
         }
         // The sheet of settings. The window of the program makes these calls
