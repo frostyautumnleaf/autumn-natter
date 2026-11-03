@@ -1108,6 +1108,37 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 }
 .planhead button:hover { color: var(--accent); border-color: var(--accent); }
 .box.planning { border: 2px dashed var(--accent); }
+/* The questions of the plan. The questionnaire stands in the talk itself, at the
+   end of it, on a ground of its own with a line at its left, so it is read as
+   part of the talk and not as a window over it. */
+.planask {
+  margin: 14px 0 4px; padding: 12px 14px;
+  border: 1px solid var(--line); border-left: 3px solid var(--accent-line);
+  border-radius: var(--r-m); background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+.planask .pahead {
+  color: var(--accent); font-family: var(--ui); font-size: 10.5px; font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase; margin-bottom: 8px;
+}
+.planask .pq { margin: 0 0 12px; }
+.planask .pqprompt { font-weight: 600; margin: 0 0 6px; }
+.planask .pqopt {
+  display: flex; align-items: baseline; gap: 8px; padding: 3px 0; cursor: pointer;
+}
+.planask .pqopt input { accent-color: var(--accent); flex: 0 0 auto; }
+.planask .pqwrite {
+  width: 100%; box-sizing: border-box; padding: 7px 9px; resize: vertical;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-s); color: var(--text); font: inherit;
+}
+.planask .pfoot { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.planask .pqsend {
+  border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
+  border-radius: var(--r-s); padding: 6px 12px; cursor: pointer; font-weight: 600;
+}
+.planask .pqsend:disabled { opacity: .5; cursor: default; }
+.planask .pqnote { color: var(--dim); font-size: 11.5px; }
 /* The list of commands. It shows when the writer types a slash with nothing
    before it. Each row gives the command and what it does; one row stands out
    while the list is open. */
@@ -2763,6 +2794,7 @@ function draw(s) {
   el.send.title = s.generating ? 'Stop the answer' : 'Send the message';
 
   drawThread(s);
+  drawPlanAsks(s);
   drawChapters(s);
   drawTimeline(s);
 }
@@ -4112,6 +4144,16 @@ var TOOL_SHAPES = {
   // The plan of planning mode. The tool reaches one file and no other, so the
   // head has no name of a file to wait for: it says what is being done to the
   // plan, and the words of the changes stream under it as those of a file do.
+  read_plan: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
+    head: 'Reading ', done: 'Read ', named: 'the plan', word: 'pattern', end: 'result',
+    empty: 'the plan', begun: 'the plan', file: false
+  },
+  ask_plan: {
+    mark: 'M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM8 5.4v3.4M8 10.6v.8',
+    head: 'Asking about ', done: 'Asked about ', named: 'the plan', word: 'question',
+    end: 'answer', empty: 'the plan', begun: 'the plan'
+  },
   edit_plan: {
     mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
     head: 'Editing ', done: 'Edited ', named: 'plan', word: 'edits', end: 'result',
@@ -6089,6 +6131,124 @@ function foldsFollowSettings() {
   foldSetting = now;
 }
 
+
+// ------------------------------------------------ the questions of the plan
+// The questionnaire of planning mode stands in the talk itself, at the end of
+// it, so the questions are read where the plan is being talked about and not in
+// a window of their own. Every answer the model offered is a mark the user ticks
+// or clears, more than one where the model said more than one may be chosen, and
+// a question with no answers offered takes words instead. Nothing at all goes to
+// the model until the user presses the mark of send under the questions.
+var planPicks = {};
+
+// The words the user has ticked for one question, in the order the questions of
+// the questionnaire stand.
+function planChosen(id, count) {
+  var held = planPicks[id] || [];
+  var out = [];
+  for (var n = 0; n < count; n++) { out.push((held[n] || []).slice()); }
+  return out;
+}
+
+function drawPlanAsks(s) {
+  var gone = byId('planask');
+  if (gone) { gone.remove(); }
+  var one = s && s.ask;
+  if (!one || !one.plan || !(one.items || []).length) { return; }
+  if (!(planPicks[one.id])) { planPicks[one.id] = []; }
+  var box = make('div', 'planask');
+  box.id = 'planask';
+  var head = make('div', 'pahead');
+  head.textContent = 'Questions about the plan';
+  box.appendChild(head);
+  var items = one.items;
+  for (var n = 0; n < items.length; n++) {
+    var item = items[n];
+    var part = make('div', 'pq');
+    var prompt = make('div', 'pqprompt');
+    prompt.textContent = (n + 1) + '. ' + (item.question || '');
+    part.appendChild(prompt);
+    var choices = item.choices || [];
+    if (choices.length) {
+      for (var c = 0; c < choices.length; c++) {
+        var label = make('label', 'pqopt');
+        var mark = make('input', '');
+        mark.type = item.many ? 'checkbox' : 'radio';
+        mark.name = 'pq-' + one.id + '-' + n;
+        mark.value = choices[c];
+        var held = planChosen(one.id, items.length);
+        if (held[n].indexOf(choices[c]) >= 0) { mark.checked = true; }
+        (function (which, word) {
+          mark.addEventListener('change', function () {
+            var now = planChosen(one.id, items.length);
+            var list = now[which];
+            var at = list.indexOf(word);
+            if (!mark.checked) { if (at >= 0) { list.splice(at, 1); } }
+            else if (at < 0) {
+              // A question that takes one answer clears the mark that stood in
+              // its place, as the marks of that kind always have done.
+              if (!item.many) { list.length = 0; }
+              list.push(word);
+            }
+            planPicks[one.id] = now;
+            planReady(box, one.id, items.length);
+          });
+        })(n, choices[c]);
+        label.appendChild(mark);
+        var said = make('span', '');
+        said.textContent = choices[c];
+        label.appendChild(said);
+        part.appendChild(label);
+      }
+    } else {
+      // No answers were offered: the user writes one.
+      var wrote = make('textarea', 'pqwrite');
+      wrote.rows = 2;
+      wrote.spellcheck = false;
+      wrote.placeholder = 'Write your answer';
+      var held = planChosen(one.id, items.length);
+      wrote.value = (held[n] || []).join('\n');
+      wrote.addEventListener('input', function () {
+        var now = planChosen(one.id, items.length);
+        now[n] = wrote.value.trim() ? [wrote.value] : [];
+        planPicks[one.id] = now;
+        planReady(box, one.id, items.length);
+      });
+      part.appendChild(wrote);
+    }
+    box.appendChild(part);
+  }
+  var foot = make('div', 'pfoot');
+  var send = make('button', 'pqsend');
+  send.type = 'button';
+  send.textContent = 'Send the answers';
+  send.disabled = true;
+  send.addEventListener('click', function () {
+    var chosen = planChosen(one.id, items.length);
+    if (!chosen.some(function (list) { return list.length > 0; })) { return; }
+    post('/api/plan_answers', { id: one.id, answers: chosen });
+    var note = byId('pqnote');
+    if (note) { note.textContent = 'Sent'; }
+    send.disabled = true;
+  });
+  foot.appendChild(send);
+  var note = make('span', 'pqnote');
+  note.id = 'pqnote';
+  note.textContent = 'Choose what you like of every question, then send the whole of it.';
+  foot.appendChild(note);
+  box.appendChild(foot);
+  el.col.appendChild(box);
+}
+
+// The mark of send wakes when the user has answered something, and sleeps while
+// the questions stand untouched.
+function planReady(box, id, count) {
+  var send = box.querySelector('.pqsend');
+  var chosen = planChosen(id, count);
+  var any = false;
+  for (var n = 0; n < chosen.length; n++) { if (chosen[n].length > 0) { any = true; } }
+  if (send) { send.disabled = !any; }
+}
 // ---------------------------------------------------------- planning mode
 // Planning mode makes a plan of the work before any of it is done. The chat says
 // which mode it is in, and the words of the plan are kept in a file of their own.
@@ -6707,7 +6867,9 @@ function drawAsk(s) {
   if (!box) { return; }
   wireAsk();
   var one = s.ask;
-  if (!one || !one.id) {
+  // A questionnaire of planning mode stands in the talk itself, where the plan
+  // is being talked about, so it never fills the box above the chat box.
+  if (!one || !one.id || one.plan) {
     if (askHeld !== '') {
       askHeld = '';
       box.classList.add('hidden');

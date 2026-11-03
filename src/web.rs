@@ -235,6 +235,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             // until it is answered.
             "left": one.left(),
             "seconds": one.seconds,
+            // A questionnaire of planning mode carries its questions, and the
+            // mark that says it is one: it stands in the talk itself, the user
+            // chooses what they like of every question, and nothing goes until
+            // they send the whole of it.
+            "plan": one.plan,
+            "items": one.items.iter().map(|item| json!({
+                "question": item.prompt,
+                "choices": item.choices,
+                "many": item.many,
+            })).collect::<Vec<_>>(),
         })),
         // The call of a tool that is running right now, with the whole of the time
         // it was given and the seconds it has left. The head of the block of the
@@ -775,6 +785,40 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             }
             if !engine.answer_ask(&id, &answer) {
                 return refused("That question is answered already, or is over");
+            }
+            done()
+        }
+        // The user sent the answers of a questionnaire of planning mode. Each
+        // question carries the answers they chose for it, and the answers stand
+        // in the order the questions stand. A question the user wrote words for
+        // carries those words as its one answer.
+        "/api/plan_answers" | "plan_answers" => {
+            let id = text_field(&value, "id");
+            let mut answers: Vec<Vec<String>> = Vec::new();
+            if let Some(list) = value.get("answers").and_then(|made| made.as_array()) {
+                for one in list {
+                    let mut chosen: Vec<String> = Vec::new();
+                    if let Some(words) = one.as_array() {
+                        for word in words {
+                            if let Some(text) = word.as_str() {
+                                if !text.trim().is_empty() {
+                                    chosen.push(text.trim().to_string());
+                                }
+                            }
+                        }
+                    } else if let Some(text) = one.as_str() {
+                        if !text.trim().is_empty() {
+                            chosen.push(text.trim().to_string());
+                        }
+                    }
+                    answers.push(chosen);
+                }
+            }
+            if answers.iter().all(|one| one.is_empty()) {
+                return refused("Nothing was chosen");
+            }
+            if !engine.answer_plan_ask(&id, answers) {
+                return refused("That questionnaire is answered already, or is over");
             }
             done()
         }

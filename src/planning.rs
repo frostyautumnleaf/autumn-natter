@@ -272,6 +272,31 @@ pub fn system_prompt(plan: &str) -> String {
         EDIT_NAME
     ));
     out.push_str(&format!(
+        "The user, and what the plan must never hold.\n\n\
+         The user never sees the plan file. They see this talk only: your answers, \
+         and the marks of the tools you call. So never write a question into the \
+         plan, never leave an open point there for the user to settle, and never \
+         ask them in the plan to confirm, to choose or to fill anything in. A plan \
+         that holds questions for the user is a plan that cannot be carried out, \
+         for nobody will ever read them.\n\n\
+         When a thing can be settled only by the user, ask with `{}`. Ask any \
+         number of questions in one call, each with the answers the user may choose \
+         from; set many to true when several of them may be chosen, and give no \
+         list when the user is to write the answer. The questions stand in the talk \
+         itself, the user marks what they like of every one of them, and nothing \
+         comes back until they send the whole of it. No clock runs on those \
+         questions, so wait for them: never settle on your own a thing you said you \
+         were asking about. When the answers come, write them into the plan as \
+         decisions taken, and not as questions that were once asked.\n\n\
+         Look at the plan as it now stands. After you have changed it, read it back \
+         with `{}`: give a pattern with the lines to give before and after each \
+         place it is found, or ask for the head, the tail, or a range of its lines. \
+         Every line comes back with the number it stands on in the file. Do that \
+         before you say a change was made, and never describe the plan from \
+         memory.\n\n",
+        ASK_NAME, READ_NAME
+    ));
+    out.push_str(&format!(
         "Ending planning mode.\n\
          The work begins only when the user says it may. When they have said, in \
          their own words, that the plan is agreed and the work may begin, call `{}` \
@@ -559,6 +584,379 @@ fn neat(name: &str) -> String {
         .collect()
 }
 
+// ------------------------------------------------ questions of the plan
+//
+// A model that plans needs things settled that only the user can settle. The
+// questionnaire is the way to ask for them: any number of questions at once,
+// each with any number of answers to choose from, the user free to choose
+// several of them, and nothing sent until the user presses the mark of send. No
+// clock runs on a questionnaire, for the plan is not served on time.
+
+pub const ASK_NAME: &str = "ask_plan";
+
+// The most questions one questionnaire may hold, and the most answers one
+// question may offer. Both are kept generous, for a plan of a large piece of
+// work has a large number of things to settle.
+const GREATEST_QUESTIONS: usize = 12;
+const GREATEST_CHOICES: usize = 12;
+
+// The call the model is offered.
+pub fn ask_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": ASK_NAME,
+            "description": "Put a questionnaire to the user, and wait for the answers. Use it for the few things that only the user can settle, and never for the rest. Ask any number of questions in one call. Each question carries the words of it and the answers the user may choose from; set many to true when more than one of them may be chosen, and leave the list empty when the user is to write the answer instead. The questionnaire stands in the talk itself, the user chooses what they like of it and sends the whole of it when they are ready, and there is no clock on it. Nothing of the plan is sent to the user, so every question you need an answer to must be asked with this tool: never write a question, an open point for the user, or a list of things to confirm into the plan file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "questions": {
+                        "type": "array",
+                        "description": "The questions to put to the user, in the order they are to stand.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "question": {
+                                    "type": "string",
+                                    "description": "The question, in one or two sentences that stand by themselves."
+                                },
+                                "choices": {
+                                    "type": "array",
+                                    "description": "The answers the user may choose from. Empty when the user is to write the answer.",
+                                    "items": { "type": "string" }
+                                },
+                                "many": {
+                                    "type": "boolean",
+                                    "description": "True when the user may choose more than one of the answers. Off when it is not given."
+                                }
+                            },
+                            "required": ["question"]
+                        }
+                    }
+                },
+                "required": ["questions"]
+            }
+        }
+    })
+}
+
+// The questions of one call, read and made ready. A question with no words in it
+// is a fault of the call, for a questionnaire the user cannot read is no help to
+// the plan.
+pub fn questions_of(raw: &str) -> Result<Vec<crate::engine::AskItem>, String> {
+    let Ok(call) = serde_json::from_str::<Value>(raw) else {
+        return Err(String::from(
+            "The call was not whole words of JSON, so nothing was asked.",
+        ));
+    };
+    let Some(items) = call.get("questions").and_then(|made| made.as_array()) else {
+        return Err(String::from(
+            "The call named no questions. Give the questions of the plan in `questions`.",
+        ));
+    };
+    if items.is_empty() {
+        return Err(String::from("The call named no questions."));
+    }
+    if items.len() > GREATEST_QUESTIONS {
+        return Err(format!(
+            "{} questions in one questionnaire is over the limit of {}. Ask the most important of them now, and the rest in a call of their own.",
+            items.len(),
+            GREATEST_QUESTIONS
+        ));
+    }
+    let mut out = Vec::new();
+    for (number, item) in items.iter().enumerate() {
+        let index = number + 1;
+        let prompt = item
+            .get("question")
+            .and_then(|made| made.as_str())
+            .map(|made| made.trim().to_string())
+            .filter(|made| !made.is_empty())
+            .ok_or_else(|| format!("question {} has no words in it", index))?;
+        let mut choices: Vec<String> = Vec::new();
+        if let Some(list) = item.get("choices").and_then(|made| made.as_array()) {
+            for given in list.iter().take(GREATEST_CHOICES) {
+                if let Some(word) = given.as_str() {
+                    let word = word.trim();
+                    if !word.is_empty() {
+                        choices.push(word.to_string());
+                    }
+                }
+            }
+        }
+        out.push(crate::engine::AskItem {
+            prompt,
+            choices,
+            many: item
+                .get("many")
+                .and_then(|made| made.as_bool())
+                .unwrap_or(false),
+        });
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------- reading the plan back
+//
+// The words of the plan, exactly as they stand in the file. A model that changed
+// the plan needs to see how the change landed, so the plan is read back to it
+// line by line, as the search command of a terminal reads a file back: the
+// number each line stands on, the lines about each place that was found, and the
+// start or the end of the file when those were what was asked for.
+
+pub const READ_NAME: &str = "read_plan";
+
+// The most characters one answer may carry. A read that ran past this says so,
+// for a model that was not told might take the part for the whole.
+const GREATEST_READ_CHARS: usize = 12_000;
+
+// The most lines one answer may carry, so a search that found the whole of a
+// long plan does not answer with the whole of it.
+const GREATEST_READ_LINES: usize = 400;
+
+// The call the model is offered. It takes no file: the plan of this chat is the
+// only text it can read, and it is never changed by reading it.
+pub fn read_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": READ_NAME,
+            "description": "Read back the plan file of this chat, exactly as it stands, with the number of each line in front of it. Use it after a change to see how the change landed. It works like the search command of a terminal: give a pattern to look for, with before and after for the whole lines to give about each place that is found, and at_most to stop after that many places. With no pattern, head gives the first lines, tail the last lines, and from_line with to_line a range of them; with none of those the whole plan is read back. Places that are found are kept apart by a line of two marks. This tool changes nothing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "The words to look for in the plan. With none given, head, tail or the range of lines says what is read back."
+                    },
+                    "ignore_case": {
+                        "type": "boolean",
+                        "description": "Look for the words whatever their letters stand for, upper or lower. Off when it is not given."
+                    },
+                    "before": {
+                        "type": "number",
+                        "description": "How many whole lines to give before each place that was found. None when it is not given."
+                    },
+                    "after": {
+                        "type": "number",
+                        "description": "How many whole lines to give after each place that was found. None when it is not given."
+                    },
+                    "at_most": {
+                        "type": "number",
+                        "description": "Stop after this many places have been found. All of them when it is not given."
+                    },
+                    "head": {
+                        "type": "number",
+                        "description": "The first lines of the plan, counting from the first line."
+                    },
+                    "tail": {
+                        "type": "number",
+                        "description": "The last lines of the plan, counting back from the last line."
+                    },
+                    "from_line": {
+                        "type": "number",
+                        "description": "The line to begin reading from. The first line of the plan is one."
+                    },
+                    "to_line": {
+                        "type": "number",
+                        "description": "The line to read up to, that line included."
+                    }
+                },
+                "required": []
+            }
+        }
+    })
+}
+
+// A count out of the call, when one was given. A number written between quotes
+// is read as a count too, for a model writes counts that way as often as not.
+fn asked(call: &Value, key: &str) -> Option<usize> {
+    let given = call.get(key)?;
+    if let Some(count) = given.as_u64() {
+        return Some(count as usize);
+    }
+    if let Some(count) = given.as_i64() {
+        return if count < 0 { None } else { Some(count as usize) };
+    }
+    given.as_str().and_then(|word| word.trim().parse::<usize>().ok())
+}
+
+// The lines of the answer, each with the number it stands on in the plan. The
+// places given in `groups` begin a new group, and a group is set apart from the
+// one before it by a line of two marks, as the search command of a terminal does.
+// The number of the line is carried with it, so a read of a part of the plan
+// answers with the numbers of the file and not with the count of the answer.
+fn numbered(held: &[(usize, &str)], groups: &[usize]) -> String {
+    let mut out = String::new();
+    for (number, (place, line)) in held.iter().enumerate() {
+        if groups.contains(&number) && number > 0 {
+            out.push_str("--\n");
+        }
+        out.push_str(&format!("{}: {}\n", place + 1, line));
+    }
+    out
+}
+
+// Read the plan back. The plan is looked at line by line, so every number the
+// answer carries is the number of the file. The two ways of reading it - a
+// search, and a read of a part - fill in the words of the answer themselves,
+// which is why the words are named before either of them has run.
+#[allow(clippy::needless_late_init)]
+pub fn read_plan(name: &str, raw: &str) -> tools::Report {
+    let failed = |output: String| tools::Report { ok: false, output };
+    let Some(place) = path_of(name) else {
+        return failed(String::from(
+            "This chat has no plan file, so there is nothing to read back.",
+        ));
+    };
+    let Ok(words) = fs::read_to_string(&place) else {
+        return failed(String::from(
+            "The plan file could not be read, so nothing was answered.",
+        ));
+    };
+    let Ok(call) = serde_json::from_str::<Value>(raw) else {
+        return failed(String::from(
+            "The call was not whole words of JSON, so nothing was answered.",
+        ));
+    };
+    // The plan is looked at line by line. A mark of a new line at the very end
+    // closes the last line rather than opening one, so it is not a line of the
+    // plan, as it is not in a terminal either.
+    let mut lines: Vec<&str> = words.split('\n').collect();
+    if words.ends_with('\n') {
+        lines.pop();
+    }
+    let pattern = call.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+    // The lines of the answer, and the places among them where a new group
+    // begins. The two are worked out below, one way for a search and one for a
+    // read of a part.
+    // The lines of the answer, with the number each of them stands on in the
+    // plan, and the places among them where a new group begins.
+    let mut held: Vec<(usize, &str)> = Vec::new();
+    let mut groups: Vec<usize> = Vec::new();
+    let said: String;
+    if !pattern.is_empty() {
+        let ignoring = call
+            .get("ignore_case")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let needle = if ignoring { pattern.to_lowercase() } else { pattern.to_string() };
+        let before = asked(&call, "before").unwrap_or(0);
+        let after = asked(&call, "after").unwrap_or(0);
+        let ceiling = asked(&call, "at_most").unwrap_or(usize::MAX);
+        let mut found = 0usize;
+        // One past the last line the answer holds already, so a place that falls
+        // among lines given is joined to them instead of being given twice.
+        let mut held_to = 0usize;
+        for (number, line) in lines.iter().enumerate() {
+            let here = if ignoring { line.to_lowercase() } else { line.to_string() };
+            if !here.contains(needle.as_str()) {
+                continue;
+            }
+            found += 1;
+            let from = number.saturating_sub(before);
+            let to = (number + after + 1).min(lines.len());
+            if from > held_to && !held.is_empty() {
+                groups.push(held.len());
+            }
+            let first = from.max(held_to);
+            for (offset, line) in lines[first..to].iter().enumerate() {
+                held.push((first + offset, line));
+            }
+            held_to = held_to.max(to);
+            if found >= ceiling {
+                break;
+            }
+        }
+        if found == 0 {
+            return tools::Report {
+                ok: true,
+                output: format!(
+                    "Nothing was found. \"{}\" is not in the plan, which holds {} lines.",
+                    pattern,
+                    lines.len()
+                ),
+            };
+        }
+        said = format!(
+            "{} place{} of \"{}\", in a plan of {} lines.\n",
+            found,
+            if found == 1 { "" } else { "s" },
+            pattern,
+            lines.len()
+        );
+    } else {
+        // Nothing to look for: the start of the plan, its end, a range of its
+        // lines, or the whole of it.
+        let head = asked(&call, "head");
+        let tail = asked(&call, "tail");
+        let from = asked(&call, "from_line").map(|one| one.saturating_sub(1).min(lines.len()));
+        let to = asked(&call, "to_line").map(|one| one.min(lines.len()));
+        let mut parts: Vec<(usize, usize)> = Vec::new();
+        match (from, to) {
+            (Some(first), Some(last)) if last > first => parts.push((first, last)),
+            (Some(first), None) => parts.push((first, lines.len())),
+            (None, Some(last)) => parts.push((0, last)),
+            _ => {
+                if let Some(count) = head {
+                    parts.push((0, count.min(lines.len())));
+                }
+                if let Some(count) = tail {
+                    parts.push((lines.len().saturating_sub(count), lines.len()));
+                }
+            }
+        }
+        if parts.is_empty() {
+            parts.push((0, lines.len()));
+        }
+        let first = parts.first().map(|one| one.0).unwrap_or(0);
+        let last = parts.last().map(|one| one.1).unwrap_or(0);
+        for (number, part) in parts.iter().enumerate() {
+            if number > 0 && part.0 < held.len() {
+                continue;
+            }
+            if number > 0 {
+                groups.push(held.len());
+            }
+            let first = part.0.max(if number > 0 { held.last().map(|one| one.0 + 1).unwrap_or(0) } else { 0 });
+            for (offset, line) in lines[first..part.1].iter().enumerate() {
+                held.push((first + offset, line));
+            }
+        }
+        said = format!(
+            "Lines {} to {} of a plan of {} lines.\n",
+            first + 1,
+            last,
+            lines.len()
+        );
+    }
+    // The answer is kept to a size, and a read that ran past it says so.
+    let mut cut = false;
+    if held.len() > GREATEST_READ_LINES {
+        held.truncate(GREATEST_READ_LINES);
+        cut = true;
+    }
+    let made = numbered(&held, &groups);
+    let mut body = made;
+    if body.chars().count() > GREATEST_READ_CHARS {
+        let mut kept = String::new();
+        for line in body.split_inclusive('\n') {
+            if kept.chars().count() + line.chars().count() > GREATEST_READ_CHARS {
+                cut = true;
+                break;
+            }
+            kept.push_str(line);
+        }
+        body = kept;
+    }
+    if cut {
+        body.push_str("(the rest was left out: ask again for a part of the plan)\n");
+    }
+    tools::Report {
+        ok: true,
+        output: format!("{}{}", said, body),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -685,5 +1083,130 @@ mod tests {
         assert!(said.contains(END_NAME));
         // The plan file is named, and no other file is offered to it.
         assert!(!said.contains("edit_file"), "{}", said);
+    }
+
+    // The plan is read back with the lines about each place that was found, and
+    // two places that do not touch are kept apart by a line of two marks. The
+    // numbers the answer carries are the numbers of the file, so a read of a part
+    // of the plan says where each line stands in it.
+    #[test]
+    fn the_plan_is_read_back_about_a_place() {
+        let _guard = config::test_turn();
+        let name = create("7001001");
+        let place = path_of(&name).unwrap();
+        fs::write(&place, "alpha step one\nbeta\ngamma step one\n").expect("the plan");
+        let made = read_plan(&name, r#"{"pattern":"step one","after":1}"#);
+        assert!(made.ok, "{}", made.output);
+        assert!(made.output.contains("2 places"), "{}", made.output);
+        assert!(
+            made.output.contains("1: alpha step one\n2: beta\n3: gamma step one\n"),
+            "{}",
+            made.output
+        );
+        // The two places touch, for the line after the first holds the line
+        // before the second, so no mark stands between them. With no line about
+        // the places they do not touch, and a line of two marks does stand.
+        let tight = read_plan(&name, r#"{"pattern":"step one"}"#);
+        assert!(tight.ok, "{}", tight.output);
+        assert!(
+            tight.output.contains("1: alpha step one\n--\n3: gamma step one\n"),
+            "{}",
+            tight.output
+        );
+        // A count of places stops the search at the first of them.
+        let one = read_plan(&name, r#"{"pattern":"step one","at_most":1}"#);
+        assert!(one.output.contains("1 place"), "{}", one.output);
+        assert!(!one.output.contains("gamma"), "{}", one.output);
+        // The letters of the words are looked past when it is asked for.
+        let loose = read_plan(&name, r#"{"pattern":"ALPHA STEP ONE","ignore_case":true}"#);
+        assert!(loose.output.contains("1 place"), "{}", loose.output);
+        let _ = fs::remove_file(&place);
+    }
+
+    // The start of the plan, a range of its lines, and the whole of it are read
+    // back with the numbers of the file in front of the lines.
+    #[test]
+    fn a_part_of_the_plan_is_read_back() {
+        let _guard = config::test_turn();
+        let name = create("7001002");
+        let place = path_of(&name).unwrap();
+        fs::write(&place, "one\ntwo\nthree\nfour\n").expect("the plan");
+        let head = read_plan(&name, r#"{"head":2}"#);
+        assert!(head.ok, "{}", head.output);
+        assert!(head.output.contains("1: one\n2: two\n"), "{}", head.output);
+        // A range of lines is asked for by the numbers of the file, and answers
+        // with those numbers and not with a count of its own.
+        let middle = read_plan(&name, r#"{"from_line":2,"to_line":3}"#);
+        assert!(middle.ok, "{}", middle.output);
+        assert!(middle.output.contains("2: two\n3: three\n"), "{}", middle.output);
+        assert!(!middle.output.contains("one"), "{}", middle.output);
+        // The last lines of the plan, and the whole of it.
+        let last = read_plan(&name, r#"{"tail":1}"#);
+        assert!(last.output.contains("4: four"), "{}", last.output);
+        let whole = read_plan(&name, "{}");
+        assert!(whole.ok, "{}", whole.output);
+        assert!(
+            whole.output.contains("1: one\n2: two\n3: three\n4: four\n"),
+            "{}",
+            whole.output
+        );
+        let _ = fs::remove_file(&place);
+    }
+
+    // A search that found nothing says so plainly, for a model that was answered
+    // with silence might take it for a plan that holds the words.
+    #[test]
+    fn a_search_of_the_plan_that_found_nothing_says_so() {
+        let _guard = config::test_turn();
+        let name = create("7001003");
+        let place = path_of(&name).unwrap();
+        fs::write(&place, "alpha\n").expect("the plan");
+        let made = read_plan(&name, r#"{"pattern":"zebra step nine"}"#);
+        assert!(made.ok, "{}", made.output);
+        assert!(made.output.starts_with("Nothing was found"), "{}", made.output);
+        let _ = fs::remove_file(&place);
+    }
+
+    // The prompt tells the model that the user never sees the plan, names the
+    // questionnaire and the read-back as the two ways of reaching the user and
+    // the plan, and forbids questions written into the plan.
+    #[test]
+    fn the_prompt_keeps_questions_out_of_the_plan() {
+        let said = system_prompt("plans/plan-1.md");
+        assert!(said.contains("never sees the plan file"), "{}", said);
+        assert!(said.contains(ASK_NAME), "{}", said);
+        assert!(said.contains(READ_NAME), "{}", said);
+        assert!(said.contains("never write a question into the"), "{}", said);
+        // No clock runs on the questions of the plan.
+        assert!(said.contains("No clock runs on those"), "{}", said);
+    }
+
+    // A questionnaire is any number of questions, each with the answers the user
+    // may choose from and the mark of whether several may be chosen. A question
+    // with no words in it is refused, for the user cannot read it.
+    #[test]
+    fn a_questionnaire_is_read_from_the_call() {
+        let raw = r#"{"questions":[
+            {"question":"Which skin first?","choices":["pale","dark","grey"],"many":true},
+            {"question":"What is the name?","choices":[]}
+        ]}"#;
+        let items = questions_of(raw).expect("two questions");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].choices.len(), 3);
+        assert!(items[0].many);
+        assert!(!items[1].many);
+        assert!(items[1].choices.is_empty());
+        let empty = questions_of(r#"{"questions":[{"question":"  "}]}"#);
+        assert!(empty.is_err());
+        let none = questions_of(r#"{"questions":[]}"#);
+        assert!(none.is_err());
+        let too_many = format!(
+            "{{\"questions\":[{}]}}",
+            (0..13)
+                .map(|n| format!("{{\"question\":\"q {}\"}}", n))
+                .collect::<Vec<String>>()
+                .join(",")
+        );
+        assert!(questions_of(&too_many).is_err());
     }
 }

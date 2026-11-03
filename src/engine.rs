@@ -245,6 +245,15 @@ fn tool_watch(state: &Arc<Mutex<State>>) -> crate::util::Watch {
     crate::util::Watch::new(Duration::from_secs(seconds as u64))
 }
 
+// One question of a questionnaire, with the answers the user may choose from.
+// `many` says whether more than one of them may be chosen.
+#[derive(Clone, Debug)]
+pub struct AskItem {
+    pub prompt: String,
+    pub choices: Vec<String>,
+    pub many: bool,
+}
+
 // A question the model has put to the user, and the wait that stands with it.
 // The question stands above the chat box until the user answers it, the time of
 // an ordinary question is gone, or the user stops the answer; the three roads
@@ -263,6 +272,13 @@ pub struct Asking {
     // How long the question is waited for. Nothing at all waits until the user
     // answers, which is what a question the model cannot go on without asks for.
     pub seconds: u32,
+    // The questions of a questionnaire, when the ask is one. An ask of the
+    // ordinary kind carries none, and the question above does all the work.
+    pub items: Vec<AskItem>,
+    // True when the ask is the questionnaire of planning mode. It stands in the
+    // talk itself, where the plan is being talked about, and not above the chat
+    // box, and no clock runs on it.
+    pub plan: bool,
     // The moment the wait began, which is where the time left is measured from.
     began: Instant,
     // What the user answered. The wait is over when this holds anything.
@@ -315,9 +331,11 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         // A look about the web is named by the words to look for, or by the
         // address that is to be read.
         search::NAME => (search::partial_words(raw), String::new(), String::new()),
-        // The two tools of planning name themselves: one changes the plan file of
-        // this chat, and the other says the plan is agreed.
+        // The tools of planning name themselves: one changes the plan file of
+        // this chat, one reads it back, and one says the plan is agreed.
         planning::EDIT_NAME => (String::from("the plan file"), String::new(), String::new()),
+        planning::READ_NAME => (String::from("the plan file"), String::new(), String::new()),
+        planning::ASK_NAME => (String::from("the questions of the plan"), String::new(), String::new()),
         planning::END_NAME => (String::from("the plan is agreed"), String::new(), String::new()),
         viewimage::NAME | viewimage::ONE_NAME => (viewimage::partial_words(raw), String::new(), String::new()),
         // A tool of a server of the user's own is named by the tool itself,
@@ -1819,6 +1837,8 @@ impl State {
                 self.cfg.ask_seconds,
                 self.cfg.ask_critical_seconds,
             ),
+            items: Vec::new(),
+            plan: false,
             began: Instant::now(),
             answer: None,
         };
@@ -1827,6 +1847,57 @@ impl State {
         self.asking = Some(one);
         self.touch();
         (id, seconds)
+    }
+
+    // A questionnaire of planning mode. It carries any number of questions, is
+    // waited for as long as it takes, and is answered when the user sends the
+    // whole of it by hand.
+    fn begin_asking_plan(&mut self, items: Vec<AskItem>) -> String {
+        let first = items.first().map(|one| one.prompt.clone()).unwrap_or_default();
+        let one = Asking {
+            id: store::new_id(),
+            question: first,
+            choices: Vec::new(),
+            critical: true,
+            // No clock runs on a questionnaire: the plan is not served on time.
+            seconds: 0,
+            items,
+            plan: true,
+            began: Instant::now(),
+            answer: None,
+        };
+        let id = one.id.clone();
+        self.asking = Some(one);
+        self.touch();
+        id
+    }
+
+    // The answers of the user to a questionnaire, put in the words the model is
+    // given back. Each answer stands under the question it belongs to, so the
+    // model cannot mistake which question was answered which way.
+    fn answer_plan(&mut self, id: &str, answers: Vec<Vec<String>>) -> bool {
+        let Some(one) = self.asking.as_mut() else {
+            return false;
+        };
+        if !one.plan || one.id != id || one.answer.is_some() {
+            return false;
+        }
+        let mut said = String::from("The user answered the questions of the plan.\n");
+        for (number, item) in one.items.iter().enumerate() {
+            said.push_str(&format!("{}. {}\n", number + 1, item.prompt));
+            let chosen = answers
+                .get(number)
+                .map(|list| list.iter().filter(|word| !word.trim().is_empty()).cloned().collect::<Vec<String>>())
+                .unwrap_or_default();
+            if chosen.is_empty() {
+                said.push_str("   Answer: nothing was chosen\n");
+            } else {
+                said.push_str(&format!("   Answer: {}\n", chosen.join("; ")));
+            }
+        }
+        one.answer = Some(said);
+        self.touch();
+        true
     }
 
     // The answer of the user, when the question the page was drawing is the one
@@ -3489,6 +3560,17 @@ impl Engine {
             return false;
         };
         guard.answer_asking(id, answer.trim())
+    }
+
+    // The user sent the answers of a questionnaire of planning mode. Each
+    // question carries the answers they chose for it, in the order the questions
+    // stand. A questionnaire that was sent already, or that the run has given
+    // over, is answered no more, and the page is told so.
+    pub fn answer_plan_ask(&self, id: &str, answers: Vec<Vec<String>>) -> bool {
+        let Ok(mut guard) = self.state.lock() else {
+            return false;
+        };
+        guard.answer_plan(id, answers)
     }
 
     // One file the user was offered, for the button of a block. The name is the
@@ -7597,6 +7679,8 @@ fn offered_with_planning(
         .unwrap_or_default();
     if planning_on {
         list.push(planning::edit_definition());
+        list.push(planning::read_definition());
+        list.push(planning::ask_definition());
         list.push(planning::end_definition());
     }
     if list.is_empty() {
@@ -7786,6 +7870,8 @@ fn run_program_tool(
         download::NAME => "Offering a file",
         askuser::NAME => "Asking the user",
         planning::EDIT_NAME => "Changing the plan",
+        planning::READ_NAME => "Reading the plan",
+        planning::ASK_NAME => "Asking about the plan",
         planning::END_NAME => "Letting the plan go",
         _ => "A tool of the program",
     };
@@ -7878,6 +7964,42 @@ fn run_program_tool(
     // the result of the call. A question of the ordinary kind is given up when its
     // wait is gone; a question the model cannot go on without is waited for until
     // it is answered, or until the user stops the answer whole.
+    // The questions of the plan. Any number of them go to the user at once, each
+    // with the answers they may choose from, and the run waits until the user
+    // sends the whole of it. No clock runs on the wait, for the plan is not
+    // served on time, and the user is never hurried over it.
+    if call.name == planning::ASK_NAME {
+        let items = match planning::questions_of(&call.arguments) {
+            Ok(made) => made,
+            Err(why) => {
+                let Ok(mut guard) = state.lock() else { return };
+                guard.finish_tool(&message_id, &why, false);
+                return;
+            }
+        };
+        let asking = {
+            let Ok(mut guard) = state.lock() else { return };
+            let text = format!("Waiting for your answers: {} questions", items.len());
+            guard.set_status(&text);
+            guard.begin_asking_plan(items)
+        };
+        let answer = wait_for_answer(state, &asking, 0, cancel);
+        let (words, ok) = match answer {
+            Some(said) => (said, true),
+            // The user stopped the answer whole, so the questionnaire went with
+            // it. The model is told, and the plan keeps the questions open.
+            None => (
+                String::from(
+                    "The questions were not answered, so the plan must go on without them.",
+                ),
+                false,
+            ),
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &words, ok);
+        guard.clear_asking(&asking);
+        return;
+    }
     if call.name == askuser::NAME {
         let asked = askuser::parse(&call.arguments);
         {
@@ -7914,6 +8036,21 @@ fn run_program_tool(
             Err(_) => return,
         };
         let report = planning::edit_plan(&name, &call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &report.output, report.ok);
+        return;
+    }
+    // The same plan file, read back. The model is shown the lines of the plan as
+    // they stand, so it sees how its changes landed instead of guessing.
+    if call.name == planning::READ_NAME {
+        let name = match state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.plan_file.clone())
+                .unwrap_or_default(),
+            Err(_) => return,
+        };
+        let report = planning::read_plan(&name, &call.arguments);
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool(&message_id, &report.output, report.ok);
         return;
