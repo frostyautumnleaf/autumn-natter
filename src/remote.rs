@@ -140,6 +140,16 @@ fn handle(engine: &Engine, mut request: Request) {
                 }
             }
         }
+        // The whole of the plan of the open chat, for the window that reads it at
+        // a click on the heading over the talk.
+        ("GET", "/api/plan") => match engine.plan() {
+            Some(words) => {
+                let _ = request.respond(json_response(&json!({ "words": words })));
+            }
+            None => {
+                let _ = request.respond(json_status(404, "This chat has no plan"));
+            }
+        },
         // The sheet of settings. The page of the remote mode reads the same
         // settings the window of the program reads, and writes them back with a
         // call of its own.

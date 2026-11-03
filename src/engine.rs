@@ -25,6 +25,7 @@ use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
 use crate::mcp;
 use crate::proglog;
+use crate::planning;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
 use crate::tools;
@@ -314,6 +315,10 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         // A look about the web is named by the words to look for, or by the
         // address that is to be read.
         search::NAME => (search::partial_words(raw), String::new(), String::new()),
+        // The two tools of planning name themselves: one changes the plan file of
+        // this chat, and the other says the plan is agreed.
+        planning::EDIT_NAME => (String::from("the plan file"), String::new(), String::new()),
+        planning::END_NAME => (String::from("the plan is agreed"), String::new(), String::new()),
         viewimage::NAME | viewimage::ONE_NAME => (viewimage::partial_words(raw), String::new(), String::new()),
         // A tool of a server of the user's own is named by the tool itself,
         // and the parts the model is writing are the words of the block.
@@ -954,6 +959,12 @@ pub struct Snap {
     pub summarising: bool,
     pub busy: bool,
     pub code_enabled: bool,
+    // True when the open chat is working in planning mode: the model plans the
+    // work and writes it to its plan file, and does none of the work itself.
+    pub planning: bool,
+    // True when the open chat let a plan go. The heading over the talk says
+    // `PLANNED WORK`, and the plan may be read from it.
+    pub planned: bool,
     // Which of the tools of the program the model may reach in the open chat.
     // The badge of the tools is the switch over all of them; these are the lines
     // of its drop-down.
@@ -1138,6 +1149,10 @@ pub struct State {
     // The calls of a tool the model is writing right now, in the order the
     // model writes them. The user sees a command as it is written.
     pub live_tools: Vec<LiveTool>,
+    // The whole of a plan the model let go, waiting to become the first message of
+    // the work. It stands only between the call that let the plan go and the turn
+    // that begins the work, which follows it at once.
+    pub plan_pending: Option<String>,
     // The question the model has put to the user and is waiting on, when it has
     // put one. The ask stands above the chat box until it is answered, given up,
     // or stopped with the answer.
@@ -2053,6 +2068,16 @@ impl State {
         if let Some(line) = date_message(&self.cfg, began_of(chat)) {
             out.push(line);
         }
+        // The prompt of planning mode, beside the words of the program. It goes
+        // out for every ask of a planning chat, and it goes away with the mode:
+        // the chat that works from the plan is asked with none of it, and with no
+        // word of the two tools of planning either.
+        if chat.meta.planning {
+            out.push(json!({
+                "role": "system",
+                "content": planning::system_prompt(&chat.meta.plan_file),
+            }));
+        }
         let vision_on = self.pictures_can_go();
         // The records of the attachments of this chat stand in a folder of
         // its own room, so that is where their words and pictures are looked
@@ -2462,6 +2487,76 @@ impl State {
         self.chat().map(|chat| self.attach_place_for(chat))
     }
 
+    // True when the open chat is working in planning mode.
+    pub fn planning_open(&self) -> bool {
+        self.chat()
+            .map(|chat| chat.meta.planning)
+            .unwrap_or(false)
+    }
+
+    // Turn planning mode on for the open chat, and make the plan file it works
+    // in. A chat that is planning already keeps the plan it had written.
+    pub fn start_planning(&mut self) -> bool {
+        let name = {
+            let Some(chat) = self.chat_mut() else {
+                return false;
+            };
+            if chat.meta.planning && !chat.meta.plan_file.is_empty() {
+                return true;
+            }
+            let name = planning::create(&chat.meta.id);
+            chat.meta.planning = true;
+            chat.meta.plan_file = name.clone();
+            chat.meta.updated = store::now_secs();
+            name
+        };
+        // The plan file is made, and the chat says it holds it. An empty chat is
+        // no file yet, and the words of the chat are what make it one.
+        let _ = name;
+        if let Some(chat) = self.chat() {
+            if !chat.messages.is_empty() {
+                let snapshot = chat.clone();
+                self.store.save_chat(&snapshot);
+            }
+        }
+        true
+    }
+
+    // Turn planning mode off for the open chat, and say that its plan was let go.
+    // The plan file stands where it was, so the heading over the talk can still
+    // open it.
+    fn stop_planning(&mut self) {
+        if let Some(chat) = self.chat_mut() {
+            chat.meta.planning = false;
+            chat.meta.planned = true;
+            chat.meta.updated = store::now_secs();
+        }
+    }
+
+    // The whole of the plan of the open chat, for the window that reads it. The
+    // plan of a chat that never planned is nothing at all.
+    pub fn plan_words(&self) -> Option<String> {
+        let name = self.chat()?.meta.plan_file.clone();
+        planning::words(&name)
+    }
+
+    // The plan the model let go. The talk of the planning is put away whole: the
+    // chat stands empty, with the planning prompt and the planning tools gone with
+    // it, and the plan itself comes back to stand as the first message of the
+    // work. Nothing comes back when no plan was let go.
+    pub fn release_plan(&mut self) -> Option<String> {
+        let plan = self.plan_pending.take()?;
+        if let Some(chat) = self.chat_mut() {
+            chat.messages.clear();
+        }
+        self.live_text.clear();
+        self.live_reasoning.clear();
+        self.live_tools.clear();
+        self.ctx_used = 0;
+        self.stop_planning();
+        Some(plan)
+    }
+
     // The records of the attachments used to stand in one flat folder under
     // the data directory, with nothing in it to say which chat held them. When
     // such a folder stands, the records are moved into the room of the chat
@@ -2517,6 +2612,8 @@ impl State {
         };
         Snap {
             model_name: model.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
+            planning: chat.map(|c| c.meta.planning).unwrap_or(false),
+            planned: chat.map(|c| c.meta.planned).unwrap_or(false),
             model_kind: model
                 .as_ref()
                 .map(|m| m.kind.to_string())
@@ -2749,6 +2846,7 @@ impl Engine {
             answer_rate: 0.0,
             rate_start: None,
             live_tools: Vec::new(),
+            plan_pending: None,
             asking: None,
             running: None,
             thought_start: None,
@@ -2853,6 +2951,29 @@ impl Engine {
         if state.current.is_none() {
             state.start_chat();
         }
+        // The commands of the chat box. `/plan` turns planning mode on for this
+        // chat and makes its plan file; the words behind it are the request the
+        // plan is to be made of, and they go on as a message of their own. A
+        // command with nothing behind it turns the mode on and asks nothing of the
+        // model, so the user may look at the plan file or write the request next.
+        let (command, rest) = planning::split(&text);
+        let text = match command {
+            Some(planning::Command::Plan) => {
+                if state.start_planning() {
+                    state.set_status(
+                        "Planning mode is on. The plan of this chat stands in its plan file",
+                    );
+                } else {
+                    state.set_status("Start a new chat first");
+                    return;
+                }
+                if rest.trim().is_empty() && files.is_empty() {
+                    return;
+                }
+                rest
+            }
+            None => text,
+        };
         // A chat that was cut for a handoff summary and never got one stands at
         // the place it was cut: its talk is past the room of the model and
         // cannot be sent as it is. This is said before aught else, for a user
@@ -3347,6 +3468,16 @@ impl Engine {
         }
         let paths = config::paths();
         attach::find_in(&[paths.data.join("work"), paths.repositories], id)
+    }
+
+    // The whole of the plan of the open chat, for the window that reads it. The
+    // heading over the talk opens it: in planning mode, and after it, when the
+    // talk says `PLANNED WORK`.
+    pub fn plan(&self) -> Option<String> {
+        let Ok(keeper) = self.state.lock() else {
+            return None;
+        };
+        keeper.plan_words()
     }
 
     // The user answered the question the model is waiting on. The words go into
@@ -4182,6 +4313,8 @@ impl Snap {
             prompt_rate: 0.0,
             answer_rate: 0.0,
             live_tools: Vec::new(),
+            planning: false,
+            planned: false,
             ask: None,
             running: None,
             rev: 0,
@@ -4260,6 +4393,27 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                     }
                     goings_on += 1;
                     turn = Turn::Continue;
+                }
+                // The model let its plan go. The planning is put away whole, and
+                // the plan itself goes out as the first message of a fresh talk,
+                // with the prompts and the tools the chat had before planning mode
+                // and with none of the two tools of planning. The turn above ended
+                // on the call that let the plan go, so nothing is asked again of
+                // the talk that planned.
+                let mut released = take_plan_release(&state);
+                while let Some(plan) = released {
+                    let _ = run_turn(
+                        &state,
+                        &mut server,
+                        &cancel,
+                        Turn::Sent(SentMessage {
+                            text: plan,
+                            files: Vec::new(),
+                        }),
+                    );
+                    // A work that planned again behind this one is rare, and is
+                    // answered the same way as the first.
+                    released = take_plan_release(&state);
                 }
             }
             Job::Retry => {
@@ -4844,19 +4998,28 @@ fn ask_summary_for_handoff(
 // into the front of the talk, so an ask that carried another list -- or none, as
 // this ask used to -- is a talk worked through again from its first word.
 fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
-    let (code_on, search_on, chapters_on, access, switches, mcp_tools) = {
+    let (code_on, search_on, chapters_on, planning_on, access, switches, mcp_tools) = {
         let Ok(guard) = state.lock() else { return None };
         let chat = guard.chat();
         (
             chat.as_ref().map(|c| c.meta.code_enabled).unwrap_or(false),
             chat.as_ref().map(|c| c.meta.search_enabled).unwrap_or(false),
             guard.cfg.chat_chapters,
+            guard.planning_open(),
             chat.as_ref().map(|c| access_of(&c.meta)).unwrap_or_default(),
             chat.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
             guard.mcp_definitions(),
         )
     };
-    offered(code_on, search_on, chapters_on, access, &mcp_tools, &switches)
+    offered_with_planning(
+        planning_on,
+        code_on,
+        search_on,
+        chapters_on,
+        access,
+        &mcp_tools,
+        &switches,
+    )
 }
 
 // One ask of the server for a handoff summary, and what came of it.
@@ -5930,6 +6093,15 @@ fn worth_a_silence(finish: &str, spent: usize, most: usize) -> bool {
 // that name it tell the model to carry on from there. What the answer came to
 // goes back to the worker, so it knows whether the work may be gone on with
 // after the room has been made.
+// Put the planning of the open chat away and give back the plan that is to stand
+// as the first message of the work. Nothing comes back when no plan was let go.
+fn take_plan_release(state: &Arc<Mutex<State>>) -> Option<String> {
+    let Ok(mut guard) = state.lock() else {
+        return None;
+    };
+    guard.release_plan()
+}
+
 fn run_turn(
     state: &Arc<Mutex<State>>,
     server: &mut Option<Server>,
@@ -6210,7 +6382,7 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, chapters_on, switches) = {
+        let (mut history, code_on, search_on, chapters_on, planning_on, switches) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 go_on_words(&guard, carried_prompt),
@@ -6220,6 +6392,7 @@ fn run_turn(
                     .map(|c| c.meta.search_enabled)
                     .unwrap_or(false),
                 guard.cfg.chat_chapters,
+                guard.planning_open(),
                 guard
                     .chat()
                     .map(|c| c.meta.tools.clone())
@@ -6321,7 +6494,7 @@ fn run_turn(
         // answer is asked with none: the words the user stopped stand at the end
         // of the talk, and a call cut in half cannot be mended.
         let use_tools = !resuming
-            && (code_on || search_on || chapters_on || !mcp_tools.is_empty());
+            && (code_on || search_on || chapters_on || planning_on || !mcp_tools.is_empty());
         let mut body = json!({
             "messages": history,
             "stream": true,
@@ -6337,7 +6510,15 @@ fn run_turn(
             "timings_per_token": true,
         });
         if use_tools {
-            if let Some(list) = offered(code_on, search_on, chapters_on, access, &mcp_tools, &switches) {
+            if let Some(list) = offered_with_planning(
+                planning_on,
+                code_on,
+                search_on,
+                chapters_on,
+                access,
+                &mcp_tools,
+                &switches,
+            ) {
                 body["tools"] = list;
                 body["tool_choice"] = json!("auto");
             }
@@ -7244,6 +7425,8 @@ fn run_turn(
         // the talk in the order the model asked for them.
         take_marks(state, &step_marks, &mut marks);
         let mut offered = false;
+        // True when the model let the plan go in this step of the answer.
+        let mut letting = false;
         for call in step_runs.iter() {
             // Only a command of the terminal tool eats the room for commands.
             // The other tools work in the room of the chat in the program
@@ -7291,6 +7474,12 @@ fn run_turn(
             if call.name == download::NAME {
                 offered = true;
             }
+            // The plan is let go, and nothing is asked of the model behind it:
+            // this talk ends here, and the plan goes out as the first message of
+            // the work.
+            if call.name == planning::END_NAME {
+                letting = true;
+            }
         }
         // The offer of a file is the foot of an answer. The blocks stand below the
         // words of the answer, and the work the model was given is done once they
@@ -7308,6 +7497,18 @@ fn run_turn(
             guard.clear_stopped_marks();
             guard.set_status("Ready");
             guard.persist();
+            break Ended::Done;
+        }
+        // The plan is let go. The talk of the planning stops at this call: the
+        // worker puts the planning away and begins the work from the plan, so the
+        // model is never asked on behind a chat that is about to stand empty.
+        if letting {
+            let Ok(mut guard) = state.lock() else {
+                return Ended::Halted;
+            };
+            guard.generating = false;
+            guard.clear_stopped_marks();
+            guard.set_status("The plan is let go. The work begins from the plan");
             break Ended::Done;
         }
         if !thoughts.is_empty() {
@@ -7375,6 +7576,33 @@ fn tool_group_word(part: &str) -> String {
         "ask" => String::from("Asking the user"),
         other => String::from(other),
     }
+}
+
+// The tools offered for one ask, planning mode taken in. The two tools of
+// planning stand beside the others and hold no switch: a chat that is planning
+// must always have its plan file, and the word that lets the plan go. When
+// planning mode is off neither of them is offered at all, so a model reading the
+// plan as its first message knows nothing of them.
+fn offered_with_planning(
+    planning_on: bool,
+    code_on: bool,
+    search_on: bool,
+    chapters_on: bool,
+    access: tools::Access,
+    mcp_tools: &[Value],
+    switches: &store::ToolSwitches,
+) -> Option<Value> {
+    let mut list = offered(code_on, search_on, chapters_on, access, mcp_tools, switches)
+        .and_then(|made| made.as_array().cloned())
+        .unwrap_or_default();
+    if planning_on {
+        list.push(planning::edit_definition());
+        list.push(planning::end_definition());
+    }
+    if list.is_empty() {
+        return None;
+    }
+    Some(Value::Array(list))
 }
 
 fn offered(
@@ -7557,6 +7785,8 @@ fn run_program_tool(
         viewimage::NAME | viewimage::ONE_NAME => "Looking at images",
         download::NAME => "Offering a file",
         askuser::NAME => "Asking the user",
+        planning::EDIT_NAME => "Changing the plan",
+        planning::END_NAME => "Letting the plan go",
         _ => "A tool of the program",
     };
     let message_id = {
@@ -7670,6 +7900,46 @@ fn run_program_tool(
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool(&message_id, &words, ok);
         guard.clear_asking(&asking);
+        return;
+    }
+    // The plan file of this chat. The tool reaches that one file and no other, so
+    // it wants no room of the chat and no word of the sandbox: the plan stands in
+    // a folder of the planning directory of the program, away from the work.
+    if call.name == planning::EDIT_NAME {
+        let name = match state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.plan_file.clone())
+                .unwrap_or_default(),
+            Err(_) => return,
+        };
+        let report = planning::edit_plan(&name, &call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &report.output, report.ok);
+        return;
+    }
+    // The plan is let go. The talk of the planning is put away behind this call,
+    // and the plan itself becomes the first message of the work: the worker begins
+    // that turn as soon as this one is over. The plan is taken here, while the
+    // planning prompt still stands in the talk, so the model that reads it next
+    // needs nothing of this chat.
+    if call.name == planning::END_NAME {
+        let Ok(mut guard) = state.lock() else { return };
+        let held = guard.plan_words().unwrap_or_default();
+        if held.trim().is_empty() {
+            guard.finish_tool(
+                &message_id,
+                "The plan file holds nothing, so the plan could not be let go.",
+                false,
+            );
+            return;
+        }
+        guard.plan_pending = Some(held);
+        guard.finish_tool(
+            &message_id,
+            "The plan is let go. This talk ends here, and the plan becomes the first message of the work.",
+            true,
+        );
         return;
     }
     // A file the user is offered. Nothing is copied and nothing is fetched: the

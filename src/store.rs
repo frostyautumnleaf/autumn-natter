@@ -404,6 +404,19 @@ pub struct ChatMeta {
     // drop-down existed carries none of these and reads with all of them on.
     #[serde(default)]
     pub tools: ToolSwitches,
+    // Planning mode. While it stands, the model plans the work and writes it to a
+    // plan file, and does none of the work itself. A chat written before planning
+    // mode existed carries nothing of it and reads with planning mode off.
+    #[serde(default)]
+    pub planning: bool,
+    // True when this chat planned a piece of work and let the plan go. The heading
+    // over the talk says `PLANNED WORK`, and the plan may be read from it.
+    #[serde(default)]
+    pub planned: bool,
+    // The name of the plan file of this chat, in the planning folder. Empty when
+    // the chat never planned.
+    #[serde(default)]
+    pub plan_file: String,
     // Tokens used by the last answer.
     pub context_used: u64,
 }
@@ -441,6 +454,10 @@ impl Default for ChatMeta {
             pinned: false,
             archived: false,
             opened: 0,
+            // No chat of an older run planned anything.
+            planning: false,
+            planned: false,
+            plan_file: String::new(),
             context_used: 0,
         }
     }

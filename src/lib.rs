@@ -32,6 +32,7 @@ pub mod greet;
 pub mod llama;
 pub mod logs;
 pub mod markdown;
+pub mod planning;
 pub mod mcp;
 pub mod proglog;
 pub mod remote;

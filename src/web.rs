@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::config::{Config, ModelSettings};
 use crate::engine::Snap;
 use crate::llama;
+use crate::planning;
 use crate::store;
 use crate::util;
 
@@ -170,7 +171,18 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "models": models,
         "repository": { "id": snap.repository_id, "name": snap.repository_name },
         "repositories": repositories,
-        "chat": { "id": snap.chat_id, "title": snap.chat_title },
+        "chat": {
+            "id": snap.chat_id,
+            "title": snap.chat_title,
+            // Planning mode. The heading over the talk and the border of the chat
+            // box come from these two: one says the chat is planning now, and the
+            // other that a plan was let go and may still be read.
+            "planning": snap.planning,
+            "planned": snap.planned,
+        },
+        // The commands a user may write in the chat box. The list of them pops up
+        // when the mark of a command is typed, and each carries what it is for.
+        "commands": planning::list(),
         // The first screen: the chat box on its own, with a line for this hour.
         // `Create new chat` in the side bar goes back to this screen.
         "home": snap.home,

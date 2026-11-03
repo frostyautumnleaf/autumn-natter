@@ -1082,6 +1082,41 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
   box-shadow: var(--shadow-1); transition: border-color 160ms, box-shadow 160ms;
 }
 .box.focus { border-color: var(--line-strong); box-shadow: var(--shadow-1), var(--ring); }
+/* Planning mode. The heading stands at the very top of the talk, on a row of
+   its own with a line under it. The chat box wears a dashed border while the
+   mode is on, or while the plan made in it is being worked from. */
+.planhead {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 18px; border-bottom: 1px solid var(--line);
+  background: var(--surface-2); color: var(--accent);
+  font-family: var(--ui); font-size: 11px; font-weight: 600;
+  line-height: 1.4; letter-spacing: .14em; text-transform: uppercase;
+}
+.planhead button {
+  margin-left: auto; border: 1px solid var(--line-strong); background: var(--surface);
+  color: var(--text-2); border-radius: var(--r-s); padding: 3px 9px;
+  font-family: var(--ui); font-size: 11px; font-weight: 500;
+  letter-spacing: .06em; cursor: pointer;
+}
+.planhead button:hover { color: var(--accent); border-color: var(--accent); }
+.box.planning { border: 2px dashed var(--accent); }
+/* The list of commands. It shows when the writer types a slash with nothing
+   before it. Each row gives the command and what it does; one row stands out
+   while the list is open. */
+.commands {
+  position: absolute; left: 0; right: 0; bottom: 100%; z-index: 20;
+  margin: 0 0 4px; padding: 4px; list-style: none;
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--r-m); box-shadow: var(--shadow-2);
+  max-height: 240px; overflow-y: auto;
+}
+.commands li {
+  display: flex; flex-direction: column; gap: 2px; padding: 6px 9px;
+  border-radius: var(--r-s); cursor: pointer;
+}
+.commands li.on, .commands li:hover { background: var(--hover); }
+.commands .cmd { font-weight: 600; color: var(--accent); }
+.commands .cdesc { color: var(--dim); font-size: 11.5px; }
 /* The gauge of the work the server does with the words it was sent. It hangs
    above the box, over the foot of the chat, so the chat box never has to move
    for it. The number stands in the middle of a ring, and the ring fills with
@@ -1897,6 +1932,14 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
          the right of the chat: one node for one time the talk was made short. -->
     <div class="timeline hidden" id="timeline"></div>
     <div class="thread" id="thread">
+      <!-- Planning mode. The row of words stands at the very top of the talk,
+           under a line: PLANNING MODE while the mode is on, and PLANNED WORK
+           when the plan made in it is being worked from. The button opens the
+           whole plan, as the mark of a summary does for a summary. -->
+      <div class="planhead hidden" id="planhead">
+        <span id="planlabel">Planning mode</span>
+        <button id="planopen" type="button" title="Open the plan in a window of its own">Read the plan</button>
+      </div>
       <div class="col" id="col"></div>
     </div>
     <!-- The chat fades out into the background at the very top. The wash is the
@@ -1994,6 +2037,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       <!-- The files the user has hung on the message that has not gone out
            yet. A block stands over the words for each of them, and the mark
            on a block takes that file away again. -->
+      <!-- The list of commands. It shows over the box when the writer types a
+           slash with nothing before it. One row picks the command into the
+           words being written. -->
+      <ul class="commands hidden" id="commands"></ul>
       <div class="parts hidden" id="parts"></div>
       <textarea id="draft" rows="1" spellcheck="false"
         placeholder="Write a message for the model"></textarea>
@@ -2517,6 +2564,23 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     <div class="sbody" id="sumWords"></div>
   </div>
 </div>
+
+<!-- The plan of planning mode in a window of its own. It opens from the row of
+     words at the top of the talk, and shows the whole of the plan. -->
+<div class="overlay hidden" id="planOverlay">
+  <div class="sumview" role="dialog" aria-modal="true" aria-label="The plan">
+    <div class="vhead">
+      <div class="shead">
+        <span class="stitle" id="planTitle">The plan</span>
+        <span class="smeta" id="planMeta"></span>
+      </div>
+      <button class="mark-btn x" id="planClose" type="button" title="Close" aria-label="Close">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+    </div>
+    <div class="sbody" id="planWordsBox"></div>
+  </div>
+</div>
 <script>'use strict';
 
 // The window talks to the engine through Tauri, and not over the network. The
@@ -2542,7 +2606,8 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'thinkmenu', 'draft', 'send', 'parts', 'queue', 'queuehead', 'queuecount', 'queuelist',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
   'viewer', 'lookname', 'lookkind', 'lookclose', 'lookbody',
-  'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
+  'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
+  'planhead', 'planlabel', 'planopen', 'commands'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
 
@@ -2653,6 +2718,10 @@ function draw(s) {
   // The question the model has put to the user stands over the chat box, and
   // the wait it set is counted down under the question.
   drawAsk(s);
+
+  // Planning mode. The row at the top of the talk and the border of the chat box
+  // say which mode the chat is in.
+  showPlanning(s);
 
   // The line of state. The mark beats while the program is at work, and it
   // goes red while an answer can still be stopped.
@@ -5990,6 +6059,158 @@ function foldsFollowSettings() {
   foldSetting = now;
 }
 
+// ---------------------------------------------------------- planning mode
+// Planning mode makes a plan of the work before any of it is done. The chat says
+// which mode it is in, and the words of the plan are kept in a file of their own.
+// The row at the top of the talk names the mode, and opens the plan in a window
+// of its own, as the mark of a handoff summary does for a summary.
+function showPlanning(s) {
+  var planning = !!(s.chat && s.chat.planning);
+  var planned = !!(s.chat && s.chat.planned);
+  el.planhead.classList.toggle('hidden', !(planning || planned));
+  el.planlabel.textContent = planning ? 'Planning mode' : 'Planned work';
+  // The chat box wears a dashed border while the plan is being made, and while
+  // the words of that plan are being worked from.
+  el.box.classList.toggle('planning', planning || planned);
+}
+
+// The whole plan, as the engine kept it for this chat. The engine gives the
+// words back from the file of the plan, and says there is none when the chat
+// never planned or has forgotten the plan.
+function planWords() {
+  return invoke('get_plan', {});
+}
+
+// The plan in a window of its own. The words are read as the words of the chat
+// are read, so a plan written in marks of the text shows as it was meant.
+function openPlan() {
+  planWords().then(function (got) {
+    var body = byId('planWordsBox');
+    body.innerHTML = '';
+    var made = blocks((got && got.words) || '');
+    if (!made.length) {
+      var none = make('div', 'none');
+      none.textContent = 'Nothing was written for the plan.';
+      body.appendChild(none);
+    } else {
+      for (var n = 0; n < made.length; n++) { body.appendChild(blockNode(made[n])); }
+    }
+    byId('planOverlay').classList.remove('hidden');
+    byId('planClose').focus();
+  }, function () {
+    var gone = byId('planWordsBox');
+    gone.innerHTML = '';
+    var none = make('div', 'none');
+    none.textContent = 'This chat has no plan.';
+    gone.appendChild(none);
+    byId('planOverlay').classList.remove('hidden');
+    byId('planClose').focus();
+  });
+}
+
+function closePlan() {
+  byId('planOverlay').classList.add('hidden');
+}
+
+// The list of commands. It shows when the writer puts a slash at the start of a
+// word, and it keeps the rows that the words written so far still leave room
+// for. One row stands out, and the keys of the list move it about.
+function commandMatches() {
+  var before = el.draft.value.slice(0, el.draft.selectionStart || 0);
+  var found = /(^|\s)\/([a-z0-9_]*)$/i.exec(before);
+  return found ? { word: found[2], at: before.length - found[2].length - 1 } : null;
+}
+
+function closeCommands() {
+  el.commands.classList.add('hidden');
+  el.commands.innerHTML = '';
+}
+
+// Write the rows of the list again. The commands come from the engine, so a
+// command added there shows here without a change to the page.
+function drawCommands(word) {
+  var all = (cur && cur.commands) || [];
+  var keep = [];
+  var low = (word || '').toLowerCase();
+  for (var i = 0; i < all.length; i++) {
+    var name = String(all[i].name || '').toLowerCase();
+    if (!low || name.indexOf(low) === 0) { keep.push(all[i]); }
+  }
+  if (keep.length === 0) { closeCommands(); return; }
+  el.commands.innerHTML = '';
+  for (var n = 0; n < keep.length; n++) {
+    var row = make('li', keep[n] === keep[0] ? 'on' : '');
+    row.dataset.cmd = keep[n].name;
+    var head = make('span', 'cmd');
+    head.textContent = '/' + keep[n].name;
+    var note = make('span', 'cdesc');
+    note.textContent = keep[n].words || '';
+    row.appendChild(head);
+    row.appendChild(note);
+    el.commands.appendChild(row);
+  }
+  el.commands.classList.remove('hidden');
+}
+
+// Whether the list stands open now.
+function commandsOpen() {
+  return !el.commands.classList.contains('hidden');
+}
+
+// The list moves with the words written after the slash.
+function commandsFollow() {
+  var hit = commandMatches();
+  if (!hit) { closeCommands(); return; }
+  drawCommands(hit.word);
+}
+
+// Put the command of the row that stands out into the words being written. The
+// word after the slash is taken, and the whole name of the command goes in its
+// place with a space after it, so the writer can go on with the message.
+function pickCommand() {
+  var row = el.commands.querySelector('li.on');
+  if (!row) { closeCommands(); return false; }
+  var hit = commandMatches();
+  if (!hit) { closeCommands(); return false; }
+  var start = el.draft.selectionStart || 0;
+  el.draft.value = el.draft.value.slice(0, hit.at) + '/' + row.dataset.cmd + ' '
+    + el.draft.value.slice(start);
+  var after = hit.at + row.dataset.cmd.length + 2;
+  el.draft.selectionStart = el.draft.selectionEnd = after;
+  closeCommands();
+  grow();
+  return true;
+}
+
+// The keys of the list. They answer only while the list stands open, and take
+// the key from the chat box for that one stroke.
+function commandKeys(e) {
+  if (!commandsOpen()) { return false; }
+  var rows = el.commands.querySelectorAll('li');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (rows.length === 0) { return true; }
+    var at = -1;
+    for (var i = 0; i < rows.length; i++) { if (rows[i].classList.contains('on')) { at = i; } }
+    rows[at < 0 ? 0 : (e.key === 'ArrowDown'
+      ? (at + 1) % rows.length
+      : (at - 1 + rows.length) % rows.length)].classList.add('on');
+    if (at >= 0) { rows[at].classList.remove('on'); }
+    return true;
+  }
+  if (e.key === 'Tab' || e.key === 'Enter') {
+    e.preventDefault();
+    pickCommand();
+    return true;
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCommands();
+    return true;
+  }
+  return false;
+}
+
 function drawThread(s) {
   var box = el.col;
   foldsFollowSettings();
@@ -7368,7 +7589,9 @@ function sendLook() {
   el.send.title = sendTitle(cur);
   el.draft.placeholder = cur.generating
     ? 'The model is writing - press Enter to put this message by for later'
-    : 'Write a message for the model';
+    : (cur.home || !(cur.messages && cur.messages.length))
+      ? 'Try planning mode by typing /plan before your request'
+      : 'Write a message for the model';
 }
 
 // ---------------------------------------------------------- the waiting list
@@ -7733,15 +7956,40 @@ document.addEventListener('click', function () { closeThinkMenu(); closeSandboxM
 
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
-el.draft.addEventListener('input', grow);
+el.draft.addEventListener('input', function () {
+  grow();
+  commandsFollow();
+});
 el.draft.addEventListener('focus', function () {
   el.box.classList.add('focus'); grow();
 });
 el.draft.addEventListener('blur', function () {
   el.box.classList.remove('focus');
+  // The list goes when the writing goes, so it never stands over the box while
+  // the user is elsewhere.
+  closeCommands();
+});
+
+// A row of the list of commands picks that command when the user presses it.
+el.commands.addEventListener('mousedown', function (e) {
+  var row = e.target.closest ? e.target.closest('li') : null;
+  if (!row) { return; }
+  e.preventDefault();
+  el.commands.querySelectorAll('li').forEach(function (one) { one.classList.remove('on'); });
+  row.classList.add('on');
+  pickCommand();
+});
+
+// The plan of planning mode opens from the row at the top of the talk, and shuts
+// on its mark or on the ground beside it.
+el.planopen.addEventListener('click', openPlan);
+byId('planClose').addEventListener('click', closePlan);
+byId('planOverlay').addEventListener('click', function (e) {
+  if (e.target === byId('planOverlay')) { closePlan(); }
 });
 
 el.draft.addEventListener('keydown', function (e) {
+  if (commandKeys(e)) { return; }
   if (e.key === 'Enter' && !e.shiftKey && !touch) {
     e.preventDefault();
     send();

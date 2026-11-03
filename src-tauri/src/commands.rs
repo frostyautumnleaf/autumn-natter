@@ -56,6 +56,16 @@ pub async fn get_attachment(engine: State<'_, Engine>, id: String) -> Result<Val
     }
 }
 
+// The whole of the plan of the open chat, for the window that reads it at a click
+// on the heading over the talk.
+#[tauri::command]
+pub async fn get_plan(engine: State<'_, Engine>) -> Result<Value, String> {
+    match engine.plan() {
+        Some(words) => Ok(json!({ "words": words })),
+        None => Err("This chat has no plan".to_string()),
+    }
+}
+
 // A file the user was offered by the download tool, and the whole of such an
 // offer wound into one archive. The window has no web server between it and the
 // engine, so the bytes come back as a data URL and the window hangs them on a
