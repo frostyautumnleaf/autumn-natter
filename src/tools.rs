@@ -95,8 +95,10 @@ const ETC_PATHS: [&str; 12] = [
 // elsewhere, which is how several systems write it, then came to nothing inside
 // the jail: `curl` and `wget` answered with a broken CA bundle, and the only way
 // out the command was left with was `--insecure`, which is no way out at all. A
-// file goes in by its name, and bubblewrap follows the mark to the bytes,
-// wherever they stand, so the bundle is whole whichever way a system keeps it.
+// file goes in by its name, and where the name is a mark for a thing kept
+// elsewhere the thing itself goes in under its own name, so the bundle is whole
+// whichever way a system keeps it, and the jail starts whichever way the mark is
+// written.
 const CA_PATHS: [&str; 8] = [
     "/etc/ssl/certs/ca-certificates.crt",
     "/etc/ssl/certs/ca-bundle.crt",
@@ -382,10 +384,73 @@ fn push_program_path(args: &mut Vec<String>, path: &Path) {
 // Put one file or folder of the machine into the jail read only. A name that
 // stands for nothing is passed over, which is how a list of files that a system
 // may or may not have is worked through.
+//
+// A name that is a mark for a thing kept elsewhere is put in under its own name
+// only while the folder it stands in is out of the jail. The folder of the
+// certificates goes in whole, so the mark comes with it, and bubblewrap will not
+// mount on a mark: the whole jail cannot start. That is how a bundle of the
+// certificates that is a mark, which is how Arch and Fedora write it, kept every
+// command of the sandbox from running on those systems. Where the mark stands in
+// the jail already, the thing it leads to goes in under its own name, so the mark
+// still leads somewhere and a command that fetches a page of the web reads the
+// bundle whole.
 fn push_read_only(args: &mut Vec<String>, path: &str) {
+    if !stands_as_a_mark(Path::new(path)) || !folder_in_the_jail(args, path) {
+        args.push("--ro-bind-try".into());
+        args.push(path.into());
+        args.push(path.into());
+        return;
+    }
+    // The mark leads nowhere that can be named from here, so it is passed over:
+    // a mark that hangs in the air inside the jail is better than a jail that
+    // never starts.
+    let Ok(whole) = std::fs::canonicalize(path) else {
+        return;
+    };
+    let stood = whole.display().to_string();
+    // The thing the mark leads to came into the jail with its own folder, so
+    // nothing is added.
+    if folder_in_the_jail(args, &stood) {
+        return;
+    }
     args.push("--ro-bind-try".into());
-    args.push(path.into());
-    args.push(path.into());
+    args.push(stood.clone());
+    args.push(stood);
+}
+
+// The marks that put a folder of the machine into the jail. After one of them
+// come the place on the machine and the place in the jail.
+const FOLDER_MARKS: [&str; 4] = ["--ro-bind", "--ro-bind-try", "--bind", "--bind-try"];
+
+// True when the folder that holds the name is in the jail already, because a
+// folder of the machine was put in over it. The words of such a folder come from
+// the machine, marks and all, so the name stands in the jail whatever it is.
+fn folder_in_the_jail(args: &[String], path: &str) -> bool {
+    let Some(folder) = Path::new(path).parent() else {
+        return false;
+    };
+    let mut at = 0;
+    while at < args.len() {
+        if !FOLDER_MARKS.contains(&args[at].as_str()) {
+            at += 1;
+            continue;
+        }
+        // The mark, the place on the machine, and the place in the jail.
+        let Some(inside) = args.get(at + 2) else { break };
+        if folder.starts_with(Path::new(inside)) {
+            return true;
+        }
+        at += 3;
+    }
+    false
+}
+
+// True when the name is a mark for a thing kept elsewhere, and not the thing of
+// itself.
+fn stands_as_a_mark(place: &Path) -> bool {
+    std::fs::symlink_metadata(place)
+        .map(|made| made.is_symlink())
+        .unwrap_or(false)
 }
 
 // True when the name stands for a folder of itself, and not for a mark that
@@ -1367,7 +1432,10 @@ mod tests {
 
     // A command that fetches a page has to read the bundle of the certificates,
     // and the file that says how to read it, or it answers with a broken bundle
-    // and nothing is left to it but to trust nothing.
+    // and nothing is left to it but to trust nothing. A bundle that is a mark for
+    // a file kept elsewhere, which is how Arch and Fedora write it, is offered
+    // under the name of the file it leads to, so the mark in the jail still leads
+    // somewhere.
     #[test]
     fn the_jail_offers_the_bundle_of_the_certificates() {
         let args = jail_args(Path::new("/work/somewhere"), Access::default());
@@ -1379,12 +1447,211 @@ mod tests {
             "/etc/pki/tls/certs/ca-bundle.crt",
             "/var/lib/ca-certificates",
         ] {
+            let place = Path::new(part);
+            if !stands_as_a_mark(place) {
+                assert!(
+                    text.contains(&format!("--ro-bind-try\n{}\n{}\n", part, part)),
+                    "the jail keeps {} out",
+                    part
+                );
+                continue;
+            }
+            let Ok(whole) = std::fs::canonicalize(place) else { continue };
+            let stood = whole.display().to_string();
             assert!(
-                text.contains(&format!("--ro-bind-try\n{}\n{}\n", part, part)),
-                "the jail keeps {} out",
-                part
+                text.contains(&format!("--ro-bind-try\n{}\n{}\n", stood, stood)),
+                "the jail keeps the thing {} leads to out: {}",
+                part,
+                stood
             );
         }
+    }
+
+    // No mount of the jail may be made on a mark that stands inside a folder of
+    // the jail, for bubblewrap refuses it and the whole jail cannot start. That is
+    // how the jail of this branch came to nothing on the systems that write their
+    // bundle of the certificates as a mark.
+    #[test]
+    fn no_mount_of_the_jail_is_made_on_a_mark() {
+        let args = jail_args(Path::new("/work/somewhere"), Access::default());
+        let mut at = 0;
+        while at < args.len() {
+            if !FOLDER_MARKS.contains(&args[at].as_str()) {
+                at += 1;
+                continue;
+            }
+            let dest = args[at + 2].clone();
+            assert!(
+                !(stands_as_a_mark(Path::new(&dest)) && folder_in_the_jail(&args[..at], &dest)),
+                "the jail was told to mount on the mark {}",
+                dest
+            );
+            at += 3;
+        }
+    }
+
+    // The folders of the machine that stand in the jail are read out of the
+    // arguments built so far, so a name is known to be there already. A folder
+    // that is a mark in the jail, as `/bin` is, and the empty `/etc` made by hand
+    // are not folders of the machine, and hold nothing of it.
+    #[test]
+    fn the_folders_of_the_jail_are_read_out_of_the_arguments() {
+        let args: Vec<String> = [
+            "--unshare-all",
+            "--tmpfs",
+            "/",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--symlink",
+            "usr/bin",
+            "/bin",
+            "--dir",
+            "/etc",
+            "--ro-bind-try",
+            "/etc/ssl/certs",
+            "/etc/ssl/certs",
+            "--ro-bind-try",
+            "/etc/passwd",
+            "/etc/passwd",
+        ]
+        .iter()
+        .map(|one| String::from(*one))
+        .collect();
+        assert!(folder_in_the_jail(&args, "/etc/ssl/certs/ca-certificates.crt"));
+        assert!(folder_in_the_jail(&args, "/usr/share/ca-certificates/ca.p12"));
+        assert!(!folder_in_the_jail(&args, "/etc/ssl/openssl.cnf"));
+        assert!(!folder_in_the_jail(&args, "/etc/passwd"));
+        assert!(!folder_in_the_jail(&args, "/bin/sh"));
+    }
+
+    // A bundle that is a mark for a file kept elsewhere is not put into the jail
+    // under the name of the mark when the folder of the mark is in the jail, for
+    // the mark came into the jail with its folder and bubblewrap will not mount on
+    // it. The thing the mark leads to goes in under its own name instead.
+    #[cfg(unix)]
+    #[test]
+    fn the_jail_never_mounts_on_a_mark() {
+        let room = std::fs::canonicalize(room_of("mark")).expect("the room of the test");
+        let certs = room.join("certs");
+        let kept = room.join("kept");
+        std::fs::create_dir_all(&certs).unwrap();
+        std::fs::create_dir_all(&kept).unwrap();
+        let bundle = kept.join("ca-bundle.trust.crt");
+        std::fs::write(&bundle, "TRUSTED").unwrap();
+        let mark = certs.join("ca-certificates.crt");
+        std::os::unix::fs::symlink(&bundle, &mark).unwrap();
+        let mark = mark.display().to_string();
+        let bundle = bundle.display().to_string();
+        let certs = certs.display().to_string();
+        let kept = kept.display().to_string();
+
+        // The folder of the mark is out of the jail, so nothing stands in the way
+        // of the name and bubblewrap follows the mark to the bytes.
+        let mut out: Vec<String> = Vec::new();
+        push_read_only(&mut out, &mark);
+        assert_eq!(
+            out,
+            [String::from("--ro-bind-try"), mark.clone(), mark.clone()],
+            "a mark outside a folder of the jail goes in under its own name"
+        );
+
+        // The folder of the mark is in the jail, and the mark stands in it: no
+        // argument names the mark, and the thing it leads to goes in whole.
+        let mut out: Vec<String> =
+            vec![String::from("--ro-bind-try"), certs.clone(), certs.clone()];
+        push_read_only(&mut out, &mark);
+        assert!(
+            !out.iter().any(|one| one == &mark),
+            "the jail was told to mount on the mark: {:?}",
+            out
+        );
+        assert_eq!(
+            out[3..],
+            [String::from("--ro-bind-try"), bundle.clone(), bundle.clone()],
+            "the thing the mark leads to did not go in under its own name"
+        );
+
+        // The thing the mark leads to came into the jail with its own folder, so
+        // nothing at all is added for it.
+        let mut out: Vec<String> = vec![
+            String::from("--ro-bind-try"),
+            certs.clone(),
+            certs.clone(),
+            String::from("--ro-bind-try"),
+            kept.clone(),
+            kept,
+        ];
+        let before = out.len();
+        push_read_only(&mut out, &mark);
+        assert_eq!(out.len(), before, "a thing of the jail was mounted again");
+        let _ = std::fs::remove_dir_all(&room);
+    }
+
+    // The jail of a chat whose bundle of the certificates is a mark for a file
+    // kept elsewhere, which is how Arch and Fedora write it. The jail starts, and
+    // the bytes of the bundle come through the mark. On those systems the jail
+    // could not start at all, and no command of the sandbox ran.
+    #[cfg(unix)]
+    #[test]
+    fn the_jail_starts_when_the_bundle_is_a_mark() {
+        if let Err(problem) = jail_check() {
+            eprintln!("the jail of this box is not usable: {}", problem);
+            return;
+        }
+        let room = std::fs::canonicalize(room_of("bundle")).expect("the room of the test");
+        let certs = room.join("etc/ssl/certs");
+        let kept = room.join("etc/ca-certificates/extracted");
+        std::fs::create_dir_all(&certs).unwrap();
+        std::fs::create_dir_all(&kept).unwrap();
+        let bundle = kept.join("ca-bundle.trust.crt");
+        std::fs::write(&bundle, "TRUSTED-BYTES\n").unwrap();
+        let mark = certs.join("ca-certificates.crt");
+        std::os::unix::fs::symlink(&bundle, &mark).unwrap();
+        // The arguments of the jail of a chat, with the folders of the test put in
+        // as the jail puts in the folders of a machine: the folder of the
+        // certificates first, and the bundle by its name after it.
+        let mut args: Vec<String> = [
+            "--unshare-all",
+            "--unshare-user",
+            "--disable-userns",
+            "--die-with-parent",
+            "--new-session",
+            "--hostname",
+            JAIL_HOSTNAME,
+            "--tmpfs",
+            "/",
+        ]
+        .iter()
+        .map(|one| String::from(*one))
+        .collect();
+        for path in PROGRAM_PATHS.iter().chain(EXTRA_PROGRAM_PATHS.iter()) {
+            push_program_path(&mut args, Path::new(path));
+        }
+        args.extend_from_slice(&[
+            String::from("--dev"),
+            String::from("/dev"),
+            String::from("--dir"),
+            String::from("/etc"),
+        ]);
+        push_read_only(&mut args, &certs.display().to_string());
+        push_read_only(&mut args, &mark.display().to_string());
+        args.extend_from_slice(&[
+            String::from("--"),
+            String::from(SHELL),
+            String::from("-c"),
+            format!("cat '{}'", mark.display()),
+        ]);
+        let bwrap = bwrap_path().expect("bubblewrap stands on this box");
+        let made = util::capture(&bwrap.display().to_string(), &args, Duration::from_secs(20));
+        let _ = std::fs::remove_dir_all(&room);
+        assert!(made.ok, "the jail did not start: {}", made.err);
+        assert!(
+            made.out.contains("TRUSTED-BYTES"),
+            "the bundle did not come through the mark: {} / {}",
+            made.out,
+            made.err
+        );
     }
 
     // The rules of Java stand under /etc on the systems that put their programs
@@ -1678,6 +1945,22 @@ mod tests {
 
     #[cfg(unix)]
     static TURN_OF_TEST: AtomicUsize = AtomicUsize::new(0);
+
+    // The room of a test, made under the temp folder of the machine and taken
+    // away again. The tests take turns through a count, so two of them never work
+    // in one room.
+    #[cfg(unix)]
+    fn room_of(name: &str) -> PathBuf {
+        let place = std::env::temp_dir().join(format!(
+            "autumn-natter-ca-{}-{}-{}",
+            std::process::id(),
+            TURN_OF_TEST.fetch_add(1, Ordering::SeqCst),
+            name
+        ));
+        let _ = std::fs::remove_dir_all(&place);
+        std::fs::create_dir_all(&place).expect("the room of the test could not be made");
+        place
+    }
 
     // The jail of this machine, run for real. A box without bubblewrap, or with
     // user namespaces switched off, says what it found and passes at once.
