@@ -123,18 +123,19 @@ body.corporate {
 :root { --ink: var(--strong); --ink-leaf: var(--leaf); --ink-fail: var(--deep); }
 body.dark { --ink: #f08a2a; --ink-leaf: #d9713f; --ink-fail: #e0603a; }
 /* A word that stands in an accent colour is white on a ground of grey, and the two
-   weaker inks are the steps below it. Nothing is left to colour alone here: weight
-   and place tell one kind of word from another as they do in the other skins. */
-body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #ffffff; }
+   weaker inks are the steps below it. A fault keeps a colour of its own: a very
+   light red, so a failed tool call is known as one and not as plain words. */
+body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #f0b4ad; }
 /* The two counts of a change of a file. Green for what was written and red for
    what was taken away are the colours the eye knows for the two already; they
    are kept pale, so that they sit with the warm colours of the skin instead of
    shouting over them, in the pale colours and the dark ones alike. */
 :root { --hunk-add: #4d7a35; --hunk-cut: #b04a35; }
 body.dark { --hunk-add: #a3c98c; --hunk-cut: #e09b86; }
-/* The two counts in the shades this skin is made of. The sign before a count and the
-   place it stands in carry the difference; the two steps of grey only second them. */
-body.corporate { --hunk-add: #dedede; --hunk-cut: #9c9c9c; }
+/* The two counts in pale green and pale red. The skin is else without colour, but
+   the sign before a count and the two colours beside it say which is which at one
+   look, as they do in the other skins. */
+body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
 @supports (color: color-mix(in oklab, red, blue)) {
   body.dark {
     --ink: color-mix(in oklab, var(--accent) 74%, #fff6ec);
@@ -304,6 +305,9 @@ body.home .stage { display: none; }
    stands over the words. A window too narrow for a margin of its own does not show
    it at all. */
 .stage.withchapters .thread { padding-left: var(--rail, 116px); }
+/* The chat makes room at the top while the row of planning mode stands over it,
+   so the first words of the talk are never shut under it. */
+.stage.withplan .thread { padding-top: 62px; }
 @media (max-width: 880px) {
   .stage.withchapters .thread { padding-left: 0; }
   .chapters { display: none; }
@@ -1086,8 +1090,12 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    its own with a line under it. The chat box wears a dashed border while the
    mode is on, or while the plan made in it is being worked from. */
 .planhead {
+  /* The row stands at the very top of the talk, over the wash of the top edge
+     and over the words, so it stays where it is while the chat is scrolled. The
+     line under it is dashed, for a plan is not shut. */
+  position: absolute; left: 0; right: 0; top: 0; z-index: 4;
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 18px; border-bottom: 1px solid var(--line);
+  height: 34px; padding: 0 18px; border-bottom: 1px dashed var(--accent-line);
   background: var(--surface-2); color: var(--accent);
   font-family: var(--ui); font-size: 11px; font-weight: 600;
   line-height: 1.4; letter-spacing: .14em; text-transform: uppercase;
@@ -1117,6 +1125,14 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .commands li.on, .commands li:hover { background: var(--hover); }
 .commands .cmd { font-weight: 600; color: var(--accent); }
 .commands .cdesc { color: var(--dim); font-size: 11.5px; }
+/* The command of a message, as a block of its own in the chat box. It is not
+   words of the message, so it stands on a ground and in a colour of its own. */
+.cmdchip {
+  display: inline-flex; align-items: center; margin: 8px 0 0 10px;
+  padding: 2px 8px; border-radius: var(--r-s);
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
+  color: var(--accent); font-family: var(--mono, monospace); font-size: 12.5px;
+}
 /* The gauge of the work the server does with the words it was sent. It hangs
    above the box, over the foot of the chat, so the chat box never has to move
    for it. The number stands in the middle of a ring, and the ring fills with
@@ -1932,15 +1948,16 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
          the right of the chat: one node for one time the talk was made short. -->
     <div class="timeline hidden" id="timeline"></div>
     <div class="thread" id="thread">
-      <!-- Planning mode. The row of words stands at the very top of the talk,
-           under a line: PLANNING MODE while the mode is on, and PLANNED WORK
-           when the plan made in it is being worked from. The button opens the
-           whole plan, as the mark of a summary does for a summary. -->
-      <div class="planhead hidden" id="planhead">
-        <span id="planlabel">Planning mode</span>
-        <button id="planopen" type="button" title="Open the plan in a window of its own">Read the plan</button>
-      </div>
       <div class="col" id="col"></div>
+    </div>
+    <!-- Planning mode. The row of words stands at the very top of the talk, over
+         the wash of the top edge and over the talk: it stays put while the chat
+         is scrolled. It reads PLANNING MODE while the mode is on, and PLANNED
+         WORK when the plan made in it is being worked from. The button opens the
+         whole plan, as the mark of a summary does for a summary. -->
+    <div class="planhead hidden" id="planhead">
+      <span id="planlabel">Planning mode</span>
+      <button id="planopen" type="button" title="Open the plan in a window of its own">Read the plan</button>
     </div>
     <!-- The chat fades out into the background at the very top. The wash is the
          colour of the background, thick at the top edge and gone a finger lower,
@@ -2041,6 +2058,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
            slash with nothing before it. One row picks the command into the
            words being written. -->
       <ul class="commands hidden" id="commands"></ul>
+      <!-- The command of this message, once it is picked. It stands as a block of
+           its own, so it is read as a command and not as the words of the
+           message. A backspace with nothing else written takes it away. -->
+      <span class="cmdchip hidden" id="cmdchip"><span class="cword"></span></span>
       <div class="parts hidden" id="parts"></div>
       <textarea id="draft" rows="1" spellcheck="false"
         placeholder="Write a message for the model"></textarea>
@@ -2607,7 +2628,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
   'viewer', 'lookname', 'lookkind', 'lookclose', 'lookbody',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
-  'planhead', 'planlabel', 'planopen', 'commands'];
+  'planhead', 'planlabel', 'planopen', 'commands', 'cmdchip'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
 
@@ -2722,6 +2743,7 @@ function draw(s) {
   // Planning mode. The row at the top of the talk and the border of the chat box
   // say which mode the chat is in.
   showPlanning(s);
+  keepCommandWithChat(s);
 
   // The line of state. The mark beats while the program is at work, and it
   // goes red while an answer can still be stopped.
@@ -4085,6 +4107,14 @@ var TOOL_SHAPES = {
     mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
     head: 'Editing file: ', done: 'Edited file: ', word: 'file', end: 'result',
     empty: 'no file name', begun: 'a file, started', file: true
+  },
+  // The plan of planning mode. The tool reaches one file and no other, so the
+  // head has no name of a file to wait for: it says what is being done to the
+  // plan, and the words of the changes stream under it as those of a file do.
+  edit_plan: {
+    mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
+    head: 'Editing ', done: 'Edited ', named: 'plan', word: 'edits', end: 'result',
+    empty: 'the plan', begun: 'the plan, started', file: true
   },
   create_file: {
     mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
@@ -6068,6 +6098,8 @@ function showPlanning(s) {
   var planning = !!(s.chat && s.chat.planning);
   var planned = !!(s.chat && s.chat.planned);
   el.planhead.classList.toggle('hidden', !(planning || planned));
+  // The chat makes room at the top for the row, so no words stand under it.
+  el.stage.classList.toggle('withplan', planning || planned);
   el.planlabel.textContent = planning ? 'Planning mode' : 'Planned work';
   // The chat box wears a dashed border while the plan is being made, and while
   // the words of that plan are being worked from.
@@ -6133,7 +6165,9 @@ function drawCommands(word) {
   var keep = [];
   var low = (word || '').toLowerCase();
   for (var i = 0; i < all.length; i++) {
-    var name = String(all[i].name || '').toLowerCase();
+    // The name of a command carries the mark of a command already, so the mark
+    // is taken off before the words written so far are matched against it.
+    var name = String(all[i].name || '').replace(/^\//, '').toLowerCase();
     if (!low || name.indexOf(low) === 0) { keep.push(all[i]); }
   }
   if (keep.length === 0) { closeCommands(); return; }
@@ -6142,7 +6176,7 @@ function drawCommands(word) {
     var row = make('li', keep[n] === keep[0] ? 'on' : '');
     row.dataset.cmd = keep[n].name;
     var head = make('span', 'cmd');
-    head.textContent = '/' + keep[n].name;
+    head.textContent = keep[n].name;
     var note = make('span', 'cdesc');
     note.textContent = keep[n].words || '';
     row.appendChild(head);
@@ -6164,21 +6198,46 @@ function commandsFollow() {
   drawCommands(hit.word);
 }
 
-// Put the command of the row that stands out into the words being written. The
-// word after the slash is taken, and the whole name of the command goes in its
-// place with a space after it, so the writer can go on with the message.
+// The command of the message that is being written. It is not kept among the
+// words of the message but as a block of its own in the chat box, so it is read
+// as a command and taken away again with a backspace.
+var pendingCommand = '';
+var pendingChat = null;
+
+// Write the block of the command again: shown when one is picked, gone when none
+// is.
+function drawCommandChip() {
+  el.cmdchip.classList.toggle('hidden', !pendingCommand);
+  if (pendingCommand) { el.cmdchip.querySelector('.cword').textContent = pendingCommand; }
+}
+
+// A command of the list belongs to the chat it was picked in. Another chat opens,
+// and the command of the chat that went is forgotten.
+function keepCommandWithChat(s) {
+  var here = chatIdOf(s);
+  if (pendingChat === here) { return; }
+  pendingChat = here;
+  pendingCommand = '';
+  drawCommandChip();
+}
+
+// Put the command of the row that stands out into the block of the chat box. The
+// word after the slash is taken out of the words being written, for the whole
+// name of the command now stands in the block instead.
 function pickCommand() {
   var row = el.commands.querySelector('li.on');
   if (!row) { closeCommands(); return false; }
   var hit = commandMatches();
   if (!hit) { closeCommands(); return false; }
   var start = el.draft.selectionStart || 0;
-  el.draft.value = el.draft.value.slice(0, hit.at) + '/' + row.dataset.cmd + ' '
-    + el.draft.value.slice(start);
-  var after = hit.at + row.dataset.cmd.length + 2;
-  el.draft.selectionStart = el.draft.selectionEnd = after;
+  el.draft.value = el.draft.value.slice(0, hit.at) + el.draft.value.slice(start);
+  el.draft.selectionStart = el.draft.selectionEnd = hit.at;
+  pendingCommand = row.dataset.cmd;
+  pendingChat = cur ? chatIdOf(cur) : null;
+  drawCommandChip();
   closeCommands();
   grow();
+  sendLook();
   return true;
 }
 
@@ -7570,7 +7629,7 @@ function drawParts() {
 // The round mark knows about the files as well as the words: a message of
 // files and no words is a message.
 function anythingToSend() {
-  return heldFiles.length > 0 || el.draft.value !== '';
+  return heldFiles.length > 0 || el.draft.value !== '' || !!pendingCommand;
 }
 
 function grow() {
@@ -7626,7 +7685,12 @@ function messageBody(text, files) {
 
 function send() {
   var text = el.draft.value.trim();
-  if (!text && heldFiles.length === 0) { return; }
+  if (!text && heldFiles.length === 0 && !pendingCommand) { return; }
+  // The command of the block goes in front of the words, as the first word of
+  // the message.
+  if (pendingCommand) { text = (text ? pendingCommand + ' ' + text : pendingCommand); }
+  pendingCommand = '';
+  drawCommandChip();
   var files = heldFiles.slice();
   el.draft.value = '';
   heldFiles = [];
@@ -7990,6 +8054,16 @@ byId('planOverlay').addEventListener('click', function (e) {
 
 el.draft.addEventListener('keydown', function (e) {
   if (commandKeys(e)) { return; }
+  // A backspace with nothing written but the command of the message takes the
+  // command away, as it takes the last word of a word.
+  if (e.key === 'Backspace' && pendingCommand && el.draft.value === ''
+      && (el.draft.selectionStart || 0) === 0) {
+    e.preventDefault();
+    pendingCommand = '';
+    drawCommandChip();
+    sendLook();
+    return;
+  }
   if (e.key === 'Enter' && !e.shiftKey && !touch) {
     e.preventDefault();
     send();
