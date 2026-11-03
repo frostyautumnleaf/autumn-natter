@@ -4010,13 +4010,20 @@ var TOOL_SHAPES = {
     head: 'Searching the web: ', word: 'query', end: 'result',
     empty: 'nothing to search for', begun: 'the search words'
   },
-  // A picture handed over to the model. The words are the name of the picture,
-  // and the result is the receipt of the run: the block never carries the
-  // picture, only the line that says what was read of it.
+  // A picture, or a number of them, handed over to the model. The words are the
+  // name of the first picture, and the result is the receipt of the run: the
+  // block never carries a picture, only the lines that say what was read of them.
+  // The name of the tool was that of one picture, and a block of a chat written
+  // under that name is drawn the same way.
+  view_images: {
+    mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
+    head: 'Looking at images: ', word: 'image', end: 'result',
+    empty: 'nothing to look at', begun: 'the images to look at'
+  },
   view_image: {
     mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
-    head: 'Looking at an image: ', word: 'image', end: 'result',
-    empty: 'nothing to look at', begun: 'the image to look at'
+    head: 'Looking at images: ', word: 'image', end: 'result',
+    empty: 'nothing to look at', begun: 'the images to look at'
   },
   // A file held out to the user. The block of the run says which file was
   // offered; the block of the offer itself, with the button, stands under the

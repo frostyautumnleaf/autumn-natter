@@ -314,7 +314,7 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         // A look about the web is named by the words to look for, or by the
         // address that is to be read.
         search::NAME => (search::partial_words(raw), String::new(), String::new()),
-        viewimage::NAME => (viewimage::partial_words(raw), String::new(), String::new()),
+        viewimage::NAME | viewimage::ONE_NAME => (viewimage::partial_words(raw), String::new(), String::new()),
         // A tool of a server of the user's own is named by the tool itself,
         // and the parts the model is writing are the words of the block.
         name if mcp::is_tool(name) => (
@@ -7339,7 +7339,7 @@ fn group_of(name: &str) -> Option<&'static str> {
     match name {
         tools::TOOL_NAME => Some("commands"),
         editfile::EDIT_NAME | editfile::CREATE_NAME => Some("files"),
-        viewimage::NAME => Some("picture"),
+        viewimage::NAME | viewimage::ONE_NAME => Some("picture"),
         download::NAME => Some("hand_out"),
         askuser::NAME => Some("ask"),
         _ => None,
@@ -7548,7 +7548,7 @@ fn run_program_tool(
         editfile::EDIT_NAME => "Editing a file",
         editfile::CREATE_NAME => "Creating a file",
         search::NAME => "Searching the web",
-        viewimage::NAME => "Looking at an image",
+        viewimage::NAME | viewimage::ONE_NAME => "Looking at images",
         download::NAME => "Offering a file",
         askuser::NAME => "Asking the user",
         _ => "A tool of the program",
@@ -7598,32 +7598,39 @@ fn run_program_tool(
         return;
     }
     // A picture is read here and kept out of the words the user sees. The
-    // receipt of the run is the block in the chat; the picture rides on the same
-    // message as an attachment of the chat, and goes to the model with the words
-    // of the receipt when the history is made again.
-    if call.name == viewimage::NAME {
-        let vision = {
+    // receipt of the run is the block in the chat; every picture rides on the
+    // same message as an attachment of the chat, and goes to the model with the
+    // words of the receipt when the history is made again.
+    // The wall of the chat stands over the names of the files, as it does over
+    // the tools that work on files: with the sandbox off, a picture may stand
+    // anywhere the machine has it.
+    if viewimage::is_look(&call.name) {
+        let (vision, jailed) = {
             let Ok(guard) = state.lock() else { return };
-            guard.pictures_can_go()
+            (
+                guard.pictures_can_go(),
+                guard.chat().map(|one| one.meta.sandbox_enabled).unwrap_or(false),
+            )
         };
-        let made = viewimage::open(workdir, &call.arguments, vision);
-        let records = match &made.picture {
-            Some(picture) => {
-                let Ok(guard) = state.lock() else { return };
-                match guard.attach_place() {
-                    Some(place) => attach::save_at(
-                        &place,
-                        &[attach::Incoming {
-                            name: picture.name.clone(),
-                            mime: picture.mime.clone(),
-                            data: picture.data.clone(),
-                            text: String::new(),
-                        }],
-                    ),
-                    None => Vec::new(),
-                }
+        let made = viewimage::open(workdir, &call.arguments, vision, jailed);
+        let records = if made.pictures.is_empty() {
+            Vec::new()
+        } else {
+            let held: Vec<attach::Incoming> = made
+                .pictures
+                .iter()
+                .map(|picture| attach::Incoming {
+                    name: picture.name.clone(),
+                    mime: picture.mime.clone(),
+                    data: picture.data.clone(),
+                    text: String::new(),
+                })
+                .collect();
+            let Ok(guard) = state.lock() else { return };
+            match guard.attach_place() {
+                Some(place) => attach::save_at(&place, &held),
+                None => Vec::new(),
             }
-            None => Vec::new(),
         };
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool_with(&message_id, &made.report.output, made.report.ok, records);
