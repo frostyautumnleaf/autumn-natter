@@ -144,27 +144,38 @@ impl Access {
 // command itself. A model that gives a reason of its own is still read, and the
 // user still sees it, so a chat written before this change keeps what it had.
 //
-// The words follow what the chat allows, so the model is not told a command has
-// no network when the user opened the network, and is not left to find out by
-// running something that fails.
-pub fn definition(access: Access) -> Value {
+// The words follow the state of the sandbox, which is the only thing that can
+// wall a command. A chat with the sandbox on is told the walls of the jail, and
+// what the chat lets a command reach beyond its own folder, so the model is not
+// told a command has no network where the user opened the network, and is not
+// left to find out by running something that fails. A chat with the sandbox off
+// is told the command and the folder it starts in, and nothing else: the
+// command of such a chat runs under the same eye as the file tools, and a line
+// about a wall that is not there has turned a model away from a command it
+// should have run.
+pub fn definition(sandbox: bool, access: Access) -> Value {
     let mut reach = String::from(
-        "Run one shell command and return its output. The command runs in the working directory of the chat. When the sandbox is on, the command can see only that directory and the programs of the machine: no other file of the machine is visible, the home folder included. The road `/tmp/` resolves to a relative `./tmp/` directory of the working directory, so a file left there is kept, is seen by the next command of this chat, and is a file of the work of the chat. ",
+        "Run one shell command and return its output. The command runs in the working directory of the chat. ",
     );
-    reach.push_str(if access.net() {
-        "The command may reach the network. "
-    } else {
-        "There is no network access. "
-    });
-    if access.pip {
+    if sandbox {
         reach.push_str(
-            "Python packages may be installed: pip is on the PATH and installs into a Python environment of this chat at .venv. ",
+            "The command runs in the sandbox, so it can see only that directory and the programs of the machine: no other file of the machine is visible, the home folder included. The road `/tmp/` resolves to a relative `./tmp/` directory of the working directory, so a file left there is kept, is seen by the next command of this chat, and is a file of the work of the chat. ",
         );
-    }
-    if access.fetch {
-        reach.push_str("wget, curl and fetch may be used to read a page of the web.");
-    } else {
-        reach.push_str("wget, curl and fetch are turned off, so do not ask for a file of the web with them.");
+        reach.push_str(if access.net() {
+            "The command may reach the network. "
+        } else {
+            "There is no network access. "
+        });
+        if access.pip {
+            reach.push_str(
+                "Python packages may be installed: pip is on the PATH and installs into a Python environment of this chat at .venv. ",
+            );
+        }
+        if access.fetch {
+            reach.push_str("wget, curl and fetch may be used to read a page of the web.");
+        } else {
+            reach.push_str("wget, curl and fetch are turned off, so do not ask for a file of the web with them.");
+        }
     }
     json!({
         "type": "function",
@@ -1623,17 +1634,46 @@ mod tests {
     // not told there is no network where the user opened one.
     #[test]
     fn the_tool_says_what_the_chat_allows() {
-        let off = definition(Access::default());
+        let off = definition(true, Access::default());
         let said = off["function"]["description"].as_str().unwrap_or("").to_string();
         assert!(said.contains("There is no network access."));
         assert!(said.contains("turned off"));
         assert!(!said.contains("pip is on the PATH"));
-        let open = definition(Access { network: true, pip: true, fetch: true });
+        let open = definition(true, Access { network: true, pip: true, fetch: true });
         let words = open["function"]["description"].as_str().unwrap_or("").to_string();
         assert!(words.contains("The command may reach the network."));
         assert!(words.contains("pip is on the PATH"));
         assert!(words.contains("wget, curl and fetch may be used"));
         assert!(!words.contains("There is no network access."));
+    }
+
+    // A chat with the sandbox off runs its commands under the same eye as the
+    // tools of the files, with nothing walled about the folder it starts in. The
+    // words handed to the model say the command and the folder, and nothing of a
+    // jail, of a network or of a program that stands off: such a chat has none of
+    // those things to tell, and a model once told that fetching was turned off
+    // left a command it should have run alone.
+    #[test]
+    fn a_chat_without_the_sandbox_is_told_nothing_of_it() {
+        for access in [
+            Access::default(),
+            Access { network: true, pip: true, fetch: true },
+        ] {
+            let said = definition(false, access)["function"]["description"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            assert!(said.contains("Run one shell command"), "{}", said);
+            assert!(said.contains("the working directory of the chat"), "{}", said);
+            for forbidden in ["sandbox", "jail", "network", "wget", "curl", "pip"] {
+                assert!(
+                    !said.to_lowercase().contains(forbidden),
+                    "a chat with no sandbox is told of {}: {}",
+                    forbidden,
+                    said
+                );
+            }
+        }
     }
 
     #[cfg(unix)]
@@ -1753,7 +1793,7 @@ mod tests {
     // it, and the words of the definition lead it nowhere near such a line.
     #[test]
     fn the_tool_asks_for_no_reason_of_the_command() {
-        let made = definition(Access::default());
+        let made = definition(true, Access::default());
         let call = made.get("function").expect("the tool is a function");
         assert_eq!(
             call.get("name").and_then(|v| v.as_str()),

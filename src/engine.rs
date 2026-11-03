@@ -5080,10 +5080,11 @@ fn ask_summary_for_handoff(
 // into the front of the talk, so an ask that carried another list -- or none, as
 // this ask used to -- is a talk worked through again from its first word.
 fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
-    let (code_on, search_on, chapters_on, planning_on, access, switches, mcp_tools) = {
+    let (sandbox_on, code_on, search_on, chapters_on, planning_on, access, switches, mcp_tools) = {
         let Ok(guard) = state.lock() else { return None };
         let chat = guard.chat();
         (
+            chat.as_ref().map(|c| c.meta.sandbox_enabled).unwrap_or(false),
             chat.as_ref().map(|c| c.meta.code_enabled).unwrap_or(false),
             chat.as_ref().map(|c| c.meta.search_enabled).unwrap_or(false),
             guard.cfg.chat_chapters,
@@ -5094,6 +5095,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
         )
     };
     offered_with_planning(
+        sandbox_on,
         planning_on,
         code_on,
         search_on,
@@ -6593,6 +6595,7 @@ fn run_turn(
         });
         if use_tools {
             if let Some(list) = offered_with_planning(
+                sandbox_on,
                 planning_on,
                 code_on,
                 search_on,
@@ -7660,12 +7663,17 @@ fn tool_group_word(part: &str) -> String {
     }
 }
 
-// The tools offered for one ask, planning mode taken in. The two tools of
-// planning stand beside the others and hold no switch: a chat that is planning
-// must always have its plan file, and the word that lets the plan go. When
-// planning mode is off neither of them is offered at all, so a model reading the
-// plan as its first message knows nothing of them.
+// The tools offered for one ask, planning mode taken in. The tools of planning
+// stand beside the others and hold no switch: a chat that is planning must
+// always have its plan file, the word that reads it back, the word that asks the
+// user, and the word that lets the plan go. When planning mode is off none of
+// them is offered at all, so a model reading the plan as its first message knows
+// nothing of them. `sandbox` goes with the ask, for the words of the tools that
+// work on the machine tell the state of the sandbox, and nothing of it when the
+// sandbox is off.
+#[allow(clippy::too_many_arguments)]
 fn offered_with_planning(
+    sandbox: bool,
     planning_on: bool,
     code_on: bool,
     search_on: bool,
@@ -7674,9 +7682,17 @@ fn offered_with_planning(
     mcp_tools: &[Value],
     switches: &store::ToolSwitches,
 ) -> Option<Value> {
-    let mut list = offered(code_on, search_on, chapters_on, access, mcp_tools, switches)
-        .and_then(|made| made.as_array().cloned())
-        .unwrap_or_default();
+    let mut list = offered(
+        sandbox,
+        code_on,
+        search_on,
+        chapters_on,
+        access,
+        mcp_tools,
+        switches,
+    )
+    .and_then(|made| made.as_array().cloned())
+    .unwrap_or_default();
     if planning_on {
         list.push(planning::edit_definition());
         list.push(planning::read_definition());
@@ -7690,6 +7706,7 @@ fn offered_with_planning(
 }
 
 fn offered(
+    sandbox: bool,
     code_on: bool,
     search_on: bool,
     chapters_on: bool,
@@ -7706,14 +7723,14 @@ fn offered(
     // and a badge that is off offers none of them whatever the lines say.
     if code_on {
         if switches.commands {
-            list.push(tools::definition(access));
+            list.push(tools::definition(sandbox, access));
         }
         if switches.files {
-            list.push(editfile::edit_definition());
-            list.push(editfile::create_definition());
+            list.push(editfile::edit_definition(sandbox));
+            list.push(editfile::create_definition(sandbox));
         }
         if switches.picture {
-            list.push(viewimage::definition());
+            list.push(viewimage::definition(sandbox));
         }
         if switches.hand_out {
             list.push(download::definition());
@@ -8293,7 +8310,7 @@ mod tests {
         assert!(snap.tool_switches.picture);
         assert!(snap.tool_switches.hand_out);
         let words = |code_on: bool, switches: &store::ToolSwitches| {
-            offered(code_on, false, false, tools::Access::default(), &[], switches)
+            offered(false, code_on, false, false, tools::Access::default(), &[], switches)
                 .map(|list| {
                     list.as_array()
                         .unwrap()
@@ -9783,14 +9800,41 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Nothing is switched on, so the call carries no tools at all.
-        assert!(offered(false, false, false, tools::Access::default(), &[], &store::ToolSwitches::default()).is_none());
+        assert!(offered(
+            false,
+            false,
+            false,
+            false,
+            tools::Access::default(),
+            &[],
+            &store::ToolSwitches::default()
+        )
+        .is_none());
         // The marks alone, which is what a chat with both badges off and the marks
         // on is offered.
-        let marks = offered(false, false, true, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
+        let marks = offered(
+            false,
+            false,
+            false,
+            true,
+            tools::Access::default(),
+            &[],
+            &store::ToolSwitches::default(),
+        )
+        .unwrap();
         assert_eq!(names(&marks), vec![tools::CHAPTER_TOOL_NAME.to_string()]);
         // The badge on: every tool of the program stands there, and the mark is
         // not among them.
-        let open = offered(true, false, false, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
+        let open = offered(
+            false,
+            true,
+            false,
+            false,
+            tools::Access::default(),
+            &[],
+            &store::ToolSwitches::default(),
+        )
+        .unwrap();
         let words = names(&open);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&editfile::EDIT_NAME.to_string()));
@@ -9800,16 +9844,35 @@ mod tests {
         assert!(!words.contains(&search::NAME.to_string()));
         // The badge of the web search alone: the search is offered, and none of
         // the tools that can reach the machine is offered with it.
-        let looked = offered(false, true, false, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
+        let looked = offered(
+            false,
+            false,
+            true,
+            false,
+            tools::Access::default(),
+            &[],
+            &store::ToolSwitches::default(),
+        )
+        .unwrap();
         assert_eq!(names(&looked), vec![search::NAME.to_string()]);
         // Both badges stand open, so both doors are open at once.
-        let both = offered(true, true, false, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
+        let both = offered(
+            false,
+            true,
+            true,
+            false,
+            tools::Access::default(),
+            &[],
+            &store::ToolSwitches::default(),
+        )
+        .unwrap();
         let words = names(&both);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&search::NAME.to_string()));
         // What the chat lets a command reach stands in the words of the tool, so
         // the model knows it before it asks for a command.
         let open = offered(
+            true,
             true,
             false,
             false,
@@ -9837,6 +9900,72 @@ mod tests {
         }
     }
 
+    // The words of the tools that work on the machine follow the state of the
+    // sandbox, which is the only thing that can wall a command. A chat with the
+    // sandbox off is offered the plain tool, with no word of a jail, of a network
+    // or of a program that stands off, for such a chat has none of those things to
+    // tell. A chat with the sandbox on is told the walls, and how far its room
+    // reaches. The list of the tools is rendered into the front of the talk, so a
+    // word of a wall that is not there is paid for in every ask of the chat, and
+    // has turned a model away from a command it should have run.
+    #[test]
+    fn the_words_of_the_tools_follow_the_state_of_the_sandbox() {
+        let offered_words = |sandbox: bool| -> Vec<String> {
+            offered(
+                sandbox,
+                true,
+                false,
+                false,
+                tools::Access::default(),
+                &[],
+                &store::ToolSwitches::default(),
+            )
+            .expect("the badge of the tools stands open")
+            .as_array()
+            .expect("a list of tools")
+            .iter()
+            .map(|one| {
+                format!(
+                    "{} {}",
+                    one["function"]["name"].as_str().unwrap_or_default(),
+                    one["function"]["description"].as_str().unwrap_or_default()
+                )
+            })
+            .collect()
+        };
+        // The wall down: no tool of the list has a word of it, and no tool tells
+        // the model that a network or a program is turned off.
+        for one in offered_words(false) {
+            for forbidden in ["sandbox", "jail", "network", "wget", "curl"] {
+                assert!(
+                    !one.to_lowercase().contains(forbidden),
+                    "a chat with no sandbox was told of {}: {}",
+                    forbidden,
+                    one
+                );
+            }
+        }
+        // The wall up: the tool of the commands names the jail it runs in, and
+        // what the chat lets a command reach.
+        let jailed = offered_words(true)
+            .into_iter()
+            .find(|one| one.starts_with(tools::TOOL_NAME))
+            .expect("the tool of the commands is offered");
+        assert!(jailed.contains("sandbox"), "{}", jailed);
+        assert!(jailed.contains("There is no network access."), "{}", jailed);
+        // The tools of the files say how far the room of the chat reaches in both
+        // states, so a chat with the wall down still hears that a file of this
+        // machine may be named, and does not hear it from the wall.
+        let reached = |sandbox: bool| {
+            offered_words(sandbox)
+                .into_iter()
+                .find(|one| one.starts_with(editfile::EDIT_NAME))
+                .expect("the tool of the files is offered")
+        };
+        assert!(reached(true).contains("the only place this tool works"));
+        assert!(reached(false).contains("anywhere on this machine"));
+    }
+
     // The tools of the servers of the user's own stand in the list of a step,
     // and a server alone is enough to let the model be offered anything at all.
     #[test]
@@ -9856,9 +9985,16 @@ mod tests {
             ..mcp::Tool::default()
         };
         let made = vec![tool.definition(&server)];
-        let list = offered(false, false, false, tools::Access::default(), &made,
-            &store::ToolSwitches::default())
-            .expect("a server of the user's own is a tool");
+        let list = offered(
+            false,
+            false,
+            false,
+            false,
+            tools::Access::default(),
+            &made,
+            &store::ToolSwitches::default(),
+        )
+        .expect("a server of the user's own is a tool");
         let names: Vec<&str> = list
             .as_array()
             .unwrap()

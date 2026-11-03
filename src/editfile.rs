@@ -63,22 +63,45 @@ const MAX_DIFF_WINDOW_LINES: usize = 2000;
 // files stood under a folder of that name.
 const HABIT_PREFIXES: [&str; 3] = ["/mnt/data", "/mnt/outputs", "/workspace"];
 
+// The sentence that says where the tool may work. Every chat has a room of its
+// own: the folder of the repository for a chat that stands in one, and a folder
+// of the room of the chats for a chat that belongs to none. The wall over that
+// room is the sandbox, and only the sandbox, so the sentence is said twice. With
+// the wall up the room is all there is to work in. With the wall down a file of
+// this machine is a file like any other, as a command of the terminal tool
+// reaches it, and the wall is not named, for the tool works the same either way
+// and a model has no use for the name of a wall it cannot see.
+fn reach_words(sandbox: bool, making: bool) -> &'static str {
+    match (sandbox, making) {
+        (true, true) => "The file is made in the working directory of the chat, which is the only place this tool works, and the tool runs in the program.",
+        (true, false) => "The file is in the working directory of the chat, which is the only place this tool works, and the tool runs in the program.",
+        (false, _) => "The file may stand anywhere on this machine, and the tool runs in the program.",
+    }
+}
+
 // The call that changes a file. Every change is asked for as the words that
-// stand in the file now, so nothing here needs a place holder of any kind.
-pub fn edit_definition() -> Value {
+// stand in the file now, so nothing here needs a place holder of any kind. Only
+// the sentence of the room the tool may work in follows the state of the sandbox.
+pub fn edit_definition(sandbox: bool) -> Value {
+    let path_said = if sandbox {
+        "The file to change. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'. While the sandbox stands, only a file of that directory may be worked on."
+    } else {
+        "The file to change. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name of a file of this machine."
+    };
     json!({
         "type": "function",
         "function": {
             "name": EDIT_NAME,
-            "description": with_rule(String::from(
-                "Change a file in the chat by replacing exact text with other exact text. Prefer this over writing a whole file again with the terminal tool, because only the changed part is sent. Copy each old_string exactly from the file, spacing included. Put every change to one file in the same call, not in several calls. Every old_string is matched against the file as it was before this call, and no two of them may cover the same text. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. An old_string is never empty: use create_file for a new file. The file is in the working directory of the chat, which is the only place this tool works, and the tool runs in the program, so it works the same whether the sandbox is on or off. A call that succeeded means the file now holds what was sent, so read it again only when you must.",
+            "description": with_rule(format!(
+                "Change a file in the chat by replacing exact text with other exact text. Prefer this over writing a whole file again with the terminal tool, because only the changed part is sent. Copy each old_string exactly from the file, spacing included. Put every change to one file in the same call, not in several calls. Every old_string is matched against the file as it was before this call, and no two of them may cover the same text. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. An old_string is never empty: use create_file for a new file. {} A call that succeeded means the file now holds what was sent, so read it again only when you must.",
+                reach_words(sandbox, false)
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file to change. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name from the root of the machine. While the sandbox stands, only the working directory of the chat may be worked on; with the sandbox off any file of this machine may be."
+                        "description": path_said
                     },
                     "edits": {
                         "type": "array",
@@ -110,21 +133,28 @@ pub fn edit_definition() -> Value {
 }
 
 // The call that makes a new file. The whole file is given at once, so there is
-// no part of it that stands for something else.
-pub fn create_definition() -> Value {
+// no part of it that stands for something else. Only the sentence of the room
+// the tool may work in follows the state of the sandbox.
+pub fn create_definition(sandbox: bool) -> Value {
+    let path_said = if sandbox {
+        "The file to create. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'. While the sandbox stands, only a file of that directory may be made. A file that already exists is never overwritten and never emptied: such a call fails and the file stands unchanged."
+    } else {
+        "The file to create. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name of a file of this machine. A file that already exists is never overwritten and never emptied: such a call fails and the file stands unchanged."
+    };
     json!({
         "type": "function",
         "function": {
             "name": CREATE_NAME,
-            "description": with_rule(String::from(
-                "Create a new file in the working directory of the chat, with the text given for it. This tool never overwrites a file and never empties one: if a file of that name already stands with words in it, the call fails, the file is left exactly as it was, and edit_file is the tool that changes it. So look first whether the file is there, and when a file that exists is wanted changed rather than made, call edit_file instead. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. The tool runs in the program, so it works the same whether the sandbox is on or off.",
+            "description": with_rule(format!(
+                "Create a new file with the text given for it. This tool never overwrites a file and never empties one: if a file of that name already stands with words in it, the call fails, the file is left exactly as it was, and edit_file is the tool that changes it. So look first whether the file is there, and when a file that exists is wanted changed rather than made, call edit_file instead. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. {}",
+                reach_words(sandbox, true)
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The file to create. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name from the root of the machine. While the sandbox stands, only the working directory of the chat may be worked on; with the sandbox off any file of this machine may be. A file that already exists is never overwritten and never emptied: such a call fails and the file stands unchanged."
+                        "description": path_said
                     },
                     "text": {
                         "type": "string",
@@ -1420,7 +1450,7 @@ mod tests {
     // nothing to fill in with a name that is not a name.
     #[test]
     fn no_part_of_a_file_call_stands_for_another_part() {
-        let made = edit_definition();
+        let made = edit_definition(true);
         let call = made.get("function").expect("the tool is a function");
         assert_eq!(call.get("name").and_then(|v| v.as_str()), Some(EDIT_NAME));
         let mut keys: Vec<String> = call
@@ -1440,7 +1470,7 @@ mod tests {
             .expect("the parts that must come are listed");
         assert_eq!(want, &vec![String::from("path"), String::from("edits")][..]);
 
-        let made = create_definition();
+        let made = create_definition(true);
         let call = made.get("function").expect("the tool is a function");
         assert_eq!(call.get("name").and_then(|v| v.as_str()), Some(CREATE_NAME));
         let mut keys: Vec<String> = call
@@ -1455,11 +1485,58 @@ mod tests {
         assert_eq!(keys, vec![String::from("path"), String::from("text")]);
 
         // Nothing of a place holder stands in the words handed to the model.
-        for made in [edit_definition(), create_definition()] {
+        for made in [
+            edit_definition(true),
+            edit_definition(false),
+            create_definition(true),
+            create_definition(false),
+        ] {
             let words = made.to_string().to_lowercase();
             for forbidden in ["placeholder", "place holder", "sentinel", "__", "<file>", "todo: fill"] {
                 assert!(!words.contains(forbidden), "the call offers {}: {}", forbidden, made);
             }
+        }
+    }
+
+    // The room a file tool may work in is said in both states, for every chat has
+    // a room of its own and a model has to know how far it reaches. With the wall
+    // of the sandbox up the room is all there is to work in, and the wall is
+    // named. With the wall down a file of this machine is a file like any other,
+    // and the model has to hear so, or it will not name a file outside the room of
+    // the chat: but the wall, which is not there, is not named either.
+    #[test]
+    fn the_room_of_the_file_tools_is_said_in_both_states() {
+        let said = |made: &Value| {
+            made["function"]["description"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        };
+        let path = |made: &Value| {
+            made["function"]["parameters"]["properties"]["path"]["description"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        };
+        // The wall up: the room of the chat is all there is, and the wall is
+        // named where the name of a file is asked for.
+        for made in [edit_definition(true), create_definition(true)] {
+            let words = said(&made);
+            assert!(words.contains("the tool runs in the program"), "{}", words);
+            let named = path(&made);
+            assert!(named.contains("While the sandbox stands"), "{}", named);
+            assert!(named.contains("only a file of that directory"), "{}", named);
+        }
+        // The wall down: a file of this machine is a file like any other, and no
+        // word of the wall that is not there stands in the call.
+        for made in [edit_definition(false), create_definition(false)] {
+            let words = said(&made);
+            assert!(words.contains("anywhere on this machine"), "{}", words);
+            assert!(!words.contains("the only place this tool works"), "{}", words);
+            assert!(!words.to_lowercase().contains("sandbox"), "{}", words);
+            let named = path(&made);
+            assert!(named.contains("a whole name of a file of this machine"), "{}", named);
+            assert!(!named.to_lowercase().contains("sandbox"), "{}", named);
         }
     }
 

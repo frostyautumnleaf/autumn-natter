@@ -58,14 +58,27 @@ const MOST_PICTURES: usize = 8;
 // a projector uses, and every one of them is paid for in the room of the talk.
 const MOST_PIXELS: u64 = 40_000_000;
 
-// The words of the call, and the words the user is shown.
-pub fn definition() -> Value {
+// The words of the call, and the words the user is shown. The room the files may
+// stand in follows the state of the sandbox, as it does for the two tools of the
+// files: the wall over the room of the chat is the sandbox, and only the sandbox.
+pub fn definition(sandbox: bool) -> Value {
+    let said = if sandbox {
+        "While the sandbox stands, every file looked at is a file of the working directory of the chat."
+    } else {
+        "A file may stand anywhere on this machine, and its whole name is then given."
+    };
+    let paths_said = if sandbox {
+        "The names of the files to look at, each relative to the working directory of the chat."
+    } else {
+        "The names of the files to look at, each relative to the working directory of the chat, or whole when the file stands elsewhere on this machine."
+    };
     json!({
         "type": "function",
         "function": {
             "name": NAME,
-            "description": with_rule(String::from(
-                "Send one or more images to yourself, so that you can be asked about them. Give the names of files in the chat as a list, as [\"notes/cat.png\", \"notes/dog.png\"], or the addresses of images on the web as a list, as [\"https://example.org/cat.png\"]. One name or a list of names is read either way, and one call may carry up to eight images, which arrive in the order you named them. While the sandbox is off, a file may stand outside the working directory of the chat, and its whole name is then given. Each image must be of a kind the projector reads: PNG, JPEG, GIF or BMP, and no more than twelve megabytes. An image can only be shown while vision is turned on for the model; without it the call says so and nothing is read. The images are not stored after the conversation.",
+            "description": with_rule(format!(
+                "Send one or more images to yourself, so that you can be asked about them. Give the names of files in the chat as a list, as [\"notes/cat.png\", \"notes/dog.png\"], or the addresses of images on the web as a list, as [\"https://example.org/cat.png\"]. One name or a list of names is read either way, and one call may carry up to eight images, which arrive in the order you named them. {} Each image must be of a kind the projector reads: PNG, JPEG, GIF or BMP, and no more than twelve megabytes. An image can only be shown while vision is turned on for the model; without it the call says so and nothing is read. The images are not stored after the conversation.",
+                said
             )),
             "parameters": {
                 "type": "object",
@@ -73,7 +86,7 @@ pub fn definition() -> Value {
                     "paths": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "The names of the files to look at, each relative to the working directory of the chat, or whole when the sandbox is off."
+                        "description": paths_said
                     },
                     "urls": {
                         "type": "array",
@@ -660,6 +673,31 @@ mod tests {
         made[16..20].copy_from_slice(&wide.to_be_bytes());
         made[20..24].copy_from_slice(&high.to_be_bytes());
         made
+    }
+
+    // The room the pictures may stand in is said in both states, as it is for the
+    // tools of the files. With the wall of the sandbox up, every file looked at is
+    // a file of the working directory of the chat. With the wall down, a file of
+    // this machine may be named whole, and the wall that is not there is not named
+    // either.
+    #[test]
+    fn the_room_of_the_pictures_is_said_in_both_states() {
+        let said = |made: &Value| {
+            format!(
+                "{} {}",
+                made["function"]["description"].as_str().unwrap_or_default(),
+                made["function"]["parameters"]["properties"]["paths"]["description"]
+                    .as_str()
+                    .unwrap_or_default()
+            )
+        };
+        let up = said(&definition(true));
+        assert!(up.contains("While the sandbox stands"), "{}", up);
+        assert!(up.contains("working directory of the chat"), "{}", up);
+        let down = said(&definition(false));
+        assert!(down.contains("anywhere on this machine"), "{}", down);
+        assert!(down.contains("whole"), "{}", down);
+        assert!(!down.to_lowercase().contains("sandbox"), "{}", down);
     }
 
     // The call needs one of its two parts, and says so without naming the other
