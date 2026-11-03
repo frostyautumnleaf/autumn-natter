@@ -277,6 +277,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "used": util::count(snap.context_used),
             "total": util::count(snap.context_total),
             "ratio": ratio(snap),
+            // Where the summarisation of the handoff begins, as a part of the
+            // whole room, so the page has only to put its line at that share of
+            // the meter. Nought says there is nothing to mark.
+            "cut": cut_ratio(snap),
         },
         "generating": snap.generating,
         "busy": snap.busy,
@@ -359,6 +363,15 @@ fn ratio(snap: &Snap) -> f64 {
         return 0.0;
     }
     (snap.context_used as f64 / snap.context_total as f64).clamp(0.0, 1.0)
+}
+
+// Where the summarisation begins, as a part of the whole room. Nought says that
+// nothing stands at the place: the summarisation is off, or the room is not known.
+fn cut_ratio(snap: &Snap) -> f64 {
+    if snap.context_total == 0 || snap.context_cut == 0 || snap.context_cut >= snap.context_total {
+        return 0.0;
+    }
+    (snap.context_cut as f64 / snap.context_total as f64).clamp(0.0, 1.0)
 }
 
 // A speed of the work, to a tenth of a token to the second. The server measures

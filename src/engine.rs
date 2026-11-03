@@ -944,6 +944,10 @@ pub struct Snap {
     pub chat_title: String,
     pub context_used: u64,
     pub context_total: u64,
+    // Where the summarisation of the handoff begins, in the words of the talk,
+    // for the line of it on the meter of the context. Nothing stands at nought:
+    // the summarisation is off, or the room of the talk is not known.
+    pub context_cut: u64,
     pub generating: bool,
     // True while the program is writing a handoff summary, whose words are never
     // shown to the user.
@@ -2525,6 +2529,7 @@ impl State {
                 .unwrap_or_else(|| String::from("No chat")),
             context_used: self.ctx_used,
             context_total,
+            context_cut: config::compaction_mark(&self.cfg, context_total).unwrap_or(0),
             generating: self.generating,
             summarising: self.summarising,
             busy: self.busy,
@@ -4116,6 +4121,7 @@ impl Snap {
             chat_title: String::new(),
             context_used: 0,
             context_total: 0,
+            context_cut: 0,
             sandbox_access: tools::Access::default(),
             generating: false,
             busy: false,

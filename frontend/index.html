@@ -264,10 +264,16 @@ body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
    is to be moved has to be a block of its own. A block of its own is also a
    place the line may break, which is why neither number is broken above. */
 .meter-box .roll { display: inline-block; }
-.meter { display: block; height: 4px; border-radius: 999px; background: var(--surface-3);
-  overflow: hidden; }
+.meter { display: block; position: relative; height: 4px; border-radius: 999px;
+  background: var(--surface-3); }
 .meter i { display: block; height: 100%; border-radius: 999px; background: var(--accent);
   transition: width 300ms ease, background 200ms; }
+/* The place a summarisation begins, as a second line of its own colour across
+   the bar of the context. It stands a little over the bar at either side, so it
+   is seen against the words of the fill and against the ground alike. */
+.meter .cut { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px;
+  border-radius: 1px; background: var(--strong); }
+.meter .cut.hidden { display: none; }
 .meter-box.near .num { color: var(--ink-fail); font-weight: 600; }
 .meter-box.near .meter i { background: var(--ink-fail); }
 
@@ -1859,7 +1865,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       <span class="num" id="ctxtext"><span class="roll" id="ctxused">0</span><span id="ctxtail"> of 0</span></span>
       <span class="pct" id="ctxpct"><span class="roll" id="ctxpctnum">0</span>%</span>
     </div>
-    <span class="meter"><i id="ctxfill"></i></span>
+    <span class="meter"><i id="ctxfill"></i><b class="cut hidden" id="ctxcut"></b></span>
   </div>
   <span class="rule"></span>
   
@@ -2527,7 +2533,7 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 
 // The parts of the page that stay in place. Their words are written again on
 // every draw.
-var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
+var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
   'newchat', 'settingsbtn', 'modelbtn', 'chapters', 'timeline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
@@ -2792,10 +2798,24 @@ function drawContext(s) {
   climbUsed(isFinite(used) ? used : 0);
   climbPct(Math.round(ratio * 100));
   el.ctxfill.style.width = Math.round(ratio * 100) + '%';
+  // The line of the summarisation: the place the talk of the chat is made again.
+  // It is not drawn at all when the summarisation is switched off, or when the
+  // room of the talk is not known.
+  var cut = Number(s.context.cut || 0);
+  if (el.ctxcut) {
+    el.ctxcut.classList.toggle('hidden', !(cut > 0));
+    el.ctxcut.style.left = (Math.max(0, Math.min(1, cut)) * 100).toFixed(2) + '%';
+  }
   el.ctx.classList.toggle('near', ratio > 0.9);
-  el.ctx.title = 'Tokens the model keeps in mind for this chat: '
-    + s.context.used + ' of ' + s.context.total
-    + (ratio > 0.9 ? ' The context is nearly full.' : '.');
+  var said = 'Tokens the model keeps in mind for this chat: '
+    + s.context.used + ' of ' + s.context.total + '.';
+  if (cut > 0) {
+    said += ' The line stands where a summarisation begins.';
+  }
+  if (ratio > 0.9) {
+    said += ' The context is nearly full.';
+  }
+  el.ctx.title = said;
 }
 
 // The ring of the gauge, in the units of the drawing: the circle is 19 wide and
