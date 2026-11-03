@@ -88,6 +88,31 @@ const ETC_PATHS: [&str; 12] = [
     "/etc/pki/tls/certs",
 ];
 
+// The marks of the trust a command asks for when it fetches a page of the web:
+// the bundle of certificates, the file that says where the bundle stands and how
+// it is to be read, and the store of the marks themselves. Only the two folders
+// of the certificates went in before. A bundle that is a mark for a file kept
+// elsewhere, which is how several systems write it, then came to nothing inside
+// the jail: `curl` and `wget` answered with a broken CA bundle, and the only way
+// out the command was left with was `--insecure`, which is no way out at all. A
+// file goes in by its name, and bubblewrap follows the mark to the bytes,
+// wherever they stand, so the bundle is whole whichever way a system keeps it.
+const CA_PATHS: [&str; 8] = [
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ssl/certs/ca-bundle.crt",
+    "/etc/ssl/cert.pem",
+    "/etc/ssl/openssl.cnf",
+    "/etc/ca-certificates.conf",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/pki/tls/openssl.cnf",
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+];
+
+// The folders a system writes its bundle into, when the file under /etc is a
+// mark for one of them. They hold nothing but the marks that say who may be
+// trusted, which is what the folder of the certificates holds as well.
+const CA_ROOMS: [&str; 1] = ["/var/lib/ca-certificates"];
+
 // What a command of the jail may reach beyond its own folder. Every part of it
 // stands off, so a command sees nothing of the machine and reaches nothing
 // beyond the working directory of the chat until the user opens it in the menu
@@ -343,6 +368,90 @@ fn push_program_path(args: &mut Vec<String>, path: &Path) {
     }
 }
 
+// Put one file or folder of the machine into the jail read only. A name that
+// stands for nothing is passed over, which is how a list of files that a system
+// may or may not have is worked through.
+fn push_read_only(args: &mut Vec<String>, path: &str) {
+    args.push("--ro-bind-try".into());
+    args.push(path.into());
+    args.push(path.into());
+}
+
+// True when the name stands for a folder of itself, and not for a mark that
+// points somewhere else. A mark is passed over, because the place it leads to
+// cannot be named from here.
+fn stands_as_a_folder(place: &Path) -> bool {
+    std::fs::symlink_metadata(place).map(|made| made.is_dir()).unwrap_or(false)
+}
+
+// True when the name stands for a file of the rules of a program: words that the
+// program reads, or the settings of it. A mark that points somewhere else is not
+// such a file, whatever its name says.
+fn stands_as_a_rule_file(place: &Path) -> bool {
+    if !std::fs::symlink_metadata(place).map(|made| made.is_file()).unwrap_or(false) {
+        return false;
+    }
+    let Some(end) = place.extension().and_then(|one| one.to_str()) else {
+        return false;
+    };
+    end == "properties" || end == "cfg"
+}
+
+// The name of the folder that holds the way in to the console of a running Java
+// program, and the words that let one in. It is kept out of the jail.
+const JAVA_MANAGEMENT: &str = "management";
+
+// The rules Java works under. A system that puts the programs of Java under /usr
+// often puts their rules under /etc, and builds the programs to read them there.
+// The empty root of the jail has none of them, so a run of `java` inside came to
+// its rules and found nothing: the marks of the machine, the list of what may not
+// be trusted, and the settings of the network were all gone, and the program went
+// on with its own least rules. The `security` folder of every Java under /etc
+// goes in read only, with the files of words and of settings that stand beside
+// it. A Java that is a mark for a place elsewhere is passed over, and so is
+// `management/`.
+fn java_paths() -> Vec<String> {
+    java_rules(Path::new("/etc")).iter().map(|one| one.display().to_string()).collect()
+}
+
+// The rules of the Java programs that stand under one root. The root is a thing
+// of the check as well, so the two of them can be looked at without a machine of
+// the kind that keeps Java under /etc.
+fn java_rules(root: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return found;
+    };
+    let mut homes: Vec<PathBuf> = Vec::new();
+    for entry in entries.flatten() {
+        let place = entry.path();
+        let stands = place.file_name().and_then(|one| one.to_str()).unwrap_or("");
+        if !stands.starts_with("java") || !stands_as_a_folder(&place) {
+            continue;
+        }
+        homes.push(place);
+    }
+    homes.sort();
+    for home in homes {
+        let security = home.join("security");
+        if stands_as_a_folder(&security) {
+            found.push(security);
+        }
+        let Ok(inner) = std::fs::read_dir(&home) else { continue };
+        for one in inner.flatten() {
+            let place = one.path();
+            if place.file_name().and_then(|name| name.to_str()) == Some(JAVA_MANAGEMENT) {
+                continue;
+            }
+            if stands_as_a_rule_file(&place) {
+                found.push(place);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
 // Build the argument list of the jail, up to the two marks that end it. The
 // working directory is the only place a command may write.
 fn jail_args(workdir: &Path, access: Access) -> Vec<String> {
@@ -406,6 +515,21 @@ fn jail_args(workdir: &Path, access: Access) -> Vec<String> {
         args.push("--ro-bind-try".into());
         args.push(file.into());
         args.push(file.into());
+    }
+    // The bundle of the certificates and the file that says how to read it, by
+    // their names, so a bundle that is a mark for a file kept elsewhere still
+    // comes whole. The room the bundle is written into goes in as well, for the
+    // marks of the certificates are looked for there on such a system.
+    for file in CA_PATHS {
+        push_read_only(&mut args, file);
+    }
+    for room in CA_ROOMS {
+        push_read_only(&mut args, room);
+    }
+    // The rules of Java, which the programs of the machine are built to read
+    // under /etc.
+    for rule in java_paths() {
+        push_read_only(&mut args, &rule);
     }
     // The room of `/tmp`, which is a folder of the working directory. It goes in
     // before the working directory itself, so a working directory that stands
@@ -1228,6 +1352,73 @@ mod tests {
         for forbidden in ["/etc/shadow", "/etc/ssh", "/etc/machine-id", "/home"] {
             assert!(!text.contains(forbidden), "the jail offers {}", forbidden);
         }
+    }
+
+    // A command that fetches a page has to read the bundle of the certificates,
+    // and the file that says how to read it, or it answers with a broken bundle
+    // and nothing is left to it but to trust nothing.
+    #[test]
+    fn the_jail_offers_the_bundle_of_the_certificates() {
+        let args = jail_args(Path::new("/work/somewhere"), Access::default());
+        let text = args.join("\n");
+        for part in [
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/ssl/cert.pem",
+            "/etc/ssl/openssl.cnf",
+            "/etc/pki/tls/certs/ca-bundle.crt",
+            "/var/lib/ca-certificates",
+        ] {
+            assert!(
+                text.contains(&format!("--ro-bind-try\n{}\n{}\n", part, part)),
+                "the jail keeps {} out",
+                part
+            );
+        }
+    }
+
+    // The rules of Java stand under /etc on the systems that put their programs
+    // under /usr. They are read out of that root, and three things are left out:
+    // a program that is a mark for a place elsewhere, a `security` folder that is
+    // such a mark, and `management/`, which holds the words of the console.
+    #[cfg(unix)]
+    #[test]
+    fn the_rules_of_java_are_read_out_of_their_root() {
+        static TURN: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "autumn-natter-java-rules-{}-{}",
+            std::process::id(),
+            TURN.fetch_add(1, Ordering::SeqCst)
+        ));
+        let home = root.join("java-21-openjdk");
+        std::fs::create_dir_all(home.join("security/policy")).unwrap();
+        std::fs::write(home.join("security/java.security"), "rules").unwrap();
+        std::fs::write(home.join("net.properties"), "network").unwrap();
+        std::fs::write(home.join("jvm-amd64.cfg"), "flags").unwrap();
+        std::fs::write(home.join("psfont.properties.ja"), "fonts").unwrap();
+        std::fs::write(home.join("notes.txt"), "words").unwrap();
+        std::fs::create_dir_all(home.join("management")).unwrap();
+        std::fs::write(home.join("management/jmxremote.password"), "SECRET").unwrap();
+        // A Java that is a mark for a place elsewhere, and a `security` folder
+        // that is such a mark.
+        std::fs::create_dir_all(root.join("elsewhere/thing")).unwrap();
+        std::fs::create_dir_all(root.join("java-mock")).unwrap();
+        std::os::unix::fs::symlink("../elsewhere/thing", root.join("java-mark")).unwrap();
+        std::os::unix::fs::symlink("../elsewhere", root.join("java-mock/security")).unwrap();
+        // A program of another kind, with a folder of rules of its own.
+        std::fs::create_dir_all(root.join("python-3/security")).unwrap();
+        let found: Vec<String> = java_rules(&root)
+            .iter()
+            .map(|one| one.strip_prefix(&root).unwrap().display().to_string())
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                "java-21-openjdk/jvm-amd64.cfg",
+                "java-21-openjdk/net.properties",
+                "java-21-openjdk/security",
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     // bubblewrap leaves the command unrun when the jail cannot be made. That is
