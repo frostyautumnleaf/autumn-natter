@@ -5863,6 +5863,7 @@ function sentParts(m) {
   for (var n = 0; n < m.attachments.length; n++) {
     var one = m.attachments[n];
     var block = partBlock({ name: one.name, kind: one.image ? 'image' : 'file',
+                             what: one.image || !isDocumentName(one.name, one.mime) ? '' : 'Document',
                              url: attUrls[one.id] || '' }, undefined, lookOfSent(one, attUrls));
     row.appendChild(block);
     if (one.image && !attUrls[one.id]) {
@@ -6829,8 +6830,26 @@ var heldFiles = [];
 // What kind of file this is, as the program reads it: a picture the model
 // can be shown, a file of words the model can read, or a file that can only
 // be named. The same rules stand on the Rust side.
-var TEXT_ENDINGS = 'txt md markdown rs py js ts jsx tsx json toml yaml yml ini cfg conf '
-  + 'sh bash csv log sql html css c h cpp hpp go java';
+var TEXT_ENDINGS = 'txt md markdown mdx rst adoc asciidoc org tex bib rs py pyi js mjs cjs '
+  + 'ts tsx jsx json jsonl toml yaml yml ini cfg conf properties env sh bash zsh fish bat ps1 '
+  + 'make mk cmake gradle csv tsv log sql html htm css scss less xml xsl svg c h cpp hpp cc hh '
+  + 'go java kt kts scala swift rb php pl pm lua r dart vue svelte proto graphql diff patch '
+  + 'po pot srt vtt';
+// The two shapes of document the program reads the words out of. The bytes of
+// these go out with the message and the program reads them; the page never does.
+// The greatest document is what the program takes, counted in the bytes of the
+// file itself, which is a little less than the most its base64 form may run to.
+var DOCUMENT_ENDINGS = 'pdf rtf';
+var GREATEST_DOCUMENT = 18 * 1024 * 1024;
+function isDocumentName(name, mime) {
+  mime = (mime || '').toLowerCase();
+  if (mime === 'application/pdf' || mime === 'application/rtf' || mime === 'text/rtf') {
+    return true;
+  }
+  var dot = name.lastIndexOf('.');
+  var end = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  return DOCUMENT_ENDINGS.split(' ').indexOf(end) >= 0;
+}
 function fileKind(name, mime) {
   mime = (mime || '').toLowerCase();
   var dot = name.lastIndexOf('.');
@@ -6886,6 +6905,14 @@ function holdFile(file) {
     var words = new FileReader();
     words.onload = function () { held.text = String(words.result); };
     words.readAsText(file);
+  } else if (isDocumentName(name, file.type) && file.size <= GREATEST_DOCUMENT) {
+    // The bytes of a document go out with the message, for the words of a PDF or
+    // of an RTF file are not to be had without reading the shape of it, and the
+    // reading of them is the work of the program. A document bigger than the most
+    // the program takes stands as a name, which is what it would come to anyway.
+    var shape = new FileReader();
+    shape.onload = function () { held.data = String(shape.result); };
+    shape.readAsDataURL(file);
   }
 }
 
@@ -6986,7 +7013,9 @@ function openViewer(one) {
   lookBack = document.activeElement;
   box.classList.remove('hidden');
   if (el.lookname) { el.lookname.textContent = one.name || 'A file of the chat'; }
-  if (el.lookkind) { el.lookkind.textContent = one.kind === 'image' ? 'Image' : 'Text'; }
+  if (el.lookkind) {
+    el.lookkind.textContent = one.kind === 'image' ? 'Image' : (one.what || 'Text');
+  }
   var body = el.lookbody;
   if (!body) { return; }
   body.innerHTML = '';
@@ -7071,6 +7100,7 @@ function wireViewer() {
 function lookOfHeld(one) {
   return function () {
     openViewer({ name: one.name, kind: one.kind === 'image' ? 'image' : 'file',
+                 what: one.kind === 'image' || !isDocumentName(one.name, one.mime) ? '' : 'Document',
                  url: one.url || '', words: one.text || '', file: one.file });
   };
 }
@@ -7081,6 +7111,7 @@ function lookOfHeld(one) {
 function lookOfSent(one, pics) {
   return function () {
     openViewer({ name: one.name, kind: one.image ? 'image' : 'file',
+                 what: one.image || !isDocumentName(one.name, one.mime) ? '' : 'Document',
                  id: one.id, url: pics[one.id] || '' });
   };
 }
@@ -7120,7 +7151,6 @@ function putWordsInBox(one) {
     box.setSelectionRange(caret, caret);
   });
 }
-
 function partBlock(one, place, look) {
   // A block of a picture and a block of a file are cut differently once they
   // stand under a sent message, so each carries word of what it is.
@@ -7143,23 +7173,58 @@ function partBlock(one, place, look) {
   var nm = make('span', 'nm');
   nm.textContent = one.name;
   part.appendChild(nm);
-  if (place !== undefined) {
-    // The block of a file of words answers a click: its words go into the chat
-    // box, which is what a user wants when a paste of theirs was turned into a
-    // file by the length of it.
-    if (one.kind === 'text') {
-      part.classList.add('pick');
-      part.title = one.name + ' — click to put the words in the chat box';
+  // The block of a file of words over the chat box answers a click: its words go
+  // into the box, which is what a user wants when a paste of theirs was turned
+  // into a file by the length of it.
+  if (place !== undefined && one.kind === 'text') {
+    part.classList.add('pick');
+    part.title = one.name + ' - click to put the words in the chat box';
+    part.setAttribute('role', 'button');
+    part.tabIndex = 0;
+    part.addEventListener('click', function () { putWordsInBox(one); });
+    part.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        putWordsInBox(one);
+      }
+    });
+  }
+  // A block may be looked at. A picture opens at a click on the block itself,
+  // and so does every block that stands under a sent message, where the block is
+  // the only way back to the file: a picture is looked at at the size it is, and
+  // the words of a file or of a document are read in the same window. A file over
+  // the chat box has another work, for a click on it puts its words in the box,
+  // so it is looked at through its own eye instead.
+  if (look) {
+    if (one.kind === 'image' || place === undefined) {
+      part.classList.add('peek');
+      part.title = (one.name || '') + ' - click to look at it';
       part.setAttribute('role', 'button');
       part.tabIndex = 0;
-      part.addEventListener('click', function () { putWordsInBox(one); });
+      part.addEventListener('click', function () { look(); });
       part.addEventListener('keydown', function (event) {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          putWordsInBox(one);
+          look();
         }
       });
+    } else {
+      var eye = make('button', 'eye');
+      eye.type = 'button';
+      eye.title = 'Look at this file';
+      eye.setAttribute('aria-label', 'Look at ' + (one.name || 'this file'));
+      eye.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="'
+        + 'M1.9 8c1.6-2.9 3.6-4.3 6.1-4.3s4.5 1.4 6.1 4.3c-1.6 2.9-3.6 4.3-6.1 4.3S3.5 10.9 1.9 8z M8 9.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z' + '"/></svg>';
+      eye.addEventListener('click', function (event) {
+        event.stopPropagation();
+        look();
+      });
+      part.insertBefore(eye, part.querySelector('.x') || null);
     }
+  }
+  // The mark that takes the file away stands only over the chat box, where the
+  // file is still the user's to throw away.
+  if (place !== undefined) {
     var x = make('button', 'x');
     x.type = 'button';
     x.title = 'Remove this file';
@@ -7174,37 +7239,6 @@ function partBlock(one, place, look) {
       drawParts();
       grow();
     });
-  // A block may be looked at. A picture opens at a click on the block itself,
-  // and so does a file of words standing under a sent message; a file of words
-  // over the chat box has another work — a click on it puts its words in the box
-  // — so it is looked at through its own eye instead.
-  if (look) {
-    if (one.kind === 'image' || place === undefined) {
-      part.classList.add('peek');
-      part.title = (one.name || '') + ' — click to look at it';
-      part.setAttribute('role', 'button');
-      part.tabIndex = 0;
-      part.addEventListener('click', function () { look(); });
-      part.addEventListener('keydown', function (event) {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          look();
-        }
-      });
-    } else {
-      var eye = make('button', 'eye');
-      eye.type = 'button';
-      eye.title = 'Read the words of this file';
-      eye.setAttribute('aria-label', 'Read ' + (one.name || 'this file'));
-      eye.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="'
-        + 'M1.9 8c1.6-2.9 3.6-4.3 6.1-4.3s4.5 1.4 6.1 4.3c-1.6 2.9-3.6 4.3-6.1 4.3S3.5 10.9 1.9 8z M8 9.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z' + '"/></svg>';
-      eye.addEventListener('click', function (event) {
-        event.stopPropagation();
-        look();
-      });
-      part.insertBefore(eye, part.querySelector('.x') || null);
-    }
-  }
     part.appendChild(x);
   }
   return part;

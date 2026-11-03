@@ -331,6 +331,380 @@ pub fn b64(bytes: &[u8]) -> String {
     out
 }
 
+// Bytes turned back out of base64, as a data URL of a picture keeps them. A run
+// of marks that is no run of base64 is answered with nothing. The mark of the
+// end, and the new lines a long run is broken with, are passed over.
+pub fn b64_of(text: &str) -> Option<Vec<u8>> {
+    let mut bits: u32 = 0;
+    let mut held = 0u32;
+    let mut out: Vec<u8> = Vec::new();
+    for one in text.bytes() {
+        let value = if one.is_ascii_uppercase() {
+            one - b'A'
+        } else if one.is_ascii_lowercase() {
+            one - b'a' + 26
+        } else if one.is_ascii_digit() {
+            one - b'0' + 52
+        } else if one == b'+' {
+            62
+        } else if one == b'/' {
+            63
+        } else if one == b'=' || one == b'\n' || one == b'\r' || one == b' ' {
+            continue;
+        } else {
+            return None;
+        };
+        bits = (bits << 6) | u32::from(value);
+        held += 6;
+        if held >= 8 {
+            held -= 8;
+            out.push(((bits >> held) & 0xff) as u8);
+        }
+    }
+    Some(out)
+}
+
+// The room a length code of DEFLATE stands for, and the bits of the room that
+// follow the code: the twenty nine codes of the lengths.
+const LENGTH_ROOM: [(usize, u32); 29] = [
+    (3, 0),
+    (4, 0),
+    (5, 0),
+    (6, 0),
+    (7, 0),
+    (8, 0),
+    (9, 0),
+    (10, 0),
+    (11, 1),
+    (13, 1),
+    (15, 1),
+    (17, 1),
+    (19, 2),
+    (23, 2),
+    (27, 2),
+    (31, 2),
+    (35, 3),
+    (43, 3),
+    (51, 3),
+    (59, 3),
+    (67, 4),
+    (83, 4),
+    (99, 4),
+    (115, 4),
+    (131, 5),
+    (163, 5),
+    (195, 5),
+    (227, 5),
+    (258, 0),
+];
+
+// The way back a distance code stands for, and the bits of it that follow the
+// code: the thirty codes of the distances.
+const DISTANCE_ROOM: [(usize, u32); 30] = [
+    (1, 0),
+    (2, 0),
+    (3, 0),
+    (4, 0),
+    (5, 1),
+    (7, 1),
+    (9, 2),
+    (13, 2),
+    (17, 3),
+    (25, 3),
+    (33, 4),
+    (49, 4),
+    (65, 5),
+    (97, 5),
+    (129, 6),
+    (193, 6),
+    (257, 7),
+    (385, 7),
+    (513, 8),
+    (769, 8),
+    (1025, 9),
+    (1537, 9),
+    (2049, 10),
+    (3073, 10),
+    (4097, 11),
+    (6145, 11),
+    (8193, 12),
+    (12289, 12),
+    (16385, 13),
+    (24577, 13),
+];
+
+// The order the lengths of the codes of a block written with its own table stand
+// in, and the greatest length of a code of that table.
+const CODE_LENGTH_ORDER: [usize; 19] =
+    [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
+// The greatest length of a code of the shape, and the symbol that ends a block.
+const GREATEST_CODE: usize = 15;
+const END_OF_BLOCK: u16 = 256;
+
+// A run of bytes, read a few bits at a time. The bits of a byte are read from
+// its least end, which is how the shape writes them, and the words of a code are
+// read from the front of the code.
+struct Bits<'a> {
+    data: &'a [u8],
+    // The bit of the whole run that comes next.
+    at: usize,
+}
+
+impl<'a> Bits<'a> {
+    fn new(data: &'a [u8]) -> Bits<'a> {
+        Bits { data, at: 0 }
+    }
+
+    // One bit more, or nothing when the run is at an end.
+    fn bit(&mut self) -> Option<u32> {
+        let place = self.at / 8;
+        if place >= self.data.len() {
+            return None;
+        }
+        let shift = self.at % 8;
+        self.at += 1;
+        Some(((self.data[place] >> shift) & 1) as u32)
+    }
+
+    // A number of bits, the first of them the least of the number.
+    fn few(&mut self, most: u32) -> Option<u32> {
+        let mut value = 0u32;
+        for step in 0..most {
+            value |= self.bit()? << step;
+        }
+        Some(value)
+    }
+
+    // Go on to the bound of the next byte, which is how a run of bytes that was
+    // put in whole begins.
+    fn align(&mut self) {
+        self.at = self.at.div_ceil(8) * 8;
+    }
+
+    // Two bytes, the first of them the least.
+    fn pair(&mut self) -> Option<u32> {
+        let one = self.few(8)?;
+        let two = self.few(8)?;
+        Some(one | (two << 8))
+    }
+
+    // The next whole bytes, for a run that was put in without being written over.
+    fn whole(&mut self, most: usize) -> Option<&'a [u8]> {
+        let began = self.at / 8;
+        if began + most > self.data.len() {
+            return None;
+        }
+        self.at = (began + most) * 8;
+        Some(&self.data[began..began + most])
+    }
+}
+
+// A table of codes: how many codes there are of each length, and the symbols
+// those codes stand for, the shortest first and in their order within a length.
+// A canonical table gives its codes in that order, so the two together are the
+// whole of the table.
+struct Codes {
+    counts: [u16; GREATEST_CODE + 1],
+    symbols: Vec<u16>,
+}
+
+impl Codes {
+    fn new(lengths: &[u8]) -> Codes {
+        let mut counts = [0u16; GREATEST_CODE + 1];
+        for one in lengths {
+            if *one > 0 && *one <= GREATEST_CODE as u8 {
+                counts[usize::from(*one)] += 1;
+            }
+        }
+        let mut symbols: Vec<u16> = Vec::with_capacity(lengths.len());
+        for length in 1..=GREATEST_CODE {
+            for (place, one) in lengths.iter().enumerate() {
+                if usize::from(*one) == length {
+                    symbols.push(place as u16);
+                }
+            }
+        }
+        Codes { counts, symbols }
+    }
+
+    // A symbol out of the run, or nothing when the codes of the table come to an
+    // end before the run does.
+    fn read(&self, bits: &mut Bits) -> Option<u16> {
+        let mut code = 0i64;
+        let mut first = 0i64;
+        let mut index = 0usize;
+        for length in 1..=GREATEST_CODE {
+            code |= i64::from(bits.bit()?);
+            let count = i64::from(self.counts[length]);
+            if code - count < first {
+                let place = index + (code - first) as usize;
+                return self.symbols.get(place).copied();
+            }
+            index += count as usize;
+            // The first code of the next length is the code just after the last
+            // of this length, with a place kept for the bit this length has no
+            // more than the next one.
+            first = (first + count) << 1;
+            code <<= 1;
+        }
+        None
+    }
+}
+
+// The table of codes a block written with the table of the shape stands on: the
+// one for the words and the lengths, and the one for the distances.
+fn fixed_tables() -> (Codes, Codes) {
+    let mut words = vec![0u8; 288];
+    for (place, one) in words.iter_mut().enumerate() {
+        *one = if place < 144 {
+            8
+        } else if place < 256 {
+            9
+        } else if place < 280 {
+            7
+        } else {
+            8
+        };
+    }
+    let distances = vec![5u8; 30];
+    (Codes::new(&words), Codes::new(&distances))
+}
+
+// The table of codes of a block that carries its own table with it. The lengths
+// of the codes of the two tables are themselves written with a table of a third
+// kind.
+fn read_tables(bits: &mut Bits) -> Option<(Codes, Codes)> {
+    let words = 257 + usize::try_from(bits.few(5)?).unwrap_or(0);
+    let distances = 1 + usize::try_from(bits.few(5)?).unwrap_or(0);
+    let guides = 4 + usize::try_from(bits.few(4)?).unwrap_or(0);
+    if words > 288 || distances > 30 || guides > CODE_LENGTH_ORDER.len() {
+        return None;
+    }
+    let mut guide_lengths = vec![0u8; 19];
+    for place in 0..guides {
+        guide_lengths[CODE_LENGTH_ORDER[place]] = u8::try_from(bits.few(3)?).unwrap_or(0);
+    }
+    let guide = Codes::new(&guide_lengths);
+    let mut lengths: Vec<u8> = Vec::with_capacity(words + distances);
+    while lengths.len() < words + distances {
+        let symbol = guide.read(bits)?;
+        if symbol < 16 {
+            lengths.push(u8::try_from(symbol).unwrap_or(0));
+            continue;
+        }
+        let (nought, most, bias) = match symbol {
+            16 => (false, 2u32, 3usize),
+            17 => (true, 3, 3),
+            18 => (true, 7, 11),
+            _ => return None,
+        };
+        // The mark of a length held over says to write the length before it
+        // again, so there must be one. A run of noughts needs nothing before it:
+        // a table may begin with the whole of its front part nought.
+        let last = *lengths.last().unwrap_or(&0);
+        if !nought && lengths.is_empty() {
+            return None;
+        }
+        let run = usize::try_from(bits.few(most)?).unwrap_or(0) + bias;
+        let hold = if nought { 0 } else { last };
+        if lengths.len() + run > words + distances {
+            return None;
+        }
+        for _ in 0..run {
+            lengths.push(hold);
+        }
+    }
+    let (word_lengths, distance_lengths) = lengths.split_at(words);
+    Some((Codes::new(word_lengths), Codes::new(distance_lengths)))
+}
+
+// Bytes made plain out of a run of DEFLATE, with the marks of a zlib stream in
+// front of them when they are there. This is what a stream of a PDF that says
+// `FlateDecode` holds: no crate is added for it, for the program keeps the
+// weight of its binary down, and a hundred lines of it are cheaper than a part.
+// A run that is no run of DEFLATE is answered with nothing, and so is one that
+// goes on for more than the ceiling asked for.
+pub fn inflate(bytes: &[u8], ceiling: usize) -> Option<Vec<u8>> {
+    let mut bits = Bits::new(bytes);
+    // The two marks of a zlib stream say what shape the bytes behind them are of.
+    // A run without them is taken for raw DEFLATE, which is the same writing
+    // without the marks about it.
+    if bytes.len() >= 2 && bytes[0] & 0x0f == 8 {
+        let check = (u16::from(bytes[0]) << 8) | u16::from(bytes[1]);
+        if check % 31 == 0 {
+            bits.at = 16;
+            // The mark of a dictionary says that four bytes of the number of it
+            // stand behind the two marks.
+            if bytes[1] & 0x20 != 0 {
+                bits.few(32)?;
+            }
+        }
+    }
+    let mut out: Vec<u8> = Vec::new();
+    loop {
+        let last = bits.bit()?;
+        let kind = bits.few(2)?;
+        let (words, distances) = match kind {
+            0 => {
+                // A run of bytes put in whole, with its length twice over: once,
+                // and once again with every bit turned about.
+                bits.align();
+                let length = usize::try_from(bits.pair()?).unwrap_or(0);
+                let again = bits.pair()?;
+                if again != (!u32::try_from(length).unwrap_or(0)) & 0xffff {
+                    return None;
+                }
+                let held = bits.whole(length)?;
+                out.extend_from_slice(held);
+                if out.len() > ceiling {
+                    return None;
+                }
+                if last == 1 {
+                    return Some(out);
+                }
+                continue;
+            }
+            1 => fixed_tables(),
+            2 => read_tables(&mut bits)?,
+            _ => return None,
+        };
+        loop {
+            let symbol = words.read(&mut bits)?;
+            if symbol < END_OF_BLOCK {
+                out.push(u8::try_from(symbol).unwrap_or(0));
+                if out.len() > ceiling {
+                    return None;
+                }
+                continue;
+            }
+            if symbol == END_OF_BLOCK {
+                break;
+            }
+            let place = usize::from(symbol) - 257;
+            let (room, more) = LENGTH_ROOM.get(place).copied()?;
+            let length = room + usize::try_from(bits.few(more)?).unwrap_or(0);
+            let back = usize::from(distances.read(&mut bits)?);
+            let (distance, more) = DISTANCE_ROOM.get(back).copied()?;
+            let way = distance + usize::try_from(bits.few(more)?).unwrap_or(0);
+            if way == 0 || way > out.len() || out.len() + length > ceiling {
+                return None;
+            }
+            // The words of the run copy out of the bytes before them, and may run
+            // over the bytes they are making, which is how the shape pays so
+            // little for a page of one letter over and over.
+            let began = out.len() - way;
+            for step in 0..length {
+                let one = out[began + step];
+                out.push(one);
+            }
+        }
+        if last == 1 {
+            return Some(out);
+        }
+    }
+}
+
 // Tokens with a comma every three digits, like 64,763. Both windows show the
 // context size this way.
 pub fn count(value: u64) -> String {
@@ -409,5 +783,51 @@ mod tests {
         assert!(!free.expired());
         free.extend(Duration::from_secs(60));
         assert!(free.limit().is_none());
+    }
+
+    // A run of words written with the table of a block, and a run put in whole:
+    // both with the two marks of a zlib stream about them, as the machine that
+    // wrote them wrote them. These are the two shapes a stream of a PDF page
+    // comes in, and the words must come back as they went.
+    #[test]
+    fn the_shape_of_the_machine_is_made_plain() {
+        let words = "The plan of the work stands here, down to the smallest detail. ".repeat(8);
+        let written = figures(
+            "78da0bc9485528c849cc53c84f532801b2cbf38bb2158a4b12f3528a1532528b52751452f2\
+             cbf3144af2c1b2c5b9893939a9c5250a29a9258999397a0a21a3da87a67600bd90b321",
+        );
+        assert_eq!(
+            inflate(&written, 1 << 20).as_deref(),
+            Some(words.as_bytes()),
+            "the words of a block written with its own table came back other than they went"
+        );
+        let whole = figures("7801010500faff68656c6c6f062c0215");
+        assert_eq!(
+            inflate(&whole, 1 << 20).as_deref(),
+            Some(b"hello".as_slice()),
+            "a run put in whole was not read as such"
+        );
+    }
+
+    // A run that is no run of DEFLATE, and one that would grow past the ceiling
+    // it was given: both answered with nothing.
+    #[test]
+    fn a_run_that_is_no_stream_is_answered_with_nothing() {
+        assert!(inflate(b"these are no bytes of DEFLATE", 1 << 20).is_none());
+        let words = "The plan of the work stands here, down to the smallest detail. ".repeat(8);
+        let written = figures(
+            "78da0bc9485528c849cc53c84f532801b2cbf38bb2158a4b12f3528a1532528b52751452f2\
+             cbf3144af2c1b2c5b9893939a9c5250a29a9258999397a0a21a3da87a67600bd90b321",
+        );
+        assert!(inflate(&written, 8).is_none());
+        assert_eq!(inflate(&written, 1 << 20).map(|made| made.len()), Some(words.len()));
+    }
+
+    // The bytes of a run written as pairs of hexadecimal figures.
+    fn figures(text: &str) -> Vec<u8> {
+        let joined: String = text.chars().filter(|one| one.is_ascii_hexdigit()).collect();
+        (0..joined.len() / 2)
+            .map(|pair| u8::from_str_radix(&joined[pair * 2..pair * 2 + 2], 16).unwrap_or(0))
+            .collect()
     }
 }
