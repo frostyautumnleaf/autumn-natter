@@ -2193,10 +2193,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
             <option value="percent">At a share of the context</option>
             <option value="tokens">When little space is left</option>
           </select></div></div>
-        <div class="fld"><span class="lbl">Share of the context</span>
+        <div class="fld" id="fCompactPercentRow"><span class="lbl">Share of the context</span>
           <span class="sub">The conversation is summarised when it uses this share of the context window of the model.</span>
           <div class="ctl"><input id="fCompactPercent" type="number" min="1" max="100" step="1" placeholder="85"><span class="unit">per cent</span></div></div>
-        <div class="fld"><span class="lbl">Space to keep free</span>
+        <div class="fld" id="fCompactReserveRow"><span class="lbl">Space to keep free</span>
           <span class="sub">The conversation is summarised when the space left is this small or smaller, so the next answer has room to be written.</span>
           <div class="ctl"><input id="fCompactReserve" type="number" min="1" max="1000000" step="1" placeholder="10240"><span class="unit">tokens</span></div></div>
         <div class="fld wide"><span class="lbl">Handoff prompt</span>
@@ -7998,6 +7998,16 @@ function chooseTheme(word) {
   post('/api/theme', { theme: themeWord });
 }
 
+// Which of the two numbers of a summarisation stands under the way it is
+// started. `At a share of the context` asks for the share, and `When little space
+// is left` asks for the space to keep free, so only the number of the one that
+// stands is shown, and the other is kept out of the way.
+function compactByRows() {
+  var by = byId('fCompactBy').value;
+  byId('fCompactPercentRow').style.display = by === 'percent' ? '' : 'none';
+  byId('fCompactReserveRow').style.display = by === 'tokens' ? '' : 'none';
+}
+
 // Program tab: read the settings and every repository on disk.
 function loadProgram() {
   Promise.all([ask('config'), ask('repositories')]).then(function (res) {
@@ -8035,6 +8045,7 @@ function loadProgram() {
     byId('fCompactBy').value = cfg.chat_compact_by || 'percent';
     byId('fCompactPercent').value = cfg.chat_compact_percent || 85;
     byId('fCompactReserve').value = cfg.chat_compact_reserve || 10240;
+    compactByRows();
     byId('fCompactPrompt').value = cfg.chat_compact_prompt || '';
     byId('fCompactPromptShort').value = cfg.chat_compact_prompt_short || '';
     byId('fTimeline').checked = cfg.chat_timeline !== false;
@@ -9066,6 +9077,8 @@ byId('tabMcp').addEventListener('click', function () { showSetTab('mcp'); });
 // The editor of the MCP tab: the kind moves which fields stand, and the two
 // buttons keep what stands in the fields or begin again.
 byId('mcKind').addEventListener('change', mcpKindRows);
+// The way a summarisation is started moves which of its two numbers stands.
+byId('fCompactBy').addEventListener('change', compactByRows);
 byId('mcpSave').addEventListener('click', mcpSave);
 byId('mcpClear').addEventListener('click', function () {
   byId('mcpSaveNote').textContent = 'Write the next one below.';
