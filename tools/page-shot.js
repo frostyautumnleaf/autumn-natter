@@ -33,6 +33,9 @@
 //   AN_RATE=manual node page-shot.js sheet-logs p.png
 //     puts the pace of the log on manual, which is how the button of Refresh is
 //     looked at standing live; the other two paces leave it greyed
+//   AN_THEME=corporate node page-shot.js home-pale p.png
+//     draws the scene in one of the three skins: light, dark or corporate. A name
+//     that ends in -dark or -corporate does the same, and -pale asks for the pale one
 //   AN_LOGKIND=program node page-shot.js sheet-logs p.png
 //     reads the log of the program instead of the output of llama.cpp, which is
 //     how the switch at the head of the Logs tab is looked at
@@ -384,7 +387,10 @@ function lists(st) {
   return out;
 }
 
-function scene(name, dark) {
+// The skin of a scene: the pale ground, the dark ground, or the ladder of grey and
+// white alone. The word of the skin travels with the state, as it does from the
+// program, and the pale skin needs no mark of its own.
+function scene(name, dark, theme) {
   const start = {
     rev: 1, unchanged: false, structure_rev: 1,
     model: { id: 'm1', name: 'Qwen3.5-0.8B-UD-Q6_K', kind: 'GGUF' },
@@ -440,7 +446,8 @@ function scene(name, dark) {
     sandbox_available: true,
     sandbox_note: 'bubblewrap works. A command sees only the working directory of '
       + 'the chat, and it has no network.',
-    status: 'Ready', dark: !!dark, data_dir: '/home/user/.local/share/autumn-natter'
+    status: 'Ready', dark: !!dark, theme: theme || (dark ? 'dark' : 'light'),
+    data_dir: '/home/user/.local/share/autumn-natter'
   };
   if (name === 'chat' || name === 'rich' || name === 'parts' || name === 'streaming'
     || name === 'streaming-code' || name === 'previews') {
@@ -766,6 +773,7 @@ const CONFIG = {
   repositories_dir: '',
   remote_port: 8723,
   upnp_enabled: false,
+  theme: 'light',
   dark_mode: false,
   chat_collapse_thinking: true,
   chat_grow_thinking: true,
@@ -919,10 +927,15 @@ async function main() {
   const width = Number(process.argv[4] || 1180);
   const height = Number(process.argv[5] || 760);
   let dark = false;
-  if (name.endsWith('-dark')) { dark = true; name = name.slice(0, -5); }
-  else if (name.endsWith('-pale')) { name = name.slice(0, -5); }
+  let theme = process.env.AN_THEME || '';
+  if (name.endsWith('-dark')) { dark = true; theme = 'dark'; name = name.slice(0, -5); }
+  else if (name.endsWith('-corporate')) { theme = 'corporate'; name = name.slice(0, -10); }
+  else if (name.endsWith('-pale')) { theme = 'light'; name = name.slice(0, -5); }
+  if (theme && theme !== 'light' && theme !== 'dark' && theme !== 'corporate') { theme = 'light'; }
   const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs' || name === 'sheet-mcp';
-  const state = scene(isSheet ? 'chat' : name, dark);
+  const state = scene(isSheet ? 'chat' : name, dark, theme);
+  CONFIG.theme = theme || 'light';
+  CONFIG.dark_mode = (theme || 'light') === 'dark';
 
   // AN_FOLD=0 turns the two fold switches of the Chatting section off, so a
   // picture can be taken of a panel that is written out as it comes in.
@@ -982,7 +995,17 @@ async function main() {
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
-      window.fetch = function (url) {
+      window.fetch = function (url, options) {
+        // The switch of the skin. The word of the new skin is taken out of the body
+        // of the call, for the state of the shot holds the skin as the program holds
+        // it.
+        if (String(url).indexOf('/api/theme') === 0) {
+          try {
+            var asked = JSON.parse((options && options.body) || '{}');
+            if (asked.theme) { held.theme = asked.theme; config.theme = asked.theme; }
+          } catch (e) { /* words that are no words change nothing */ }
+          return Promise.resolve({ json: function () { return Promise.resolve({ ok: true }); } });
+        }
         if (String(url).indexOf('/api/state') === 0) {
           return Promise.resolve({ json: function () {
             return Promise.resolve(JSON.parse(JSON.stringify(held))); } });
@@ -1055,6 +1078,13 @@ async function main() {
           }
           if (command === 'action' && String((args && args.path) || '') === 'lists') {
             return Promise.resolve(JSON.parse(JSON.stringify(listsOf)));
+          }
+          // The switch of the skin, which the page of the window makes through the
+          // envelope of the calls of the sheet.
+          if (command === 'action' && String((args && args.path) || '') === 'theme') {
+            var made = (args && args.body && args.body.theme) || 'light';
+            held.theme = made; config.theme = made;
+            return Promise.resolve({ ok: true });
           }
           if (command === 'get_model_settings') {
             return Promise.resolve(JSON.parse(JSON.stringify(model)));

@@ -51,6 +51,7 @@
   --shadow-1: 0 1px 2px rgba(70, 40, 12, .07);
   --shadow-2: 0 2px 6px rgba(70, 40, 12, .08), 0 14px 34px rgba(70, 40, 12, .10);
   --ring: 0 0 0 3px rgba(237, 116, 1, .12);
+  --bad-hover: rgba(214, 84, 66, 0.14);
 
   --bar-h: 54px;
   --col: 780px;
@@ -85,6 +86,34 @@ body.dark {
   --scrim: rgba(10, 4, 0, .62);
   --ring: 0 0 0 3px rgba(237, 116, 1, .16);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
+}
+/* The corporate skin: grey and white, and the shades between them. The five warm
+   accents of the program are put away here, for a screen drawn in this skin may
+   carry no colour that a printed report would not carry. One ladder of grey stands
+   for the whole of it: the ground is the darkest step, the surfaces climb from it,
+   the words come down from white, and what was told by colour in the other skins is
+   told here by weight, by shape and by place. */
+body.corporate {
+  --accent: #6f6f6f; --warm: #5c5c5c; --strong: #4a4a4a; --leaf: #8c8c8c; --deep: #383838;
+  --accent-soft: rgba(255, 255, 255, .10);
+  --accent-line: rgba(255, 255, 255, .30);
+
+  --bg: #1e1e1e; --fade-top: rgba(30,30,30,1); --fade-out: rgba(30,30,30,0);
+  --surface: #2a2a2a; --surface-2: #333333; --surface-3: #3d3d3d;
+  --line: #454545; --line-soft: #3a3a3a; --line-strong: #606060;
+  --text: #ffffff; --text-2: #e4e4e4; --dim: #ababab; --faint: #8d8d8d;
+  --hover: #333333; --tint: #3a3a3a; --on-accent: #ffffff;
+
+  --bubble: #343434; --bubble-line: #4f4f4f;
+  --plate: rgba(255, 255, 255, .08); --plate-line: rgba(255, 255, 255, .16);
+  --plate-mark: rgba(255, 255, 255, .10);
+  --plate-shadow: 0 1px 3px rgba(0, 0, 0, .42);
+  --code-bg: #262626; --code-line: #3f3f3f;
+  --think-bg: #262626; --tool-bg: #242424;
+  --scrim: rgba(0, 0, 0, .62);
+  --ring: 0 0 0 3px rgba(255, 255, 255, .18);
+  --bad-hover: rgba(255, 255, 255, .16);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
   --shadow-2: 0 2px 6px rgba(0, 0, 0, .45), 0 16px 38px rgba(0, 0, 0, .5);
 }
 /* A word in an accent colour needs the bright end of the accent in the dark
@@ -93,12 +122,19 @@ body.dark {
    under it for a web view without color-mix. */
 :root { --ink: var(--strong); --ink-leaf: var(--leaf); --ink-fail: var(--deep); }
 body.dark { --ink: #f08a2a; --ink-leaf: #d9713f; --ink-fail: #e0603a; }
+/* A word that stands in an accent colour is white on a ground of grey, and the two
+   weaker inks are the steps below it. Nothing is left to colour alone here: weight
+   and place tell one kind of word from another as they do in the other skins. */
+body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #ffffff; }
 /* The two counts of a change of a file. Green for what was written and red for
    what was taken away are the colours the eye knows for the two already; they
    are kept pale, so that they sit with the warm colours of the skin instead of
    shouting over them, in the pale colours and the dark ones alike. */
 :root { --hunk-add: #4d7a35; --hunk-cut: #b04a35; }
 body.dark { --hunk-add: #a3c98c; --hunk-cut: #e09b86; }
+/* The two counts in the shades this skin is made of. The sign before a count and the
+   place it stands in carry the difference; the two steps of grey only second them. */
+body.corporate { --hunk-add: #dedede; --hunk-cut: #9c9c9c; }
 @supports (color: color-mix(in oklab, red, blue)) {
   body.dark {
     --ink: color-mix(in oklab, var(--accent) 74%, #fff6ec);
@@ -112,6 +148,7 @@ body.dark { --hunk-add: #a3c98c; --hunk-cut: #e09b86; }
    skin instead of the usual pale grey. */
 :root { color-scheme: light; }
 body.dark { color-scheme: dark; }
+body.corporate { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -154,6 +191,10 @@ textarea, input { font: inherit; color: inherit; }
 
 .brand { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; padding-right: 2px; }
 .brand .mark { width: 21px; height: 21px; display: block; }
+/* The program mark is drawn in the warm colours of the program. A screen in the
+   corporate skin may hold no colour of its own, so the mark is put through the ladder
+   of grey with everything else. The other two skins show the mark as it is drawn. */
+body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
 .brand .word { font-size: 14.5px; font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
 .rule { width: 1px; height: 24px; background: var(--line); flex: 0 0 auto; }
 
@@ -597,6 +638,13 @@ pre.code {
 body.dark {
   --t-com: #857c71; --t-key: var(--ink); --t-str: var(--ink-fail); --t-num: var(--text-2);
   --t-name: #f8ab5c; --t-var: var(--ink-leaf); --t-pun: var(--dim);
+}
+/* The colours of a block of code in grey. The weight of a word, and the shape the
+   words of it make, say which kind it is: here there is nothing else to say it with,
+   and a block of code can still be read. */
+body.corporate {
+  --t-com: #8d8d8d; --t-key: #ffffff; --t-str: #dcdcdc; --t-num: #e4e4e4;
+  --t-name: #ffffff; --t-var: #dcdcdc; --t-pun: #ababab;
 }
 pre.code .t-c { color: var(--t-com); font-style: italic; }
 pre.code .t-k { color: var(--t-key); font-weight: 600; }
@@ -1692,7 +1740,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 }
 .side-menu button:hover { background: var(--hover); color: var(--ink); }
 .side-menu button.bad { color: var(--ink-fail); }
-.side-menu button.bad:hover { background: rgba(214, 84, 66, 0.14); }
+.side-menu button.bad:hover { background: var(--bad-hover); }
 .side-menu button .ar { margin-left: auto; color: var(--faint); }
 .side-menu .sep { height: 1px; margin: 4px 6px; background: var(--line); }
 .side-menu .cap { padding: 5px 9px 3px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
@@ -1818,8 +1866,8 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
   <button class="mark-btn" id="settingsbtn" title="Settings of the program" aria-label="Settings of the program">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.45" d="M14.86 6.60L14.86 9.40L12.97 9.37L12.48 10.55L13.84 11.86L11.86 13.84L10.55 12.48L9.37 12.97L9.40 14.86L6.60 14.86L6.63 12.97L5.45 12.48L4.14 13.84L2.16 11.86L3.52 10.55L3.03 9.37L1.14 9.40L1.14 6.60L3.03 6.63L3.52 5.45L2.16 4.14L4.14 2.16L5.45 3.52L6.63 3.03L6.60 1.14L9.40 1.14L9.37 3.03L10.55 3.52L11.86 2.16L13.84 4.14L12.48 5.45L12.97 6.63Z"/><circle cx="8" cy="8" r="2.15"/></svg>
   </button>
-  <button class="mark-btn" id="darkbtn" title="Switch to the dark colours" aria-label="Switch the colours">
-    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 9.8A5.4 5.4 0 0 1 6.2 3 5.7 5.7 0 1 0 13 9.8z"/></svg>
+  <button class="mark-btn" id="themebtn" title="The colours the page is drawn in. Click for the next skin." aria-label="The colours the page is drawn in">
+    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.4"/><path d="M8 2.6v10.8"/></svg>
   </button>
 </header>
 
@@ -2065,9 +2113,13 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <div class="ctl"><input id="fUpnp" type="checkbox"></div></div>
 
         <div class="sec">Appearance</div>
-        <div class="fld"><span class="lbl">Dark mode</span>
-          <span class="sub">Use the dark colour scheme instead of the light one. It changes at once.</span>
-          <div class="ctl"><input id="fDark" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Skin</span>
+          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a ground near black, and Corporate grey and white and the shades between them alone. The skin changes at once.</span>
+          <div class="ctl"><div class="seg" id="fTheme" role="group" aria-label="Which skin to draw the page in">
+              <button class="on" id="fThemeLight" type="button">Light</button>
+              <button id="fThemeDark" type="button">Dark</button>
+              <button id="fThemeCorporate" type="button">Corporate</button>
+            </div></div></div>
 
         <div class="sec">Chatting</div>
         <div class="fld"><span class="lbl">Collapse thinking while it arrives</span>
@@ -2477,7 +2529,7 @@ function post(path, body) {
 // every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
-  'newchat', 'settingsbtn', 'modelbtn', 'darkbtn', 'chapters', 'timeline',
+  'newchat', 'settingsbtn', 'modelbtn', 'themebtn', 'chapters', 'timeline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'think', 'thinktext', 'thinkwrap',
@@ -2568,9 +2620,9 @@ function draw(s) {
   // The clock of a call that is running is taken up here, so it moves with the
   // state and not with the block that happens to be on the screen.
   takeRunClock(s);
-  document.body.classList.toggle('dark', !!s.dark);
+  showTheme(s.theme || (s.dark ? 'dark' : 'light'));
   readChatting(s);
-  el.darkbtn.title = s.dark ? 'Switch to the pale colours' : 'Switch to the dark colours';
+  el.themebtn.title = 'The colours the page is drawn in, now ' + themeWord + '. Click for the next skin.';
   drawHome(s);
   // The shape of the lists is carried in `structure_rev`. A chat that came,
   // went, was named, pinned, moved, put away or opened moves it, and the bar is
@@ -7526,7 +7578,11 @@ wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
 // A click anywhere else in the page puts the menus away.
 document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); });
 
-el.darkbtn.addEventListener('click', function () { post('/api/dark', { on: !(cur && cur.dark) }); });
+// The quick switch of the skin: it steps through the three of them, and the mark
+// under it says which one the page stands in.
+el.themebtn.addEventListener('click', function () {
+  chooseTheme(themeWord === 'light' ? 'dark' : (themeWord === 'dark' ? 'corporate' : 'light'));
+});
 el.draft.addEventListener('input', grow);
 el.draft.addEventListener('focus', function () {
   el.box.classList.add('focus'); grow();
@@ -7901,6 +7957,47 @@ function showSetTab(tab) {
   byId('saveSheet').style.display = (tab === 'logs' || tab === 'mcp') ? 'none' : '';
 }
 
+// ------------------------------------------------------------------ skins
+//
+// The three skins of the page. The pale skin is the ground the page is cut for and
+// puts no mark on the body; the dark skin and the corporate skin each put one, and
+// every colour of the page comes from the variables stood under that mark. The word
+// of the skin comes with the state, so the window and the browser page follow the
+// one setting, and change at once.
+
+var themeWord = 'light';   // the skin the page stands in
+
+// The word of a skin out of any words: one of the three stands, and anything else
+// is the pale skin, which is the one a new set of settings stands on.
+function themeOf(word) {
+  return (word === 'dark' || word === 'corporate') ? word : 'light';
+}
+
+// Put a skin on the page. The mark of the old two-way switch is kept in step, for a
+// part of the page may still ask which of the two it was on.
+function showTheme(word) {
+  themeWord = themeOf(word);
+  document.body.classList.toggle('dark', themeWord === 'dark');
+  document.body.classList.toggle('corporate', themeWord === 'corporate');
+}
+
+// The three marks of the sheet, so the switch stands at the skin in use.
+function showThemeButtons() {
+  ['light', 'dark', 'corporate'].forEach(function (one) {
+    var node = byId('fTheme' + one.charAt(0).toUpperCase() + one.slice(1));
+    if (node) { node.classList.toggle('on', one === themeWord); }
+  });
+}
+
+// One of the three buttons of the sheet. The skin goes on at once, and is written to
+// the program beside: nothing of a server moves with a skin.
+function chooseTheme(word) {
+  showTheme(word);
+  showThemeButtons();
+  if (progCfg) { progCfg.theme = themeWord; progCfg.dark_mode = themeWord === 'dark'; }
+  post('/api/theme', { theme: themeWord });
+}
+
 // Program tab: read the settings and every repository on disk.
 function loadProgram() {
   Promise.all([ask('config'), ask('repositories')]).then(function (res) {
@@ -7912,7 +8009,8 @@ function loadProgram() {
     byId('fRepos').value = cfg.repositories_dir || '';
     byId('fPort').value = cfg.remote_port || '';
     byId('fUpnp').checked = !!cfg.upnp_enabled;
-    byId('fDark').checked = !!(cur && cur.dark);
+    // The switch of the skin stands at the skin in use, which the state brought.
+    showThemeButtons();
     byId('fFoldThink').checked = cfg.chat_collapse_thinking !== false;
     byId('fFoldTools').checked = cfg.chat_collapse_tools !== false;
     byId('fGrowThink').checked = cfg.chat_grow_thinking !== false;
@@ -8502,7 +8600,8 @@ function readProgram() {
   var port = parseInt(byId('fPort').value, 10);
   cfg.remote_port = isNaN(port) ? (cfg.remote_port || 8723) : port;
   cfg.upnp_enabled = byId('fUpnp').checked;
-  cfg.dark_mode = byId('fDark').checked;
+  cfg.theme = themeWord;
+  cfg.dark_mode = themeWord === 'dark';
   cfg.chat_collapse_thinking = byId('fFoldThink').checked;
   cfg.chat_collapse_tools = byId('fFoldTools').checked;
   cfg.chat_grow_thinking = byId('fGrowThink').checked;
@@ -8992,10 +9091,9 @@ byId('createRepo').addEventListener('click', function () {
 byId('fOpenRepo').addEventListener('change', function (e) {
   post('/api/select_repository', { id: e.target.value });
 });
-byId('fDark').addEventListener('change', function (e) {
-  if (progCfg) { progCfg.dark_mode = e.target.checked; }
-  post('/api/dark', { on: e.target.checked });
-});
+byId('fThemeLight').addEventListener('click', function () { chooseTheme('light'); });
+byId('fThemeDark').addEventListener('click', function () { chooseTheme('dark'); });
+byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('corporate'); });
 
 ['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mCachePrompt', 'mNoShift',
   'mTemp',
