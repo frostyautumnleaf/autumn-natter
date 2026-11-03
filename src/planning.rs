@@ -288,12 +288,13 @@ pub fn system_prompt(plan: &str) -> String {
          questions, so wait for them: never settle on your own a thing you said you \
          were asking about. When the answers come, write them into the plan as \
          decisions taken, and not as questions that were once asked.\n\n\
-         Look at the plan as it now stands. After you have changed it, read it back \
-         with `{}`: give a pattern with the lines to give before and after each \
-         place it is found, or ask for the head, the tail, or a range of its lines. \
-         Every line comes back with the number it stands on in the file. Do that \
-         before you say a change was made, and never describe the plan from \
-         memory.\n\n",
+         When you want to see how a change landed, or what the plan holds at a \
+         certain place, read it back with `{}`: give a pattern with the lines to \
+         give before and after each place it is found, or ask for the head, the \
+         tail, or a range of its lines. Every line comes back with the number it \
+         stands on in the file. Reach for it when it is useful to you: it is no \
+         step you must go through after every change, and the plan is yours to \
+         reason about as it stands in your mind.\n\n",
         ASK_NAME, READ_NAME
     ));
     out.push_str(&format!(
@@ -721,7 +722,7 @@ pub fn read_definition() -> Value {
         "type": "function",
         "function": {
             "name": READ_NAME,
-            "description": "Read back the plan file of this chat, exactly as it stands, with the number of each line in front of it. Use it after a change to see how the change landed. It works like the search command of a terminal: give a pattern to look for, with before and after for the whole lines to give about each place that is found, and at_most to stop after that many places. With no pattern, head gives the first lines, tail the last lines, and from_line with to_line a range of them; with none of those the whole plan is read back. Places that are found are kept apart by a line of two marks. This tool changes nothing.",
+            "description": "Read back the plan file of this chat, exactly as it stands, with the number of each line in front of it. Use it when you want to see how a change landed, or to look at a part of the plan again. It works like the search command of a terminal: give a pattern to look for, with before and after for the whole lines to give about each place that is found, and at_most to stop after that many places. With no pattern, head gives the first lines, tail the last lines, and from_line with to_line a range of them; with none of those the whole plan is read back. Places that are found are kept apart by a line of two marks. This tool changes nothing.",
             "parameters": {
                 "type": "object",
                 "properties": {
