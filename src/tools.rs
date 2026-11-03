@@ -50,6 +50,14 @@ const SHELL: &str = "/bin/sh";
 // nothing of the user, for the air of the host is let out of the room.
 const JAIL_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
+// The room the road `/tmp` of the jail stands for. It is a folder of the working
+// directory of the chat, so what a command writes there is kept with the work of
+// the chat, is seen by the next command of that chat, and is seen by a command
+// of the chat from outside the jail under the name `tmp`. A room of its own that
+// went with every command was the old way, and a model could not leave a file
+// for the next command in it.
+const TMP_ROOM: &str = "tmp";
+
 // The name the jail gives its own machine. The name of the host is not wanted
 // in there, and a command has no business reading it.
 const JAIL_HOSTNAME: &str = "natter";
@@ -116,7 +124,7 @@ impl Access {
 // running something that fails.
 pub fn definition(access: Access) -> Value {
     let mut reach = String::from(
-        "Run one shell command and return its output. The command runs in the working directory of the chat. When the sandbox is on, the command can see only that directory and the programs of the machine: no other file of the machine is visible, the home folder included, and a file left by one command is not seen by the next. ",
+        "Run one shell command and return its output. The command runs in the working directory of the chat. When the sandbox is on, the command can see only that directory and the programs of the machine: no other file of the machine is visible, the home folder included. The road `/tmp/` resolves to a relative `./tmp/` directory of the working directory, so a file left there is kept, is seen by the next command of this chat, and is a file of the work of the chat. ",
     );
     reach.push_str(if access.net() {
         "The command may reach the network. "
@@ -291,6 +299,14 @@ pub fn installed() -> bool {
     bwrap_path().is_some()
 }
 
+// The folder `/tmp` of the jail stands for: `tmp` inside the working directory
+// of the chat. It is made here, because the jail cannot start without it.
+fn jail_tmp(workdir: &Path) -> String {
+    let room = workdir.join(TMP_ROOM);
+    let _ = std::fs::create_dir_all(&room);
+    room.display().to_string()
+}
+
 // The path of the working directory as the jail sees it. Links are followed, so
 // the place that is mounted and the place the command starts in are one place.
 fn jail_workdir(workdir: &Path) -> String {
@@ -369,17 +385,19 @@ fn jail_args(workdir: &Path, access: Access) -> Vec<String> {
     for path in PROGRAM_PATHS.iter().chain(EXTRA_PROGRAM_PATHS.iter()) {
         push_program_path(&mut args, Path::new(path));
     }
+    // The room `/tmp` of the jail, which is `tmp` of the working directory. The
+    // jail cannot start without it, so it is made here, and not by the command.
+    let tmp = jail_tmp(workdir);
     // The parts of a root a command still needs to run at all. /dev holds the
     // few nodes a program asks for, and no node of the host. /proc is a new
-    // one, so the processes of the machine are not to be seen. /tmp is a room
-    // of the jail, empty at the start of every command and gone with it.
+    // one, so the processes of the machine are not to be seen. /tmp is the
+    // `tmp` folder of the working directory, so a file written there is kept
+    // with the work of the chat and seen by the commands that come after it.
     args.extend_from_slice(&[
         "--dev".into(),
         "/dev".into(),
         "--proc".into(),
         "/proc".into(),
-        "--tmpfs".into(),
-        "/tmp".into(),
         "--dir".into(),
         "/etc".into(),
     ]);
@@ -389,6 +407,13 @@ fn jail_args(workdir: &Path, access: Access) -> Vec<String> {
         args.push(file.into());
         args.push(file.into());
     }
+    // The room of `/tmp`, which is a folder of the working directory. It goes in
+    // before the working directory itself, so a working directory that stands
+    // under `/tmp` of the host keeps its own place in the jail: the mount of the
+    // working directory is then put over this one, where it belongs.
+    args.push("--bind".into());
+    args.push(tmp.clone());
+    args.push("/tmp".into());
     // The working directory of the chat: the one place that may be written.
     args.push("--bind".into());
     args.push(wd.clone());
@@ -1195,6 +1220,10 @@ mod tests {
         // the place the command starts in.
         assert!(text.contains("--bind\n/work/somewhere\n/work/somewhere\n"));
         assert!(text.contains("--chdir\n/work/somewhere"));
+        // `/tmp` is a folder of the working directory and not a room of the
+        // jail, so no `tmpfs` stands over it.
+        assert!(text.contains("--bind\n/work/somewhere/tmp\n/tmp\n"));
+        assert!(!text.contains("--tmpfs\n/tmp\n"));
         // No private file of the machine is offered.
         for forbidden in ["/etc/shadow", "/etc/ssh", "/etc/machine-id", "/home"] {
             assert!(!text.contains(forbidden), "the jail offers {}", forbidden);
@@ -1493,8 +1522,9 @@ mod tests {
             std::fs::read_to_string(room.join("secret")).unwrap(),
             "NOT-FOR-A-JAIL"
         );
-        // The room of one command is empty when the next one starts, and it is
-        // not the room of the machine.
+        // `/tmp` is a folder of the room of the chat. The road inside the jail
+        // is `/tmp`, the file stands in `tmp` of the room of the chat, and what
+        // one command leaves there is seen by the next.
         let left = run(
             "echo gone > \"$TMPDIR/left\"; echo \"$TMPDIR\"",
             &workdir,
@@ -1505,8 +1535,8 @@ mod tests {
             Duration::from_secs(20),
         );
         assert_eq!(left.output.trim(), "/tmp");
-        let clean = run(
-            "test -e \"$TMPDIR/left\" && echo LEFT || echo CLEAN",
+        let kept = run(
+            "test -e \"$TMPDIR/left\" && echo KEPT || echo GONE",
             &workdir,
             true,
 
@@ -1514,7 +1544,11 @@ mod tests {
 
             Duration::from_secs(20),
         );
-        assert!(clean.output.contains("CLEAN"), "{}", clean.output);
+        assert!(kept.output.contains("KEPT"), "{}", kept.output);
+        assert!(
+            workdir.join("tmp").join("left").is_file(),
+            "the file of /tmp did not stand in the room of the chat"
+        );
         // A command that is not wrapped says so plainly, and is marked as not
         // sandboxed, so the window can tell the user.
         let plain = run("cat ../secret 2>&1", &workdir, false, Access::default(), Duration::from_secs(20));
