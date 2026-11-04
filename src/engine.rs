@@ -8010,7 +8010,29 @@ fn run_program_tool(
             })
         };
         let report = match wanted {
-            Some((server, tool)) => mcp::run(&server, &tool, &call.arguments),
+            Some((server, tool)) => {
+                // The server of the user's own is reached on a thread of its own,
+                // and waited for only within the clock of the call. Such a road
+                // reaches out over a pipe or over the network and can stand waiting
+                // for an answer that never comes, and the clock of the call was read
+                // by nothing in it: the block stood saying "running" for hours, and
+                // neither the mark that cuts the call short nor the mark that stops
+                // the answer could do anything. The call is answered now as a
+                // command of the same fault is answered, and what the server does
+                // after the clock is gone is not known.
+                let words = call.arguments.clone();
+                match crate::util::within(&watch, move || mcp::run(&server, &tool, &words)) {
+                    Some(report) => report,
+                    None => mcp::Report {
+                        ok: false,
+                        output: String::from(if watch.stopped() {
+                            "The call was stopped: you asked for it to end. The server may still be at work, and what it does after this is not known."
+                        } else {
+                            "The call ran out of time and was stopped. The server may still be at work, and what it does after this is not known."
+                        }),
+                    },
+                }
+            }
             None => mcp::Report {
                 ok: false,
                 output: String::from(
@@ -8226,8 +8248,24 @@ fn run_program_tool(
         editfile::EDIT_NAME => editfile::edit_room(workdir, &call.arguments, jailed),
         editfile::CREATE_NAME => editfile::create_room(workdir, &call.arguments, jailed),
         // The web search needs no room of the chat: it reads what stands on the
-        // web, and nothing of the machine.
-        search::NAME => search::run(&call.arguments),
+        // web, and nothing of the machine. The read is waited for only within the
+        // clock of the call, as a command is and as a server of the user's own is,
+        // so a search that stands waiting for an answer that never comes cannot
+        // hold the chat with a block that says "running".
+        search::NAME => {
+            let words = call.arguments.clone();
+            match crate::util::within(&watch, move || search::run(&words)) {
+                Some(made) => made,
+                None => tools::Report {
+                    ok: false,
+                    output: String::from(if watch.stopped() {
+                        "The call was stopped: you asked for it to end. The search may still be going, and what it brings after this is not known."
+                    } else {
+                        "The call ran out of time and was stopped. The search may still be going, and what it brings after this is not known."
+                    }),
+                },
+            }
+        }
         other => tools::Report {
             ok: false,
             output: format!(

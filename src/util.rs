@@ -134,6 +134,43 @@ impl Watch {
     }
 }
 
+// Wait for a thing of the program to come back within the clock of the call. The
+// thing is worked on a thread of its own, and the wait is bounded by the clock: so
+// long as the time stands, or the user has not asked for the call to end, nothing
+// is waited for further and nothing at all is given back.
+//
+// This stands for the tools that are not a command, and above all for a server of
+// the user's own: such a thing reaches out over a pipe or over the network and can
+// stand waiting for an answer that never comes. The clock of the call was read by
+// nothing in that road, so a call that never came back held the chat with a block
+// that said "running" for hours, and neither the mark that cuts the call short nor
+// the mark that stops the answer could do anything, for nothing looked at the flag
+// they set. A thing that never comes back is no reason for a chat to stand still
+// for ever. The work may still be going on its thread when this gives up; the words
+// the call gives back say that what the tool does after this is not known.
+pub fn within<T: Send + 'static, W: FnOnce() -> T + Send + 'static>(watch: &Watch, work: W) -> Option<T> {
+    let (told, hearing) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = told.send(work());
+    });
+    loop {
+        let step = watch
+            .left()
+            .map(|left| left.min(RUN_STEP))
+            .unwrap_or(RUN_STEP);
+        match hearing.recv_timeout(step) {
+            Ok(made) => return Some(made),
+            // The thread that was to bring the thing is gone, so nothing of it is
+            // to be had.
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        if watch.expired() {
+            return None;
+        }
+    }
+}
+
 // Run a program and read what it prints. The call never waits longer than the
 // timeout. A program that cannot be started gives a failed Capture.
 pub fn capture<A: AsRef<std::ffi::OsStr>>(program: &str, args: &[A], timeout: Duration) -> Capture {
@@ -930,6 +967,65 @@ mod tests {
         assert!(!free.expired());
         free.extend(Duration::from_secs(60));
         assert!(free.limit().is_none());
+    }
+
+    // A thing of the program that comes back within the clock is given back as it
+    // came.
+    #[test]
+    fn a_thing_that_comes_back_within_its_clock_is_given_back() {
+        let watch = Watch::new(Duration::from_secs(30));
+        let made = within(&watch, || String::from("the words of the tool"));
+        assert_eq!(made.as_deref(), Some("the words of the tool"));
+    }
+
+    // The fault these tests stand for: a thing of the program that never comes
+    // back. The clock of the call is now read in that road, so the call is given up
+    // when its time is gone instead of holding the chat with a block that says
+    // "running" for as long as the program stands.
+    #[test]
+    fn a_thing_that_never_comes_back_is_given_up_with_its_clock() {
+        let watch = Watch::new(Duration::from_millis(300));
+        let began = Instant::now();
+        let made = within(&watch, || {
+            std::thread::sleep(Duration::from_secs(30));
+            String::from("words that come too late")
+        });
+        let gone = began.elapsed();
+        assert!(made.is_none(), "a thing that never came back was given back");
+        assert!(
+            gone < Duration::from_secs(3),
+            "the call was held for {} ms after its clock was gone",
+            gone.as_millis()
+        );
+    }
+
+    // The same fault with the mark of the hand: a call that was given no time at
+    // all, and a thing that never comes back. The mark that cuts the call short has
+    // to be answered for at once, for that mark is the one thing the user has.
+    #[test]
+    fn a_thing_that_never_comes_back_is_given_up_with_the_hand() {
+        let watch = Watch::unbounded();
+        let clock = watch.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            clock.stop_now();
+        });
+        let began = Instant::now();
+        let made = within(&watch, || {
+            std::thread::sleep(Duration::from_secs(30));
+            String::from("words that come too late")
+        });
+        let gone = began.elapsed();
+        assert!(made.is_none(), "a call the user stopped was given back");
+        assert!(
+            watch.stopped(),
+            "the clock does not say the user stopped the call"
+        );
+        assert!(
+            gone < Duration::from_secs(3),
+            "the call was held for {} ms after the mark was pressed",
+            gone.as_millis()
+        );
     }
 
     // A run of words written with the table of a block, and a run put in whole:
