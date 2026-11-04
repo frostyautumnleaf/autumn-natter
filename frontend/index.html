@@ -8447,8 +8447,16 @@ function anythingToSend() {
 }
 
 function grow() {
+  var was = el.draft.style.height;
   el.draft.style.height = 'auto';
   el.draft.style.height = Math.min(el.draft.scrollHeight, window.innerHeight * 0.4) + 'px';
+  // The box of the writing stands under the chat, and the chat takes the room
+  // that is left of the window. A box that grows with the words written into it
+  // therefore takes the last words of the chat away, and the chat reads as a
+  // thing that moved while the user wrote. While the chat is being followed it
+  // is put back at its end, so the words that were in sight stay in sight as the
+  // box grows; a chat the user left in the middle of is not moved at all.
+  if (stick && el.draft.style.height !== was) { el.thread.scrollTop = el.thread.scrollHeight; }
   sendLook();
 }
 
