@@ -2071,6 +2071,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(&room);
     }
 
+    // A command that is given less time than it takes is stopped, wrapped and
+    // plain. The shell forks the command it was given, and that child holds the
+    // output pipes open, so a signal to the shell alone leaves the call waiting
+    // for the run to end by itself. The words the command printed before it was
+    // stopped come back with the answer, and nothing of the run is left going.
+    #[cfg(unix)]
+    #[test]
+    fn a_command_out_of_time_is_stopped_wrapped_and_plain() {
+        let workdir = room_of("watch");
+        for jailed in [false, true] {
+            let road = if jailed { "wrapped" } else { "plain" };
+            if jailed {
+                if let Err(problem) = jail_check() {
+                    eprintln!("the jail of this box is not usable: {}", problem);
+                    continue;
+                }
+            }
+            let began = std::time::Instant::now();
+            let made = run_watched(
+                "echo one; sleep 35; echo two",
+                &workdir,
+                jailed,
+                Access::default(),
+                &util::Watch::new(Duration::from_millis(600)),
+            );
+            let gone = began.elapsed();
+            assert!(
+                made.timed_out,
+                "a {road} command was not stopped when its time was gone"
+            );
+            assert!(
+                made.output.contains("one"),
+                "the words before the end were lost, {road}: {}",
+                made.output
+            );
+            assert!(
+                !made.output.contains("two"),
+                "words printed after the end came back, {road}: {}",
+                made.output
+            );
+            assert!(
+                gone < Duration::from_secs(5),
+                "a {road} call was held for {} ms",
+                gone.as_millis()
+            );
+        }
+        let _ = std::fs::remove_dir_all(&workdir);
+    }
+
     // The call is asked for one thing: the command. No reason for the command is
     // asked for, so a model may run a command without first writing a line about
     // it, and the words of the definition lead it nowhere near such a line.

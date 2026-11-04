@@ -4,7 +4,8 @@ use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 // Result of a short running program.
@@ -131,11 +132,6 @@ impl Watch {
     pub fn expired(&self) -> bool {
         self.stopped() || self.left().is_some_and(|left| left.is_zero())
     }
-
-    // The wait steps back every so often, so a long time costs nothing.
-    pub fn pause(&self) {
-        std::thread::sleep(Duration::from_millis(100));
-    }
 }
 
 // Run a program and read what it prints. The call never waits longer than the
@@ -154,10 +150,32 @@ pub fn capture_in<A: AsRef<std::ffi::OsStr>>(
     capture_watch_in(program, args, cwd, &Watch::new(timeout))
 }
 
+// The longest one step of the wait for a run that is going. The clock is read
+// again at the end of every step, so a call that was given more time is left
+// alone and one the user cut short is stopped soon after the mark is pressed.
+// A run that comes back of its own accord is known at once, for its end is
+// brought to the wait by a thread of its own.
+const RUN_STEP: Duration = Duration::from_millis(100);
+
+// The time the two readers of the output pipes are given to bring the last of
+// the words after the run has stopped. Once the run is stopped the pipes close
+// in a moment, so this is only a wall: a child that put itself outside the
+// group of the run could hold a pipe open for ever, and the call never waits
+// for it.
+const WORDS_GRACE: Duration = Duration::from_millis(500);
+
 // The same, with a clock the user may lengthen or cut short while the program
 // runs. Everything the program printed before it was stopped stands in the
 // answer, for a model that is told a call ran out of time still has to know
 // what the call managed to say.
+//
+// Two rules keep the call from being held longer than the run it watches.
+// The run is put in a group of processes of its own and the signal goes to the
+// group, for a shell forks the command it was given, and the child it forks
+// holds the output pipes open: a signal to the shell alone leaves the call
+// waiting for that child to end by itself. And the two pipes are read on
+// threads of their own into words the call shares with them, so a call that is
+// stopped comes back at once with the words read up to that moment.
 pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
     program: &str,
     args: &[A],
@@ -169,6 +187,7 @@ pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
     if let Some(dir) = cwd {
         command.current_dir(dir);
     }
+    in_its_own_group(&mut command);
     let mut child = match command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -180,62 +199,164 @@ pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
     };
 
     let pid = child.id();
-    let finished = Arc::new(AtomicBool::new(false));
-    let killed = Arc::new(AtomicBool::new(false));
-    let flag = finished.clone();
-    let killed_flag = killed.clone();
-    // The watchdog stops a program that does not end by itself, and it stops
-    // one the user asked to be cut short. The clock is read again on every
-    // step, so a call that was given more time is left alone.
-    let clock = watch.clone();
-    std::thread::spawn(move || loop {
-        if flag.load(Ordering::Relaxed) {
-            return;
-        }
-        if clock.expired() {
-            killed_flag.store(true, Ordering::Relaxed);
-            kill_pid(pid);
-            return;
-        }
-        clock.pause();
-    });
 
-    // Read the two output pipes at the same time. One pipe must not wait for
-    // the other, or a program that prints a lot stops writing.
-    let err_pipe = child.stderr.take();
-    let err_thread = std::thread::spawn(move || match err_pipe {
-        Some(mut pipe) => read_to_end(&mut pipe),
-        None => String::new(),
-    });
-    let mut stdout = match child.stdout.as_mut() {
-        Some(pipe) => read_to_end(pipe),
-        None => String::new(),
-    };
-    drop(child.stdout.take());
-    let status = child.wait();
-    let mut stderr = err_thread.join().unwrap_or_default();
-    finished.store(true, Ordering::Relaxed);
+    // Read the two output pipes at the same time, each on a thread of its own.
+    // One pipe must not wait for the other, or a program that prints a lot
+    // stops writing, and neither of them may hold the call: the words are taken
+    // from the shared place as they stand when the call is over.
+    let out_words = Words::new();
+    let err_words = Words::new();
+    let out_reader = child
+        .stdout
+        .take()
+        .map(|pipe| read_words(pipe, out_words.clone()));
+    let err_reader = child
+        .stderr
+        .take()
+        .map(|pipe| read_words(pipe, err_words.clone()));
 
-    match status {
-        Ok(status) => {
-            trim_newlines(&mut stdout);
-            trim_newlines(&mut stderr);
-            Capture {
-                ok: status.success(),
-                code: status.code().unwrap_or(-1),
-                out: stdout,
-                err: stderr,
-                timed_out: killed.load(Ordering::Relaxed),
+    // A thread waits for the program itself, so that a run which comes back is
+    // known at once and not at the next step of the wait here.
+    let (told, hearing) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = told.send(child.wait());
+    });
+    let mut status: Option<std::process::ExitStatus> = None;
+    let mut stopped = false;
+    loop {
+        let step = watch
+            .left()
+            .map(|left| left.min(RUN_STEP))
+            .unwrap_or(RUN_STEP);
+        match hearing.recv_timeout(step) {
+            Ok(Ok(done)) => {
+                status = Some(done);
+                break;
             }
+            // The thread that was to say how the run ended is gone, so nothing
+            // is waited for further.
+            Ok(Err(problem)) => {
+                stop_group(pid);
+                return Capture::failed(&problem.to_string());
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                stop_group(pid);
+                return Capture::failed("the end of the run could not be heard");
+            }
+            Err(RecvTimeoutError::Timeout) => {}
         }
-        Err(e) => Capture::failed(&e.to_string()),
+        if watch.expired() {
+            stopped = true;
+            break;
+        }
+    }
+    // The call is over, and the whole of the run goes with it. What is still
+    // going, and what still holds a pipe of the run open, is a child of the
+    // program that was started: left alive it would print into a pipe nobody
+    // reads for the rest of its life.
+    stop_group(pid);
+    // The readers are given a little time to bring what the run printed at the
+    // end of it.
+    wait_for_words(out_reader, WORDS_GRACE);
+    wait_for_words(err_reader, WORDS_GRACE);
+
+    let mut stdout = out_words.of();
+    let mut stderr = err_words.of();
+    trim_newlines(&mut stdout);
+    trim_newlines(&mut stderr);
+    match status {
+        Some(done) => Capture {
+            ok: done.success() && !stopped,
+            code: done.code().unwrap_or(-1),
+            out: stdout,
+            err: stderr,
+            timed_out: stopped,
+        },
+        None => Capture {
+            ok: false,
+            code: -1,
+            out: stdout,
+            err: stderr,
+            timed_out: stopped,
+        },
     }
 }
 
-fn read_to_end<R: Read>(reader: &mut R) -> String {
-    let mut buf = Vec::new();
-    let _ = reader.read_to_end(&mut buf);
-    String::from_utf8_lossy(&buf).to_string()
+// The words of one output pipe, held where the call can read them while the
+// thread that reads the pipe is still adding to them.
+#[derive(Clone)]
+struct Words(Arc<Mutex<Vec<u8>>>);
+
+impl Words {
+    fn new() -> Words {
+        Words(Arc::new(Mutex::new(Vec::new())))
+    }
+
+    // Add what was read from the pipe. Words are kept as bytes, so a run that
+    // is stopped between the parts of a sign of more than one byte loses that
+    // sign and nothing else.
+    fn add(&self, made: &[u8]) {
+        if let Ok(mut held) = self.0.lock() {
+            held.extend_from_slice(made);
+        }
+    }
+
+    // The words as they stand at this moment.
+    fn of(&self) -> String {
+        let held = self.0.lock().map(|held| held.clone()).unwrap_or_default();
+        String::from_utf8_lossy(&held).to_string()
+    }
+}
+
+// Read one pipe on a thread of its own, until the pipe closes. What was read
+// goes into the shared words, so the call may take them whenever it is over,
+// whether the pipe has closed or no.
+fn read_words<R: Read + Send + 'static>(
+    mut pipe: R,
+    words: Words,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || loop {
+        let mut chunk = [0_u8; 8192];
+        match pipe.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(made) => words.add(&chunk[..made]),
+            Err(_) => break,
+        }
+    })
+}
+
+// Give one reader of a pipe the time given to end. When the time is gone the
+// reader is left to itself, and the call takes the words as they stand.
+fn wait_for_words(reader: Option<std::thread::JoinHandle<()>>, grace: Duration) {
+    let Some(reader) = reader else { return };
+    let began = Instant::now();
+    while !reader.is_finished() {
+        if began.elapsed() >= grace {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let _ = reader.join();
+}
+
+// Put the run in a group of processes of its own. The command a shell is given
+// becomes a child of that shell, and the children of the run are of the group
+// too, so one signal stops the whole of it. No group is set outside unix: the
+// group of the run is then the group of the program that started it, and a
+// signal to it would stop the program itself with the run. The two ways a run
+// is stopped are the clock of the call and the mark the user presses; both go
+// through stop_group here, and neither reaches a run that is no longer of the
+// group of the program.
+fn in_its_own_group(command: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = command;
+    }
 }
 
 fn trim_newlines(text: &mut String) {
@@ -244,7 +365,33 @@ fn trim_newlines(text: &mut String) {
     }
 }
 
-// Stop a program by its process id.
+// Stop a whole run: the program that was started and every child of it. The id
+// of the group is the id of the program, which was put in a group of its own
+// by in_its_own_group. A signal to a negative id goes to the group of that id.
+// The one road that stops a single process, and nothing of its children, is
+// kill_pid.
+pub fn stop_group(pid: u32) {
+    #[cfg(unix)]
+    {
+        let _ = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = pid;
+    }
+}
+
+// Stop one program by its process id. A child it forked is not stopped with it
+// and may hold an output pipe open, so a run that was started for its output is
+// stopped by stop_group.
 pub fn kill_pid(pid: u32) {
     #[cfg(unix)]
     {
@@ -821,6 +968,181 @@ mod tests {
         );
         assert!(inflate(&written, 8).is_none());
         assert_eq!(inflate(&written, 1 << 20).map(|made| made.len()), Some(words.len()));
+    }
+
+    // True when a program with these words in its command line is still going.
+    #[cfg(unix)]
+    fn still_going(needle: &str) -> bool {
+        Command::new("pgrep")
+            .args(["-f", needle])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|done| done.success())
+            .unwrap_or(false)
+    }
+
+    // A run that is given less time than it takes is stopped, and the call
+    // comes back at once instead of waiting for the run to end by itself. The
+    // shell forks the command it was given, and that child holds the output
+    // pipe open, so the signal has to go to the group of the run.
+    #[cfg(unix)]
+    #[test]
+    fn a_run_out_of_time_is_stopped() {
+        let began = Instant::now();
+        let made = capture_watch_in(
+            "sh",
+            &["-c", "sleep 30", "natter"],
+            None,
+            &Watch::new(Duration::from_millis(200)),
+        );
+        let gone = began.elapsed();
+        assert!(
+            made.timed_out,
+            "a run of 30 seconds was not stopped by a watch of 200 ms"
+        );
+        assert!(
+            gone < Duration::from_secs(5),
+            "the call was held for {} ms, which is the length of the run and not of the watch",
+            gone.as_millis()
+        );
+    }
+
+    // A command that forked is stopped with it: the children of the run go when
+    // its time is gone, and nothing of it is left behind.
+    #[cfg(unix)]
+    #[test]
+    fn a_run_that_forked_is_stopped_with_it() {
+        let began = Instant::now();
+        let made = capture_watch_in(
+            "sh",
+            &["-c", "sleep 32 & sleep 32", "natter"],
+            None,
+            &Watch::new(Duration::from_millis(200)),
+        );
+        let gone = began.elapsed();
+        assert!(made.timed_out, "the run was not stopped when its time was gone");
+        assert!(
+            gone < Duration::from_secs(5),
+            "the call was held for {} ms",
+            gone.as_millis()
+        );
+        assert!(
+            !still_going("sleep 32"),
+            "a child of the run was left going after the call came back"
+        );
+    }
+
+    // A run that ends but leaves a child holding the output pipe open must not
+    // hold the call: the words it printed come back at once, and the child that
+    // was left is stopped with the call.
+    #[cfg(unix)]
+    #[test]
+    fn a_run_that_leaves_a_pipe_open_comes_back() {
+        let began = Instant::now();
+        let made = capture_watch_in(
+            "sh",
+            &["-c", "sleep 34 & echo here", "natter"],
+            None,
+            &Watch::unbounded(),
+        );
+        let gone = began.elapsed();
+        assert!(
+            made.out.contains("here"),
+            "the words the run printed did not come back: {:?}",
+            made.out
+        );
+        assert!(
+            gone < Duration::from_secs(5),
+            "the call was held for {} ms by a pipe one child left open",
+            gone.as_millis()
+        );
+        assert!(
+            !still_going("sleep 34"),
+            "a child of the run was left going after the call came back"
+        );
+    }
+
+    // A call that is stopped in the middle of a run still carries everything
+    // the run had printed by then, for a model has to know what the call
+    // managed to do before it was stopped.
+    #[cfg(unix)]
+    #[test]
+    fn the_words_before_the_end_come_back() {
+        let made = capture_watch_in(
+            "sh",
+            &["-c", "echo one; sleep 36; echo two", "natter"],
+            None,
+            &Watch::new(Duration::from_millis(600)),
+        );
+        assert!(made.timed_out, "the run was not stopped when its time was gone");
+        assert!(
+            made.out.contains("one"),
+            "the words printed before the end were lost: {:?}",
+            made.out
+        );
+        assert!(
+            !made.out.contains("two"),
+            "words printed after the end came back: {:?}",
+            made.out
+        );
+    }
+
+    // A call the user cuts short with the mark is stopped the same way as a
+    // call whose time ran out, and the words it had printed come back too.
+    #[cfg(unix)]
+    #[test]
+    fn a_call_the_user_stops_is_stopped_with_it() {
+        let watch = Watch::new(Duration::from_secs(600));
+        let clock = watch.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            clock.stop_now();
+        });
+        let began = Instant::now();
+        let made = capture_watch_in(
+            "sh",
+            &["-c", "echo one; sleep 38; echo two", "natter"],
+            None,
+            &watch,
+        );
+        let gone = began.elapsed();
+        assert!(made.timed_out, "a call the user stopped was not stopped");
+        assert!(watch.stopped(), "the clock does not say the user stopped the call");
+        assert!(
+            made.out.contains("one"),
+            "the words printed before the stop were lost: {:?}",
+            made.out
+        );
+        assert!(
+            gone < Duration::from_secs(5),
+            "the call was held for {} ms after the mark was pressed",
+            gone.as_millis()
+        );
+    }
+
+    // A short run is not held by the wait either: it comes back with its words
+    // and its code as soon as it is done.
+    #[cfg(unix)]
+    #[test]
+    fn a_short_run_comes_back_at_once() {
+        let began = Instant::now();
+        let made = capture_watch_in(
+            "sh",
+            &["-c", "echo quick", "natter"],
+            None,
+            &Watch::new(Duration::from_secs(30)),
+        );
+        let gone = began.elapsed();
+        assert!(made.ok, "a run that ended well was not told to be well");
+        assert_eq!(made.code, 0);
+        assert_eq!(made.out, "quick");
+        assert!(!made.timed_out);
+        assert!(
+            gone < Duration::from_secs(1),
+            "a run of a moment was held for {} ms",
+            gone.as_millis()
+        );
     }
 
     // The bytes of a run written as pairs of hexadecimal figures.
