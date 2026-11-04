@@ -297,7 +297,9 @@ pub struct Config {
     // time very nearly always brings the words back. 0 leaves a silence alone.
     #[serde(default = "silence_retries")]
     pub chat_silent_retries: i64,
-    // Let the model mark the chapters of a chat, and show them beside it.
+    // Read the chapters of a chat out of the headings of the answers, and show
+    // them beside it. The words that tell the model of the rule go with the
+    // switch, so a chat that shows no chapter line never pays for them.
     #[serde(default = "on_by_default")]
     pub chat_chapters: bool,
     // Keep the talk of a chat that the model has worked its way through in a

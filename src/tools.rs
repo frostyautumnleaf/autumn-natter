@@ -31,15 +31,6 @@ use crate::util;
 // Name the model uses to ask for a terminal run.
 pub const TOOL_NAME: &str = "run_terminal";
 
-// Name the model uses to mark the start of a chapter of the chat. The call is
-// of the program's own: the user never sees it, and the model is asked not to
-// speak of it.
-pub const CHAPTER_TOOL_NAME: &str = "chapter";
-
-// The longest name a chapter may have. The node beside the chat and the card
-// over it both have to hold the name in a small space.
-pub const MAX_CHAPTER_NAME: usize = 50;
-
 // Longest output kept for one run.
 const MAX_OUTPUT: usize = 8000;
 
@@ -198,30 +189,6 @@ pub fn definition(sandbox: bool, access: Access) -> Value {
     })
 }
 
-// The tool description for a chapter of the chat.
-pub fn chapter_definition() -> Value {
-    let said = with_rule(String::from(
-        "Mark the start of a new chapter in this chat. This tool is offered only while the user has turned the chapters of a chat on. Call it when a new part of the work begins: a new task, a new question, a new phase, or the next chapter of a story you are writing. You may call it as often as you like, including in the middle of your work. Call it just before you write the part it marks, then continue writing. The result only confirms that the marker was added, and you continue where you stopped. The one thing it asks for is the name, a short phrase that says what the part is about. Do not mark the same part twice, do not describe this call, and do not mention chapters in your answer.",
-    ));
-    json!({
-        "type": "function",
-        "function": {
-            "name": CHAPTER_TOOL_NAME,
-            "description": said,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "The name of the chapter, as a short phrase of at most 50 characters."
-                    }
-                },
-                "required": ["name"]
-            }
-        }
-    })
-}
-
 // The rule every tool is offered under. A model reads the list of tools at the
 // head of every ask, and a model that has been told to call a tool on every
 // query spends its first turn of a chat trying to answer a message that asked
@@ -237,28 +204,6 @@ pub const CALL_RULE: &str = "Use a tool only when the user asked for something a
 // it.
 pub fn with_rule(description: String) -> String {
     format!("{} {}", description.trim_end(), CALL_RULE)
-}
-
-// The name of a chapter out of what the model sent. It is made one line, cut at
-// MAX_CHAPTER_NAME, and empty when the model sent nothing usable.
-pub fn chapter_name(raw: &str) -> String {
-    let taken = match serde_json::from_str::<Value>(raw) {
-        Ok(value) => value
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        // A model that sent the name on its own, without the object.
-        Err(_) => raw.to_string(),
-    };
-    let mut name = String::new();
-    for word in taken.split_whitespace() {
-        if !name.is_empty() {
-            name.push(' ');
-        }
-        name.push_str(word);
-    }
-    name.chars().take(MAX_CHAPTER_NAME).collect::<String>().trim().to_string()
 }
 
 // What one call of a tool the program does itself produced: the words the model
@@ -1376,24 +1321,6 @@ pub fn extract_object(text: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // The name of a chapter is what the user sees beside the chat, so it is
-    // made one line and kept short.
-    #[test]
-    fn a_chapter_name_is_one_line_and_short() {
-        assert_eq!(chapter_name(r#"{"name":"Fixing the parser"}"#), "Fixing the parser");
-        // A name the length of the limit, and one longer than it.
-        let long = "n".repeat(MAX_CHAPTER_NAME + 12);
-        assert_eq!(chapter_name(&format!(r#"{{"name":"{long}"}}"#)).len(), MAX_CHAPTER_NAME);
-        // Marks of a list, newlines and runs of spaces are made into one line.
-        let messy = r#"  Ways\tof\n  the  work  "#;
-        assert_eq!(chapter_name(&format!(r#"{{"name":"{messy}"}}"#)), "Ways of the work");
-        // A model that sent the name on its own, without the object.
-        assert_eq!(chapter_name("The work"), "The work");
-        // Nothing usable gives nothing, and the call is answered as such.
-        assert_eq!(chapter_name(r#"{"name":"   "}"#), "");
-        assert_eq!(chapter_name("{}"), "");
-    }
 
     // The arguments are looked at without running anything, so the shape of the
     // jail is watched even on a machine without bubblewrap.
