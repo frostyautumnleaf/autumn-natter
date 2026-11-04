@@ -3223,6 +3223,20 @@ impl Engine {
     // Stop reading the answer.
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+        // A turn of the model extends into the calls of its tools, and a call
+        // that is running is part of the answer as much as the words of it are.
+        // The user who asks for the answer to stop is asking for the whole of the
+        // turn to stop, so the clock of the call is stopped too: the command that
+        // was started goes with the answer, and what it had printed by then still
+        // goes back to the model under the word that the user stopped it. The lock
+        // is only asked for once, and not waited for: the flag above is already
+        // set, and a call that is missed this way still ends by its own clock.
+        if let Ok(mut state) = self.state.try_lock() {
+            if let Some(one) = state.running.as_ref() {
+                one.watch.stop_now();
+                state.set_status("The call is being stopped with the answer");
+            }
+        }
     }
 
     // The tools of the open chat: the terminal tool, and the tools that work on
@@ -10540,6 +10554,38 @@ mod tests {
         assert!(
             marks.iter().all(|one| !one.short),
             "a mark of before is the ask of the settings"
+        );
+    }
+
+    // A turn of the model extends into the calls of its tools, and a call that is
+    // running is part of the answer as much as the words of it are. The user who
+    // asks for the answer to stop is asking for the whole of the turn to stop, so
+    // the running call is stopped with it -- whether the call still stood in the
+    // time it was given at first, or in the time the user added to it.
+    #[test]
+    fn stopping_the_answer_stops_the_call_that_is_running() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let watch = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let watch = crate::util::Watch::new(Duration::from_secs(600));
+            state.begin_running("block-one", &watch);
+            watch
+        };
+        assert!(!watch.stopped(), "nothing was stopped to begin with");
+        // The user gave the call more time first, so what is tested here is a call
+        // standing in the time that was added to it. The lock is let go of before
+        // the two marks are pressed, for both of them take it.
+        engine.extend_running_tool();
+        assert!(!watch.stopped(), "more time is not a stop");
+        engine.cancel();
+        let state = engine.state.lock().unwrap();
+        assert!(state.running.is_some(), "the call stands running still");
+        assert!(
+            state.running.as_ref().map(|one| one.watch.stopped()).unwrap_or(false),
+            "the mark of the answer left the running call going"
         );
     }
 
