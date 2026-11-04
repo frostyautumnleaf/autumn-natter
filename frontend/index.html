@@ -4537,17 +4537,93 @@ function writeBox(one) {
   var text = make('pre', 'cmd-text');
   var words = document.createTextNode('');
   var caret = make('span', 'caret');
-  // The mark of the writing stands behind the words, as the mark of an answer
-  // does, so the words never grow around it.
+  var behind = document.createTextNode('');
+  // The mark of the writing stands in the middle of the words of the block, and
+  // not behind all of them. A tool of the files has its changes shown change by
+  // change, and a model may write the half that comes later first, so the words
+  // of the block grow where the writing is, and not only at the end of them.
   text.appendChild(words);
   text.appendChild(caret);
+  text.appendChild(behind);
   space.appendChild(lab);
   space.appendChild(text);
   body.appendChild(space);
   panel.appendChild(head);
   panel.appendChild(body);
-  return { panel: panel, head: head, cmd: cmd, state: state, text: text, words: words,
-    caret: caret, space: space, why: null, shape: shape };
+  return { panel: panel, head: head, cmd: cmd, state: state, caret: caret,
+    space: space, writing: watchWriting({ text: text, caret: caret, head: words,
+      tail: behind, shown: '', pinned: false, wanted: -1 }),
+    why: null, shape: shape };
+}
+
+// The words of one lot of a block that is being written, and the mark of the
+// writing that stands among them. `head` holds the words before the mark and
+// `tail` the words behind it, `shown` is the whole of the words as they stood,
+// `pinned` says the user has gone into the block with their own hands, and
+// `wanted` is where the program meant the block to stand when it moved it.
+function watchWriting(made) {
+  made.text.addEventListener('scroll', function () {
+    // A scroll that stands where the program meant to stand is the doing of the
+    // program, and not of the user.
+    if (Math.abs(made.text.scrollTop - made.wanted) < 3) { return; }
+    made.pinned = true;
+  });
+  return made;
+}
+
+// Where the mark of the writing stands: at the end of the part of the words that
+// grew. A command grows at the end, and the mark stands there as it always did.
+// The changes of a file are shown one under the other, and a model that writes
+// the later half first is answered by words that arrive in the middle of the
+// block: the mark then stands at the end of the words that came in, and not at
+// the bottom of everything the block holds.
+function grownAt(was, now) {
+  if (!was || now.length < was.length) { return now.length; }
+  if (now.slice(0, was.length) === was) { return now.length; }
+  var at = 0;
+  var most = was.length < now.length ? was.length : now.length;
+  while (at < most && was.charCodeAt(at) === now.charCodeAt(at)) { at++; }
+  var back = 0;
+  while (back < most - at
+      && was.charCodeAt(was.length - 1 - back) === now.charCodeAt(now.length - 1 - back)) {
+    back++;
+  }
+  return now.length - back;
+}
+
+// One lot of words put in around the mark of the writing, and the block moved to
+// the mark. The block of a call being written follows the writing, and not the
+// bottom of the words, and a block the user has gone into is left alone.
+function putWords(writing, words) {
+  var said = words || '';
+  if (writing.shown === said) { return; }
+  var at = grownAt(writing.shown, said);
+  writing.shown = said;
+  writing.head.nodeValue = said.slice(0, at);
+  writing.tail.nodeValue = said.slice(at);
+  followCaret(writing);
+}
+
+// The block of a call being written is moved so that the mark of the writing
+// stands in view. A block that pulled the eye down while the user read the start
+// of it could not be read, so a block the user has moved in is never moved
+// again: only the scroll the program meant counts as the program's own.
+function followCaret(writing) {
+  if (writing.pinned || writing.caret.parentNode !== writing.text) { return; }
+  var view = writing.text.getBoundingClientRect();
+  var mark = writing.caret.getBoundingClientRect();
+  if (!mark.height) { return; }
+  var to = writing.text.scrollTop;
+  if (mark.top < view.top) { to -= (view.top - mark.top) + 8; }
+  else if (mark.bottom > view.bottom) { to += (mark.bottom - view.bottom) + 8; }
+  else { return; }
+  // The place the block can really stand at, so the scroll that follows lands
+  // where it was meant to and is not read as a scroll of the user's.
+  var most = writing.text.scrollHeight - writing.text.clientHeight;
+  to = to < 0 ? 0 : (to > most ? most : to);
+  if (to === writing.text.scrollTop) { return; }
+  writing.wanted = to;
+  writing.text.scrollTop = to;
 }
 
 // The reason of the command, put under the command itself. It comes after the
@@ -4558,13 +4634,18 @@ function addWhy(box) {
   lab.textContent = 'why';
   var text = make('pre', 'cmd-text');
   var words = document.createTextNode('');
+  var behind = document.createTextNode('');
   text.appendChild(words);
   // Putting the mark in the new words takes it off the command, which is now
   // over.
   text.appendChild(box.caret);
+  text.appendChild(behind);
   box.space.appendChild(lab);
   box.space.appendChild(text);
-  box.why = { label: lab, text: text, words: words };
+  // The mark of the writing follows the words that are being written now, so
+  // from here the block of the reason is the block that is followed.
+  box.why = watchWriting({ text: text, caret: box.caret, head: words, tail: behind,
+    shown: '', pinned: false, wanted: -1 });
 }
 
 // Whether the answer has put words on the page above the blocks of the calls
@@ -4622,14 +4703,7 @@ function feedWrite(list) {
       ink.tools[m] = box;
       ink.toolHost.appendChild(box.panel);
     }
-    if (box.words.nodeValue !== one.command) {
-      box.words.nodeValue = one.command;
-      // The end of a command is followed while it is written, unless the user
-      // has gone up in the block to read the start of it.
-      if (box.text.scrollHeight - (box.text.scrollTop + box.text.clientHeight) < 40) {
-        box.text.scrollTop = box.text.scrollHeight;
-      }
-    }
+    putWords(box.writing, one.command);
     var line = headWords(box.shape, headName(one, box.shape), false);
     if (box.cmd.textContent !== line) { box.cmd.textContent = line; }
     // The pill follows the state of the call: writing while the words come, and
@@ -4642,9 +4716,7 @@ function feedWrite(list) {
     }
     if (one.purpose) {
       if (!box.why) { addWhy(box); }
-      if (box.why.words.nodeValue !== one.purpose) {
-        box.why.words.nodeValue = one.purpose;
-      }
+      putWords(box.why, one.purpose);
     }
   }
 }
