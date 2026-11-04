@@ -8634,8 +8634,10 @@ function showSetTab(tab) {
   byId('paneLogs').classList.toggle('hidden', tab !== 'logs');
   byId('paneMcp').classList.toggle('hidden', tab !== 'mcp');
   // The logs are read while their tab stands in front, and not one moment
-  // longer, for a verbose log is a great deal of words.
-  if (tab === 'logs') { loadLogs(false); logsGo(); } else { logsStop(); }
+  // longer, for a verbose log is a great deal of words. The tab is begun again
+  // every time it comes forward, so it opens on the newest log of the kind that
+  // stands open and not on the one read the last time the tab was in front.
+  if (tab === 'logs') { logFresh(); loadLogs(false); logsGo(); } else { logsStop(); }
   if (tab === 'mcp') { loadMcp(); }
   byId('sheetSub').textContent = tab === 'program'
     ? 'The settings of this program'
@@ -9403,6 +9405,7 @@ function getConfig() { return ask('config'); }
 
 var logs = [];        // the logs of the kind that stands open, newest first
 var logIds = '';      // the ids of that list, to know when the list has moved
+var logNewest = true; // the next list is begun on the newest log, not on a choice kept
 var logFace = 'server'; // which face of the tab stands open: 'server' or 'program'
 var logText = '';     // the words of the log that stands open
 var logLines = [];    // the same words, cut into lines
@@ -9452,6 +9455,17 @@ function showLogFace(face) {
   loadLogs(false);
 }
 
+// The tab is begun again: the newest log of the kind that stands open, and no
+// words left standing in the field of the search. The log of an earlier opening
+// of the tab is not the log the user means to look at now, and the words he was
+// looking for belong to the reading he had done with. The mark of the choice is
+// not moved here: the list, when it comes in, chooses the newest of itself.
+function logFresh() {
+  logNewest = true;
+  logHit = -1;
+  byId('logSearch').value = '';
+}
+
 // Read the list of the logs of the kind that stands open, the words of the run
 // under them, and the log that stands open. The list is read again quietly while
 // the tab stands in front, so a server that was started again is seen. The field
@@ -9482,11 +9496,13 @@ function loadLogs(quiet) {
 
 // The field of the choice: every log that is kept, newest first, with the day and
 // the hour it stands at and its size. The log this run is writing says so, and is
-// the one chosen. A choice the user made himself is kept, and a log that has
-// gone takes the newest in its place.
+// the one chosen. A choice the user made himself is kept while the tab stands in
+// front, and a log that has gone takes the newest in its place; a tab begun again
+// stands on the newest from the first look.
 function fillLogPick() {
   var sel = byId('logPick');
-  var held = sel.value;
+  var held = logNewest ? '' : sel.value;
+  logNewest = false;
   sel.innerHTML = '';
   if (!logs.length) {
     sel.appendChild(setOption('No log stands here yet', ''));
@@ -9507,10 +9523,27 @@ function fillLogPick() {
   sel.value = keep || logs[0].id;
 }
 
+// The log the field of the choice stands on. A value that is none of the names
+// the list holds is no choice at all: the ten turn over while the sheet stands
+// closed, and a page of the browser puts back the choice that stood when the page
+// was opened last, which is often no log of this list. The newest of the list is
+// then the log to read, and the field is put back on it so the two agree. Asking
+// for a log that is not there leaves the sheet empty for nothing.
+function logChosen() {
+  var sel = byId('logPick');
+  var stood = sel.value;
+  for (var n = 0; n < logs.length; n++) {
+    if (logs[n].id === stood) { return stood; }
+  }
+  var newest = logs.length ? logs[0].id : '';
+  if (stood !== newest) { sel.value = newest; }
+  return newest;
+}
+
 // Read the log the field of the choice stands on, from its end.
 function readLog() {
   var kind = logFace;
-  var id = byId('logPick').value;
+  var id = logChosen();
   logName = id;
   if (!id) {
     logText = ''; logLines = []; logBytes = 0; logCut = false;
