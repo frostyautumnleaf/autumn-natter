@@ -995,6 +995,56 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.55;
   font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace; }
 .look-note { font-size: 12.5px; color: var(--dim); }
+/* The turn of the files. The window over the contents of files carries one file at
+   a time, so the arrows and the count stand in its head. The mark of the kind is
+   put away when the turn stands, for one file names the other. */
+.look-turn { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; }
+.look-turn.hidden { display: none; }
+.look-arrow {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface-2); cursor: pointer;
+}
+.look-arrow:hover { border-color: var(--accent-line); background: var(--tint); }
+.look-arrow:disabled { opacity: .3; cursor: default; }
+.look-arrow:disabled:hover { border-color: var(--line); background: var(--surface-2); }
+.look-arrow .svg { width: 13px; height: 13px; stroke: var(--ink); }
+.look-count { min-width: 40px; text-align: center; font-size: 11px; color: var(--dim);
+  font-variant-numeric: tabular-nums; }
+/* The mark that puts the words of a file up instead of the thing the file makes. */
+.look-raw {
+  flex: 0 0 auto; display: inline-flex; align-items: center; padding: 4px 9px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
+  color: var(--dim); font-size: 11px; font-weight: 650; letter-spacing: .04em;
+  text-transform: uppercase; cursor: pointer;
+}
+.look-raw.hidden { display: none; }
+.look-raw:hover { border-color: var(--accent-line); background: var(--tint); color: var(--ink); }
+.look-raw.on { border-color: var(--accent-line); background: var(--tint); color: var(--ink); }
+/* A page of html, and a document of pages, are put in a frame of their own: the
+   page makes itself, and the document is read by the reader of the machine. The
+   frame is white whatever the skin is, for the page inside it knows nothing of
+   the skin. */
+.look-frame { display: block; width: 100%; min-height: 56vh; height: 62vh; border: 0;
+  border-radius: var(--r-m); background: #fff; }
+.look-body.has-frame { padding: 8px; background: var(--surface-2); }
+/* The words of a file of marks, put up as the marks ask. They wear the kinds of
+   the chat, which are named for the writing and not for the place it stands in. */
+.look-md { font-size: 13.5px; color: var(--text); }
+.look-md > :first-child { margin-top: 0; }
+.look-md > :last-child { margin-bottom: 0; }
+/* The button of a show, under the block of the run that made it. The window goes
+   away with the key of escape, so the block keeps the way back to it. */
+.shown-again { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.shown-again button {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
+  color: var(--ink); font-size: 12px; cursor: pointer;
+}
+.shown-again button:hover { border-color: var(--accent); background: var(--tint); }
+.shown-again .svg { width: 13px; height: 13px; stroke: var(--ink); }
+.shown-again .held { font-size: 11.5px; color: var(--dim); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 @keyframes look-rise {
   from { opacity: 0; transform: translateY(12px) scale(.985); }
   to { opacity: 1; transform: none; }
@@ -1290,6 +1340,11 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
   transition: background var(--t-move) ease, border-color var(--t-move) ease;
 }
 .gift .get:hover, .gifts .all:hover { background: var(--tint); border-color: var(--accent); }
+/* A block of an offer opens the window over the contents of the file, so it wears
+   the mark of a thing that may be looked at. The button of the block is not that
+   thing, and stands over this rule. */
+.gift.peek { cursor: pointer; }
+.gift.peek:hover { border-color: var(--accent-line); background: var(--tint); }
 .gift .get .svg, .gifts .all .svg { width: 13px; height: 13px; stroke: var(--ink); }
 /* The button of the whole offer stands under the files it takes, in the middle
    of the chat as they are. */
@@ -2018,6 +2073,22 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       <div class="look-head">
         <span class="look-name" id="lookname"></span>
         <span class="look-kind" id="lookkind"></span>
+        <!-- The turn of the files. The window over the contents of files carries
+             one file at a time, so the two arrows and the count of them stand in
+             its head, and the user turns the files as they are read. -->
+        <span class="look-turn hidden" id="lookturn">
+          <button class="look-arrow" id="lookprev" type="button" title="The file before this one">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.6 5.6 8l4.4 4.4"/></svg>
+          </button>
+          <span class="look-count" id="lookcount"></span>
+          <button class="look-arrow" id="looknext" type="button" title="The file after this one">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.6 10.4 8 6 12.4"/></svg>
+          </button>
+        </span>
+        <!-- A page of html, a drawing of lines and a file of marks are put up as
+             the thing they make. This mark puts the words of the file up instead. -->
+        <button class="look-raw hidden" id="lookraw" type="button"
+                title="See the words of the file, not the page it makes">Raw</button>
         <button class="look-close" id="lookclose" type="button" title="Close this window">
           <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
         </button>
@@ -2658,7 +2729,8 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts', 'queue', 'queuehead', 'queuecount', 'queuelist',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
-  'viewer', 'lookname', 'lookkind', 'lookclose', 'lookbody',
+  'viewer', 'lookname', 'lookkind', 'lookturn', 'lookprev', 'lookcount', 'looknext',
+  'lookraw', 'lookclose', 'lookbody',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
   'planhead', 'planlabel', 'planopen', 'commands', 'cmdchip'];
 var el = {};
@@ -3252,8 +3324,10 @@ var TOOL_LINES = [
    'The model may change a file of the chat and make a new one. Both work in the working directory of the chat and nowhere else, and they run in the program, so the sandbox of a command is not between them.'],
   ['picture', 'View images',
    'The model may look at a picture of the chat. The picture is read in the program and shown to the model, and never written out again.'],
-  ['hand_out', 'Offer files for download',
-   'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all.'],
+  ['hand_out', 'Offer files',
+   'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all. A click on the block opens the window that reads a file whole.'],
+  ['display', 'Show files',
+   'The model may put the contents of files of the chat in a window over the chat, and only when you asked to see them. A click on the block of the show opens that window again. Only the kinds the window can show are let through, and while the sandbox stands only the working directory of the chat is opened.'],
   ['ask', 'Ask questions',
    'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.']
 ];
@@ -4196,6 +4270,15 @@ var TOOL_SHAPES = {
     word: 'file', end: 'result',
     empty: 'no file name', begun: 'a file, started', file: true, offer: true
   },
+  // The contents of files put in the window over the chat. The head says which
+  // files were shown, and the block carries the button that opens the window
+  // again, for the window goes away with the key of escape.
+  display_files: {
+    mark: 'M2.2 3h11.6v10H2.2zM2.2 6.2h11.6M4.8 8.8h6.4',
+    head: 'Showing a file: ', done: 'Showed a file: ', pluralDone: 'Showed files: ',
+    word: 'file', end: 'result',
+    empty: 'no file name', begun: 'a file, started', file: true, shown: true
+  },
   // A question the model put to the user. The head says what was asked; under
   // the second label stands the answer, or the word that the question was given
   // up because no answer came.
@@ -4255,6 +4338,46 @@ function offerHead(shape, m, over) {
   }
   return (given.length > 1 ? (shape.pluralDone || '') : (shape.done || ''))
     + held.join(', ');
+}
+
+// The words of the head of a block that showed the contents of files. Every file
+// of the call is named, as the head of an offer names the files it offered: the
+// sentence the tool sent back is not a name, and a head that carried it said the
+// same thing twice.
+function shownHead(shape, m, over) {
+  var given = m.displayed || [];
+  if (!given.length) { return headWords(shape, firstLine(m.body), over); }
+  var held = [];
+  var n;
+  for (n = 0; n < given.length; n++) { held.push(wholeOf(given[n])); }
+  return (given.length > 1 ? (shape.pluralDone || '') : (shape.done || '')) + held.join(', ');
+}
+
+// The button of a show, under the receipt of the run that made it. The window over
+// the contents of a file is opened by the model once and by the user as often as
+// they like, so the block keeps the mark that opens the same files again.
+var SHOWN_MARK = 'M1.7 8S3.9 3.9 8 3.9 14.3 8 14.3 8 12.1 12.1 8 12.1 1.7 8 1.7 8z'
+  + 'M8 6.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4';
+
+function shownAgain(m) {
+  var given = m.displayed;
+  if (!given || !given.length) { return null; }
+  var row = make('div', 'shown-again');
+  var button = make('button');
+  button.type = 'button';
+  button.appendChild(mark(SHOWN_MARK));
+  var said = make('span');
+  said.textContent = given.length > 1 ? 'Show these files again' : 'Show this file again';
+  button.appendChild(said);
+  var names = [];
+  for (var n = 0; n < given.length; n++) { names.push(wholeOf(given[n])); }
+  button.title = 'Open the window over ' + names.join(', ');
+  button.addEventListener('click', function () { openShownLook(given, 0); });
+  row.appendChild(button);
+  var held = make('span', 'held');
+  held.textContent = names.join(', ');
+  row.appendChild(held);
+  return row;
 }
 
 // The one thing the head of a call being written names. A file tool is named
@@ -4444,7 +4567,9 @@ function toolBox(m) {
   // that failed did not do the thing, so it keeps the name of the trying.
   cmd.textContent = shape.offer
     ? offerHead(shape, m, !running && !m.failed && !cut)
-    : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
+    : shape.shown
+      ? shownHead(shape, m, !running && !m.failed && !cut)
+      : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
   // A change of a file says how many lines it wrote and how many it took away.
   var hunks = hunkCount(m);
@@ -4486,6 +4611,10 @@ function toolBox(m) {
   // bytes of a picture are sent to the model and never written into the block.
   var shots = viewedPics(m);
   if (shots) { space.appendChild(shots); }
+  // The window over the contents of files goes away with the key of escape, or with
+  // a click outside it, so the block of the run keeps the way back to the files.
+  var again = shownAgain(m);
+  if (again) { space.appendChild(again); }
   space.appendChild(labTwo);
   space.appendChild(output);
   body.appendChild(space);
@@ -5757,6 +5886,9 @@ function roleStamp(m) {
     // The blocks of an offer stand under the answer, so the row that carries them
     // is made again when an offer comes in or goes out.
     m.downloads ? 'gift' + m.downloads.length : '',
+    // The button of a show stands in the block of the run, so the row is made
+    // again when a show comes in.
+    m.displayed ? 'shown' + m.displayed.length : '',
     // The line under a message carries the mark of going on with it, so the row
     // is made again when the state says an answer was stopped.
     m.stopped ? 'stopped' : ''].join('#');
@@ -6856,9 +6988,35 @@ function giftBlock(one) {
   said.textContent = 'Download';
   get.appendChild(said);
   get.title = 'Take ' + giftWhole(one) + ' out of the chat';
-  get.addEventListener('click', function () { takeGift(one, get); });
+  get.addEventListener('click', function (event) {
+    // The button takes the file out; the block under it opens the window over the
+    // contents, so the hand on the button must not do both.
+    event.stopPropagation();
+    takeGift(one, get);
+  });
   box.appendChild(get);
+  // A click on the block opens the window that reads a file whole, when the window
+  // has a way of showing that kind of file. A file the window would not show - an
+  // archive, a thing of no known kind - is left as it was: a block with a button.
+  var shape = lookShapeOf(one.path || one.name);
+  if (shape) {
+    box.classList.add('peek');
+    box.title = 'Look at ' + giftWhole(one) + ' in the window over the contents of a file';
+    box.addEventListener('click', function () {
+      openShownLook([giftShown(one, shape)], 0);
+    });
+  }
   return box;
+}
+
+// A file that was only offered, made ready for the window over the contents of a
+// file. The window wants the name, the ending, the shape it shows the file in, and
+// the road it reads the file by, which is the road the button of the block takes.
+function giftShown(one, shape) {
+  return {
+    name: one.name, extension: one.extension, shape: shape,
+    path: one.path, size: one.size
+  };
 }
 
 // The blocks of one offer, with the button of the whole of it under them when
@@ -7682,6 +7840,240 @@ function sayNothing(body) {
   body.appendChild(said);
 }
 
+// ------------------------------------------------- the window over file contents
+//
+// The show of a file, and the click on a block of an offer, both come to this
+// window. It carries one file at a time, and the two arrows of its head turn the
+// files of a show. Each kind is put up its own way: words are written down, marks
+// of markdown are put up as those marks ask, a picture and a drawing of lines are
+// hung as a picture, a page of html makes the page it makes, and a document of
+// pages is given to the reader of the machine. A file of a kind nothing knows is
+// never asked for at all: the tool that made the block would not have named it.
+
+// The files of the show that stands open, where the window stands in them, and
+// whether the words of the file are put up instead of the thing it makes.
+var lookFiles = null;
+var lookAt = 0;
+var lookRaw = false;
+// The count of the drawings. A file is asked for, and the answer comes a moment
+// later; two turns of the files in a moment would otherwise let the answer of the
+// file before write itself over the file that stands open.
+var lookTurn = 0;
+
+// The kinds of file the window shows, and how each is put up. The program answers
+// with the shape of every file of a show; a file that was only offered has none,
+// so the page works it out here from the same list of endings. An ending that
+// stands in no row is a kind the window does not show.
+var LOOK_PICTURE = 'png jpg jpeg gif webp bmp ico avif';
+var LOOK_VECTOR = 'svg';
+var LOOK_PAGE = 'html htm xhtml';
+var LOOK_DOCUMENT = 'pdf';
+var LOOK_MARKS = 'md markdown mdx';
+
+// The shape of a file out of its ending, or nothing when the window has no way of
+// showing that kind.
+function lookShapeOf(name) {
+  var dot = String(name || '').lastIndexOf('.');
+  var tail = dot > 0 ? String(name).slice(dot + 1).toLowerCase() : '';
+  if (!tail) { return ''; }
+  if (oneOf(LOOK_PICTURE, tail)) { return 'picture'; }
+  if (oneOf(LOOK_VECTOR, tail)) { return 'vector'; }
+  if (oneOf(LOOK_PAGE, tail)) { return 'page'; }
+  if (oneOf(LOOK_DOCUMENT, tail)) { return 'document'; }
+  if (oneOf(TEXT_ENDINGS, tail)) { return 'words'; }
+  return '';
+}
+
+function oneOf(list, tail) {
+  return list.split(' ').indexOf(tail) >= 0;
+}
+
+// The word the head of the window wears for one kind of file.
+function lookShapeWord(one) {
+  if (one.shape === 'picture') { return 'Image'; }
+  if (one.shape === 'vector') { return 'Drawing'; }
+  if (one.shape === 'page') { return 'Page'; }
+  if (one.shape === 'document') { return 'Document'; }
+  if (one.shape === 'words' && oneOf(LOOK_MARKS, String(one.extension || '').toLowerCase())) {
+    return 'Marks';
+  }
+  return 'Text';
+}
+
+// Whether the words of a file may be put up instead of the thing the file makes.
+// A page of html, a drawing of lines and a file of marks all make something, so
+// all three may also be read as the words they are written in.
+function lookCanRaw(one) {
+  if (one.shape === 'page' || one.shape === 'vector') { return true; }
+  return one.shape === 'words'
+    && oneOf(LOOK_MARKS, String(one.extension || '').toLowerCase());
+}
+
+// The whole of the window over the contents of files. `list` is the row of files
+// one show put in the window, in the order the model named them, and `at` is the
+// one to begin on.
+function openShownLook(list, at) {
+  if (!list || !list.length) { return; }
+  lookFiles = list;
+  lookAt = Math.max(0, Math.min(at || 0, list.length - 1));
+  lookRaw = false;
+  openViewer({ files: list });
+}
+
+// The bytes of one file of a show, as a place the page may hang them on. The
+// program opens the room of the chat for them, under the same rule as the call
+// that made the block, and a kind the window does not show is refused there too.
+function shownData(path) {
+  return invoke('get_displayed', { path: path })
+    .then(function (answer) {
+      return answer && answer.ok && answer.data ? String(answer.data) : '';
+    }, function () { return ''; });
+}
+
+// The file of the show that stands open: the head of the window is set for it, and
+// its bytes are asked for.
+function drawLookFile() {
+  var list = lookFiles || [];
+  var one = list[lookAt];
+  if (!one) { return; }
+  var turn = ++lookTurn;
+  var whole = one.extension ? one.name + '.' + one.extension : one.name;
+  if (el.lookname) {
+    el.lookname.textContent = whole;
+    el.lookname.title = one.path || whole;
+  }
+  if (el.lookkind) { el.lookkind.textContent = lookShapeWord(one); }
+  if (el.lookturn) { el.lookturn.classList.toggle('hidden', list.length < 2); }
+  if (el.lookcount) { el.lookcount.textContent = (lookAt + 1) + ' / ' + list.length; }
+  if (el.lookprev) { el.lookprev.disabled = lookAt <= 0; }
+  if (el.looknext) { el.looknext.disabled = lookAt >= list.length - 1; }
+  var canRaw = lookCanRaw(one);
+  if (el.lookraw) {
+    el.lookraw.classList.toggle('hidden', !canRaw);
+    el.lookraw.classList.toggle('on', canRaw && lookRaw);
+  }
+  var body = el.lookbody;
+  if (!body) { return; }
+  lookTurnOn(body, false);
+  body.innerHTML = '';
+  noteWaiting(body);
+  shownData(one.path).then(function (url) {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    if (!url) { sayNothing(body); return; }
+    putLookFile(body, one, url, canRaw && lookRaw);
+  }, function () {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    sayNothing(body);
+  });
+}
+
+// Put one file of the show up in the window. `raw` says the words of the file are
+// wanted, and not the thing the file makes.
+function putLookFile(body, one, url, raw) {
+  if (raw) { readLookWords(body, url, one, true); return; }
+  if (one.shape === 'picture' || one.shape === 'vector') { showPicture(body, url, one.name); return; }
+  if (one.shape === 'document') { showDocumentLook(body, url, one); return; }
+  if (one.shape === 'page') { showMadePage(body, url); return; }
+  readLookWords(body, url, one, false);
+}
+
+// The words of a file. A file of marks is put up as those marks ask, unless the
+// words themselves were asked for.
+function readLookWords(body, url, one, raw) {
+  var turn = lookTurn;
+  fetch(url).then(function (answer) { return answer.text(); }).then(function (words) {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    if (!words) { sayNothing(body); return; }
+    if (!raw && oneOf(LOOK_MARKS, String((one && one.extension) || '').toLowerCase())) {
+      showMarks(body, words);
+      return;
+    }
+    showWords(body, words);
+  }, function () {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    sayNothing(body);
+  });
+}
+
+// Words of markdown, put up as the marks ask. The kinds of the chat are named for
+// the writing and not for the place it stands in, so they are worn here as they are
+// worn in an answer.
+function showMarks(body, words) {
+  var held = make('div', 'look-md');
+  var made = blocks(words);
+  for (var n = 0; n < made.length; n++) { held.appendChild(blockNode(made[n])); }
+  body.appendChild(held);
+}
+
+// A page of html, made as the page it makes. The frame is put under a mark of
+// nothing of its own, so the page inside it can reach neither this page nor the
+// chat, and the words of the file are one press away.
+function showMadePage(body, url) {
+  var turn = lookTurn;
+  fetch(url).then(function (answer) { return answer.text(); }).then(function (words) {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    lookTurnOn(body, true);
+    var frame = make('iframe', 'look-frame');
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.setAttribute('title', 'The page of the file');
+    frame.srcdoc = words || '';
+    body.appendChild(frame);
+  }, function () {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    sayNothing(body);
+  });
+}
+
+// A document of pages, given to the reader of the machine. Where the machine has
+// no reader for it the window says so, and the file may still be taken out.
+function showDocumentLook(body, url, one) {
+  lookTurnOn(body, true);
+  var frame = make('iframe', 'look-frame');
+  frame.setAttribute('title', 'The document of the file');
+  frame.src = url;
+  body.appendChild(frame);
+  var said = make('div', 'look-note');
+  said.textContent = 'If nothing of the document stands above, take the file out with the button.';
+  body.appendChild(said);
+  var down = make('button');
+  down.type = 'button';
+  down.appendChild(mark(GIFT_DOWN));
+  var word = make('span');
+  word.textContent = 'Download';
+  down.appendChild(word);
+  down.title = 'Take the file out of the chat';
+  down.addEventListener('click', function () { takeDown(url, wholeOf(one)); });
+  body.appendChild(down);
+}
+
+// The name of a file of the show, with its ending behind it.
+function wholeOf(one) {
+  return one.extension ? one.name + '.' + one.extension : one.name;
+}
+
+// Whether the body of the window carries a frame. A frame has a ground of its own,
+// and the ground is put on the body and taken off it again.
+function lookTurnOn(body, on) {
+  if (body) { body.classList.toggle('has-frame', !!on); }
+}
+
+// One file of the turn, this way or that. The window keeps its place in the row of
+// the files, and the key of the arrows turns them with the hand on the keys.
+function turnLook(by) {
+  var list = lookFiles || [];
+  var next = lookAt + by;
+  if (next < 0 || next >= list.length) { return; }
+  lookAt = next;
+  lookRaw = false;
+  drawLookFile();
+}
+
 // The window is put up. `one` says what is to be looked at: its name, whether it
 // is a picture or a file of words, the bytes of a picture when they are already
 // known, the words when they are, the file when the words are still to be read,
@@ -7699,6 +8091,9 @@ function openViewer(one) {
   var body = el.lookbody;
   if (!body) { return; }
   body.innerHTML = '';
+  // The window over the contents of files carries a row of them, and says so in
+  // its head. Everything else the window is given is one file of the chat.
+  if (one.files) { drawLookFile(); return; }
   if (one.kind === 'image') {
     if (one.url) { showPicture(body, one.url, one.name); return; }
     if (one.id) {
@@ -7744,7 +8139,13 @@ function closeViewer() {
   var box = el.viewer;
   if (!box || box.classList.contains('hidden')) { return; }
   box.classList.add('hidden');
-  if (el.lookbody) { el.lookbody.innerHTML = ''; }
+  if (el.lookbody) { lookTurnOn(el.lookbody, false); el.lookbody.innerHTML = ''; }
+  // The window over the contents of files is begun again from the first of them
+  // next time it is opened, and the block of a show opens it whole.
+  lookFiles = null;
+  lookAt = 0;
+  lookRaw = false;
+  lookTurn++;
   if (lookBack && lookBack.focus) { lookBack.focus(); }
   lookBack = null;
 }
@@ -7764,12 +8165,34 @@ function wireViewer() {
       if (event.target === el.viewer) { closeViewer(); }
     });
   }
+  // The turn of the files, and the words of a file instead of the thing it makes.
+  if (el.lookprev) {
+    el.lookprev.addEventListener('click', function () { turnLook(-1); });
+  }
+  if (el.looknext) {
+    el.looknext.addEventListener('click', function () { turnLook(1); });
+  }
+  if (el.lookraw) {
+    el.lookraw.addEventListener('click', function () {
+      lookRaw = !lookRaw;
+      drawLookFile();
+    });
+  }
   window.addEventListener('keydown', function (event) {
     if (event.key !== 'Escape') { return; }
     if (el.viewer && !el.viewer.classList.contains('hidden')) {
       event.preventDefault();
       closeViewer();
     }
+  });
+  // The two keys of the arrows turn the files of a show, while the window stands
+  // open and the hand is not busy in a box of words.
+  window.addEventListener('keydown', function (event) {
+    if (!lookFiles || !el.viewer || el.viewer.classList.contains('hidden')) { return; }
+    var where = document.activeElement;
+    if (where && (where.tagName === 'INPUT' || where.tagName === 'TEXTAREA')) { return; }
+    if (event.key === 'ArrowLeft') { event.preventDefault(); turnLook(-1); }
+    if (event.key === 'ArrowRight') { event.preventDefault(); turnLook(1); }
   });
 }
 

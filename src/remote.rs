@@ -224,6 +224,25 @@ fn handle(engine: &Engine, mut request: Request) {
                 }
             }
         }
+        // The contents of one file of a show. The window over the contents of a
+        // file asks for it by the name the block of the show carries. The rule of
+        // the room follows the state of the sandbox of the chat that is open, and a
+        // kind the window has no way of showing is refused, so the route reads no
+        // more than the tool would have put in the window.
+        ("GET", "/api/display") => {
+            let asked = query_value(&query, "path");
+            match engine.display_of(&asked) {
+                Some((name, kind, bytes)) => {
+                    let _ = request.respond(bytes_response(&name, &kind, bytes));
+                }
+                None => {
+                    let _ = request.respond(json_status(
+                        404,
+                        "That file is not here, or it is not a kind the window shows",
+                    ));
+                }
+            }
+        }
         ("POST", _) => {
             let mut body = String::new();
             // A call with no body is allowed, so a read error is not a problem.

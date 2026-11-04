@@ -270,6 +270,10 @@ pub struct ToolSwitches {
     // A file of the chat may be handed to the user in a download block.
     #[serde(default = "switch_on")]
     pub hand_out: bool,
+    // The contents of a file of the chat may be shown to the user in the window
+    // of the chat that looks at one file whole.
+    #[serde(default = "switch_on")]
+    pub display: bool,
     // The model may stop and ask the user a question.
     #[serde(default = "switch_on")]
     pub ask: bool,
@@ -287,6 +291,7 @@ impl Default for ToolSwitches {
             files: true,
             picture: true,
             hand_out: true,
+            display: true,
             ask: true,
         }
     }
@@ -301,6 +306,7 @@ impl ToolSwitches {
             "files" => self.files = on,
             "picture" => self.picture = on,
             "hand_out" => self.hand_out = on,
+            "display" => self.display = on,
             "ask" => self.ask = on,
             _ => return false,
         }
@@ -315,6 +321,7 @@ impl ToolSwitches {
             ("files", self.files),
             ("picture", self.picture),
             ("hand_out", self.hand_out),
+            ("display", self.display),
             ("ask", self.ask),
         ]
     }
@@ -333,6 +340,7 @@ impl ToolSwitches {
             "files" => self.files,
             "picture" => self.picture,
             "hand_out" => self.hand_out,
+            "display" => self.display,
             "ask" => self.ask,
             _ => true,
         }
@@ -552,6 +560,11 @@ pub struct Message {
     // the model is still writing.
     #[serde(default)]
     pub downloads: Vec<crate::download::Gift>,
+    // The files one run of the display tool put in the window of the chat. The
+    // block of the show stands in the talk with one button in it, and the button
+    // opens the window over these files again.
+    #[serde(default)]
+    pub displayed: Vec<crate::display::Shown>,
     // A message of the role "Summary" only. The room the talk took when the
     // handoff summary was asked for, in tokens.
     #[serde(default)]

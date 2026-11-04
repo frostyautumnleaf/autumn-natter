@@ -18,6 +18,7 @@ use crate::askuser;
 use crate::attach;
 use crate::store::Attachment;
 use crate::config::{self, Config, ModelSettings};
+use crate::display;
 use crate::download;
 use crate::editfile;
 use crate::gpu::{self, Gpu};
@@ -321,6 +322,11 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         // A file being offered to the user is named by the file itself.
         download::NAME => {
             let one = download::partial_words(raw);
+            (one.clone(), String::new(), one)
+        }
+        // A show of the contents of files is named by the first file of it.
+        display::NAME => {
+            let one = display::partial_words(raw);
             (one.clone(), String::new(), one)
         }
         // A question of the user is named by the question.
@@ -1957,6 +1963,23 @@ impl State {
         self.touch();
     }
 
+    // The same, with the files one run of the display tool put in the window. The
+    // show rides on the message of the run, so the button of the block opens the
+    // same files again when the chat is opened another day.
+    fn finish_displayed(&mut self, id: &str, output: &str, ok: bool, displayed: Vec<display::Shown>) {
+        let text = self.with_stopped_head(output);
+        if let Some(chat) = self.chat_mut() {
+            if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
+                message.tool = text;
+                message.failed = !ok;
+                message.displayed = displayed;
+            }
+        }
+        self.running = None;
+        self.persist();
+        self.touch();
+    }
+
     // The same, with the records of the pictures the run opened hanging on the
     // message as well. A tool that hands a picture to the model keeps the bytes
     // of it out of the words the user is given, so the picture stands where the
@@ -3584,6 +3607,23 @@ impl Engine {
         let (name, bytes) = download::bytes_of(&workdir, asked)?;
         let (_, tail) = download::split_name(&name);
         Some((name, download::mime(&tail).to_string(), bytes))
+    }
+
+    // The bytes of one file of a show, for the window over the contents of a file.
+    // The name is read as the tool read it, and the rule of the room follows the
+    // state of the sandbox of the open chat, which is the rule the call worked to.
+    // A kind the window does not show is refused, so a name cannot be used to read
+    // a file the tool would not have shown.
+    pub fn display_of(&self, asked: &str) -> Option<(String, String, Vec<u8>)> {
+        let workdir = self.open_workdir()?;
+        let jailed = match self.state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.sandbox_enabled)
+                .unwrap_or(true),
+            Err(_) => return None,
+        };
+        display::bytes_of(&workdir, asked, jailed)
     }
 
     // Several files the user was offered, in one archive, for the button that
@@ -7633,6 +7673,7 @@ fn group_of(name: &str) -> Option<&'static str> {
         editfile::EDIT_NAME | editfile::CREATE_NAME => Some("files"),
         viewimage::NAME | viewimage::ONE_NAME => Some("picture"),
         download::NAME => Some("hand_out"),
+        display::NAME => Some("display"),
         askuser::NAME => Some("ask"),
         _ => None,
     }
@@ -7658,6 +7699,7 @@ fn tool_group_word(part: &str) -> String {
         "files" => String::from("File management"),
         "picture" => String::from("The look at a picture"),
         "hand_out" => String::from("Handing a file to the user"),
+        "display" => String::from("Showing the contents of a file"),
         "ask" => String::from("Asking the user"),
         other => String::from(other),
     }
@@ -7734,6 +7776,9 @@ fn offered(
         }
         if switches.hand_out {
             list.push(download::definition());
+        }
+        if switches.display {
+            list.push(display::definition(sandbox));
         }
         if switches.ask {
             list.push(askuser::definition());
@@ -7885,6 +7930,7 @@ fn run_program_tool(
         search::NAME => "Searching the web",
         viewimage::NAME | viewimage::ONE_NAME => "Looking at images",
         download::NAME => "Offering a file",
+        display::NAME => "Showing a file to the user",
         askuser::NAME => "Asking the user",
         planning::EDIT_NAME => "Changing the plan",
         planning::READ_NAME => "Reading the plan",
@@ -8094,6 +8140,23 @@ fn run_program_tool(
             "The plan is let go. This talk ends here, and the plan becomes the first message of the work.",
             true,
         );
+        return;
+    }
+    // A show of the contents of files. Nothing is copied and nothing is kept in
+    // the words of the talk: the block of the show names the files, and the button
+    // of it opens the window of the chat over them. The window reads each file
+    // again when the user opens it, under the same rule of the room as the call.
+    if call.name == display::NAME {
+        let jailed = match state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.sandbox_enabled)
+                .unwrap_or(true),
+            Err(_) => true,
+        };
+        let made = display::show(workdir, &call.arguments, jailed);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_displayed(&message_id, &made.report.output, made.report.ok, made.shown);
         return;
     }
     // A file the user is offered. Nothing is copied and nothing is fetched: the

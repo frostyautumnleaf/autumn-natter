@@ -84,6 +84,16 @@ pub async fn get_gift_zip(
     Ok(web::gift_zip_value(&engine, &paths))
 }
 
+// The contents of one file of a show, for the window that looks at a file whole.
+// The bytes come by the name the block of the show carries, under the same rule of
+// the room as the call that made the block: while the sandbox of the chat stands
+// only the room of the chat is opened, and with the sandbox off a file of the
+// machine may be read. A kind the window has no way of showing is refused.
+#[tauri::command]
+pub async fn get_displayed(engine: State<'_, Engine>, path: String) -> Result<Value, String> {
+    Ok(web::display_value(&engine, &path))
+}
+
 // The settings of the program, for the sheet of settings. The same three calls
 // stand behind the routes of the remote page, in `web`.
 #[tauri::command]

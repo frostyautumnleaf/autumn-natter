@@ -23,6 +23,7 @@ pub mod askuser;
 pub mod attach;
 pub mod config;
 pub mod documents;
+pub mod display;
 pub mod download;
 pub mod editfile;
 pub mod engine;

@@ -30,6 +30,7 @@ pub fn run(cfg: Config) -> Result<(), String> {
             commands::get_plan,
             commands::get_gift,
             commands::get_gift_zip,
+            commands::get_displayed,
             commands::get_config,
             commands::save_config,
             commands::list_repositories,

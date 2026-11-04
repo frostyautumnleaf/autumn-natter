@@ -128,6 +128,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                     "path": one.path,
                     "size": one.size,
                 })).collect::<Vec<Value>>(),
+                // The files one run of the display tool put in the window. The page
+                // draws a block with one button, and the button opens the window of
+                // a file over these files, in this order.
+                "displayed": m.displayed.iter().map(|one| json!({
+                    "name": one.name,
+                    "extension": one.extension,
+                    "shape": one.shape,
+                    "path": one.path,
+                    "size": one.size,
+                })).collect::<Vec<Value>>(),
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is
@@ -315,6 +325,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "files": snap.tool_switches.files,
             "picture": snap.tool_switches.picture,
             "hand_out": snap.tool_switches.hand_out,
+            "display": snap.tool_switches.display,
             "ask": snap.tool_switches.ask,
         },
         "search": snap.search_enabled,
@@ -681,6 +692,26 @@ pub fn gift_value(engine: &crate::engine::Engine, asked: &str) -> Value {
             })
         }
         None => refused("That file is not here, or it does not stand in this chat"),
+    }
+}
+
+// The bytes of one file of a show, for the window over the contents of a file.
+// The window asks for the file by the name the block carries, and the rule of the
+// room follows the state of the sandbox of the open chat. The window answers with
+// the bytes, the kind of them and the name, as the gift answers.
+pub fn display_value(engine: &crate::engine::Engine, asked: &str) -> Value {
+    match engine.display_of(asked) {
+        Some((name, kind, bytes)) => {
+            let size = bytes.len();
+            json!({
+                "ok": true,
+                "name": name,
+                "mime": kind,
+                "data": format!("data:{};base64,{}", kind, util::b64(&bytes)),
+                "size": size,
+            })
+        }
+        None => refused("That file is not here, or it is not a kind the window shows"),
     }
 }
 
