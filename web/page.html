@@ -636,6 +636,21 @@ pre.code {
   scrollbar-color: var(--line-strong) transparent; color: var(--text-2);
 }
 
+/* The mark that takes the words of a block of code away. It stands over the block
+   at its top right, and stays there while the block is read, for it belongs to the
+   block and not to the words. It is seen when the pointer is over the block, or
+   when the keyboard comes to it, for a mark that is always to be seen over every
+   block of code is noise. */
+.codebox { position: relative; }
+.codebox .copycode { position: absolute; top: 7px; right: 7px; display: inline-flex;
+  align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 6px; background: var(--code-bg); border: 1px solid var(--code-line);
+  color: var(--dim); cursor: pointer; opacity: 0; transition: opacity 120ms; }
+.codebox:hover .copycode, .codebox:focus-within .copycode { opacity: 1; }
+.codebox .copycode:hover { color: var(--ink); background: var(--hover); }
+.codebox .copycode .svg { width: 12.5px; height: 12.5px; }
+.codebox .copycode.done { color: var(--ink-leaf); }
+
 /* The colours of a code block. Every one of them is one of the five accents, a
    neutral, or a mix of an accent with a warm neutral for the dark skin, where
    the deep accents cannot be read on #0a0400. Weight and shape tell one kind of
@@ -5150,6 +5165,70 @@ function paintCode(node, text, lang) {
     }
   }
 }
+// The mark that takes the words of a block of code away, so they can stand where
+// the user wants them: in a file, in a field of another program, in a note. The
+// mark is a brother of the block and not a word of it, for a block of code is
+// painted again whenever a colour comes into it, and painting takes everything
+// away from it.
+var COPY_WORDS = 'Copy the words of this block';
+var COPIED_WORDS = 'Copied';
+var COPY_FAIL_WORDS = 'The words could not be copied';
+var COPY_MARK = 'M5.8 5.8h6.6v6.6H5.8zM10.2 3.4H3.4v6.8';
+
+// The old road of the clipboard: the words stand in a field of one line away from
+// sight, the machine copies what is chosen in it, and the field goes again.
+function copyOld(words) {
+  try {
+    var field = document.createElement('textarea');
+    field.value = words;
+    field.setAttribute('readonly', '');
+    field.style.position = 'fixed';
+    field.style.top = '-1200px';
+    document.body.appendChild(field);
+    field.select();
+    var good = document.execCommand('copy');
+    document.body.removeChild(field);
+    return !!good;
+  } catch (why) { return false; }
+}
+
+// The words go to the clipboard of the box. The door of the web is the way when it
+// stands; the window of the program is no place the door trusts, and a page read
+// over an address it does not trust has no door either, so the old road stands
+// behind it. The mark says what came of it for a moment, then asks again.
+function copyOut(words, one) {
+  var told = function (good) {
+    var said = good ? COPIED_WORDS : COPY_FAIL_WORDS;
+    one.setAttribute('data-tip', said);
+    one.setAttribute('aria-label', said);
+    one.classList.toggle('done', !!good);
+    window.setTimeout(function () {
+      one.setAttribute('data-tip', COPY_WORDS);
+      one.setAttribute('aria-label', COPY_WORDS);
+      one.classList.remove('done');
+    }, 1600);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(words).then(function () { told(true); },
+      function () { told(copyOld(words)); });
+    return;
+  }
+  told(copyOld(words));
+}
+
+function codeBox(code) {
+  var box = make('div', 'codebox');
+  box.appendChild(code);
+  var one = make('button', 'copycode');
+  one.type = 'button';
+  one.setAttribute('data-tip', COPY_WORDS);
+  one.setAttribute('aria-label', COPY_WORDS);
+  one.appendChild(mark(COPY_MARK));
+  one.addEventListener('click', function () { copyOut(code.textContent, one); });
+  box.appendChild(one);
+  return box;
+}
+
 // One block of words, as the window sets it.
 function blockNode(block) {
   if (block.kind === 'rule') {
@@ -5223,7 +5302,7 @@ function blockNode(block) {
     code.dataset.lang = block.lang || '';
     watchCode(code);
     paintCode(code, block.text, block.lang);
-    return code;
+    return codeBox(code);
   }
   var text = make('div', 'body');
   inlineInto(text, inlineParts(block.text), false);
@@ -5337,6 +5416,9 @@ function holderOf(node) {
     return node.querySelector('tbody tr:last-child td:last-child')
       || node.querySelector('thead tr:last-child th:last-child') || node;
   }
+  // The words of a block of code stand in the block, and the mark of the copy
+  // stands beside it, so the block is what can still grow.
+  if (node.classList.contains('codebox')) { return node.querySelector('pre.code') || node; }
   return node;
 }
 
