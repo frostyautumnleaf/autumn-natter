@@ -1354,8 +1354,8 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 /* The files that hang on a message the user has sent stand under its words,
    inside the bubble, on the user's side. They are not chips: a chip is a
    thing in the chat box that may still be thrown away. Here the file has gone
-   out, so a picture is laid out as a plate — the picture, and under it its
-   whole name with the ending — and a file of words is a card no taller than
+   out, so a picture is laid out as a plate (the picture, and under it its whole
+   name with the ending), and a file of words is a card no taller than
    the name it carries. Nothing stretches to the height of its neighbour, which
    is what made a row of blocks look like a shelf of holes of one size. */
 .bubble .parts { display: flex; flex-wrap: wrap; align-items: flex-start;
@@ -2347,7 +2347,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <span class="sub">How long the model waits for you to answer a question it put to you before it goes on without an answer and is told that you did not reply. Questions of this kind are the ordinary ones: the model could go on, but would rather ask.</span>
           <div class="ctl"><input id="fAskSeconds" type="number" min="1" max="86400" step="1" placeholder="30"><span class="unit">seconds</span></div></div>
         <div class="fld"><span class="lbl">A weighty question waits</span>
-          <span class="sub">How long the model waits for a question it marked as one it cannot go on without — a token that was never given, a choice only you can make. 0 means it waits until you answer, which is what such a question asks for.</span>
+          <span class="sub">How long the model waits for a question it marked as one it cannot go on without (a token that was never given, a choice only you can make). 0 means it waits until you answer, which is what such a question asks for.</span>
           <div class="ctl"><input id="fAskCriticalSeconds" type="number" min="0" max="86400" step="1" placeholder="0"><span class="unit">seconds, 0 for as long as it takes</span></div></div>
 
         <div class="fld"><span class="lbl">Send the date and time at the start of a chat</span>
@@ -6265,7 +6265,7 @@ function viewedPics(m) {
 // asks nothing again. The eye at the corner carries the whole reason in its tip.
 function viewedPic(one) {
   var plate = make('div', 'tshot');
-  plate.title = one.name;
+  plate.setAttribute('data-tip', one.name);
   plate.appendChild(make('span', 'pic'));
   if (attUrls[one.id]) {
     fillPic(plate, attUrls[one.id], one.name);
@@ -6281,7 +6281,9 @@ function viewedPic(one) {
   }
   // The user may look at the picture the model was shown, at the size it is.
   plate.classList.add('peek');
-  plate.title = one.name + ' — click to look at the picture';
+  // The words of the plate stand in `data-tip`, so no tooltip of the machine can
+  // ever come over the picture it speaks of.
+  plate.setAttribute('data-tip', one.name + ' - click to look at the picture');
   plate.setAttribute('role', 'button');
   plate.tabIndex = 0;
   plate.addEventListener('click', function () {
@@ -6289,7 +6291,7 @@ function viewedPic(one) {
   });
   var seen = 'The model can see this image.';
   var eye = make('span', 'seen');
-  eye.title = seen;
+  eye.setAttribute('data-tip', seen);
   eye.setAttribute('aria-label', seen);
   eye.appendChild(mark(EYE_MARK));
   plate.appendChild(eye);
@@ -11003,7 +11005,12 @@ sEl('sidebtn') && sEl('sidebtn').addEventListener('click', function () { sideSho
 // fault, and is put back when the pointer leaves - nothing else about the part
 // changes, a screen reader still reads the words, and any part of the page that
 // writes its own words is none the wiser.
-var tipBox = null, tipOwner = null, tipWords = '', tipTimer = null, tipWatch = null;
+// A part that must never carry a tooltip of the machine stands its words in
+// `data-tip` instead. No native box can come over such a part, which is what a
+// picture wants: the grey box of the machine hides the very thing it speaks of.
+// `data-tip` is read first, so a part may name its words once and keep them.
+var tipBox = null, tipOwner = null, tipWords = '', tipTimer = null, tipWatch = null,
+    tipBorrowed = false;
 
 function tipPlace(one) {
   var r = one.getBoundingClientRect();
@@ -11047,10 +11054,10 @@ function tipWatchStop() {
 function tipPutBack() {
   if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
   tipWatchStop();
-  if (tipOwner && tipWords && !tipOwner.hasAttribute('title')) {
+  if (tipBorrowed && tipOwner && tipWords && !tipOwner.hasAttribute('title')) {
     tipOwner.setAttribute('title', tipWords);
   }
-  tipOwner = null; tipWords = '';
+  tipOwner = null; tipWords = ''; tipBorrowed = false;
   if (tipBox) { tipBox.classList.remove('on'); tipBox.textContent = ''; }
 }
 
@@ -11069,16 +11076,24 @@ function tipShow() {
 }
 
 document.addEventListener('mouseover', function (event) {
-  var one = event.target && event.target.closest ? event.target.closest('[title]') : null;
+  var one = event.target && event.target.closest
+    ? event.target.closest('[data-tip], [title]') : null;
   if (one === tipOwner) { return; }
   tipPutBack();
   if (!one) { return; }
-  var words = String(one.getAttribute('title') || '');
+  // The words of `data-tip` stand where they were put, for no box of the machine
+  // reads them; the words of a `title` are borrowed, for the box of the machine
+  // reads them and two tooltips over one part read as a fault.
+  var held = one.getAttribute('data-tip');
+  var words = String((held === null ? one.getAttribute('title') : held) || '');
   if (!words.trim()) { return; }
   tipOwner = one;
   tipWords = words;
-  one.removeAttribute('title');
-  tipWatchStart(one);
+  tipBorrowed = held === null;
+  if (tipBorrowed) {
+    one.removeAttribute('title');
+    tipWatchStart(one);
+  }
   // The tooltip of the machine does not come up at once either: a pointer on its
   // way across a row of badges is not asking for the words of every one of them.
   tipTimer = setTimeout(tipShow, 320);
