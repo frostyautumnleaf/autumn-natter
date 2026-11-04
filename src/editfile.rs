@@ -93,7 +93,7 @@ pub fn edit_definition(sandbox: bool) -> Value {
         "function": {
             "name": EDIT_NAME,
             "description": with_rule(format!(
-                "Change a file in the chat by replacing exact text with other exact text. Prefer this over writing a whole file again with the terminal tool, because only the changed part is sent. Copy each old_string exactly from the file, spacing included. Put every change to one file in the same call, not in several calls. Every old_string is matched against the file as it was before this call, and no two of them may cover the same text. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. An old_string is never empty: use create_file for a new file. {} A call that succeeded means the file now holds what was sent, so read it again only when you must.",
+                "Change a file in the chat by replacing exact text with other exact text. Prefer this over writing a whole file again with the terminal tool, because only the changed part is sent. Copy each old_string exactly from the file, spacing included. Put every change to one file in the same call, not in several calls. Every old_string is matched against the file as it was before this call, and no two of them may cover the same text. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. A change that matches no place is answered with the lines of the file nearest to the text it looked for, so the call can be written again from those lines and go through. An old_string is never empty: use create_file for a new file. {} A call that succeeded means the file now holds what was sent, so read it again only when you must.",
                 reach_words(sandbox, false)
             )),
             "parameters": {
@@ -881,6 +881,60 @@ fn count_of(text: &str, needle: &str) -> usize {
     made
 }
 
+// The few words of the file that stand nearest to the words a change looked for.
+// A change that matched nowhere is nearly always a change whose words were written
+// out of memory: one space of indentation, one mark, one line of the file left out.
+// The lines of the file about the place those words belong to are given back, so
+// the call is written again with the words of the file in it and goes through.
+//
+// The place is sought among the lines of the file for the one that looks most like
+// the words looked for. Words that are nothing but space are no help to the search,
+// and nothing is promised when nothing of the file looks like them at all.
+fn nearest_words(before: &str, wanted: &str) -> String {
+    let first = wanted
+        .lines()
+        .map(|line| line.trim())
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    if first.is_empty() {
+        return String::new();
+    }
+    // How much a line of the file looks like the words looked for: the run of
+    // leading characters they share, and the whole of it when a line of the file
+    // says the same thing with more space before it.
+    let looked = |row: &str| -> usize {
+        let bare = row.trim_start();
+        let same = bare
+            .chars()
+            .zip(first.chars())
+            .take_while(|(one, other)| one == other)
+            .count();
+        if bare == first {
+            return same + 4;
+        }
+        same
+    };
+    let rows: Vec<&str> = before.lines().collect();
+    let mut best: usize = 0;
+    let mut score: usize = 0;
+    for (place, row) in rows.iter().enumerate() {
+        let here = looked(row);
+        if here > score {
+            score = here;
+            best = place;
+        }
+    }
+    // Nothing of the file looks like the words looked for, not even the first two
+    // characters of them. A window of lines that have nothing to do with the
+    // change would send the model to a wrong place, so nothing is shown.
+    if score < 2 {
+        return String::new();
+    }
+    let from = best.saturating_sub(2);
+    let to = (best + 3).min(rows.len());
+    rows[from..to].join("\n")
+}
+
 // Every change of the call, worked out against the words as they stood before
 // the call. The places are found first, and two of them that cover the same
 // words are a fault of the call. The changes are then made from the back of the
@@ -892,9 +946,19 @@ fn apply_all(before: &str, changes: &[Change], name: &str) -> Result<Made, Strin
         let index = number + 1;
         let found = count_of(before, &change.before);
         if found == 0 {
+            let near = nearest_words(before, &change.before);
+            if near.is_empty() {
+                return Err(format!(
+                    "change {} found no text to replace in '{}'. The text must match the file exactly, spacing included. Read the file and copy the text from it.",
+                    index, name
+                ));
+            }
+            // The words of the file nearest to what was looked for are given back
+            // whole, so the change is written again from them and the call goes
+            // through without another read of the file.
             return Err(format!(
-                "change {} found no text to replace in '{}'. The text must match the file exactly, spacing included. Read the file and copy the text from it.",
-                index, name
+                "change {} found no text to replace in '{}'. The text must match the file exactly, spacing included. Nothing was written. The lines of the file nearest to what was looked for stand between the two marks below, as they stand in the file; write the change again from them.\n----\n{}\n----",
+                index, name, near
             ));
         }
         if found > 1 && !change.everywhere {
@@ -1554,6 +1618,57 @@ mod tests {
         let made = apply_all(before, &changes, "notes.txt");
         assert!(made.is_err());
         assert!(made.unwrap_err().contains("found no text to replace"));
+    }
+
+    // A change that matched nowhere is answered with the lines of the file nearest
+    // to the text it looked for. The fault is nearly always a word written out of
+    // memory, and the words of the file beside it are what the call needs to be
+    // written again and go through.
+    #[test]
+    fn a_change_that_matched_nowhere_gives_the_words_of_the_file() {
+        let before = "use std::io;\n\nfn main() {\n    let word = read();\n    print(word);\n}\n";
+        let changes = vec![Change {
+            // The same line as the file holds it, but written from memory: the
+            // spaces about the sign of giving are gone, so it matches nowhere.
+            before: "let word=read();".into(),
+            after: "let word=read_line();".into(),
+            everywhere: false,
+        }];
+        let words = apply_all(before, &changes, "main.rs").unwrap_err();
+        assert!(words.contains("found no text to replace"), "{}", words);
+        assert!(
+            words.contains("    let word = read();"),
+            "the line of the file was not given back: {}",
+            words
+        );
+        assert!(
+            words.contains("write the change again from them"),
+            "the answer does not say what to do with the lines: {}",
+            words
+        );
+        // The lines of the file stand whole: the space of the indentation is kept,
+        // and nothing is put before a line that would be copied with it.
+        assert!(words.contains("----\n"), "the lines are not marked off: {}", words);
+    }
+
+    // Nothing of the file looks like the words the change looked for. A window of
+    // lines that have nothing to do with the change would send the model to a wrong
+    // place, so nothing is shown and the model is sent to read the file.
+    #[test]
+    fn a_change_that_matched_nothing_near_is_sent_to_read_the_file() {
+        let before = "alpha\nbeta\ngamma\ndelta\n";
+        let changes = vec![Change {
+            before: "fn parse(input: &str) -> Result<u32, Error> {".into(),
+            after: "fn parse(input: &str) -> Result<u64, Error> {".into(),
+            everywhere: false,
+        }];
+        let words = apply_all(before, &changes, "notes.txt").unwrap_err();
+        assert!(
+            words.contains("Read the file and copy the text from it"),
+            "{}",
+            words
+        );
+        assert!(!words.contains("----"), "a window of lines that are nothing to the change was shown: {}", words);
     }
 
     // Two changes of one call cannot cover one place.
