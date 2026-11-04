@@ -5175,6 +5175,29 @@ pub fn summary_calls_answered(calls: &[llama::ToolCall], said: &str) -> Vec<Valu
 // first ask to the last: a cancelled call is answered where it stands and the
 // model is asked on from there, which costs the few words of the answer and
 // nothing of the talk.
+// Where the meter of the talk stands when an ask for a summary begins: the room of
+// the words that go out with this ask, and nothing else. The words a summary of
+// before stands for are not among them, for the talk that goes out is the first
+// prompt, the summary, and the words after the mark; and neither are the words of a
+// summary that was thrown away, which is what the second ask of one summary sends.
+fn summary_start(body: &Value) -> u64 {
+    estimate_tokens(&body["messages"])
+}
+
+// The words shown when the words of a summary came back as nothing. Two faults look
+// alike here: either way the writing ended with no word of the summary in it. Only
+// one of them is the room. The server speaks "length" when it came to the end of
+// the room, and the hand over the writing of a summary speaks the same word for the
+// same thing; any other end means the model had room and gave no words, and the
+// room is not to blame for that.
+fn empty_summary_words(finish: &str) -> &'static str {
+    if finish == "length" {
+        "The summary filled the context without a word of itself. Asking for a shorter one"
+    } else {
+        "The model gave no words for the summary, and the room was not full. Asking again for a shorter one"
+    }
+}
+
 fn ask_summary_for_handoff(
     state: &Arc<Mutex<State>>,
     base_url: &str,
@@ -5352,6 +5375,16 @@ fn ask_summary(
         guard.thought_end = None;
         guard.live_thought_ms = 0;
         guard.live_thought_done = false;
+        // The meter is anchored on the words that go out with this ask, and not on
+        // where the meter stood before. A summary asked for the second time with the
+        // short prompt sends the same trimmed talk: the wall of words the first
+        // attempt wrote is thrown away, and is no part of the talk that goes out
+        // now. The climb of the meter only ever climbs, so a meter that kept the
+        // high-water mark of that writing read the room as gone before the model had
+        // a word to write, and the ask was then blamed for filling the context when
+        // the room was still there. The words a summary of before stands for are not
+        // in the talk that goes out, so they are not in this number either.
+        guard.ctx_used = summary_start(body);
     }
     // A summary is asked for with no hand of the summarisation limit over it: it
     // is the making of the room and not the spending of it, the ask carries the
@@ -5651,15 +5684,27 @@ fn run_handoff(
         // The line above this one in the log says what the server spoke of the ask
         // that has just come back, and whether the room filled under it. This line
         // says only what the program made of it, for the two are read apart by the
-        // words a user is shown here.
+        // words a user is shown here. The two numbers of it are written down as
+        // well: what the server spoke of the end of the writing, and the room of the
+        // words that went out with the ask. Without them a reader of the log cannot
+        // tell the room that was really gone from the room that was only blamed.
         proglog::note(
             proglog::SUMMARY,
-            "the model gave no words at all for the summary, although the ask came back with no fault of its own. The ask is made again with the short prompt of the settings.",
+            &format!(
+                "the model gave no words at all for the summary, although the ask came back with no fault of its own. The server spoke the end of the writing as {}, the words that went out with the ask measured {}, and the room of the model is {}; the ask is made again with the short prompt of the settings.",
+                if shot.finish.is_empty() {
+                    "nothing"
+                } else {
+                    shot.finish.as_str()
+                },
+                shot.sent,
+                state
+                    .lock()
+                    .map(|guard| guard.ctx_total)
+                    .unwrap_or_default()
+            ),
         );
-        tell(
-            state,
-            "The summary filled the context without a word of itself. Asking for a shorter one",
-        );
+        tell(state, empty_summary_words(&shot.finish));
         let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), slot, cancel);
         let cleaned = clean_summary(&again.text);
         if !cleaned.trim().is_empty() {
@@ -8351,10 +8396,20 @@ fn ensure_server(
     }
 }
 
-// Rough token count, used when the server gives no usage numbers. The
-// content of a message is words, or a list of parts with the words of the
-// user, the words of the files, and the pictures of the message among
-// them. A picture costs a block of tokens of its own, whatever it shows.
+// Rough token count, used when the server gives no usage numbers, and as the floor
+// under the number the server spoke (see `used_after`). It is the measure of the
+// words that actually go out with the ask, so every part of a message the server is
+// sent is counted: the words of the message, whether they stand as one string or as
+// the parts of a message of the user, the thinking that is sent back when the chat
+// keeps it, and the name and the arguments of every call of a tool the model made --
+// those go out with the talk and cost the room of them, and leaving them out read a
+// chat with many calls as having room it had not. A picture costs a block of tokens
+// of its own, whatever it shows.
+//
+// This is a rough count and stays one: the server's own number is the authority, and
+// it takes the meter wherever the two disagree. What this count is not allowed to do
+// is read the talk smaller than it is by ignoring a part of the ask, for a room
+// weighed on too small a number is sent for again and again until it is gone.
 fn estimate_tokens(history: &Value) -> u64 {
     let mut chars = 0u64;
     if let Some(items) = history.as_array() {
@@ -8373,6 +8428,37 @@ fn estimate_tokens(history: &Value) -> u64 {
                     }
                 }
                 _ => {}
+            }
+            // The thinking of a turn that is sent back to the model costs the room
+            // of its words, as any other words of the talk do.
+            if let Some(said) = item
+                .get("reasoning_content")
+                .and_then(|t| t.as_str())
+            {
+                chars += said.chars().count() as u64;
+            }
+            // The calls of a tool ride on the message of the turn that made them,
+            // and the server reads them as part of the talk. The name of the tool and
+            // the arguments the model wrote stand under the part named `function`,
+            // which is the shape the talk carries; the two names are also read where
+            // they stand, so a call is never passed by for want of the shape.
+            if let Some(calls) = item.get("tool_calls").and_then(|c| c.as_array()) {
+                for one in calls {
+                    let held = |where_: &Value, key: &str| -> u64 {
+                        where_
+                            .get(key)
+                            .and_then(|v| v.as_str())
+                            .map(|said| said.chars().count() as u64)
+                            .unwrap_or_default()
+                    };
+                    let function = one.get("function").cloned().unwrap_or(Value::Null);
+                    chars += held(&function, "name") + held(&function, "arguments");
+                    chars += held(one, "name") + held(one, "arguments");
+                    chars += held(one, "id");
+                    // The envelope of a call: the marks of a call, and the name of
+                    // the part that holds its arguments.
+                    chars += 24;
+                }
             }
             // Every message costs a few tokens on its own.
             chars += 8;
@@ -10625,6 +10711,109 @@ mod tests {
             state.running.as_ref().map(|one| one.watch.stopped()).unwrap_or(false),
             "the mark of the answer left the running call going"
         );
+    }
+
+    // The measure of the talk is the measure of the words that go out with the ask.
+    // Every part the server is sent costs the room of it: the words of a turn, the
+    // thinking that is sent back when the chat keeps it, and the name and the
+    // arguments of a call of a tool. A measure that left a part out read the room as
+    // bigger than it is, and the room was then spent before the meter said so.
+    #[test]
+    fn the_measure_of_the_talk_counts_every_word_that_goes_out() {
+        let plain = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "assistant", "content": "the answer of the model"},
+        ]);
+        let base = estimate_tokens(&plain);
+        // A turn that made a call. The call rides on the message of the turn, with
+        // the name of the tool and the arguments the model wrote under the part named
+        // `function`, which is the shape the talk carries to the server.
+        let called = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "assistant", "content": Value::Null, "tool_calls": [{
+                "id": "call-one",
+                "type": "function",
+                "function": {
+                    "name": "Run one shell command",
+                    "arguments": "{\"command\":\"uname -a and a good many words of arguments to cost the room of them\"}"
+                }
+            }]},
+        ]);
+        let with_calls = estimate_tokens(&called);
+        assert!(
+            with_calls > base,
+            "the words of a call were not counted: {} against {}",
+            with_calls,
+            base
+        );
+        // The thinking that is sent back costs the room of its words.
+        let thought = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "assistant", "content": "the answer of the model", "reasoning_content": "a great deal of thinking that the chat keeps and sends back again to the model with the talk"},
+        ]);
+        let with_thinking = estimate_tokens(&thought);
+        assert!(
+            with_thinking > base,
+            "the thinking of a turn was not counted: {} against {}",
+            with_thinking,
+            base
+        );
+    }
+
+    // The meter of a summary ask stands on the words that go out with that ask: the
+    // first prompt, the summary of before, and the words after the mark. The words
+    // the summary stands for are not among them, and neither are the words of a
+    // summary that was thrown away, so a second ask of one summary does not start
+    // with a room that is already gone.
+    #[test]
+    fn the_meter_of_a_summary_ask_counts_the_words_that_go_out() {
+        // A talk with a great deal between the first prompt and the next message of
+        // the user. A summary of it stands for those words, and after the summary
+        // they are no part of what goes out.
+        let long = "a long answer of the model with a great many words in it. ".repeat(200);
+        let whole = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "assistant", "content": long},
+            {"role": "user", "content": "and the next thing"},
+        ]);
+        let trimmed = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "user", "content": "Done: the answer above. Next: nothing."},
+            {"role": "user", "content": "and the next thing"},
+        ]);
+        let whole_room = estimate_tokens(&whole);
+        let trimmed_room = estimate_tokens(&trimmed);
+        assert!(
+            trimmed_room * 4 < whole_room,
+            "the words a summary stands for were still counted: {} against {}",
+            trimmed_room,
+            whole_room
+        );
+        let ask = summary_ask(&trimmed, "Write a very short handoff summary", None);
+        // The ask line goes out with the talk, so the meter of the ask is above the
+        // measure of the talk alone, and nothing else is added to it.
+        let start = summary_start(&ask);
+        assert!(start > trimmed_room, "the ask line was not counted");
+        assert!(
+            start < whole_room,
+            "the words the summary stands for were counted in the meter of the ask: {} against {}",
+            start,
+            whole_room
+        );
+    }
+
+    // The two faults that end a summary with no words are told apart by what the
+    // server spoke of the end of the writing. Only one of them is the room, and the
+    // user is not told the room was to blame when it was not.
+    #[test]
+    fn the_words_of_an_empty_summary_tell_the_two_faults_apart() {
+        let full = empty_summary_words("length");
+        assert!(full.contains("filled the context"), "{}", full);
+        let silent = empty_summary_words("stop");
+        assert!(!silent.contains("filled the context"), "{}", silent);
+        assert!(silent.contains("the room was not full"), "{}", silent);
+        // A server that gave no reason at all is not blamed on the room either.
+        assert!(!empty_summary_words("").contains("filled the context"));
     }
 
     // A summarisation that was never written is started again in the place it
