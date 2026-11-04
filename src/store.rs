@@ -573,6 +573,13 @@ pub struct Message {
     // takes, in tokens.
     #[serde(default)]
     pub context_after: u64,
+    // A message of the role "Summary" only. True when the summary came from the
+    // short prompt of the settings, which is the ask made again when the room ran
+    // full under the first ask. The two are asked for with different words and
+    // hold different amounts, so the user is told which of them stands in the
+    // chat. A chat written before this was asked with the prompt of the settings.
+    #[serde(default)]
+    pub short: bool,
 }
 
 // A chat with its messages.

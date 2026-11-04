@@ -7594,7 +7594,12 @@ function showSummary(one, text) {
   el.sumTitle.textContent = (one && one.number)
     ? 'Summarised #' + one.number : 'The handoff summary';
   var when = (one && one.when) || '';
-  var line = when ? 'Summarised on ' + when : '';
+  // The two asks are told apart: the prompt of the settings, and the short prompt
+  // that is asked again when the room ran full under the first, or when the words
+  // of the first came to no end of themselves. A short summary holds less than
+  // the other, so the user reads which of the two stands in the chat.
+  var line = (one && one.short) ? 'A short handoff summary' : 'A regular handoff summary';
+  if (when) { line += ' - Summarised on ' + when; }
   if (one && one.before) {
     line += (line ? ' - ' : '') + '<b>' + commas(one.before)
       + '</b> tokens of the conversation became <b>' + commas(one.after || 0) + '</b> in the summary';

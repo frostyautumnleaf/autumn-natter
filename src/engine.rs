@@ -404,6 +404,11 @@ pub struct Handoff {
     pub snippet: String,
     // What went wrong, when the summary was never written.
     pub why: String,
+    // Which of the two asks the summary came from: the prompt of the settings, or
+    // the short prompt that is asked again when the room ran full under the first
+    // ask. The user reads the two apart, for a short summary holds less than the
+    // other, and the two are asked for with different words.
+    pub short: bool,
 }
 
 // The summarisations of one chat, in the order they were made. `writing` says
@@ -441,6 +446,7 @@ fn handoff_marks(chat: &Chat, writing: bool) -> Vec<Handoff> {
             } else {
                 message.tool.clone()
             },
+            short: message.short,
         });
     }
     out
@@ -1837,6 +1843,23 @@ impl State {
         }
         self.persist();
         self.touch();
+    }
+
+    // The mark of a summarisation says which of the two asks its words came
+    // from. The short prompt of the settings is the ask made again when the room
+    // ran full under the first one, or when the words of the first came to no end
+    // of themselves; its words hold less, and the user is told which of the two
+    // stands in the chat. A mark that was never written carries the mark of the
+    // ask of the settings, for a chat of before reads that way too.
+    fn summary_short(&mut self, id: &str, short: bool) {
+        let Some(chat) = self.chat_mut() else {
+            return;
+        };
+        if let Some(place) = chat.messages.iter().position(|m| m.id == id) {
+            if let Some(mark) = chat.messages.get_mut(place) {
+                mark.short = short;
+            }
+        }
     }
 
     // True when a handoff summary of the open chat was asked for and never came
@@ -5656,6 +5679,7 @@ fn run_handoff(
             if !cleaned.trim().is_empty() {
                 shot = again;
                 summary = cleaned;
+                asked_short = true;
             }
         }
     }
@@ -5733,6 +5757,7 @@ fn run_handoff(
         guard.persist();
         return false;
     }
+    guard.summary_short(&id, asked_short);
     guard.finish_summary(&id, &summary, before, after, &why);
     // The room the talk takes now, read from the words that stand after the
     // summary: the first prompt, the summary, and the words that come after it.
@@ -10461,6 +10486,61 @@ mod tests {
         let marks = state.handoffs();
         assert_eq!(marks[1].state, "done");
         assert_eq!(marks[1].before, 7000);
+    }
+
+    // The mark of a summarisation says which of the two asks its words came
+    // from. The short prompt of the settings is asked again when the room ran full
+    // under the first ask, or when the words of the first came to no end of
+    // themselves; it holds less, and the user is told which of the two stands in
+    // the chat. A chat written before the two were told apart carries no word of
+    // either ask, and reads as the ask of the settings.
+    #[test]
+    fn a_summarisation_says_whether_it_is_the_short_one() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        // The ask of the settings: nothing of a short ask stands in its mark.
+        let plain = state.begin_summary();
+        state.summary_short(&plain, false);
+        state.finish_summary(&plain, "Done: the parser. Next: the bar.", 6964, 412, "");
+        assert!(!state.handoffs()[0].short, "the ask of the settings");
+        // The ask made again with the short prompt of the settings.
+        let short = state.begin_summary();
+        state.summary_short(&short, true);
+        state.finish_summary(&short, "Done. Next: nothing.", 7000, 96, "");
+        assert!(state.handoffs()[1].short, "the short ask of the settings");
+        drop(state);
+        // A chat of before, read out of its words with the mark of the ask taken
+        // out of them, is a chat of the ask of the settings.
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("a chat stands open");
+        let mut words = serde_json::to_value(chat).expect("a chat is words");
+        drop(state);
+        let places: Vec<usize> = words["messages"]
+            .as_array()
+            .expect("the messages of the chat")
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m["role"] == json!("Summary"))
+            .map(|(place, _)| place)
+            .collect();
+        assert_eq!(places.len(), 2, "two marks of a summarisation stand");
+        for place in places {
+            words["messages"][place]
+                .as_object_mut()
+                .expect("a message of the chat")
+                .remove("short");
+        }
+        let before: store::Chat = serde_json::from_value(words).expect("a chat of before");
+        let marks = handoff_marks(&before, false);
+        assert_eq!(marks.len(), 2);
+        assert!(
+            marks.iter().all(|one| !one.short),
+            "a mark of before is the ask of the settings"
+        );
     }
 
     // A summarisation that was never written is started again in the place it

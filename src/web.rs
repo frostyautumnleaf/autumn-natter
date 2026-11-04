@@ -70,6 +70,11 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "after": one.after,
                 "snippet": one.snippet,
                 "why": one.why,
+                // Which of the two asks the summary came from: the prompt of the
+                // settings, or the short prompt asked again when the room ran full
+                // under the first. The sheet that shows the whole summary says
+                // which of the two stands here.
+                "short": one.short,
             })
         })
         .collect();
