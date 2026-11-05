@@ -1559,6 +1559,16 @@ impl State {
         self.touch();
     }
 
+    // Say that the words of a chat could not be put down on the disk. The talk
+    // goes on where it stands in the memory, and the file of the chat is the talk
+    // as it was when it was last read. The user is told, and the log of the
+    // program says so too: a chat that leaves the side bar without a word of why
+    // is not to be gone through in silence again.
+    fn note_write_problem(&mut self, problem: &str) {
+        proglog::note(proglog::STORE, problem);
+        self.set_status(&format!("The chat could not be kept on this machine: {}", problem));
+    }
+
     // The chat that is open.
     fn chat_mut(&mut self) -> Option<&mut Chat> {
         let id = self.current.clone()?;
@@ -1584,8 +1594,10 @@ impl State {
         let snapshot = self.chats[place].clone();
         self.ctx_used = snapshot.meta.context_used;
         self.current = Some(snapshot.meta.id.clone());
-        self.store.save_chat(&snapshot);
-        self.set_status("Ready");
+        match self.store.save_chat(&snapshot) {
+            Ok(()) => self.set_status("Ready"),
+            Err(problem) => self.note_write_problem(&problem),
+        }
         self.touch_structure();
     }
 
@@ -1603,13 +1615,17 @@ impl State {
         if let Some(place) = self.chats.iter().position(|c| c.meta.id == id) {
             change(&mut self.chats[place]);
             let snapshot = self.chats[place].clone();
-            self.store.save_chat(&snapshot);
+            if let Err(problem) = self.store.save_chat(&snapshot) {
+                self.note_write_problem(&problem);
+            }
             self.touch_structure();
             return Some(());
         }
         let mut chat = self.store.load_chat(id)?;
         change(&mut chat);
-        self.store.save_chat(&chat);
+        if let Err(problem) = self.store.save_chat(&chat) {
+            self.note_write_problem(&problem);
+        }
         self.touch_structure();
         Some(())
     }
@@ -1660,7 +1676,9 @@ impl State {
         if first {
             self.touch_structure();
         }
-        self.store.save_chat(&snapshot);
+        if let Err(problem) = self.store.save_chat(&snapshot) {
+            self.note_write_problem(&problem);
+        }
     }
 
     // Add one message of a normal kind to the open chat.
@@ -2705,7 +2723,9 @@ impl State {
         if let Some(chat) = self.chat() {
             if !chat.messages.is_empty() {
                 let snapshot = chat.clone();
-                self.store.save_chat(&snapshot);
+                if let Err(problem) = self.store.save_chat(&snapshot) {
+                    self.note_write_problem(&problem);
+                }
             }
         }
         true
@@ -3938,7 +3958,12 @@ impl Engine {
             format!("The chat moved to {}", name)
         };
         chat.meta.repo_id = repo_id.clone();
-        state.store.save_chat(&chat);
+        if let Err(problem) = state.store.save_chat(&chat) {
+            // The chat did not come to its new place, so it is not taken out of
+            // the place it stood in either: it stays where it can be read.
+            state.note_write_problem(&problem);
+            return;
+        }
         state.store.delete_chat(&older, &id);
         // The place that is open is read again, whichever of the two the chat
         // came from or went to. The chat goes with its new place when it is the
@@ -8745,7 +8770,7 @@ mod tests {
             ..Default::default()
         };
         chat.messages.push(message);
-        store.save_chat(&chat);
+        store.save_chat(&chat).expect("the chat is written");
     }
 
     // A chat that was started and never written in leaves no file, so the files
@@ -9103,7 +9128,7 @@ mod tests {
             when: updated,
             ..Default::default()
         });
-        store.save_chat(&chat);
+        store.save_chat(&chat).expect("the chat is written");
     }
 
     // Open a chat the way the first message of a user does. `Create new chat`

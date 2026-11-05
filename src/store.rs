@@ -895,17 +895,41 @@ impl Store {
         out
     }
 
-    // Write a chat. Parent directories are created when needed.
-    pub fn save_chat(&self, chat: &Chat) {
+    // Write a chat. Parent directories are created when needed, and the reason
+    // for a write that could not be finished comes back.
+    //
+    // The words go into a second file beside the chat and that file is put in the
+    // place of the chat with a rename, as `config::save` does. Before this the
+    // file was cut short and written again in one go, so a write that could not be
+    // finished -- the disk is full, or the program is stopped with the words half
+    // written -- left a short file or no file where the chat stood, and the reason
+    // was thrown away. The side bar reads the folder of the chats again on every
+    // change and passes over a file it cannot read, so the chat of such a file went
+    // out of the bar a moment after it was opened, which is the fault this mends.
+    // A write that fails now leaves the chat that stands there untouched.
+    pub fn save_chat(&self, chat: &Chat) -> Result<(), String> {
         let dir = match self.chats_dir(&chat.meta.repo_id) {
             Some(d) => d,
-            None => return,
+            None => return Err(String::from("no folder of this place")),
         };
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join(format!("{}.json", chat.meta.id));
-        if let Ok(text) = serde_json::to_string(&chat) {
-            let _ = fs::write(path, text);
+        if let Err(problem) = fs::create_dir_all(&dir) {
+            return Err(format!("cannot make {}: {}", dir.display(), problem));
         }
+        let path = dir.join(format!("{}.json", chat.meta.id));
+        // The second file keeps the name of the chat, so that the chats of the
+        // folder and the talks that stand half written are told apart by the mark
+        // at the end of the name alone.
+        let held = dir.join(format!("{}.json.writing", chat.meta.id));
+        let text = serde_json::to_string(&chat).map_err(|e| format!("the chat cannot be written out: {}", e))?;
+        if let Err(problem) = fs::write(&held, text) {
+            let _ = fs::remove_file(&held);
+            return Err(format!("cannot write {}: {}", path.display(), problem));
+        }
+        if let Err(problem) = fs::rename(&held, &path) {
+            let _ = fs::remove_file(&held);
+            return Err(format!("cannot put {}: {}", path.display(), problem));
+        }
+        Ok(())
     }
 
     // Take one chat away for good.
@@ -1247,7 +1271,7 @@ mod tests {
         // A chat written now goes to the new place too.
         let mut chat = listed[0].clone();
         chat.meta.title = String::from("again");
-        store.save_chat(&chat);
+        store.save_chat(&chat).expect("the chat is written");
         assert!(talks.join("ab12cd34ef").join("99.json").is_file());
         assert_eq!(store.list_chats("ab12cd34ef")[0].meta.title, "again");
         let _ = fs::remove_dir_all(&room);
@@ -1305,6 +1329,69 @@ mod tests {
                 .name,
             "The Ladder"
         );
+        let _ = fs::remove_dir_all(&room);
+    }
+
+    // A chat is put on the disk through a second file, which is then renamed into
+    // the place of the chat. The talk that stands there is therefore never cut
+    // short: a write that cannot be finished says so, and leaves the chat that was
+    // there to be read again. This is looked at because the side bar reads the
+    // folder of the chats afresh on every change and passes over a file it cannot
+    // read, so a short file is a chat gone out of the bar -- which is how a chat
+    // opened from the bar used to vanish from it a moment later, on a machine with
+    // no room left on its disk.
+    #[cfg(unix)]
+    #[test]
+    fn a_chat_that_cannot_be_written_keeps_the_file_it_had() {
+        use std::os::unix::fs::PermissionsExt;
+        static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let room = std::env::temp_dir().join(format!(
+            "autumn-natter-chat-write-{}-{}",
+            std::process::id(),
+            TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
+        let talks = room.join("repo_chats");
+        let store = Store::with_rooms(
+            room.join("repositories"),
+            talks.clone(),
+            room.join("repo_records"),
+        );
+        let mut chat = Chat::new("ab12cd34ef", "");
+        chat.meta.title = String::from("Standing talk");
+        chat.messages.push(Message {
+            role: String::from("You"),
+            body: String::from("A written question"),
+            when: now_secs(),
+            ..Default::default()
+        });
+        store.save_chat(&chat).expect("the chat is written the first time");
+        let id = chat.meta.id.clone();
+        let group = talks.join("ab12cd34ef");
+        let file = group.join(format!("{}.json", id));
+        assert!(file.is_file(), "the chat stands on the disk");
+
+        // The folder of the talks will not take a new file, so the second write
+        // cannot be finished.
+        fs::set_permissions(&group, fs::Permissions::from_mode(0o500))
+            .expect("the folder of the talks is shut to writing");
+        chat.meta.title = String::from("A name that cannot be kept");
+        let problem = store.save_chat(&chat).expect_err("the write is refused");
+        fs::set_permissions(&group, fs::Permissions::from_mode(0o700))
+            .expect("the folder of the talks is opened again");
+
+        // The chat that stands there is the chat that stood there before, and it
+        // still reads as a chat: the row of it stays in the side bar.
+        assert!(problem.contains("cannot write"), "{}", problem);
+        let again = store.load_chat(&id).expect("the chat is read again");
+        assert_eq!(again.meta.title, "Standing talk");
+        assert_eq!(store.list_chats("ab12cd34ef").len(), 1, "the chat is still listed");
+        // Nothing of the second file is left among the chats of the folder.
+        let left: Vec<String> = fs::read_dir(&group)
+            .expect("the folder of the talks is read")
+            .flatten()
+            .map(|one| one.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(left, vec![format!("{}.json", id)], "{:?}", left);
         let _ = fs::remove_dir_all(&room);
     }
 

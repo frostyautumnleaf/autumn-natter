@@ -43,6 +43,8 @@ pub const SUMMARY: &str = "summary";
 // The writing stopped at the limit, the room that was made, and what the answer
 // was able to do with it.
 pub const CUT: &str = "cut";
+// The talks on disk: a chat that could not be written out, and the reason.
+pub const STORE: &str = "store";
 
 // Begin the log of this run of the program and give back its place. None comes
 // back when the folder cannot be made, and the program then works as it did with no
