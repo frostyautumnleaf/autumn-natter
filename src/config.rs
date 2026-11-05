@@ -291,6 +291,22 @@ pub struct Config {
     // drawn about a panel the far right of its head is far from the words.
     #[serde(default)]
     pub chat_seamless: bool,
+    // How the work of the model is shown. "plain" is the chat as it has always
+    // stood: the thoughts in their panels and every call in a block of its own.
+    // "corporate" shows none of that: one block stands for an answer, its head
+    // saying what the model is at, and the model writes the short of its work
+    // into that block with a tool of its own that no switch of the user can
+    // take away. The other ways of laying the chat out have nothing to say when
+    // this one stands, so the settings of them go grey over it.
+    #[serde(default = "plain_display")]
+    pub chat_display: String,
+    // True once the screen the program puts up when it is started for the very
+    // first time has been gone through. A set of settings written by the program
+    // stands with false, so the screen stands; a set of settings that came from
+    // a file of a program that had no such screen stands with true, for the user
+    // of it has chosen their way long before.
+    #[serde(default = "welcomed_before")]
+    pub welcomed: bool,
     // How many times an answer is asked over when the model came to its own end
     // without a word, a call or a fault. A model that thought a while and then
     // stopped has said nothing of the work it was given, and the same ask a second
@@ -598,6 +614,30 @@ fn silence_retries() -> i64 {
     2
 }
 
+// The chat is shown as it has always been shown: the thoughts in their panels,
+// and every call the model made in a block of its own.
+pub const PLAIN_DISPLAY: &str = "plain";
+
+// The chat is shown the corporate way: the thoughts and the calls are hidden
+// whole, and one block stands for an answer, its head saying what the model is
+// at and its body holding the short of the work, which the model writes itself.
+pub const CORPORATE_DISPLAY: &str = "corporate";
+
+fn plain_display() -> String {
+    String::from(PLAIN_DISPLAY)
+}
+
+// The settings of a program that has been started before this screen stood.
+fn welcomed_before() -> bool {
+    true
+}
+
+// True when the settings ask for the corporate way of showing the work of the
+// model. Any other word, and a word that is no word at all, is the plain way.
+pub fn display_is_corporate(display: &str) -> bool {
+    display == CORPORATE_DISPLAY
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -619,6 +659,8 @@ impl Default for Config {
             chat_highlight: true,
             chat_bold_markdown: true,
             chat_seamless: false,
+            chat_display: plain_display(),
+            welcomed: false,
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_context_files: true,

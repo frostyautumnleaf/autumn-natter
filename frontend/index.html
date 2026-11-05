@@ -697,6 +697,58 @@ pre.code .t-p { color: var(--t-pun); }
   border-radius: 9px 0 0 9px; pointer-events: none; }
 
 .think > .thead { gap: 7px; min-height: 31px; padding: 6px 11px 6px 15px; }
+
+/* The first screen of the program: the mockups the user chooses between, and
+   the marks of the choice that stands. */
+.welcome { position: fixed; inset: 0; z-index: 90; overflow: auto;
+  background: var(--ground); padding: 26px 16px 60px; }
+.welcome .wtitle { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+.welcome .wword { color: var(--ink-leaf); margin: 0 0 20px; max-width: 62ch; }
+.welcome .wpart { max-width: 880px; margin: 0 auto 22px; }
+.welcome .wcap { font-weight: 600; margin: 0 0 3px; }
+.welcome .whint { color: var(--ink-leaf); margin: 0 0 10px; max-width: 74ch; }
+.wcards { display: flex; flex-wrap: wrap; gap: 12px; }
+.wcard { flex: 1 1 220px; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px; cursor: pointer; background: var(--panel); }
+.wcard.on { border-color: var(--leaf); box-shadow: 0 0 0 1px var(--leaf) inset; }
+.wcard .wname { display: block; margin: 8px 0 0; font-weight: 600; }
+.wcard .wsaid { display: block; color: var(--ink-leaf); font-size: 12px; margin-top: 3px; }
+.wmock { display: block; width: 100%; height: auto; border-radius: 6px; }
+.wopts { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.wopt { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+.wswatch { width: 62px; height: 40px; border-radius: 6px; border: 1px solid var(--line);
+  display: block; }
+.wgo { margin: 6px 0 0; }
+/* The corporate display. The thoughts and the calls are hidden whole, and one
+   block stands for an answer: its head says what the model is at, and the short
+   of the work stands under it, in blocks of its own. */
+body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: none !important; }
+
+   block stands for an answer: its head says what the model is at, and the short
+   of the work stands under it, in blocks of its own. */
+.work { margin: 14px 0; border: 1px solid var(--line); border-radius: 9px; }
+.work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
+  cursor: pointer; color: var(--ink-leaf); font-weight: 600; }
+.work > .whead .wfold { color: var(--ink-leaf); font-size: 10px; flex: 0 0 auto; }
+.work.shut > .wbody { display: none; }
+.work.shut > .whead .wfold { transform: rotate(-90deg); }
+.work .wline, .work .wbhead { color: var(--ink-leaf); }
+.wbody { border-top: 1px solid var(--line); padding: 4px 0; }
+.wblock { border-top: 1px solid var(--line); }
+.wblock:first-child { border-top: none; }
+.wblock > .wbhead { display: flex; align-items: baseline; gap: 8px; padding: 7px 12px;
+  cursor: pointer; }
+.wblock > .wbhead .wfold { color: var(--ink-leaf); font-size: 9px; flex: 0 0 auto; }
+.wblock.shut > .wbbody { display: none; }
+.wblock.shut > .wbhead .wfold { transform: rotate(-90deg); }
+.wbbody { padding: 0 12px 8px 30px; }
+.wline { padding: 3px 0; }
+.wplus, .wminus { font-variant-numeric: tabular-nums; margin-left: 7px; }
+.wplus { color: var(--hunk-add); }
+.wminus { color: var(--hunk-cut); }
+.wbad { color: var(--ink-fail); margin-left: 7px; }
+/* A setting that the corporate display has nothing to say about. */
+.fld.dim { opacity: 0.42; pointer-events: none; }
 /* The seamless chat. The panels of the thoughts and of the calls stand on the
    chat itself, for the setting asks that a chat read as one piece of writing:
    no ground under a panel, no line about it, and no rule of colour down the
@@ -2331,6 +2383,12 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Bold words in the chat</span>
           <span class="sub">A word held between two marks of boldness is written in the heavier shape of the letters. Turn this off to read the marks as part of the words themselves.</span>
           <div class="ctl"><input id="fBoldMarkdown" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Show the work</span>
+          <span class="sub">How the work of the model is laid out. The plain way shows the thoughts in their panels and every call the model made in a block of its own. The corporate way hides all of that: one block stands for an answer, its head saying what the model is at, and the short of the work stands inside it, which the model writes itself. The settings below that lay the panels out have nothing to say while the corporate way stands.</span>
+          <div class="ctl"><select id="fDisplay">
+            <option value="plain">Plain</option>
+            <option value="corporate">Corporate</option>
+          </select></div></div>
         <div class="fld"><span class="lbl">Seamless chat</span>
           <span class="sub">The panels of the thoughts and of the calls stand on the chat itself: no ground of their own, no line about them, and no rule of colour down the left hand edge of a thought. The mark that opens a panel then stands beside its heading, instead of at the far right of it, for with nothing drawn about a panel the far right is a long way from the words the mark belongs to.</span>
           <div class="ctl"><input id="fSeamless" type="checkbox"></div></div>
@@ -2900,6 +2958,14 @@ function readChatting(s) {
   chatting.highlight = chat.highlight !== false;
   chatting.bold = chat.bold_markdown !== false;
   chatting.seamless = !!chat.seamless;
+  // The corporate display hides the thoughts and the calls, so the settings
+  // that lay those panels out have nothing left to say.
+  chatting.corporate = !!(chat.corporate);
+  document.body.classList.toggle('corpwork', chatting.corporate);
+  corporateGreyed(chatting.corporate);
+  // The first screen of the program stands until the user has said how they
+  // want it, and then it goes away for good.
+  if (chatting.welcomed === false) { showWelcome(); } else { hideWelcome(); }
   // The seamless chat is a look over the whole thread, so it stands on the page
   // itself and not on one part of it.
   document.body.classList.toggle('seamless', chatting.seamless);
@@ -4696,7 +4762,7 @@ function writeBox(one) {
   panel.appendChild(body);
   return { panel: panel, head: head, cmd: cmd, state: state, caret: caret,
     space: space, writing: watchWriting({ text: text, caret: caret, head: words,
-      tail: behind, shown: '', pinned: false, wanted: -1 }),
+      tail: behind, shown: '', pinned: false }),
     why: null, shape: shape };
 }
 
@@ -4707,11 +4773,22 @@ function writeBox(one) {
 // `wanted` is where the program meant the block to stand when it moved it.
 function watchWriting(made) {
   made.text.addEventListener('scroll', function () {
-    // A scroll that stands where the program meant to stand is the doing of the
-    // program, and not of the user.
-    if (Math.abs(made.text.scrollTop - made.wanted) < 3) { return; }
+    // A scroll that stands where the program put the block is the doing of the
+    // program, and not of the user. The place of the program is stood for even
+    // when it is a little off, for a block that grows or shrinks moves of itself:
+    // the browser keeps the words that stand in the view where they were. That
+    // shift used to be read as the hand of the user, and the block of the call was
+    // then left where it stood for the rest of the call -- the writing that stops
+    // following of its own accord.
+    if (standsWherePlaced(made.text)) { return; }
+    if (roomToEnd(made.text) < 8) {
+      // The user came back down to the end of the block, where the writing
+      // stands: it is followed again from there.
+      made.pinned = false;
+      return;
+    }
     made.pinned = true;
-  });
+  }, { passive: true });
   return made;
 }
 
@@ -4760,14 +4837,20 @@ function followCaret(writing) {
   var to = writing.text.scrollTop;
   if (mark.top < view.top) { to -= (view.top - mark.top) + 8; }
   else if (mark.bottom > view.bottom) { to += (mark.bottom - view.bottom) + 8; }
-  else { return; }
+  else {
+    // The mark stands in view, so the block is left where it stands. The place it
+    // stands at is still stood for, for the block that is not moved has a place
+    // all the same, and a block that shifts of itself would else be read as moved
+    // by the user.
+    putPlace(writing.text, writing.text.scrollTop);
+    return;
+  }
   // The place the block can really stand at, so the scroll that follows lands
   // where it was meant to and is not read as a scroll of the user's.
   var most = writing.text.scrollHeight - writing.text.clientHeight;
   to = to < 0 ? 0 : (to > most ? most : to);
-  if (to === writing.text.scrollTop) { return; }
-  writing.wanted = to;
-  writing.text.scrollTop = to;
+  if (to === writing.text.scrollTop) { putPlace(writing.text, to); return; }
+  putPlace(writing.text, to);
 }
 
 // The reason of the command, put under the command itself. It comes after the
@@ -4789,7 +4872,7 @@ function addWhy(box) {
   // The mark of the writing follows the words that are being written now, so
   // from here the block of the reason is the block that is followed.
   box.why = watchWriting({ text: text, caret: box.caret, head: words, tail: behind,
-    shown: '', pinned: false, wanted: -1 });
+    shown: '', pinned: false });
 }
 
 // Whether the answer has put words on the page above the blocks of the calls
@@ -5450,17 +5533,50 @@ function settle(node) {
   node.normalize();
 }
 
+// How far the end of a block that scrolls still is, in points. The end of a block
+// that is being written is where the writing stands.
+function roomToEnd(node) {
+  return node.scrollHeight - (node.scrollTop + node.clientHeight);
+}
+
+// Put a block at a place, and remember that place as the program's own. The place
+// is read back after it is asked for, for a place past the end of a block comes
+// short, and the short place would be read as the hand of the user at the next
+// look.
+function putPlace(node, to) {
+  node.scrollTop = to;
+  node.placedAt = node.scrollTop;
+}
+
+// True when the block stands where the program last put it. A scroll that stands
+// there is the doing of the program, and not of the user.
+function standsWherePlaced(node) {
+  return typeof node.placedAt === 'number' && Math.abs(node.scrollTop - node.placedAt) < 4;
+}
+
 // A block of code the user has gone into with the wheel, or with a drag of the
 // finger, is the user's from that moment. The writing that goes on at the end of
 // it is no longer followed, and the place the user reached is put back after the
 // block is painted again for its colours. A block that is too short to scroll is
 // not marked, for a wheel over it moves the chat and not the block.
+//
+// Whether the block was gone into is read from the place the block comes to, and
+// not from the fact that a wheel was turned over it. A wheel the block could not
+// take -- it stood at its end already, and the chat moved instead -- is a turn of
+// the chat and nothing of the block, yet it used to mark the block as gone into,
+// and the writing at the end of it was then followed no more for the rest of the
+// answer. The same stands for a scroll of a finger that began over the block. A
+// block the user brings back down to its end is followed again from there.
 function watchCode(one) {
-  var take = function () {
+  if (one.dataset.watched === '1') { return; }
+  one.dataset.watched = '1';
+  one.addEventListener('scroll', function () {
+    if (standsWherePlaced(one)) { return; }
+    if (roomToEnd(one) < 8) { one.dataset.looked = ''; return; }
+    // Only a block that can really be moved was moved by the user: a block with
+    // no room to scroll has no place of the user's in it.
     if (one.scrollHeight > one.clientHeight) { one.dataset.looked = '1'; }
-  };
-  one.addEventListener('wheel', take, { passive: true });
-  one.addEventListener('touchmove', take, { passive: true });
+  }, { passive: true });
 }
 
 // A block of code that has just been painted stands at its first line again,
@@ -5470,7 +5586,7 @@ function watchCode(one) {
 // was reading in the middle is kept in the middle.
 function placeCode(holder) {
   if (holder.dataset.looked === '1') { return; }
-  holder.scrollTop = holder.scrollHeight;
+  putPlace(holder, holder.scrollHeight);
 }
 
 // The new words of the block that can still grow. They are given as they were
@@ -5484,7 +5600,7 @@ function putTail(holder, written, rebuilt) {
     // line because a colour was put on a word of it.
     var place = holder.scrollTop;
     paintCode(holder, written, holder.dataset.lang || '');
-    if (holder.dataset.looked === '1') { holder.scrollTop = place; }
+    if (holder.dataset.looked === '1') { putPlace(holder, place); }
     else { placeCode(holder); }
     return;
   }
@@ -5686,6 +5802,13 @@ function stopInk() {
 // thought before it going on, so it stands in the same panel. Without a group
 // the answer brings a thinking panel of its own.
 function fillLive(turn, m, group) {
+  if (chatting.corporate) {
+    // The one block of the answer that is coming in. Its head is what the model
+    // is at this moment, and it is put again with every piece that comes.
+    var short = corporateBlock(m.work_head || '', m.work || []);
+    var old = turn.querySelector(':scope > .work');
+    if (old) { old.parentNode.replaceChild(short, old); } else { turn.insertBefore(short, turn.firstChild); }
+  }
   stopInk();
   var panel, body, head, label;
   if (group) {
@@ -5740,9 +5863,303 @@ function fillLive(turn, m, group) {
 
 // The words of one message, put into a turn. The turn is made once, and the
 // words of an answer that is coming in are put again by the writer above.
+
+// The corporate display: one block for an answer, and the short of the work in
+// it. The head of the block says what the model is at, and the blocks under it
+// carry the headings the model wrote for its own, together with the blocks of
+// the calls it made. The thoughts and the calls are hidden whole, so this block
+// is the only way in.
+function workBlock(one, deep) {
+  var block = make('div', 'wblock' + (deep ? ' shut' : ''));
+  var head = make('div', 'wbhead');
+  var fold = make('span', 'wfold');
+  fold.textContent = '\u25BE';
+  var title = make('span');
+  title.textContent = one.head || 'Working';
+  head.appendChild(fold);
+  head.appendChild(title);
+  if (typeof one.adds === 'number' && (one.adds || one.cuts)) {
+    var plus = make('span', 'wplus');
+    plus.textContent = '+' + one.adds;
+    var minus = make('span', 'wminus');
+    minus.textContent = '-' + one.cuts;
+    head.appendChild(plus);
+    head.appendChild(minus);
+  }
+  if (one.failed) {
+    var bad = make('span', 'wbad');
+    bad.textContent = 'it failed';
+    head.appendChild(bad);
+  }
+  block.appendChild(head);
+  var lines = one.lines || [];
+  if (lines.length) {
+    var body = make('div', 'wbbody');
+    for (var n = 0; n < lines.length; n++) {
+      var line = make('div', 'wline');
+      line.textContent = lines[n];
+      body.appendChild(line);
+    }
+    block.appendChild(body);
+  } else {
+    block.className = 'wblock';
+    head.style.cursor = 'default';
+  }
+  head.addEventListener('click', function () { block.classList.toggle('shut'); });
+  return block;
+}
+
+// The one block of an answer. `head` is what the model is at, and `blocks` the
+// short of the work under it.
+function corporateBlock(head, blocks) {
+  var box = make('div', 'work');
+  var top = make('div', 'whead');
+  var fold = make('span', 'wfold');
+  fold.textContent = '\u25BE';
+  var title = make('span');
+  title.textContent = head || 'Working';
+  top.appendChild(fold);
+  top.appendChild(title);
+  box.appendChild(top);
+  var body = make('div', 'wbody');
+  for (var n = 0; n < blocks.length; n++) { body.appendChild(workBlock(blocks[n], false)); }
+  box.appendChild(body);
+  top.addEventListener('click', function () { box.classList.toggle('shut'); });
+  return box;
+}
+
+// The one block of an answer of the model, or nothing at all when the answer
+// has no short of the work -- an answer of a chat that was written before the
+// corporate display stood, or one with no work in it.
+function corporateOf(m) {
+  var blocks = m.work || [];
+  if (!blocks.length) { return null; }
+  return corporateBlock(m.work_head || '', blocks);
+}
+
+// The settings that the corporate display has nothing to say about: the panels
+// it hides are the panels those settings lay out.
+var corporateLocks = ['fFoldThink', 'fGrowThink', 'fToolsInThink', 'fFoldTools', 'fSeamless'];
+
+
+// The first screen of the program. It stands when the program is started for
+// the very first time, and it asks the user how the chat is to look: the way
+// the work is shown, the three marks over the panels, the chapters, the
+// summaries, and the skin. The mockups are drawn here, so a user sees the thing
+// they are choosing and not a name of it. What is chosen is written into the
+// settings whole when the user says they are ready, and the screen never comes
+// back.
+var welcomeChosen = null;
+
+function welcomeMock(kind) {
+  var box = document.createElement('div');
+  if (kind === 'plain') {
+    box.innerHTML = '<svg class="wmock" viewBox="0 0 220 112" xmlns="http://www.w3.org/2000/svg">'
+      + '<rect x="10" y="10" width="150" height="16" rx="4" fill="currentColor" opacity=".22"/>'
+      + '<rect x="10" y="34" width="200" height="24" rx="5" fill="currentColor" opacity=".12"/>'
+      + '<rect x="16" y="40" width="90" height="5" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="16" y="50" width="150" height="4" rx="2" fill="currentColor" opacity=".18"/>'
+      + '<rect x="10" y="64" width="200" height="18" rx="5" fill="currentColor" opacity=".12"/>'
+      + '<rect x="16" y="70" width="120" height="5" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="10" y="90" width="170" height="12" rx="4" fill="currentColor" opacity=".22"/></svg>';
+    return box;
+  }
+  if (kind === 'corporate') {
+    box.innerHTML = '<svg class="wmock" viewBox="0 0 220 112" xmlns="http://www.w3.org/2000/svg">'
+      + '<rect x="10" y="10" width="150" height="16" rx="4" fill="currentColor" opacity=".22"/>'
+      + '<rect x="10" y="34" width="200" height="68" rx="7" fill="currentColor" opacity=".12"/>'
+      + '<rect x="18" y="42" width="96" height="6" rx="3" fill="currentColor" opacity=".42"/>'
+      + '<rect x="18" y="58" width="184" height="1" fill="currentColor" opacity=".2"/>'
+      + '<rect x="24" y="64" width="120" height="5" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="24" y="74" width="150" height="5" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="18" y="86" width="184" height="1" fill="currentColor" opacity=".2"/>'
+      + '<rect x="24" y="92" width="104" height="5" rx="2" fill="currentColor" opacity=".3"/></svg>';
+    return box;
+  }
+  // The three skins: the ground of the page and the words upon it.
+  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', corporate: '#2b2b2b' };
+  var inks = { light: '#232323', dark: '#e8e8e8', corporate: '#dcdcdc' };
+  var box2 = document.createElement('div');
+  box2.innerHTML = '<span class="wswatch" style="background:' + grounds[kind] + '">'
+    + '<svg viewBox="0 0 62 40" width="62" height="40" xmlns="http://www.w3.org/2000/svg">'
+    + '<rect x="7" y="8" width="34" height="5" rx="2" fill="' + inks[kind] + '" opacity=".8"/>'
+    + '<rect x="7" y="18" width="48" height="4" rx="2" fill="' + inks[kind] + '" opacity=".5"/>'
+    + '<rect x="7" y="26" width="26" height="4" rx="2" fill="' + inks[kind] + '" opacity=".5"/></svg></span>';
+  return box2;
+}
+
+function welcomePart(title, hint) {
+  var part = make('div', 'wpart');
+  var cap = make('div', 'wcap');
+  cap.textContent = title;
+  part.appendChild(cap);
+  if (hint) {
+    var said = make('div', 'whint');
+    said.textContent = hint;
+    part.appendChild(said);
+  }
+  return part;
+}
+
+function welcomeCard(where, words, mock, name, said) {
+  var card = make('div', 'wcard');
+  if (mock) { card.appendChild(welcomeMock(mock)); }
+  var label = make('span', 'wname');
+  label.textContent = name;
+  card.appendChild(label);
+  if (said) {
+    var told = make('span', 'wsaid');
+    told.textContent = said;
+    card.appendChild(told);
+  }
+  card.addEventListener('click', function () {
+    welcomeChosen[where] = words;
+    if (where === 'theme') { chooseTheme(words); }
+    drawWelcome();
+  });
+  return card;
+}
+
+function welcomeTick(where, name, said) {
+  var row = make('label', 'wopt');
+  var mark = document.createElement('input');
+  mark.type = 'checkbox';
+  mark.checked = !!welcomeChosen[where];
+  mark.addEventListener('change', function () { welcomeChosen[where] = mark.checked; });
+  var word = make('span');
+  word.textContent = name + ' -- ' + said;
+  row.appendChild(mark);
+  row.appendChild(word);
+  return row;
+}
+
+function drawWelcome() {
+  var screen = byId('welcome');
+  if (!screen) { return; }
+  screen.innerHTML = '';
+  var title = make('div', 'wtitle');
+  title.textContent = 'Welcome to Autumn Natter';
+  screen.appendChild(title);
+  var word = make('div', 'wword');
+  word.textContent = 'Three choices and the chat is yours. They can all be changed later in the settings, and nothing here is written until you say you are ready.';
+  screen.appendChild(word);
+
+  var modes = welcomePart('How the work is shown',
+    'The plain way shows what the model thinks in a panel, and every command, search and edit in a block of its own. The corporate way hides all of that behind one block that says what the model is at.');
+  var modeCards = make('div', 'wcards');
+  modeCards.appendChild(welcomeCard('display', 'plain', 'plain', 'Plain', 'The thoughts and the calls, all of them, in the open.'));
+  modeCards.appendChild(welcomeCard('display', 'corporate', 'corporate', 'Corporate', 'One block per answer, with a short of the work inside.'));
+  modes.appendChild(modeCards);
+  screen.appendChild(modes);
+
+  var panels = welcomePart('The panels', 'How the thinking and the tools of the model are laid out.');
+  var panelOpts = make('div', 'wopts');
+  panelOpts.appendChild(welcomeTick('seamless', 'Seamless chat', 'no ground or line about the panels.'));
+  panelOpts.appendChild(welcomeTick('grow_thinking', 'Thinking panels grow', 'the chat moves to read a long thought.'));
+  panelOpts.appendChild(welcomeTick('tools_in_thinking', 'Tools inside the thinking panel', 'a thought and its tool read as one part.'));
+  panels.appendChild(panelOpts);
+  screen.appendChild(panels);
+
+  var long = welcomePart('A chat that runs long', 'Both of these can be changed later, and both cost the model a little of its room.');
+  var longOpts = make('div', 'wopts');
+  longOpts.appendChild(welcomeTick('chapters', 'Chapter markers', 'the parts of the chat stand on a line beside it.'));
+  longOpts.appendChild(welcomeTick('summary', 'Summaries', 'the chat is summed up when its room is nearly gone.'));
+  long.appendChild(longOpts);
+  screen.appendChild(long);
+
+  var skins = welcomePart('The skin of the pages', 'Pale, dark, or the grey and white of the corporate skin.');
+  var skinCards = make('div', 'wcards');
+  skinCards.appendChild(welcomeCard('theme', 'light', 'light', 'Light', ''));
+  skinCards.appendChild(welcomeCard('theme', 'dark', 'dark', 'Dark', ''));
+  skinCards.appendChild(welcomeCard('theme', 'corporate', 'corporate', 'Corporate', ''));
+  skins.appendChild(skinCards);
+  screen.appendChild(skins);
+
+  var go = make('button', 'wgo');
+  go.textContent = 'Start using the chat';
+  go.addEventListener('click', finishWelcome);
+  screen.appendChild(go);
+}
+
+function showWelcome() {
+  var screen = byId('welcome');
+  if (screen) { return; }
+  if (!welcomeChosen) {
+    welcomeChosen = {
+      display: 'plain', seamless: false, grow_thinking: true,
+      tools_in_thinking: true, chapters: true, summary: true, theme: themeWord || 'light'
+    };
+  }
+  var made = make('div', 'welcome');
+  made.id = 'welcome';
+  (document.body || document.documentElement).appendChild(made);
+  drawWelcome();
+}
+
+function hideWelcome() {
+  var screen = byId('welcome');
+  if (screen && screen.parentNode) { screen.parentNode.removeChild(screen); }
+}
+
+// What is chosen here is written into the settings whole, and the mark that
+// says the screen has been gone through goes with it, so it never stands again.
+function finishWelcome() {
+  // The whole of the settings is written, so the choices here are put into the
+  // settings the program has now rather than standing in place of them.
+  getConfig().then(function (was) { return postWelcome(was || {}); });
+}
+
+function postWelcome(cfg) {
+  cfg.chat_display = welcomeChosen.display;
+  cfg.chat_seamless = !!welcomeChosen.seamless;
+  cfg.chat_grow_thinking = !!welcomeChosen.grow_thinking;
+  cfg.chat_tools_in_thinking = !!welcomeChosen.tools_in_thinking;
+  cfg.chat_chapters = !!welcomeChosen.chapters;
+  cfg.chat_compaction = welcomeChosen.summary ? 'handoff' : 'off';
+  cfg.theme = welcomeChosen.theme;
+  cfg.welcomed = true;
+  ask('config', { config: cfg }).then(function () {
+    hideWelcome();
+    poll();
+  });
+}
+
+function finishWelcomeUnused() {
+  var cfg = {
+    chat_display: welcomeChosen.display,
+    chat_seamless: !!welcomeChosen.seamless,
+    chat_grow_thinking: !!welcomeChosen.grow_thinking,
+    chat_tools_in_thinking: !!welcomeChosen.tools_in_thinking,
+    chat_chapters: !!welcomeChosen.chapters,
+    chat_compaction: welcomeChosen.summary ? 'handoff' : 'off',
+    theme: welcomeChosen.theme,
+    welcomed: true
+  };
+  ask('config', { config: cfg }).then(function () {
+    hideWelcome();
+    poll();
+  });
+}
+
+function corporateGreyed(on) {
+  for (var n = 0; n < corporateLocks.length; n++) {
+    var one = byId(corporateLocks[n]);
+    if (one && one.closest) {
+      var field = one.closest('.fld');
+      if (field) { field.classList.toggle('dim', !!on); }
+    }
+  }
+}
+
 function fill(turn, m) {
   turn.className = 'turn ' + roleClass(m) + (m.failed ? ' bad' : '');
   turn.innerHTML = '';
+  if (chatting.corporate && m.role === 'Assistant') {
+    // The corporate display: one block for the answer, and the words of the
+    // answer under it. The thoughts and the calls are hidden whole.
+    var short = corporateOf(m);
+    if (short) { turn.appendChild(short); }
+  }
   if (m.role === 'Note') {
     // A note from the program stands in the middle, between two hairlines,
     // with no bubble around it.
@@ -6795,7 +7212,8 @@ function drawThread(s) {
     items.push({
       id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
       reasoning_ms: s.reasoning_ms || 0, reasoning_done: !!s.reasoning_done,
-      tool: '', tools: s.live_tools || [], mono: false, failed: false, when: ''
+      tool: '', tools: s.live_tools || [], mono: false, failed: false, when: '',
+      work: s.live_work || [], work_head: s.live_work_head || ''
     });
   }
   if (items.length === 0) {
@@ -6910,7 +7328,7 @@ function backToTop(where) {
   for (var i = 0; i < codes.length; i++) {
     var one = codes[i];
     if (one.dataset.looked === '1') { continue; }
-    if (one.scrollHeight > one.clientHeight) { one.scrollTop = 0; }
+    if (one.scrollHeight > one.clientHeight) { putPlace(one, 0); }
   }
 }
 
@@ -9342,6 +9760,8 @@ function loadProgram() {
     byId('fHighlight').checked = cfg.chat_highlight !== false;
     byId('fBoldMarkdown').checked = cfg.chat_bold_markdown !== false;
     byId('fSeamless').checked = !!cfg.chat_seamless;
+    byId('fDisplay').value = cfg.chat_display === 'corporate' ? 'corporate' : 'plain';
+    corporateGreyed(byId('fDisplay').value === 'corporate');
     byId('fSilentRetries').value = (cfg.chat_silent_retries === undefined || cfg.chat_silent_retries === null)
       ? 2 : cfg.chat_silent_retries;
     byId('fChapters').checked = cfg.chat_chapters !== false;
@@ -9933,6 +10353,7 @@ function readProgram() {
   cfg.chat_highlight = byId('fHighlight').checked;
   cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
   cfg.chat_seamless = byId('fSeamless').checked;
+  cfg.chat_display = byId('fDisplay').value === 'corporate' ? 'corporate' : 'plain';
   cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);
   cfg.chat_chapters = byId('fChapters').checked;
   cfg.chat_max_tool_steps = stepsOf(byId('fToolSteps').value);

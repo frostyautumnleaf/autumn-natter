@@ -22,6 +22,7 @@
 pub mod askuser;
 pub mod attach;
 pub mod config;
+pub mod corporate;
 pub mod documents;
 pub mod display;
 pub mod download;
