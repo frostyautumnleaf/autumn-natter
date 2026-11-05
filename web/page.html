@@ -442,14 +442,22 @@ body.home .stage { display: none; }
 }
 /* The node of this line is no bead but a dash: a short stroke across the line,
    for it stands for a saying of the user and not for a place the talk was
-   mended. */
+   mended. The dash is a mark of its own and not the ground of the node, for the
+   card stands in the node, and a turn of the node on a hover would carry the
+   card with it and leave the words of it wider than they stand. */
 .unode {
-  position: relative; width: 13px; height: 3px; padding: 0; border: 0; border-radius: 2px;
-  background: var(--dim); transition: transform 140ms, background 140ms;
+  position: relative; width: 13px; height: 3px; padding: 0; border: 0;
+  background: transparent;
 }
-.unode:hover, .unode:focus-visible {
-  background: var(--accent); transform: scaleX(1.45); outline: none;
+.unode::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+  border-radius: 2px; background: var(--dim);
+  transition: transform 140ms, background 140ms;
 }
+.unode:hover::before, .unode:focus-visible::before {
+  background: var(--accent); transform: scaleX(1.45);
+}
+.unode:hover, .unode:focus-visible { outline: none; }
 /* The card of a dash stands to the left, for the line stands at the right of
    the chat: which message it is, when it was sent, a little of what it says,
    and what hung on it. */
