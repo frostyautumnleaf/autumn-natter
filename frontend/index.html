@@ -406,6 +406,69 @@ body.home .stage { display: none; }
 }
 .tnode .cprev.none { font-style: italic; opacity: .8; }
 
+/* --------------------------------------------------------- user message line */
+/* The messages the user sent stand on a line of their own, hard against the
+   right edge of the chat, as though the chat were bordered by them: one short
+   dash for one message they wrote. The line is there for the long chat, where
+   finding again the thing one asked means scrolling a deal of talk over: a dash
+   is clicked and the chat is there. The summarisation line stands further out
+   when a chat has both, for the line of the messages is the one next to the
+   words. In a window too narrow for a margin of its own the line goes away. */
+.stage.withuserline .thread { padding-right: var(--railu, 56px); }
+.stage.withuserline .userline { right: var(--railuo, 28px); }
+.stage.withuserline.withtimeline .thread { padding-right: var(--railur, 148px); }
+.stage.withuserline.withtimeline .userline { right: var(--railuo2, 120px); }
+@media (max-width: 880px) {
+  .stage.withuserline .thread { padding-right: 0; }
+  .stage.withuserline.withtimeline .thread { padding-right: var(--railr, 92px); }
+  .userline { display: none; }
+}
+.userline {
+  position: absolute; right: var(--railuo, 28px); top: 50%;
+  transform: translate(50%, -50%);
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--ugap, 21px); z-index: 14;
+}
+/* In a window too narrow for a margin of its own the line goes away, and the
+   chat takes the room of it back. This stands after the rule that lays the line
+   out, for a media query weighs no more than the rule it would overrule, and it
+   is the later of the two that is read. */
+@media (max-width: 880px) {
+  .userline { display: none; }
+}
+.userline::before {
+  content: ""; position: absolute; left: 50%; top: -13px; bottom: -13px; width: 2px;
+  transform: translateX(-50%); border-radius: 2px; background: var(--line-strong);
+}
+/* The node of this line is no bead but a dash: a short stroke across the line,
+   for it stands for a saying of the user and not for a place the talk was
+   mended. */
+.unode {
+  position: relative; width: 13px; height: 3px; padding: 0; border: 0; border-radius: 2px;
+  background: var(--dim); transition: transform 140ms, background 140ms;
+}
+.unode:hover, .unode:focus-visible {
+  background: var(--accent); transform: scaleX(1.45); outline: none;
+}
+/* The card of a dash stands to the left, for the line stands at the right of
+   the chat: which message it is, when it was sent, a little of what it says,
+   and what hung on it. */
+.unode .card {
+  position: absolute; right: 15px; top: 50%; transform: translateY(-50%); width: 252px;
+  padding: 9px 11px; background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 10px; box-shadow: var(--shadow); opacity: 0; visibility: hidden;
+  text-align: left; transition: opacity 140ms, visibility 140ms;
+}
+.unode:hover .card, .unode:focus-visible .card { opacity: 1; visibility: visible; }
+.unode .cname { font-size: 12px; font-weight: 650; color: var(--ink); }
+.unode .uwhen { font-size: 11px; color: var(--faint); margin-top: 3px; }
+.unode .ufiles { font-size: 11px; color: var(--faint); margin-top: 5px; }
+.unode .cprev {
+  margin-top: 5px; font-size: 11.5px; line-height: 1.45; color: var(--dim);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.unode .cprev.none { font-style: italic; opacity: .8; }
+
 /* ------------------------------------------------------------ summarisation */
 /* A handoff summary is not a saying of the model to the user, so it stands
    among the words with none of the marks of a turn: a hairline with the count of
@@ -2100,6 +2163,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     <div class="chapters hidden" id="chapters"></div>
     <!-- The summarisations of the chat. They stand out of the words, on a line at
          the right of the chat: one node for one time the talk was made short. -->
+    <!-- The messages the user sent. They stand out of the words, on a line hard
+         against the right edge of the chat: one dash for one message of theirs. -->
+    <div class="userline hidden" id="userline"></div>
     <div class="timeline hidden" id="timeline"></div>
     <div class="thread" id="thread">
       <div class="col" id="col"></div>
@@ -2458,6 +2524,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Summarisation timeline</span>
           <span class="sub">A vertical line at the right of the chat with one node for every summarisation. A node says which summarisation it is and shows part of it; clicking one scrolls there.</span>
           <div class="ctl"><input id="fTimeline" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Message timeline</span>
+          <span class="sub">A vertical line hard against the right edge of the chat, with one short dash for every message you sent. A dash says which message it is and when you sent it, and shows part of it and what hung on it; clicking one scrolls there. Turn this off to hide the line.</span>
+          <div class="ctl"><input id="fUserline" type="checkbox"></div></div>
       </div>
 
       <div class="pane hidden" id="paneModel">
@@ -2796,7 +2865,7 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 // every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
-  'newchat', 'settingsbtn', 'modelbtn', 'chapters', 'timeline',
+  'newchat', 'settingsbtn', 'modelbtn', 'chapters', 'timeline', 'userline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'think', 'thinktext', 'thinkwrap',
@@ -2827,7 +2896,7 @@ var cur = null;        // the last state
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
-  highlight: true, bold: true, seamless: false, chapters: true, paste: 6000, width: 780 };
+  highlight: true, bold: true, seamless: false, chapters: true, userline: true, paste: 6000, width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -2845,6 +2914,11 @@ function poll() {
     .then(function (s) {
       rev = s.rev;
       if (!s.unchanged) { draw(s); }
+      // The line of the messages stands by the words, and the words move when
+      // the side bar grows or the window does, which is not a change the state
+      // speaks of. The place is therefore looked at at every ask, unchanged or
+      // not: it is a few measures and two numbers written down.
+      if (window.placeUserLine) { placeUserLine(); }
       schedule(!!s.generating);
       pending = false;
     }, function () { schedule(false); pending = false; });
@@ -2874,10 +2948,23 @@ function setChatWidth() {
     window.innerWidth || 640;
   var room = wide - 48;
   if (el.stage && el.stage.classList.contains('withchapters')) { room -= 116; }
-  if (el.stage && el.stage.classList.contains('withtimeline')) { room -= 92; }
+  // The two lines at the right take the room together when both stand, for the
+  // line of the messages stands between the chat and the line of the
+  // summarisations rather than beyond it, and the two together cost less than
+  // each of them would by itself.
+  var right = 0;
+  if (el.stage) {
+    var withU = el.stage.classList.contains('withuserline');
+    var withT = el.stage.classList.contains('withtimeline');
+    if (withU && withT) { right = 148; } else if (withU) { right = 56; } else if (withT) { right = 92; }
+  }
+  room -= right;
   var cap = Math.max(CHAT_LEAST, Math.min(Math.floor(wide * 0.8), room));
   var want = Math.min(Math.max(Number(chatting.width) || CHAT_LEAST, CHAT_LEAST), cap);
   document.documentElement.style.setProperty('--colw', want + 'px');
+  // The line of the messages stands by the words, so it is put in its place
+  // again whenever the width of the column is looked at.
+  if (window.placeUserLine) { placeUserLine(); }
 }
 var CHAT_LEAST = 780;
 
@@ -2944,6 +3031,7 @@ function draw(s) {
   drawPlanAsks(s);
   drawChapters(s);
   drawTimeline(s);
+  drawUserLine(s);
 }
 
 // Chatting. The switches of the Chatting section are read again with every
@@ -2970,6 +3058,9 @@ function readChatting(s) {
   // itself and not on one part of it.
   document.body.classList.toggle('seamless', chatting.seamless);
   chatting.chapters = chat.chapters !== false;
+  // The line of the user's own messages, at the right of the chat. It stands
+  // unless the settings took it away.
+  chatting.userline = chat.userline !== false;
   chatting.paste = chat.paste_limit || 6000;
   chatting.width = Number(chat.width) || CHAT_LEAST;
   setChatWidth();
@@ -7912,6 +8003,179 @@ function gotoChapter(chapter) {
   });
 }
 
+// ------------------------------------------------------- user message line
+//
+// One dash for one message of the user, on a line hard against the right edge of
+// the chat, the oldest at the top. The line is a border of the chat rather than
+// a thing beside it: a user who wants the question they asked three hours ago
+// clicks the dash and the chat goes there, instead of scrolling a long talk over
+// looking for it. A dash the user hovers over says which message it is, when it
+// was sent, a little of what it says, and what hung on it.
+var USER_GAP = 21;      // the distance two dashes keep, while they fit
+var userLineMark = '';  // what the line was made of last
+
+// The messages of the user, in the order they stand in the talk. The sayings of
+// the model, the notes of the program and the runs of the tools are none of them
+// sayings of the user, so they stand on no dash.
+function userMessages(s) {
+  var out = [];
+  var list = (s && s.messages) || [];
+  for (var n = 0; n < list.length; n++) {
+    if (list[n].role === 'You') { out.push(list[n]); }
+  }
+  return out;
+}
+
+// What the line is made of, so it is built again only when a message of the user
+// came in, or one of them was deleted.
+function userLineSignature(list) {
+  var parts = [];
+  for (var n = 0; n < list.length; n++) { parts.push(list[n].id); }
+  return parts.join('|');
+}
+
+// The distance two dashes keep. As with the chapters and the summarisations, two
+// dashes and forty keep the same distance, until a chat has more messages than
+// the window is tall for: then the distance is made less, so the last dash can
+// still be reached.
+function fitUserLine(box, stage, count) {
+  var gap = USER_GAP;
+  var room = stage ? stage.clientHeight : 0;
+  if (count > 1 && room > 0) {
+    var fits = Math.floor((room - 16 - CHAPTER_ENDS - count * 3) / (count - 1));
+    if (fits < gap) { gap = fits > 1 ? fits : 1; }
+  }
+  box.style.setProperty('--ugap', gap + 'px');
+}
+
+// The words of a message, for the card of a dash: the marks of the writing go,
+// the lines are brought onto one line, and what is left is cut short by the card
+// that shows it.
+function briefWords(text) {
+  return String(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\n\s*[-+]\s+/g, ' ')
+    .replace(/[#*_`>~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// What hung on a message, in a few words: the pictures are told from the other
+// files, for a user who sees '2 pictures' knows at once what the message carried.
+function fileWords(files) {
+  var pictures = 0;
+  for (var n = 0; n < files.length; n++) { if (files[n].image) { pictures++; } }
+  var rest = files.length - pictures;
+  var parts = [];
+  if (pictures) { parts.push(pictures + (pictures === 1 ? ' picture' : ' pictures')); }
+  if (rest) { parts.push(rest + (rest === 1 ? ' file' : ' files')); }
+  return parts.join(' and ');
+}
+
+// The line at the right of the chat, made again when a message of the user came
+// in or went away.
+function drawUserLine(s) {
+  var box = el.userline;
+  if (!box) { return; }
+  var list = chatting.userline === false ? [] : userMessages(s);
+  var stage = el.stage || document.body;
+  stage.classList.toggle('withuserline', list.length > 0);
+  // The room the dashes have changes with the window, so the distance between
+  // them is looked at again at every draw, and not only when a message came in.
+  fitUserLine(box, stage, list.length);
+  // The place of the line is looked at again whether the dashes were made or
+  // not, for the column of the chat changes width with the window.
+  placeUserLine();
+  // The room the lines make is put on in the same breath as the drawing, so the
+  // place is looked at once more when the browser has laid the words out.
+  if (typeof requestAnimationFrame === 'function') { requestAnimationFrame(placeUserLine); }
+  watchUserLine();
+  var mark = userLineSignature(list);
+  if (mark === userLineMark) { return; }
+  userLineMark = mark;
+  box.innerHTML = '';
+  box.classList.toggle('hidden', list.length === 0);
+  for (var n = 0; n < list.length; n++) {
+    var one = list[n];
+    var node = make('button', 'unode');
+    node.type = 'button';
+    node.setAttribute('aria-label', 'Your message ' + (n + 1) + ' of ' + list.length);
+    var card = make('div', 'card');
+    var name = make('div', 'cname');
+    name.textContent = 'Your message ' + (n + 1);
+    card.appendChild(name);
+    var when = make('div', 'uwhen');
+    when.textContent = one.when ? 'Sent ' + one.when : 'The time is not known';
+    card.appendChild(when);
+    var words = make('div', 'cprev');
+    var brief = briefWords(one.body);
+    words.textContent = brief || 'No words were written there.';
+    if (!brief) { words.classList.add('none'); }
+    card.appendChild(words);
+    var hung = fileWords(one.attachments || []);
+    if (hung) {
+      var files = make('div', 'ufiles');
+      files.textContent = 'With ' + hung;
+      card.appendChild(files);
+    }
+    node.appendChild(card);
+    node.addEventListener('click', function (id) {
+      return function () { gotoUserMessage(id); };
+    }(one.id));
+    box.appendChild(node);
+  }
+}
+
+// The line hugs the chat rather than the window. The column of the chat is
+// centred in the room it has, so the distance from the edge of the stage to the
+// line is looked at again after the words are laid out: the dashes stand a little
+// way right of the words, as a border of them, and the line of the
+// summarisations stands beyond the dashes when a chat has both.
+function placeUserLine() {
+  var box = el.userline;
+  if (!box || !el.stage || !el.col) { return; }
+  var stage = el.stage.getBoundingClientRect();
+  var col = el.col.getBoundingClientRect();
+  if (!col.width || !stage.width) { return; }
+  var both = el.stage.classList.contains('withtimeline');
+  // The words end, and the line stands a little way from them. The line is
+  // never crowded against the line of the summarisations either: with both, it
+  // keeps its distance from the edge of the stage.
+  var want = Math.round(stage.right - (col.right + (both ? 22 : 26)));
+  var least = both ? 104 : 14;
+  if (want < least) { want = least; }
+  box.style.setProperty('--railuo', want + 'px');
+  box.style.setProperty('--railuo2', want + 'px');
+}
+
+// The column of the chat changes shape when the window does, when the width of
+// the chat is moved in the settings, and when one of the lines beside it comes
+// or goes. The line is put in its place again at each of those, which no single
+// look at the layout could catch: the room is made in the same breath as the
+// drawing, and the words are laid out after it.
+var userLineWatch = null;
+
+function watchUserLine() {
+  if (userLineWatch || !window.ResizeObserver || !el.col || !el.stage) { return; }
+  userLineWatch = new ResizeObserver(function () { placeUserLine(); });
+  userLineWatch.observe(el.col);
+  userLineWatch.observe(el.stage);
+}
+
+// Take the chat to the message one dash stands for.
+function gotoUserMessage(id) {
+  var node = el.col.querySelector('[data-mid="' + id + '"]');
+  if (!node) { return; }
+  var view = el.thread.getBoundingClientRect();
+  var here = node.getBoundingClientRect();
+  stick = false;
+  el.thread.scrollTo({
+    top: el.thread.scrollTop + (here.top - view.top) - 16,
+    behavior: reduce ? 'auto' : 'smooth'
+  });
+}
+
+// -------------------------------------------------------- summarisation line
 // -------------------------------------------------------- summarisation line
 //
 // Every time the talk was made short a node stands on a line at the right of the
@@ -9783,6 +10047,7 @@ function loadProgram() {
     byId('fCompactPrompt').value = cfg.chat_compact_prompt || '';
     byId('fCompactPromptShort').value = cfg.chat_compact_prompt_short || '';
     byId('fTimeline').checked = cfg.chat_timeline !== false;
+    byId('fUserline').checked = cfg.chat_userline !== false;
     // The note is what the program found when it asked its own jail whether it
     // keeps what it promises.
     byId('fSandbox').textContent = (cur && cur.sandbox_note)
@@ -10374,6 +10639,7 @@ function readProgram() {
   cfg.chat_compact_prompt = byId('fCompactPrompt').value;
   cfg.chat_compact_prompt_short = byId('fCompactPromptShort').value;
   cfg.chat_timeline = byId('fTimeline').checked;
+  cfg.chat_userline = byId('fUserline').checked;
   return cfg;
 }
 

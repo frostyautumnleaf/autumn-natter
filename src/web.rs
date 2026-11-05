@@ -392,6 +392,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "welcomed": snap.welcomed,
             "silent_retries": snap.chat_silent_retries,
             "chapters": snap.chat_chapters,
+            // The line of the user's own messages at the right of the chat.
+            "userline": snap.chat_userline,
             // Whether the talk a chat worked through is kept in a file, so that
             // it does not have to be read through again. The sheet of the
             // settings shows the switch; the keeping itself is all behind the

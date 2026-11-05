@@ -318,6 +318,13 @@ pub struct Config {
     // switch, so a chat that shows no chapter line never pays for them.
     #[serde(default = "on_by_default")]
     pub chat_chapters: bool,
+    // Show the messages of the user on a line of their own, hard against the
+    // right edge of the chat, as if the chat were bordered by them: one short
+    // dash for one message, and a little of the message on the card of the dash.
+    // The line is there so a user of a long chat can go back to a thing they
+    // asked without scrolling the whole of the talk over.
+    #[serde(default = "on_by_default")]
+    pub chat_userline: bool,
     // Keep the talk of a chat that the model has worked its way through in a
     // file of the program, so the chat does not have to be read through again
     // when it comes back: after another chat took the model, or after the program
@@ -663,6 +670,7 @@ impl Default for Config {
             welcomed: false,
             chat_silent_retries: 2,
             chat_chapters: true,
+            chat_userline: true,
             chat_context_files: true,
             chat_max_tool_steps: -1,
             chat_tool_timeout: default_tool_seconds(),
@@ -931,6 +939,7 @@ mod tests {
         assert!(cfg.chat_date_new_chat);
         assert!(cfg.chat_highlight);
         assert!(cfg.chat_chapters);
+        assert!(cfg.chat_userline);
         assert!(cfg.chat_context_files);
         assert_eq!(cfg.chat_max_tool_steps, -1);
         assert_eq!(cfg.chat_max_answer_steps, -1);

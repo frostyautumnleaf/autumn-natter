@@ -1154,6 +1154,8 @@ pub struct Snap {
     // Whether the model may mark the chapters of a chat, and whether the
     // chapter line stands beside it.
     pub chat_chapters: bool,
+    // The line of the user's own messages, at the right of the chat.
+    pub chat_userline: bool,
     // Whether the talk that the model has worked its way through is kept in a
     // file of the program, so that a chat coming back is not read through
     // again. The sheet of the settings reads it, and the page has nothing of
@@ -2961,6 +2963,7 @@ impl State {
             welcomed: self.cfg.welcomed,
             chat_silent_retries: self.cfg.chat_silent_retries,
             chat_chapters: self.cfg.chat_chapters,
+            chat_userline: self.cfg.chat_userline,
             chat_context_files: self.cfg.chat_context_files,
             mcp: self.mcp_snap(),
             chat_paste_limit: self.cfg.pasted_text_char_limit,
@@ -4631,6 +4634,7 @@ impl Snap {
             welcomed: true,
             chat_silent_retries: 2,
             chat_chapters: true,
+            chat_userline: true,
             chat_context_files: true,
             chat_paste_limit: 6000,
             ask_seconds: 10,
