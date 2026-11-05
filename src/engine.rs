@@ -4893,6 +4893,46 @@ fn save_all_contexts(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
     }
 }
 
+// Write the talk of the chat in hand out to its own file. The talk of a chat
+// stands worked-through in a slot of the running server and nowhere else, and
+// the file of it is written as a rule only when the model is unloaded or the
+// program is shut down. A stop is a second such moment: the server is idle, the
+// words of the answer are kept as far as they came, and the talk in the slot
+// stands for exactly that. Writing it here costs a chat nothing to write and a
+// great deal to read again, for a chat that was stopped and then lost its slot
+// to another chat -- or had the program taken away under it -- was read through
+// from its first word otherwise.
+//
+// The name of the file is given back when a talk was written, and nothing is
+// given back when there was none to write: the keeping switched off, no chat
+// open, the chat of the talk that was never asked, or a slot the chat no longer
+// stands in. That last is the careful one of the four, for a slot another chat
+// took holds the talk of that chat, and writing it under the name of this one
+// would put wrong words in the place the talk of this chat is read back from.
+fn save_chat_context(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> Option<String> {
+    let (chat_id, slot) = {
+        let Ok(guard) = state.lock() else {
+            return None;
+        };
+        if !guard.cfg.chat_context_files {
+            return None;
+        }
+        let chat_id = guard.current.clone()?;
+        let slot = guard.context_slot.get(&chat_id).copied()?;
+        let held = guard.context_holds.get(&slot).cloned()?;
+        if held != chat_id {
+            return None;
+        }
+        (chat_id, slot)
+    };
+    let name = context_name(&chat_id, model_id);
+    // A talk that cannot be written is a talk read through again, as it always
+    // was: the words of the chat stand in its file of chats whatever happens
+    // here.
+    let _ = llama::slot_state(base_url, "save", slot, &name);
+    Some(name)
+}
+
 // Stop the running server. The talks that stand worked-through in it are
 // written out first, for the server is the one place they stand, and after this
 // call there is nothing left to write them from: this is the unload of the
@@ -7630,6 +7670,21 @@ fn run_turn(
                 "Ready"
             };
             guard.set_status(text);
+            // An answer the user stopped leaves the talk of the chat worked
+            // through in the slot of the server as far as it came, and the server
+            // is idle now. That is a moment to write the talk out, for the next
+            // thing that happens to the chat may be that another chat takes the
+            // slot, or that the program is taken away altogether -- and a talk
+            // that was not written is a talk read through again from its first
+            // word. The lock is let go first, for a long talk to a slow disk
+            // takes longer than the small calls of the server.
+            let stopped = answer.stopped;
+            drop(guard);
+            if stopped {
+                if let Some(running) = server.as_ref() {
+                    save_chat_context(state, &running.url, &running.model_id);
+                }
+            }
             // The worker is told what the answer came to. One that stopped on the
             // hand of the user, or on a fault of the stream, is not gone on
             // with; one that came to its end, or to the ceiling of its steps, is.
@@ -12984,6 +13039,69 @@ mod tests {
             state.lock().unwrap().context_holds.get(&slot).map(|one| one.as_str()),
             Some(first.as_str()),
             "and it stands in it again"
+        );
+    }
+
+    // The talk of the chat in hand is written out when an answer is stopped, and
+    // only when there is a talk of that chat to write: not with the keeping
+    // switched off, not with no chat open, not for a chat that was never asked,
+    // and not for a chat whose slot another chat stands in -- for the slot of
+    // another chat holds the talk of that other chat, and writing it under the
+    // name of this one would put wrong words where the talk of this one is read
+    // back from.
+    #[test]
+    fn a_stopped_answer_writes_the_talk_of_its_chat_only() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        let nowhere = "http://127.0.0.1:1";
+        let model = "/models/one.gguf";
+        let (first, second) = {
+            let mut guard = state.lock().unwrap();
+            guard.start_chat();
+            let first = guard.current.clone().expect("a chat was opened");
+            guard.start_chat();
+            let second = guard.current.clone().expect("a second chat was opened");
+            (first, second)
+        };
+        // A chat that was never asked has no talk worked through anywhere, so
+        // there is nothing of it to write.
+        assert!(
+            save_chat_context(&state, nowhere, model).is_none(),
+            "a chat that was never asked has no talk to write"
+        );
+        // Asked, the chat stands in a slot, and its talk can be written.
+        let slot = context_claim(&state, nowhere, model).expect("a slot for the chat in hand");
+        let name = save_chat_context(&state, nowhere, model).expect("the talk of the chat in hand");
+        assert_eq!(
+            name,
+            context_name(&second, model),
+            "the file is the one this chat is read back from"
+        );
+        // Another chat takes the slot. The first chat still wants it, but the
+        // talk that stands in it now is the talk of the second, so nothing of
+        // the first may be written there.
+        state.lock().unwrap().current = Some(first.clone());
+        context_claim(&state, nowhere, model).expect("the slot for the first chat");
+        state.lock().unwrap().current = Some(second.clone());
+        context_claim(&state, nowhere, model).expect("and the slot for the second");
+        assert_eq!(
+            state.lock().unwrap().context_holds.get(&slot).map(|one| one.as_str()),
+            Some(second.as_str()),
+            "the slot stands for the second chat"
+        );
+        state.lock().unwrap().current = Some(first.clone());
+        assert!(
+            save_chat_context(&state, nowhere, model).is_none(),
+            "a chat whose slot another chat holds writes nothing there"
+        );
+        // With the keeping switched off, nothing is written at all.
+        state.lock().unwrap().current = Some(second.clone());
+        state.lock().unwrap().cfg.chat_context_files = false;
+        assert!(
+            save_chat_context(&state, nowhere, model).is_none(),
+            "the keeping switched off writes nothing"
         );
     }
 
