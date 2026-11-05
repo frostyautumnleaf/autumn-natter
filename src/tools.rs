@@ -31,15 +31,6 @@ use crate::util;
 // Name the model uses to ask for a terminal run.
 pub const TOOL_NAME: &str = "run_terminal";
 
-// Name the model uses to mark the start of a chapter of the chat. The call is
-// of the program's own: the user never sees it, and the model is asked not to
-// speak of it.
-pub const CHAPTER_TOOL_NAME: &str = "chapter";
-
-// The longest name a chapter may have. The node beside the chat and the card
-// over it both have to hold the name in a small space.
-pub const MAX_CHAPTER_NAME: usize = 50;
-
 // Longest output kept for one run.
 const MAX_OUTPUT: usize = 8000;
 
@@ -49,6 +40,14 @@ const SHELL: &str = "/bin/sh";
 // The road of the programs inside the jail. It holds the usual places and
 // nothing of the user, for the air of the host is let out of the room.
 const JAIL_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+// The room the road `/tmp` of the jail stands for. It is a folder of the working
+// directory of the chat, so what a command writes there is kept with the work of
+// the chat, is seen by the next command of that chat, and is seen by a command
+// of the chat from outside the jail under the name `tmp`. A room of its own that
+// went with every command was the old way, and a model could not leave a file
+// for the next command in it.
+const TMP_ROOM: &str = "tmp";
 
 // The name the jail gives its own machine. The name of the host is not wanted
 // in there, and a command has no business reading it.
@@ -79,6 +78,33 @@ const ETC_PATHS: [&str; 12] = [
     "/etc/ssl/certs",
     "/etc/pki/tls/certs",
 ];
+
+// The marks of the trust a command asks for when it fetches a page of the web:
+// the bundle of certificates, the file that says where the bundle stands and how
+// it is to be read, and the store of the marks themselves. Only the two folders
+// of the certificates went in before. A bundle that is a mark for a file kept
+// elsewhere, which is how several systems write it, then came to nothing inside
+// the jail: `curl` and `wget` answered with a broken CA bundle, and the only way
+// out the command was left with was `--insecure`, which is no way out at all. A
+// file goes in by its name, and where the name is a mark for a thing kept
+// elsewhere the thing itself goes in under its own name, so the bundle is whole
+// whichever way a system keeps it, and the jail starts whichever way the mark is
+// written.
+const CA_PATHS: [&str; 8] = [
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ssl/certs/ca-bundle.crt",
+    "/etc/ssl/cert.pem",
+    "/etc/ssl/openssl.cnf",
+    "/etc/ca-certificates.conf",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/pki/tls/openssl.cnf",
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+];
+
+// The folders a system writes its bundle into, when the file under /etc is a
+// mark for one of them. They hold nothing but the marks that say who may be
+// trusted, which is what the folder of the certificates holds as well.
+const CA_ROOMS: [&str; 1] = ["/var/lib/ca-certificates"];
 
 // What a command of the jail may reach beyond its own folder. Every part of it
 // stands off, so a command sees nothing of the machine and reaches nothing
@@ -111,27 +137,38 @@ impl Access {
 // command itself. A model that gives a reason of its own is still read, and the
 // user still sees it, so a chat written before this change keeps what it had.
 //
-// The words follow what the chat allows, so the model is not told a command has
-// no network when the user opened the network, and is not left to find out by
-// running something that fails.
-pub fn definition(access: Access) -> Value {
+// The words follow the state of the sandbox, which is the only thing that can
+// wall a command. A chat with the sandbox on is told the walls of the jail, and
+// what the chat lets a command reach beyond its own folder, so the model is not
+// told a command has no network where the user opened the network, and is not
+// left to find out by running something that fails. A chat with the sandbox off
+// is told the command and the folder it starts in, and nothing else: the
+// command of such a chat runs under the same eye as the file tools, and a line
+// about a wall that is not there has turned a model away from a command it
+// should have run.
+pub fn definition(sandbox: bool, access: Access) -> Value {
     let mut reach = String::from(
-        "Run one shell command and return its output. The command runs in the working directory of the chat. When the sandbox is on, the command can see only that directory and the programs of the machine: no other file of the machine is visible, the home folder included, and a file left by one command is not seen by the next. ",
+        "Run one shell command and return its output. The command runs in the working directory of the chat. ",
     );
-    reach.push_str(if access.net() {
-        "The command may reach the network. "
-    } else {
-        "There is no network access. "
-    });
-    if access.pip {
+    if sandbox {
         reach.push_str(
-            "Python packages may be installed: pip is on the PATH and installs into a Python environment of this chat at .venv. ",
+            "The command runs in the sandbox, so it can see only that directory and the programs of the machine: no other file of the machine is visible, the home folder included. The road `/tmp/` resolves to a relative `./tmp/` directory of the working directory, so a file left there is kept, is seen by the next command of this chat, and is a file of the work of the chat. ",
         );
-    }
-    if access.fetch {
-        reach.push_str("wget, curl and fetch may be used to read a page of the web.");
-    } else {
-        reach.push_str("wget, curl and fetch are turned off, so do not ask for a file of the web with them.");
+        reach.push_str(if access.net() {
+            "The command may reach the network. "
+        } else {
+            "There is no network access. "
+        });
+        if access.pip {
+            reach.push_str(
+                "Python packages may be installed: pip is on the PATH and installs into a Python environment of this chat at .venv. ",
+            );
+        }
+        if access.fetch {
+            reach.push_str("wget, curl and fetch may be used to read a page of the web.");
+        } else {
+            reach.push_str("wget, curl and fetch are turned off, so do not ask for a file of the web with them.");
+        }
     }
     json!({
         "type": "function",
@@ -152,30 +189,6 @@ pub fn definition(access: Access) -> Value {
     })
 }
 
-// The tool description for a chapter of the chat.
-pub fn chapter_definition() -> Value {
-    let said = with_rule(String::from(
-        "Mark the start of a new chapter in this chat. This tool is offered only while the user has turned the chapters of a chat on. Call it when a new part of the work begins: a new task, a new question, a new phase, or the next chapter of a story you are writing. You may call it as often as you like, including in the middle of your work. Call it just before you write the part it marks, then continue writing. The result only confirms that the marker was added, and you continue where you stopped. The one thing it asks for is the name, a short phrase that says what the part is about. Do not mark the same part twice, do not describe this call, and do not mention chapters in your answer.",
-    ));
-    json!({
-        "type": "function",
-        "function": {
-            "name": CHAPTER_TOOL_NAME,
-            "description": said,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "The name of the chapter, as a short phrase of at most 50 characters."
-                    }
-                },
-                "required": ["name"]
-            }
-        }
-    })
-}
-
 // The rule every tool is offered under. A model reads the list of tools at the
 // head of every ask, and a model that has been told to call a tool on every
 // query spends its first turn of a chat trying to answer a message that asked
@@ -191,28 +204,6 @@ pub const CALL_RULE: &str = "Use a tool only when the user asked for something a
 // it.
 pub fn with_rule(description: String) -> String {
     format!("{} {}", description.trim_end(), CALL_RULE)
-}
-
-// The name of a chapter out of what the model sent. It is made one line, cut at
-// MAX_CHAPTER_NAME, and empty when the model sent nothing usable.
-pub fn chapter_name(raw: &str) -> String {
-    let taken = match serde_json::from_str::<Value>(raw) {
-        Ok(value) => value
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        // A model that sent the name on its own, without the object.
-        Err(_) => raw.to_string(),
-    };
-    let mut name = String::new();
-    for word in taken.split_whitespace() {
-        if !name.is_empty() {
-            name.push(' ');
-        }
-        name.push_str(word);
-    }
-    name.chars().take(MAX_CHAPTER_NAME).collect::<String>().trim().to_string()
 }
 
 // What one call of a tool the program does itself produced: the words the model
@@ -291,6 +282,14 @@ pub fn installed() -> bool {
     bwrap_path().is_some()
 }
 
+// The folder `/tmp` of the jail stands for: `tmp` inside the working directory
+// of the chat. It is made here, because the jail cannot start without it.
+fn jail_tmp(workdir: &Path) -> String {
+    let room = workdir.join(TMP_ROOM);
+    let _ = std::fs::create_dir_all(&room);
+    room.display().to_string()
+}
+
 // The path of the working directory as the jail sees it. Links are followed, so
 // the place that is mounted and the place the command starts in are one place.
 fn jail_workdir(workdir: &Path) -> String {
@@ -325,6 +324,153 @@ fn push_program_path(args: &mut Vec<String>, path: &Path) {
         args.push(text.clone());
         args.push(text);
     }
+}
+
+// Put one file or folder of the machine into the jail read only. A name that
+// stands for nothing is passed over, which is how a list of files that a system
+// may or may not have is worked through.
+//
+// A name that is a mark for a thing kept elsewhere is put in under its own name
+// only while the folder it stands in is out of the jail. The folder of the
+// certificates goes in whole, so the mark comes with it, and bubblewrap will not
+// mount on a mark: the whole jail cannot start. That is how a bundle of the
+// certificates that is a mark, which is how Arch and Fedora write it, kept every
+// command of the sandbox from running on those systems. Where the mark stands in
+// the jail already, the thing it leads to goes in under its own name, so the mark
+// still leads somewhere and a command that fetches a page of the web reads the
+// bundle whole.
+fn push_read_only(args: &mut Vec<String>, path: &str) {
+    if !stands_as_a_mark(Path::new(path)) || !folder_in_the_jail(args, path) {
+        args.push("--ro-bind-try".into());
+        args.push(path.into());
+        args.push(path.into());
+        return;
+    }
+    // The mark leads nowhere that can be named from here, so it is passed over:
+    // a mark that hangs in the air inside the jail is better than a jail that
+    // never starts.
+    let Ok(whole) = std::fs::canonicalize(path) else {
+        return;
+    };
+    let stood = whole.display().to_string();
+    // The thing the mark leads to came into the jail with its own folder, so
+    // nothing is added.
+    if folder_in_the_jail(args, &stood) {
+        return;
+    }
+    args.push("--ro-bind-try".into());
+    args.push(stood.clone());
+    args.push(stood);
+}
+
+// The marks that put a folder of the machine into the jail. After one of them
+// come the place on the machine and the place in the jail.
+const FOLDER_MARKS: [&str; 4] = ["--ro-bind", "--ro-bind-try", "--bind", "--bind-try"];
+
+// True when the folder that holds the name is in the jail already, because a
+// folder of the machine was put in over it. The words of such a folder come from
+// the machine, marks and all, so the name stands in the jail whatever it is.
+fn folder_in_the_jail(args: &[String], path: &str) -> bool {
+    let Some(folder) = Path::new(path).parent() else {
+        return false;
+    };
+    let mut at = 0;
+    while at < args.len() {
+        if !FOLDER_MARKS.contains(&args[at].as_str()) {
+            at += 1;
+            continue;
+        }
+        // The mark, the place on the machine, and the place in the jail.
+        let Some(inside) = args.get(at + 2) else { break };
+        if folder.starts_with(Path::new(inside)) {
+            return true;
+        }
+        at += 3;
+    }
+    false
+}
+
+// True when the name is a mark for a thing kept elsewhere, and not the thing of
+// itself.
+fn stands_as_a_mark(place: &Path) -> bool {
+    std::fs::symlink_metadata(place)
+        .map(|made| made.is_symlink())
+        .unwrap_or(false)
+}
+
+// True when the name stands for a folder of itself, and not for a mark that
+// points somewhere else. A mark is passed over, because the place it leads to
+// cannot be named from here.
+fn stands_as_a_folder(place: &Path) -> bool {
+    std::fs::symlink_metadata(place).map(|made| made.is_dir()).unwrap_or(false)
+}
+
+// True when the name stands for a file of the rules of a program: words that the
+// program reads, or the settings of it. A mark that points somewhere else is not
+// such a file, whatever its name says.
+fn stands_as_a_rule_file(place: &Path) -> bool {
+    if !std::fs::symlink_metadata(place).map(|made| made.is_file()).unwrap_or(false) {
+        return false;
+    }
+    let Some(end) = place.extension().and_then(|one| one.to_str()) else {
+        return false;
+    };
+    end == "properties" || end == "cfg"
+}
+
+// The name of the folder that holds the way in to the console of a running Java
+// program, and the words that let one in. It is kept out of the jail.
+const JAVA_MANAGEMENT: &str = "management";
+
+// The rules Java works under. A system that puts the programs of Java under /usr
+// often puts their rules under /etc, and builds the programs to read them there.
+// The empty root of the jail has none of them, so a run of `java` inside came to
+// its rules and found nothing: the marks of the machine, the list of what may not
+// be trusted, and the settings of the network were all gone, and the program went
+// on with its own least rules. The `security` folder of every Java under /etc
+// goes in read only, with the files of words and of settings that stand beside
+// it. A Java that is a mark for a place elsewhere is passed over, and so is
+// `management/`.
+fn java_paths() -> Vec<String> {
+    java_rules(Path::new("/etc")).iter().map(|one| one.display().to_string()).collect()
+}
+
+// The rules of the Java programs that stand under one root. The root is a thing
+// of the check as well, so the two of them can be looked at without a machine of
+// the kind that keeps Java under /etc.
+fn java_rules(root: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return found;
+    };
+    let mut homes: Vec<PathBuf> = Vec::new();
+    for entry in entries.flatten() {
+        let place = entry.path();
+        let stands = place.file_name().and_then(|one| one.to_str()).unwrap_or("");
+        if !stands.starts_with("java") || !stands_as_a_folder(&place) {
+            continue;
+        }
+        homes.push(place);
+    }
+    homes.sort();
+    for home in homes {
+        let security = home.join("security");
+        if stands_as_a_folder(&security) {
+            found.push(security);
+        }
+        let Ok(inner) = std::fs::read_dir(&home) else { continue };
+        for one in inner.flatten() {
+            let place = one.path();
+            if place.file_name().and_then(|name| name.to_str()) == Some(JAVA_MANAGEMENT) {
+                continue;
+            }
+            if stands_as_a_rule_file(&place) {
+                found.push(place);
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 // Build the argument list of the jail, up to the two marks that end it. The
@@ -369,17 +515,19 @@ fn jail_args(workdir: &Path, access: Access) -> Vec<String> {
     for path in PROGRAM_PATHS.iter().chain(EXTRA_PROGRAM_PATHS.iter()) {
         push_program_path(&mut args, Path::new(path));
     }
+    // The room `/tmp` of the jail, which is `tmp` of the working directory. The
+    // jail cannot start without it, so it is made here, and not by the command.
+    let tmp = jail_tmp(workdir);
     // The parts of a root a command still needs to run at all. /dev holds the
     // few nodes a program asks for, and no node of the host. /proc is a new
-    // one, so the processes of the machine are not to be seen. /tmp is a room
-    // of the jail, empty at the start of every command and gone with it.
+    // one, so the processes of the machine are not to be seen. /tmp is the
+    // `tmp` folder of the working directory, so a file written there is kept
+    // with the work of the chat and seen by the commands that come after it.
     args.extend_from_slice(&[
         "--dev".into(),
         "/dev".into(),
         "--proc".into(),
         "/proc".into(),
-        "--tmpfs".into(),
-        "/tmp".into(),
         "--dir".into(),
         "/etc".into(),
     ]);
@@ -389,6 +537,28 @@ fn jail_args(workdir: &Path, access: Access) -> Vec<String> {
         args.push(file.into());
         args.push(file.into());
     }
+    // The bundle of the certificates and the file that says how to read it, by
+    // their names, so a bundle that is a mark for a file kept elsewhere still
+    // comes whole. The room the bundle is written into goes in as well, for the
+    // marks of the certificates are looked for there on such a system.
+    for file in CA_PATHS {
+        push_read_only(&mut args, file);
+    }
+    for room in CA_ROOMS {
+        push_read_only(&mut args, room);
+    }
+    // The rules of Java, which the programs of the machine are built to read
+    // under /etc.
+    for rule in java_paths() {
+        push_read_only(&mut args, &rule);
+    }
+    // The room of `/tmp`, which is a folder of the working directory. It goes in
+    // before the working directory itself, so a working directory that stands
+    // under `/tmp` of the host keeps its own place in the jail: the mount of the
+    // working directory is then put over this one, where it belongs.
+    args.push("--bind".into());
+    args.push(tmp.clone());
+    args.push("/tmp".into());
     // The working directory of the chat: the one place that may be written.
     args.push("--bind".into());
     args.push(wd.clone());
@@ -1152,24 +1322,6 @@ pub fn extract_object(text: &str) -> Option<&str> {
 mod tests {
     use super::*;
 
-    // The name of a chapter is what the user sees beside the chat, so it is
-    // made one line and kept short.
-    #[test]
-    fn a_chapter_name_is_one_line_and_short() {
-        assert_eq!(chapter_name(r#"{"name":"Fixing the parser"}"#), "Fixing the parser");
-        // A name the length of the limit, and one longer than it.
-        let long = "n".repeat(MAX_CHAPTER_NAME + 12);
-        assert_eq!(chapter_name(&format!(r#"{{"name":"{long}"}}"#)).len(), MAX_CHAPTER_NAME);
-        // Marks of a list, newlines and runs of spaces are made into one line.
-        let messy = r#"  Ways\tof\n  the  work  "#;
-        assert_eq!(chapter_name(&format!(r#"{{"name":"{messy}"}}"#)), "Ways of the work");
-        // A model that sent the name on its own, without the object.
-        assert_eq!(chapter_name("The work"), "The work");
-        // Nothing usable gives nothing, and the call is answered as such.
-        assert_eq!(chapter_name(r#"{"name":"   "}"#), "");
-        assert_eq!(chapter_name("{}"), "");
-    }
-
     // The arguments are looked at without running anything, so the shape of the
     // jail is watched even on a machine without bubblewrap.
     #[test]
@@ -1195,10 +1347,283 @@ mod tests {
         // the place the command starts in.
         assert!(text.contains("--bind\n/work/somewhere\n/work/somewhere\n"));
         assert!(text.contains("--chdir\n/work/somewhere"));
+        // `/tmp` is a folder of the working directory and not a room of the
+        // jail, so no `tmpfs` stands over it.
+        assert!(text.contains("--bind\n/work/somewhere/tmp\n/tmp\n"));
+        assert!(!text.contains("--tmpfs\n/tmp\n"));
         // No private file of the machine is offered.
         for forbidden in ["/etc/shadow", "/etc/ssh", "/etc/machine-id", "/home"] {
             assert!(!text.contains(forbidden), "the jail offers {}", forbidden);
         }
+    }
+
+    // A command that fetches a page has to read the bundle of the certificates,
+    // and the file that says how to read it, or it answers with a broken bundle
+    // and nothing is left to it but to trust nothing. A bundle that is a mark for
+    // a file kept elsewhere, which is how Arch and Fedora write it, is offered
+    // under the name of the file it leads to, so the mark in the jail still leads
+    // somewhere.
+    #[test]
+    fn the_jail_offers_the_bundle_of_the_certificates() {
+        let args = jail_args(Path::new("/work/somewhere"), Access::default());
+        let text = args.join("\n");
+        for part in [
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/ssl/cert.pem",
+            "/etc/ssl/openssl.cnf",
+            "/etc/pki/tls/certs/ca-bundle.crt",
+            "/var/lib/ca-certificates",
+        ] {
+            let place = Path::new(part);
+            if !stands_as_a_mark(place) {
+                assert!(
+                    text.contains(&format!("--ro-bind-try\n{}\n{}\n", part, part)),
+                    "the jail keeps {} out",
+                    part
+                );
+                continue;
+            }
+            let Ok(whole) = std::fs::canonicalize(place) else { continue };
+            let stood = whole.display().to_string();
+            assert!(
+                text.contains(&format!("--ro-bind-try\n{}\n{}\n", stood, stood)),
+                "the jail keeps the thing {} leads to out: {}",
+                part,
+                stood
+            );
+        }
+    }
+
+    // No mount of the jail may be made on a mark that stands inside a folder of
+    // the jail, for bubblewrap refuses it and the whole jail cannot start. That is
+    // how the jail of this branch came to nothing on the systems that write their
+    // bundle of the certificates as a mark.
+    #[test]
+    fn no_mount_of_the_jail_is_made_on_a_mark() {
+        let args = jail_args(Path::new("/work/somewhere"), Access::default());
+        let mut at = 0;
+        while at < args.len() {
+            if !FOLDER_MARKS.contains(&args[at].as_str()) {
+                at += 1;
+                continue;
+            }
+            let dest = args[at + 2].clone();
+            assert!(
+                !(stands_as_a_mark(Path::new(&dest)) && folder_in_the_jail(&args[..at], &dest)),
+                "the jail was told to mount on the mark {}",
+                dest
+            );
+            at += 3;
+        }
+    }
+
+    // The folders of the machine that stand in the jail are read out of the
+    // arguments built so far, so a name is known to be there already. A folder
+    // that is a mark in the jail, as `/bin` is, and the empty `/etc` made by hand
+    // are not folders of the machine, and hold nothing of it.
+    #[test]
+    fn the_folders_of_the_jail_are_read_out_of_the_arguments() {
+        let args: Vec<String> = [
+            "--unshare-all",
+            "--tmpfs",
+            "/",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--symlink",
+            "usr/bin",
+            "/bin",
+            "--dir",
+            "/etc",
+            "--ro-bind-try",
+            "/etc/ssl/certs",
+            "/etc/ssl/certs",
+            "--ro-bind-try",
+            "/etc/passwd",
+            "/etc/passwd",
+        ]
+        .iter()
+        .map(|one| String::from(*one))
+        .collect();
+        assert!(folder_in_the_jail(&args, "/etc/ssl/certs/ca-certificates.crt"));
+        assert!(folder_in_the_jail(&args, "/usr/share/ca-certificates/ca.p12"));
+        assert!(!folder_in_the_jail(&args, "/etc/ssl/openssl.cnf"));
+        assert!(!folder_in_the_jail(&args, "/etc/passwd"));
+        assert!(!folder_in_the_jail(&args, "/bin/sh"));
+    }
+
+    // A bundle that is a mark for a file kept elsewhere is not put into the jail
+    // under the name of the mark when the folder of the mark is in the jail, for
+    // the mark came into the jail with its folder and bubblewrap will not mount on
+    // it. The thing the mark leads to goes in under its own name instead.
+    #[cfg(unix)]
+    #[test]
+    fn the_jail_never_mounts_on_a_mark() {
+        let room = std::fs::canonicalize(room_of("mark")).expect("the room of the test");
+        let certs = room.join("certs");
+        let kept = room.join("kept");
+        std::fs::create_dir_all(&certs).unwrap();
+        std::fs::create_dir_all(&kept).unwrap();
+        let bundle = kept.join("ca-bundle.trust.crt");
+        std::fs::write(&bundle, "TRUSTED").unwrap();
+        let mark = certs.join("ca-certificates.crt");
+        std::os::unix::fs::symlink(&bundle, &mark).unwrap();
+        let mark = mark.display().to_string();
+        let bundle = bundle.display().to_string();
+        let certs = certs.display().to_string();
+        let kept = kept.display().to_string();
+
+        // The folder of the mark is out of the jail, so nothing stands in the way
+        // of the name and bubblewrap follows the mark to the bytes.
+        let mut out: Vec<String> = Vec::new();
+        push_read_only(&mut out, &mark);
+        assert_eq!(
+            out,
+            [String::from("--ro-bind-try"), mark.clone(), mark.clone()],
+            "a mark outside a folder of the jail goes in under its own name"
+        );
+
+        // The folder of the mark is in the jail, and the mark stands in it: no
+        // argument names the mark, and the thing it leads to goes in whole.
+        let mut out: Vec<String> =
+            vec![String::from("--ro-bind-try"), certs.clone(), certs.clone()];
+        push_read_only(&mut out, &mark);
+        assert!(
+            !out.iter().any(|one| one == &mark),
+            "the jail was told to mount on the mark: {:?}",
+            out
+        );
+        assert_eq!(
+            out[3..],
+            [String::from("--ro-bind-try"), bundle.clone(), bundle.clone()],
+            "the thing the mark leads to did not go in under its own name"
+        );
+
+        // The thing the mark leads to came into the jail with its own folder, so
+        // nothing at all is added for it.
+        let mut out: Vec<String> = vec![
+            String::from("--ro-bind-try"),
+            certs.clone(),
+            certs.clone(),
+            String::from("--ro-bind-try"),
+            kept.clone(),
+            kept,
+        ];
+        let before = out.len();
+        push_read_only(&mut out, &mark);
+        assert_eq!(out.len(), before, "a thing of the jail was mounted again");
+        let _ = std::fs::remove_dir_all(&room);
+    }
+
+    // The jail of a chat whose bundle of the certificates is a mark for a file
+    // kept elsewhere, which is how Arch and Fedora write it. The jail starts, and
+    // the bytes of the bundle come through the mark. On those systems the jail
+    // could not start at all, and no command of the sandbox ran.
+    #[cfg(unix)]
+    #[test]
+    fn the_jail_starts_when_the_bundle_is_a_mark() {
+        if let Err(problem) = jail_check() {
+            eprintln!("the jail of this box is not usable: {}", problem);
+            return;
+        }
+        let room = std::fs::canonicalize(room_of("bundle")).expect("the room of the test");
+        let certs = room.join("etc/ssl/certs");
+        let kept = room.join("etc/ca-certificates/extracted");
+        std::fs::create_dir_all(&certs).unwrap();
+        std::fs::create_dir_all(&kept).unwrap();
+        let bundle = kept.join("ca-bundle.trust.crt");
+        std::fs::write(&bundle, "TRUSTED-BYTES\n").unwrap();
+        let mark = certs.join("ca-certificates.crt");
+        std::os::unix::fs::symlink(&bundle, &mark).unwrap();
+        // The arguments of the jail of a chat, with the folders of the test put in
+        // as the jail puts in the folders of a machine: the folder of the
+        // certificates first, and the bundle by its name after it.
+        let mut args: Vec<String> = [
+            "--unshare-all",
+            "--unshare-user",
+            "--disable-userns",
+            "--die-with-parent",
+            "--new-session",
+            "--hostname",
+            JAIL_HOSTNAME,
+            "--tmpfs",
+            "/",
+        ]
+        .iter()
+        .map(|one| String::from(*one))
+        .collect();
+        for path in PROGRAM_PATHS.iter().chain(EXTRA_PROGRAM_PATHS.iter()) {
+            push_program_path(&mut args, Path::new(path));
+        }
+        args.extend_from_slice(&[
+            String::from("--dev"),
+            String::from("/dev"),
+            String::from("--dir"),
+            String::from("/etc"),
+        ]);
+        push_read_only(&mut args, &certs.display().to_string());
+        push_read_only(&mut args, &mark.display().to_string());
+        args.extend_from_slice(&[
+            String::from("--"),
+            String::from(SHELL),
+            String::from("-c"),
+            format!("cat '{}'", mark.display()),
+        ]);
+        let bwrap = bwrap_path().expect("bubblewrap stands on this box");
+        let made = util::capture(&bwrap.display().to_string(), &args, Duration::from_secs(20));
+        let _ = std::fs::remove_dir_all(&room);
+        assert!(made.ok, "the jail did not start: {}", made.err);
+        assert!(
+            made.out.contains("TRUSTED-BYTES"),
+            "the bundle did not come through the mark: {} / {}",
+            made.out,
+            made.err
+        );
+    }
+
+    // The rules of Java stand under /etc on the systems that put their programs
+    // under /usr. They are read out of that root, and three things are left out:
+    // a program that is a mark for a place elsewhere, a `security` folder that is
+    // such a mark, and `management/`, which holds the words of the console.
+    #[cfg(unix)]
+    #[test]
+    fn the_rules_of_java_are_read_out_of_their_root() {
+        static TURN: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "autumn-natter-java-rules-{}-{}",
+            std::process::id(),
+            TURN.fetch_add(1, Ordering::SeqCst)
+        ));
+        let home = root.join("java-21-openjdk");
+        std::fs::create_dir_all(home.join("security/policy")).unwrap();
+        std::fs::write(home.join("security/java.security"), "rules").unwrap();
+        std::fs::write(home.join("net.properties"), "network").unwrap();
+        std::fs::write(home.join("jvm-amd64.cfg"), "flags").unwrap();
+        std::fs::write(home.join("psfont.properties.ja"), "fonts").unwrap();
+        std::fs::write(home.join("notes.txt"), "words").unwrap();
+        std::fs::create_dir_all(home.join("management")).unwrap();
+        std::fs::write(home.join("management/jmxremote.password"), "SECRET").unwrap();
+        // A Java that is a mark for a place elsewhere, and a `security` folder
+        // that is such a mark.
+        std::fs::create_dir_all(root.join("elsewhere/thing")).unwrap();
+        std::fs::create_dir_all(root.join("java-mock")).unwrap();
+        std::os::unix::fs::symlink("../elsewhere/thing", root.join("java-mark")).unwrap();
+        std::os::unix::fs::symlink("../elsewhere", root.join("java-mock/security")).unwrap();
+        // A program of another kind, with a folder of rules of its own.
+        std::fs::create_dir_all(root.join("python-3/security")).unwrap();
+        let found: Vec<String> = java_rules(&root)
+            .iter()
+            .map(|one| one.strip_prefix(&root).unwrap().display().to_string())
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                "java-21-openjdk/jvm-amd64.cfg",
+                "java-21-openjdk/net.properties",
+                "java-21-openjdk/security",
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     // bubblewrap leaves the command unrun when the jail cannot be made. That is
@@ -1403,12 +1828,12 @@ mod tests {
     // not told there is no network where the user opened one.
     #[test]
     fn the_tool_says_what_the_chat_allows() {
-        let off = definition(Access::default());
+        let off = definition(true, Access::default());
         let said = off["function"]["description"].as_str().unwrap_or("").to_string();
         assert!(said.contains("There is no network access."));
         assert!(said.contains("turned off"));
         assert!(!said.contains("pip is on the PATH"));
-        let open = definition(Access { network: true, pip: true, fetch: true });
+        let open = definition(true, Access { network: true, pip: true, fetch: true });
         let words = open["function"]["description"].as_str().unwrap_or("").to_string();
         assert!(words.contains("The command may reach the network."));
         assert!(words.contains("pip is on the PATH"));
@@ -1416,8 +1841,53 @@ mod tests {
         assert!(!words.contains("There is no network access."));
     }
 
+    // A chat with the sandbox off runs its commands under the same eye as the
+    // tools of the files, with nothing walled about the folder it starts in. The
+    // words handed to the model say the command and the folder, and nothing of a
+    // jail, of a network or of a program that stands off: such a chat has none of
+    // those things to tell, and a model once told that fetching was turned off
+    // left a command it should have run alone.
+    #[test]
+    fn a_chat_without_the_sandbox_is_told_nothing_of_it() {
+        for access in [
+            Access::default(),
+            Access { network: true, pip: true, fetch: true },
+        ] {
+            let said = definition(false, access)["function"]["description"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            assert!(said.contains("Run one shell command"), "{}", said);
+            assert!(said.contains("the working directory of the chat"), "{}", said);
+            for forbidden in ["sandbox", "jail", "network", "wget", "curl", "pip"] {
+                assert!(
+                    !said.to_lowercase().contains(forbidden),
+                    "a chat with no sandbox is told of {}: {}",
+                    forbidden,
+                    said
+                );
+            }
+        }
+    }
+
     #[cfg(unix)]
     static TURN_OF_TEST: AtomicUsize = AtomicUsize::new(0);
+
+    // The room of a test, made under the temp folder of the machine and taken
+    // away again. The tests take turns through a count, so two of them never work
+    // in one room.
+    #[cfg(unix)]
+    fn room_of(name: &str) -> PathBuf {
+        let place = std::env::temp_dir().join(format!(
+            "autumn-natter-ca-{}-{}-{}",
+            std::process::id(),
+            TURN_OF_TEST.fetch_add(1, Ordering::SeqCst),
+            name
+        ));
+        let _ = std::fs::remove_dir_all(&place);
+        std::fs::create_dir_all(&place).expect("the room of the test could not be made");
+        place
+    }
 
     // The jail of this machine, run for real. A box without bubblewrap, or with
     // user namespaces switched off, says what it found and passes at once.
@@ -1493,8 +1963,9 @@ mod tests {
             std::fs::read_to_string(room.join("secret")).unwrap(),
             "NOT-FOR-A-JAIL"
         );
-        // The room of one command is empty when the next one starts, and it is
-        // not the room of the machine.
+        // `/tmp` is a folder of the room of the chat. The road inside the jail
+        // is `/tmp`, the file stands in `tmp` of the room of the chat, and what
+        // one command leaves there is seen by the next.
         let left = run(
             "echo gone > \"$TMPDIR/left\"; echo \"$TMPDIR\"",
             &workdir,
@@ -1505,8 +1976,8 @@ mod tests {
             Duration::from_secs(20),
         );
         assert_eq!(left.output.trim(), "/tmp");
-        let clean = run(
-            "test -e \"$TMPDIR/left\" && echo LEFT || echo CLEAN",
+        let kept = run(
+            "test -e \"$TMPDIR/left\" && echo KEPT || echo GONE",
             &workdir,
             true,
 
@@ -1514,7 +1985,11 @@ mod tests {
 
             Duration::from_secs(20),
         );
-        assert!(clean.output.contains("CLEAN"), "{}", clean.output);
+        assert!(kept.output.contains("KEPT"), "{}", kept.output);
+        assert!(
+            workdir.join("tmp").join("left").is_file(),
+            "the file of /tmp did not stand in the room of the chat"
+        );
         // A command that is not wrapped says so plainly, and is marked as not
         // sandboxed, so the window can tell the user.
         let plain = run("cat ../secret 2>&1", &workdir, false, Access::default(), Duration::from_secs(20));
@@ -1523,12 +1998,61 @@ mod tests {
         let _ = std::fs::remove_dir_all(&room);
     }
 
+    // A command that is given less time than it takes is stopped, wrapped and
+    // plain. The shell forks the command it was given, and that child holds the
+    // output pipes open, so a signal to the shell alone leaves the call waiting
+    // for the run to end by itself. The words the command printed before it was
+    // stopped come back with the answer, and nothing of the run is left going.
+    #[cfg(unix)]
+    #[test]
+    fn a_command_out_of_time_is_stopped_wrapped_and_plain() {
+        let workdir = room_of("watch");
+        for jailed in [false, true] {
+            let road = if jailed { "wrapped" } else { "plain" };
+            if jailed {
+                if let Err(problem) = jail_check() {
+                    eprintln!("the jail of this box is not usable: {}", problem);
+                    continue;
+                }
+            }
+            let began = std::time::Instant::now();
+            let made = run_watched(
+                "echo one; sleep 35; echo two",
+                &workdir,
+                jailed,
+                Access::default(),
+                &util::Watch::new(Duration::from_millis(600)),
+            );
+            let gone = began.elapsed();
+            assert!(
+                made.timed_out,
+                "a {road} command was not stopped when its time was gone"
+            );
+            assert!(
+                made.output.contains("one"),
+                "the words before the end were lost, {road}: {}",
+                made.output
+            );
+            assert!(
+                !made.output.contains("two"),
+                "words printed after the end came back, {road}: {}",
+                made.output
+            );
+            assert!(
+                gone < Duration::from_secs(5),
+                "a {road} call was held for {} ms",
+                gone.as_millis()
+            );
+        }
+        let _ = std::fs::remove_dir_all(&workdir);
+    }
+
     // The call is asked for one thing: the command. No reason for the command is
     // asked for, so a model may run a command without first writing a line about
     // it, and the words of the definition lead it nowhere near such a line.
     #[test]
     fn the_tool_asks_for_no_reason_of_the_command() {
-        let made = definition(Access::default());
+        let made = definition(true, Access::default());
         let call = made.get("function").expect("the tool is a function");
         assert_eq!(
             call.get("name").and_then(|v| v.as_str()),

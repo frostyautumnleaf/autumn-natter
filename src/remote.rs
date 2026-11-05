@@ -140,6 +140,16 @@ fn handle(engine: &Engine, mut request: Request) {
                 }
             }
         }
+        // The whole of the plan of the open chat, for the window that reads it at
+        // a click on the heading over the talk.
+        ("GET", "/api/plan") => match engine.plan() {
+            Some(words) => {
+                let _ = request.respond(json_response(&json!({ "words": words })));
+            }
+            None => {
+                let _ = request.respond(json_status(404, "This chat has no plan"));
+            }
+        },
         // The sheet of settings. The page of the remote mode reads the same
         // settings the window of the program reads, and writes them back with a
         // call of its own.
@@ -211,6 +221,25 @@ fn handle(engine: &Engine, mut request: Request) {
                 }
                 None => {
                     let _ = request.respond(json_status(404, "None of those files is here"));
+                }
+            }
+        }
+        // The contents of one file of a show. The window over the contents of a
+        // file asks for it by the name the block of the show carries. The rule of
+        // the room follows the state of the sandbox of the chat that is open, and a
+        // kind the window has no way of showing is refused, so the route reads no
+        // more than the tool would have put in the window.
+        ("GET", "/api/display") => {
+            let asked = query_value(&query, "path");
+            match engine.display_of(&asked) {
+                Some((name, kind, bytes)) => {
+                    let _ = request.respond(bytes_response(&name, &kind, bytes));
+                }
+                None => {
+                    let _ = request.respond(json_status(
+                        404,
+                        "That file is not here, or it is not a kind the window shows",
+                    ));
                 }
             }
         }

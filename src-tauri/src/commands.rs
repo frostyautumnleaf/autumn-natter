@@ -56,6 +56,16 @@ pub async fn get_attachment(engine: State<'_, Engine>, id: String) -> Result<Val
     }
 }
 
+// The whole of the plan of the open chat, for the window that reads it at a click
+// on the heading over the talk.
+#[tauri::command]
+pub async fn get_plan(engine: State<'_, Engine>) -> Result<Value, String> {
+    match engine.plan() {
+        Some(words) => Ok(json!({ "words": words })),
+        None => Err("This chat has no plan".to_string()),
+    }
+}
+
 // A file the user was offered by the download tool, and the whole of such an
 // offer wound into one archive. The window has no web server between it and the
 // engine, so the bytes come back as a data URL and the window hangs them on a
@@ -72,6 +82,16 @@ pub async fn get_gift_zip(
     paths: Vec<String>,
 ) -> Result<Value, String> {
     Ok(web::gift_zip_value(&engine, &paths))
+}
+
+// The contents of one file of a show, for the window that looks at a file whole.
+// The bytes come by the name the block of the show carries, under the same rule of
+// the room as the call that made the block: while the sandbox of the chat stands
+// only the room of the chat is opened, and with the sandbox off a file of the
+// machine may be read. A kind the window has no way of showing is refused.
+#[tauri::command]
+pub async fn get_displayed(engine: State<'_, Engine>, path: String) -> Result<Value, String> {
+    Ok(web::display_value(&engine, &path))
 }
 
 // The settings of the program, for the sheet of settings. The same three calls

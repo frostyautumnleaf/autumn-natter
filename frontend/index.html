@@ -123,18 +123,19 @@ body.corporate {
 :root { --ink: var(--strong); --ink-leaf: var(--leaf); --ink-fail: var(--deep); }
 body.dark { --ink: #f08a2a; --ink-leaf: #d9713f; --ink-fail: #e0603a; }
 /* A word that stands in an accent colour is white on a ground of grey, and the two
-   weaker inks are the steps below it. Nothing is left to colour alone here: weight
-   and place tell one kind of word from another as they do in the other skins. */
-body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #ffffff; }
+   weaker inks are the steps below it. A fault keeps a colour of its own: a very
+   light red, so a failed tool call is known as one and not as plain words. */
+body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #f0b4ad; }
 /* The two counts of a change of a file. Green for what was written and red for
    what was taken away are the colours the eye knows for the two already; they
    are kept pale, so that they sit with the warm colours of the skin instead of
    shouting over them, in the pale colours and the dark ones alike. */
 :root { --hunk-add: #4d7a35; --hunk-cut: #b04a35; }
 body.dark { --hunk-add: #a3c98c; --hunk-cut: #e09b86; }
-/* The two counts in the shades this skin is made of. The sign before a count and the
-   place it stands in carry the difference; the two steps of grey only second them. */
-body.corporate { --hunk-add: #dedede; --hunk-cut: #9c9c9c; }
+/* The two counts in pale green and pale red. The skin is else without colour, but
+   the sign before a count and the two colours beside it say which is which at one
+   look, as they do in the other skins. */
+body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
 @supports (color: color-mix(in oklab, red, blue)) {
   body.dark {
     --ink: color-mix(in oklab, var(--accent) 74%, #fff6ec);
@@ -264,10 +265,16 @@ body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
    is to be moved has to be a block of its own. A block of its own is also a
    place the line may break, which is why neither number is broken above. */
 .meter-box .roll { display: inline-block; }
-.meter { display: block; height: 4px; border-radius: 999px; background: var(--surface-3);
-  overflow: hidden; }
+.meter { display: block; position: relative; height: 4px; border-radius: 999px;
+  background: var(--surface-3); }
 .meter i { display: block; height: 100%; border-radius: 999px; background: var(--accent);
   transition: width 300ms ease, background 200ms; }
+/* The place a summarisation begins, as a second line of its own colour across
+   the bar of the context. It stands a little over the bar at either side, so it
+   is seen against the words of the fill and against the ground alike. */
+.meter .cut { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px;
+  border-radius: 1px; background: var(--strong); }
+.meter .cut.hidden { display: none; }
 .meter-box.near .num { color: var(--ink-fail); font-weight: 600; }
 .meter-box.near .meter i { background: var(--ink-fail); }
 
@@ -298,6 +305,9 @@ body.home .stage { display: none; }
    stands over the words. A window too narrow for a margin of its own does not show
    it at all. */
 .stage.withchapters .thread { padding-left: var(--rail, 116px); }
+/* The chat makes room at the top while the row of planning mode stands over it,
+   so the first words of the talk are never shut under it. */
+.stage.withplan .thread { padding-top: 62px; }
 @media (max-width: 880px) {
   .stage.withchapters .thread { padding-left: 0; }
   .chapters { display: none; }
@@ -625,6 +635,21 @@ pre.code {
   max-height: 420px; overflow-y: auto; scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent; color: var(--text-2);
 }
+
+/* The mark that takes the words of a block of code away. It stands over the block
+   at its top right, and stays there while the block is read, for it belongs to the
+   block and not to the words. It is seen when the pointer is over the block, or
+   when the keyboard comes to it, for a mark that is always to be seen over every
+   block of code is noise. */
+.codebox { position: relative; }
+.codebox .copycode { position: absolute; top: 7px; right: 7px; display: inline-flex;
+  align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 6px; background: var(--code-bg); border: 1px solid var(--code-line);
+  color: var(--dim); cursor: pointer; opacity: 0; transition: opacity 120ms; }
+.codebox:hover .copycode, .codebox:focus-within .copycode { opacity: 1; }
+.codebox .copycode:hover { color: var(--ink); background: var(--hover); }
+.codebox .copycode .svg { width: 12.5px; height: 12.5px; }
+.codebox .copycode.done { color: var(--ink-leaf); }
 
 /* The colours of a code block. Every one of them is one of the five accents, a
    neutral, or a mix of an accent with a warm neutral for the dark skin, where
@@ -985,6 +1010,56 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.55;
   font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace; }
 .look-note { font-size: 12.5px; color: var(--dim); }
+/* The turn of the files. The window over the contents of files carries one file at
+   a time, so the arrows and the count stand in its head. The mark of the kind is
+   put away when the turn stands, for one file names the other. */
+.look-turn { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; }
+.look-turn.hidden { display: none; }
+.look-arrow {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface-2); cursor: pointer;
+}
+.look-arrow:hover { border-color: var(--accent-line); background: var(--tint); }
+.look-arrow:disabled { opacity: .3; cursor: default; }
+.look-arrow:disabled:hover { border-color: var(--line); background: var(--surface-2); }
+.look-arrow .svg { width: 13px; height: 13px; stroke: var(--ink); }
+.look-count { min-width: 40px; text-align: center; font-size: 11px; color: var(--dim);
+  font-variant-numeric: tabular-nums; }
+/* The mark that puts the words of a file up instead of the thing the file makes. */
+.look-raw {
+  flex: 0 0 auto; display: inline-flex; align-items: center; padding: 4px 9px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
+  color: var(--dim); font-size: 11px; font-weight: 650; letter-spacing: .04em;
+  text-transform: uppercase; cursor: pointer;
+}
+.look-raw.hidden { display: none; }
+.look-raw:hover { border-color: var(--accent-line); background: var(--tint); color: var(--ink); }
+.look-raw.on { border-color: var(--accent-line); background: var(--tint); color: var(--ink); }
+/* A page of html, and a document of pages, are put in a frame of their own: the
+   page makes itself, and the document is read by the reader of the machine. The
+   frame is white whatever the skin is, for the page inside it knows nothing of
+   the skin. */
+.look-frame { display: block; width: 100%; min-height: 56vh; height: 62vh; border: 0;
+  border-radius: var(--r-m); background: #fff; }
+.look-body.has-frame { padding: 8px; background: var(--surface-2); }
+/* The words of a file of marks, put up as the marks ask. They wear the kinds of
+   the chat, which are named for the writing and not for the place it stands in. */
+.look-md { font-size: 13.5px; color: var(--text); }
+.look-md > :first-child { margin-top: 0; }
+.look-md > :last-child { margin-bottom: 0; }
+/* The button of a show, under the block of the run that made it. The window goes
+   away with the key of escape, so the block keeps the way back to it. */
+.shown-again { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.shown-again button {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
+  color: var(--ink); font-size: 12px; cursor: pointer;
+}
+.shown-again button:hover { border-color: var(--accent); background: var(--tint); }
+.shown-again .svg { width: 13px; height: 13px; stroke: var(--ink); }
+.shown-again .held { font-size: 11.5px; color: var(--dim); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 @keyframes look-rise {
   from { opacity: 0; transform: translateY(12px) scale(.985); }
   to { opacity: 1; transform: none; }
@@ -1076,6 +1151,85 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
   box-shadow: var(--shadow-1); transition: border-color 160ms, box-shadow 160ms;
 }
 .box.focus { border-color: var(--line-strong); box-shadow: var(--shadow-1), var(--ring); }
+/* Planning mode. The heading stands at the very top of the talk, on a row of
+   its own with a line under it. The chat box wears a dashed border while the
+   mode is on, or while the plan made in it is being worked from. */
+.planhead {
+  /* The row stands at the very top of the talk, over the wash of the top edge
+     and over the words, so it stays where it is while the chat is scrolled. The
+     line under it is dashed, for a plan is not shut. */
+  position: absolute; left: 0; right: 0; top: 0; z-index: 4;
+  display: flex; align-items: center; gap: 10px;
+  height: 34px; padding: 0 18px; border-bottom: 1px dashed var(--accent-line);
+  background: var(--surface-2); color: var(--accent);
+  font-family: var(--ui); font-size: 11px; font-weight: 600;
+  line-height: 1.4; letter-spacing: .14em; text-transform: uppercase;
+}
+.planhead button {
+  margin-left: auto; border: 1px solid var(--line-strong); background: var(--surface);
+  color: var(--text-2); border-radius: var(--r-s); padding: 3px 9px;
+  font-family: var(--ui); font-size: 11px; font-weight: 500;
+  letter-spacing: .06em; cursor: pointer;
+}
+.planhead button:hover { color: var(--accent); border-color: var(--accent); }
+.box.planning { border: 2px dashed var(--accent); }
+/* The questions of the plan. The questionnaire stands in the talk itself, at the
+   end of it, on the ground of the talk and with a line at its left, as the block
+   of a run has: it is part of what was said, and not a window set over it. The
+   boxes of the answers keep a ground of their own, for a box to write in has to
+   say that it can be written in. */
+.planask {
+  margin: 16px 0 6px; padding: 2px 0 2px 13px;
+  border: 0; border-left: 2px solid var(--line-strong);
+  border-radius: 0; background: none; box-shadow: none;
+}
+.planask .pahead {
+  color: var(--accent); font-family: var(--ui); font-size: 10.5px; font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase; margin-bottom: 8px;
+}
+.planask .pq { margin: 0 0 12px; }
+.planask .pqprompt { font-weight: 600; margin: 0 0 6px; }
+.planask .pqopt {
+  display: flex; align-items: baseline; gap: 8px; padding: 3px 0; cursor: pointer;
+}
+.planask .pqopt input { accent-color: var(--accent); flex: 0 0 auto; }
+.planask .pqwrite {
+  width: 100%; box-sizing: border-box; padding: 7px 9px; resize: vertical;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-s); color: var(--text); font: inherit;
+}
+.planask .pfoot { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.planask .pqsend {
+  border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
+  border-radius: var(--r-s); padding: 6px 12px; cursor: pointer; font-weight: 600;
+}
+.planask .pqsend:disabled { opacity: .5; cursor: default; }
+.planask .pqnote { color: var(--dim); font-size: 11.5px; }
+/* The list of commands. It shows when the writer types a slash with nothing
+   before it. Each row gives the command and what it does; one row stands out
+   while the list is open. */
+.commands {
+  position: absolute; left: 0; right: 0; bottom: 100%; z-index: 20;
+  margin: 0 0 4px; padding: 4px; list-style: none;
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--r-m); box-shadow: var(--shadow-2);
+  max-height: 240px; overflow-y: auto;
+}
+.commands li {
+  display: flex; flex-direction: column; gap: 2px; padding: 6px 9px;
+  border-radius: var(--r-s); cursor: pointer;
+}
+.commands li.on, .commands li:hover { background: var(--hover); }
+.commands .cmd { font-weight: 600; color: var(--accent); }
+.commands .cdesc { color: var(--dim); font-size: 11.5px; }
+/* The command of a message, as a block of its own in the chat box. It is not
+   words of the message, so it stands on a ground and in a colour of its own. */
+.cmdchip {
+  display: inline-flex; align-items: center; margin: 8px 0 0 10px;
+  padding: 2px 8px; border-radius: var(--r-s);
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
+  color: var(--accent); font-family: var(--mono, monospace); font-size: 12.5px;
+}
 /* The gauge of the work the server does with the words it was sent. It hangs
    above the box, over the foot of the chat, so the chat box never has to move
    for it. The number stands in the middle of a ring, and the ring fills with
@@ -1201,6 +1355,11 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
   transition: background var(--t-move) ease, border-color var(--t-move) ease;
 }
 .gift .get:hover, .gifts .all:hover { background: var(--tint); border-color: var(--accent); }
+/* A block of an offer opens the window over the contents of the file, so it wears
+   the mark of a thing that may be looked at. The button of the block is not that
+   thing, and stands over this rule. */
+.gift.peek { cursor: pointer; }
+.gift.peek:hover { border-color: var(--accent-line); background: var(--tint); }
 .gift .get .svg, .gifts .all .svg { width: 13px; height: 13px; stroke: var(--ink); }
 /* The button of the whole offer stands under the files it takes, in the middle
    of the chat as they are. */
@@ -1210,8 +1369,8 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 /* The files that hang on a message the user has sent stand under its words,
    inside the bubble, on the user's side. They are not chips: a chip is a
    thing in the chat box that may still be thrown away. Here the file has gone
-   out, so a picture is laid out as a plate — the picture, and under it its
-   whole name with the ending — and a file of words is a card no taller than
+   out, so a picture is laid out as a plate (the picture, and under it its whole
+   name with the ending), and a file of words is a card no taller than
    the name it carries. Nothing stretches to the height of its neighbour, which
    is what made a row of blocks look like a shelf of holes of one size. */
 .bubble .parts { display: flex; flex-wrap: wrap; align-items: flex-start;
@@ -1859,7 +2018,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       <span class="num" id="ctxtext"><span class="roll" id="ctxused">0</span><span id="ctxtail"> of 0</span></span>
       <span class="pct" id="ctxpct"><span class="roll" id="ctxpctnum">0</span>%</span>
     </div>
-    <span class="meter"><i id="ctxfill"></i></span>
+    <span class="meter"><i id="ctxfill"></i><b class="cut hidden" id="ctxcut"></b></span>
   </div>
   <span class="rule"></span>
   
@@ -1893,6 +2052,15 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     <div class="thread" id="thread">
       <div class="col" id="col"></div>
     </div>
+    <!-- Planning mode. The row of words stands at the very top of the talk, over
+         the wash of the top edge and over the talk: it stays put while the chat
+         is scrolled. It reads PLANNING MODE while the mode is on, and PLANNED
+         WORK when the plan made in it is being worked from. The button opens the
+         whole plan, as the mark of a summary does for a summary. -->
+    <div class="planhead hidden" id="planhead">
+      <span id="planlabel">Planning mode</span>
+      <button id="planopen" type="button" title="Open the plan in a window of its own">Read the plan</button>
+    </div>
     <!-- The chat fades out into the background at the very top. The wash is the
          colour of the background, thick at the top edge and gone a finger lower,
          and it stands over the words: the words under it are still words of the
@@ -1920,6 +2088,22 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       <div class="look-head">
         <span class="look-name" id="lookname"></span>
         <span class="look-kind" id="lookkind"></span>
+        <!-- The turn of the files. The window over the contents of files carries
+             one file at a time, so the two arrows and the count of them stand in
+             its head, and the user turns the files as they are read. -->
+        <span class="look-turn hidden" id="lookturn">
+          <button class="look-arrow" id="lookprev" type="button" title="The file before this one">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.6 5.6 8l4.4 4.4"/></svg>
+          </button>
+          <span class="look-count" id="lookcount"></span>
+          <button class="look-arrow" id="looknext" type="button" title="The file after this one">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.6 10.4 8 6 12.4"/></svg>
+          </button>
+        </span>
+        <!-- A page of html, a drawing of lines and a file of marks are put up as
+             the thing they make. This mark puts the words of the file up instead. -->
+        <button class="look-raw hidden" id="lookraw" type="button"
+                title="See the words of the file, not the page it makes">Raw</button>
         <button class="look-close" id="lookclose" type="button" title="Close this window">
           <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
         </button>
@@ -1988,6 +2172,14 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       <!-- The files the user has hung on the message that has not gone out
            yet. A block stands over the words for each of them, and the mark
            on a block takes that file away again. -->
+      <!-- The list of commands. It shows over the box when the writer types a
+           slash with nothing before it. One row picks the command into the
+           words being written. -->
+      <ul class="commands hidden" id="commands"></ul>
+      <!-- The command of this message, once it is picked. It stands as a block of
+           its own, so it is read as a command and not as the words of the
+           message. A backspace with nothing else written takes it away. -->
+      <span class="cmdchip hidden" id="cmdchip"><span class="cword"></span></span>
       <div class="parts hidden" id="parts"></div>
       <textarea id="draft" rows="1" spellcheck="false"
         placeholder="Write a message for the model"></textarea>
@@ -2036,7 +2228,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
             </div>
             <button class="send" id="send" title="Send the message">
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true">
-                <path class="mark-send" d="M8 12.6V4M4.4 7.6 8 4l3.6 3.6"/>
+                <path class="mark-send" d="M8 12.4V3.6M4.4 7.2 8 3.6l3.6 3.6"/>
                 <path class="mark-stop" d="M5.4 5.4h5.2v5.2H5.4z"/>
               </svg>
             </button>
@@ -2145,11 +2337,11 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Ask a silence over</span>
           <span class="sub">When the model stops by itself without writing a word, a command or a fault, the same ask goes out again this many times before the chat says the model gave no answer. A model that thought a while and then stopped very nearly always goes on when asked again. 0 leaves a silence alone.</span>
           <div class="ctl"><input id="fSilentRetries" type="number" min="0" max="10" step="1" placeholder="2"><span class="unit">times</span></div></div>
-        <div class="fld"><span class="lbl">Chapter markers</span>
-          <span class="sub">The model may mark where a new part of the chat begins. The markers appear on a line at the left of the chat, and clicking one scrolls there. Turn this off to hide the line; the model is then not offered the tool.</span>
+        <div class="fld"><span class="lbl">Chapters the model marked</span>
+          <span class="sub">The start of a new part of the chat is read from the headings the model writes, and the parts appear on a line at the left of the chat. Clicking one scrolls there. Turn this off to hide the line; the model is then told nothing of chapters either.</span>
           <div class="ctl"><input id="fChapters" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Commands in one answer</span>
-          <span class="sub">How many terminal commands the model may run in one answer. -1 means no limit, so the model may run as many commands as it wants. A chapter marker is not a command and does not use this limit.</span>
+          <span class="sub">How many terminal commands the model may run in one answer. -1 means no limit, so the model may run as many commands as it wants. A chapter is not a command and does not use this limit.</span>
           <div class="ctl"><input id="fToolSteps" type="number" min="-1" max="1000000" step="1" placeholder="-1"><span class="unit">commands, -1 for no limit</span></div></div>
         <div class="fld"><span class="lbl">Steps in one answer</span>
           <span class="sub">How many turns of the model one answer may take. Each command is followed by another turn, so a long task needs room here. -1 means no limit: the answer ends only when the model stops by itself.</span>
@@ -2168,7 +2360,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <span class="sub">How long the model waits for you to answer a question it put to you before it goes on without an answer and is told that you did not reply. Questions of this kind are the ordinary ones: the model could go on, but would rather ask.</span>
           <div class="ctl"><input id="fAskSeconds" type="number" min="1" max="86400" step="1" placeholder="30"><span class="unit">seconds</span></div></div>
         <div class="fld"><span class="lbl">A weighty question waits</span>
-          <span class="sub">How long the model waits for a question it marked as one it cannot go on without — a token that was never given, a choice only you can make. 0 means it waits until you answer, which is what such a question asks for.</span>
+          <span class="sub">How long the model waits for a question it marked as one it cannot go on without (a token that was never given, a choice only you can make). 0 means it waits until you answer, which is what such a question asks for.</span>
           <div class="ctl"><input id="fAskCriticalSeconds" type="number" min="0" max="86400" step="1" placeholder="0"><span class="unit">seconds, 0 for as long as it takes</span></div></div>
 
         
@@ -2193,10 +2385,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
             <option value="percent">At a share of the context</option>
             <option value="tokens">When little space is left</option>
           </select></div></div>
-        <div class="fld"><span class="lbl">Share of the context</span>
+        <div class="fld" id="fCompactPercentRow"><span class="lbl">Share of the context</span>
           <span class="sub">The conversation is summarised when it uses this share of the context window of the model.</span>
           <div class="ctl"><input id="fCompactPercent" type="number" min="1" max="100" step="1" placeholder="85"><span class="unit">per cent</span></div></div>
-        <div class="fld"><span class="lbl">Space to keep free</span>
+        <div class="fld" id="fCompactReserveRow"><span class="lbl">Space to keep free</span>
           <span class="sub">The conversation is summarised when the space left is this small or smaller, so the next answer has room to be written.</span>
           <div class="ctl"><input id="fCompactReserve" type="number" min="1" max="1000000" step="1" placeholder="10240"><span class="unit">tokens</span></div></div>
         <div class="fld wide"><span class="lbl">Handoff prompt</span>
@@ -2511,6 +2703,23 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     <div class="sbody" id="sumWords"></div>
   </div>
 </div>
+
+<!-- The plan of planning mode in a window of its own. It opens from the row of
+     words at the top of the talk, and shows the whole of the plan. -->
+<div class="overlay hidden" id="planOverlay">
+  <div class="sumview" role="dialog" aria-modal="true" aria-label="The plan">
+    <div class="vhead">
+      <div class="shead">
+        <span class="stitle" id="planTitle">The plan</span>
+        <span class="smeta" id="planMeta"></span>
+      </div>
+      <button class="mark-btn x" id="planClose" type="button" title="Close" aria-label="Close">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+    </div>
+    <div class="sbody" id="planWordsBox"></div>
+  </div>
+</div>
 <script>'use strict';
 
 // The window talks to the engine through Tauri, and not over the network. The
@@ -2527,7 +2736,7 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 
 // The parts of the page that stay in place. Their words are written again on
 // every draw.
-var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill',
+var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
   'newchat', 'settingsbtn', 'modelbtn', 'chapters', 'timeline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
@@ -2535,8 +2744,10 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts', 'queue', 'queuehead', 'queuecount', 'queuelist',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
-  'viewer', 'lookname', 'lookkind', 'lookclose', 'lookbody',
-  'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc'];
+  'viewer', 'lookname', 'lookkind', 'lookturn', 'lookprev', 'lookcount', 'looknext',
+  'lookraw', 'lookclose', 'lookbody',
+  'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
+  'planhead', 'planlabel', 'planopen', 'commands', 'cmdchip'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
 
@@ -2648,6 +2859,11 @@ function draw(s) {
   // the wait it set is counted down under the question.
   drawAsk(s);
 
+  // Planning mode. The row at the top of the talk and the border of the chat box
+  // say which mode the chat is in.
+  showPlanning(s);
+  keepCommandWithChat(s);
+
   // The line of state. The mark beats while the program is at work, and it
   // goes red while an answer can still be stopped.
   var busy = !!s.generating || !!s.busy;
@@ -2667,6 +2883,7 @@ function draw(s) {
   el.send.title = s.generating ? 'Stop the answer' : 'Send the message';
 
   drawThread(s);
+  drawPlanAsks(s);
   drawChapters(s);
   drawTimeline(s);
 }
@@ -2792,10 +3009,24 @@ function drawContext(s) {
   climbUsed(isFinite(used) ? used : 0);
   climbPct(Math.round(ratio * 100));
   el.ctxfill.style.width = Math.round(ratio * 100) + '%';
+  // The line of the summarisation: the place the talk of the chat is made again.
+  // It is not drawn at all when the summarisation is switched off, or when the
+  // room of the talk is not known.
+  var cut = Number(s.context.cut || 0);
+  if (el.ctxcut) {
+    el.ctxcut.classList.toggle('hidden', !(cut > 0));
+    el.ctxcut.style.left = (Math.max(0, Math.min(1, cut)) * 100).toFixed(2) + '%';
+  }
   el.ctx.classList.toggle('near', ratio > 0.9);
-  el.ctx.title = 'Tokens the model keeps in mind for this chat: '
-    + s.context.used + ' of ' + s.context.total
-    + (ratio > 0.9 ? ' The context is nearly full.' : '.');
+  var said = 'Tokens the model keeps in mind for this chat: '
+    + s.context.used + ' of ' + s.context.total + '.';
+  if (cut > 0) {
+    said += ' The line stands where a summarisation begins.';
+  }
+  if (ratio > 0.9) {
+    said += ' The context is nearly full.';
+  }
+  el.ctx.title = said;
 }
 
 // The ring of the gauge, in the units of the drawing: the circle is 19 wide and
@@ -3108,8 +3339,10 @@ var TOOL_LINES = [
    'The model may change a file of the chat and make a new one. Both work in the working directory of the chat and nowhere else, and they run in the program, so the sandbox of a command is not between them.'],
   ['picture', 'View images',
    'The model may look at a picture of the chat. The picture is read in the program and shown to the model, and never written out again.'],
-  ['hand_out', 'Offer files for download',
-   'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all.'],
+  ['hand_out', 'Offer files',
+   'The model may hold a file of the chat out to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all. A click on the block opens the window that reads a file whole.'],
+  ['display', 'Show files',
+   'The model may put the contents of files of the chat in a window over the chat, and only when you asked to see them. A click on the block of the show opens that window again. Only the kinds the window can show are let through, and while the sandbox stands only the working directory of the chat is opened.'],
   ['ask', 'Ask questions',
    'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.']
 ];
@@ -3997,6 +4230,24 @@ var TOOL_SHAPES = {
     head: 'Editing file: ', done: 'Edited file: ', word: 'file', end: 'result',
     empty: 'no file name', begun: 'a file, started', file: true
   },
+  // The plan of planning mode. The tool reaches one file and no other, so the
+  // head has no name of a file to wait for: it says what is being done to the
+  // plan, and the words of the changes stream under it as those of a file do.
+  read_plan: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
+    head: 'Reading ', done: 'Read ', named: 'the plan', word: 'pattern', end: 'result',
+    empty: 'the plan', begun: 'the plan', file: false
+  },
+  ask_plan: {
+    mark: 'M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM8 5.4v3.4M8 10.6v.8',
+    head: 'Asking about ', done: 'Asked about ', named: 'the plan', word: 'question',
+    end: 'answer', empty: 'the plan', begun: 'the plan'
+  },
+  edit_plan: {
+    mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
+    head: 'Editing ', done: 'Edited ', named: 'plan', word: 'edits', end: 'result',
+    empty: 'the plan', begun: 'the plan, started', file: true
+  },
   create_file: {
     mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
     head: 'Creating file: ', done: 'Created file: ', word: 'file', end: 'result',
@@ -4010,13 +4261,20 @@ var TOOL_SHAPES = {
     head: 'Searching the web: ', word: 'query', end: 'result',
     empty: 'nothing to search for', begun: 'the search words'
   },
-  // A picture handed over to the model. The words are the name of the picture,
-  // and the result is the receipt of the run: the block never carries the
-  // picture, only the line that says what was read of it.
+  // A picture, or a number of them, handed over to the model. The words are the
+  // name of the first picture, and the result is the receipt of the run: the
+  // block never carries a picture, only the lines that say what was read of them.
+  // The name of the tool was that of one picture, and a block of a chat written
+  // under that name is drawn the same way.
+  view_images: {
+    mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
+    head: 'Looking at images: ', word: 'image', end: 'result',
+    empty: 'nothing to look at', begun: 'the images to look at'
+  },
   view_image: {
     mark: 'M2.2 3h11.6v10H2.2zM4.4 10.6l2.2-2.8 1.8 2.2 1.6-2 1.6 2.6M11.2 5.2a0.9 0.9 0 1 0 0 1.8 0.9 0.9 0 1 0 0-1.8',
-    head: 'Looking at an image: ', word: 'image', end: 'result',
-    empty: 'nothing to look at', begun: 'the image to look at'
+    head: 'Looking at images: ', word: 'image', end: 'result',
+    empty: 'nothing to look at', begun: 'the images to look at'
   },
   // A file held out to the user. The block of the run says which file was
   // offered; the block of the offer itself, with the button, stands under the
@@ -4026,6 +4284,15 @@ var TOOL_SHAPES = {
     head: 'Offering a file: ', done: 'Offered a file: ', pluralDone: 'Offered files: ',
     word: 'file', end: 'result',
     empty: 'no file name', begun: 'a file, started', file: true, offer: true
+  },
+  // The contents of files put in the window over the chat. The head says which
+  // files were shown, and the block carries the button that opens the window
+  // again, for the window goes away with the key of escape.
+  display_files: {
+    mark: 'M2.2 3h11.6v10H2.2zM2.2 6.2h11.6M4.8 8.8h6.4',
+    head: 'Showing a file: ', done: 'Showed a file: ', pluralDone: 'Showed files: ',
+    word: 'file', end: 'result',
+    empty: 'no file name', begun: 'a file, started', file: true, shown: true
   },
   // A question the model put to the user. The head says what was asked; under
   // the second label stands the answer, or the word that the question was given
@@ -4086,6 +4353,46 @@ function offerHead(shape, m, over) {
   }
   return (given.length > 1 ? (shape.pluralDone || '') : (shape.done || ''))
     + held.join(', ');
+}
+
+// The words of the head of a block that showed the contents of files. Every file
+// of the call is named, as the head of an offer names the files it offered: the
+// sentence the tool sent back is not a name, and a head that carried it said the
+// same thing twice.
+function shownHead(shape, m, over) {
+  var given = m.displayed || [];
+  if (!given.length) { return headWords(shape, firstLine(m.body), over); }
+  var held = [];
+  var n;
+  for (n = 0; n < given.length; n++) { held.push(wholeOf(given[n])); }
+  return (given.length > 1 ? (shape.pluralDone || '') : (shape.done || '')) + held.join(', ');
+}
+
+// The button of a show, under the receipt of the run that made it. The window over
+// the contents of a file is opened by the model once and by the user as often as
+// they like, so the block keeps the mark that opens the same files again.
+var SHOWN_MARK = 'M1.7 8S3.9 3.9 8 3.9 14.3 8 14.3 8 12.1 12.1 8 12.1 1.7 8 1.7 8z'
+  + 'M8 6.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4';
+
+function shownAgain(m) {
+  var given = m.displayed;
+  if (!given || !given.length) { return null; }
+  var row = make('div', 'shown-again');
+  var button = make('button');
+  button.type = 'button';
+  button.appendChild(mark(SHOWN_MARK));
+  var said = make('span');
+  said.textContent = given.length > 1 ? 'Show these files again' : 'Show this file again';
+  button.appendChild(said);
+  var names = [];
+  for (var n = 0; n < given.length; n++) { names.push(wholeOf(given[n])); }
+  button.title = 'Open the window over ' + names.join(', ');
+  button.addEventListener('click', function () { openShownLook(given, 0); });
+  row.appendChild(button);
+  var held = make('span', 'held');
+  held.textContent = names.join(', ');
+  row.appendChild(held);
+  return row;
 }
 
 // The one thing the head of a call being written names. A file tool is named
@@ -4275,7 +4582,9 @@ function toolBox(m) {
   // that failed did not do the thing, so it keeps the name of the trying.
   cmd.textContent = shape.offer
     ? offerHead(shape, m, !running && !m.failed && !cut)
-    : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
+    : shape.shown
+      ? shownHead(shape, m, !running && !m.failed && !cut)
+      : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
   // A change of a file says how many lines it wrote and how many it took away.
   var hunks = hunkCount(m);
@@ -4317,6 +4626,10 @@ function toolBox(m) {
   // bytes of a picture are sent to the model and never written into the block.
   var shots = viewedPics(m);
   if (shots) { space.appendChild(shots); }
+  // The window over the contents of files goes away with the key of escape, or with
+  // a click outside it, so the block of the run keeps the way back to the files.
+  var again = shownAgain(m);
+  if (again) { space.appendChild(again); }
   space.appendChild(labTwo);
   space.appendChild(output);
   body.appendChild(space);
@@ -4368,17 +4681,93 @@ function writeBox(one) {
   var text = make('pre', 'cmd-text');
   var words = document.createTextNode('');
   var caret = make('span', 'caret');
-  // The mark of the writing stands behind the words, as the mark of an answer
-  // does, so the words never grow around it.
+  var behind = document.createTextNode('');
+  // The mark of the writing stands in the middle of the words of the block, and
+  // not behind all of them. A tool of the files has its changes shown change by
+  // change, and a model may write the half that comes later first, so the words
+  // of the block grow where the writing is, and not only at the end of them.
   text.appendChild(words);
   text.appendChild(caret);
+  text.appendChild(behind);
   space.appendChild(lab);
   space.appendChild(text);
   body.appendChild(space);
   panel.appendChild(head);
   panel.appendChild(body);
-  return { panel: panel, head: head, cmd: cmd, state: state, text: text, words: words,
-    caret: caret, space: space, why: null, shape: shape };
+  return { panel: panel, head: head, cmd: cmd, state: state, caret: caret,
+    space: space, writing: watchWriting({ text: text, caret: caret, head: words,
+      tail: behind, shown: '', pinned: false, wanted: -1 }),
+    why: null, shape: shape };
+}
+
+// The words of one lot of a block that is being written, and the mark of the
+// writing that stands among them. `head` holds the words before the mark and
+// `tail` the words behind it, `shown` is the whole of the words as they stood,
+// `pinned` says the user has gone into the block with their own hands, and
+// `wanted` is where the program meant the block to stand when it moved it.
+function watchWriting(made) {
+  made.text.addEventListener('scroll', function () {
+    // A scroll that stands where the program meant to stand is the doing of the
+    // program, and not of the user.
+    if (Math.abs(made.text.scrollTop - made.wanted) < 3) { return; }
+    made.pinned = true;
+  });
+  return made;
+}
+
+// Where the mark of the writing stands: at the end of the part of the words that
+// grew. A command grows at the end, and the mark stands there as it always did.
+// The changes of a file are shown one under the other, and a model that writes
+// the later half first is answered by words that arrive in the middle of the
+// block: the mark then stands at the end of the words that came in, and not at
+// the bottom of everything the block holds.
+function grownAt(was, now) {
+  if (!was || now.length < was.length) { return now.length; }
+  if (now.slice(0, was.length) === was) { return now.length; }
+  var at = 0;
+  var most = was.length < now.length ? was.length : now.length;
+  while (at < most && was.charCodeAt(at) === now.charCodeAt(at)) { at++; }
+  var back = 0;
+  while (back < most - at
+      && was.charCodeAt(was.length - 1 - back) === now.charCodeAt(now.length - 1 - back)) {
+    back++;
+  }
+  return now.length - back;
+}
+
+// One lot of words put in around the mark of the writing, and the block moved to
+// the mark. The block of a call being written follows the writing, and not the
+// bottom of the words, and a block the user has gone into is left alone.
+function putWords(writing, words) {
+  var said = words || '';
+  if (writing.shown === said) { return; }
+  var at = grownAt(writing.shown, said);
+  writing.shown = said;
+  writing.head.nodeValue = said.slice(0, at);
+  writing.tail.nodeValue = said.slice(at);
+  followCaret(writing);
+}
+
+// The block of a call being written is moved so that the mark of the writing
+// stands in view. A block that pulled the eye down while the user read the start
+// of it could not be read, so a block the user has moved in is never moved
+// again: only the scroll the program meant counts as the program's own.
+function followCaret(writing) {
+  if (writing.pinned || writing.caret.parentNode !== writing.text) { return; }
+  var view = writing.text.getBoundingClientRect();
+  var mark = writing.caret.getBoundingClientRect();
+  if (!mark.height) { return; }
+  var to = writing.text.scrollTop;
+  if (mark.top < view.top) { to -= (view.top - mark.top) + 8; }
+  else if (mark.bottom > view.bottom) { to += (mark.bottom - view.bottom) + 8; }
+  else { return; }
+  // The place the block can really stand at, so the scroll that follows lands
+  // where it was meant to and is not read as a scroll of the user's.
+  var most = writing.text.scrollHeight - writing.text.clientHeight;
+  to = to < 0 ? 0 : (to > most ? most : to);
+  if (to === writing.text.scrollTop) { return; }
+  writing.wanted = to;
+  writing.text.scrollTop = to;
 }
 
 // The reason of the command, put under the command itself. It comes after the
@@ -4389,13 +4778,18 @@ function addWhy(box) {
   lab.textContent = 'why';
   var text = make('pre', 'cmd-text');
   var words = document.createTextNode('');
+  var behind = document.createTextNode('');
   text.appendChild(words);
   // Putting the mark in the new words takes it off the command, which is now
   // over.
   text.appendChild(box.caret);
+  text.appendChild(behind);
   box.space.appendChild(lab);
   box.space.appendChild(text);
-  box.why = { label: lab, text: text, words: words };
+  // The mark of the writing follows the words that are being written now, so
+  // from here the block of the reason is the block that is followed.
+  box.why = watchWriting({ text: text, caret: box.caret, head: words, tail: behind,
+    shown: '', pinned: false, wanted: -1 });
 }
 
 // Whether the answer has put words on the page above the blocks of the calls
@@ -4453,14 +4847,7 @@ function feedWrite(list) {
       ink.tools[m] = box;
       ink.toolHost.appendChild(box.panel);
     }
-    if (box.words.nodeValue !== one.command) {
-      box.words.nodeValue = one.command;
-      // The end of a command is followed while it is written, unless the user
-      // has gone up in the block to read the start of it.
-      if (box.text.scrollHeight - (box.text.scrollTop + box.text.clientHeight) < 40) {
-        box.text.scrollTop = box.text.scrollHeight;
-      }
-    }
+    putWords(box.writing, one.command);
     var line = headWords(box.shape, headName(one, box.shape), false);
     if (box.cmd.textContent !== line) { box.cmd.textContent = line; }
     // The pill follows the state of the call: writing while the words come, and
@@ -4473,9 +4860,7 @@ function feedWrite(list) {
     }
     if (one.purpose) {
       if (!box.why) { addWhy(box); }
-      if (box.why.words.nodeValue !== one.purpose) {
-        box.why.words.nodeValue = one.purpose;
-      }
+      putWords(box.why, one.purpose);
     }
   }
 }
@@ -4779,6 +5164,70 @@ function paintCode(node, text, lang) {
     }
   }
 }
+// The mark that takes the words of a block of code away, so they can stand where
+// the user wants them: in a file, in a field of another program, in a note. The
+// mark is a brother of the block and not a word of it, for a block of code is
+// painted again whenever a colour comes into it, and painting takes everything
+// away from it.
+var COPY_WORDS = 'Copy the words of this block';
+var COPIED_WORDS = 'Copied';
+var COPY_FAIL_WORDS = 'The words could not be copied';
+var COPY_MARK = 'M5.8 5.8h6.6v6.6H5.8zM10.2 3.4H3.4v6.8';
+
+// The old road of the clipboard: the words stand in a field of one line away from
+// sight, the machine copies what is chosen in it, and the field goes again.
+function copyOld(words) {
+  try {
+    var field = document.createElement('textarea');
+    field.value = words;
+    field.setAttribute('readonly', '');
+    field.style.position = 'fixed';
+    field.style.top = '-1200px';
+    document.body.appendChild(field);
+    field.select();
+    var good = document.execCommand('copy');
+    document.body.removeChild(field);
+    return !!good;
+  } catch (why) { return false; }
+}
+
+// The words go to the clipboard of the box. The door of the web is the way when it
+// stands; the window of the program is no place the door trusts, and a page read
+// over an address it does not trust has no door either, so the old road stands
+// behind it. The mark says what came of it for a moment, then asks again.
+function copyOut(words, one) {
+  var told = function (good) {
+    var said = good ? COPIED_WORDS : COPY_FAIL_WORDS;
+    one.setAttribute('data-tip', said);
+    one.setAttribute('aria-label', said);
+    one.classList.toggle('done', !!good);
+    window.setTimeout(function () {
+      one.setAttribute('data-tip', COPY_WORDS);
+      one.setAttribute('aria-label', COPY_WORDS);
+      one.classList.remove('done');
+    }, 1600);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(words).then(function () { told(true); },
+      function () { told(copyOld(words)); });
+    return;
+  }
+  told(copyOld(words));
+}
+
+function codeBox(code) {
+  var box = make('div', 'codebox');
+  box.appendChild(code);
+  var one = make('button', 'copycode');
+  one.type = 'button';
+  one.setAttribute('data-tip', COPY_WORDS);
+  one.setAttribute('aria-label', COPY_WORDS);
+  one.appendChild(mark(COPY_MARK));
+  one.addEventListener('click', function () { copyOut(code.textContent, one); });
+  box.appendChild(one);
+  return box;
+}
+
 // One block of words, as the window sets it.
 function blockNode(block) {
   if (block.kind === 'rule') {
@@ -4852,7 +5301,7 @@ function blockNode(block) {
     code.dataset.lang = block.lang || '';
     watchCode(code);
     paintCode(code, block.text, block.lang);
-    return code;
+    return codeBox(code);
   }
   var text = make('div', 'body');
   inlineInto(text, inlineParts(block.text), false);
@@ -4966,6 +5415,9 @@ function holderOf(node) {
     return node.querySelector('tbody tr:last-child td:last-child')
       || node.querySelector('thead tr:last-child th:last-child') || node;
   }
+  // The words of a block of code stand in the block, and the mark of the copy
+  // stands beside it, so the block is what can still grow.
+  if (node.classList.contains('codebox')) { return node.querySelector('pre.code') || node; }
   return node;
 }
 
@@ -5516,6 +5968,9 @@ function roleStamp(m) {
     // The blocks of an offer stand under the answer, so the row that carries them
     // is made again when an offer comes in or goes out.
     m.downloads ? 'gift' + m.downloads.length : '',
+    // The button of a show stands in the block of the run, so the row is made
+    // again when a show comes in.
+    m.displayed ? 'shown' + m.displayed.length : '',
     // The line under a message carries the mark of going on with it, so the row
     // is made again when the state says an answer was stopped.
     m.stopped ? 'stopped' : ''].join('#');
@@ -5855,6 +6310,7 @@ function sentParts(m) {
     var shown = {
       name: one.name,
       kind: one.image ? 'image' : 'file',
+      what: one.image || !isDocumentName(one.name, one.mime) ? '' : 'Document',
       url: attPics[one.id] || ''
     };
     var block = partBlock(shown, undefined, lookOfSent(one, attPics));
@@ -5914,7 +6370,7 @@ function viewedPics(m) {
 // asks nothing again. The eye at the corner carries the whole reason in its tip.
 function viewedPic(one) {
   var plate = make('div', 'tshot');
-  plate.title = one.name;
+  plate.setAttribute('data-tip', one.name);
   plate.appendChild(make('span', 'pic'));
   if (attPics[one.id]) {
     fillPic(plate, attPics[one.id], one.name);
@@ -5930,7 +6386,9 @@ function viewedPic(one) {
   }
   // The user may look at the picture the model was shown, at the size it is.
   plate.classList.add('peek');
-  plate.title = one.name + ' — click to look at the picture';
+  // The words of the plate stand in `data-tip`, so no tooltip of the machine can
+  // ever come over the picture it speaks of.
+  plate.setAttribute('data-tip', one.name + ' - click to look at the picture');
   plate.setAttribute('role', 'button');
   plate.tabIndex = 0;
   plate.addEventListener('click', function () {
@@ -5938,7 +6396,7 @@ function viewedPic(one) {
   });
   var seen = 'The model can see this image.';
   var eye = make('span', 'seen');
-  eye.title = seen;
+  eye.setAttribute('data-tip', seen);
   eye.setAttribute('aria-label', seen);
   eye.appendChild(mark(EYE_MARK));
   plate.appendChild(eye);
@@ -5960,6 +6418,371 @@ function foldsFollowSettings() {
           + (chatting.tools ? '-fold-runs' : '-show-runs');
   foldMoved = foldSetting !== '' && now !== foldSetting;
   foldSetting = now;
+}
+
+
+// ------------------------------------------------ the questions of the plan
+// The questionnaire of planning mode stands in the talk itself, at the end of
+// it, so the questions are read where the plan is being talked about and not in
+// a window of their own. Every answer the model offered is a mark the user ticks
+// or clears, more than one where the model said more than one may be chosen, and
+// a question with no answers offered takes words instead. Nothing at all goes to
+// the model until the user presses the mark of send under the questions.
+var planPicks = {};
+// The ask whose answers went away to the model. The questions were asked once, so
+// the mark of send sleeps for good after them: a second sending would ask the
+// model the same thing twice.
+var planSent = {};
+
+// The words the user has ticked for one question, in the order the questions of
+// the questionnaire stand.
+function planChosen(id, count) {
+  var held = planPicks[id] || [];
+  var out = [];
+  for (var n = 0; n < count; n++) { out.push((held[n] || []).slice()); }
+  return out;
+}
+
+// The questions of one ask, wound into words. Two asks whose questions are the
+// same are the same questions, and the marks of them are left where they stand.
+function planShape(items) {
+  var said = '';
+  for (var n = 0; n < items.length; n++) {
+    said += (items[n].question || '') + (items[n].many ? '#' : '?')
+         + (items[n].choices || []).join(',') + '|';
+  }
+  return said;
+}
+
+function drawPlanAsks(s) {
+  var one = s && s.ask;
+  var stood = byId('planask');
+  if (!one || !one.plan || !(one.items || []).length) {
+    if (stood) { stood.remove(); }
+    return;
+  }
+  // The questions that stand are left standing. The state is read again and
+  // again, and a block made again under the hand of the user is a block whose
+  // marks were never pressed, whose words were never written and whose mark of
+  // send was never woken: the user was left with a sheet that seemed dead. Only
+  // a new ask, or the same ask with other questions in it, is made over.
+  if (stood && stood.dataset.ask === String(one.id)
+      && stood.dataset.shape === planShape(one.items)) {
+    if (el.col.lastChild !== stood) { el.col.appendChild(stood); }
+    planReady(stood, one.id, one.items.length);
+    return;
+  }
+  if (stood) { stood.remove(); }
+  if (!(planPicks[one.id])) { planPicks[one.id] = []; }
+  var box = make('div', 'planask');
+  box.id = 'planask';
+  box.dataset.ask = String(one.id);
+  box.dataset.shape = planShape(one.items);
+  var head = make('div', 'pahead');
+  head.textContent = 'Questions about the plan';
+  box.appendChild(head);
+  var items = one.items;
+  for (var n = 0; n < items.length; n++) {
+    var item = items[n];
+    var part = make('div', 'pq');
+    var prompt = make('div', 'pqprompt');
+    prompt.textContent = (n + 1) + '. ' + (item.question || '');
+    part.appendChild(prompt);
+    var choices = item.choices || [];
+    if (choices.length) {
+      for (var c = 0; c < choices.length; c++) {
+        var label = make('label', 'pqopt');
+        var mark = make('input', '');
+        mark.type = item.many ? 'checkbox' : 'radio';
+        mark.name = 'pq-' + one.id + '-' + n;
+        mark.value = choices[c];
+        if ((planChosen(one.id, items.length)[n] || []).indexOf(choices[c]) >= 0) { mark.checked = true; }
+        // The mark of this answer is handed to the function with the rest of it.
+        // The loop gives every answer a mark of its own, and a mark looked at
+        // after the loop is over is the mark of the last answer: a tick of any
+        // answer but the last was read back as a tick taken away again.
+        (function (which, word, held) {
+          mark.addEventListener('change', function () {
+            var now = planChosen(one.id, items.length);
+            var list = now[which];
+            var at = list.indexOf(word);
+            if (!held.checked) { if (at >= 0) { list.splice(at, 1); } }
+            else if (at < 0) {
+              // A question that takes one answer clears the mark that stood in
+              // its place, as the marks of that kind always have done.
+              if (!item.many) { list.length = 0; }
+              list.push(word);
+            }
+            planPicks[one.id] = now;
+            planReady(box, one.id, items.length);
+          });
+        })(n, choices[c], mark);
+        label.appendChild(mark);
+        var said = make('span', '');
+        said.textContent = choices[c];
+        label.appendChild(said);
+        part.appendChild(label);
+      }
+    } else {
+      // No answers were offered: the user writes one.
+      var wrote = make('textarea', 'pqwrite');
+      wrote.rows = 2;
+      wrote.spellcheck = false;
+      wrote.placeholder = 'Write your answer';
+      wrote.value = (planChosen(one.id, items.length)[n] || []).join('\n');
+      // The same rule as the marks: the question this box belongs to and the box
+      // itself are handed over together, or a sheet of two questions writes the
+      // words of one of them into the place of the other.
+      (function (which, wrote) {
+        wrote.addEventListener('input', function () {
+          var now = planChosen(one.id, items.length);
+          now[which] = wrote.value.trim() ? [wrote.value] : [];
+          planPicks[one.id] = now;
+          planReady(box, one.id, items.length);
+        });
+      })(n, wrote);
+      part.appendChild(wrote);
+    }
+    box.appendChild(part);
+  }
+  var foot = make('div', 'pfoot');
+  var send = make('button', 'pqsend');
+  send.type = 'button';
+  send.textContent = 'Send the answers';
+  send.disabled = true;
+  send.addEventListener('click', function () {
+    var chosen = planChosen(one.id, items.length);
+    if (!chosen.some(function (list) { return list.length > 0; })) { return; }
+    post('/api/plan_answers', { id: one.id, answers: chosen });
+    planSent[one.id] = true;
+    planReady(box, one.id, items.length);
+  });
+  foot.appendChild(send);
+  var note = make('span', 'pqnote');
+  note.textContent = 'Choose what you like of every question, then send the whole of it.';
+  foot.appendChild(note);
+  box.appendChild(foot);
+  el.col.appendChild(box);
+  // The mark of send wakes at once on what the user had ticked before this block
+  // was made, and sleeps for good once the answers went.
+  planReady(box, one.id, items.length);
+}
+
+// The mark of send wakes when the user has answered something, and sleeps while
+// the questions stand untouched. Once the answers have gone it sleeps for good:
+// the questions were asked once, and the words of the sheet say so.
+function planReady(box, id, count) {
+  var send = box.querySelector('.pqsend');
+  var note = box.querySelector('.pqnote');
+  if (planSent[id]) {
+    if (send) { send.disabled = true; }
+    if (note) { note.textContent = 'Sent'; }
+    return;
+  }
+  var chosen = planChosen(id, count);
+  var any = false;
+  for (var n = 0; n < chosen.length; n++) { if (chosen[n].length > 0) { any = true; } }
+  if (send) { send.disabled = !any; }
+}
+// ---------------------------------------------------------- planning mode
+// Planning mode makes a plan of the work before any of it is done. The chat says
+// which mode it is in, and the words of the plan are kept in a file of their own.
+// The row at the top of the talk names the mode, and opens the plan in a window
+// of its own, as the mark of a handoff summary does for a summary.
+function showPlanning(s) {
+  var planning = !!(s.chat && s.chat.planning);
+  var planned = !!(s.chat && s.chat.planned);
+  el.planhead.classList.toggle('hidden', !(planning || planned));
+  // The chat makes room at the top for the row, so no words stand under it.
+  el.stage.classList.toggle('withplan', planning || planned);
+  el.planlabel.textContent = planning ? 'Planning mode' : 'Planned work';
+  // The chat box wears a dashed border while the plan is being made, and while
+  // the words of that plan are being worked from.
+  el.box.classList.toggle('planning', planning || planned);
+}
+
+// The whole plan, as the engine kept it for this chat. The engine gives the
+// words back from the file of the plan, and says there is none when the chat
+// never planned or has forgotten the plan.
+function planWords() {
+  return invoke('get_plan', {});
+}
+
+// The plan in a window of its own. The words are read as the words of the chat
+// are read, so a plan written in marks of the text shows as it was meant.
+function openPlan() {
+  planWords().then(function (got) {
+    var body = byId('planWordsBox');
+    body.innerHTML = '';
+    var made = blocks((got && got.words) || '');
+    if (!made.length) {
+      var none = make('div', 'none');
+      none.textContent = 'Nothing was written for the plan.';
+      body.appendChild(none);
+    } else {
+      for (var n = 0; n < made.length; n++) { body.appendChild(blockNode(made[n])); }
+    }
+    byId('planOverlay').classList.remove('hidden');
+    byId('planClose').focus();
+  }, function () {
+    var gone = byId('planWordsBox');
+    gone.innerHTML = '';
+    var none = make('div', 'none');
+    none.textContent = 'This chat has no plan.';
+    gone.appendChild(none);
+    byId('planOverlay').classList.remove('hidden');
+    byId('planClose').focus();
+  });
+}
+
+function closePlan() {
+  byId('planOverlay').classList.add('hidden');
+}
+
+// The list of commands. It shows when the writer puts a slash at the start of a
+// word, and it keeps the rows that the words written so far still leave room
+// for. One row stands out, and the keys of the list move it about.
+function commandMatches() {
+  var before = el.draft.value.slice(0, el.draft.selectionStart || 0);
+  var found = /(^|\s)\/([a-z0-9_]*)$/i.exec(before);
+  return found ? { word: found[2], at: before.length - found[2].length - 1 } : null;
+}
+
+function closeCommands() {
+  el.commands.classList.add('hidden');
+  el.commands.innerHTML = '';
+}
+
+// Write the rows of the list again. The commands come from the engine, so a
+// command added there shows here without a change to the page.
+function drawCommands(word) {
+  var all = (cur && cur.commands) || [];
+  var keep = [];
+  var low = (word || '').toLowerCase();
+  for (var i = 0; i < all.length; i++) {
+    // The name of a command carries the mark of a command already, so the mark
+    // is taken off before the words written so far are matched against it.
+    var name = String(all[i].name || '').replace(/^\//, '').toLowerCase();
+    if (!low || name.indexOf(low) === 0) { keep.push(all[i]); }
+  }
+  if (keep.length === 0) { closeCommands(); return; }
+  el.commands.innerHTML = '';
+  for (var n = 0; n < keep.length; n++) {
+    var row = make('li', keep[n] === keep[0] ? 'on' : '');
+    row.dataset.cmd = keep[n].name;
+    var head = make('span', 'cmd');
+    head.textContent = keep[n].name;
+    var note = make('span', 'cdesc');
+    note.textContent = keep[n].words || '';
+    row.appendChild(head);
+    row.appendChild(note);
+    el.commands.appendChild(row);
+  }
+  el.commands.classList.remove('hidden');
+}
+
+// Whether the list stands open now.
+function commandsOpen() {
+  return !el.commands.classList.contains('hidden');
+}
+
+// The list moves with the words written after the slash.
+function commandsFollow() {
+  var hit = commandMatches();
+  if (!hit) { closeCommands(); return; }
+  drawCommands(hit.word);
+}
+
+// The command of the message that is being written. It is not kept among the
+// words of the message but as a block of its own in the chat box, so it is read
+// as a command and taken away again with a backspace.
+var pendingCommand = '';
+var pendingChat = null;
+
+// Write the block of the command again: shown when one is picked, gone when none
+// is.
+function drawCommandChip() {
+  el.cmdchip.classList.toggle('hidden', !pendingCommand);
+  if (pendingCommand) { el.cmdchip.querySelector('.cword').textContent = pendingCommand; }
+}
+
+// A command of the list belongs to the chat it was picked in. Another chat opens,
+// and the command of the chat that went is forgotten.
+function keepCommandWithChat(s) {
+  var here = chatIdOf(s);
+  if (pendingChat === here) { return; }
+  pendingChat = here;
+  pendingCommand = '';
+  drawCommandChip();
+}
+
+// Put the command of the row that stands out into the block of the chat box. The
+// word after the slash is taken out of the words being written, for the whole
+// name of the command now stands in the block instead.
+function pickCommand() {
+  var row = el.commands.querySelector('li.on');
+  if (!row) { closeCommands(); return false; }
+  var hit = commandMatches();
+  if (!hit) { closeCommands(); return false; }
+  var start = el.draft.selectionStart || 0;
+  el.draft.value = el.draft.value.slice(0, hit.at) + el.draft.value.slice(start);
+  el.draft.selectionStart = el.draft.selectionEnd = hit.at;
+  pendingCommand = row.dataset.cmd;
+  pendingChat = cur ? chatIdOf(cur) : null;
+  drawCommandChip();
+  closeCommands();
+  grow();
+  sendLook();
+  return true;
+}
+
+// The keys of the list. They answer only while the list stands open, and take
+// the key from the chat box for that one stroke.
+function commandKeys(e) {
+  if (!commandsOpen()) { return false; }
+  var rows = el.commands.querySelectorAll('li');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (rows.length === 0) { return true; }
+    var at = -1;
+    for (var i = 0; i < rows.length; i++) { if (rows[i].classList.contains('on')) { at = i; } }
+    rows[at < 0 ? 0 : (e.key === 'ArrowDown'
+      ? (at + 1) % rows.length
+      : (at - 1 + rows.length) % rows.length)].classList.add('on');
+    if (at >= 0) { rows[at].classList.remove('on'); }
+    return true;
+  }
+  if (e.key === 'Tab' || e.key === 'Enter') {
+    e.preventDefault();
+    pickCommand();
+    return true;
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCommands();
+    return true;
+  }
+  return false;
+}
+
+// The turns of the talk, in the order they stand. The questions of the plan
+// stand at the end of the same room, and are not a turn: the places of the turns
+// are counted with them left out, so a row is never drawn over a question.
+function threadTurns(box) {
+  var out = [];
+  for (var n = 0; n < box.children.length; n++) {
+    if (box.children[n].id !== 'planask') { out.push(box.children[n]); }
+  }
+  return out;
+}
+
+// A turn that came in stands at the end of the talk, and before the questions of
+// the plan when they stand there: the questions are the last word of the talk
+// while the model waits for them.
+function addTurn(box, turn) {
+  var asking = byId('planask');
+  if (asking && asking.parentNode === box) { box.insertBefore(turn, asking); }
+  else { box.appendChild(turn); }
 }
 
 function drawThread(s) {
@@ -6005,6 +6828,7 @@ function drawThread(s) {
   var key = items.map(function (m) { return m.id; }).join('|')
           + '#' + spans.map(function (r) { return r.from + '-' + r.to; }).join(',');
   var open = (s.chat && s.chat.id) || '';
+  var turns = threadTurns(box);
   if (box.dataset.key !== key) {
     var had = Number(box.dataset.count || 0);
     var fresh = box.dataset.chat !== open;
@@ -6019,14 +6843,15 @@ function drawThread(s) {
     // whole chat refreshing under the user.
     for (var r = 0; r < rows.length; r++) {
       var ids = rowStamp(items, rows[r]);
-      var child = box.children[r];
+      var child = turns[r];
       if (!child) {
         var turn = make('div', 'turn');
         drawRow(turn, items, rows[r]);
         // Only the turn that came in fades up. A chat that was opened is already
         // there, and its turns do not need to say so again.
         if (r === rows.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
-        box.appendChild(turn);
+        addTurn(box, turn);
+        turns.push(turn);
       } else if (child.dataset.row !== ids) {
         // The row is made again in a new turn. The folds the user moved are read
         // off the old one and put back on the new one, but only when the two rows
@@ -6038,12 +6863,13 @@ function drawThread(s) {
         drawRow(again, items, rows[r]);
         unfoldRow(again, kept);
         box.replaceChild(again, child);
+        turns[r] = again;
       } else {
         syncTurn(child, items, rows[r]);
       }
     }
-    while (box.children.length > rows.length) { box.removeChild(box.lastChild); }
-    for (var p = 0; p < rows.length; p++) { placeGifts(box.children[p], plan[p]); }
+    while (turns.length > rows.length) { box.removeChild(turns.pop()); }
+    for (var p = 0; p < rows.length; p++) { placeGifts(turns[p], plan[p]); }
     if (fresh) {
       // A chat that was opened or turned stands at the top.
       el.thread.scrollTop = 0;
@@ -6064,13 +6890,13 @@ function drawThread(s) {
     // a run that stands in a thinking panel under an answer went on saying
     // 'running' with nothing of its result for the rest of the answer.
     for (var k = rows.length - 3; k < rows.length; k++) {
-      if (k >= 0) { syncTurn(box.children[k], items, rows[k]); }
+      if (k >= 0) { syncTurn(turns[k], items, rows[k]); }
     }
     // The offers of the last answers are looked at again here as well: an offer
     // that came in while the model was writing stands aside until the answer is
     // over, and the row that carries it has nothing else to say when it ends.
     for (var q = rows.length - 3; q < rows.length; q++) {
-      if (q >= 0) { placeGifts(box.children[q], plan[q]); }
+      if (q >= 0) { placeGifts(turns[q], plan[q]); }
     }
   }
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
@@ -6246,9 +7072,35 @@ function giftBlock(one) {
   said.textContent = 'Download';
   get.appendChild(said);
   get.title = 'Take ' + giftWhole(one) + ' out of the chat';
-  get.addEventListener('click', function () { takeGift(one, get); });
+  get.addEventListener('click', function (event) {
+    // The button takes the file out; the block under it opens the window over the
+    // contents, so the hand on the button must not do both.
+    event.stopPropagation();
+    takeGift(one, get);
+  });
   box.appendChild(get);
+  // A click on the block opens the window that reads a file whole, when the window
+  // has a way of showing that kind of file. A file the window would not show - an
+  // archive, a thing of no known kind - is left as it was: a block with a button.
+  var shape = lookShapeOf(one.path || one.name);
+  if (shape) {
+    box.classList.add('peek');
+    box.title = 'Look at ' + giftWhole(one) + ' in the window over the contents of a file';
+    box.addEventListener('click', function () {
+      openShownLook([giftShown(one, shape)], 0);
+    });
+  }
   return box;
+}
+
+// A file that was only offered, made ready for the window over the contents of a
+// file. The window wants the name, the ending, the shape it shows the file in, and
+// the road it reads the file by, which is the road the button of the block takes.
+function giftShown(one, shape) {
+  return {
+    name: one.name, extension: one.extension, shape: shape,
+    path: one.path, size: one.size
+  };
 }
 
 // The blocks of one offer, with the button of the whole of it under them when
@@ -6401,7 +7253,9 @@ function drawAsk(s) {
   if (!box) { return; }
   wireAsk();
   var one = s.ask;
-  if (!one || !one.id) {
+  // A questionnaire of planning mode stands in the talk itself, where the plan
+  // is being talked about, so it never fills the box above the chat box.
+  if (!one || !one.id || one.plan) {
     if (askHeld !== '') {
       askHeld = '';
       box.classList.add('hidden');
@@ -6487,9 +7341,9 @@ function wireAsk() {
 
 // ------------------------------------------------------------ chapter line
 //
-// The model can mark the start of a chapter of the chat. The marks are not
-// shown among the words: they stand on a line at the left of the chat, one node
-// each, always the same distance apart. A node that the user hovers over says
+// The chapters of the chat are read out of the headings of the answers. They are
+// not shown among the words: they stand on a line at the left of the chat, one
+// node each, always the same distance apart. A node that the user hovers over says
 // which chapter it is and shows a little of it; a click on it takes the chat
 // there. A chat with no chapter has no line at all.
 
@@ -6506,8 +7360,8 @@ function chapterSignature(chapters) {
 }
 
 // Where each chapter begins and ends among the words of the chat. A chapter
-// begins after the message the model marked, and ends where the next chapter
-// begins.
+// begins after the message before the answer that carries its heading, and ends
+// where the next chapter begins.
 function chapterRanges(chapters) {
   var messages = (cur && cur.messages) || [];
   var begins = [];
@@ -6622,7 +7476,10 @@ function drawChapters(s) {
 function gotoChapter(chapter) {
   var node = null;
   if (!chapter.after) {
-    node = el.col.firstChild;
+    // The first turn of the talk, and not whatever stands first in the room of
+    // the talk: the questions of the plan stand in the same room, at the end of
+    // it, and a talk that has no turn has no place to go to either.
+    node = threadTurns(el.col)[0];
   } else {
     var before = el.col.querySelector('[data-mid="' + chapter.after + '"]');
     node = (before && before.nextElementSibling) || before;
@@ -6742,7 +7599,12 @@ function showSummary(one, text) {
   head.textContent = (one && one.number)
     ? 'Summarised #' + one.number : 'The handoff summary';
   var when = (one && one.when) || '';
-  var line = when ? 'Summarised on ' + when : '';
+  // The two asks are told apart: the prompt of the settings, and the short prompt
+  // that is asked again when the room ran full under the first, or when the words
+  // of the first came to no end of themselves. A short summary holds less than
+  // the other, so the user reads which of the two stands in the chat.
+  var line = (one && one.short) ? 'A short handoff summary' : 'A regular handoff summary';
+  if (when) { line += ' - Summarised on ' + when; }
   if (one && one.before) {
     line += (line ? ' - ' : '') + '<b>' + commas(one.before)
       + '</b> tokens of the conversation became <b>' + commas(one.after || 0) + '</b> in the summary';
@@ -6799,8 +7661,26 @@ var heldFiles = [];
 // What kind of file this is, as the program reads it: a picture the model
 // can be shown, a file of words the model can read, or a file that can only
 // be named. The same rules stand on the Rust side.
-var TEXT_ENDINGS = 'txt md markdown rs py js ts jsx tsx json toml yaml yml ini cfg conf '
-  + 'sh bash csv log sql html css c h cpp hpp go java';
+var TEXT_ENDINGS = 'txt md markdown mdx rst adoc asciidoc org tex bib rs py pyi js mjs cjs '
+  + 'ts tsx jsx json jsonl toml yaml yml ini cfg conf properties env sh bash zsh fish bat ps1 '
+  + 'make mk cmake gradle csv tsv log sql html htm css scss less xml xsl svg c h cpp hpp cc hh '
+  + 'go java kt kts scala swift rb php pl pm lua r dart vue svelte proto graphql diff patch '
+  + 'po pot srt vtt';
+// The two shapes of document the program reads the words out of. The bytes of
+// these go out with the message and the program reads them; the page never does.
+// The greatest document is what the program takes, counted in the bytes of the
+// file itself, which is a little less than the most its base64 form may run to.
+var DOCUMENT_ENDINGS = 'pdf rtf';
+var GREATEST_DOCUMENT = 18 * 1024 * 1024;
+function isDocumentName(name, mime) {
+  mime = (mime || '').toLowerCase();
+  if (mime === 'application/pdf' || mime === 'application/rtf' || mime === 'text/rtf') {
+    return true;
+  }
+  var dot = name.lastIndexOf('.');
+  var end = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  return DOCUMENT_ENDINGS.split(' ').indexOf(end) >= 0;
+}
 function fileKind(name, mime) {
   mime = (mime || '').toLowerCase();
   var dot = name.lastIndexOf('.');
@@ -6856,6 +7736,14 @@ function holdFile(file) {
     var words = new FileReader();
     words.onload = function () { held.text = String(words.result); };
     words.readAsText(file);
+  } else if (isDocumentName(name, file.type) && file.size <= GREATEST_DOCUMENT) {
+    // The bytes of a document go out with the message, for the words of a PDF or
+    // of an RTF file are not to be had without reading the shape of it, and the
+    // reading of them is the work of the program. A document bigger than the most
+    // the program takes stands as a name, which is what it would come to anyway.
+    var shape = new FileReader();
+    shape.onload = function () { held.data = String(shape.result); };
+    shape.readAsDataURL(file);
   }
 }
 
@@ -7041,6 +7929,240 @@ function sayNothing(body) {
   body.appendChild(said);
 }
 
+// ------------------------------------------------- the window over file contents
+//
+// The show of a file, and the click on a block of an offer, both come to this
+// window. It carries one file at a time, and the two arrows of its head turn the
+// files of a show. Each kind is put up its own way: words are written down, marks
+// of markdown are put up as those marks ask, a picture and a drawing of lines are
+// hung as a picture, a page of html makes the page it makes, and a document of
+// pages is given to the reader of the machine. A file of a kind nothing knows is
+// never asked for at all: the tool that made the block would not have named it.
+
+// The files of the show that stands open, where the window stands in them, and
+// whether the words of the file are put up instead of the thing it makes.
+var lookFiles = null;
+var lookAt = 0;
+var lookRaw = false;
+// The count of the drawings. A file is asked for, and the answer comes a moment
+// later; two turns of the files in a moment would otherwise let the answer of the
+// file before write itself over the file that stands open.
+var lookTurn = 0;
+
+// The kinds of file the window shows, and how each is put up. The program answers
+// with the shape of every file of a show; a file that was only offered has none,
+// so the page works it out here from the same list of endings. An ending that
+// stands in no row is a kind the window does not show.
+var LOOK_PICTURE = 'png jpg jpeg gif webp bmp ico avif';
+var LOOK_VECTOR = 'svg';
+var LOOK_PAGE = 'html htm xhtml';
+var LOOK_DOCUMENT = 'pdf';
+var LOOK_MARKS = 'md markdown mdx';
+
+// The shape of a file out of its ending, or nothing when the window has no way of
+// showing that kind.
+function lookShapeOf(name) {
+  var dot = String(name || '').lastIndexOf('.');
+  var tail = dot > 0 ? String(name).slice(dot + 1).toLowerCase() : '';
+  if (!tail) { return ''; }
+  if (oneOf(LOOK_PICTURE, tail)) { return 'picture'; }
+  if (oneOf(LOOK_VECTOR, tail)) { return 'vector'; }
+  if (oneOf(LOOK_PAGE, tail)) { return 'page'; }
+  if (oneOf(LOOK_DOCUMENT, tail)) { return 'document'; }
+  if (oneOf(TEXT_ENDINGS, tail)) { return 'words'; }
+  return '';
+}
+
+function oneOf(list, tail) {
+  return list.split(' ').indexOf(tail) >= 0;
+}
+
+// The word the head of the window wears for one kind of file.
+function lookShapeWord(one) {
+  if (one.shape === 'picture') { return 'Image'; }
+  if (one.shape === 'vector') { return 'Drawing'; }
+  if (one.shape === 'page') { return 'Page'; }
+  if (one.shape === 'document') { return 'Document'; }
+  if (one.shape === 'words' && oneOf(LOOK_MARKS, String(one.extension || '').toLowerCase())) {
+    return 'Marks';
+  }
+  return 'Text';
+}
+
+// Whether the words of a file may be put up instead of the thing the file makes.
+// A page of html, a drawing of lines and a file of marks all make something, so
+// all three may also be read as the words they are written in.
+function lookCanRaw(one) {
+  if (one.shape === 'page' || one.shape === 'vector') { return true; }
+  return one.shape === 'words'
+    && oneOf(LOOK_MARKS, String(one.extension || '').toLowerCase());
+}
+
+// The whole of the window over the contents of files. `list` is the row of files
+// one show put in the window, in the order the model named them, and `at` is the
+// one to begin on.
+function openShownLook(list, at) {
+  if (!list || !list.length) { return; }
+  lookFiles = list;
+  lookAt = Math.max(0, Math.min(at || 0, list.length - 1));
+  lookRaw = false;
+  openViewer({ files: list });
+}
+
+// The bytes of one file of a show, as a place the page may hang them on. The
+// program opens the room of the chat for them, under the same rule as the call
+// that made the block, and a kind the window does not show is refused there too.
+function shownData(path) {
+  return invoke('get_displayed', { path: path })
+    .then(function (answer) {
+      return answer && answer.ok && answer.data ? String(answer.data) : '';
+    }, function () { return ''; });
+}
+
+// The file of the show that stands open: the head of the window is set for it, and
+// its bytes are asked for.
+function drawLookFile() {
+  var list = lookFiles || [];
+  var one = list[lookAt];
+  if (!one) { return; }
+  var turn = ++lookTurn;
+  var whole = one.extension ? one.name + '.' + one.extension : one.name;
+  if (el.lookname) {
+    el.lookname.textContent = whole;
+    el.lookname.title = one.path || whole;
+  }
+  if (el.lookkind) { el.lookkind.textContent = lookShapeWord(one); }
+  if (el.lookturn) { el.lookturn.classList.toggle('hidden', list.length < 2); }
+  if (el.lookcount) { el.lookcount.textContent = (lookAt + 1) + ' / ' + list.length; }
+  if (el.lookprev) { el.lookprev.disabled = lookAt <= 0; }
+  if (el.looknext) { el.looknext.disabled = lookAt >= list.length - 1; }
+  var canRaw = lookCanRaw(one);
+  if (el.lookraw) {
+    el.lookraw.classList.toggle('hidden', !canRaw);
+    el.lookraw.classList.toggle('on', canRaw && lookRaw);
+  }
+  var body = el.lookbody;
+  if (!body) { return; }
+  lookTurnOn(body, false);
+  body.innerHTML = '';
+  noteWaiting(body);
+  shownData(one.path).then(function (url) {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    if (!url) { sayNothing(body); return; }
+    putLookFile(body, one, url, canRaw && lookRaw);
+  }, function () {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    sayNothing(body);
+  });
+}
+
+// Put one file of the show up in the window. `raw` says the words of the file are
+// wanted, and not the thing the file makes.
+function putLookFile(body, one, url, raw) {
+  if (raw) { readLookWords(body, url, one, true); return; }
+  if (one.shape === 'picture' || one.shape === 'vector') { showPicture(body, url, one.name); return; }
+  if (one.shape === 'document') { showDocumentLook(body, url, one); return; }
+  if (one.shape === 'page') { showMadePage(body, url); return; }
+  readLookWords(body, url, one, false);
+}
+
+// The words of a file. A file of marks is put up as those marks ask, unless the
+// words themselves were asked for.
+function readLookWords(body, url, one, raw) {
+  var turn = lookTurn;
+  fetch(url).then(function (answer) { return answer.text(); }).then(function (words) {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    if (!words) { sayNothing(body); return; }
+    if (!raw && oneOf(LOOK_MARKS, String((one && one.extension) || '').toLowerCase())) {
+      showMarks(body, words);
+      return;
+    }
+    showWords(body, words);
+  }, function () {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    sayNothing(body);
+  });
+}
+
+// Words of markdown, put up as the marks ask. The kinds of the chat are named for
+// the writing and not for the place it stands in, so they are worn here as they are
+// worn in an answer.
+function showMarks(body, words) {
+  var held = make('div', 'look-md');
+  var made = blocks(words);
+  for (var n = 0; n < made.length; n++) { held.appendChild(blockNode(made[n])); }
+  body.appendChild(held);
+}
+
+// A page of html, made as the page it makes. The frame is put under a mark of
+// nothing of its own, so the page inside it can reach neither this page nor the
+// chat, and the words of the file are one press away.
+function showMadePage(body, url) {
+  var turn = lookTurn;
+  fetch(url).then(function (answer) { return answer.text(); }).then(function (words) {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    lookTurnOn(body, true);
+    var frame = make('iframe', 'look-frame');
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.setAttribute('title', 'The page of the file');
+    frame.srcdoc = words || '';
+    body.appendChild(frame);
+  }, function () {
+    if (turn !== lookTurn) { return; }
+    body.innerHTML = '';
+    sayNothing(body);
+  });
+}
+
+// A document of pages, given to the reader of the machine. Where the machine has
+// no reader for it the window says so, and the file may still be taken out.
+function showDocumentLook(body, url, one) {
+  lookTurnOn(body, true);
+  var frame = make('iframe', 'look-frame');
+  frame.setAttribute('title', 'The document of the file');
+  frame.src = url;
+  body.appendChild(frame);
+  var said = make('div', 'look-note');
+  said.textContent = 'If nothing of the document stands above, take the file out with the button.';
+  body.appendChild(said);
+  var down = make('button');
+  down.type = 'button';
+  down.appendChild(mark(GIFT_DOWN));
+  var word = make('span');
+  word.textContent = 'Download';
+  down.appendChild(word);
+  down.title = 'Take the file out of the chat';
+  down.addEventListener('click', function () { takeDown(url, wholeOf(one)); });
+  body.appendChild(down);
+}
+
+// The name of a file of the show, with its ending behind it.
+function wholeOf(one) {
+  return one.extension ? one.name + '.' + one.extension : one.name;
+}
+
+// Whether the body of the window carries a frame. A frame has a ground of its own,
+// and the ground is put on the body and taken off it again.
+function lookTurnOn(body, on) {
+  if (body) { body.classList.toggle('has-frame', !!on); }
+}
+
+// One file of the turn, this way or that. The window keeps its place in the row of
+// the files, and the key of the arrows turns them with the hand on the keys.
+function turnLook(by) {
+  var list = lookFiles || [];
+  var next = lookAt + by;
+  if (next < 0 || next >= list.length) { return; }
+  lookAt = next;
+  lookRaw = false;
+  drawLookFile();
+}
+
 // The window is put up. `one` says what is to be looked at: its name, whether it
 // is a picture or a file of words, the bytes of a picture when they are already
 // known, the words when they are, the file when the words are still to be read,
@@ -7052,10 +8174,15 @@ function openViewer(one) {
   lookBack = document.activeElement;
   box.classList.remove('hidden');
   if (el.lookname) { el.lookname.textContent = one.name || 'A file of the chat'; }
-  if (el.lookkind) { el.lookkind.textContent = one.kind === 'image' ? 'Image' : 'Text'; }
+  if (el.lookkind) {
+    el.lookkind.textContent = one.kind === 'image' ? 'Image' : (one.what || 'Text');
+  }
   var body = el.lookbody;
   if (!body) { return; }
   body.innerHTML = '';
+  // The window over the contents of files carries a row of them, and says so in
+  // its head. Everything else the window is given is one file of the chat.
+  if (one.files) { drawLookFile(); return; }
   if (one.kind === 'image') {
     if (one.url) { showPicture(body, one.url, one.name); return; }
     if (one.id) {
@@ -7101,7 +8228,13 @@ function closeViewer() {
   var box = el.viewer;
   if (!box || box.classList.contains('hidden')) { return; }
   box.classList.add('hidden');
-  if (el.lookbody) { el.lookbody.innerHTML = ''; }
+  if (el.lookbody) { lookTurnOn(el.lookbody, false); el.lookbody.innerHTML = ''; }
+  // The window over the contents of files is begun again from the first of them
+  // next time it is opened, and the block of a show opens it whole.
+  lookFiles = null;
+  lookAt = 0;
+  lookRaw = false;
+  lookTurn++;
   if (lookBack && lookBack.focus) { lookBack.focus(); }
   lookBack = null;
 }
@@ -7121,12 +8254,34 @@ function wireViewer() {
       if (event.target === el.viewer) { closeViewer(); }
     });
   }
+  // The turn of the files, and the words of a file instead of the thing it makes.
+  if (el.lookprev) {
+    el.lookprev.addEventListener('click', function () { turnLook(-1); });
+  }
+  if (el.looknext) {
+    el.looknext.addEventListener('click', function () { turnLook(1); });
+  }
+  if (el.lookraw) {
+    el.lookraw.addEventListener('click', function () {
+      lookRaw = !lookRaw;
+      drawLookFile();
+    });
+  }
   window.addEventListener('keydown', function (event) {
     if (event.key !== 'Escape') { return; }
     if (el.viewer && !el.viewer.classList.contains('hidden')) {
       event.preventDefault();
       closeViewer();
     }
+  });
+  // The two keys of the arrows turn the files of a show, while the window stands
+  // open and the hand is not busy in a box of words.
+  window.addEventListener('keydown', function (event) {
+    if (!lookFiles || !el.viewer || el.viewer.classList.contains('hidden')) { return; }
+    var where = document.activeElement;
+    if (where && (where.tagName === 'INPUT' || where.tagName === 'TEXTAREA')) { return; }
+    if (event.key === 'ArrowLeft') { event.preventDefault(); turnLook(-1); }
+    if (event.key === 'ArrowRight') { event.preventDefault(); turnLook(1); }
   });
 }
 
@@ -7137,6 +8292,7 @@ function wireViewer() {
 function lookOfHeld(one) {
   return function () {
     openViewer({ name: one.name, kind: one.kind === 'image' ? 'image' : 'file',
+                 what: one.kind === 'image' || !isDocumentName(one.name, one.mime) ? '' : 'Document',
                  url: one.url || '', words: one.text || '', file: one.file });
   };
 }
@@ -7147,6 +8303,7 @@ function lookOfHeld(one) {
 function lookOfSent(one, pics) {
   return function () {
     openViewer({ name: one.name, kind: one.image ? 'image' : 'file',
+                 what: one.image || !isDocumentName(one.name, one.mime) ? '' : 'Document',
                  id: one.id, url: pics[one.id] || '' });
   };
 }
@@ -7186,7 +8343,6 @@ function putWordsInBox(one) {
     box.setSelectionRange(caret, caret);
   });
 }
-
 function partBlock(one, place, look) {
   // A block of a picture and a block of a file are cut differently once they
   // stand under a sent message, so each carries word of what it is.
@@ -7209,23 +8365,58 @@ function partBlock(one, place, look) {
   var nm = make('span', 'nm');
   nm.textContent = one.name;
   part.appendChild(nm);
-  if (place !== undefined) {
-    // The block of a file of words answers a click: its words go into the chat
-    // box, which is what a user wants when a paste of theirs was turned into a
-    // file by the length of it.
-    if (one.kind === 'text') {
-      part.classList.add('pick');
-      part.title = one.name + ' — click to put the words in the chat box';
+  // The block of a file of words over the chat box answers a click: its words go
+  // into the box, which is what a user wants when a paste of theirs was turned
+  // into a file by the length of it.
+  if (place !== undefined && one.kind === 'text') {
+    part.classList.add('pick');
+    part.title = one.name + ' - click to put the words in the chat box';
+    part.setAttribute('role', 'button');
+    part.tabIndex = 0;
+    part.addEventListener('click', function () { putWordsInBox(one); });
+    part.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        putWordsInBox(one);
+      }
+    });
+  }
+  // A block may be looked at. A picture opens at a click on the block itself,
+  // and so does every block that stands under a sent message, where the block is
+  // the only way back to the file: a picture is looked at at the size it is, and
+  // the words of a file or of a document are read in the same window. A file over
+  // the chat box has another work, for a click on it puts its words in the box,
+  // so it is looked at through its own eye instead.
+  if (look) {
+    if (one.kind === 'image' || place === undefined) {
+      part.classList.add('peek');
+      part.title = (one.name || '') + ' - click to look at it';
       part.setAttribute('role', 'button');
       part.tabIndex = 0;
-      part.addEventListener('click', function () { putWordsInBox(one); });
+      part.addEventListener('click', function () { look(); });
       part.addEventListener('keydown', function (event) {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          putWordsInBox(one);
+          look();
         }
       });
+    } else {
+      var eye = make('button', 'eye');
+      eye.type = 'button';
+      eye.title = 'Look at this file';
+      eye.setAttribute('aria-label', 'Look at ' + (one.name || 'this file'));
+      eye.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="'
+        + 'M1.9 8c1.6-2.9 3.6-4.3 6.1-4.3s4.5 1.4 6.1 4.3c-1.6 2.9-3.6 4.3-6.1 4.3S3.5 10.9 1.9 8z M8 9.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z' + '"/></svg>';
+      eye.addEventListener('click', function (event) {
+        event.stopPropagation();
+        look();
+      });
+      part.insertBefore(eye, part.querySelector('.x') || null);
     }
+  }
+  // The mark that takes the file away stands only over the chat box, where the
+  // file is still the user's to throw away.
+  if (place !== undefined) {
     var x = make('button', 'x');
     x.type = 'button';
     x.title = 'Remove this file';
@@ -7240,37 +8431,6 @@ function partBlock(one, place, look) {
       drawParts();
       grow();
     });
-  // A block may be looked at. A picture opens at a click on the block itself,
-  // and so does a file of words standing under a sent message; a file of words
-  // over the chat box has another work — a click on it puts its words in the box
-  // — so it is looked at through its own eye instead.
-  if (look) {
-    if (one.kind === 'image' || place === undefined) {
-      part.classList.add('peek');
-      part.title = (one.name || '') + ' — click to look at it';
-      part.setAttribute('role', 'button');
-      part.tabIndex = 0;
-      part.addEventListener('click', function () { look(); });
-      part.addEventListener('keydown', function (event) {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          look();
-        }
-      });
-    } else {
-      var eye = make('button', 'eye');
-      eye.type = 'button';
-      eye.title = 'Read the words of this file';
-      eye.setAttribute('aria-label', 'Read ' + (one.name || 'this file'));
-      eye.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="'
-        + 'M1.9 8c1.6-2.9 3.6-4.3 6.1-4.3s4.5 1.4 6.1 4.3c-1.6 2.9-3.6 4.3-6.1 4.3S3.5 10.9 1.9 8z M8 9.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z' + '"/></svg>';
-      eye.addEventListener('click', function (event) {
-        event.stopPropagation();
-        look();
-      });
-      part.insertBefore(eye, part.querySelector('.x') || null);
-    }
-  }
     part.appendChild(x);
   }
   return part;
@@ -7288,12 +8448,20 @@ function drawParts() {
 // The round mark knows about the files as well as the words: a message of
 // files and no words is a message.
 function anythingToSend() {
-  return heldFiles.length > 0 || el.draft.value !== '';
+  return heldFiles.length > 0 || el.draft.value !== '' || !!pendingCommand;
 }
 
 function grow() {
+  var was = el.draft.style.height;
   el.draft.style.height = 'auto';
   el.draft.style.height = Math.min(el.draft.scrollHeight, window.innerHeight * 0.4) + 'px';
+  // The box of the writing stands under the chat, and the chat takes the room
+  // that is left of the window. A box that grows with the words written into it
+  // therefore takes the last words of the chat away, and the chat reads as a
+  // thing that moved while the user wrote. While the chat is being followed it
+  // is put back at its end, so the words that were in sight stay in sight as the
+  // box grows; a chat the user left in the middle of is not moved at all.
+  if (stick && el.draft.style.height !== was) { el.thread.scrollTop = el.thread.scrollHeight; }
   sendLook();
 }
 
@@ -7307,7 +8475,9 @@ function sendLook() {
   el.send.title = sendTitle(cur);
   el.draft.placeholder = cur.generating
     ? 'The model is writing - press Enter to put this message by for later'
-    : 'Write a message for the model';
+    : (cur.home || !(cur.messages && cur.messages.length))
+      ? 'Try planning mode by typing /plan before your request'
+      : 'Write a message for the model';
 }
 
 // ---------------------------------------------------------- the waiting list
@@ -7342,7 +8512,12 @@ function messageBody(text, files) {
 
 function send() {
   var text = el.draft.value.trim();
-  if (!text && heldFiles.length === 0) { return; }
+  if (!text && heldFiles.length === 0 && !pendingCommand) { return; }
+  // The command of the block goes in front of the words, as the first word of
+  // the message.
+  if (pendingCommand) { text = (text ? pendingCommand + ' ' + text : pendingCommand); }
+  pendingCommand = '';
+  drawCommandChip();
   var files = heldFiles.slice();
   el.draft.value = '';
   heldFiles = [];
@@ -7672,15 +8847,50 @@ document.addEventListener('click', function () { closeThinkMenu(); closeSandboxM
 
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
-el.draft.addEventListener('input', grow);
+el.draft.addEventListener('input', function () {
+  grow();
+  commandsFollow();
+});
 el.draft.addEventListener('focus', function () {
   el.box.classList.add('focus'); grow();
 });
 el.draft.addEventListener('blur', function () {
   el.box.classList.remove('focus');
+  // The list goes when the writing goes, so it never stands over the box while
+  // the user is elsewhere.
+  closeCommands();
+});
+
+// A row of the list of commands picks that command when the user presses it.
+el.commands.addEventListener('mousedown', function (e) {
+  var row = e.target.closest ? e.target.closest('li') : null;
+  if (!row) { return; }
+  e.preventDefault();
+  el.commands.querySelectorAll('li').forEach(function (one) { one.classList.remove('on'); });
+  row.classList.add('on');
+  pickCommand();
+});
+
+// The plan of planning mode opens from the row at the top of the talk, and shuts
+// on its mark or on the ground beside it.
+el.planopen.addEventListener('click', openPlan);
+byId('planClose').addEventListener('click', closePlan);
+byId('planOverlay').addEventListener('click', function (e) {
+  if (e.target === byId('planOverlay')) { closePlan(); }
 });
 
 el.draft.addEventListener('keydown', function (e) {
+  if (commandKeys(e)) { return; }
+  // A backspace with nothing written but the command of the message takes the
+  // command away, as it takes the last word of a word.
+  if (e.key === 'Backspace' && pendingCommand && el.draft.value === ''
+      && (el.draft.selectionStart || 0) === 0) {
+    e.preventDefault();
+    pendingCommand = '';
+    drawCommandChip();
+    sendLook();
+    return;
+  }
   if (e.key === 'Enter' && !e.shiftKey && !touch) {
     e.preventDefault();
     send();
@@ -8042,8 +9252,10 @@ function showSetTab(tab) {
   byId('paneLogs').classList.toggle('hidden', tab !== 'logs');
   byId('paneMcp').classList.toggle('hidden', tab !== 'mcp');
   // The logs are read while their tab stands in front, and not one moment
-  // longer, for a verbose log is a great deal of words.
-  if (tab === 'logs') { loadLogs(false); logsGo(); } else { logsStop(); }
+  // longer, for a verbose log is a great deal of words. The tab is begun again
+  // every time it comes forward, so it opens on the newest log of the kind that
+  // stands open and not on the one read the last time the tab was in front.
+  if (tab === 'logs') { logFresh(); loadLogs(false); logsGo(); } else { logsStop(); }
   if (tab === 'mcp') { loadMcp(); }
   byId('sheetSub').textContent = tab === 'program'
     ? 'The settings of this program'
@@ -8100,6 +9312,16 @@ function chooseTheme(word) {
   post('/api/theme', { theme: themeWord });
 }
 
+// Which of the two numbers of a summarisation stands under the way it is
+// started. `At a share of the context` asks for the share, and `When little space
+// is left` asks for the space to keep free, so only the number of the one that
+// stands is shown, and the other is kept out of the way.
+function compactByRows() {
+  var by = byId('fCompactBy').value;
+  byId('fCompactPercentRow').style.display = by === 'percent' ? '' : 'none';
+  byId('fCompactReserveRow').style.display = by === 'tokens' ? '' : 'none';
+}
+
 // Program tab: read the settings and every repository on disk.
 function loadProgram() {
   Promise.all([invoke('get_config'), invoke('list_repositories')]).then(function (res) {
@@ -8137,6 +9359,7 @@ function loadProgram() {
     byId('fCompactBy').value = cfg.chat_compact_by || 'percent';
     byId('fCompactPercent').value = cfg.chat_compact_percent || 85;
     byId('fCompactReserve').value = cfg.chat_compact_reserve || 10240;
+    compactByRows();
     byId('fCompactPrompt').value = cfg.chat_compact_prompt || '';
     byId('fCompactPromptShort').value = cfg.chat_compact_prompt_short || '';
     byId('fTimeline').checked = cfg.chat_timeline !== false;
@@ -8797,6 +10020,7 @@ function getConfig() { return invoke('get_config'); }
 
 var logs = [];        // the logs of the kind that stands open, newest first
 var logIds = '';      // the ids of that list, to know when the list has moved
+var logNewest = true; // the next list is begun on the newest log, not on a choice kept
 var logFace = 'server'; // which face of the tab stands open: 'server' or 'program'
 var logText = '';     // the words of the log that stands open
 var logLines = [];    // the same words, cut into lines
@@ -8846,6 +10070,17 @@ function showLogFace(face) {
   loadLogs(false);
 }
 
+// The tab is begun again: the newest log of the kind that stands open, and no
+// words left standing in the field of the search. The log of an earlier opening
+// of the tab is not the log the user means to look at now, and the words he was
+// looking for belong to the reading he had done with. The mark of the choice is
+// not moved here: the list, when it comes in, chooses the newest of itself.
+function logFresh() {
+  logNewest = true;
+  logHit = -1;
+  byId('logSearch').value = '';
+}
+
 // Read the list of the logs of the kind that stands open, the words of the run
 // under them, and the log that stands open. The list is read again quietly while
 // the tab stands in front, so a server that was started again is seen. The field
@@ -8876,11 +10111,13 @@ function loadLogs(quiet) {
 
 // The field of the choice: every log that is kept, newest first, with the day and
 // the hour it stands at and its size. The log this run is writing says so, and is
-// the one chosen. A choice the user made himself is kept, and a log that has
-// gone takes the newest in its place.
+// the one chosen. A choice the user made himself is kept while the tab stands in
+// front, and a log that has gone takes the newest in its place; a tab begun again
+// stands on the newest from the first look.
 function fillLogPick() {
   var sel = byId('logPick');
-  var held = sel.value;
+  var held = logNewest ? '' : sel.value;
+  logNewest = false;
   sel.innerHTML = '';
   if (!logs.length) {
     sel.appendChild(setOption('No log stands here yet', ''));
@@ -8901,10 +10138,27 @@ function fillLogPick() {
   sel.value = keep || logs[0].id;
 }
 
+// The log the field of the choice stands on. A value that is none of the names
+// the list holds is no choice at all: the ten turn over while the sheet stands
+// closed, and a page of the browser puts back the choice that stood when the page
+// was opened last, which is often no log of this list. The newest of the list is
+// then the log to read, and the field is put back on it so the two agree. Asking
+// for a log that is not there leaves the sheet empty for nothing.
+function logChosen() {
+  var sel = byId('logPick');
+  var stood = sel.value;
+  for (var n = 0; n < logs.length; n++) {
+    if (logs[n].id === stood) { return stood; }
+  }
+  var newest = logs.length ? logs[0].id : '';
+  if (stood !== newest) { sel.value = newest; }
+  return newest;
+}
+
 // Read the log the field of the choice stands on, from its end.
 function readLog() {
   var kind = logFace;
-  var id = byId('logPick').value;
+  var id = logChosen();
   logName = id;
   if (!id) {
     logText = ''; logLines = []; logBytes = 0; logCut = false;
@@ -9165,6 +10419,8 @@ byId('tabMcp').addEventListener('click', function () { showSetTab('mcp'); });
 // The editor of the MCP tab: the kind moves which fields stand, and the two
 // buttons keep what stands in the fields or begin again.
 byId('mcKind').addEventListener('change', mcpKindRows);
+// The way a summarisation is started moves which of its two numbers stands.
+byId('fCompactBy').addEventListener('change', compactByRows);
 byId('mcpSave').addEventListener('click', mcpSave);
 byId('mcpClear').addEventListener('click', function () {
   byId('mcpSaveNote').textContent = 'Write the next one below.';
@@ -9942,7 +11198,12 @@ sEl('sidebtn') && sEl('sidebtn').addEventListener('click', function () { sideSho
 // fault, and is put back when the pointer leaves - nothing else about the part
 // changes, a screen reader still reads the words, and any part of the page that
 // writes its own words is none the wiser.
-var tipBox = null, tipOwner = null, tipWords = '', tipTimer = null, tipWatch = null;
+// A part that must never carry a tooltip of the machine stands its words in
+// `data-tip` instead. No native box can come over such a part, which is what a
+// picture wants: the grey box of the machine hides the very thing it speaks of.
+// `data-tip` is read first, so a part may name its words once and keep them.
+var tipBox = null, tipOwner = null, tipWords = '', tipTimer = null, tipWatch = null,
+    tipBorrowed = false;
 
 function tipPlace(one) {
   var r = one.getBoundingClientRect();
@@ -9986,10 +11247,10 @@ function tipWatchStop() {
 function tipPutBack() {
   if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
   tipWatchStop();
-  if (tipOwner && tipWords && !tipOwner.hasAttribute('title')) {
+  if (tipBorrowed && tipOwner && tipWords && !tipOwner.hasAttribute('title')) {
     tipOwner.setAttribute('title', tipWords);
   }
-  tipOwner = null; tipWords = '';
+  tipOwner = null; tipWords = ''; tipBorrowed = false;
   if (tipBox) { tipBox.classList.remove('on'); tipBox.textContent = ''; }
 }
 
@@ -10008,16 +11269,24 @@ function tipShow() {
 }
 
 document.addEventListener('mouseover', function (event) {
-  var one = event.target && event.target.closest ? event.target.closest('[title]') : null;
+  var one = event.target && event.target.closest
+    ? event.target.closest('[data-tip], [title]') : null;
   if (one === tipOwner) { return; }
   tipPutBack();
   if (!one) { return; }
-  var words = String(one.getAttribute('title') || '');
+  // The words of `data-tip` stand where they were put, for no box of the machine
+  // reads them; the words of a `title` are borrowed, for the box of the machine
+  // reads them and two tooltips over one part read as a fault.
+  var held = one.getAttribute('data-tip');
+  var words = String((held === null ? one.getAttribute('title') : held) || '');
   if (!words.trim()) { return; }
   tipOwner = one;
   tipWords = words;
-  one.removeAttribute('title');
-  tipWatchStart(one);
+  tipBorrowed = held === null;
+  if (tipBorrowed) {
+    one.removeAttribute('title');
+    tipWatchStart(one);
+  }
   // The tooltip of the machine does not come up at once either: a pointer on its
   // way across a row of badges is not asking for the words of every one of them.
   tipTimer = setTimeout(tipShow, 320);

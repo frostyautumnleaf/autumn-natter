@@ -18,6 +18,7 @@ use crate::askuser;
 use crate::attach;
 use crate::store::Attachment;
 use crate::config::{self, Config, ModelSettings};
+use crate::display;
 use crate::download;
 use crate::editfile;
 use crate::gpu::{self, Gpu};
@@ -25,6 +26,7 @@ use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
 use crate::mcp;
 use crate::proglog;
+use crate::planning;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
 use crate::tools;
@@ -244,6 +246,15 @@ fn tool_watch(state: &Arc<Mutex<State>>) -> crate::util::Watch {
     crate::util::Watch::new(Duration::from_secs(seconds as u64))
 }
 
+// One question of a questionnaire, with the answers the user may choose from.
+// `many` says whether more than one of them may be chosen.
+#[derive(Clone, Debug)]
+pub struct AskItem {
+    pub prompt: String,
+    pub choices: Vec<String>,
+    pub many: bool,
+}
+
 // A question the model has put to the user, and the wait that stands with it.
 // The question stands above the chat box until the user answers it, the time of
 // an ordinary question is gone, or the user stops the answer; the three roads
@@ -262,6 +273,13 @@ pub struct Asking {
     // How long the question is waited for. Nothing at all waits until the user
     // answers, which is what a question the model cannot go on without asks for.
     pub seconds: u32,
+    // The questions of a questionnaire, when the ask is one. An ask of the
+    // ordinary kind carries none, and the question above does all the work.
+    pub items: Vec<AskItem>,
+    // True when the ask is the questionnaire of planning mode. It stands in the
+    // talk itself, where the plan is being talked about, and not above the chat
+    // box, and no clock runs on it.
+    pub plan: bool,
     // The moment the wait began, which is where the time left is measured from.
     began: Instant,
     // What the user answered. The wait is over when this holds anything.
@@ -306,6 +324,11 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             let one = download::partial_words(raw);
             (one.clone(), String::new(), one)
         }
+        // A show of the contents of files is named by the first file of it.
+        display::NAME => {
+            let one = display::partial_words(raw);
+            (one.clone(), String::new(), one)
+        }
         // A question of the user is named by the question.
         askuser::NAME => {
             let one = askuser::partial_words(raw);
@@ -314,7 +337,13 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         // A look about the web is named by the words to look for, or by the
         // address that is to be read.
         search::NAME => (search::partial_words(raw), String::new(), String::new()),
-        viewimage::NAME => (viewimage::partial_words(raw), String::new(), String::new()),
+        // The tools of planning name themselves: one changes the plan file of
+        // this chat, one reads it back, and one says the plan is agreed.
+        planning::EDIT_NAME => (String::from("the plan file"), String::new(), String::new()),
+        planning::READ_NAME => (String::from("the plan file"), String::new(), String::new()),
+        planning::ASK_NAME => (String::from("the questions of the plan"), String::new(), String::new()),
+        planning::END_NAME => (String::from("the plan is agreed"), String::new(), String::new()),
+        viewimage::NAME | viewimage::ONE_NAME => (viewimage::partial_words(raw), String::new(), String::new()),
         // A tool of a server of the user's own is named by the tool itself,
         // and the parts the model is writing are the words of the block.
         name if mcp::is_tool(name) => (
@@ -328,14 +357,13 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
     }
 }
 
-// The calls the user may watch being written. A mark of a chapter is not
-// shown, so a call that could still become one stands aside until its name is
-// known: the name comes in pieces, and three letters of it are not yet the name
-// of a tool. A call with no name of its own is therefore kept out too.
+// The calls the user may watch being written. A call whose name is still nothing
+// at all is kept out, for the name comes in pieces and a few letters of it are not
+// yet the name of a tool.
 fn watched(calls: &[ToolCall]) -> Vec<LiveTool> {
     let mut out: Vec<LiveTool> = Vec::new();
     for call in calls {
-        if tools::CHAPTER_TOOL_NAME.starts_with(call.name.as_str()) {
+        if call.name.is_empty() {
             continue;
         }
         let (command, purpose, target) = words_of(&call.name, &call.arguments);
@@ -376,6 +404,11 @@ pub struct Handoff {
     pub snippet: String,
     // What went wrong, when the summary was never written.
     pub why: String,
+    // Which of the two asks the summary came from: the prompt of the settings, or
+    // the short prompt that is asked again when the room ran full under the first
+    // ask. The user reads the two apart, for a short summary holds less than the
+    // other, and the two are asked for with different words.
+    pub short: bool,
 }
 
 // The summarisations of one chat, in the order they were made. `writing` says
@@ -413,6 +446,7 @@ fn handoff_marks(chat: &Chat, writing: bool) -> Vec<Handoff> {
             } else {
                 message.tool.clone()
             },
+            short: message.short,
         });
     }
     out
@@ -908,16 +942,24 @@ fn ends_on_an_empty_turn(history: &Value) -> bool {
         .is_some_and(|items| items.len() > 1 && said_nothing_at_all(&items[items.len() - 1]))
 }
 
-// The chapters of one chat, in the order they were marked. A note is not a
-// place a chapter can begin after, for the window puts notes between the turns
-// and they come and go with them.
+// The chapters of one chat, in the order they begin. A chapter is begun by a main
+// heading of an answer: the model opens a large new part of its work with a line
+// that starts with one or two `#` marks, and the words of that line name the part.
+// Nothing is called and nothing is written for it, so a chapter costs the talk no
+// message of its own. The chats of before carry their marks as messages of the role
+// `Chapter`, and those are still read, so an older chat keeps the line of nodes it
+// was given.
+//
+// A heading stands for a chapter only where the model wrote it as words: a `#` at
+// the start of a line inside a block of code is a comment of that code. A note is
+// not a place a chapter can begin after, for the window puts notes between the
+// turns and they come and go with them.
 fn chapter_marks(chat: &Chat) -> Vec<Chapter> {
     let mut out: Vec<Chapter> = Vec::new();
     let mut before = String::new();
     for message in &chat.messages {
-        // A mark with no name is no chapter: the user would see a node with
-        // nothing to read on it. A mark of either kind is never a place another
-        // chapter begins after.
+        // A mark of the old kind is a chapter with a message of its own, and is
+        // never a place another chapter begins after.
         if message.role == "Chapter" {
             if !message.body.trim().is_empty() {
                 out.push(Chapter {
@@ -926,11 +968,97 @@ fn chapter_marks(chat: &Chat) -> Vec<Chapter> {
                     after: before.clone(),
                 });
             }
-        } else if message.role != "Note" {
-            before = message.id.clone();
+            continue;
         }
+        if message.role == "Note" {
+            continue;
+        }
+        let heads = if message.role == "Assistant" {
+            heading_names(&message.body)
+        } else {
+            Vec::new()
+        };
+        if heads.is_empty() {
+            before = message.id.clone();
+            continue;
+        }
+        // The chapter begins after the message before the answer that carries the
+        // heading, so the answer itself stands within the chapter it began.
+        for name in heads {
+            out.push(Chapter {
+                id: format!("{}-{}", message.id, out.len()),
+                name,
+                after: before.clone(),
+            });
+        }
+        // The answer that carries a heading is itself a place a later chapter
+        // begins after, so the next chapter of the same answer stands after it.
+        before = message.id.clone();
     }
     out
+}
+
+// The main headings of one answer, in the order they stand: the lines that begin
+// with one or two `#` marks and a space, outside a fenced block of code. A heading
+// with no words in it is no chapter.
+fn heading_names(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut fenced = false;
+    for line in body.lines() {
+        let bare = line.trim_start_matches([' ', '\t']);
+        if bare.starts_with("```") || bare.starts_with("~~~") {
+            fenced = !fenced;
+            continue;
+        }
+        if fenced {
+            continue;
+        }
+        let marks = bare.len() - bare.trim_start_matches('#').len();
+        if marks == 0 || marks > 2 {
+            continue;
+        }
+        let rest = &bare[marks..];
+        // A heading is a mark and a space: a word that runs on from the marks is a
+        // word, and not a heading.
+        if !(rest.starts_with(' ') || rest.starts_with('\t')) {
+            continue;
+        }
+        // The marks some hands put behind a heading as well are no part of its name.
+        let named = rest
+            .trim()
+            .trim_end_matches(['#', ' ', '\t'])
+            .trim()
+            .to_string();
+        if named.is_empty() {
+            continue;
+        }
+        out.push(cut_chapter_name(&named));
+    }
+    out
+}
+
+// The name of a chapter, cut to what a node beside the chat can carry.
+fn cut_chapter_name(words: &str) -> String {
+    let mut name = String::new();
+    for (number, ch) in words.chars().enumerate() {
+        if number >= 60 {
+            name.push('\u{2026}');
+            break;
+        }
+        name.push(ch);
+    }
+    name
+}
+
+// The words that go before the model while the chapters of a chat stand on. The
+// chapters are not marked with a call of any kind: they are read out of the
+// headings of the answers, so the model has to be told to open a large part of its
+// work with a main heading. The words go in a message of the role `system` at the
+// head of the talk, once for the talk, and they go away with the switch.
+pub fn chapters_words() -> String {
+    String::from(
+        "The chapters of this chat are read from your headings. When a large new part of the work begins - a new task, a new question, a new phase of the work, a new part of a story you are writing - open it with a main heading: a line that starts with '# ' or '## ', whose words say what the part is about in a few words. The program puts that heading beside the chat as a node the user may go straight to. Do not use a heading for a small thing inside a part, do not open the whole chat with a heading, and do not speak of chapters or of headings in your answer.",
+    )
 }
 
 // A copy of everything a window needs to draw. It is made while the state lock
@@ -944,12 +1072,22 @@ pub struct Snap {
     pub chat_title: String,
     pub context_used: u64,
     pub context_total: u64,
+    // Where the summarisation of the handoff begins, in the words of the talk,
+    // for the line of it on the meter of the context. Nothing stands at nought:
+    // the summarisation is off, or the room of the talk is not known.
+    pub context_cut: u64,
     pub generating: bool,
     // True while the program is writing a handoff summary, whose words are never
     // shown to the user.
     pub summarising: bool,
     pub busy: bool,
     pub code_enabled: bool,
+    // True when the open chat is working in planning mode: the model plans the
+    // work and writes it to its plan file, and does none of the work itself.
+    pub planning: bool,
+    // True when the open chat let a plan go. The heading over the talk says
+    // `PLANNED WORK`, and the plan may be read from it.
+    pub planned: bool,
     // Which of the tools of the program the model may reach in the open chat.
     // The badge of the tools is the switch over all of them; these are the lines
     // of its drop-down.
@@ -1134,6 +1272,10 @@ pub struct State {
     // The calls of a tool the model is writing right now, in the order the
     // model writes them. The user sees a command as it is written.
     pub live_tools: Vec<LiveTool>,
+    // The whole of a plan the model let go, waiting to become the first message of
+    // the work. It stands only between the call that let the plan go and the turn
+    // that begins the work, which follows it at once.
+    pub plan_pending: Option<String>,
     // The question the model has put to the user and is waiting on, when it has
     // put one. The ask stands above the chat box until it is answered, given up,
     // or stopped with the answer.
@@ -1617,37 +1759,6 @@ impl State {
         self.touch();
     }
 
-    // Mark the start of a chapter of the chat. The mark is a message of its
-    // own, so it keeps its place in the talk, but it is never drawn: the window
-    // shows it as a node on the chapter line beside the chat. The model is
-    // answered that the mark was taken, and asked again for a name when it sent
-    // none.
-    fn add_chapter(&mut self, call: &ToolCall, name: &str) {
-        let answer = if name.is_empty() {
-            "The chapter needs a name, so it was not marked"
-        } else {
-            "The chapter was marked"
-        };
-        let Some(chat) = self.chat_mut() else {
-            // The chat was put away between the call and the mark, so there is
-            // nowhere for the mark to stand.
-            return;
-        };
-        chat.messages.push(Message {
-            id: store::new_id(),
-            role: "Chapter".to_string(),
-            body: name.to_string(),
-            tool: answer.to_string(),
-            call_id: call.id.clone(),
-            tool_name: call.name.clone(),
-            tool_args: call.arguments.clone(),
-            when: store::now_secs(),
-            ..Default::default()
-        });
-        self.persist();
-        self.touch();
-    }
-
     // Put the mark of a summarisation in the chat, before the handoff summary
     // is asked for. The mark keeps its place whether the words come or not: the
     // user sees where the talk was cut, and a summary the server never
@@ -1734,6 +1845,23 @@ impl State {
         self.touch();
     }
 
+    // The mark of a summarisation says which of the two asks its words came
+    // from. The short prompt of the settings is the ask made again when the room
+    // ran full under the first one, or when the words of the first came to no end
+    // of themselves; its words hold less, and the user is told which of the two
+    // stands in the chat. A mark that was never written carries the mark of the
+    // ask of the settings, for a chat of before reads that way too.
+    fn summary_short(&mut self, id: &str, short: bool) {
+        let Some(chat) = self.chat_mut() else {
+            return;
+        };
+        if let Some(place) = chat.messages.iter().position(|m| m.id == id) {
+            if let Some(mark) = chat.messages.get_mut(place) {
+                mark.short = short;
+            }
+        }
+    }
+
     // True when a handoff summary of the open chat was asked for and never came
     // back. The chat stands at that point until the user starts the summary
     // again, for the talk past the room of the model cannot be sent as it is.
@@ -1800,6 +1928,8 @@ impl State {
                 self.cfg.ask_seconds,
                 self.cfg.ask_critical_seconds,
             ),
+            items: Vec::new(),
+            plan: false,
             began: Instant::now(),
             answer: None,
         };
@@ -1808,6 +1938,57 @@ impl State {
         self.asking = Some(one);
         self.touch();
         (id, seconds)
+    }
+
+    // A questionnaire of planning mode. It carries any number of questions, is
+    // waited for as long as it takes, and is answered when the user sends the
+    // whole of it by hand.
+    fn begin_asking_plan(&mut self, items: Vec<AskItem>) -> String {
+        let first = items.first().map(|one| one.prompt.clone()).unwrap_or_default();
+        let one = Asking {
+            id: store::new_id(),
+            question: first,
+            choices: Vec::new(),
+            critical: true,
+            // No clock runs on a questionnaire: the plan is not served on time.
+            seconds: 0,
+            items,
+            plan: true,
+            began: Instant::now(),
+            answer: None,
+        };
+        let id = one.id.clone();
+        self.asking = Some(one);
+        self.touch();
+        id
+    }
+
+    // The answers of the user to a questionnaire, put in the words the model is
+    // given back. Each answer stands under the question it belongs to, so the
+    // model cannot mistake which question was answered which way.
+    fn answer_plan(&mut self, id: &str, answers: Vec<Vec<String>>) -> bool {
+        let Some(one) = self.asking.as_mut() else {
+            return false;
+        };
+        if !one.plan || one.id != id || one.answer.is_some() {
+            return false;
+        }
+        let mut said = String::from("The user answered the questions of the plan.\n");
+        for (number, item) in one.items.iter().enumerate() {
+            said.push_str(&format!("{}. {}\n", number + 1, item.prompt));
+            let chosen = answers
+                .get(number)
+                .map(|list| list.iter().filter(|word| !word.trim().is_empty()).cloned().collect::<Vec<String>>())
+                .unwrap_or_default();
+            if chosen.is_empty() {
+                said.push_str("   Answer: nothing was chosen\n");
+            } else {
+                said.push_str(&format!("   Answer: {}\n", chosen.join("; ")));
+            }
+        }
+        one.answer = Some(said);
+        self.touch();
+        true
     }
 
     // The answer of the user, when the question the page was drawing is the one
@@ -1860,6 +2041,23 @@ impl State {
                 message.tool = text;
                 message.failed = !ok;
                 message.downloads = gifts;
+            }
+        }
+        self.running = None;
+        self.persist();
+        self.touch();
+    }
+
+    // The same, with the files one run of the display tool put in the window. The
+    // show rides on the message of the run, so the button of the block opens the
+    // same files again when the chat is opened another day.
+    fn finish_displayed(&mut self, id: &str, output: &str, ok: bool, displayed: Vec<display::Shown>) {
+        let text = self.with_stopped_head(output);
+        if let Some(chat) = self.chat_mut() {
+            if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
+                message.tool = text;
+                message.failed = !ok;
+                message.displayed = displayed;
             }
         }
         self.running = None;
@@ -2048,6 +2246,26 @@ impl State {
         };
         if let Some(line) = date_message(&self.cfg, began_of(chat)) {
             out.push(line);
+        }
+        // The words of the chapters of the chat, beside the words of the program.
+        // While the switch of the Chatting settings stands on, the nodes beside the
+        // chat are read out of the headings of the answers, and the model has to
+        // know that it is being read that way. The words go away with the switch.
+        if self.cfg.chat_chapters {
+            out.push(json!({
+                "role": "system",
+                "content": chapters_words(),
+            }));
+        }
+        // The prompt of planning mode, beside the words of the program. It goes
+        // out for every ask of a planning chat, and it goes away with the mode:
+        // the chat that works from the plan is asked with none of it, and with no
+        // word of the two tools of planning either.
+        if chat.meta.planning {
+            out.push(json!({
+                "role": "system",
+                "content": planning::system_prompt(&chat.meta.plan_file),
+            }));
         }
         let vision_on = self.pictures_can_go();
         // The records of the attachments of this chat stand in a folder of
@@ -2458,6 +2676,76 @@ impl State {
         self.chat().map(|chat| self.attach_place_for(chat))
     }
 
+    // True when the open chat is working in planning mode.
+    pub fn planning_open(&self) -> bool {
+        self.chat()
+            .map(|chat| chat.meta.planning)
+            .unwrap_or(false)
+    }
+
+    // Turn planning mode on for the open chat, and make the plan file it works
+    // in. A chat that is planning already keeps the plan it had written.
+    pub fn start_planning(&mut self) -> bool {
+        let name = {
+            let Some(chat) = self.chat_mut() else {
+                return false;
+            };
+            if chat.meta.planning && !chat.meta.plan_file.is_empty() {
+                return true;
+            }
+            let name = planning::create(&chat.meta.id);
+            chat.meta.planning = true;
+            chat.meta.plan_file = name.clone();
+            chat.meta.updated = store::now_secs();
+            name
+        };
+        // The plan file is made, and the chat says it holds it. An empty chat is
+        // no file yet, and the words of the chat are what make it one.
+        let _ = name;
+        if let Some(chat) = self.chat() {
+            if !chat.messages.is_empty() {
+                let snapshot = chat.clone();
+                self.store.save_chat(&snapshot);
+            }
+        }
+        true
+    }
+
+    // Turn planning mode off for the open chat, and say that its plan was let go.
+    // The plan file stands where it was, so the heading over the talk can still
+    // open it.
+    fn stop_planning(&mut self) {
+        if let Some(chat) = self.chat_mut() {
+            chat.meta.planning = false;
+            chat.meta.planned = true;
+            chat.meta.updated = store::now_secs();
+        }
+    }
+
+    // The whole of the plan of the open chat, for the window that reads it. The
+    // plan of a chat that never planned is nothing at all.
+    pub fn plan_words(&self) -> Option<String> {
+        let name = self.chat()?.meta.plan_file.clone();
+        planning::words(&name)
+    }
+
+    // The plan the model let go. The talk of the planning is put away whole: the
+    // chat stands empty, with the planning prompt and the planning tools gone with
+    // it, and the plan itself comes back to stand as the first message of the
+    // work. Nothing comes back when no plan was let go.
+    pub fn release_plan(&mut self) -> Option<String> {
+        let plan = self.plan_pending.take()?;
+        if let Some(chat) = self.chat_mut() {
+            chat.messages.clear();
+        }
+        self.live_text.clear();
+        self.live_reasoning.clear();
+        self.live_tools.clear();
+        self.ctx_used = 0;
+        self.stop_planning();
+        Some(plan)
+    }
+
     // The records of the attachments used to stand in one flat folder under
     // the data directory, with nothing in it to say which chat held them. When
     // such a folder stands, the records are moved into the room of the chat
@@ -2513,6 +2801,8 @@ impl State {
         };
         Snap {
             model_name: model.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
+            planning: chat.map(|c| c.meta.planning).unwrap_or(false),
+            planned: chat.map(|c| c.meta.planned).unwrap_or(false),
             model_kind: model
                 .as_ref()
                 .map(|m| m.kind.to_string())
@@ -2525,6 +2815,7 @@ impl State {
                 .unwrap_or_else(|| String::from("No chat")),
             context_used: self.ctx_used,
             context_total,
+            context_cut: config::compaction_mark(&self.cfg, context_total).unwrap_or(0),
             generating: self.generating,
             summarising: self.summarising,
             busy: self.busy,
@@ -2744,6 +3035,7 @@ impl Engine {
             answer_rate: 0.0,
             rate_start: None,
             live_tools: Vec::new(),
+            plan_pending: None,
             asking: None,
             running: None,
             thought_start: None,
@@ -2848,6 +3140,29 @@ impl Engine {
         if state.current.is_none() {
             state.start_chat();
         }
+        // The commands of the chat box. `/plan` turns planning mode on for this
+        // chat and makes its plan file; the words behind it are the request the
+        // plan is to be made of, and they go on as a message of their own. A
+        // command with nothing behind it turns the mode on and asks nothing of the
+        // model, so the user may look at the plan file or write the request next.
+        let (command, rest) = planning::split(&text);
+        let text = match command {
+            Some(planning::Command::Plan) => {
+                if state.start_planning() {
+                    state.set_status(
+                        "Planning mode is on. The plan of this chat stands in its plan file",
+                    );
+                } else {
+                    state.set_status("Start a new chat first");
+                    return;
+                }
+                if rest.trim().is_empty() && files.is_empty() {
+                    return;
+                }
+                rest
+            }
+            None => text,
+        };
         // A chat that was cut for a handoff summary and never got one stands at
         // the place it was cut: its talk is past the room of the model and
         // cannot be sent as it is. This is said before aught else, for a user
@@ -2908,6 +3223,20 @@ impl Engine {
     // Stop reading the answer.
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+        // A turn of the model extends into the calls of its tools, and a call
+        // that is running is part of the answer as much as the words of it are.
+        // The user who asks for the answer to stop is asking for the whole of the
+        // turn to stop, so the clock of the call is stopped too: the command that
+        // was started goes with the answer, and what it had printed by then still
+        // goes back to the model under the word that the user stopped it. The lock
+        // is only asked for once, and not waited for: the flag above is already
+        // set, and a call that is missed this way still ends by its own clock.
+        if let Ok(mut state) = self.state.try_lock() {
+            if let Some(one) = state.running.as_ref() {
+                one.watch.stop_now();
+                state.set_status("The call is being stopped with the answer");
+            }
+        }
     }
 
     // The tools of the open chat: the terminal tool, and the tools that work on
@@ -3344,6 +3673,16 @@ impl Engine {
         attach::find_in(&[paths.data.join("work"), paths.repositories], id)
     }
 
+    // The whole of the plan of the open chat, for the window that reads it. The
+    // heading over the talk opens it: in planning mode, and after it, when the
+    // talk says `PLANNED WORK`.
+    pub fn plan(&self) -> Option<String> {
+        let Ok(keeper) = self.state.lock() else {
+            return None;
+        };
+        keeper.plan_words()
+    }
+
     // The user answered the question the model is waiting on. The words go into
     // the block of the run, and the ask goes away with them. A question that was
     // answered already, or that has been given over, is answered no more, and the
@@ -3353,6 +3692,17 @@ impl Engine {
             return false;
         };
         guard.answer_asking(id, answer.trim())
+    }
+
+    // The user sent the answers of a questionnaire of planning mode. Each
+    // question carries the answers they chose for it, in the order the questions
+    // stand. A questionnaire that was sent already, or that the run has given
+    // over, is answered no more, and the page is told so.
+    pub fn answer_plan_ask(&self, id: &str, answers: Vec<Vec<String>>) -> bool {
+        let Ok(mut guard) = self.state.lock() else {
+            return false;
+        };
+        guard.answer_plan(id, answers)
     }
 
     // One file the user was offered, for the button of a block. The name is the
@@ -3366,6 +3716,23 @@ impl Engine {
         let (name, bytes) = download::bytes_of(&workdir, asked)?;
         let (_, tail) = download::split_name(&name);
         Some((name, download::mime(&tail).to_string(), bytes))
+    }
+
+    // The bytes of one file of a show, for the window over the contents of a file.
+    // The name is read as the tool read it, and the rule of the room follows the
+    // state of the sandbox of the open chat, which is the rule the call worked to.
+    // A kind the window does not show is refused, so a name cannot be used to read
+    // a file the tool would not have shown.
+    pub fn display_of(&self, asked: &str) -> Option<(String, String, Vec<u8>)> {
+        let workdir = self.open_workdir()?;
+        let jailed = match self.state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.sandbox_enabled)
+                .unwrap_or(true),
+            Err(_) => return None,
+        };
+        display::bytes_of(&workdir, asked, jailed)
     }
 
     // Several files the user was offered, in one archive, for the button that
@@ -4116,6 +4483,7 @@ impl Snap {
             chat_title: String::new(),
             context_used: 0,
             context_total: 0,
+            context_cut: 0,
             sandbox_access: tools::Access::default(),
             generating: false,
             busy: false,
@@ -4176,6 +4544,8 @@ impl Snap {
             prompt_rate: 0.0,
             answer_rate: 0.0,
             live_tools: Vec::new(),
+            planning: false,
+            planned: false,
             ask: None,
             running: None,
             rev: 0,
@@ -4254,6 +4624,27 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                     }
                     goings_on += 1;
                     turn = Turn::Continue;
+                }
+                // The model let its plan go. The planning is put away whole, and
+                // the plan itself goes out as the first message of a fresh talk,
+                // with the prompts and the tools the chat had before planning mode
+                // and with none of the two tools of planning. The turn above ended
+                // on the call that let the plan go, so nothing is asked again of
+                // the talk that planned.
+                let mut released = take_plan_release(&state);
+                while let Some(plan) = released {
+                    let _ = run_turn(
+                        &state,
+                        &mut server,
+                        &cancel,
+                        Turn::Sent(SentMessage {
+                            text: plan,
+                            files: Vec::new(),
+                        }),
+                    );
+                    // A work that planned again behind this one is rare, and is
+                    // answered the same way as the first.
+                    released = take_plan_release(&state);
                 }
             }
             Job::Retry => {
@@ -4784,6 +5175,29 @@ pub fn summary_calls_answered(calls: &[llama::ToolCall], said: &str) -> Vec<Valu
 // first ask to the last: a cancelled call is answered where it stands and the
 // model is asked on from there, which costs the few words of the answer and
 // nothing of the talk.
+// Where the meter of the talk stands when an ask for a summary begins: the room of
+// the words that go out with this ask, and nothing else. The words a summary of
+// before stands for are not among them, for the talk that goes out is the first
+// prompt, the summary, and the words after the mark; and neither are the words of a
+// summary that was thrown away, which is what the second ask of one summary sends.
+fn summary_start(body: &Value) -> u64 {
+    estimate_tokens(&body["messages"])
+}
+
+// The words shown when the words of a summary came back as nothing. Two faults look
+// alike here: either way the writing ended with no word of the summary in it. Only
+// one of them is the room. The server speaks "length" when it came to the end of
+// the room, and the hand over the writing of a summary speaks the same word for the
+// same thing; any other end means the model had room and gave no words, and the
+// room is not to blame for that.
+fn empty_summary_words(finish: &str) -> &'static str {
+    if finish == "length" {
+        "The summary filled the context without a word of itself. Asking for a shorter one"
+    } else {
+        "The model gave no words for the summary, and the room was not full. Asking again for a shorter one"
+    }
+}
+
 fn ask_summary_for_handoff(
     state: &Arc<Mutex<State>>,
     base_url: &str,
@@ -4838,19 +5252,28 @@ fn ask_summary_for_handoff(
 // into the front of the talk, so an ask that carried another list -- or none, as
 // this ask used to -- is a talk worked through again from its first word.
 fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
-    let (code_on, search_on, chapters_on, access, switches, mcp_tools) = {
+    let (sandbox_on, code_on, search_on, planning_on, access, switches, mcp_tools) = {
         let Ok(guard) = state.lock() else { return None };
         let chat = guard.chat();
         (
+            chat.as_ref().map(|c| c.meta.sandbox_enabled).unwrap_or(false),
             chat.as_ref().map(|c| c.meta.code_enabled).unwrap_or(false),
             chat.as_ref().map(|c| c.meta.search_enabled).unwrap_or(false),
-            guard.cfg.chat_chapters,
+            guard.planning_open(),
             chat.as_ref().map(|c| access_of(&c.meta)).unwrap_or_default(),
             chat.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
             guard.mcp_definitions(),
         )
     };
-    offered(code_on, search_on, chapters_on, access, &mcp_tools, &switches)
+    offered_with_planning(
+        sandbox_on,
+        planning_on,
+        code_on,
+        search_on,
+        access,
+        &mcp_tools,
+        &switches,
+    )
 }
 
 // One ask of the server for a handoff summary, and what came of it.
@@ -4952,6 +5375,16 @@ fn ask_summary(
         guard.thought_end = None;
         guard.live_thought_ms = 0;
         guard.live_thought_done = false;
+        // The meter is anchored on the words that go out with this ask, and not on
+        // where the meter stood before. A summary asked for the second time with the
+        // short prompt sends the same trimmed talk: the wall of words the first
+        // attempt wrote is thrown away, and is no part of the talk that goes out
+        // now. The climb of the meter only ever climbs, so a meter that kept the
+        // high-water mark of that writing read the room as gone before the model had
+        // a word to write, and the ask was then blamed for filling the context when
+        // the room was still there. The words a summary of before stands for are not
+        // in the talk that goes out, so they are not in this number either.
+        guard.ctx_used = summary_start(body);
     }
     // A summary is asked for with no hand of the summarisation limit over it: it
     // is the making of the room and not the spending of it, the ask carries the
@@ -5251,15 +5684,27 @@ fn run_handoff(
         // The line above this one in the log says what the server spoke of the ask
         // that has just come back, and whether the room filled under it. This line
         // says only what the program made of it, for the two are read apart by the
-        // words a user is shown here.
+        // words a user is shown here. The two numbers of it are written down as
+        // well: what the server spoke of the end of the writing, and the room of the
+        // words that went out with the ask. Without them a reader of the log cannot
+        // tell the room that was really gone from the room that was only blamed.
         proglog::note(
             proglog::SUMMARY,
-            "the model gave no words at all for the summary, although the ask came back with no fault of its own. The ask is made again with the short prompt of the settings.",
+            &format!(
+                "the model gave no words at all for the summary, although the ask came back with no fault of its own. The server spoke the end of the writing as {}, the words that went out with the ask measured {}, and the room of the model is {}; the ask is made again with the short prompt of the settings.",
+                if shot.finish.is_empty() {
+                    "nothing"
+                } else {
+                    shot.finish.as_str()
+                },
+                shot.sent,
+                state
+                    .lock()
+                    .map(|guard| guard.ctx_total)
+                    .unwrap_or_default()
+            ),
         );
-        tell(
-            state,
-            "The summary filled the context without a word of itself. Asking for a shorter one",
-        );
+        tell(state, empty_summary_words(&shot.finish));
         let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), slot, cancel);
         let cleaned = clean_summary(&again.text);
         if !cleaned.trim().is_empty() {
@@ -5293,6 +5738,7 @@ fn run_handoff(
             if !cleaned.trim().is_empty() {
                 shot = again;
                 summary = cleaned;
+                asked_short = true;
             }
         }
     }
@@ -5370,6 +5816,7 @@ fn run_handoff(
         guard.persist();
         return false;
     }
+    guard.summary_short(&id, asked_short);
     guard.finish_summary(&id, &summary, before, after, &why);
     // The room the talk takes now, read from the words that stand after the
     // summary: the first prompt, the summary, and the words that come after it.
@@ -5618,22 +6065,6 @@ enum Kept {
     Nothing,
 }
 
-// Split the calls of one step into the marks of chapters and the commands the
-// model wants run. A mark costs no room for commands, so a talk with many
-// chapters is not cut short by the command ceiling.
-fn split_calls(calls: Vec<ToolCall>) -> (Vec<ToolCall>, Vec<ToolCall>) {
-    let mut marks: Vec<ToolCall> = Vec::new();
-    let mut runs: Vec<ToolCall> = Vec::new();
-    for call in calls {
-        if call.name == tools::CHAPTER_TOOL_NAME {
-            marks.push(call);
-        } else {
-            runs.push(call);
-        }
-    }
-    (marks, runs)
-}
-
 // The model has a word to give back, so the words it was sent are worked
 // through and the gauge above the chat box has nothing left to say. True when
 // the gauge stood, so the caller says that the messages changed.
@@ -5860,19 +6291,6 @@ fn pending_images(history: &Value) -> usize {
         .count()
 }
 
-// Put the marks of one step into the chat, and count them. They are put in the
-// order the model asked for them, and each stands where its call came.
-fn take_marks(state: &Arc<Mutex<State>>, calls: &[ToolCall], made: &mut usize) {
-    for call in calls {
-        let name = tools::chapter_name(&call.arguments);
-        let Ok(mut guard) = state.lock() else {
-            return;
-        };
-        guard.add_chapter(call, &name);
-        *made += 1;
-    }
-}
-
 // Choose what one answer leaves. `stopped` says the user stopped the run,
 // and `error` says the run failed. A command is an answer of its own, so a
 // turn that asks for one writes no line, and a stop is not written down
@@ -5924,6 +6342,15 @@ fn worth_a_silence(finish: &str, spent: usize, most: usize) -> bool {
 // that name it tell the model to carry on from there. What the answer came to
 // goes back to the worker, so it knows whether the work may be gone on with
 // after the room has been made.
+// Put the planning of the open chat away and give back the plan that is to stand
+// as the first message of the work. Nothing comes back when no plan was let go.
+fn take_plan_release(state: &Arc<Mutex<State>>) -> Option<String> {
+    let Ok(mut guard) = state.lock() else {
+        return None;
+    };
+    guard.release_plan()
+}
+
 fn run_turn(
     state: &Arc<Mutex<State>>,
     server: &mut Option<Server>,
@@ -6138,12 +6565,9 @@ fn run_turn(
         )
     };
     let mut steps = 0usize;
-    // How many commands have run and how many chapters have been marked in this
-    // answer. The two rooms are kept apart on purpose: a mark runs nothing, and
-    // a model that marks every part of a long talk needs far more marks than it
-    // needs commands.
+    // How many commands have run in this answer. The setting that holds the room
+    // speaks of commands alone: the other tools work in the room of the chat.
     let mut commands = 0usize;
-    let mut marks = 0usize;
     // How many times the writing has been stopped at the limit set for the
     // summarisation in this answer, and the hand of the program that stops it.
     // The hand is put up by the piece of the answer that speaks of a talk past the
@@ -6204,7 +6628,7 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, chapters_on, switches) = {
+        let (mut history, code_on, search_on, planning_on, switches) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 go_on_words(&guard, carried_prompt),
@@ -6213,7 +6637,7 @@ fn run_turn(
                     .chat()
                     .map(|c| c.meta.search_enabled)
                     .unwrap_or(false),
-                guard.cfg.chat_chapters,
+                guard.planning_open(),
                 guard
                     .chat()
                     .map(|c| c.meta.tools.clone())
@@ -6315,7 +6739,7 @@ fn run_turn(
         // answer is asked with none: the words the user stopped stand at the end
         // of the talk, and a call cut in half cannot be mended.
         let use_tools = !resuming
-            && (code_on || search_on || chapters_on || !mcp_tools.is_empty());
+            && (code_on || search_on || planning_on || !mcp_tools.is_empty());
         let mut body = json!({
             "messages": history,
             "stream": true,
@@ -6331,7 +6755,15 @@ fn run_turn(
             "timings_per_token": true,
         });
         if use_tools {
-            if let Some(list) = offered(code_on, search_on, chapters_on, access, &mcp_tools, &switches) {
+            if let Some(list) = offered_with_planning(
+                sandbox_on,
+                planning_on,
+                code_on,
+                search_on,
+                access,
+                &mcp_tools,
+                &switches,
+            ) {
                 body["tools"] = list;
                 body["tool_choice"] = json!("auto");
             }
@@ -6943,25 +7375,19 @@ fn run_turn(
             let text = problem.clone();
             guard.push_note(&text, true);
         }
-        // The calls this step made, split into marks and commands. Only the
-        // commands eat the room for commands. A mark is an action of its own
-        // kind: the model is told that it was taken, and it goes on with the
-        // next part of the talk. A turn that thinks and then asks for a command
-        // has words enough, so nothing is written about a missing answer, and
-        // its thinking goes to the command that stands for it.
+        // The calls this step made. The commands eat the room for commands; the
+        // other tools work in the room of the chat in the program itself. A turn
+        // that thinks and then asks for a command has words enough, so nothing is
+        // written about a missing answer, and its thinking goes to the command
+        // that stands for it.
         let step_calls: Vec<ToolCall> = answer
             .tool_calls
             .iter()
             .filter(|call| !call.name.is_empty())
             .cloned()
             .collect();
-        let (step_marks, step_runs) = if use_tools {
-            split_calls(step_calls)
-        } else {
-            (Vec::new(), Vec::new())
-        };
-        let asked_for_tool =
-            use_tools && (!step_runs.is_empty() || !step_marks.is_empty());
+        let step_runs: Vec<ToolCall> = if use_tools { step_calls } else { Vec::new() };
+        let asked_for_tool = use_tools && !step_runs.is_empty();
         let no_words = answer_text.trim().is_empty();
         // A turn of nothing is a step that wrote no words, wrote no thinking, and
         // asked for no command of a tool. A step that asked for a command wrote an
@@ -6975,17 +7401,14 @@ fn run_turn(
         // with while the answer has room left for another step.
         let no_room_left = answer_room.is_some_and(|room| steps >= room);
         // The calls the user stopped with their own hand while the model was
-        // still writing them. A mark of a chapter is not one of them: it runs
-        // nothing, the user is never shown a block of it, and a block for it
-        // would read as a command that never ran.
+        // still writing them. Such a call never ran, and its block says so.
         let stopped_runs: Vec<ToolCall> = if answer.stopped && use_tools {
-            let writing: Vec<ToolCall> = answer
+            answer
                 .tool_calls
                 .iter()
                 .filter(|call| is_writing(call))
                 .cloned()
-                .collect();
-            split_calls(writing).1
+                .collect()
         } else {
             Vec::new()
         };
@@ -7178,11 +7601,10 @@ fn run_turn(
         }
         guard.persist();
 
-        // What is left to do after this step: the marks, and the commands the
-        // room still holds. A step that only marked a chapter is not a tool run
-        // in the old sense, so the answer goes on to the next part of the talk.
+        // What is left to do after this step: the commands, and the room the
+        // answer still holds.
         let finished = answer.stopped || answer.error.is_some();
-        let nothing_left = step_marks.is_empty() && step_runs.is_empty();
+        let nothing_left = step_runs.is_empty();
         if finished || !use_tools || nothing_left || no_room_left {
             guard.generating = false;
             // An answer the user stopped never came to an end of its own, so it
@@ -7208,14 +7630,6 @@ fn run_turn(
                 "Ready"
             };
             guard.set_status(text);
-            // A mark costs nothing, so the marks of a step that ran clean are
-            // taken even when the answer ends on the ceiling of the loop. A
-            // stopped run or a failed one keeps nothing of a step that never
-            // came to an end.
-            drop(guard);
-            if !finished {
-                take_marks(state, &step_marks, &mut marks);
-            }
             // The worker is told what the answer came to. One that stopped on the
             // hand of the user, or on a fault of the stream, is not gone on
             // with; one that came to its end, or to the ceiling of its steps, is.
@@ -7225,19 +7639,15 @@ fn run_turn(
                 Ended::Done
             };
         }
-        // Keep the lock free while a mark is made and while a command runs.
+        // Keep the lock free while a command runs.
         drop(guard);
 
-        // The model wants a mark, a command, or both. The thinking of a turn
-        // with no words of its own stands with the first thing the user is
-        // shown. A turn that only marked chapters shows nothing, so its
-        // thoughts are kept on their own rather than lost with a mark nobody
-        // sees.
+        // The model wants a command. The thinking of a turn with no words of its
+        // own stands with the first block the user is shown.
         let mut thoughts = turn_thinking.to_string();
-        // The marks first: they cost nothing, and the user sees the parts of
-        // the talk in the order the model asked for them.
-        take_marks(state, &step_marks, &mut marks);
         let mut offered = false;
+        // True when the model let the plan go in this step of the answer.
+        let mut letting = false;
         for call in step_runs.iter() {
             // Only a command of the terminal tool eats the room for commands.
             // The other tools work in the room of the chat in the program
@@ -7285,6 +7695,12 @@ fn run_turn(
             if call.name == download::NAME {
                 offered = true;
             }
+            // The plan is let go, and nothing is asked of the model behind it:
+            // this talk ends here, and the plan goes out as the first message of
+            // the work.
+            if call.name == planning::END_NAME {
+                letting = true;
+            }
         }
         // The offer of a file is the foot of an answer. The blocks stand below the
         // words of the answer, and the work the model was given is done once they
@@ -7302,6 +7718,18 @@ fn run_turn(
             guard.clear_stopped_marks();
             guard.set_status("Ready");
             guard.persist();
+            break Ended::Done;
+        }
+        // The plan is let go. The talk of the planning stops at this call: the
+        // worker puts the planning away and begins the work from the plan, so the
+        // model is never asked on behind a chat that is about to stand empty.
+        if letting {
+            let Ok(mut guard) = state.lock() else {
+                return Ended::Halted;
+            };
+            guard.generating = false;
+            guard.clear_stopped_marks();
+            guard.set_status("The plan is let go. The work begins from the plan");
             break Ended::Done;
         }
         if !thoughts.is_empty() {
@@ -7339,8 +7767,9 @@ fn group_of(name: &str) -> Option<&'static str> {
     match name {
         tools::TOOL_NAME => Some("commands"),
         editfile::EDIT_NAME | editfile::CREATE_NAME => Some("files"),
-        viewimage::NAME => Some("picture"),
+        viewimage::NAME | viewimage::ONE_NAME => Some("picture"),
         download::NAME => Some("hand_out"),
+        display::NAME => Some("display"),
         askuser::NAME => Some("ask"),
         _ => None,
     }
@@ -7366,20 +7795,56 @@ fn tool_group_word(part: &str) -> String {
         "files" => String::from("File management"),
         "picture" => String::from("The look at a picture"),
         "hand_out" => String::from("Handing a file to the user"),
+        "display" => String::from("Showing the contents of a file"),
         "ask" => String::from("Asking the user"),
         other => String::from(other),
     }
 }
 
-fn offered(
+// The tools offered for one ask, planning mode taken in. The tools of planning
+// stand beside the others and hold no switch: a chat that is planning must
+// always have its plan file, the word that reads it back, the word that asks the
+// user, and the word that lets the plan go. When planning mode is off none of
+// them is offered at all, so a model reading the plan as its first message knows
+// nothing of them. `sandbox` goes with the ask, for the words of the tools that
+// work on the machine tell the state of the sandbox, and nothing of it when the
+// sandbox is off.
+// The chapters of a chat offer no tool: they are read out of the headings of the
+// answers, and the model is told of them in the words before the talk.
+#[allow(clippy::too_many_arguments)]
+fn offered_with_planning(
+    sandbox: bool,
+    planning_on: bool,
     code_on: bool,
     search_on: bool,
-    chapters_on: bool,
     access: tools::Access,
     mcp_tools: &[Value],
     switches: &store::ToolSwitches,
 ) -> Option<Value> {
-    if !(code_on || search_on || chapters_on || !mcp_tools.is_empty()) {
+    let mut list = offered(sandbox, code_on, search_on, access, mcp_tools, switches)
+        .and_then(|made| made.as_array().cloned())
+        .unwrap_or_default();
+    if planning_on {
+        list.push(planning::edit_definition());
+        list.push(planning::read_definition());
+        list.push(planning::ask_definition());
+        list.push(planning::end_definition());
+    }
+    if list.is_empty() {
+        return None;
+    }
+    Some(Value::Array(list))
+}
+
+fn offered(
+    sandbox: bool,
+    code_on: bool,
+    search_on: bool,
+    access: tools::Access,
+    mcp_tools: &[Value],
+    switches: &store::ToolSwitches,
+) -> Option<Value> {
+    if !(code_on || search_on || !mcp_tools.is_empty()) {
         return None;
     }
     let mut list: Vec<Value> = Vec::new();
@@ -7388,17 +7853,20 @@ fn offered(
     // and a badge that is off offers none of them whatever the lines say.
     if code_on {
         if switches.commands {
-            list.push(tools::definition(access));
+            list.push(tools::definition(sandbox, access));
         }
         if switches.files {
-            list.push(editfile::edit_definition());
-            list.push(editfile::create_definition());
+            list.push(editfile::edit_definition(sandbox));
+            list.push(editfile::create_definition(sandbox));
         }
         if switches.picture {
-            list.push(viewimage::definition());
+            list.push(viewimage::definition(sandbox));
         }
         if switches.hand_out {
             list.push(download::definition());
+        }
+        if switches.display {
+            list.push(display::definition(sandbox));
         }
         if switches.ask {
             list.push(askuser::definition());
@@ -7406,9 +7874,6 @@ fn offered(
     }
     if search_on {
         list.push(search::definition());
-    }
-    if chapters_on {
-        list.push(tools::chapter_definition());
     }
     // The tools of the servers of the user's own stand last, each under the
     // name of the server it came from.
@@ -7548,9 +8013,14 @@ fn run_program_tool(
         editfile::EDIT_NAME => "Editing a file",
         editfile::CREATE_NAME => "Creating a file",
         search::NAME => "Searching the web",
-        viewimage::NAME => "Looking at an image",
+        viewimage::NAME | viewimage::ONE_NAME => "Looking at images",
         download::NAME => "Offering a file",
+        display::NAME => "Showing a file to the user",
         askuser::NAME => "Asking the user",
+        planning::EDIT_NAME => "Changing the plan",
+        planning::READ_NAME => "Reading the plan",
+        planning::ASK_NAME => "Asking about the plan",
+        planning::END_NAME => "Letting the plan go",
         _ => "A tool of the program",
     };
     let message_id = {
@@ -7585,7 +8055,29 @@ fn run_program_tool(
             })
         };
         let report = match wanted {
-            Some((server, tool)) => mcp::run(&server, &tool, &call.arguments),
+            Some((server, tool)) => {
+                // The server of the user's own is reached on a thread of its own,
+                // and waited for only within the clock of the call. Such a road
+                // reaches out over a pipe or over the network and can stand waiting
+                // for an answer that never comes, and the clock of the call was read
+                // by nothing in it: the block stood saying "running" for hours, and
+                // neither the mark that cuts the call short nor the mark that stops
+                // the answer could do anything. The call is answered now as a
+                // command of the same fault is answered, and what the server does
+                // after the clock is gone is not known.
+                let words = call.arguments.clone();
+                match crate::util::within(&watch, move || mcp::run(&server, &tool, &words)) {
+                    Some(report) => report,
+                    None => mcp::Report {
+                        ok: false,
+                        output: String::from(if watch.stopped() {
+                            "The call was stopped: you asked for it to end. The server may still be at work, and what it does after this is not known."
+                        } else {
+                            "The call ran out of time and was stopped. The server may still be at work, and what it does after this is not known."
+                        }),
+                    },
+                }
+            }
             None => mcp::Report {
                 ok: false,
                 output: String::from(
@@ -7598,32 +8090,39 @@ fn run_program_tool(
         return;
     }
     // A picture is read here and kept out of the words the user sees. The
-    // receipt of the run is the block in the chat; the picture rides on the same
-    // message as an attachment of the chat, and goes to the model with the words
-    // of the receipt when the history is made again.
-    if call.name == viewimage::NAME {
-        let vision = {
+    // receipt of the run is the block in the chat; every picture rides on the
+    // same message as an attachment of the chat, and goes to the model with the
+    // words of the receipt when the history is made again.
+    // The wall of the chat stands over the names of the files, as it does over
+    // the tools that work on files: with the sandbox off, a picture may stand
+    // anywhere the machine has it.
+    if viewimage::is_look(&call.name) {
+        let (vision, jailed) = {
             let Ok(guard) = state.lock() else { return };
-            guard.pictures_can_go()
+            (
+                guard.pictures_can_go(),
+                guard.chat().map(|one| one.meta.sandbox_enabled).unwrap_or(false),
+            )
         };
-        let made = viewimage::open(workdir, &call.arguments, vision);
-        let records = match &made.picture {
-            Some(picture) => {
-                let Ok(guard) = state.lock() else { return };
-                match guard.attach_place() {
-                    Some(place) => attach::save_at(
-                        &place,
-                        &[attach::Incoming {
-                            name: picture.name.clone(),
-                            mime: picture.mime.clone(),
-                            data: picture.data.clone(),
-                            text: String::new(),
-                        }],
-                    ),
-                    None => Vec::new(),
-                }
+        let made = viewimage::open(workdir, &call.arguments, vision, jailed);
+        let records = if made.pictures.is_empty() {
+            Vec::new()
+        } else {
+            let held: Vec<attach::Incoming> = made
+                .pictures
+                .iter()
+                .map(|picture| attach::Incoming {
+                    name: picture.name.clone(),
+                    mime: picture.mime.clone(),
+                    data: picture.data.clone(),
+                    text: String::new(),
+                })
+                .collect();
+            let Ok(guard) = state.lock() else { return };
+            match guard.attach_place() {
+                Some(place) => attach::save_at(&place, &held),
+                None => Vec::new(),
             }
-            None => Vec::new(),
         };
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool_with(&message_id, &made.report.output, made.report.ok, records);
@@ -7635,6 +8134,42 @@ fn run_program_tool(
     // the result of the call. A question of the ordinary kind is given up when its
     // wait is gone; a question the model cannot go on without is waited for until
     // it is answered, or until the user stops the answer whole.
+    // The questions of the plan. Any number of them go to the user at once, each
+    // with the answers they may choose from, and the run waits until the user
+    // sends the whole of it. No clock runs on the wait, for the plan is not
+    // served on time, and the user is never hurried over it.
+    if call.name == planning::ASK_NAME {
+        let items = match planning::questions_of(&call.arguments) {
+            Ok(made) => made,
+            Err(why) => {
+                let Ok(mut guard) = state.lock() else { return };
+                guard.finish_tool(&message_id, &why, false);
+                return;
+            }
+        };
+        let asking = {
+            let Ok(mut guard) = state.lock() else { return };
+            let text = format!("Waiting for your answers: {} questions", items.len());
+            guard.set_status(&text);
+            guard.begin_asking_plan(items)
+        };
+        let answer = wait_for_answer(state, &asking, 0, cancel);
+        let (words, ok) = match answer {
+            Some(said) => (said, true),
+            // The user stopped the answer whole, so the questionnaire went with
+            // it. The model is told, and the plan keeps the questions open.
+            None => (
+                String::from(
+                    "The questions were not answered, so the plan must go on without them.",
+                ),
+                false,
+            ),
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &words, ok);
+        guard.clear_asking(&asking);
+        return;
+    }
     if call.name == askuser::NAME {
         let asked = askuser::parse(&call.arguments);
         {
@@ -7657,6 +8192,78 @@ fn run_program_tool(
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool(&message_id, &words, ok);
         guard.clear_asking(&asking);
+        return;
+    }
+    // The plan file of this chat. The tool reaches that one file and no other, so
+    // it wants no room of the chat and no word of the sandbox: the plan stands in
+    // a folder of the planning directory of the program, away from the work.
+    if call.name == planning::EDIT_NAME {
+        let name = match state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.plan_file.clone())
+                .unwrap_or_default(),
+            Err(_) => return,
+        };
+        let report = planning::edit_plan(&name, &call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &report.output, report.ok);
+        return;
+    }
+    // The same plan file, read back. The model is shown the lines of the plan as
+    // they stand, so it sees how its changes landed instead of guessing.
+    if call.name == planning::READ_NAME {
+        let name = match state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.plan_file.clone())
+                .unwrap_or_default(),
+            Err(_) => return,
+        };
+        let report = planning::read_plan(&name, &call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &report.output, report.ok);
+        return;
+    }
+    // The plan is let go. The talk of the planning is put away behind this call,
+    // and the plan itself becomes the first message of the work: the worker begins
+    // that turn as soon as this one is over. The plan is taken here, while the
+    // planning prompt still stands in the talk, so the model that reads it next
+    // needs nothing of this chat.
+    if call.name == planning::END_NAME {
+        let Ok(mut guard) = state.lock() else { return };
+        let held = guard.plan_words().unwrap_or_default();
+        if held.trim().is_empty() {
+            guard.finish_tool(
+                &message_id,
+                "The plan file holds nothing, so the plan could not be let go.",
+                false,
+            );
+            return;
+        }
+        guard.plan_pending = Some(held);
+        guard.finish_tool(
+            &message_id,
+            "The plan is let go. This talk ends here, and the plan becomes the first message of the work.",
+            true,
+        );
+        return;
+    }
+    // A show of the contents of files. Nothing is copied and nothing is kept in
+    // the words of the talk: the block of the show names the files, and the button
+    // of it opens the window of the chat over them. The window reads each file
+    // again when the user opens it, under the same rule of the room as the call.
+    if call.name == display::NAME {
+        let jailed = match state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.sandbox_enabled)
+                .unwrap_or(true),
+            Err(_) => true,
+        };
+        let made = display::show(workdir, &call.arguments, jailed);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_displayed(&message_id, &made.report.output, made.report.ok, made.shown);
         return;
     }
     // A file the user is offered. Nothing is copied and nothing is fetched: the
@@ -7686,8 +8293,24 @@ fn run_program_tool(
         editfile::EDIT_NAME => editfile::edit_room(workdir, &call.arguments, jailed),
         editfile::CREATE_NAME => editfile::create_room(workdir, &call.arguments, jailed),
         // The web search needs no room of the chat: it reads what stands on the
-        // web, and nothing of the machine.
-        search::NAME => search::run(&call.arguments),
+        // web, and nothing of the machine. The read is waited for only within the
+        // clock of the call, as a command is and as a server of the user's own is,
+        // so a search that stands waiting for an answer that never comes cannot
+        // hold the chat with a block that says "running".
+        search::NAME => {
+            let words = call.arguments.clone();
+            match crate::util::within(&watch, move || search::run(&words)) {
+                Some(made) => made,
+                None => tools::Report {
+                    ok: false,
+                    output: String::from(if watch.stopped() {
+                        "The call was stopped: you asked for it to end. The search may still be going, and what it brings after this is not known."
+                    } else {
+                        "The call ran out of time and was stopped. The search may still be going, and what it brings after this is not known."
+                    }),
+                },
+            }
+        }
         other => tools::Report {
             ok: false,
             output: format!(
@@ -7773,10 +8396,20 @@ fn ensure_server(
     }
 }
 
-// Rough token count, used when the server gives no usage numbers. The
-// content of a message is words, or a list of parts with the words of the
-// user, the words of the files, and the pictures of the message among
-// them. A picture costs a block of tokens of its own, whatever it shows.
+// Rough token count, used when the server gives no usage numbers, and as the floor
+// under the number the server spoke (see `used_after`). It is the measure of the
+// words that actually go out with the ask, so every part of a message the server is
+// sent is counted: the words of the message, whether they stand as one string or as
+// the parts of a message of the user, the thinking that is sent back when the chat
+// keeps it, and the name and the arguments of every call of a tool the model made --
+// those go out with the talk and cost the room of them, and leaving them out read a
+// chat with many calls as having room it had not. A picture costs a block of tokens
+// of its own, whatever it shows.
+//
+// This is a rough count and stays one: the server's own number is the authority, and
+// it takes the meter wherever the two disagree. What this count is not allowed to do
+// is read the talk smaller than it is by ignoring a part of the ask, for a room
+// weighed on too small a number is sent for again and again until it is gone.
 fn estimate_tokens(history: &Value) -> u64 {
     let mut chars = 0u64;
     if let Some(items) = history.as_array() {
@@ -7795,6 +8428,37 @@ fn estimate_tokens(history: &Value) -> u64 {
                     }
                 }
                 _ => {}
+            }
+            // The thinking of a turn that is sent back to the model costs the room
+            // of its words, as any other words of the talk do.
+            if let Some(said) = item
+                .get("reasoning_content")
+                .and_then(|t| t.as_str())
+            {
+                chars += said.chars().count() as u64;
+            }
+            // The calls of a tool ride on the message of the turn that made them,
+            // and the server reads them as part of the talk. The name of the tool and
+            // the arguments the model wrote stand under the part named `function`,
+            // which is the shape the talk carries; the two names are also read where
+            // they stand, so a call is never passed by for want of the shape.
+            if let Some(calls) = item.get("tool_calls").and_then(|c| c.as_array()) {
+                for one in calls {
+                    let held = |where_: &Value, key: &str| -> u64 {
+                        where_
+                            .get(key)
+                            .and_then(|v| v.as_str())
+                            .map(|said| said.chars().count() as u64)
+                            .unwrap_or_default()
+                    };
+                    let function = one.get("function").cloned().unwrap_or(Value::Null);
+                    chars += held(&function, "name") + held(&function, "arguments");
+                    chars += held(one, "name") + held(one, "arguments");
+                    chars += held(one, "id");
+                    // The envelope of a call: the marks of a call, and the name of
+                    // the part that holds its arguments.
+                    chars += 24;
+                }
             }
             // Every message costs a few tokens on its own.
             chars += 8;
@@ -7873,7 +8537,7 @@ mod tests {
         assert!(snap.tool_switches.picture);
         assert!(snap.tool_switches.hand_out);
         let words = |code_on: bool, switches: &store::ToolSwitches| {
-            offered(code_on, false, false, tools::Access::default(), &[], switches)
+            offered(false, code_on, false, tools::Access::default(), &[], switches)
                 .map(|list| {
                     list.as_array()
                         .unwrap()
@@ -8700,84 +9364,116 @@ mod tests {
         }
     }
 
-    // A chapter stands where the model asked for it. The marks are given to the
-    // window in the order they were made, each tied to the message the chapter
-    // begins after, and a mark with no name is not a chapter.
+    // A chapter is begun by a main heading of an answer. The chapters are given
+    // to the window in the order they begin, each tied to the message before the
+    // answer that carries it, and the heading itself stays among the words of the
+    // talk: it is part of the answer, and not a mark beside it.
     #[test]
-    fn the_chapters_stand_where_they_were_marked() {
+    fn the_chapters_are_read_from_the_headings_of_the_answers() {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
         open_a_chat(&engine);
-        let mark = |name: &str| ToolCall {
-            id: format!("call-{name}"),
-            name: String::from(tools::CHAPTER_TOOL_NAME),
-            arguments: format!(r#"{{"name":"{name}"}}"#),
-        };
-        let (first, second, spoken) = {
+        let (first, second) = {
             let mut state = engine.state.lock().unwrap();
             state.push_message("You", "Fix the parser", "", 0, false);
             let first = state.chat().unwrap().messages.last().unwrap().id.clone();
-            state.add_chapter(&mark("Fixing the parser"), "Fixing the parser");
-            state.push_message("Assistant", "The parser is fixed.", "", 0, false);
+            state.push_message(
+                "Assistant",
+                "## Fixing the parser\n\nThe grammar was wrong.\n\n### A small thing inside\n\n```python\n# not a heading\nprint(1)\n```",
+                "",
+                0,
+                false,
+            );
             let second = state.chat().unwrap().messages.last().unwrap().id.clone();
-            // A mark with no name, and a mark of a chapter of its own. The name
-            // of the second mark is longer than the tool allows, and comes back
-            // cut.
-            state.add_chapter(&mark(""), "");
-            let sixty = "n".repeat(62);
-            let long = tools::chapter_name(&mark(&sixty).arguments);
-            assert_eq!(long.len(), tools::MAX_CHAPTER_NAME);
-            state.add_chapter(&mark(&long), &long);
-            // Everything the chat holds, the marks of the chapters and all.
-            let spoken = state.chat().unwrap().messages.clone();
-            (first, second, spoken)
+            state.push_message(
+                "Assistant",
+                "# Over in the next part\n\nNothing else stands here.",
+                "",
+                0,
+                false,
+            );
+            (first, second)
         };
+        let chapters = engine.snapshot().chapters;
+        assert_eq!(chapters.len(), 2, "the headings were not read as chapters");
+        assert_eq!(chapters[0].name, "Fixing the parser");
+        // The chapter begins after the message before the answer that carries it,
+        // so the answer itself stands within the chapter it began.
+        assert_eq!(chapters[0].after, first);
+        assert_eq!(chapters[1].name, "Over in the next part");
+        assert_eq!(chapters[1].after, second);
+        // The heading is a word of the answer, so the answer is drawn whole and
+        // the window is given the chapter on the side as well.
+        let visible = engine.snapshot().messages;
+        assert_eq!(visible.len(), 3);
+        assert!(visible[1].body.contains("## Fixing the parser"));
+    }
+
+    // Only a main heading opens a chapter: one or two marks and a space, outside a
+    // block of code, with words after the marks. A heading with marks behind its
+    // words is named by the words alone, and a long name is cut to what a node can
+    // carry.
+    #[test]
+    fn only_a_main_heading_of_the_answer_opens_a_chapter() {
+        assert_eq!(heading_names("# One\nText\n## Two\n"), vec!["One", "Two"]);
+        // A third mark is a heading of a part, not of a chapter of the chat.
+        assert!(heading_names("### Three").is_empty());
+        // A word that runs on from the marks is a word.
+        assert!(heading_names("#One").is_empty());
+        // A `#` at the start of a line is a comment inside a block of code.
+        assert!(heading_names("```\n# inside the code\n```\n").is_empty());
+        assert!(heading_names("~~~\n# inside the code\n~~~\n").is_empty());
+        // A heading with nothing after its marks names nothing.
+        assert!(heading_names("##   ").is_empty());
+        // The marks behind the words of a heading are no part of its name.
+        assert_eq!(heading_names("## Four ##"), vec!["Four"]);
+        // A heading of a quote or a list line is not a heading of its own.
+        assert!(heading_names("> # quoted").is_empty());
+        // The name of a chapter is cut to what a node beside the chat can carry.
+        let long = heading_names(&format!("# {}", "n".repeat(80)));
+        assert_eq!(long.len(), 1);
+        assert_eq!(long[0].chars().count(), 61, "the name was not cut: {}", long[0]);
+        assert!(long[0].ends_with('\u{2026}'));
+    }
+
+    // The chats of before carry their chapters as marks of their own, with a
+    // message each. Those marks are still read, so a chat written while the tool
+    // of the chapters stood keeps the line of nodes it was given, and an answer
+    // with headings in it keeps those too.
+    #[test]
+    fn the_chapters_of_an_older_chat_are_still_read() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.push_message("You", "Fix the parser", "", 0, false);
+            state.push_message(
+                "Chapter",
+                "Fixing the parser",
+                "The chapter was marked",
+                0,
+                false,
+            );
+            state.push_message(
+                "Assistant",
+                "## And now the tests",
+                "",
+                0,
+                false,
+            );
+        }
         let chapters = engine.snapshot().chapters;
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[0].name, "Fixing the parser");
-        assert_eq!(chapters[0].after, first);
-        // The unnamed mark is skipped, and the chapter after it still begins
-        // after the same message.
-        assert_eq!(chapters[1].name, "n".repeat(50));
-        assert_eq!(chapters[1].after, second);
-        // The marks are not words of the talk: the window is given the chapter
-        // on the side, and the message list without them.
+        assert_eq!(chapters[1].name, "And now the tests");
+        // A mark of a chapter is no word of the talk, so the window is given the
+        // answers alone.
         let visible = engine.snapshot().messages;
         assert!(!visible.iter().any(|m| m.role == "Chapter"));
         assert_eq!(visible.len(), 2);
-        // The soft picture of the chat in the corner is the newest thing that
-        // was really said, and never the name of a chapter.
-        let preview = store::preview(&spoken);
-        assert!(!preview.contains(&"n".repeat(50)));
-        assert_eq!(preview, "The parser is fixed.");
-    }
-
-    // A mark of a chapter is not a command, so it is split away from the
-    // commands of a step and eats none of the room a command has.
-    #[test]
-    fn a_mark_of_a_chapter_costs_no_command_room() {
-        let call = |name: &str, id: &str| ToolCall {
-            id: id.to_string(),
-            name: name.to_string(),
-            arguments: String::from("{}"),
-        };
-        let step = vec![
-            call(tools::CHAPTER_TOOL_NAME, "one"),
-            call(tools::TOOL_NAME, "two"),
-            call(tools::CHAPTER_TOOL_NAME, "three"),
-        ];
-        let (marks, runs) = split_calls(step);
-        assert_eq!(marks.len(), 2);
-        assert_eq!(runs.len(), 1);
-        assert_eq!(marks[0].id, "one");
-        assert_eq!(marks[1].id, "three");
-        assert_eq!(runs[0].id, "two");
-        // A step of nothing but marks holds no command at all, so an answer can
-        // mark chapter after chapter without touching the room for commands.
-        let (only, runs) = split_calls(vec![call(tools::CHAPTER_TOOL_NAME, "one")]);
-        assert_eq!(only.len(), 1);
-        assert!(runs.is_empty());
     }
 
     // A turn writes no line about itself. A command is an answer, a stop is
@@ -9294,24 +9990,6 @@ mod tests {
         assert_eq!(made[0].command, "ls -la");
         assert_eq!(made[0].purpose, "see what is here");
 
-        // A mark of a chapter runs nothing and is shown to nobody, so there is
-        // nothing to watch while it is written.
-        let mark = ToolCall {
-            id: String::from("call-two"),
-            name: String::from(tools::CHAPTER_TOOL_NAME),
-            arguments: String::from("{\"name\":\"The plan\"}"),
-        };
-        assert!(watched(std::slice::from_ref(&mark)).is_empty());
-
-        // Three letters of a name are not yet the name of a tool: the mark could
-        // still be coming, so nothing stands in the chat for it yet.
-        let half = ToolCall {
-            id: String::from("call-three"),
-            name: String::from("cha"),
-            arguments: String::from("{\"na"),
-        };
-        assert!(watched(std::slice::from_ref(&half)).is_empty());
-
         // A call with no name of its own says nothing of what it is.
         let blank = ToolCall {
             id: String::from("call-four"),
@@ -9351,8 +10029,9 @@ mod tests {
 
     // The badge of the tools is the door to every tool that can reach the
     // machine: with it off the model is offered no command and no tool that works
-    // on a file. The web search and the mark of a chapter stand on switches of
-    // their own, and either of them alone is enough to carry tools with the call.
+    // on a file. The web search stands on a switch of its own, and it alone is
+    // enough to carry tools with the call. The chapters of a chat offer no tool at
+    // all, whatever their switch says.
     #[test]
     fn no_badge_of_the_tools_opens_no_tool_at_all() {
         let names = |list: &Value| {
@@ -9363,27 +10042,53 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Nothing is switched on, so the call carries no tools at all.
-        assert!(offered(false, false, false, tools::Access::default(), &[], &store::ToolSwitches::default()).is_none());
-        // The marks alone, which is what a chat with both badges off and the marks
-        // on is offered.
-        let marks = offered(false, false, true, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
-        assert_eq!(names(&marks), vec![tools::CHAPTER_TOOL_NAME.to_string()]);
-        // The badge on: every tool of the program stands there, and the mark is
-        // not among them.
-        let open = offered(true, false, false, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
+        assert!(offered(
+            false,
+            false,
+            false,
+            tools::Access::default(),
+            &[],
+            &store::ToolSwitches::default()
+        )
+        .is_none());
+        // The badge on: every tool of the program stands there.
+        let open = offered(
+            false,
+            true,
+            false,
+            tools::Access::default(),
+            &[],
+            &store::ToolSwitches::default(),
+        )
+        .unwrap();
         let words = names(&open);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&editfile::EDIT_NAME.to_string()));
         assert!(words.contains(&editfile::CREATE_NAME.to_string()));
         assert!(words.contains(&viewimage::NAME.to_string()));
-        assert!(!words.contains(&tools::CHAPTER_TOOL_NAME.to_string()));
         assert!(!words.contains(&search::NAME.to_string()));
         // The badge of the web search alone: the search is offered, and none of
         // the tools that can reach the machine is offered with it.
-        let looked = offered(false, true, false, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
+        let looked = offered(
+            false,
+            false,
+            true,
+            tools::Access::default(),
+            &[],
+            &store::ToolSwitches::default(),
+        )
+        .unwrap();
         assert_eq!(names(&looked), vec![search::NAME.to_string()]);
         // Both badges stand open, so both doors are open at once.
-        let both = offered(true, true, false, tools::Access::default(), &[], &store::ToolSwitches::default()).unwrap();
+        let both = offered(
+            false,
+            true,
+            true,
+            tools::Access::default(),
+            &[],
+            &store::ToolSwitches::default(),
+        )
+        .unwrap();
         let words = names(&both);
         assert!(words.contains(&tools::TOOL_NAME.to_string()));
         assert!(words.contains(&search::NAME.to_string()));
@@ -9391,7 +10096,7 @@ mod tests {
         // the model knows it before it asks for a command.
         let open = offered(
             true,
-            false,
+            true,
             false,
             tools::Access { network: true, pip: true, fetch: true },
             &[],
@@ -9417,6 +10122,71 @@ mod tests {
         }
     }
 
+    // The words of the tools that work on the machine follow the state of the
+    // sandbox, which is the only thing that can wall a command. A chat with the
+    // sandbox off is offered the plain tool, with no word of a jail, of a network
+    // or of a program that stands off, for such a chat has none of those things to
+    // tell. A chat with the sandbox on is told the walls, and how far its room
+    // reaches. The list of the tools is rendered into the front of the talk, so a
+    // word of a wall that is not there is paid for in every ask of the chat, and
+    // has turned a model away from a command it should have run.
+    #[test]
+    fn the_words_of_the_tools_follow_the_state_of_the_sandbox() {
+        let offered_words = |sandbox: bool| -> Vec<String> {
+            offered(
+                sandbox,
+                true,
+                false,
+                tools::Access::default(),
+                &[],
+                &store::ToolSwitches::default(),
+            )
+            .expect("the badge of the tools stands open")
+            .as_array()
+            .expect("a list of tools")
+            .iter()
+            .map(|one| {
+                format!(
+                    "{} {}",
+                    one["function"]["name"].as_str().unwrap_or_default(),
+                    one["function"]["description"].as_str().unwrap_or_default()
+                )
+            })
+            .collect()
+        };
+        // The wall down: no tool of the list has a word of it, and no tool tells
+        // the model that a network or a program is turned off.
+        for one in offered_words(false) {
+            for forbidden in ["sandbox", "jail", "network", "wget", "curl"] {
+                assert!(
+                    !one.to_lowercase().contains(forbidden),
+                    "a chat with no sandbox was told of {}: {}",
+                    forbidden,
+                    one
+                );
+            }
+        }
+        // The wall up: the tool of the commands names the jail it runs in, and
+        // what the chat lets a command reach.
+        let jailed = offered_words(true)
+            .into_iter()
+            .find(|one| one.starts_with(tools::TOOL_NAME))
+            .expect("the tool of the commands is offered");
+        assert!(jailed.contains("sandbox"), "{}", jailed);
+        assert!(jailed.contains("There is no network access."), "{}", jailed);
+        // The tools of the files say how far the room of the chat reaches in both
+        // states, so a chat with the wall down still hears that a file of this
+        // machine may be named, and does not hear it from the wall.
+        let reached = |sandbox: bool| {
+            offered_words(sandbox)
+                .into_iter()
+                .find(|one| one.starts_with(editfile::EDIT_NAME))
+                .expect("the tool of the files is offered")
+        };
+        assert!(reached(true).contains("the only place this tool works"));
+        assert!(reached(false).contains("anywhere on this machine"));
+    }
+
     // The tools of the servers of the user's own stand in the list of a step,
     // and a server alone is enough to let the model be offered anything at all.
     #[test]
@@ -9436,9 +10206,15 @@ mod tests {
             ..mcp::Tool::default()
         };
         let made = vec![tool.definition(&server)];
-        let list = offered(false, false, false, tools::Access::default(), &made,
-            &store::ToolSwitches::default())
-            .expect("a server of the user's own is a tool");
+        let list = offered(
+            false,
+            false,
+            false,
+            tools::Access::default(),
+            &made,
+            &store::ToolSwitches::default(),
+        )
+        .expect("a server of the user's own is a tool");
         let names: Vec<&str> = list
             .as_array()
             .unwrap()
@@ -9673,22 +10449,6 @@ mod tests {
             assert_eq!(state.live_tools[0].command, "uname");
         }
         assert!(!engine.snapshot().progress_on);
-        // The mark of a chapter gives the user no block, but it is written
-        // after the words that were sent, so the gauge leaves for it as well.
-        let mark = ToolCall {
-            id: String::from("call-two"),
-            name: String::from(tools::CHAPTER_TOOL_NAME),
-            arguments: String::from("{\"name\":\"The plan\"}"),
-        };
-        {
-            let mut state = engine.state.lock().unwrap();
-            state.live_tools.clear();
-            state.progress_on = true;
-            state.progress = 10;
-            assert!(write_calls(&mut state, std::slice::from_ref(&mark)));
-            assert!(!state.progress_on, "the gauge stood on after a mark began");
-            assert!(state.live_tools.is_empty());
-        }
         // A piece that says nothing new of a call the state holds already says
         // nothing at all: the gauge went with the first word of it.
         {
@@ -9864,6 +10624,196 @@ mod tests {
         let marks = state.handoffs();
         assert_eq!(marks[1].state, "done");
         assert_eq!(marks[1].before, 7000);
+    }
+
+    // The mark of a summarisation says which of the two asks its words came
+    // from. The short prompt of the settings is asked again when the room ran full
+    // under the first ask, or when the words of the first came to no end of
+    // themselves; it holds less, and the user is told which of the two stands in
+    // the chat. A chat written before the two were told apart carries no word of
+    // either ask, and reads as the ask of the settings.
+    #[test]
+    fn a_summarisation_says_whether_it_is_the_short_one() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        // The ask of the settings: nothing of a short ask stands in its mark.
+        let plain = state.begin_summary();
+        state.summary_short(&plain, false);
+        state.finish_summary(&plain, "Done: the parser. Next: the bar.", 6964, 412, "");
+        assert!(!state.handoffs()[0].short, "the ask of the settings");
+        // The ask made again with the short prompt of the settings.
+        let short = state.begin_summary();
+        state.summary_short(&short, true);
+        state.finish_summary(&short, "Done. Next: nothing.", 7000, 96, "");
+        assert!(state.handoffs()[1].short, "the short ask of the settings");
+        drop(state);
+        // A chat of before, read out of its words with the mark of the ask taken
+        // out of them, is a chat of the ask of the settings.
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("a chat stands open");
+        let mut words = serde_json::to_value(chat).expect("a chat is words");
+        drop(state);
+        let places: Vec<usize> = words["messages"]
+            .as_array()
+            .expect("the messages of the chat")
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m["role"] == json!("Summary"))
+            .map(|(place, _)| place)
+            .collect();
+        assert_eq!(places.len(), 2, "two marks of a summarisation stand");
+        for place in places {
+            words["messages"][place]
+                .as_object_mut()
+                .expect("a message of the chat")
+                .remove("short");
+        }
+        let before: store::Chat = serde_json::from_value(words).expect("a chat of before");
+        let marks = handoff_marks(&before, false);
+        assert_eq!(marks.len(), 2);
+        assert!(
+            marks.iter().all(|one| !one.short),
+            "a mark of before is the ask of the settings"
+        );
+    }
+
+    // A turn of the model extends into the calls of its tools, and a call that is
+    // running is part of the answer as much as the words of it are. The user who
+    // asks for the answer to stop is asking for the whole of the turn to stop, so
+    // the running call is stopped with it -- whether the call still stood in the
+    // time it was given at first, or in the time the user added to it.
+    #[test]
+    fn stopping_the_answer_stops_the_call_that_is_running() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let watch = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let watch = crate::util::Watch::new(Duration::from_secs(600));
+            state.begin_running("block-one", &watch);
+            watch
+        };
+        assert!(!watch.stopped(), "nothing was stopped to begin with");
+        // The user gave the call more time first, so what is tested here is a call
+        // standing in the time that was added to it. The lock is let go of before
+        // the two marks are pressed, for both of them take it.
+        engine.extend_running_tool();
+        assert!(!watch.stopped(), "more time is not a stop");
+        engine.cancel();
+        let state = engine.state.lock().unwrap();
+        assert!(state.running.is_some(), "the call stands running still");
+        assert!(
+            state.running.as_ref().map(|one| one.watch.stopped()).unwrap_or(false),
+            "the mark of the answer left the running call going"
+        );
+    }
+
+    // The measure of the talk is the measure of the words that go out with the ask.
+    // Every part the server is sent costs the room of it: the words of a turn, the
+    // thinking that is sent back when the chat keeps it, and the name and the
+    // arguments of a call of a tool. A measure that left a part out read the room as
+    // bigger than it is, and the room was then spent before the meter said so.
+    #[test]
+    fn the_measure_of_the_talk_counts_every_word_that_goes_out() {
+        let plain = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "assistant", "content": "the answer of the model"},
+        ]);
+        let base = estimate_tokens(&plain);
+        // A turn that made a call. The call rides on the message of the turn, with
+        // the name of the tool and the arguments the model wrote under the part named
+        // `function`, which is the shape the talk carries to the server.
+        let called = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "assistant", "content": Value::Null, "tool_calls": [{
+                "id": "call-one",
+                "type": "function",
+                "function": {
+                    "name": "Run one shell command",
+                    "arguments": "{\"command\":\"uname -a and a good many words of arguments to cost the room of them\"}"
+                }
+            }]},
+        ]);
+        let with_calls = estimate_tokens(&called);
+        assert!(
+            with_calls > base,
+            "the words of a call were not counted: {} against {}",
+            with_calls,
+            base
+        );
+        // The thinking that is sent back costs the room of its words.
+        let thought = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "assistant", "content": "the answer of the model", "reasoning_content": "a great deal of thinking that the chat keeps and sends back again to the model with the talk"},
+        ]);
+        let with_thinking = estimate_tokens(&thought);
+        assert!(
+            with_thinking > base,
+            "the thinking of a turn was not counted: {} against {}",
+            with_thinking,
+            base
+        );
+    }
+
+    // The meter of a summary ask stands on the words that go out with that ask: the
+    // first prompt, the summary of before, and the words after the mark. The words
+    // the summary stands for are not among them, and neither are the words of a
+    // summary that was thrown away, so a second ask of one summary does not start
+    // with a room that is already gone.
+    #[test]
+    fn the_meter_of_a_summary_ask_counts_the_words_that_go_out() {
+        // A talk with a great deal between the first prompt and the next message of
+        // the user. A summary of it stands for those words, and after the summary
+        // they are no part of what goes out.
+        let long = "a long answer of the model with a great many words in it. ".repeat(200);
+        let whole = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "assistant", "content": long},
+            {"role": "user", "content": "and the next thing"},
+        ]);
+        let trimmed = json!([
+            {"role": "user", "content": "the first prompt"},
+            {"role": "user", "content": "Done: the answer above. Next: nothing."},
+            {"role": "user", "content": "and the next thing"},
+        ]);
+        let whole_room = estimate_tokens(&whole);
+        let trimmed_room = estimate_tokens(&trimmed);
+        assert!(
+            trimmed_room * 4 < whole_room,
+            "the words a summary stands for were still counted: {} against {}",
+            trimmed_room,
+            whole_room
+        );
+        let ask = summary_ask(&trimmed, "Write a very short handoff summary", None);
+        // The ask line goes out with the talk, so the meter of the ask is above the
+        // measure of the talk alone, and nothing else is added to it.
+        let start = summary_start(&ask);
+        assert!(start > trimmed_room, "the ask line was not counted");
+        assert!(
+            start < whole_room,
+            "the words the summary stands for were counted in the meter of the ask: {} against {}",
+            start,
+            whole_room
+        );
+    }
+
+    // The two faults that end a summary with no words are told apart by what the
+    // server spoke of the end of the writing. Only one of them is the room, and the
+    // user is not told the room was to blame when it was not.
+    #[test]
+    fn the_words_of_an_empty_summary_tell_the_two_faults_apart() {
+        let full = empty_summary_words("length");
+        assert!(full.contains("filled the context"), "{}", full);
+        let silent = empty_summary_words("stop");
+        assert!(!silent.contains("filled the context"), "{}", silent);
+        assert!(silent.contains("the room was not full"), "{}", silent);
+        // A server that gave no reason at all is not blamed on the room either.
+        assert!(!empty_summary_words("").contains("filled the context"));
     }
 
     // A summarisation that was never written is started again in the place it
@@ -10725,7 +11675,8 @@ mod tests {
         add_message(state, "You", "the third prompt");
     }
 
-    // The talk without the lines of the day and the clock time, so a test about
+    // The talk without the lines of the day and the clock time, and without the
+    // words the program puts before the talk of the chapters, so a test about
     // another rule counts the words of the user and the model as they were.
     fn undated(history: &Value) -> Vec<Value> {
         history
@@ -10733,10 +11684,8 @@ mod tests {
             .expect("a list of the talk")
             .iter()
             .filter(|message| {
-                !message["content"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .starts_with(DATE_HEAD)
+                let said = message["content"].as_str().unwrap_or_default();
+                !said.starts_with(DATE_HEAD) && !said.starts_with("The chapters of this chat are read from")
             })
             .cloned()
             .collect()
@@ -10806,8 +11755,10 @@ mod tests {
             .expect("a line of the day first")
             .starts_with(DATE_HEAD));
         // The words of the user go out as they were written: the line is a
-        // message of its own and not a word added to them.
-        assert_eq!(items[1]["content"], json!("the first prompt"));
+        // message of its own and not a word added to them. The words of the
+        // chapters stand after the line, so the first of them is sought without
+        // any message of the program.
+        assert_eq!(undated(&history)[0]["content"], json!("the first prompt"));
         let said = undated(&history);
         assert_eq!(said.len(), 5, "the line is not one of the words of the chat");
         for message in &said {
@@ -10865,7 +11816,8 @@ mod tests {
         dated_chat(&mut state, &cfg);
         let history = state.build_history();
         assert!(date_lines(&history).is_empty());
-        assert_eq!(history.as_array().expect("a list of the talk").len(), 5);
+        // The five messages of the chat, with the words of the program gone too.
+        assert_eq!(undated(&history).len(), 5);
     }
 
     // The rule of the one line: the switch on gives a message of the role

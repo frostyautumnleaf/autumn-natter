@@ -33,7 +33,8 @@ function stateOf(dark) {
     carousel: { index: 0, count: 1, blank: false },
     messages: [
       { id: '1', role: 'You', body: 'What colour is this?', reasoning: '', reasoning_ms: 0,
-        attachments: [{ id: 'a1', name: 'swatch.png', mime: 'image/png', image: true }],
+        attachments: [{ id: 'a1', name: 'swatch.png', mime: 'image/png', image: true },
+          { id: 'a2', name: 'plan.pdf', mime: 'application/pdf', image: false }],
         tool: '', mono: false, failed: false, when: '09:04' },
       { id: '2', role: 'Assistant', body: 'This picture is orange.', reasoning: '',
         reasoning_ms: 0, attachments: [], tool: '', mono: false, failed: false, when: '09:05' },
@@ -111,6 +112,10 @@ async function main() {
           if (command === 'get_state') { return Promise.resolve(state); }
           if (command === 'get_config') { return Promise.resolve({}); }
           if (command === 'get_attachment') {
+            if (args && args.id === 'a2') {
+              return Promise.resolve({ name: 'plan.pdf', mime: 'application/pdf',
+                data: '', text: 'the words read out of the document' });
+            }
             return Promise.resolve({ name: 'swatch.png', mime: 'image/png',
               data: 'data:image/png;base64,iVBORw0KGgo=', text: '' });
           }
@@ -252,7 +257,11 @@ async function main() {
   // are asked for by the number of the attachment, which is what the window does
   // when the block never carried them.
   await page.evaluate(function () {
-    window.attachmentWords = function () {
+    window.attachmentWords = function (id) {
+      if (id === 'a2') {
+        return Promise.resolve({ name: 'plan.pdf', mime: 'application/pdf',
+          data: '', text: 'the words read out of the document' });
+      }
       return Promise.resolve({ name: 'memory-map.png', mime: 'image/png',
         data: 'data:image/png;base64,iVBORw0KGgo=', text: 'the words of the sent file' });
     };
@@ -270,6 +279,30 @@ async function main() {
   shown = await look();
   if (!shown.open) { faults.push('a click on a sent block did not open the window'); }
 
+  // Six: the block of a document hanging on a sent message opens the same
+  // window, and shows the words the program read out of the shape of it.
+  var clicked = await page.evaluate(function () {
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.bubble .parts .part'));
+    for (var n = 0; n < rows.length; n++) {
+      var nm = (rows[n].querySelector('.nm') || {}).textContent || '';
+      if (nm === 'plan.pdf') {
+        var able = rows[n].classList.contains('peek');
+        rows[n].click();
+        return able;
+      }
+    }
+    return false;
+  });
+  if (!clicked) { faults.push('the block of the sent document cannot be looked at'); }
+  await new Promise(function (r) { setTimeout(r, 400); });
+  shown = await look();
+  if (!shown.open || shown.words.indexOf('read out of the document') < 0) {
+    faults.push('the sent document did not show the words read out of it: ' + JSON.stringify(shown));
+  }
+  if (shown.kind !== 'Document') {
+    faults.push('the window of a document is labelled: ' + shown.kind);
+  }
+
   if (errors.length) { faults.push('the page said: ' + errors.join(' | ')); }
   await browser.close();
   if (faults.length) {
@@ -277,7 +310,8 @@ async function main() {
     process.exit(1);
   }
   console.log('a picture opens at a click, a file of words opens at its eye, the key of'
-    + ' escape and the mark of closing put the window away, and a sent block opens too');
+    + ' escape and the mark of closing put the window away, every sent block opens too,'
+    + ' and a sent document shows the words read out of it');
 }
 
 main();

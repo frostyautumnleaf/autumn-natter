@@ -297,7 +297,9 @@ pub struct Config {
     // time very nearly always brings the words back. 0 leaves a silence alone.
     #[serde(default = "silence_retries")]
     pub chat_silent_retries: i64,
-    // Let the model mark the chapters of a chat, and show them beside it.
+    // Read the chapters of a chat out of the headings of the answers, and show
+    // them beside it. The words that tell the model of the rule go with the
+    // switch, so a chat that shows no chapter line never pays for them.
     #[serde(default = "on_by_default")]
     pub chat_chapters: bool,
     // Keep the talk of a chat that the model has worked its way through in a
@@ -521,6 +523,19 @@ pub fn compaction_room(cfg: &Config, total: u64) -> u64 {
     // The least number that is past the share, so the rule answers the same way
     // as the multiplication it stands beside.
     (total * percent).div_ceil(100)
+}
+
+// Where the summarisation of the handoff begins, in the words of the talk, for
+// the line of it on the meter of the context. Nothing comes back when the
+// summarisation is switched off, or when nothing is known of the room, or when
+// the place it begins at is beyond the whole of the room: there is then nothing
+// to mark.
+pub fn compaction_mark(cfg: &Config, total: u64) -> Option<u64> {
+    let room = compaction_room(cfg, total);
+    if room == u64::MAX || room == 0 || room >= total {
+        return None;
+    }
+    Some(room)
 }
 
 // The least a paste limit may be set to. Smaller numbers are lifted to it.
@@ -1128,5 +1143,26 @@ mod tests {
         // With the summarisation switched off there is no limit to stand at, so the
         // whole of the room is free.
         assert_eq!(compaction_room(&off, 8192), u64::MAX);
+
+        // The line of the summarisation, for the meter of the context, stands at
+        // the same place as the limit. It stands nowhere at all when there is no
+        // summarisation, or nothing known of the room, or a place beyond the whole
+        // of the room, or no room left to speak of.
+        assert_eq!(compaction_mark(&by_percent, 8192), Some(6964));
+        assert_eq!(compaction_mark(&by_tokens, 32768), Some(22528));
+        assert_eq!(compaction_mark(&by_percent, 0), None);
+        assert_eq!(compaction_mark(&off, 8192), None);
+        let the_whole = Config {
+            chat_compact_by: String::from(COMPACT_BY_PERCENT),
+            chat_compact_percent: 100,
+            ..Config::default()
+        };
+        assert_eq!(compaction_mark(&the_whole, 8192), None);
+        let none_left = Config {
+            chat_compact_by: String::from(COMPACT_BY_TOKENS),
+            chat_compact_reserve: 9000,
+            ..Config::default()
+        };
+        assert_eq!(compaction_mark(&none_left, 8192), None);
     }
 }

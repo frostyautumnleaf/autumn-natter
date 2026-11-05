@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::config::{Config, ModelSettings};
 use crate::engine::Snap;
 use crate::llama;
+use crate::planning;
 use crate::store;
 use crate::util;
 
@@ -69,6 +70,11 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "after": one.after,
                 "snippet": one.snippet,
                 "why": one.why,
+                // Which of the two asks the summary came from: the prompt of the
+                // settings, or the short prompt asked again when the room ran full
+                // under the first. The sheet that shows the whole summary says
+                // which of the two stands here.
+                "short": one.short,
             })
         })
         .collect();
@@ -127,6 +133,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                     "path": one.path,
                     "size": one.size,
                 })).collect::<Vec<Value>>(),
+                // The files one run of the display tool put in the window. The page
+                // draws a block with one button, and the button opens the window of
+                // a file over these files, in this order.
+                "displayed": m.displayed.iter().map(|one| json!({
+                    "name": one.name,
+                    "extension": one.extension,
+                    "shape": one.shape,
+                    "path": one.path,
+                    "size": one.size,
+                })).collect::<Vec<Value>>(),
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is
@@ -170,7 +186,18 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "models": models,
         "repository": { "id": snap.repository_id, "name": snap.repository_name },
         "repositories": repositories,
-        "chat": { "id": snap.chat_id, "title": snap.chat_title },
+        "chat": {
+            "id": snap.chat_id,
+            "title": snap.chat_title,
+            // Planning mode. The heading over the talk and the border of the chat
+            // box come from these two: one says the chat is planning now, and the
+            // other that a plan was let go and may still be read.
+            "planning": snap.planning,
+            "planned": snap.planned,
+        },
+        // The commands a user may write in the chat box. The list of them pops up
+        // when the mark of a command is typed, and each carries what it is for.
+        "commands": planning::list(),
         // The first screen: the chat box on its own, with a line for this hour.
         // `Create new chat` in the side bar goes back to this screen.
         "home": snap.home,
@@ -223,6 +250,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             // until it is answered.
             "left": one.left(),
             "seconds": one.seconds,
+            // A questionnaire of planning mode carries its questions, and the
+            // mark that says it is one: it stands in the talk itself, the user
+            // chooses what they like of every question, and nothing goes until
+            // they send the whole of it.
+            "plan": one.plan,
+            "items": one.items.iter().map(|item| json!({
+                "question": item.prompt,
+                "choices": item.choices,
+                "many": item.many,
+            })).collect::<Vec<_>>(),
         })),
         // The call of a tool that is running right now, with the whole of the time
         // it was given and the seconds it has left. The head of the block of the
@@ -277,6 +314,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "used": util::count(snap.context_used),
             "total": util::count(snap.context_total),
             "ratio": ratio(snap),
+            // Where the summarisation of the handoff begins, as a part of the
+            // whole room, so the page has only to put its line at that share of
+            // the meter. Nought says there is nothing to mark.
+            "cut": cut_ratio(snap),
         },
         "generating": snap.generating,
         "busy": snap.busy,
@@ -289,6 +330,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "files": snap.tool_switches.files,
             "picture": snap.tool_switches.picture,
             "hand_out": snap.tool_switches.hand_out,
+            "display": snap.tool_switches.display,
             "ask": snap.tool_switches.ask,
         },
         "search": snap.search_enabled,
@@ -359,6 +401,15 @@ fn ratio(snap: &Snap) -> f64 {
         return 0.0;
     }
     (snap.context_used as f64 / snap.context_total as f64).clamp(0.0, 1.0)
+}
+
+// Where the summarisation begins, as a part of the whole room. Nought says that
+// nothing stands at the place: the summarisation is off, or the room is not known.
+fn cut_ratio(snap: &Snap) -> f64 {
+    if snap.context_total == 0 || snap.context_cut == 0 || snap.context_cut >= snap.context_total {
+        return 0.0;
+    }
+    (snap.context_cut as f64 / snap.context_total as f64).clamp(0.0, 1.0)
 }
 
 // A speed of the work, to a tenth of a token to the second. The server measures
@@ -649,6 +700,26 @@ pub fn gift_value(engine: &crate::engine::Engine, asked: &str) -> Value {
     }
 }
 
+// The bytes of one file of a show, for the window over the contents of a file.
+// The window asks for the file by the name the block carries, and the rule of the
+// room follows the state of the sandbox of the open chat. The window answers with
+// the bytes, the kind of them and the name, as the gift answers.
+pub fn display_value(engine: &crate::engine::Engine, asked: &str) -> Value {
+    match engine.display_of(asked) {
+        Some((name, kind, bytes)) => {
+            let size = bytes.len();
+            json!({
+                "ok": true,
+                "name": name,
+                "mime": kind,
+                "data": format!("data:{};base64,{}", kind, util::b64(&bytes)),
+                "size": size,
+            })
+        }
+        None => refused("That file is not here, or it is not a kind the window shows"),
+    }
+}
+
 // Several files the user was offered, wound into one archive for the same
 // window. The archive is made in the memory and is never written out, so taking
 // the whole of an offer leaves no file of its own behind.
@@ -750,6 +821,40 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             }
             if !engine.answer_ask(&id, &answer) {
                 return refused("That question is answered already, or is over");
+            }
+            done()
+        }
+        // The user sent the answers of a questionnaire of planning mode. Each
+        // question carries the answers they chose for it, and the answers stand
+        // in the order the questions stand. A question the user wrote words for
+        // carries those words as its one answer.
+        "/api/plan_answers" | "plan_answers" => {
+            let id = text_field(&value, "id");
+            let mut answers: Vec<Vec<String>> = Vec::new();
+            if let Some(list) = value.get("answers").and_then(|made| made.as_array()) {
+                for one in list {
+                    let mut chosen: Vec<String> = Vec::new();
+                    if let Some(words) = one.as_array() {
+                        for word in words {
+                            if let Some(text) = word.as_str() {
+                                if !text.trim().is_empty() {
+                                    chosen.push(text.trim().to_string());
+                                }
+                            }
+                        }
+                    } else if let Some(text) = one.as_str() {
+                        if !text.trim().is_empty() {
+                            chosen.push(text.trim().to_string());
+                        }
+                    }
+                    answers.push(chosen);
+                }
+            }
+            if answers.iter().all(|one| one.is_empty()) {
+                return refused("Nothing was chosen");
+            }
+            if !engine.answer_plan_ask(&id, answers) {
+                return refused("That questionnaire is answered already, or is over");
             }
             done()
         }

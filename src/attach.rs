@@ -19,14 +19,17 @@
 // included. Pictures go out in that same order, each one spoken of by its
 // number just before it stands. A user can then write about the third
 // image, and the model knows which picture that is. A file of words goes
-// out as its words. A file of neither goes out by its name alone, for
-// nothing else of it would mean anything to the model.
+// out as its words. A document of the shapes that keep their words hidden
+// -- a PDF, an RTF file -- goes out as the words read out of it, which is
+// read once, when the record is written. A file of neither goes out by its
+// name alone, for nothing else of it would mean anything to the model.
 
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::config;
+use crate::documents;
 use crate::store;
 
 // The most attachments one message may carry. llama.cpp has a room of its
@@ -46,6 +49,17 @@ pub const MAX_NAME_CHARS: usize = 200;
 // whole file was given when it was not.
 pub const CUT_NOTE: &str = "(the file was cut here, because it held more text than this program sends)";
 
+// The words that stand in place of the words of a document whose words are a
+// picture of words: a scan, or a page of a drawing. The model is told what it
+// has, rather than left to guess at an empty space.
+pub const NO_WORDS_NOTE: &str =
+    "(no words could be read out of this document: it may be a scan, or a page of drawings)";
+
+// The words that stand in place of the words of a document that keeps its words
+// behind a code this program cannot read.
+pub const CLOSED_NOTE: &str =
+    "(this document keeps its words behind a code this program cannot read, so only its name is sent)";
+
 // The most bytes one attachment may hold, counted in the base64 form the
 // page sends. A file larger than this has no business standing in a chat.
 pub const MAX_DATA_CHARS: usize = 24 * 1024 * 1024;
@@ -57,10 +71,14 @@ const IMAGE_ENDINGS: [&str; 8] = [
 
 // Endings that stand for a file of words. The model reads these as they
 // are, so they go out among the words of the message.
-const TEXT_ENDINGS: [&str; 29] = [
-    "txt", "md", "markdown", "rs", "py", "js", "ts", "jsx", "tsx", "json", "toml", "yaml",
-    "yml", "ini", "cfg", "conf", "sh", "bash", "csv", "log", "sql", "html", "css", "c", "h",
-    "cpp", "hpp", "go", "java",
+const TEXT_ENDINGS: [&str; 80] = [
+    "txt", "md", "markdown", "mdx", "rst", "adoc", "asciidoc", "org", "tex", "bib", "rs",
+    "py", "pyi", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "jsonl", "toml", "yaml",
+    "yml", "ini", "cfg", "conf", "properties", "env", "sh", "bash", "zsh", "fish", "bat",
+    "ps1", "make", "mk", "cmake", "gradle", "csv", "tsv", "log", "sql", "html", "htm", "css",
+    "scss", "less", "xml", "xsl", "svg", "c", "h", "cpp", "hpp", "cc", "hh", "go", "java",
+    "kt", "kts", "scala", "swift", "rb", "php", "pl", "pm", "lua", "r", "dart", "vue",
+    "svelte", "proto", "graphql", "diff", "patch", "po", "pot", "srt", "vtt",
 ];
 
 // One attachment as the page sends it: the whole file name with its ending,
@@ -241,6 +259,19 @@ pub fn mime_of(name: &str) -> &'static str {
         Some("bmp") => "image/bmp",
         Some("tif") | Some("tiff") => "image/tiff",
         Some("svg") => "image/svg+xml",
+        Some("pdf") => "application/pdf",
+        Some("rtf") => "application/rtf",
+        Some("doc") => "application/msword",
+        Some("docx") => {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        }
+        Some("xls") => "application/vnd.ms-excel",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("ppt") => "application/vnd.ms-powerpoint",
+        Some("pptx") => {
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        }
+        Some("epub") => "application/epub+zip",
         Some("txt") | Some("log") => "text/plain",
         Some("md") | Some("markdown") => "text/markdown",
         Some("html") | Some("htm") => "text/html",
@@ -328,6 +359,28 @@ pub fn parse_incoming(value: Value) -> Vec<Incoming> {
     out
 }
 
+// The words of an attachment that the page sent as a shape of bytes: a PDF, an
+// RTF file. The page sends no words of such a file, for the words of it are not
+// to be had without reading the shape, so the reading is done here, once, when
+// the record is written. Nothing comes back when the file is no such document,
+// or when the page sent words of its own.
+fn words_of_shape(file: &Incoming) -> Option<String> {
+    if !file.text.trim().is_empty() {
+        return None;
+    }
+    if !documents::is_document(&file.name, &file.mime) {
+        return None;
+    }
+    match documents::words_of_data_url(&file.name, &file.mime, &file.data) {
+        // The shape was read, and the page has no words in it: a scan, or a
+        // page of a drawing.
+        Some(words) if words.trim().is_empty() => Some(String::from(NO_WORDS_NOTE)),
+        Some(words) => Some(words),
+        // No shape of this kind could be read at all.
+        None => Some(String::from(CLOSED_NOTE)),
+    }
+}
+
 // Write the records of new attachments in the folder of the chat that holds
 // them, and give back the marks the message keeps. A record that cannot be
 // written loses that attachment, and the user is told of it by the count
@@ -337,11 +390,12 @@ pub fn save_at(place: &Path, files: &[Incoming]) -> Vec<store::Attachment> {
     let mut out: Vec<store::Attachment> = Vec::new();
     for file in files {
         let id = store::new_id();
+        let words = words_of_shape(file).unwrap_or_else(|| file.text.clone());
         let record = json!({
             "name": file.name,
             "mime": file.mime,
             "data": file.data,
-            "text": file.text,
+            "text": words,
         });
         let text = serde_json::to_string(&record).unwrap_or_else(|_| String::from("{}"));
         if fs::write(record_path(place, &id), text).is_err() {
@@ -357,26 +411,23 @@ pub fn save_at(place: &Path, files: &[Incoming]) -> Vec<store::Attachment> {
     out
 }
 
-// The words of one stored attachment, for the model. A record that is gone
-// says that it is gone, so the model hears the truth and not a blank space.
-fn stored_text_at(place: &Path, id: &str) -> String {
-    match read_at(place, id) {
-        Some(record) if !record.text.is_empty() => {
-            let mut words = record.text.as_str();
-            if words.chars().count() > MAX_TEXT_CHARS {
-                let cut = words
-                    .char_indices()
-                    .nth(MAX_TEXT_CHARS)
-                    .map(|(at, _)| at)
-                    .unwrap_or(words.len());
-                words = &words[..cut];
-                return format!("{}\n{}", words, CUT_NOTE);
-            }
-            words.to_string()
-        }
-        Some(_) => String::from("(the file held no text)"),
-        None => String::from("(the file was missing when the model was asked again)"),
+// The words kept in the record of one attachment, cut at the longest run this
+// program sends. A record with nothing in it says so, for a file that holds no
+// words is not the same thing to the model as a file that was never read.
+fn words_of_record(record: &Stored) -> String {
+    let words = record.text.as_str();
+    if words.trim().is_empty() {
+        return String::from("(the file held no text)");
     }
+    if words.chars().count() > MAX_TEXT_CHARS {
+        let cut = words
+            .char_indices()
+            .nth(MAX_TEXT_CHARS)
+            .map(|(at, _)| at)
+            .unwrap_or(words.len());
+        return format!("{}\n{}", &words[..cut], CUT_NOTE);
+    }
+    words.to_string()
 }
 
 // The record of one attachment, read from the folder of the chat.
@@ -433,6 +484,37 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
     if attachments.is_empty() {
         return json!(body);
     }
+    let kept: Vec<Option<Stored>> = attachments
+        .iter()
+        .map(|one| read_at(place, &one.id))
+        .collect();
+    // What goes out of each attachment: the bytes of a picture, the words of a
+    // file of words or of a document read out of its shape, or nothing but the
+    // name of it. A document that told the model plainly that it has no words to
+    // give carries no part of its own, for the telling stands in the list.
+    let mut carries: Vec<bool> = Vec::with_capacity(attachments.len());
+    let mut told: Vec<Option<&'static str>> = Vec::with_capacity(attachments.len());
+    for (number, one) in attachments.iter().enumerate() {
+        if is_image(&one.mime, &one.name) {
+            carries.push(false);
+            told.push(None);
+            continue;
+        }
+        let words = kept[number]
+            .as_ref()
+            .map(|record| record.text.trim())
+            .unwrap_or("");
+        if words == NO_WORDS_NOTE {
+            carries.push(false);
+            told.push(Some(NO_WORDS_NOTE));
+        } else if words == CLOSED_NOTE {
+            carries.push(false);
+            told.push(Some(CLOSED_NOTE));
+        } else {
+            carries.push(is_text(&one.mime, &one.name) || !words.is_empty());
+            told.push(None);
+        }
+    }
     let mut parts: Vec<Value> = Vec::new();
     let mut lead = String::new();
     if !body.trim().is_empty() {
@@ -457,6 +539,10 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
             }
         } else if is_text(&one.mime, &one.name) {
             String::from("a text file, given in full below")
+        } else if carries[number] {
+            String::from("a document, given in full below")
+        } else if let Some(said) = told[number] {
+            String::from(said)
         } else {
             String::from("a file that cannot be read here, so only its name is sent to the model")
         };
@@ -472,8 +558,7 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
                 continue;
             }
             picture_of += 1;
-            let kept = read_at(place, &one.id);
-            let data = kept.map(|made| made.data).unwrap_or_default();
+            let data = kept[number].as_ref().map(|made| made.data.clone()).unwrap_or_default();
             if data.is_empty() {
                 parts.push(json!({
                     "type": "text",
@@ -499,14 +584,18 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
                 "type": "image_url",
                 "image_url": { "url": data },
             }));
-        } else if is_text(&one.mime, &one.name) {
+        } else if carries[number] {
+            let words = kept[number]
+                .as_ref()
+                .map(words_of_record)
+                .unwrap_or_else(|| String::from("(the file was missing when the model was asked again)"));
             parts.push(json!({
                 "type": "text",
                 "text": format!(
                     "The text of attachment {}, named {}:\n{}",
                     number + 1,
                     one.name,
-                    stored_text_at(place, &one.id)
+                    words
                 ),
             }));
         }
@@ -695,6 +784,90 @@ mod tests {
         remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
     }
 
+    // A document of a shape that keeps its words hidden is read once, when its
+    // record is written, and its words then go out with the message as the words
+    // of a file of words do. A page of no words says what it is, and a file of a
+    // shape the program cannot read says that too.
+    #[test]
+    fn a_document_goes_out_with_the_words_read_out_of_it() {
+        let _guard = config::test_turn();
+        let shelf = test_shelf();
+        let page = b"BT /F1 12 Tf 10 700 Td (The plan of the work) Tj 0 -14 Td (and its second line) Tj ET";
+        let made = format!("%PDF-1.4\n1 0 obj\n<< /Length {} >>\nstream\n", page.len());
+        let mut bytes: Vec<u8> = made.into_bytes();
+        bytes.extend_from_slice(page);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n%%EOF");
+        let url = format!("data:application/pdf;base64,{}", crate::util::b64(&bytes));
+        let kept = save_at(
+            &shelf,
+            &[incoming("plan.pdf", "application/pdf", &url, "")],
+        );
+        assert_eq!(kept.len(), 1);
+        assert!(!kept[0].image, "a document is no picture");
+        let record = read_at(&shelf, &kept[0].id).expect("the record was written");
+        assert!(
+            record.text.contains("The plan of the work"),
+            "the words of the page were not read out of it: {}",
+            record.text
+        );
+        let made = content_at(&shelf, "Read my plan", &kept, true);
+        let parts = made.as_array().expect("the content is a list of parts");
+        let list = parts[0].get("text").unwrap().as_str().unwrap();
+        assert!(
+            list.contains("1. plan.pdf (a document, given in full below)"),
+            "{}",
+            list
+        );
+        let words = parts
+            .iter()
+            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+            .find(|t| t.starts_with("The text of attachment 1"))
+            .expect("the words of the document go out");
+        assert!(words.contains("and its second line"), "{}", words);
+        remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
+        let _ = fs::remove_dir_all(&shelf);
+    }
+
+    // A page whose words are a picture of words is told as such, in the list of
+    // the attachments, and carries no part of its own.
+    #[test]
+    fn a_page_of_no_words_says_what_it_is() {
+        let _guard = config::test_turn();
+        let shelf = test_shelf();
+        let page = b"q 1 0 0 1 0 0 cm /Im0 Do Q";
+        let made = format!("%PDF-1.4\n1 0 obj\n<< /Length {} >>\nstream\n", page.len());
+        let mut bytes: Vec<u8> = made.into_bytes();
+        bytes.extend_from_slice(page);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n%%EOF");
+        let url = format!("data:application/pdf;base64,{}", crate::util::b64(&bytes));
+        let kept = save_at(
+            &shelf,
+            &[
+                incoming("scan.pdf", "application/pdf", &url, ""),
+                incoming("kit.zip", "application/zip", "", ""),
+            ],
+        );
+        let made = content_at(&shelf, "The scan", &kept, true);
+        let parts = made.as_array().expect("the content is a list of parts");
+        let list = parts[0].get("text").unwrap().as_str().unwrap();
+        assert!(list.contains(NO_WORDS_NOTE), "{}", list);
+        assert!(
+            list.contains("2. kit.zip (a file that cannot be read here"),
+            "{}",
+            list
+        );
+        assert_eq!(
+            parts
+                .iter()
+                .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("text"))
+                .count(),
+            1,
+            "a page of no words asks for no part of its own"
+        );
+        remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
+        let _ = fs::remove_dir_all(&shelf);
+    }
+
     // Two pictures take two numbers in the order the user attached them.
     // With the vision switch off, no picture goes out, and the list says
     // why.
@@ -813,6 +986,13 @@ mod tests {
         assert_eq!(mime_of("photo.JPG"), "image/jpeg");
         assert_eq!(mime_of("notes.md"), "text/markdown");
         assert_eq!(mime_of("no-ending"), "application/octet-stream");
+        // A document of a shape that keeps its words hidden is named by its
+        // ending, and stands as a file of its own: the reading of it is the work
+        // of the program, not of the page.
+        assert_eq!(mime_of("plan.pdf"), "application/pdf");
+        assert_eq!(mime_of("notes.rtf"), "application/rtf");
+        assert_eq!(kind_of("plan.pdf", mime_of("plan.pdf")), "file");
+        assert_eq!(kind_of("notes.rtf", mime_of("notes.rtf")), "file");
         assert_eq!(kind_of("photo.png", mime_of("photo.png")), "image");
         assert_eq!(kind_of("notes.md", mime_of("notes.md")), "text");
         assert_eq!(kind_of("model.bin", mime_of("model.bin")), "file");
