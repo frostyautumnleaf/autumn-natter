@@ -388,6 +388,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             // thoughts and the calls when it stands, and draws one block for an
             // answer instead.
             "corporate": snap.chat_display == config::CORPORATE_DISPLAY,
+            // True once the first screen of the program has been gone through.
+            "welcomed": snap.welcomed,
             "silent_retries": snap.chat_silent_retries,
             "chapters": snap.chat_chapters,
             // Whether the talk a chat worked through is kept in a file, so that

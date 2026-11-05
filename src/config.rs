@@ -300,6 +300,13 @@ pub struct Config {
     // this one stands, so the settings of them go grey over it.
     #[serde(default = "plain_display")]
     pub chat_display: String,
+    // True once the screen the program puts up when it is started for the very
+    // first time has been gone through. A set of settings written by the program
+    // stands with false, so the screen stands; a set of settings that came from
+    // a file of a program that had no such screen stands with true, for the user
+    // of it has chosen their way long before.
+    #[serde(default = "welcomed_before")]
+    pub welcomed: bool,
     // How many times an answer is asked over when the model came to its own end
     // without a word, a call or a fault. A model that thought a while and then
     // stopped has said nothing of the work it was given, and the same ask a second
@@ -620,6 +627,11 @@ fn plain_display() -> String {
     String::from(PLAIN_DISPLAY)
 }
 
+// The settings of a program that has been started before this screen stood.
+fn welcomed_before() -> bool {
+    true
+}
+
 // True when the settings ask for the corporate way of showing the work of the
 // model. Any other word, and a word that is no word at all, is the plain way.
 pub fn display_is_corporate(display: &str) -> bool {
@@ -648,6 +660,7 @@ impl Default for Config {
             chat_bold_markdown: true,
             chat_seamless: false,
             chat_display: plain_display(),
+            welcomed: false,
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_context_files: true,

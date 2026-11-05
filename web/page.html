@@ -698,6 +698,27 @@ pre.code .t-p { color: var(--t-pun); }
 
 .think > .thead { gap: 7px; min-height: 31px; padding: 6px 11px 6px 15px; }
 
+/* The first screen of the program: the mockups the user chooses between, and
+   the marks of the choice that stands. */
+.welcome { position: fixed; inset: 0; z-index: 90; overflow: auto;
+  background: var(--ground); padding: 26px 16px 60px; }
+.welcome .wtitle { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+.welcome .wword { color: var(--ink-leaf); margin: 0 0 20px; max-width: 62ch; }
+.welcome .wpart { max-width: 880px; margin: 0 auto 22px; }
+.welcome .wcap { font-weight: 600; margin: 0 0 3px; }
+.welcome .whint { color: var(--ink-leaf); margin: 0 0 10px; max-width: 74ch; }
+.wcards { display: flex; flex-wrap: wrap; gap: 12px; }
+.wcard { flex: 1 1 220px; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px; cursor: pointer; background: var(--panel); }
+.wcard.on { border-color: var(--leaf); box-shadow: 0 0 0 1px var(--leaf) inset; }
+.wcard .wname { display: block; margin: 8px 0 0; font-weight: 600; }
+.wcard .wsaid { display: block; color: var(--ink-leaf); font-size: 12px; margin-top: 3px; }
+.wmock { display: block; width: 100%; height: auto; border-radius: 6px; }
+.wopts { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.wopt { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+.wswatch { width: 62px; height: 40px; border-radius: 6px; border: 1px solid var(--line);
+  display: block; }
+.wgo { margin: 6px 0 0; }
 /* The corporate display. The thoughts and the calls are hidden whole, and one
    block stands for an answer: its head says what the model is at, and the short
    of the work stands under it, in blocks of its own. */
@@ -2941,6 +2962,9 @@ function readChatting(s) {
   chatting.corporate = !!(chat.corporate);
   document.body.classList.toggle('corpwork', chatting.corporate);
   corporateGreyed(chatting.corporate);
+  // The first screen of the program stands until the user has said how they
+  // want it, and then it goes away for good.
+  if (chatting.welcomed === false) { showWelcome(); } else { hideWelcome(); }
   // The seamless chat is a look over the whole thread, so it stands on the page
   // itself and not on one part of it.
   document.body.classList.toggle('seamless', chatting.seamless);
@@ -5918,6 +5942,206 @@ function corporateOf(m) {
 // The settings that the corporate display has nothing to say about: the panels
 // it hides are the panels those settings lay out.
 var corporateLocks = ['fFoldThink', 'fGrowThink', 'fToolsInThink', 'fFoldTools', 'fSeamless'];
+
+
+// The first screen of the program. It stands when the program is started for
+// the very first time, and it asks the user how the chat is to look: the way
+// the work is shown, the three marks over the panels, the chapters, the
+// summaries, and the skin. The mockups are drawn here, so a user sees the thing
+// they are choosing and not a name of it. What is chosen is written into the
+// settings whole when the user says they are ready, and the screen never comes
+// back.
+var welcomeChosen = null;
+
+function welcomeMock(kind) {
+  var box = document.createElement('div');
+  if (kind === 'plain') {
+    box.innerHTML = '<svg class="wmock" viewBox="0 0 220 112" xmlns="http://www.w3.org/2000/svg">'
+      + '<rect x="10" y="10" width="150" height="16" rx="4" fill="currentColor" opacity=".22"/>'
+      + '<rect x="10" y="34" width="200" height="24" rx="5" fill="currentColor" opacity=".12"/>'
+      + '<rect x="16" y="40" width="90" height="5" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="16" y="50" width="150" height="4" rx="2" fill="currentColor" opacity=".18"/>'
+      + '<rect x="10" y="64" width="200" height="18" rx="5" fill="currentColor" opacity=".12"/>'
+      + '<rect x="16" y="70" width="120" height="5" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="10" y="90" width="170" height="12" rx="4" fill="currentColor" opacity=".22"/></svg>';
+    return box;
+  }
+  if (kind === 'corporate') {
+    box.innerHTML = '<svg class="wmock" viewBox="0 0 220 112" xmlns="http://www.w3.org/2000/svg">'
+      + '<rect x="10" y="10" width="150" height="16" rx="4" fill="currentColor" opacity=".22"/>'
+      + '<rect x="10" y="34" width="200" height="68" rx="7" fill="currentColor" opacity=".12"/>'
+      + '<rect x="18" y="42" width="96" height="6" rx="3" fill="currentColor" opacity=".42"/>'
+      + '<rect x="18" y="58" width="184" height="1" fill="currentColor" opacity=".2"/>'
+      + '<rect x="24" y="64" width="120" height="5" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="24" y="74" width="150" height="5" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="18" y="86" width="184" height="1" fill="currentColor" opacity=".2"/>'
+      + '<rect x="24" y="92" width="104" height="5" rx="2" fill="currentColor" opacity=".3"/></svg>';
+    return box;
+  }
+  // The three skins: the ground of the page and the words upon it.
+  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', corporate: '#2b2b2b' };
+  var inks = { light: '#232323', dark: '#e8e8e8', corporate: '#dcdcdc' };
+  var box2 = document.createElement('div');
+  box2.innerHTML = '<span class="wswatch" style="background:' + grounds[kind] + '">'
+    + '<svg viewBox="0 0 62 40" width="62" height="40" xmlns="http://www.w3.org/2000/svg">'
+    + '<rect x="7" y="8" width="34" height="5" rx="2" fill="' + inks[kind] + '" opacity=".8"/>'
+    + '<rect x="7" y="18" width="48" height="4" rx="2" fill="' + inks[kind] + '" opacity=".5"/>'
+    + '<rect x="7" y="26" width="26" height="4" rx="2" fill="' + inks[kind] + '" opacity=".5"/></svg></span>';
+  return box2;
+}
+
+function welcomePart(title, hint) {
+  var part = make('div', 'wpart');
+  var cap = make('div', 'wcap');
+  cap.textContent = title;
+  part.appendChild(cap);
+  if (hint) {
+    var said = make('div', 'whint');
+    said.textContent = hint;
+    part.appendChild(said);
+  }
+  return part;
+}
+
+function welcomeCard(where, words, mock, name, said) {
+  var card = make('div', 'wcard');
+  if (mock) { card.appendChild(welcomeMock(mock)); }
+  var label = make('span', 'wname');
+  label.textContent = name;
+  card.appendChild(label);
+  if (said) {
+    var told = make('span', 'wsaid');
+    told.textContent = said;
+    card.appendChild(told);
+  }
+  card.addEventListener('click', function () {
+    welcomeChosen[where] = words;
+    if (where === 'theme') { chooseTheme(words); }
+    drawWelcome();
+  });
+  return card;
+}
+
+function welcomeTick(where, name, said) {
+  var row = make('label', 'wopt');
+  var mark = document.createElement('input');
+  mark.type = 'checkbox';
+  mark.checked = !!welcomeChosen[where];
+  mark.addEventListener('change', function () { welcomeChosen[where] = mark.checked; });
+  var word = make('span');
+  word.textContent = name + ' -- ' + said;
+  row.appendChild(mark);
+  row.appendChild(word);
+  return row;
+}
+
+function drawWelcome() {
+  var screen = byId('welcome');
+  if (!screen) { return; }
+  screen.innerHTML = '';
+  var title = make('div', 'wtitle');
+  title.textContent = 'Welcome to Autumn Natter';
+  screen.appendChild(title);
+  var word = make('div', 'wword');
+  word.textContent = 'Three choices and the chat is yours. They can all be changed later in the settings, and nothing here is written until you say you are ready.';
+  screen.appendChild(word);
+
+  var modes = welcomePart('How the work is shown',
+    'The plain way shows what the model thinks in a panel, and every command, search and edit in a block of its own. The corporate way hides all of that behind one block that says what the model is at.');
+  var modeCards = make('div', 'wcards');
+  modeCards.appendChild(welcomeCard('display', 'plain', 'plain', 'Plain', 'The thoughts and the calls, all of them, in the open.'));
+  modeCards.appendChild(welcomeCard('display', 'corporate', 'corporate', 'Corporate', 'One block per answer, with a short of the work inside.'));
+  modes.appendChild(modeCards);
+  screen.appendChild(modes);
+
+  var panels = welcomePart('The panels', 'How the thinking and the tools of the model are laid out.');
+  var panelOpts = make('div', 'wopts');
+  panelOpts.appendChild(welcomeTick('seamless', 'Seamless chat', 'no ground or line about the panels.'));
+  panelOpts.appendChild(welcomeTick('grow_thinking', 'Thinking panels grow', 'the chat moves to read a long thought.'));
+  panelOpts.appendChild(welcomeTick('tools_in_thinking', 'Tools inside the thinking panel', 'a thought and its tool read as one part.'));
+  panels.appendChild(panelOpts);
+  screen.appendChild(panels);
+
+  var long = welcomePart('A chat that runs long', 'Both of these can be changed later, and both cost the model a little of its room.');
+  var longOpts = make('div', 'wopts');
+  longOpts.appendChild(welcomeTick('chapters', 'Chapter markers', 'the parts of the chat stand on a line beside it.'));
+  longOpts.appendChild(welcomeTick('summary', 'Summaries', 'the chat is summed up when its room is nearly gone.'));
+  long.appendChild(longOpts);
+  screen.appendChild(long);
+
+  var skins = welcomePart('The skin of the pages', 'Pale, dark, or the grey and white of the corporate skin.');
+  var skinCards = make('div', 'wcards');
+  skinCards.appendChild(welcomeCard('theme', 'light', 'light', 'Light', ''));
+  skinCards.appendChild(welcomeCard('theme', 'dark', 'dark', 'Dark', ''));
+  skinCards.appendChild(welcomeCard('theme', 'corporate', 'corporate', 'Corporate', ''));
+  skins.appendChild(skinCards);
+  screen.appendChild(skins);
+
+  var go = make('button', 'wgo');
+  go.textContent = 'Start using the chat';
+  go.addEventListener('click', finishWelcome);
+  screen.appendChild(go);
+}
+
+function showWelcome() {
+  var screen = byId('welcome');
+  if (screen) { return; }
+  if (!welcomeChosen) {
+    welcomeChosen = {
+      display: 'plain', seamless: false, grow_thinking: true,
+      tools_in_thinking: true, chapters: true, summary: true, theme: themeWord || 'light'
+    };
+  }
+  var made = make('div', 'welcome');
+  made.id = 'welcome';
+  (document.body || document.documentElement).appendChild(made);
+  drawWelcome();
+}
+
+function hideWelcome() {
+  var screen = byId('welcome');
+  if (screen && screen.parentNode) { screen.parentNode.removeChild(screen); }
+}
+
+// What is chosen here is written into the settings whole, and the mark that
+// says the screen has been gone through goes with it, so it never stands again.
+function finishWelcome() {
+  // The whole of the settings is written, so the choices here are put into the
+  // settings the program has now rather than standing in place of them.
+  getConfig().then(function (was) { return postWelcome(was || {}); });
+}
+
+function postWelcome(cfg) {
+  cfg.chat_display = welcomeChosen.display;
+  cfg.chat_seamless = !!welcomeChosen.seamless;
+  cfg.chat_grow_thinking = !!welcomeChosen.grow_thinking;
+  cfg.chat_tools_in_thinking = !!welcomeChosen.tools_in_thinking;
+  cfg.chat_chapters = !!welcomeChosen.chapters;
+  cfg.chat_compaction = welcomeChosen.summary ? 'handoff' : 'off';
+  cfg.theme = welcomeChosen.theme;
+  cfg.welcomed = true;
+  ask('config', { config: cfg }).then(function () {
+    hideWelcome();
+    poll();
+  });
+}
+
+function finishWelcomeUnused() {
+  var cfg = {
+    chat_display: welcomeChosen.display,
+    chat_seamless: !!welcomeChosen.seamless,
+    chat_grow_thinking: !!welcomeChosen.grow_thinking,
+    chat_tools_in_thinking: !!welcomeChosen.tools_in_thinking,
+    chat_chapters: !!welcomeChosen.chapters,
+    chat_compaction: welcomeChosen.summary ? 'handoff' : 'off',
+    theme: welcomeChosen.theme,
+    welcomed: true
+  };
+  ask('config', { config: cfg }).then(function () {
+    hideWelcome();
+    poll();
+  });
+}
 
 function corporateGreyed(on) {
   for (var n = 0; n < corporateLocks.length; n++) {

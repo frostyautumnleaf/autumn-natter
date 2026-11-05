@@ -1146,6 +1146,8 @@ pub struct Snap {
     // How the work of the model is laid out: `plain`, or `corporate`, where one
     // block stands for an answer and the thoughts and the calls are hidden.
     pub chat_display: String,
+    // True once the first screen of the program has been gone through.
+    pub welcomed: bool,
     // How many times an answer is asked over when the model came to its own end
     // without a word, a call or a fault.
     pub chat_silent_retries: i64,
@@ -2956,6 +2958,7 @@ impl State {
             chat_bold_markdown: self.cfg.chat_bold_markdown,
             chat_seamless: self.cfg.chat_seamless,
             chat_display: self.cfg.chat_display.clone(),
+            welcomed: self.cfg.welcomed,
             chat_silent_retries: self.cfg.chat_silent_retries,
             chat_chapters: self.cfg.chat_chapters,
             chat_context_files: self.cfg.chat_context_files,
@@ -4625,6 +4628,7 @@ impl Snap {
             chat_bold_markdown: true,
             chat_seamless: false,
             chat_display: String::from(config::PLAIN_DISPLAY),
+            welcomed: true,
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_context_files: true,
