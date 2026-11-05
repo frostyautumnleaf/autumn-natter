@@ -4697,7 +4697,7 @@ function writeBox(one) {
   panel.appendChild(body);
   return { panel: panel, head: head, cmd: cmd, state: state, caret: caret,
     space: space, writing: watchWriting({ text: text, caret: caret, head: words,
-      tail: behind, shown: '', pinned: false, wanted: -1 }),
+      tail: behind, shown: '', pinned: false }),
     why: null, shape: shape };
 }
 
@@ -4708,11 +4708,22 @@ function writeBox(one) {
 // `wanted` is where the program meant the block to stand when it moved it.
 function watchWriting(made) {
   made.text.addEventListener('scroll', function () {
-    // A scroll that stands where the program meant to stand is the doing of the
-    // program, and not of the user.
-    if (Math.abs(made.text.scrollTop - made.wanted) < 3) { return; }
+    // A scroll that stands where the program put the block is the doing of the
+    // program, and not of the user. The place of the program is stood for even
+    // when it is a little off, for a block that grows or shrinks moves of itself:
+    // the browser keeps the words that stand in the view where they were. That
+    // shift used to be read as the hand of the user, and the block of the call was
+    // then left where it stood for the rest of the call -- the writing that stops
+    // following of its own accord.
+    if (standsWherePlaced(made.text)) { return; }
+    if (roomToEnd(made.text) < 8) {
+      // The user came back down to the end of the block, where the writing
+      // stands: it is followed again from there.
+      made.pinned = false;
+      return;
+    }
     made.pinned = true;
-  });
+  }, { passive: true });
   return made;
 }
 
@@ -4761,14 +4772,20 @@ function followCaret(writing) {
   var to = writing.text.scrollTop;
   if (mark.top < view.top) { to -= (view.top - mark.top) + 8; }
   else if (mark.bottom > view.bottom) { to += (mark.bottom - view.bottom) + 8; }
-  else { return; }
+  else {
+    // The mark stands in view, so the block is left where it stands. The place it
+    // stands at is still stood for, for the block that is not moved has a place
+    // all the same, and a block that shifts of itself would else be read as moved
+    // by the user.
+    putPlace(writing.text, writing.text.scrollTop);
+    return;
+  }
   // The place the block can really stand at, so the scroll that follows lands
   // where it was meant to and is not read as a scroll of the user's.
   var most = writing.text.scrollHeight - writing.text.clientHeight;
   to = to < 0 ? 0 : (to > most ? most : to);
-  if (to === writing.text.scrollTop) { return; }
-  writing.wanted = to;
-  writing.text.scrollTop = to;
+  if (to === writing.text.scrollTop) { putPlace(writing.text, to); return; }
+  putPlace(writing.text, to);
 }
 
 // The reason of the command, put under the command itself. It comes after the
@@ -4790,7 +4807,7 @@ function addWhy(box) {
   // The mark of the writing follows the words that are being written now, so
   // from here the block of the reason is the block that is followed.
   box.why = watchWriting({ text: text, caret: box.caret, head: words, tail: behind,
-    shown: '', pinned: false, wanted: -1 });
+    shown: '', pinned: false });
 }
 
 // Whether the answer has put words on the page above the blocks of the calls
@@ -5451,17 +5468,50 @@ function settle(node) {
   node.normalize();
 }
 
+// How far the end of a block that scrolls still is, in points. The end of a block
+// that is being written is where the writing stands.
+function roomToEnd(node) {
+  return node.scrollHeight - (node.scrollTop + node.clientHeight);
+}
+
+// Put a block at a place, and remember that place as the program's own. The place
+// is read back after it is asked for, for a place past the end of a block comes
+// short, and the short place would be read as the hand of the user at the next
+// look.
+function putPlace(node, to) {
+  node.scrollTop = to;
+  node.placedAt = node.scrollTop;
+}
+
+// True when the block stands where the program last put it. A scroll that stands
+// there is the doing of the program, and not of the user.
+function standsWherePlaced(node) {
+  return typeof node.placedAt === 'number' && Math.abs(node.scrollTop - node.placedAt) < 4;
+}
+
 // A block of code the user has gone into with the wheel, or with a drag of the
 // finger, is the user's from that moment. The writing that goes on at the end of
 // it is no longer followed, and the place the user reached is put back after the
 // block is painted again for its colours. A block that is too short to scroll is
 // not marked, for a wheel over it moves the chat and not the block.
+//
+// Whether the block was gone into is read from the place the block comes to, and
+// not from the fact that a wheel was turned over it. A wheel the block could not
+// take -- it stood at its end already, and the chat moved instead -- is a turn of
+// the chat and nothing of the block, yet it used to mark the block as gone into,
+// and the writing at the end of it was then followed no more for the rest of the
+// answer. The same stands for a scroll of a finger that began over the block. A
+// block the user brings back down to its end is followed again from there.
 function watchCode(one) {
-  var take = function () {
+  if (one.dataset.watched === '1') { return; }
+  one.dataset.watched = '1';
+  one.addEventListener('scroll', function () {
+    if (standsWherePlaced(one)) { return; }
+    if (roomToEnd(one) < 8) { one.dataset.looked = ''; return; }
+    // Only a block that can really be moved was moved by the user: a block with
+    // no room to scroll has no place of the user's in it.
     if (one.scrollHeight > one.clientHeight) { one.dataset.looked = '1'; }
-  };
-  one.addEventListener('wheel', take, { passive: true });
-  one.addEventListener('touchmove', take, { passive: true });
+  }, { passive: true });
 }
 
 // A block of code that has just been painted stands at its first line again,
@@ -5471,7 +5521,7 @@ function watchCode(one) {
 // was reading in the middle is kept in the middle.
 function placeCode(holder) {
   if (holder.dataset.looked === '1') { return; }
-  holder.scrollTop = holder.scrollHeight;
+  putPlace(holder, holder.scrollHeight);
 }
 
 // The new words of the block that can still grow. They are given as they were
@@ -5485,7 +5535,7 @@ function putTail(holder, written, rebuilt) {
     // line because a colour was put on a word of it.
     var place = holder.scrollTop;
     paintCode(holder, written, holder.dataset.lang || '');
-    if (holder.dataset.looked === '1') { holder.scrollTop = place; }
+    if (holder.dataset.looked === '1') { putPlace(holder, place); }
     else { placeCode(holder); }
     return;
   }
@@ -6913,7 +6963,7 @@ function backToTop(where) {
   for (var i = 0; i < codes.length; i++) {
     var one = codes[i];
     if (one.dataset.looked === '1') { continue; }
-    if (one.scrollHeight > one.clientHeight) { one.scrollTop = 0; }
+    if (one.scrollHeight > one.clientHeight) { putPlace(one, 0); }
   }
 }
 
