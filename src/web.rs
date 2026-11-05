@@ -7,7 +7,7 @@
 
 use serde_json::{json, Value};
 
-use crate::config::{Config, ModelSettings};
+use crate::config::{self, Config, ModelSettings};
 use crate::engine::Snap;
 use crate::llama;
 use crate::planning;
@@ -109,6 +109,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "reasoning": m.reasoning,
                 // How long that thinking took, in milliseconds.
                 "reasoning_ms": m.reasoning_ms,
+                // The short of the work, as the corporate display shows it, and
+                // the head the one block of the answer stood at.
+                "work": &m.work,
+                "work_head": &m.work_head,
                 "tool": m.tool,
                 // Which tool this run was: the page puts the mark and the words
                 // of that tool on the head of the block.
@@ -237,6 +241,11 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // them. The window shows them as blocks of a command being written, so
         // the user sees the words of it and does not wait for the run.
         "live_tools": live_tools,
+        // The short of the work, as the corporate display shows it: the blocks
+        // that stand inside the one block of the answer that is coming in, and
+        // the head the one block stands at.
+        "live_work": snap.live_work,
+        "live_work_head": snap.live_work_head,
         // The question the model has put to the user and is waiting on, when it
         // has put one. The popup of the ask stands above the chat box, and the
         // user answers it there: by choosing one of the answers the model
@@ -375,6 +384,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "highlight": snap.chat_highlight,
             "bold_markdown": snap.chat_bold_markdown,
             "seamless": snap.chat_seamless,
+            // The corporate way of showing the work. The page hides the
+            // thoughts and the calls when it stands, and draws one block for an
+            // answer instead.
+            "corporate": snap.chat_display == config::CORPORATE_DISPLAY,
             "silent_retries": snap.chat_silent_retries,
             "chapters": snap.chat_chapters,
             // Whether the talk a chat worked through is kept in a file, so that

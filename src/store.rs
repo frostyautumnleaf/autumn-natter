@@ -533,6 +533,15 @@ pub struct Message {
     // Arguments of the tool call, as the model wrote them.
     #[serde(default)]
     pub tool_args: String,
+    // The short of the work, as the corporate display shows it: the blocks that
+    // stand inside the one block of an answer. Empty for a chat laid out the
+    // plain way, and for a message of the user.
+    #[serde(default)]
+    pub work: Vec<crate::corporate::WorkBlock>,
+    // The head the one block of the corporate display stood at when the answer
+    // came to its end.
+    #[serde(default)]
+    pub work_head: String,
     // True of a tool call the room gave out under, before the model had written
     // the whole of it. Such a call never ran, and its words are not whole, so
     // they go back to the model as the words of a turn and never as a call: a

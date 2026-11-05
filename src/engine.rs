@@ -26,6 +26,7 @@ use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
 use crate::mcp;
 use crate::proglog;
+use crate::corporate;
 use crate::planning;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
@@ -1142,6 +1143,9 @@ pub struct Snap {
     // Whether the chat reads as one piece of writing, with nothing drawn about
     // a panel of the thoughts or of a call.
     pub chat_seamless: bool,
+    // How the work of the model is laid out: `plain`, or `corporate`, where one
+    // block stands for an answer and the thoughts and the calls are hidden.
+    pub chat_display: String,
     // How many times an answer is asked over when the model came to its own end
     // without a word, a call or a fault.
     pub chat_silent_retries: i64,
@@ -1217,6 +1221,11 @@ pub struct Snap {
     // The calls of a tool the model is writing right now, in the order it
     // writes them. A block of a command being written is made of these.
     pub live_tools: Vec<LiveTool>,
+    // The short of the work, as the corporate display shows it, while an answer
+    // comes in: the blocks that stand inside the one block of the answer.
+    pub live_work: Vec<corporate::WorkBlock>,
+    // The head the one block of the corporate display stands at right now.
+    pub live_work_head: String,
     // The question the model has put to the user and is waiting on, when it has
     // put one. The popup of the ask stands above the chat box.
     pub ask: Option<Asking>,
@@ -1272,6 +1281,13 @@ pub struct State {
     // The calls of a tool the model is writing right now, in the order the
     // model writes them. The user sees a command as it is written.
     pub live_tools: Vec<LiveTool>,
+    // The short of the work of the answer that is coming in, for the corporate
+    // display. It is made of the blocks the model wrote with its own tool and of
+    // the blocks of the calls it made, and it is emptied when an answer begins.
+    pub live_work: Vec<corporate::WorkBlock>,
+    // The head the one block of the corporate display stands at right now: what
+    // the model is at, in the words of the thing that is going on.
+    pub live_work_head: String,
     // The whole of a plan the model let go, waiting to become the first message of
     // the work. It stands only between the call that let the plan go and the turn
     // that begins the work, which follows it at once.
@@ -1690,6 +1706,19 @@ impl State {
         reasoning_ms: u64,
         mono: bool,
     ) {
+        // The corporate display keeps the short of the work with the answer it
+        // belongs to, so the one block can be drawn again when the chat is read
+        // after, and not only while the answer comes in.
+        let work = if role == "Assistant" && self.corporate_on() {
+            std::mem::take(&mut self.live_work)
+        } else {
+            Vec::new()
+        };
+        let head = if role == "Assistant" && self.corporate_on() {
+            std::mem::take(&mut self.live_work_head)
+        } else {
+            String::new()
+        };
         if let Some(chat) = self.chat_mut() {
             chat.messages.push(Message {
                 id: store::new_id(),
@@ -1698,6 +1727,8 @@ impl State {
                 reasoning: reasoning.to_string(),
                 reasoning_ms,
                 mono,
+                work,
+                work_head: head,
                 when: store::now_secs(),
                 ..Default::default()
             });
@@ -1921,9 +1952,52 @@ impl State {
                 ..Default::default()
             });
         }
+        self.corporate_begin(call, &id);
         self.persist();
         self.touch();
         id
+    }
+
+    // The corporate display keeps the short of the work beside the answer: a
+    // block for every call the model made, and the heads the model wrote for its
+    // own. These two hold it while an answer comes in, and the message of the
+    // answer keeps it after.
+    fn corporate_on(&self) -> bool {
+        config::display_is_corporate(&self.cfg.chat_display)
+    }
+
+    // A call began: the one block says what the model is at, and a block of the
+    // call stands in the short of the work.
+    fn corporate_begin(&mut self, call: &ToolCall, id: &str) {
+        if !self.corporate_on() || call.name == corporate::NAME {
+            return;
+        }
+        let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
+        let head = corporate::head_of(&call.name, &args);
+        self.live_work_head = head.clone();
+        match self.live_work.iter_mut().rev().find(|one| one.id == id) {
+            Some(place) => place.head = head,
+            None => self.live_work.push(corporate::block_for(&call.name, id, &args)),
+        }
+    }
+
+    // A call came back: the head of its block is said in the words of a thing
+    // that happened, and what a call that changed a file did to it stands with
+    // it, for the two numbers are read out of the words of the receipt.
+    fn corporate_finish(&mut self, id: &str, output: &str, ok: bool) {
+        if !self.corporate_on() {
+            return;
+        }
+        let Some(place) = self.live_work.iter_mut().rev().find(|one| one.id == id) else {
+            return;
+        };
+        corporate::settle(place);
+        place.failed = !ok;
+        let (adds, cuts) = plus_minus(output);
+        if adds > 0 || cuts > 0 {
+            place.adds = adds;
+            place.cuts = cuts;
+        }
     }
 
     // Write the output of a tool run into its message.
@@ -2104,6 +2178,7 @@ impl State {
             }
         }
         self.running = None;
+        self.corporate_finish(id, output, ok);
         self.persist();
         self.touch();
     }
@@ -2701,6 +2776,13 @@ impl State {
             .unwrap_or(false)
     }
 
+    // True when the settings ask for the corporate way of showing the work. The
+    // way stands for the whole program, and not for one chat, for it is a way of
+    // laying the pages out and not a state of the work.
+    pub fn corporate_open(&self) -> bool {
+        config::display_is_corporate(&self.cfg.chat_display)
+    }
+
     // Turn planning mode on for the open chat, and make the plan file it works
     // in. A chat that is planning already keeps the plan it had written.
     pub fn start_planning(&mut self) -> bool {
@@ -2761,6 +2843,8 @@ impl State {
         self.live_text.clear();
         self.live_reasoning.clear();
         self.live_tools.clear();
+        self.live_work.clear();
+        self.live_work_head.clear();
         self.ctx_used = 0;
         self.stop_planning();
         Some(plan)
@@ -2871,6 +2955,7 @@ impl State {
             chat_highlight: self.cfg.chat_highlight,
             chat_bold_markdown: self.cfg.chat_bold_markdown,
             chat_seamless: self.cfg.chat_seamless,
+            chat_display: self.cfg.chat_display.clone(),
             chat_silent_retries: self.cfg.chat_silent_retries,
             chat_chapters: self.cfg.chat_chapters,
             chat_context_files: self.cfg.chat_context_files,
@@ -2923,6 +3008,8 @@ impl State {
             prompt_rate: self.prompt_rate,
             answer_rate: self.answer_rate,
             live_tools: self.live_tools.clone(),
+            live_work: self.live_work.clone(),
+            live_work_head: self.live_work_head.clone(),
             ask: self.asking.clone(),
             running: self.running.as_ref().map(|one| RunningTool {
                 id: one.id.clone(),
@@ -3055,6 +3142,8 @@ impl Engine {
             answer_rate: 0.0,
             rate_start: None,
             live_tools: Vec::new(),
+            live_work: Vec::new(),
+            live_work_head: String::new(),
             plan_pending: None,
             asking: None,
             running: None,
@@ -4535,6 +4624,7 @@ impl Snap {
             chat_highlight: true,
             chat_bold_markdown: true,
             chat_seamless: false,
+            chat_display: String::from(config::PLAIN_DISPLAY),
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_context_files: true,
@@ -4569,6 +4659,8 @@ impl Snap {
             prompt_rate: 0.0,
             answer_rate: 0.0,
             live_tools: Vec::new(),
+            live_work: Vec::new(),
+            live_work_head: String::new(),
             planning: false,
             planned: false,
             ask: None,
@@ -5277,7 +5369,7 @@ fn ask_summary_for_handoff(
 // into the front of the talk, so an ask that carried another list -- or none, as
 // this ask used to -- is a talk worked through again from its first word.
 fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
-    let (sandbox_on, code_on, search_on, planning_on, access, switches, mcp_tools) = {
+    let (sandbox_on, code_on, search_on, planning_on, corporate_on, access, switches, mcp_tools) = {
         let Ok(guard) = state.lock() else { return None };
         let chat = guard.chat();
         (
@@ -5285,6 +5377,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
             chat.as_ref().map(|c| c.meta.code_enabled).unwrap_or(false),
             chat.as_ref().map(|c| c.meta.search_enabled).unwrap_or(false),
             guard.planning_open(),
+            guard.corporate_open(),
             chat.as_ref().map(|c| access_of(&c.meta)).unwrap_or_default(),
             chat.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
             guard.mcp_definitions(),
@@ -5293,6 +5386,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
     offered_with_planning(
         sandbox_on,
         planning_on,
+        corporate_on,
         code_on,
         search_on,
         access,
@@ -5608,6 +5702,8 @@ fn run_handoff(
         guard.live_text = String::new();
         guard.live_reasoning = String::new();
         guard.live_tools = Vec::new();
+        guard.live_work = Vec::new();
+        guard.live_work_head = String::new();
         guard.progress = 0;
         guard.progress_on = false;
         let id = guard.begin_summary();
@@ -6515,6 +6611,8 @@ fn run_turn(
         state.live_text = String::new();
         state.live_reasoning = String::new();
         state.live_tools = Vec::new();
+        state.live_work = Vec::new();
+        state.live_work_head = String::new();
         // A question the model had put to the user before this answer began is
         // gone with the answer that asked it: the popup that stood over the chat
         // box was asked by a run that is no more.
@@ -6653,7 +6751,7 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, planning_on, switches) = {
+        let (mut history, code_on, search_on, planning_on, corporate_on, switches) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 go_on_words(&guard, carried_prompt),
@@ -6663,6 +6761,7 @@ fn run_turn(
                     .map(|c| c.meta.search_enabled)
                     .unwrap_or(false),
                 guard.planning_open(),
+                guard.corporate_open(),
                 guard
                     .chat()
                     .map(|c| c.meta.tools.clone())
@@ -6783,6 +6882,7 @@ fn run_turn(
             if let Some(list) = offered_with_planning(
                 sandbox_on,
                 planning_on,
+                corporate_on,
                 code_on,
                 search_on,
                 access,
@@ -6830,6 +6930,7 @@ fn run_turn(
             // The calls of the step before this one stand in the chat by now, so
             // the blocks of the words being written start anew.
             guard.live_tools = Vec::new();
+            guard.live_work = Vec::new();
         }
         let progress_state = state.clone();
         let context_state = state.clone();
@@ -6894,6 +6995,9 @@ fn run_turn(
                         guard.live_thought_ms = now.duration_since(begun).as_millis() as u64;
                     }
                     guard.live_thought_done = false;
+                    if guard.corporate_on() && guard.running.is_none() {
+                        guard.live_work_head = String::from(corporate::THINKING);
+                    }
                     guard.live_reasoning.push_str(piece);
                     // A thought is a word of the answer as well: the words that
                     // were sent are worked through by now.
@@ -7058,6 +7162,7 @@ fn run_turn(
         // run of the command stands in the chat in its place, and says what
         // became of it.
         guard.live_tools.clear();
+        guard.live_work.clear();
         // How long the model spent thinking in this step. The words of the
         // panel are made from this.
         let thought_ms = match (guard.thought_start, guard.thought_end) {
@@ -7674,6 +7779,25 @@ fn run_turn(
         // True when the model let the plan go in this step of the answer.
         let mut letting = false;
         for call in step_runs.iter() {
+            // The short of the work goes into the one block the corporate
+            // display shows. Nothing of the machine runs for such a call: the
+            // words are read out of it, put under the heading the model gave,
+            // and the model is answered in a word.
+            if call.name == corporate::NAME {
+                let entry = serde_json::from_str::<corporate::Entry>(&call.arguments)
+                    .unwrap_or_default();
+                let written = match state.lock() {
+                    Ok(mut guard) => corporate::note(&mut guard.live_work, &entry),
+                    Err(_) => continue,
+                };
+                let note = corporate::receipt(written);
+                let Ok(mut guard) = state.lock() else {
+                    continue;
+                };
+                let id = guard.begin_tool(call, &note, "", 0);
+                guard.finish_tool(&id, &note, true);
+                continue;
+            }
             // Only a command of the terminal tool eats the room for commands.
             // The other tools work in the room of the chat in the program
             // itself, and the setting that holds the room speaks of commands.
@@ -7826,6 +7950,24 @@ fn tool_group_word(part: &str) -> String {
     }
 }
 
+// The two numbers of a change that a file tool made, read out of the words of
+// its receipt: `Edited notes.md (1 replacement, +12 -3)`. Nothing comes back
+// for a tool that changed no file, and for words that carry no such pair.
+fn plus_minus(words: &str) -> (i64, i64) {
+    let read = |mark: char| -> Option<i64> {
+        let place = words.find(mark)? + mark.len_utf8();
+        let rest = &words[place..];
+        let end = rest
+            .find(|one: char| !one.is_ascii_digit())
+            .unwrap_or(rest.len());
+        if end == 0 {
+            return None;
+        }
+        rest[..end].parse::<i64>().ok()
+    };
+    (read('+').unwrap_or(0), read('-').unwrap_or(0))
+}
+
 // The tools offered for one ask, planning mode taken in. The tools of planning
 // stand beside the others and hold no switch: a chat that is planning must
 // always have its plan file, the word that reads it back, the word that asks the
@@ -7840,6 +7982,7 @@ fn tool_group_word(part: &str) -> String {
 fn offered_with_planning(
     sandbox: bool,
     planning_on: bool,
+    corporate_on: bool,
     code_on: bool,
     search_on: bool,
     access: tools::Access,
@@ -7854,6 +7997,12 @@ fn offered_with_planning(
         list.push(planning::read_definition());
         list.push(planning::ask_definition());
         list.push(planning::end_definition());
+    }
+    // The corporate display stands or falls as a setting of the whole program,
+    // and the tool of the short of the work stands with it and nowhere else.
+    // It holds no switch of the user, for the mode is nothing without it.
+    if corporate_on {
+        list.push(corporate::definition());
     }
     if list.is_empty() {
         return None;
