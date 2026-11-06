@@ -334,6 +334,15 @@ pub struct Config {
     // may be thrown away whenever the user likes.
     #[serde(default = "on_by_default")]
     pub chat_context_files: bool,
+    // Write the saved context files in the compressed shape described in
+    // `src/contexts.rs`: the attention cache of the model is held as 16-bit
+    // numbers instead of plain text, which costs a little of the reading for a
+    // great deal less room on the disk. Off by default, so the files stand in
+    // the shape they have always stood in until a user asks for the other one.
+    // Turning the switch off again leaves the files that were already written
+    // compressed -- they are still read -- and new ones go back to the plain shape.
+    #[serde(default)]
+    pub chat_context_compression: bool,
     // How many terminal commands one answer may run. -1 leaves no limit, so a
     // model may run a command as often as it wants inside one answer.
     #[serde(default = "no_limit")]
@@ -672,6 +681,7 @@ impl Default for Config {
             chat_chapters: true,
             chat_userline: true,
             chat_context_files: true,
+            chat_context_compression: false,
             chat_max_tool_steps: -1,
             chat_tool_timeout: default_tool_seconds(),
             chat_max_answer_steps: -1,
@@ -941,6 +951,9 @@ mod tests {
         assert!(cfg.chat_chapters);
         assert!(cfg.chat_userline);
         assert!(cfg.chat_context_files);
+        // The compressed shape is asked for, not given: a config that says
+        // nothing keeps the files as they have always been written.
+        assert!(!cfg.chat_context_compression);
         assert_eq!(cfg.chat_max_tool_steps, -1);
         assert_eq!(cfg.chat_max_answer_steps, -1);
     }
@@ -1016,6 +1029,9 @@ mod tests {
         // rather than off: a user who never heard of it is not left with the
         // chats read through again on every coming back.
         assert!(read.chat_context_files);
+        // The compressed shape was not in the file either, and it reads off:
+        // a user who never heard of it is not moved to the other shape.
+        assert!(!read.chat_context_compression);
         // The two rooms for steps were not in the file either, so they read as
         // unlimited rather than as a ceiling of nothing.
         assert_eq!(read.chat_max_tool_steps, -1);

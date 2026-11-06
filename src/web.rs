@@ -399,6 +399,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             // settings shows the switch; the keeping itself is all behind the
             // ask, and the page has nothing else to do with it.
             "context_files": snap.chat_context_files,
+            // The same for the compressed shape of those files: the sheet of the
+            // settings shows the switch, and the page does nothing else with it.
+            "context_compression": snap.chat_context_compression,
             "paste_limit": snap.chat_paste_limit,
             "width": snap.chat_width,
             // How long the model waits for an answer to a question it put to the

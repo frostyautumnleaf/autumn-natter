@@ -1162,6 +1162,9 @@ pub struct Snap {
     // again. The sheet of the settings reads it, and the page has nothing of
     // its own to do with it: the keeping is all behind the ask.
     pub chat_context_files: bool,
+    // Whether the saved context files are written in the compressed shape.
+    // Off by default; the talks themselves are read the same either way.
+    pub chat_context_compression: bool,
     // The number of characters where a paste of words into the chat box turns
     // into a file of its own.
     pub chat_paste_limit: u32,
@@ -2976,6 +2979,7 @@ impl State {
             chat_chapters: self.cfg.chat_chapters,
             chat_userline: self.cfg.chat_userline,
             chat_context_files: self.cfg.chat_context_files,
+            chat_context_compression: self.cfg.chat_context_compression,
             mcp: self.mcp_snap(),
             chat_paste_limit: self.cfg.pasted_text_char_limit,
             ask_seconds: self.cfg.ask_seconds.min(config::GREATEST_ASK_SECONDS),
@@ -4651,6 +4655,7 @@ impl Snap {
             chat_chapters: true,
             chat_userline: true,
             chat_context_files: true,
+            chat_context_compression: false,
             chat_paste_limit: 6000,
             ask_seconds: 10,
             ask_critical_seconds: 0,
@@ -4923,9 +4928,9 @@ fn fnv1a(words: &str) -> u64 {
 // room as the model set aside for it, so it is never left standing at full
 // size: see `src/contexts.rs`. A talk that could not be written, or that could
 // not be shortened, is a talk read through again, as it always was.
-fn write_talk(base_url: &str, slot: usize, name: &str) {
+fn write_talk(base_url: &str, slot: usize, name: &str, shorten: bool) {
     if let Ok(stood) = llama::slot_state(base_url, "save", slot, name) {
-        if stood > 0 {
+        if stood > 0 && shorten {
             contexts::pack(&config::paths().contexts, name);
         }
     }
@@ -4937,14 +4942,19 @@ fn write_talk(base_url: &str, slot: usize, name: &str) {
 // from an older run of the program, or from a shortening that could not be
 // finished -- is read as it stands and shortened afterwards, which is how a
 // folder of talks left by an older run shortens itself as the chats come round.
-fn read_talk(base_url: &str, slot: usize, name: &str) {
+fn read_talk(base_url: &str, slot: usize, name: &str, shorten: bool) {
     let dir = config::paths().contexts;
+    // The talk is laid out either way: a chat whose file stands in the short
+    // shape is read out of that shape even when the switch is off now, and only
+    // a raw file that stood is shortened again, and then only when asked for.
     let found = contexts::lay_out(&dir, name);
     let _ = llama::slot_state(base_url, "restore", slot, name);
     match found {
         contexts::Laid::FromShort => contexts::take_away(&dir, name),
         contexts::Laid::RawStood => {
-            contexts::pack(&dir, name);
+            if shorten {
+                contexts::pack(&dir, name);
+            }
         }
         contexts::Laid::Nothing => {}
     }
@@ -5028,10 +5038,17 @@ fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> O
     // written out here. This is the moment the keeping earns its keep: the slot
     // of that chat is taken, and what the model made of its talk stands
     // nowhere else.
+    // Whether the talks this program writes are written in the short shape.
+    // The switch is read once here, so that a talk written and a talk read at
+    // the same moment stand in the one shape.
+    let shorten = state
+        .lock()
+        .map(|guard| guard.cfg.chat_context_compression)
+        .unwrap_or(false);
     if let Some(other) = holds.get(&slot) {
         if other != &chat_id {
             let name = context_name(other, model_id);
-            write_talk(base_url, slot, &name);
+            write_talk(base_url, slot, &name, shorten);
         }
     }
     // The talk of this chat, out of its file and into the slot. A file that is
@@ -5040,7 +5057,7 @@ fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> O
     // as it always was. Nothing is said either way, for the words that come
     // back are the same words however the talk got there.
     let name = context_name(&chat_id, model_id);
-    read_talk(base_url, slot, &name);
+    read_talk(base_url, slot, &name, shorten);
     if let Ok(mut guard) = state.lock() {
         guard.context_holds.insert(slot, chat_id.clone());
         guard.context_slot.insert(chat_id, slot);
@@ -5059,9 +5076,13 @@ fn save_all_contexts(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
         Ok(guard) => guard.context_holds.clone(),
         Err(_) => return,
     };
+    let shorten = state
+        .lock()
+        .map(|guard| guard.cfg.chat_context_compression)
+        .unwrap_or(false);
     for (slot, chat_id) in holds {
         let name = context_name(&chat_id, model_id);
-        write_talk(base_url, slot, &name);
+        write_talk(base_url, slot, &name, shorten);
     }
 }
 
@@ -5101,7 +5122,11 @@ fn save_chat_context(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
     // A talk that cannot be written is a talk read through again, as it always
     // was: the words of the chat stand in its file of chats whatever happens
     // here.
-    write_talk(base_url, slot, &name);
+    let shorten = state
+        .lock()
+        .map(|guard| guard.cfg.chat_context_compression)
+        .unwrap_or(false);
+    write_talk(base_url, slot, &name, shorten);
     Some(name)
 }
 
