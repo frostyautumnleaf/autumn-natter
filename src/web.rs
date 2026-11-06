@@ -610,11 +610,7 @@ pub fn preview_line(engine: &crate::engine::Engine, id: &str, settings: Value) -
         &held,
         &cards,
         0,
-        snap.code_enabled,
-        snap.thinking_mode.as_str(),
-        // The line shown in the sheet is the line of the chat in hand, so the
-        // choice of keeping the thinking of the earlier turns stands in it too.
-        snap.thinking_preserve_available.then_some(snap.thinking_preserve),
+        true,
         &mut notes,
     );
     let mut line = String::from("llama-server ");
@@ -625,6 +621,19 @@ pub fn preview_line(engine: &crate::engine::Engine, id: &str, settings: Value) -
             line.push_str(&arg);
         }
         line.push(' ');
+    }
+    // The thinking is no part of the command line: it rides on every ask. The
+    // line of the chat in hand says what the next ask will carry, so that the
+    // sheet shows the whole of what the model is given.
+    let thought = llama::thinking_kwargs(
+        snap.thinking_mode.as_str(),
+        snap.thinking_preserve_available.then_some(snap.thinking_preserve),
+    );
+    if !thought.is_null() {
+        notes.push(format!(
+            "Every ask carries chat_template_kwargs: {}",
+            thought
+        ));
     }
     for note in notes {
         line.push('\n');
