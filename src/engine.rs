@@ -1589,6 +1589,16 @@ impl State {
         self.set_status(&format!("The chat could not be kept on this machine: {}", problem));
     }
 
+    // Say that the record of a repository could not be put down. The name of a
+    // repository and the mark of its pin stand in that one file, and the chats of
+    // the repository stand under that name in the side bar, so a write that could
+    // not be finished is told here and in the log of the program. It is not left
+    // to come back later as a repository with the wrong name, or with none.
+    fn note_record_problem(&mut self, problem: &str) {
+        proglog::note(proglog::STORE, problem);
+        self.set_status("The record of that repository could not be kept on this machine");
+    }
+
     // The chat that is open.
     fn chat_mut(&mut self) -> Option<&mut Chat> {
         let id = self.current.clone()?;
@@ -3722,7 +3732,9 @@ impl Engine {
         state.scope_repo = id.clone();
         state.current = None;
         if let Some(mut repo) = state.repositories.iter().find(|r| r.id == id).cloned() {
-            state.store.touch_repo(&mut repo);
+            if let Err(problem) = state.store.touch_repo(&mut repo) {
+                state.note_record_problem(&problem);
+            }
             state.status = format!("Repository {}", repo.name);
         }
         state.repositories = state.store.scan_repos();
@@ -4337,7 +4349,9 @@ impl Engine {
             return;
         };
         repo.pinned = on;
-        state.store.save_repo(&repo);
+        if let Err(problem) = state.store.save_repo(&repo) {
+            state.note_record_problem(&problem);
+        }
         state.repositories = state.store.scan_repos();
         state.touch_structure();
         let words = if on {
