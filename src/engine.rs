@@ -18,6 +18,7 @@ use crate::askuser;
 use crate::attach;
 use crate::store::Attachment;
 use crate::config::{self, Config, ModelSettings};
+use crate::contexts;
 use crate::display;
 use crate::download;
 use crate::editfile;
@@ -4917,6 +4918,38 @@ fn fnv1a(words: &str) -> u64 {
     hash
 }
 
+// Ask the server to write the talk of one slot out into its file, and put that
+// file into its short shape directly after. The talk of a chat costs as much
+// room as the model set aside for it, so it is never left standing at full
+// size: see `src/contexts.rs`. A talk that could not be written, or that could
+// not be shortened, is a talk read through again, as it always was.
+fn write_talk(base_url: &str, slot: usize, name: &str) {
+    if let Ok(stood) = llama::slot_state(base_url, "save", slot, name) {
+        if stood > 0 {
+            contexts::pack(&config::paths().contexts, name);
+        }
+    }
+}
+
+// Lay the talk of a chat into a slot of the server again. The talk stands in its
+// short shape, so the raw file the server reads is written out for the moment of
+// the read and taken away after it. A raw file that stands there on its own --
+// from an older run of the program, or from a shortening that could not be
+// finished -- is read as it stands and shortened afterwards, which is how a
+// folder of talks left by an older run shortens itself as the chats come round.
+fn read_talk(base_url: &str, slot: usize, name: &str) {
+    let dir = config::paths().contexts;
+    let found = contexts::lay_out(&dir, name);
+    let _ = llama::slot_state(base_url, "restore", slot, name);
+    match found {
+        contexts::Laid::FromShort => contexts::take_away(&dir, name),
+        contexts::Laid::RawStood => {
+            contexts::pack(&dir, name);
+        }
+        contexts::Laid::Nothing => {}
+    }
+}
+
 // The slot of the running server that the chat in hand wants, with its talk
 // laid in that slot again.
 //
@@ -4998,7 +5031,7 @@ fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> O
     if let Some(other) = holds.get(&slot) {
         if other != &chat_id {
             let name = context_name(other, model_id);
-            let _ = llama::slot_state(base_url, "save", slot, &name);
+            write_talk(base_url, slot, &name);
         }
     }
     // The talk of this chat, out of its file and into the slot. A file that is
@@ -5007,7 +5040,7 @@ fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> O
     // as it always was. Nothing is said either way, for the words that come
     // back are the same words however the talk got there.
     let name = context_name(&chat_id, model_id);
-    let _ = llama::slot_state(base_url, "restore", slot, &name);
+    read_talk(base_url, slot, &name);
     if let Ok(mut guard) = state.lock() {
         guard.context_holds.insert(slot, chat_id.clone());
         guard.context_slot.insert(chat_id, slot);
@@ -5028,7 +5061,7 @@ fn save_all_contexts(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
     };
     for (slot, chat_id) in holds {
         let name = context_name(&chat_id, model_id);
-        let _ = llama::slot_state(base_url, "save", slot, &name);
+        write_talk(base_url, slot, &name);
     }
 }
 
@@ -5068,7 +5101,7 @@ fn save_chat_context(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
     // A talk that cannot be written is a talk read through again, as it always
     // was: the words of the chat stand in its file of chats whatever happens
     // here.
-    let _ = llama::slot_state(base_url, "save", slot, &name);
+    write_talk(base_url, slot, &name);
     Some(name)
 }
 

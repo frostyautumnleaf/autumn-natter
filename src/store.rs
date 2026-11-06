@@ -1114,8 +1114,8 @@ fn put_in_place(path: &Path, text: &str) -> Result<(), String> {
 // to come into, with the number of this process and a count that moves on at
 // every write after it. Two writers of one place therefore stand in two second
 // files, and the place itself only ever takes the whole of what a writer put
-// into its own.
-fn held_path(path: &Path) -> PathBuf {
+// into its own. `contexts` writes the short shape of a talk through it too.
+pub(crate) fn held_path(path: &Path) -> PathBuf {
     static WRITES: AtomicUsize = AtomicUsize::new(1);
     let stood = path
         .file_name()

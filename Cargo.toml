@@ -52,6 +52,11 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 tiny_http = "0.12"
 urlencoding = "2"
 pulldown-cmark = "0.13"
+# The talks the model worked through are shortened before they stand on the
+# disk. Deflate at level 1 is the fastest thing here that gives anything away on
+# those bytes; the Rust back end keeps the build free of C, as the rest of the
+# program is. See `src/contexts.rs`.
+flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

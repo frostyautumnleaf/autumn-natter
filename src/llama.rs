@@ -841,6 +841,11 @@ fn clamp(index: usize, len: usize) -> usize {
 // ask of that slot is read on from where the talk left off instead of from its
 // first word.
 //
+// Nothing here shortens or lays out that file: the talk is gigabytes, and it
+// stands in its short shape except for the moment the server is writing it or
+// reading it. `write_talk` and `read_talk` in the engine are the two places
+// that ask for the file, and they do the shortening round this call.
+//
 // The name of the file goes in the body of the call, and the server looks for
 // it in that folder and nowhere else: a name with a folder mark in it, or with
 // a point of the disk, is thrown out by the server. `context_name` in the

@@ -107,6 +107,7 @@ name = "autumn-natter-core"
 version = "0.1.0"
 dependencies = [
  "dirs 6.0.0",
+ "flate2",
  "getrandom 0.3.4",
  "libc",
  "pulldown-cmark",
