@@ -1734,8 +1734,12 @@ impl State {
         } else {
             Vec::new()
         };
+        // The head of the block is said in the words of a thing that happened, so
+        // a search that stood at the head while the answer came in is a search
+        // that was made. With no work at all the block still stands, and says
+        // "Done": the short of an answer never goes away after it.
         let head = if role == "Assistant" && self.corporate_on() {
-            std::mem::take(&mut self.live_work_head)
+            corporate::head_after(&work)
         } else {
             String::new()
         };
@@ -1763,6 +1767,15 @@ impl State {
     // stands at the end of the talk. False means the message is no longer the last
     // one of the talk, and the words have to stand on their own.
     fn append_resumed(&mut self, id: &str, body: &str, reasoning: &str, reasoning_ms: u64) -> bool {
+        // The work of this part of the answer joins the short of the answer it
+        // was gone on from, so the one block of the corporate display holds the
+        // whole of the work and not only the last part of it.
+        let more = if self.corporate_on() {
+            std::mem::take(&mut self.live_work)
+        } else {
+            Vec::new()
+        };
+        let joined = self.corporate_on();
         let Some(chat) = self.chat_mut() else { return false };
         let Some(last) = chat.messages.last_mut() else { return false };
         if last.id != id || last.role != "Assistant" {
@@ -1779,6 +1792,12 @@ impl State {
         }
         last.reasoning_ms += reasoning_ms;
         last.when = store::now_secs();
+        if !more.is_empty() {
+            last.work.extend(more);
+        }
+        if joined {
+            last.work_head = corporate::head_after(&last.work);
+        }
         true
     }
 
@@ -1995,9 +2014,11 @@ impl State {
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
         let head = corporate::head_of(&call.name, &args);
         self.live_work_head = head.clone();
-        match self.live_work.iter_mut().rev().find(|one| one.id == id) {
+        match corporate::find_mut(&mut self.live_work, id) {
             Some(place) => place.head = head,
-            None => self.live_work.push(corporate::block_for(&call.name, id, &args)),
+            // The call stands under the heading the model opened last, when it
+            // opened one, and on its own else.
+            None => corporate::begin(&mut self.live_work, &call.name, id, &args),
         }
     }
 
@@ -2008,7 +2029,7 @@ impl State {
         if !self.corporate_on() {
             return;
         }
-        let Some(place) = self.live_work.iter_mut().rev().find(|one| one.id == id) else {
+        let Some(place) = corporate::find_mut(&mut self.live_work, id) else {
             return;
         };
         corporate::settle(place);
@@ -2018,6 +2039,10 @@ impl State {
             place.adds = adds;
             place.cuts = cuts;
         }
+        // The head of the one block is said again in the words of a thing that
+        // happened, so a search that came back is not still standing at the head
+        // as a search on its way.
+        self.live_work_head = corporate::head_after(&self.live_work);
     }
 
     // Write the output of a tool run into its message.
@@ -2368,6 +2393,16 @@ impl State {
             out.push(json!({
                 "role": "system",
                 "content": chapters_words(),
+            }));
+        }
+        // The words of the corporate display, beside the words of the program.
+        // The mode hides the thoughts and the call blocks, so the model has to
+        // know that the short it writes is the only account of its work the user
+        // reads. The words go away with the mode.
+        if self.corporate_on() {
+            out.push(json!({
+                "role": "system",
+                "content": corporate::system_prompt(),
             }));
         }
         // The prompt of planning mode, beside the words of the program. It goes
@@ -7052,9 +7087,10 @@ fn run_turn(
             guard.answer_rate = 0.0;
             guard.rate_start = None;
             // The calls of the step before this one stand in the chat by now, so
-            // the blocks of the words being written start anew.
+            // the blocks of the words being written start anew. The short of the
+            // work does not: it belongs to the whole of the answer, and the one
+            // block of the corporate display keeps it until the answer is kept.
             guard.live_tools = Vec::new();
-            guard.live_work = Vec::new();
         }
         let progress_state = state.clone();
         let context_state = state.clone();
@@ -7286,7 +7322,6 @@ fn run_turn(
         // run of the command stands in the chat in its place, and says what
         // became of it.
         guard.live_tools.clear();
-        guard.live_work.clear();
         // How long the model spent thinking in this step. The words of the
         // panel are made from this.
         let thought_ms = match (guard.thought_start, guard.thought_end) {

@@ -818,6 +818,13 @@ body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: n
 .wblock.shut > .wbbody { display: none; }
 .wblock.shut > .wbhead .wfold { transform: rotate(-90deg); }
 .wbbody { padding: 0 12px 8px 30px; }
+/* A block inside a heading: the work of that heading, put in under it. It keeps
+   the shape of a block of the short, with a line of its own about it, so the
+   eye reads the heading and then the pieces of the work beneath. */
+.wbbody .wblock { border: 1px solid var(--line); border-radius: 8px; margin: 6px 0 0; }
+.wbbody .wblock:first-child { border-top: 1px solid var(--line); }
+.wbbody .wblock > .wbhead { padding: 6px 10px; }
+.wbbody .wblock > .wbbody { padding: 0 10px 6px 26px; }
 .wline { padding: 3px 0; }
 .wplus, .wminus { font-variant-numeric: tabular-nums; margin-left: 7px; }
 .wplus { color: var(--hunk-add); }
@@ -6003,6 +6010,7 @@ function workBlock(one, deep) {
   }
   block.appendChild(head);
   var lines = one.lines || [];
+  var under = one.sub || [];
   if (lines.length) {
     var body = make('div', 'wbbody');
     for (var n = 0; n < lines.length; n++) {
@@ -6010,7 +6018,19 @@ function workBlock(one, deep) {
       line.textContent = lines[n];
       body.appendChild(line);
     }
+    // The calls made under this heading stand inside it, each a block of its
+    // own, so a heading of the work and the work of that heading are read
+    // together.
+    for (var k = 0; k < under.length; k++) {
+      body.appendChild(workBlock(under[k], true));
+    }
     block.appendChild(body);
+  } else if (under.length) {
+    var box = make('div', 'wbbody');
+    for (var j = 0; j < under.length; j++) {
+      box.appendChild(workBlock(under[j], true));
+    }
+    block.appendChild(box);
   } else {
     block.className = 'wblock';
     head.style.cursor = 'default';
@@ -6041,10 +6061,16 @@ function corporateBlock(head, blocks) {
 // The one block of an answer of the model, or nothing at all when the answer
 // has no short of the work -- an answer of a chat that was written before the
 // corporate display stood, or one with no work in it.
+// The one block of an answer of the model. The block always stands after an
+// answer of a chat that was written while the corporate display stood, even
+// when the model wrote nothing of its work: the head then says "Done". Nothing
+// is drawn for an answer that has no short at all, which is an answer written
+// before the mode stood.
 function corporateOf(m) {
   var blocks = m.work || [];
-  if (!blocks.length) { return null; }
-  return corporateBlock(m.work_head || '', blocks);
+  var head = m.work_head || '';
+  if (!blocks.length && !head) { return null; }
+  return corporateBlock(head || 'Done', blocks);
 }
 
 // The settings that the corporate display has nothing to say about: the panels
