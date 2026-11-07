@@ -42,6 +42,7 @@ pub mod proglog;
 pub mod remote;
 pub mod search;
 pub mod store;
+pub mod summarise;
 pub mod tools;
 pub mod upnp;
 pub mod util;

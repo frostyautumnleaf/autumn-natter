@@ -287,7 +287,8 @@ const WRITING_NAMES = {
   edit_file: 'notes/plan.md',
   create_file: 'notes/todo.txt',
   web_search: 'largest lake in Africa by volume',
-  view_image: 'notes/cat.png'
+  view_image: 'notes/cat.png',
+  summarise_chat: 'the talk of this chat'
 };
 
 // The words a file tool is making, as the user is given them while the call
@@ -304,7 +305,8 @@ const WRITING_DOING = {
   edit_file: 'Editing a file: ',
   create_file: 'Creating a file: ',
   web_search: 'Searching the web: ',
-  view_image: 'Looking at an image: '
+  view_image: 'Looking at an image: ',
+  summarise_chat: 'Summarising '
 };
 
 // The command the model writes in the `writing` scene, and the reason it gives
@@ -520,6 +522,10 @@ function scene(name, dark, theme) {
       addSummaries(start, Number(process.env.AN_SUMMARIES) || 0);
     }
     if (process.env.AN_NOTIMELINE === '1') { start.compaction.timeline = false; }
+    // AN_NOCOMPACTION=1 puts the Compaction section on `No summary`. The line of
+    // the handoff summary then leaves the menu of the badge of the tools, for the
+    // tool has nothing to do in a chat that is never summarised.
+    if (process.env.AN_NOCOMPACTION === '1') { start.compaction.type = 'off'; }
     if (process.env.AN_BROKEN === '1' && start.handoffs.length) {
       var lastCut = start.handoffs[start.handoffs.length - 1];
       lastCut.state = 'owed';
@@ -680,7 +686,8 @@ function scene(name, dark, theme) {
       // stands under a word about files.
       var asked = {
         web_search: 'Look up how large the largest lake in Africa is, and tell me what you found.',
-        view_image: 'Look at the picture of the cat in the chat, and tell me what stands in it.'
+        view_image: 'Look at the picture of the cat in the chat, and tell me what stands in it.',
+        summarise_chat: 'The first part of the work is finished. Put the talk into a summary, and go on with the second part in the room that is made.'
       };
       start.messages = [said(1, 'You', asked[tool] ||
         'Put the plan in a file of the chat, and tell me what you changed.')];

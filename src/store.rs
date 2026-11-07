@@ -285,6 +285,13 @@ pub struct ToolSwitches {
     // Off at first, for a video costs a long run.
     #[serde(default)]
     pub infographics: bool,
+    // The model may put the talk of the chat into a handoff summary on its own
+    // word, or on the word of the user. The tool is nothing without a handoff
+    // summary, so it stands only while the settings make the room of the talk
+    // that way: with compaction off the line of the drop-down is hidden on the
+    // page and the tool is treated as off, whatever stands here.
+    #[serde(default = "switch_on")]
+    pub summarise: bool,
 }
 
 // The switch of a tool that nothing has touched yet.
@@ -302,6 +309,7 @@ impl Default for ToolSwitches {
             display: true,
             ask: true,
             infographics: false,
+            summarise: true,
         }
     }
 }
@@ -318,6 +326,7 @@ impl ToolSwitches {
             "display" => self.display = on,
             "ask" => self.ask = on,
             "infographics" => self.infographics = on,
+            "summarise" => self.summarise = on,
             _ => return false,
         }
         true
@@ -334,6 +343,7 @@ impl ToolSwitches {
             ("display", self.display),
             ("ask", self.ask),
             ("infographics", self.infographics),
+            ("summarise", self.summarise),
         ]
     }
 
@@ -341,6 +351,17 @@ impl ToolSwitches {
     // badge of the tools has nothing to let through, and so cannot stand on.
     pub fn any_on(&self) -> bool {
         self.words().iter().any(|(_, on)| *on)
+    }
+
+    // Whether any line of the drop-down stands on that the model could really
+    // be offered. The line of the handoff summary counts only while the
+    // settings make the room by a handoff summary, for with compaction off
+    // nothing stands behind it: a badge that would rest on that line alone
+    // opens a door over nothing, and is read as a fault.
+    pub fn any_on_with(&self, compaction_on: bool) -> bool {
+        self.words()
+            .iter()
+            .any(|(part, on)| *on && (compaction_on || *part != "summarise"))
     }
 
     // What one line of the drop-down stands on. A name of another kind reads as
@@ -354,6 +375,7 @@ impl ToolSwitches {
             "display" => self.display,
             "ask" => self.ask,
             "infographics" => self.infographics,
+            "summarise" => self.summarise,
             _ => true,
         }
     }
@@ -1901,5 +1923,32 @@ mod tests {
             .collect();
         assert_eq!(left, vec![String::from("chat.json")], "{:?}", left);
         let _ = fs::remove_dir_all(&room);
+    }
+
+    // The line of the handoff summary is a line of the drop-down like every
+    // other one, and it stands on from the beginning. With compaction off it
+    // counts for nothing: a chat whose only line stands on behind that line has
+    // no tool the model could reach, and the badge of the tools does not rest
+    // on it.
+    #[test]
+    fn the_line_of_the_handoff_summary_stands_with_the_other_lines() {
+        let mut switches = ToolSwitches::default();
+        assert!(switches.value_of("summarise"), "the line stands on at first");
+        assert!(switches.words().iter().any(|(part, _)| *part == "summarise"));
+        assert!(switches.set("summarise", false));
+        assert!(!switches.value_of("summarise"));
+        assert!(switches.any_on(), "the other lines stand on");
+        assert!(switches.any_on_with(false), "the other lines stand on");
+        // Every line but that of the handoff summary is taken away. The badge
+        // stands on while the room is made by a summary, and goes out when it
+        // is not.
+        for part in ["commands", "files", "picture", "hand_out", "display", "ask"] {
+            switches.set(part, false);
+        }
+        switches.set("summarise", true);
+        assert!(switches.any_on_with(true), "the summary is a tool the model may reach");
+        assert!(!switches.any_on_with(false), "with compaction off nothing stands behind the badge");
+        switches.set("summarise", false);
+        assert!(!switches.any_on_with(true), "no line stands on at all");
     }
 }

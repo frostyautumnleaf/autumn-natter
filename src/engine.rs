@@ -32,6 +32,7 @@ use crate::corporate;
 use crate::planning;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
+use crate::summarise;
 use crate::tools;
 use crate::viewimage;
 
@@ -345,6 +346,13 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         planning::READ_NAME => (String::from("the plan file"), String::new(), String::new()),
         planning::ASK_NAME => (String::from("the questions of the plan"), String::new(), String::new()),
         planning::END_NAME => (String::from("the plan is agreed"), String::new(), String::new()),
+        // The handoff summary is named by the talk it puts away. The reason the
+        // model gives with the call rides beside it.
+        summarise::NAME => (
+            String::from("the talk of this chat"),
+            summarise::reason(raw),
+            String::new(),
+        ),
         viewimage::NAME | viewimage::ONE_NAME => (viewimage::partial_words(raw), String::new(), String::new()),
         // A tool of the infographic suite is named by the tool and the project.
         name if infographic::is_tool(name) => (
@@ -1090,6 +1098,19 @@ pub const COLOUR_MARKS: [(&str, &str); 4] = [
 pub fn colour_words() -> String {
     String::from(
         "You may put colour on a few words of your answer. Write the words between a mark that opens a colour and the mark that closes it, for example <green>done</green>. The four colours are green, light_green, red and light_red, and the closing mark is the opening mark with a slash in it, so </green> closes the green. The program paints those words for the user and takes the marks out of the talk it reads back to you. Use a colour for a few words only: a result that is good or bad, a number that decides something, or a thing the user must not miss. Do not colour a whole sentence or a whole answer, do not put one colour inside another, do not write the marks inside a block of code, and do not speak of the colours in your answer.",
+    )
+}
+
+// The words that go before the model while the room of the talk is made by a
+// handoff summary. A model that is never told how the room is kept open reads a
+// full context as the end of its work: it shortens the piece it was asked for,
+// leaves a part of it out, or stops to ask leave for the next step, all because
+// it counts the words it has left. These words say that there is nothing to
+// count. They go in a message of the role `system` at the head of the talk,
+// once for the talk, and they go away when compaction stands off.
+pub fn compaction_words() -> String {
+    String::from(
+        "The room of this conversation is kept open while you work. When the context of the model is filled, this program writes a handoff summary of the talk, puts it in the place of the words it stands for, and the work goes on in the room that is made. That may happen again and again, without end, and nothing of the work is lost by it: the files stand where you wrote them, and the summary carries the state of the work.\n\nYou therefore have no budget of context, no limit of time and no limit on the number of tool calls. Do not measure the work against the room you think you have. Never leave a part of the work out, never write a simpler thing because the full thing is large, and never stop to ask whether there is room for the next step: where there is no room, the room is made. Work until the work is complete, one step at a time, and say nothing of the room, the context or the summary in your answer.",
     )
 }
 
@@ -2099,6 +2120,15 @@ impl State {
         config::display_is_corporate(&self.cfg.chat_display)
     }
 
+    // True when the settings make the room of a talk by a handoff summary. With
+    // compaction off nothing is ever summarised: the words of the room go out no
+    // more, and the tool that asks for the room has nothing to ask for, so it is
+    // offered nowhere and a call of its name is answered as a tool that is
+    // switched off.
+    fn compaction_on(&self) -> bool {
+        config::sanitize_compaction(&self.cfg.chat_compaction) == config::COMPACTION_HANDOFF
+    }
+
     // A call began: the one block says what the model is at, and a block of the
     // call stands in the short of the work.
     fn corporate_begin(&mut self, call: &ToolCall, id: &str) {
@@ -2507,6 +2537,17 @@ impl State {
             out.push(json!({
                 "role": "system",
                 "content": colour_words(),
+            }));
+        }
+        // The words of the room the talk stands on, beside the words of the
+        // program. A chat whose room is made by a handoff summary has no ceiling
+        // the model has to work within, and a model that does not know that
+        // shortens its own work for a limit that is not there. The words go away
+        // when compaction stands off.
+        if self.compaction_on() {
+            out.push(json!({
+                "role": "system",
+                "content": compaction_words(),
             }));
         }
         // The prompt of planning mode, beside the words of the program. It goes
@@ -3551,6 +3592,10 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        // The line of the handoff summary counts toward the badge of the tools
+        // only while the settings make the room of the talk by a summary, for
+        // with compaction off nothing stands behind that line.
+        let room = state.compaction_on();
         if let Some(chat) = state.chat_mut() {
             if !chat.meta.tools.set(part, on) {
                 return;
@@ -3559,14 +3604,14 @@ impl Engine {
             // drop-down that is switched on opens that door, for a tool behind a
             // shut door is no tool at all; and when the last line goes out the
             // door shuts with it, so the badge never stands on over nothing.
-            chat.meta.code_enabled = chat.meta.tools.any_on();
+            chat.meta.code_enabled = chat.meta.tools.any_on_with(room);
         }
         // The same choice opens the next chat too, whatever stands open now, as
         // with the badge of the tools itself.
         if !state.new_tools.set(part, on) {
             return;
         }
-        state.new_code = state.new_tools.any_on();
+        state.new_code = state.new_tools.any_on_with(room);
         state.persist();
         let word = tool_group_word(part);
         let words = if on {
@@ -5636,7 +5681,17 @@ fn ask_summary_for_handoff(
 // into the front of the talk, so an ask that carried another list -- or none, as
 // this ask used to -- is a talk worked through again from its first word.
 fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
-    let (sandbox_on, code_on, search_on, planning_on, corporate_on, access, switches, mcp_tools) = {
+    let (
+        sandbox_on,
+        code_on,
+        search_on,
+        planning_on,
+        corporate_on,
+        access,
+        switches,
+        mcp_tools,
+        compaction_on,
+    ) = {
         let Ok(guard) = state.lock() else { return None };
         let chat = guard.chat();
         (
@@ -5648,6 +5703,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
             chat.as_ref().map(|c| access_of(&c.meta)).unwrap_or_default(),
             chat.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
             guard.mcp_definitions(),
+            guard.compaction_on(),
         )
     };
     offered_with_planning(
@@ -5659,6 +5715,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
         access,
         &mcp_tools,
         &switches,
+        compaction_on,
     )
 }
 
@@ -6979,6 +7036,11 @@ fn run_turn(
     // How many times an answer of this one came back with nothing to read and was
     // asked over again. The room for that is read from the Chatting settings.
     let mut silences = 0usize;
+    // True once this answer has made the room on the word of the model. The room
+    // is made once in one answer: a model that asks for it again after it would
+    // put a summary under the summary it just had, and spend what it won on words
+    // of its own making.
+    let mut room_made = false;
     let silence_room = {
         let Ok(guard) = state.lock() else { return Ended::Halted };
         guard.cfg.chat_silent_retries.max(0) as usize
@@ -7018,7 +7080,8 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, planning_on, corporate_on, switches, thought) = {
+        let (mut history, code_on, search_on, planning_on, corporate_on, switches, thought,
+         compaction_on) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 go_on_words(&guard, carried_prompt),
@@ -7034,6 +7097,7 @@ fn run_turn(
                     .map(|c| c.meta.tools.clone())
                     .unwrap_or_default(),
                 guard.thinking_ask(),
+                guard.compaction_on(),
             )
         };
         // The room of the talk is weighed before the ask goes out, and the room
@@ -7164,6 +7228,7 @@ fn run_turn(
                 access,
                 &mcp_tools,
                 &switches,
+                compaction_on,
             ) {
                 body["tools"] = list;
                 body["tool_choice"] = json!("auto");
@@ -8089,6 +8154,55 @@ fn run_turn(
                 guard.finish_tool(&id, &note, true);
                 continue;
             }
+            // The model asks for the room of the talk to be made now. The
+            // summary is written here, in the middle of the answer, as it is
+            // when the writing is stopped under the weight of the talk: the
+            // answer stands aside while the words are written, and is taken up
+            // again when the mark holds them. The block of the call goes into
+            // the chat after the mark and not before it, so the model reads what
+            // its own call came to after the summary, and not among the words
+            // the summary stands for.
+            if call.name == summarise::NAME {
+                let thinking = std::mem::take(&mut thoughts);
+                let (before, empty) = {
+                    let Ok(guard) = state.lock() else { continue };
+                    (
+                        guard.ctx_used,
+                        guard.chat().map(ends_on_summary).unwrap_or(false),
+                    )
+                };
+                // The room is made once in one answer. A model that asks again
+                // after it would put a summary under the summary it just had,
+                // and spend the room it asked for on words of its own making.
+                if empty || room_made {
+                    let note = summarise::refused_words();
+                    let Ok(mut guard) = state.lock() else { continue };
+                    let id = guard.begin_tool(call, SUMMARISE_SHOWN, &thinking, thought_ms);
+                    guard.finish_tool(&id, &note, true);
+                    continue;
+                }
+                room_made = true;
+                // The answer is laid aside while the summary takes the chat, as
+                // it is at every other place where the room is made.
+                if let Ok(mut guard) = state.lock() {
+                    guard.generating = false;
+                    guard.busy = false;
+                }
+                let kept = run_handoff(state, server, cancel);
+                let Ok(mut guard) = state.lock() else { return Ended::Halted };
+                // The answer is taken up again: the call was one step of it, and
+                // the work stands on after the room that was made.
+                guard.generating = true;
+                let after = estimate_tokens(&guard.build_history());
+                let note = if kept {
+                    summarise::kept_words(guard.handoffs().len(), before, after)
+                } else {
+                    summarise::failed_words(before)
+                };
+                let id = guard.begin_tool(call, SUMMARISE_SHOWN, &thinking, thought_ms);
+                guard.finish_tool(&id, &note, kept);
+                continue;
+            }
             // Only a command of the terminal tool eats the room for commands.
             // The other tools work in the room of the chat in the program
             // itself, and the setting that holds the room speaks of commands.
@@ -8184,6 +8298,11 @@ fn run_turn(
     outcome
 }
 
+// The words of the head of the block of a handoff summary. The reason the model
+// gave with the call stands in the body of the block under its own label, so the
+// head says only what the call worked on.
+const SUMMARISE_SHOWN: &str = "the talk of this chat";
+
 // True of a call the model had begun to write: it has a name of its own, or
 // words of its arguments, or both. A call stopped before either came is nothing
 // the user was shown, and nothing to tell the model about.
@@ -8211,6 +8330,7 @@ fn group_of(name: &str) -> Option<&'static str> {
         download::NAME => Some("hand_out"),
         display::NAME => Some("display"),
         askuser::NAME => Some("ask"),
+        summarise::NAME => Some("summarise"),
         name if infographic::is_tool(name) => Some("infographics"),
         _ => None,
     }
@@ -8222,6 +8342,11 @@ fn group_of(name: &str) -> Option<&'static str> {
 fn tool_allowed(state: &Arc<Mutex<State>>, name: &str) -> bool {
     let Some(part) = group_of(name) else { return true };
     let Ok(guard) = state.lock() else { return false };
+    // The handoff summary is no tool at all while compaction stands off: there
+    // is no summary to be written, whatever the line of the drop-down says.
+    if part == "summarise" && !guard.compaction_on() {
+        return false;
+    }
     guard
         .chat()
         .map(|c| c.meta.tools.value_of(part))
@@ -8239,6 +8364,9 @@ fn tool_group_word(part: &str) -> String {
         "display" => String::from("Showing the contents of a file"),
         "ask" => String::from("Asking the user"),
         "infographics" => String::from("Create infographics"),
+        // The words of the line, in the shape the sentence about a tool that
+        // was not let through reads well in.
+        "summarise" => String::from("Manual summaries"),
         other => String::from(other),
     }
 }
@@ -8281,10 +8409,19 @@ fn offered_with_planning(
     access: tools::Access,
     mcp_tools: &[Value],
     switches: &store::ToolSwitches,
+    compaction_on: bool,
 ) -> Option<Value> {
-    let mut list = offered(sandbox, code_on, search_on, access, mcp_tools, switches)
-        .and_then(|made| made.as_array().cloned())
-        .unwrap_or_default();
+    let mut list = offered(
+        sandbox,
+        code_on,
+        search_on,
+        access,
+        mcp_tools,
+        switches,
+        compaction_on,
+    )
+    .and_then(|made| made.as_array().cloned())
+    .unwrap_or_default();
     if planning_on {
         list.push(planning::edit_definition());
         list.push(planning::read_definition());
@@ -8310,6 +8447,7 @@ fn offered(
     access: tools::Access,
     mcp_tools: &[Value],
     switches: &store::ToolSwitches,
+    compaction_on: bool,
 ) -> Option<Value> {
     if !(code_on || search_on || !mcp_tools.is_empty()) {
         return None;
@@ -8342,6 +8480,14 @@ fn offered(
         // the badge: a script without a renderer draws nothing.
         if switches.infographics {
             list.extend(infographic::definitions());
+        }
+        // The handoff summary the model may ask for stands behind the badge like
+        // every other tool of the program, and behind the line of its own. It
+        // stands at all only while the settings make the room of the talk by a
+        // handoff summary: with compaction off there is no summary to be asked
+        // for, and a tool that can do nothing is not offered at all.
+        if compaction_on && switches.summarise {
+            list.push(summarise::definition());
         }
     }
     if search_on {
@@ -9017,7 +9163,7 @@ mod tests {
         assert!(snap.tool_switches.picture);
         assert!(snap.tool_switches.hand_out);
         let words = |code_on: bool, switches: &store::ToolSwitches| {
-            offered(false, code_on, false, tools::Access::default(), &[], switches)
+            offered(false, code_on, false, tools::Access::default(), &[], switches, true)
                 .map(|list| {
                     list.as_array()
                         .unwrap()
@@ -9078,6 +9224,141 @@ mod tests {
         assert!(!kept.picture);
         assert!(!kept.hand_out, "the offer of a file is still off");
         assert!(!lines.is_empty(), "the badge has lines to switch");
+    }
+
+    // The handoff summary the model may ask for stands behind the badge of the
+    // tools and behind the line of its own, as every other tool of the program
+    // does. It stands at all only while the settings make the room of the talk
+    // by a handoff summary: with compaction off there is no summary to be
+    // written, so the tool is offered nowhere and a call of its name is answered
+    // as a tool that is switched off.
+    #[test]
+    fn the_tool_of_the_handoff_summary_stands_only_while_the_room_is_made_by_one() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        engine.set_code(true);
+        let names = |list: Option<Value>| -> Vec<String> {
+            list.map(|made| {
+                made.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect()
+            })
+            .unwrap_or_default()
+        };
+        let given = |room: bool, switches: &store::ToolSwitches| {
+            names(offered(
+                false,
+                true,
+                false,
+                tools::Access::default(),
+                &[],
+                switches,
+                room,
+            ))
+        };
+        // The room is made by a summary and the line stands on: the tool is
+        // offered beside the others.
+        let open = given(true, &engine.snapshot().tool_switches);
+        assert!(open.contains(&tools::TOOL_NAME.to_string()), "the badge of the tools stands on");
+        assert!(
+            open.contains(&summarise::NAME.to_string()),
+            "the handoff summary was not offered: {:?}",
+            open
+        );
+        // The same chat with compaction off: the tool is gone, and every other
+        // tool of the badge stands where it stood.
+        let shut = given(false, &engine.snapshot().tool_switches);
+        assert!(shut.contains(&tools::TOOL_NAME.to_string()));
+        assert!(
+            !shut.contains(&summarise::NAME.to_string()),
+            "a summary was offered with compaction off: {:?}",
+            shut
+        );
+        // The line of the drop-down takes the tool out on its own, as every
+        // other line does, and the badge stays open over the rest.
+        engine.set_tool_switch("summarise", false);
+        let taken = given(true, &engine.snapshot().tool_switches);
+        assert!(!taken.contains(&summarise::NAME.to_string()));
+        assert!(taken.contains(&tools::TOOL_NAME.to_string()));
+        assert!(engine.snapshot().code_enabled, "the badge stands on over the other lines");
+        engine.set_tool_switch("summarise", true);
+        // A call of the name is let through while compaction stands on, and is
+        // answered as a tool that is switched off when it does not: the badge
+        // and the line say yes, and there is nothing for the tool to do.
+        assert!(tool_allowed(&engine.state, summarise::NAME), "the chat lets the call through");
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.cfg.chat_compaction = String::from(config::COMPACTION_OFF);
+        }
+        assert!(
+            !tool_allowed(&engine.state, summarise::NAME),
+            "a summary was let through with compaction off"
+        );
+        assert!(
+            tool_allowed(&engine.state, tools::TOOL_NAME),
+            "the other tools of the badge are untouched"
+        );
+        // The line of the drop-down is named, so the block of a call that was
+        // not let through says what was switched off.
+        assert_eq!(group_of(summarise::NAME), Some("summarise"));
+        assert!(tool_group_word("summarise").contains("ummar"));
+    }
+
+    // The words of the room go out with the talk while the settings make the
+    // room by a handoff summary, and go away when it stands off. A model that
+    // is never told how the room is kept reads a full context as the end of its
+    // work, and shortens the piece it was asked for.
+    #[test]
+    fn the_words_of_the_room_stand_with_the_talk_while_compaction_stands_on() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        let said = {
+            let state = engine.state.lock().unwrap();
+            state.build_history().to_string()
+        };
+        assert!(
+            said.contains("The room of this conversation is kept open"),
+            "the words of the room did not go out with the talk"
+        );
+        // The words say what the model is to take from them: nothing to count,
+        // and nothing to be left out of the work.
+        assert!(said.contains("no limit on the number of tool calls"));
+        assert!(said.contains("Never leave a part of the work out"));
+        assert!(said.contains("Work until the work is complete"));
+        // The words go out once for the talk, in a message of the role `system`.
+        let count = {
+            let state = engine.state.lock().unwrap();
+            state
+                .build_history()
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|one| {
+                    one["content"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .starts_with("The room of this conversation is kept open")
+                })
+                .count()
+        };
+        assert_eq!(count, 1, "the words of the room ride more than once with the talk");
+        // Compaction off: no summary is ever written, so nothing is told of a
+        // room that is never made.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.cfg.chat_compaction = String::from(config::COMPACTION_OFF);
+            let said = state.build_history().to_string();
+            assert!(
+                !said.contains("The room of this conversation is kept open"),
+                "the words of the room stood with compaction off"
+            );
+        }
     }
 
     // The user works in one chat with the tools on and a level of thinking
@@ -10711,7 +10992,8 @@ mod tests {
             false,
             tools::Access::default(),
             &[],
-            &store::ToolSwitches::default()
+            &store::ToolSwitches::default(),
+            true
         )
         .is_none());
         // The badge on: every tool of the program stands there.
@@ -10722,6 +11004,7 @@ mod tests {
             tools::Access::default(),
             &[],
             &store::ToolSwitches::default(),
+            true
         )
         .unwrap();
         let words = names(&open);
@@ -10739,6 +11022,7 @@ mod tests {
             tools::Access::default(),
             &[],
             &store::ToolSwitches::default(),
+            true
         )
         .unwrap();
         assert_eq!(names(&looked), vec![search::NAME.to_string()]);
@@ -10750,6 +11034,7 @@ mod tests {
             tools::Access::default(),
             &[],
             &store::ToolSwitches::default(),
+            true
         )
         .unwrap();
         let words = names(&both);
@@ -10764,6 +11049,7 @@ mod tests {
             tools::Access { network: true, pip: true, fetch: true },
             &[],
             &store::ToolSwitches::default(),
+            true
         )
         .unwrap();
         let said = String::from(open[0]["function"]["description"].as_str().unwrap_or(""));
@@ -10803,6 +11089,7 @@ mod tests {
                 tools::Access::default(),
                 &[],
                 &store::ToolSwitches::default(),
+                true
             )
             .expect("the badge of the tools stands open")
             .as_array()
@@ -10876,6 +11163,7 @@ mod tests {
             tools::Access::default(),
             &made,
             &store::ToolSwitches::default(),
+            true
         )
         .expect("a server of the user's own is a tool");
         let names: Vec<&str> = list
@@ -12348,11 +12636,13 @@ mod tests {
             .iter()
             .filter(|message| {
                 let said = message["content"].as_str().unwrap_or_default();
-                // The line of the day, the words of the chapters and the words of
-                // the colours are words of the program, not of the talk.
+                // The line of the day, the words of the chapters, the words of
+                // the colours and the words of the room are words of the
+                // program, not of the talk.
                 !said.starts_with(DATE_HEAD)
                     && !said.starts_with("The chapters of this chat are read from")
                     && !said.starts_with("You may put colour on a few words")
+                    && !said.starts_with("The room of this conversation is kept open")
             })
             .cloned()
             .collect()
@@ -13194,13 +13484,13 @@ mod tests {
         // is small enough that the estimate of the talk, with the telling of the
         // call in it, reads past the limit, and the estimate of the same talk
         // without the telling reads under it. The room the words of the program
-        // take is counted in here: the line of the day, the words of the chapters
-        // and the words of the colours ride with every ask.
+        // take is counted in here: the line of the day, the words of the chapters,
+        // the words of the colours and the words of the room ride with every ask.
         state.ctx_total = 2048;
         state.ctx_used = 1600;
         let cfg = Config {
             chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
-            chat_compact_reserve: 1350,
+            chat_compact_reserve: 1100,
             ..Default::default()
         };
         state.cfg = cfg;
@@ -13259,7 +13549,7 @@ mod tests {
         state.ctx_used = 1600;
         let cfg = Config {
             chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
-            chat_compact_reserve: 1350,
+            chat_compact_reserve: 1100,
             ..Default::default()
         };
         state.cfg = cfg;

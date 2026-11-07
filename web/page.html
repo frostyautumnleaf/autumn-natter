@@ -3568,7 +3568,10 @@ function drawMcp(s) {
 // over a kind of tool of the program, and the badge itself is the switch over all
 // of them: a tool whose line is off is not offered even while the badge stands
 // on, and a badge that is off offers nothing whatever the lines say. The first
-// word of a line is the name the program knows the switch by.
+// word of a line is the name the program knows the switch by. A fourth word,
+// when a line carries one, names the setting the line stands under: such a line
+// is drawn only while that setting stands, for the tool behind it has nothing to
+// do without it, and the engine offers it no more than the page draws it.
 var TOOL_LINES = [
   ['commands', 'Terminal commands',
    'The model may run a command. A command runs in the sandbox when the sandbox is on, and reaches only the working directory of the chat unless the menu of the sandbox badge opens more.'],
@@ -3583,8 +3586,30 @@ var TOOL_LINES = [
   ['ask', 'Ask questions',
    'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.'],
   ['infographics', 'Create infographics',
-   'The model may make an infographic video: a script of scenes and blocks, a check of the layout, and the frames written into a file. The work stands in the folder infographics of the chat, and the video is made there too. The last step takes a while, and the line of the state tells how far it has come.']
+   'The model may make an infographic video: a script of scenes and blocks, a check of the layout, and the frames written into a file. The work stands in the folder infographics of the chat, and the video is made there too. The last step takes a while, and the line of the state tells how far it has come.'],
+  ['summarise', 'Manually summarise',
+   'The model may put the talk of this chat into a handoff summary, when it asks for it or when you ask it to. The program writes the summary where the talk was cut, and the words it stands for go back to the model no more: the work goes on in the room that is made. Nothing you have read is taken away, and the files the model wrote stand where they were written. The line stands only while the handoff summary is chosen in the Chatting settings.',
+   'compaction']
 ];
+
+// Whether the room of the talk is made by a handoff summary. The line of the
+// drop-down that summarises the talk stands only while it is: with no summary
+// chosen there is nothing for the tool to do, and the engine keeps it out of
+// the ask as well.
+function compactionOn(s) {
+  return ((((s || {}).compaction) || {}).type || '') === 'handoff';
+}
+
+// The lines the page draws for one state. A line that stands under a setting
+// which is off leaves the menu, and leaves the count over the badge with it, so
+// the badge never says that a line is switched off when it was never drawn.
+function shownToolLines(s) {
+  var out = [];
+  for (var n = 0; n < TOOL_LINES.length; n++) {
+    if (TOOL_LINES[n][3] !== 'compaction' || compactionOn(s)) { out.push(TOOL_LINES[n]); }
+  }
+  return out;
+}
 
 // Whether any kind of tool stands switched on for this chat. They stand on from
 // the beginning, so a chat offers its tools until the user takes them away - and
@@ -3592,8 +3617,9 @@ var TOOL_LINES = [
 // filled only when it is next opened.
 function anyToolOn(s) {
   var held = (s && s.tool_switches) || {};
-  for (var n = 0; n < TOOL_LINES.length; n++) {
-    if (held[TOOL_LINES[n][0]] !== false) { return true; }
+  var lines = shownToolLines(s);
+  for (var n = 0; n < lines.length; n++) {
+    if (held[lines[n][0]] !== false) { return true; }
   }
   return false;
 }
@@ -3624,8 +3650,9 @@ function fillToolMenu(s) {
   if (!menu) { return; }
   menu.innerHTML = '';
   var held = s.tool_switches || {};
-  for (var n = 0; n < TOOL_LINES.length; n++) {
-    var one = TOOL_LINES[n];
+  var lines = shownToolLines(s);
+  for (var n = 0; n < lines.length; n++) {
+    var one = lines[n];
     menu.appendChild(toolLine(one[0], one[1], one[2] + (s.code ? ''
       : ' The badge of the tools is off, so no tool is offered at all.'),
       held[one[0]] !== false));
@@ -3648,9 +3675,10 @@ function closeToolMenu() {
 function drawTools(s) {
   if (!el.code) { return; }
   var held = s.tool_switches || {};
+  var lines = shownToolLines(s);
   var off = 0;
-  for (var n = 0; n < TOOL_LINES.length; n++) {
-    if (held[TOOL_LINES[n][0]] === false) { off += 1; }
+  for (var n = 0; n < lines.length; n++) {
+    if (held[lines[n][0]] === false) { off += 1; }
   }
   // The badge is the door over every tool of the program, and a door that
   // stands on with nothing behind it reads as a fault: with every line of the
@@ -3662,9 +3690,9 @@ function drawTools(s) {
   el.code.title = (shown
       ? 'The model may reach the tools of the program in this chat.'
       : 'No tool of the program is offered to the model in this chat.')
-    + (off ? ' ' + off + ' of ' + TOOL_LINES.length + ' are switched off in the menu.' : '')
+    + (off ? ' ' + off + ' of ' + lines.length + ' are switched off in the menu.' : '')
     + ' Click to switch all of them on or off; the arrow at the right, or a right click over the badge, chooses them one by one.'
-    + (off === TOOL_LINES.length
+    + (off === lines.length
       ? ' With none of them switched on, the badge opens that menu instead.' : '');
   if (el.codemenu && !el.codemenu.classList.contains('hidden')) { fillToolMenu(s); }
 }
@@ -4592,6 +4620,14 @@ var TOOL_SHAPES = {
     mark: 'M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5',
     head: 'Asking the user: ', done: 'Asked the user: ', word: 'question', end: 'answer',
     empty: 'no question', begun: 'the question being written'
+  },
+  // The talk of the chat put into a handoff summary. The head says what the call
+  // worked on; the body carries the reason the model gave and the receipt of the
+  // run, which names the room the talk took before the summary and after it.
+  summarise_chat: {
+    mark: 'M2.6 3.4h10.8M2.6 12.6h10.8M8 5.6v4.8M6.2 8.8 8 10.6l1.8-1.8',
+    head: 'Summarising ', done: 'Summarised ', word: 'reason', end: 'result',
+    empty: 'the talk of this chat', begun: 'the talk of this chat'
   }
 };
 
