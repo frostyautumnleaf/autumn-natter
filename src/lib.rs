@@ -32,6 +32,7 @@ pub mod engine;
 pub mod gguf;
 pub mod gpu;
 pub mod greet;
+pub mod infographic;
 pub mod llama;
 pub mod logs;
 pub mod markdown;

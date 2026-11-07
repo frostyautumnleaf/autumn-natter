@@ -230,11 +230,18 @@ pub struct Config {
     pub models_dir: String,
     // Directory that holds the repositories. Empty means the default place.
     pub repositories_dir: String,
-    // The skin the pages are drawn in: `light`, `dark` or `corporate`. An empty
-    // word marks a settings file written before there were three skins, and the
-    // switch below answers for it.
+    // The skin the pages are drawn in: `light`, `dark`, `silver` or `corporate`.
+    // An empty word marks a settings file written before there were three skins,
+    // and the switch below answers for it.
     #[serde(default)]
     pub theme: String,
+    // True when this file was written by a program that knows the four skins. A
+    // file without the word holds `corporate` for the ladder of grey, which now
+    // answers to `silver`: the near-black skin took the older name. The mark is
+    // stood on when the settings are read, and the file is written again, so the
+    // two are never mixed up again after that.
+    #[serde(default)]
+    pub skins_v2: bool,
     // The switch of the two skins that stood before the third. It is kept in step
     // with the skin above, so that a settings file of this program can still be
     // read by a program written when there were two.
@@ -468,20 +475,24 @@ pub fn sanitize_compact_reserve(value: i64) -> u32 {
 // to.
 pub const GREATEST_PRESET_NAME: usize = 60;
 
-// The three skins the pages can be drawn in. `light` is the pale ground the
-// program is cut for, `dark` the same colours on a ground near black, and
-// `corporate` grey and white and the shades between them alone.
+// The four skins the pages can be drawn in. `light` is the pale ground the
+// program is cut for, `dark` the same colours on a ground near black, `silver`
+// grey and white and the shades between them alone, and `corporate` a ground
+// near black drawn in the same neutral ladder: the colours of the program are
+// put away there as they are in the silver skin, and only the ground is darker.
 pub const THEME_LIGHT: &str = "light";
 pub const THEME_DARK: &str = "dark";
+pub const THEME_SILVER: &str = "silver";
 pub const THEME_CORPORATE: &str = "corporate";
 
-// The word of a skin. A word that is none of the three answers as the pale skin,
-// which is the one a new set of settings stands on. An empty word is the mark of a
-// settings file written before there were three skins, and the switch of the two
+// The word of a skin. A word that is none of the four answers as the pale skin,
+// which is the one a new set of settings stands on. An empty word is the mark of
+// a settings file written before there were four skins, and the switch of the two
 // that such a file holds answers for it.
 pub fn theme_word(value: &str, dark: bool) -> String {
     match value {
         THEME_DARK => THEME_DARK,
+        THEME_SILVER => THEME_SILVER,
         THEME_CORPORATE => THEME_CORPORATE,
         "" if dark => THEME_DARK,
         _ => THEME_LIGHT,
@@ -661,6 +672,7 @@ impl Default for Config {
             models_dir: paths().models.display().to_string(),
             repositories_dir: String::new(),
             theme: String::new(),
+            skins_v2: true,
             dark_mode: false,
             remote_port: DEFAULT_REMOTE_PORT,
             upnp_enabled: false,
@@ -822,7 +834,29 @@ pub fn load() -> Config {
     // The switch of the two that such a file holds answers for it, so a chat that
     // stood on the dark skin does not wake up pale.
     cfg.theme = theme_word(&cfg.theme, cfg.dark_mode);
+    // A file written before the fourth skin holds `corporate` for the ladder of
+    // grey. That skin is called `silver` now, and the older name belongs to the
+    // near-black one, so the word is turned over once and the file is written
+    // again with the mark of the four skins on it.
+    if turn_the_skin_words(&mut cfg) {
+        let _ = save(&cfg);
+    }
     cfg
+}
+
+// Turn the word of a skin over for a settings file written before the four skins
+// stood. True comes back when the file was turned, which is when it is worth
+// writing again. A file that already holds the mark of the four skins is left
+// alone, so the word `corporate` chosen after the change keeps its new meaning.
+fn turn_the_skin_words(cfg: &mut Config) -> bool {
+    if cfg.skins_v2 {
+        return false;
+    }
+    if cfg.theme == THEME_CORPORATE {
+        cfg.theme = THEME_SILVER.to_string();
+    }
+    cfg.skins_v2 = true;
+    true
 }
 
 // Write settings.json. Parent directories are created when needed.
@@ -912,11 +946,45 @@ mod tests {
         assert_eq!(theme_word(THEME_LIGHT, false), "light");
         assert_eq!(theme_word(THEME_DARK, false), "dark");
         assert_eq!(theme_word(THEME_CORPORATE, true), "corporate");
+        assert_eq!(theme_word(THEME_SILVER, false), "silver");
         assert_eq!(theme_word("", true), "dark");
         assert_eq!(theme_word("", false), "light");
         assert_eq!(theme_word("shiny_and_blue", true), "light");
         let fresh = Config::default();
         assert_eq!(theme_word(&fresh.theme, fresh.dark_mode), THEME_LIGHT);
+    }
+
+    // The word `corporate` meant the ladder of grey before the near-black skin
+    // took the name. A file that holds it without the mark of the four skins is
+    // such a file, and is read as `silver`; a file with the mark holds the word
+    // for the new skin and is left alone.
+    #[test]
+    fn the_older_word_for_the_ladder_of_grey_is_turned_once() {
+        let mut old = Config {
+            theme: THEME_CORPORATE.to_string(),
+            skins_v2: false,
+            ..Config::default()
+        };
+        assert!(turn_the_skin_words(&mut old), "the file was turned");
+        assert_eq!(old.theme, THEME_SILVER);
+        assert!(old.skins_v2);
+        // The same file, read again after it was written with the mark on it,
+        // stands as it is: the word now names the near-black skin.
+        let mut newer = Config {
+            theme: THEME_CORPORATE.to_string(),
+            skins_v2: true,
+            ..Config::default()
+        };
+        assert!(!turn_the_skin_words(&mut newer), "nothing to turn");
+        assert_eq!(newer.theme, THEME_CORPORATE);
+        // A file that held another skin keeps it.
+        let mut dark = Config {
+            theme: THEME_DARK.to_string(),
+            skins_v2: false,
+            ..Config::default()
+        };
+        assert!(turn_the_skin_words(&mut dark));
+        assert_eq!(dark.theme, THEME_DARK);
     }
 
     // The name a preset is kept under: the words the user wrote, with the space

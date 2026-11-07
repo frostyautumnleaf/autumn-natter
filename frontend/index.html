@@ -23,6 +23,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Autumn Natter</title>
+<!-- The mark of the program stands in the tab of the browser and, where the
+     web view reads it, in the tab of the window. The file is the one the bar of
+     the page already asks for. The browser page of the remote mode names the
+     same mark by its route: `/autumn-natter.svg`. -->
+<link rel="icon" type="image/svg+xml" href="assets/autumn-natter.svg">
 <style>
 /* ---------------------------------------------------------------- tokens */
 /* Five accents, one pale skin, one warm dark skin. Every other colour is a
@@ -87,13 +92,13 @@ body.dark {
   --ring: 0 0 0 3px rgba(237, 116, 1, .16);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
 }
-/* The corporate skin: grey and white, and the shades between them. The five warm
+/* The silver skin: grey and white, and the shades between them. The five warm
    accents of the program are put away here, for a screen drawn in this skin may
    carry no colour that a printed report would not carry. One ladder of grey stands
    for the whole of it: the ground is the darkest step, the surfaces climb from it,
    the words come down from white, and what was told by colour in the other skins is
    told here by weight, by shape and by place. */
-body.corporate {
+body.silver {
   --accent: #6f6f6f; --warm: #5c5c5c; --strong: #4a4a4a; --leaf: #8c8c8c; --deep: #383838;
   --accent-soft: rgba(255, 255, 255, .10);
   --accent-line: rgba(255, 255, 255, .30);
@@ -116,6 +121,35 @@ body.corporate {
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
   --shadow-2: 0 2px 6px rgba(0, 0, 0, .45), 0 16px 38px rgba(0, 0, 0, .5);
 }
+/* The corporate skin: the same ladder of grey, on a ground near black. It carries
+   no colour of its own either, and it is the silver skin taken down to a darker
+   room: the ground, the surfaces and the hairlines all begin lower, and the words
+   stay white, so a screen in a dark office shows one block of writing and nothing
+   else. What the silver skin says with a step of grey, this skin says with the
+   same step from a lower place. */
+body.corporate {
+  --accent: #8a8a8a; --warm: #747474; --strong: #5e5e5e; --leaf: #a6a6a6; --deep: #454545;
+  --accent-soft: rgba(255, 255, 255, .08);
+  --accent-line: rgba(255, 255, 255, .26);
+
+  --bg: #080808; --fade-top: rgba(8,8,8,1); --fade-out: rgba(8,8,8,0);
+  --surface: #121212; --surface-2: #1a1a1a; --surface-3: #232323;
+  --line: #2c2c2c; --line-soft: #222222; --line-strong: #4a4a4a;
+  --text: #ffffff; --text-2: #e6e6e6; --dim: #a8a8a8; --faint: #8a8a8a;
+  --hover: #1a1a1a; --tint: #222222; --on-accent: #ffffff;
+
+  --bubble: #1c1c1c; --bubble-line: #333333;
+  --plate: rgba(255, 255, 255, .07); --plate-line: rgba(255, 255, 255, .14);
+  --plate-mark: rgba(255, 255, 255, .09);
+  --plate-shadow: 0 1px 3px rgba(0, 0, 0, .55);
+  --code-bg: #141414; --code-line: #2c2c2c;
+  --think-bg: #141414; --tool-bg: #101010;
+  --scrim: rgba(0, 0, 0, .74);
+  --ring: 0 0 0 3px rgba(255, 255, 255, .14);
+  --bad-hover: rgba(255, 255, 255, .14);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .5);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, .5), 0 16px 38px rgba(0, 0, 0, .58);
+}
 /* A word in an accent colour needs the bright end of the accent in the dark
    skin, where #C53C01 cannot be read on #0a0400. The mix is of an allowed
    accent with a neutral, so no new colour is added. A plain value stands
@@ -125,7 +159,7 @@ body.dark { --ink: #f08a2a; --ink-leaf: #d9713f; --ink-fail: #e0603a; }
 /* A word that stands in an accent colour is white on a ground of grey, and the two
    weaker inks are the steps below it. A fault keeps a colour of its own: a very
    light red, so a failed tool call is known as one and not as plain words. */
-body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #f0b4ad; }
+body.silver, body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #f0b4ad; }
 /* The two counts of a change of a file. Green for what was written and red for
    what was taken away are the colours the eye knows for the two already; they
    are kept pale, so that they sit with the warm colours of the skin instead of
@@ -135,7 +169,7 @@ body.dark { --hunk-add: #a3c98c; --hunk-cut: #e09b86; }
 /* The two counts in pale green and pale red. The skin is else without colour, but
    the sign before a count and the two colours beside it say which is which at one
    look, as they do in the other skins. */
-body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
+body.silver, body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
 @supports (color: color-mix(in oklab, red, blue)) {
   body.dark {
     --ink: color-mix(in oklab, var(--accent) 74%, #fff6ec);
@@ -149,7 +183,7 @@ body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
    skin instead of the usual pale grey. */
 :root { color-scheme: light; }
 body.dark { color-scheme: dark; }
-body.corporate { color-scheme: dark; }
+body.silver, body.corporate { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -193,9 +227,10 @@ textarea, input { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; padding-right: 2px; }
 .brand .mark { width: 21px; height: 21px; display: block; }
 /* The program mark is drawn in the warm colours of the program. A screen in the
-   corporate skin may hold no colour of its own, so the mark is put through the ladder
-   of grey with everything else. The other two skins show the mark as it is drawn. */
-body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
+   silver skin or the corporate skin may hold no colour of its own, so the mark is
+   put through the ladder of grey with everything else. The other two skins show the
+   mark as it is drawn. */
+body.silver img.mark, body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
 .brand .word { font-size: 14.5px; font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
 .rule { width: 1px; height: 24px; background: var(--line); flex: 0 0 auto; }
 
@@ -737,10 +772,15 @@ body.dark {
 }
 /* The colours of a block of code in grey. The weight of a word, and the shape the
    words of it make, say which kind it is: here there is nothing else to say it with,
-   and a block of code can still be read. */
-body.corporate {
+   and a block of code can still be read. The corporate skin reads the same list from
+   a darker ground, so the steps that stand on the ground are lifted a little. */
+body.silver {
   --t-com: #8d8d8d; --t-key: #ffffff; --t-str: #dcdcdc; --t-num: #e4e4e4;
   --t-name: #ffffff; --t-var: #dcdcdc; --t-pun: #ababab;
+}
+body.corporate {
+  --t-com: #9a9a9a; --t-key: #ffffff; --t-str: #e0e0e0; --t-num: #eaeaea;
+  --t-name: #ffffff; --t-var: #e0e0e0; --t-pun: #b6b6b6;
 }
 pre.code .t-c { color: var(--t-com); font-style: italic; }
 pre.code .t-k { color: var(--t-key); font-weight: 600; }
@@ -813,6 +853,13 @@ body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: n
 .wblock.shut > .wbbody { display: none; }
 .wblock.shut > .wbhead .wfold { transform: rotate(-90deg); }
 .wbbody { padding: 0 12px 8px 30px; }
+/* A block inside a heading: the work of that heading, put in under it. It keeps
+   the shape of a block of the short, with a line of its own about it, so the
+   eye reads the heading and then the pieces of the work beneath. */
+.wbbody .wblock { border: 1px solid var(--line); border-radius: 8px; margin: 6px 0 0; }
+.wbbody .wblock:first-child { border-top: 1px solid var(--line); }
+.wbbody .wblock > .wbhead { padding: 6px 10px; }
+.wbbody .wblock > .wbbody { padding: 0 10px 6px 26px; }
 .wline { padding: 3px 0; }
 .wplus, .wminus { font-variant-numeric: tabular-nums; margin-left: 7px; }
 .wplus { color: var(--hunk-add); }
@@ -2431,10 +2478,11 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
         <div class="sec">Appearance</div>
         <div class="fld"><span class="lbl">Skin</span>
-          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a ground near black, and Corporate grey and white and the shades between them alone. The skin changes at once.</span>
+          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a ground near black, Silver grey and white and the shades between them alone, and Corporate that same ladder of grey on a ground near black. The skin changes at once.</span>
           <div class="ctl"><div class="seg" id="fTheme" role="group" aria-label="Which skin to draw the page in">
               <button class="on" id="fThemeLight" type="button">Light</button>
               <button id="fThemeDark" type="button">Dark</button>
+              <button id="fThemeSilver" type="button">Silver</button>
               <button id="fThemeCorporate" type="button">Corporate</button>
             </div></div></div>
 
@@ -3513,7 +3561,9 @@ var TOOL_LINES = [
   ['display', 'Show files',
    'The model may put the contents of files of the chat in a window over the chat, and only when you asked to see them. A click on the block of the show opens that window again. Only the kinds the window can show are let through, and while the sandbox stands only the working directory of the chat is opened.'],
   ['ask', 'Ask questions',
-   'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.']
+   'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.'],
+  ['infographics', 'Create infographics',
+   'The model may make an infographic video: a script of scenes and blocks, a check of the layout, and the frames written into a file. The work stands in the folder infographics of the chat, and the video is made there too. The last step takes a while, and the line of the state tells how far it has come.']
 ];
 
 // Whether any kind of tool stands switched on for this chat. They stand on from
@@ -5996,6 +6046,7 @@ function workBlock(one, deep) {
   }
   block.appendChild(head);
   var lines = one.lines || [];
+  var under = one.sub || [];
   if (lines.length) {
     var body = make('div', 'wbbody');
     for (var n = 0; n < lines.length; n++) {
@@ -6003,7 +6054,19 @@ function workBlock(one, deep) {
       line.textContent = lines[n];
       body.appendChild(line);
     }
+    // The calls made under this heading stand inside it, each a block of its
+    // own, so a heading of the work and the work of that heading are read
+    // together.
+    for (var k = 0; k < under.length; k++) {
+      body.appendChild(workBlock(under[k], true));
+    }
     block.appendChild(body);
+  } else if (under.length) {
+    var box = make('div', 'wbbody');
+    for (var j = 0; j < under.length; j++) {
+      box.appendChild(workBlock(under[j], true));
+    }
+    block.appendChild(box);
   } else {
     block.className = 'wblock';
     head.style.cursor = 'default';
@@ -6034,10 +6097,16 @@ function corporateBlock(head, blocks) {
 // The one block of an answer of the model, or nothing at all when the answer
 // has no short of the work -- an answer of a chat that was written before the
 // corporate display stood, or one with no work in it.
+// The one block of an answer of the model. The block always stands after an
+// answer of a chat that was written while the corporate display stood, even
+// when the model wrote nothing of its work: the head then says "Done". Nothing
+// is drawn for an answer that has no short at all, which is an answer written
+// before the mode stood.
 function corporateOf(m) {
   var blocks = m.work || [];
-  if (!blocks.length) { return null; }
-  return corporateBlock(m.work_head || '', blocks);
+  var head = m.work_head || '';
+  if (!blocks.length && !head) { return null; }
+  return corporateBlock(head || 'Done', blocks);
 }
 
 // The settings that the corporate display has nothing to say about: the panels
@@ -6079,9 +6148,9 @@ function welcomeMock(kind) {
       + '<rect x="24" y="92" width="104" height="5" rx="2" fill="currentColor" opacity=".3"/></svg>';
     return box;
   }
-  // The three skins: the ground of the page and the words upon it.
-  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', corporate: '#2b2b2b' };
-  var inks = { light: '#232323', dark: '#e8e8e8', corporate: '#dcdcdc' };
+  // The four skins: the ground of the page and the words upon it.
+  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', silver: '#2b2b2b', corporate: '#0d0d0d' };
+  var inks = { light: '#232323', dark: '#e8e8e8', silver: '#dcdcdc', corporate: '#e6e6e6' };
   var box2 = document.createElement('div');
   box2.innerHTML = '<span class="wswatch" style="background:' + grounds[kind] + '">'
     + '<svg viewBox="0 0 62 40" width="62" height="40" xmlns="http://www.w3.org/2000/svg">'
@@ -6170,10 +6239,11 @@ function drawWelcome() {
   long.appendChild(longOpts);
   screen.appendChild(long);
 
-  var skins = welcomePart('The skin of the pages', 'Pale, dark, or the grey and white of the corporate skin.');
+  var skins = welcomePart('The skin of the pages', 'Pale, dark, the grey and white of the silver skin, or the near black of the corporate one.');
   var skinCards = make('div', 'wcards');
   skinCards.appendChild(welcomeCard('theme', 'light', 'light', 'Light', ''));
   skinCards.appendChild(welcomeCard('theme', 'dark', 'dark', 'Dark', ''));
+  skinCards.appendChild(welcomeCard('theme', 'silver', 'silver', 'Silver', ''));
   skinCards.appendChild(welcomeCard('theme', 'corporate', 'corporate', 'Corporate', ''));
   skins.appendChild(skinCards);
   screen.appendChild(skins);
@@ -9967,7 +10037,7 @@ function showSetTab(tab) {
 
 // ------------------------------------------------------------------ skins
 //
-// The three skins of the page. The pale skin is the ground the page is cut for and
+// The four skins of the page. The pale skin is the ground the page is cut for and
 // puts no mark on the body; the dark skin and the corporate skin each put one, and
 // every colour of the page comes from the variables stood under that mark. The word
 // of the skin comes with the state, so the window and the browser page follow the
@@ -9975,10 +10045,14 @@ function showSetTab(tab) {
 
 var themeWord = 'light';   // the skin the page stands in
 
-// The word of a skin out of any words: one of the three stands, and anything else
+// The four skins, in the order the sheet and the mark of the browser page step
+// through them.
+var SKINS = ['light', 'dark', 'silver', 'corporate'];
+
+// The word of a skin out of any words: one of the four stands, and anything else
 // is the pale skin, which is the one a new set of settings stands on.
 function themeOf(word) {
-  return (word === 'dark' || word === 'corporate') ? word : 'light';
+  return SKINS.indexOf(word) >= 0 ? word : 'light';
 }
 
 // Put a skin on the page. The mark of the old two-way switch is kept in step, for a
@@ -9986,18 +10060,19 @@ function themeOf(word) {
 function showTheme(word) {
   themeWord = themeOf(word);
   document.body.classList.toggle('dark', themeWord === 'dark');
+  document.body.classList.toggle('silver', themeWord === 'silver');
   document.body.classList.toggle('corporate', themeWord === 'corporate');
 }
 
-// The three marks of the sheet, so the switch stands at the skin in use.
+// The four marks of the sheet, so the switch stands at the skin in use.
 function showThemeButtons() {
-  ['light', 'dark', 'corporate'].forEach(function (one) {
+  SKINS.forEach(function (one) {
     var node = byId('fTheme' + one.charAt(0).toUpperCase() + one.slice(1));
     if (node) { node.classList.toggle('on', one === themeWord); }
   });
 }
 
-// One of the three buttons of the sheet. The skin goes on at once, and is written to
+// One of the four buttons of the sheet. The skin goes on at once, and is written to
 // the program beside: nothing of a server moves with a skin.
 function chooseTheme(word) {
   showTheme(word);
@@ -11149,6 +11224,7 @@ byId('fOpenRepo').addEventListener('change', function (e) {
 });
 byId('fThemeLight').addEventListener('click', function () { chooseTheme('light'); });
 byId('fThemeDark').addEventListener('click', function () { chooseTheme('dark'); });
+byId('fThemeSilver').addEventListener('click', function () { chooseTheme('silver'); });
 byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('corporate'); });
 
 ['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mCachePrompt', 'mNoShift',

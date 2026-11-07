@@ -23,6 +23,7 @@ use crate::display;
 use crate::download;
 use crate::editfile;
 use crate::gpu::{self, Gpu};
+use crate::infographic;
 use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
 use crate::mcp;
@@ -345,6 +346,12 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         planning::ASK_NAME => (String::from("the questions of the plan"), String::new(), String::new()),
         planning::END_NAME => (String::from("the plan is agreed"), String::new(), String::new()),
         viewimage::NAME | viewimage::ONE_NAME => (viewimage::partial_words(raw), String::new(), String::new()),
+        // A tool of the infographic suite is named by the tool and the project.
+        name if infographic::is_tool(name) => (
+            infographic::shown(name, raw),
+            String::new(),
+            String::new(),
+        ),
         // A tool of a server of the user's own is named by the tool itself,
         // and the parts the model is writing are the words of the block.
         name if mcp::is_tool(name) => (
@@ -1727,8 +1734,12 @@ impl State {
         } else {
             Vec::new()
         };
+        // The head of the block is said in the words of a thing that happened, so
+        // a search that stood at the head while the answer came in is a search
+        // that was made. With no work at all the block still stands, and says
+        // "Done": the short of an answer never goes away after it.
         let head = if role == "Assistant" && self.corporate_on() {
-            std::mem::take(&mut self.live_work_head)
+            corporate::head_after(&work)
         } else {
             String::new()
         };
@@ -1756,6 +1767,15 @@ impl State {
     // stands at the end of the talk. False means the message is no longer the last
     // one of the talk, and the words have to stand on their own.
     fn append_resumed(&mut self, id: &str, body: &str, reasoning: &str, reasoning_ms: u64) -> bool {
+        // The work of this part of the answer joins the short of the answer it
+        // was gone on from, so the one block of the corporate display holds the
+        // whole of the work and not only the last part of it.
+        let more = if self.corporate_on() {
+            std::mem::take(&mut self.live_work)
+        } else {
+            Vec::new()
+        };
+        let joined = self.corporate_on();
         let Some(chat) = self.chat_mut() else { return false };
         let Some(last) = chat.messages.last_mut() else { return false };
         if last.id != id || last.role != "Assistant" {
@@ -1772,6 +1792,12 @@ impl State {
         }
         last.reasoning_ms += reasoning_ms;
         last.when = store::now_secs();
+        if !more.is_empty() {
+            last.work.extend(more);
+        }
+        if joined {
+            last.work_head = corporate::head_after(&last.work);
+        }
         true
     }
 
@@ -1988,9 +2014,11 @@ impl State {
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
         let head = corporate::head_of(&call.name, &args);
         self.live_work_head = head.clone();
-        match self.live_work.iter_mut().rev().find(|one| one.id == id) {
+        match corporate::find_mut(&mut self.live_work, id) {
             Some(place) => place.head = head,
-            None => self.live_work.push(corporate::block_for(&call.name, id, &args)),
+            // The call stands under the heading the model opened last, when it
+            // opened one, and on its own else.
+            None => corporate::begin(&mut self.live_work, &call.name, id, &args),
         }
     }
 
@@ -2001,7 +2029,7 @@ impl State {
         if !self.corporate_on() {
             return;
         }
-        let Some(place) = self.live_work.iter_mut().rev().find(|one| one.id == id) else {
+        let Some(place) = corporate::find_mut(&mut self.live_work, id) else {
             return;
         };
         corporate::settle(place);
@@ -2011,6 +2039,10 @@ impl State {
             place.adds = adds;
             place.cuts = cuts;
         }
+        // The head of the one block is said again in the words of a thing that
+        // happened, so a search that came back is not still standing at the head
+        // as a search on its way.
+        self.live_work_head = corporate::head_after(&self.live_work);
     }
 
     // Write the output of a tool run into its message.
@@ -2361,6 +2393,16 @@ impl State {
             out.push(json!({
                 "role": "system",
                 "content": chapters_words(),
+            }));
+        }
+        // The words of the corporate display, beside the words of the program.
+        // The mode hides the thoughts and the call blocks, so the model has to
+        // know that the short it writes is the only account of its work the user
+        // reads. The words go away with the mode.
+        if self.corporate_on() {
+            out.push(json!({
+                "role": "system",
+                "content": corporate::system_prompt(),
             }));
         }
         // The prompt of planning mode, beside the words of the program. It goes
@@ -4417,7 +4459,7 @@ impl Engine {
         cfg.chat_compact_prompt = config::sanitize_handoff_prompt(&cfg.chat_compact_prompt);
         cfg.chat_compact_prompt_short =
             config::sanitize_handoff_prompt_short(&cfg.chat_compact_prompt_short);
-        // The skin of the pages is kept to one of the three words, and the switch of
+        // The skin of the pages is kept to one of the four words, and the switch of
         // the two that stood before them keeps its old meaning: it is on for the dark
         // skin alone.
         cfg.theme = config::theme_word(&cfg.theme, cfg.dark_mode);
@@ -4441,12 +4483,13 @@ impl Engine {
         }
     }
 
-    // The skin of the pages: `light`, `dark` or `corporate`. The browser page has
-    // this switch too. Nothing of a server moves with a skin, so the pages put the
-    // new skin on before this answers. The switch of the two skins that stood before
-    // the third keeps its old meaning and is on for the dark skin alone: the third
-    // skin is a dark ground too, but a program written for two knows no other dark
-    // skin than the one it has, and the pale skin is an honest fall back.
+    // The skin of the pages: `light`, `dark`, `silver` or `corporate`. The browser
+    // page has this switch too. Nothing of a server moves with a skin, so the pages
+    // put the new skin on before this answers. The switch of the two skins that stood
+    // before the others keeps its old meaning and is on for the dark skin alone: the
+    // two skins of the grey ladder stand on dark grounds too, but a program written
+    // for two knows no other dark skin than the one it has, and the pale skin is an
+    // honest fall back.
     pub fn set_theme(&self, word: &str) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -7045,9 +7088,10 @@ fn run_turn(
             guard.answer_rate = 0.0;
             guard.rate_start = None;
             // The calls of the step before this one stand in the chat by now, so
-            // the blocks of the words being written start anew.
+            // the blocks of the words being written start anew. The short of the
+            // work does not: it belongs to the whole of the answer, and the one
+            // block of the corporate display keeps it until the answer is kept.
             guard.live_tools = Vec::new();
-            guard.live_work = Vec::new();
         }
         let progress_state = state.clone();
         let context_state = state.clone();
@@ -7279,7 +7323,6 @@ fn run_turn(
         // run of the command stands in the chat in its place, and says what
         // became of it.
         guard.live_tools.clear();
-        guard.live_work.clear();
         // How long the model spent thinking in this step. The words of the
         // panel are made from this.
         let thought_ms = match (guard.thought_start, guard.thought_end) {
@@ -8052,6 +8095,7 @@ fn group_of(name: &str) -> Option<&'static str> {
         download::NAME => Some("hand_out"),
         display::NAME => Some("display"),
         askuser::NAME => Some("ask"),
+        name if infographic::is_tool(name) => Some("infographics"),
         _ => None,
     }
 }
@@ -8078,6 +8122,7 @@ fn tool_group_word(part: &str) -> String {
         "hand_out" => String::from("Handing a file to the user"),
         "display" => String::from("Showing the contents of a file"),
         "ask" => String::from("Asking the user"),
+        "infographics" => String::from("Create infographics"),
         other => String::from(other),
     }
 }
@@ -8176,6 +8221,11 @@ fn offered(
         }
         if switches.ask {
             list.push(askuser::definition());
+        }
+        // The five tools of the infographic suite stand or fall as one line of
+        // the badge: a script without a renderer draws nothing.
+        if switches.infographics {
+            list.extend(infographic::definitions());
         }
     }
     if search_on {
@@ -8570,6 +8620,23 @@ fn run_program_tool(
         let made = display::show(workdir, &call.arguments, jailed);
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_displayed(&message_id, &made.report.output, made.report.ok, made.shown);
+        return;
+    }
+    // An infographic. The five tools of the suite work on one file of words in
+    // the room of the chat, and the last of them draws the frames. A render is
+    // the slow work of a minute, so the way it comes is put on the line of the
+    // state as it goes.
+    if infographic::is_tool(&call.name) {
+        let cancel_render = cancel.clone();
+        let told = |one: &str| {
+            if let Ok(mut guard) = state.lock() {
+                guard.set_status(one);
+            }
+        };
+        let made = infographic::run(&call.name, &call.arguments, workdir, &cancel_render, told);
+        let ok = !made.starts_with("the ") || made.contains("stands");
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &made, ok);
         return;
     }
     // A file the user is offered. Nothing is copied and nothing is fetched: the
@@ -12357,10 +12424,16 @@ mod tests {
         engine.set_theme("corporate");
         assert_eq!(engine.snapshot().theme, "corporate");
         assert!(!engine.snapshot().dark_mode);
+        // The silver skin is the ladder of grey the older program called corporate.
+        // Like the two skins of no colour it is not the dark skin, so the old switch
+        // stays off.
+        engine.set_theme("silver");
+        assert_eq!(engine.snapshot().theme, "silver");
+        assert!(!engine.snapshot().dark_mode);
         engine.set_theme("dark");
         assert_eq!(engine.snapshot().theme, "dark");
         assert!(engine.snapshot().dark_mode);
-        // A word that is none of the three is the pale skin.
+        // A word that is none of the four is the pale skin.
         engine.set_theme("nothing_of_a_skin");
         assert_eq!(engine.snapshot().theme, "light");
         assert!(!engine.snapshot().dark_mode);

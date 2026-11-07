@@ -73,6 +73,11 @@ pub struct WorkBlock {
     pub adds: i64,
     #[serde(default)]
     pub cuts: i64,
+    // The blocks inside this one. A heading the model wrote holds the calls that
+    // belong under it, so the short of the work reads as a heading and the work
+    // of that heading, and not as one long flat list.
+    #[serde(default)]
+    pub sub: Vec<WorkBlock>,
 }
 
 // The words of the tool the model has. It cannot be switched off, and it is
@@ -212,8 +217,7 @@ fn one_line(text: String) -> String {
 }
 
 // The block of a call, as it stands in the short of the work.
-pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {
-    let head = if known(name) {
+pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {    let head = if known(name) {
         let word = doing_word(name);
         let what = short_of(name, args);
         if what.is_empty() {
@@ -233,6 +237,7 @@ pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {
         failed: false,
         adds: 0,
         cuts: 0,
+        sub: Vec::new(),
     }
 }
 
@@ -266,10 +271,40 @@ pub fn settle(block: &mut WorkBlock) {
     }
 }
 
+// A call began under the short of the work. A heading the model wrote last
+// takes the call inside it, so the work of that heading stands with it; with no
+// heading open the call stands on its own.
+pub fn begin(blocks: &mut Vec<WorkBlock>, name: &str, id: &str, args: &Value) {
+    let made = block_for(name, id, args);
+    match blocks.last_mut() {
+        Some(one) if one.tool == NAME => one.sub.push(made),
+        _ => blocks.push(made),
+    }
+}
+
+// The block of one call, looked for in the whole of the short: a call stands at
+// the top, or inside the heading it was made under.
+pub fn find_mut<'a>(blocks: &'a mut [WorkBlock], id: &str) -> Option<&'a mut WorkBlock> {
+    for one in blocks.iter_mut() {
+        if one.id == id {
+            return Some(one);
+        }
+        if let Some(deeper) = find_mut(&mut one.sub, id) {
+            return Some(deeper);
+        }
+    }
+    None
+}
+
 // The head of the one block when an answer is over: the last thing the work
 // was, in the words of a thing that has happened.
 pub fn head_after(blocks: &[WorkBlock]) -> String {
-    let last = blocks.iter().rev().find(|one| !one.tool.is_empty());
+    let last = blocks.iter().rev().find_map(|one| {
+        if !one.tool.is_empty() && one.tool != NAME {
+            return Some(one);
+        }
+        last_call(one)
+    });
     match last {
         Some(one) => {
             let word = if one.tool == search::NAME {
@@ -287,6 +322,17 @@ pub fn head_after(blocks: &[WorkBlock]) -> String {
         }
         None => String::from("Done"),
     }
+}
+
+// The last call inside one block of the model's own heading. Nothing comes back
+// when the heading holds no call.
+fn last_call(block: &WorkBlock) -> Option<&WorkBlock> {
+    block.sub.iter().rev().find_map(|one| {
+        if one.tool.is_empty() || one.tool == NAME {
+            return last_call(one);
+        }
+        Some(one)
+    })
 }
 
 // Take the short of the work out of what the model sent, and put it into the
@@ -308,9 +354,9 @@ pub fn note(blocks: &mut Vec<WorkBlock>, entry: &Entry) -> bool {
     }
     if topic.is_empty() {
         // Without a heading the lines have nowhere of their own, so they stand
-        // under the last block the model wrote, or under a block of their own
-        // when the model wrote none.
-        let place = blocks.iter_mut().rev().find(|one| one.tool == NAME);
+        // under the heading the model opened last, or under a block of their own
+        // when the model opened none.
+        let place = blocks.last_mut().filter(|one| one.tool == NAME);
         match place {
             Some(one) => one.lines.append(&mut lines),
             None => blocks.push(WorkBlock {
@@ -322,10 +368,13 @@ pub fn note(blocks: &mut Vec<WorkBlock>, entry: &Entry) -> bool {
         }
         return true;
     }
+    // Only the heading at the end of the short takes the lines. A heading the
+    // model wrote before, with another one after it, stands as it was: two
+    // headings of one name are two blocks of the work, each with the calls that
+    // were made under it.
     let place = blocks
-        .iter_mut()
-        .rev()
-        .find(|one| one.tool == NAME && one.head == topic);
+        .last_mut()
+        .filter(|one| one.tool == NAME && one.head == topic);
     match place {
         Some(one) => one.lines.append(&mut lines),
         None => blocks.push(WorkBlock {
@@ -336,6 +385,18 @@ pub fn note(blocks: &mut Vec<WorkBlock>, entry: &Entry) -> bool {
         }),
     }
     true
+}
+
+// The words the model gets when the corporate display stands. The mode changes
+// what the user can see, so the model has to be told how its work reaches the
+// screen: the thoughts and the call blocks are hidden, and the short it writes
+// is the only account of the work the user reads.
+pub fn system_prompt() -> String {
+    String::from(
+        "The chat stands in the corporate display. The user does not see your thoughts, and does not see the blocks of the calls you make: those are hidden whole. One block stands for each of your answers. Its head says what you are at, and the writing inside it is the short of your work.\n\
+         You write that short yourself with work_log. Call it as you start a piece of work, not after the answer is done, so a user who watches sees what you are at. Give the heading of the area you are working in, and one to three very short lines under it. Call it again with the same heading to add lines to that heading, and with another heading to open another one; the calls you make go under the heading you opened last. A heading is the area or the task, never a tool name and never a file name.\n\
+         Do not put the answer into those lines. The user reads the answer in the chat, and the short only says what you did to get it.",
+    )
 }
 
 // The words the model gets back for a call of the tool. They are kept short,
@@ -379,6 +440,70 @@ mod tests {
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0].lines.len(), 2);
         assert_eq!(blocks[1].head, "Checking the version");
+    }
+
+    #[test]
+    fn a_call_stands_under_the_heading_the_model_opened_last() {
+        let mut blocks = Vec::new();
+        note(
+            &mut blocks,
+            &Entry {
+                topic: String::from("Reading the paper"),
+                lines: vec![String::from("Two methods to compare.")],
+            },
+        );
+        begin(&mut blocks, tools::TOOL_NAME, "c1", &json!({"command": "ls"}));
+        assert_eq!(blocks.len(), 1, "the call stands inside the heading");
+        assert_eq!(blocks[0].sub.len(), 1);
+        assert_eq!(blocks[0].sub[0].head, "Running command ls");
+        // The call is found again by its number, inside the heading.
+        let found = find_mut(&mut blocks, "c1").expect("the call of the paper");
+        settle(found);
+        assert_eq!(blocks[0].sub[0].head, "Ran a command ls");
+        // A second heading takes the calls after it, and leaves the first one
+        // as it stands.
+        note(
+            &mut blocks,
+            &Entry {
+                topic: String::from("Writing the answer"),
+                lines: vec![String::from("The two methods, side by side.")],
+            },
+        );
+        begin(&mut blocks, search::NAME, "c2", &json!({"query": "attention"}));
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].sub.len(), 1, "the first heading keeps its work");
+        assert_eq!(blocks[1].sub.len(), 1);
+        assert_eq!(head_after(&blocks), "Searched the web");
+    }
+
+    #[test]
+    fn two_headings_of_one_name_are_two_blocks() {
+        let mut blocks = Vec::new();
+        note(
+            &mut blocks,
+            &Entry {
+                topic: String::from("Work"),
+                lines: vec![String::from("The first part.")],
+            },
+        );
+        begin(&mut blocks, tools::TOOL_NAME, "c1", &json!({"command": "pwd"}));
+        note(
+            &mut blocks,
+            &Entry {
+                topic: String::from("Elsewhere"),
+                lines: vec![String::from("A thing by itself.")],
+            },
+        );
+        note(
+            &mut blocks,
+            &Entry {
+                topic: String::from("Work"),
+                lines: vec![String::from("The last part.")],
+            },
+        );
+        assert_eq!(blocks.len(), 3, "a heading begun again opens again");
+        assert_eq!(blocks[2].lines.len(), 1);
+        assert_eq!(blocks[0].lines.len(), 1);
     }
 
     #[test]
