@@ -291,6 +291,14 @@ pub struct Config {
     // read as part of the words of the answer, as they were before.
     #[serde(default = "on_by_default")]
     pub chat_bold_markdown: bool,
+    // Let the colours the model asks for stand as colours: a run of words held
+    // between `<green>` and `</green>`, or between the marks of the three other
+    // colours, is shown in that colour. Turned off, the words are shown with no
+    // colour of their own. The marks are taken out of the talk that goes back to
+    // the model only while this stands on, for the page cannot paint what it no
+    // longer reads.
+    #[serde(default = "on_by_default")]
+    pub chat_colour_text: bool,
     // Read the chat as one piece of writing. The panels of the thoughts and of
     // the calls then stand on the chat itself: no ground of their own, no line
     // about them, and no rule of colour down the left hand edge of a thought.
@@ -686,6 +694,7 @@ impl Default for Config {
             chat_date_new_chat: true,
             chat_highlight: true,
             chat_bold_markdown: true,
+            chat_colour_text: true,
             chat_seamless: false,
             chat_display: plain_display(),
             welcomed: false,
@@ -1016,6 +1025,7 @@ mod tests {
         assert!(cfg.chat_collapse_tools);
         assert!(cfg.chat_date_new_chat);
         assert!(cfg.chat_highlight);
+        assert!(cfg.chat_colour_text);
         assert!(cfg.chat_chapters);
         assert!(cfg.chat_userline);
         assert!(cfg.chat_context_files);
@@ -1188,6 +1198,7 @@ mod tests {
             DEFAULT_HANDOFF_PROMPT_SHORT
         );
         assert!(read.chat_timeline);
+        assert!(read.chat_colour_text);
     }
 
     // The fields of the Compaction section are kept inside their bounds. A word

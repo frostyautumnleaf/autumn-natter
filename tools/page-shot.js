@@ -18,6 +18,9 @@
 //   AN_CLICK='#think' node page-shot.js chat p.png
 //   AN_CHAPTERS=12 node page-shot.js rich p.png   # that many marks on the line
 //   AN_NOCHAPTERS=1 node page-shot.js rich p.png  # the Chatting switch turned off
+//   AN_NOCOLOUR=1 node page-shot.js markdown p.png
+//     the switch of the colours the model asks for, turned off: the words between
+//     the four marks then stand in the colour of the words about them
 //   AN_SUMMARIES=6 node page-shot.js rich p.png   # that many handoff summaries
 //   AN_NOTIMELINE=1 node page-shot.js rich p.png  # the line turned off
 //   AN_BROKEN=1 node page-shot.js rich p.png      # the newest one never written
@@ -762,6 +765,21 @@ function scene(name, dark, theme) {
         + '| :--- | :--- | ---: | ---: | ---: | ---: | ---: |\n'
         + '| markdown.rs | the cutting of the blocks into kinds | 390 | 14 | 16 | 3 min | none |\n'
         + '| page.html | the page of the remote mode | 3207 | 6 | 8 | 1 min | none |'),
+      // The four colours a model may put on its own words. The marks stand in the
+      // words and are painted: the two greens and the two reds of the page, in a
+      // line of words and inside a heading. The switch of the Chatting settings
+      // is AN_NOCOLOUR=1 below, which reads the same words with no colour.
+      said(9, 'You', 'And colour on a few of the words?'),
+      said(10, 'Assistant',
+        'The model names the colour and the page paints the words between its two '
+        + 'marks: <green>the build passed</green>, <light_green>it may pass</light_green>, '
+        + '<red>the build failed</red> and <light_red>it may fail</light_red>.\n\n'
+        + '## <red>A heading with a fault in it</red>\n\n'
+        + 'A colour that nothing closes is left as it was written: <green>and here the '
+        + 'model stopped before the mark that closes it.',
+        { reasoning: 'The marks are read inside one line, and the words between them keep '
+          + 'their place. <light_red>The marks go out of the talk that goes back to the model.</light_red>',
+          reasoning_ms: 2100 }),
     ];
     start.context = { used: '2,040', total: '8,192', ratio: 0.25 };
   }
@@ -951,6 +969,12 @@ async function main() {
   if (process.env.AN_HL === '0') {
     state.chatting.highlight = false;
     CONFIG.chat_highlight = false;
+  }
+  // AN_NOCOLOUR=1 turns the colours the model asks for off: the words of the four
+  // colours then stand in the colour of the words about them.
+  if (process.env.AN_NOCOLOUR === '1') {
+    state.chatting.colour_text = false;
+    CONFIG.chat_colour_text = false;
   }
   // AN_PRESERVE=0 takes the choice to keep the thinking of the earlier turns
   // away from the model, so the switch of the menu can be looked at off, and

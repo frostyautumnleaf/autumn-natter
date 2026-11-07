@@ -384,6 +384,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "date_new_chat": snap.chat_date_new_chat,
             "highlight": snap.chat_highlight,
             "bold_markdown": snap.chat_bold_markdown,
+            // The colours the model asks for: painted on the words while this
+            // stands on, and read as plain words while it stands off.
+            "colour_text": snap.chat_colour_text,
             "seamless": snap.chat_seamless,
             // The corporate way of showing the work. The page hides the
             // thoughts and the calls when it stands, and draws one block for an

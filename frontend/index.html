@@ -733,6 +733,16 @@ a.link:hover { text-decoration-color: currentColor; }
    are made plain words again, and a link that was made a plain word would be a
    link lost. */
 a.link.fade { animation: ink 420ms ease-out; }
+/* The four colours a model may put on its own words. The model chose them, so
+   they stand the same in every skin and are mixed to nothing: green, the lighter
+   green, red and the lighter red. No weight and no shape is added, for the colour
+   is the whole of the mark, and the words keep the shape of the words about them.
+   The marks are read by `colourAt` above and taken out of the talk that goes back
+   to the model by the engine. */
+.tint-green { color: #24c935; }
+.tint-light-green { color: #61ff71; }
+.tint-red { color: #c92424; }
+.tint-light-red { color: #ff6161; }
 pre.code {
   margin: 4px 0 11px; padding: 11px 13px; background: var(--code-bg);
   border: 1px solid var(--code-line); border-radius: 10px;
@@ -2505,6 +2515,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Bold words in the chat</span>
           <span class="sub">A word held between two marks of boldness is written in the heavier shape of the letters. Turn this off to read the marks as part of the words themselves.</span>
           <div class="ctl"><input id="fBoldMarkdown" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Colour words the model asks for</span>
+          <span class="sub">The model may put a colour on a few of its own words, and those words then stand in that colour: green, light green, red or light red. Turn this off to read the answer with no colour. The marks then stay in the talk that goes back to the model, and the model is told nothing of the colours.</span>
+          <div class="ctl"><input id="fColourText" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Show the work</span>
           <span class="sub">How the work of the model is laid out. The plain way shows the thoughts in their panels and every call the model made in a block of its own. The corporate way hides all of that: one block stands for an answer, its head saying what the model is at, and the short of the work stands inside it, which the model writes itself. The settings below that lay the panels out have nothing to say while the corporate way stands.</span>
           <div class="ctl"><select id="fDisplay">
@@ -2956,7 +2969,7 @@ var cur = null;        // the last state
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
-  highlight: true, bold: true, seamless: false, chapters: true, userline: true, paste: 6000, width: 780 };
+  highlight: true, bold: true, colour: true, seamless: false, chapters: true, userline: true, paste: 6000, width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -3105,6 +3118,13 @@ function readChatting(s) {
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
   chatting.bold = chat.bold_markdown !== false;
+  // The colours the model asks for. A change of this switch changes the words of
+  // an answer and not only the ground under them, so the talk is put on again:
+  // a row is kept while its message says the same thing, and a message says the
+  // same thing whether the colour stands or not.
+  var colour = chat.colour_text !== false;
+  if (colour !== chatting.colour) { threadAgainForLook(); }
+  chatting.colour = colour;
   chatting.seamless = !!chat.seamless;
   // The corporate display hides the thoughts and the calls, so the settings
   // that lay those panels out have nothing left to say.
@@ -3923,6 +3943,35 @@ function boldAt(words, at) {
   }
 }
 
+// The four colours a model may put on its words, and the class that paints each
+// of them. The names and the marks are the same in the engine, which takes them
+// out of the talk that goes back to the model, and in the stylesheet, which says
+// what each of them looks like.
+var COLOUR_OPEN = /^<(green|light_green|red|light_red)>/;
+var COLOUR_CLOSE = { green: '</green>', light_green: '</light_green>',
+  red: '</red>', light_red: '</light_red>' };
+var COLOUR_CLASS = { green: 'tint-green', light_green: 'tint-light-green',
+  red: 'tint-red', light_red: 'tint-light-red' };
+
+// A colour the model asked for: the words between a mark that opens one of the
+// four colours and the mark that closes that colour again. The run is read inside
+// one line, as every other mark of this page is. Nothing comes back while the
+// switch of the colours stands off, while no mark of a colour stands here, and
+// while nothing closes it: the words then stand as they were written, so a mark
+// that is only half come in is not lost from the answer.
+function colourAt(words, at) {
+  if (!chatting.colour) { return null; }
+  var open = COLOUR_OPEN.exec(words.slice(at));
+  if (!open) { return null; }
+  var close = COLOUR_CLOSE[open[1]];
+  var from = at + open[0].length;
+  var end = words.indexOf(close, from);
+  // A pair of marks with nothing between them is no colour, and is left as it
+  // was written, as the engine leaves it.
+  if (end <= from) { return null; }
+  return { words: words.slice(from, end), colour: open[1], end: end + close.length };
+}
+
 function lineParts(line, out) {
   var words = String(line || ''), run = '', n = 0;
   while (n < words.length) {
@@ -3947,6 +3996,15 @@ function lineParts(line, out) {
       }
     }
     if (ch === '<') {
+      // The words the model put a colour on, read before the address of a link,
+      // for a colour is the shorter mark of the two and stands here more often.
+      var painted = colourAt(words, n);
+      if (painted) {
+        if (run) { out.push({ words: plain(run) }); run = ''; }
+        out.push({ words: plain(painted.words), colour: painted.colour });
+        n = painted.end;
+        continue;
+      }
       // An address between marks of less-than is a link of its own, and the
       // address is the whole of its words.
       var straight = /^<((?:https?:\/\/|mailto:)[^\s<>]*)>/.exec(words.slice(n));
@@ -3981,13 +4039,14 @@ function inlineWords(parts) {
   return said;
 }
 
-// The links of a run of words as one line. A link that comes in changes the look
-// of a block as much as a new line of words does, so it must stand in the shape
-// of an answer that is still coming.
+// The links and the colours of a run of words as one line. A link that comes in
+// changes the look of a block as much as a new line of words does, and so does a
+// colour the model asked for, so both stand in the shape of the words.
 function linkShape(text) {
   var parts = inlineParts(text), shape = '';
   for (var n = 0; n < parts.length; n++) {
     if (parts[n].href) { shape += ' link' + parts[n].href; }
+    if (parts[n].colour) { shape += ' colour' + parts[n].colour; }
   }
   return shape;
 }
@@ -4017,6 +4076,16 @@ function boldNode(words, href, fade) {
   return held;
 }
 
+// Words the model put a colour on. The colour comes from the stylesheet and from
+// nothing else: the model named it, and the page paints it. The words are set as
+// words and never as marks, and they fade in as the words about them do.
+function colourNode(words, colour, fade) {
+  var held = make('span', COLOUR_CLASS[colour] || '');
+  if (fade) { fresh(held, words); }
+  else { held.textContent = words; }
+  return held;
+}
+
 // The parts of a run of words put into a node. `fade` puts the words behind a
 // fade, as the new words of an answer are.
 function inlineInto(node, parts, fade) {
@@ -4024,6 +4093,7 @@ function inlineInto(node, parts, fade) {
     var part = parts[n];
     if (!part.words) { continue; }
     if (part.bold) { putLast(node, boldNode(part.words, part.href, fade)); }
+    else if (part.colour) { putLast(node, colourNode(part.words, part.colour, fade)); }
     else if (part.href) { putLast(node, linkNode(part.words, part.href, fade)); }
     else if (fade) { fresh(node, part.words); }
     else { putLast(node, document.createTextNode(part.words)); }
@@ -7366,6 +7436,24 @@ function threadTurns(box) {
   return out;
 }
 
+// The talk is put on again whole: every row is made again at the next draw. A
+// look that changes the words themselves, and not only the ground under them,
+// needs this, for a row is kept while its message says the same thing, and the
+// message says the same thing with the look on and with it off. The reading
+// place of the chat itself is kept, for the rows are put again where they stand.
+function threadAgainForLook() {
+  var box = el.col;
+  if (!box) { return; }
+  box.dataset.key = '';
+  var turns = threadTurns(box);
+  for (var n = 0; n < turns.length; n++) { turns[n].dataset.row = ''; }
+  // The answer that is coming in is written by the writer of the live words, and
+  // it keeps the shape its blocks stood in. That shape is of the look before
+  // this one, so it is thrown away with the rows.
+  ink.shape = '';
+  ink.thoughtShape.shape = '';
+}
+
 // A turn that came in stands at the end of the talk, and before the questions of
 // the plan when they stand there: the questions are the last word of the talk
 // while the model waits for them.
@@ -10110,6 +10198,7 @@ function loadProgram() {
     byId('fToolsInThink').checked = cfg.chat_tools_in_thinking !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
     byId('fBoldMarkdown').checked = cfg.chat_bold_markdown !== false;
+    byId('fColourText').checked = cfg.chat_colour_text !== false;
     byId('fSeamless').checked = !!cfg.chat_seamless;
     byId('fDisplay').value = cfg.chat_display === 'corporate' ? 'corporate' : 'plain';
     corporateGreyed(byId('fDisplay').value === 'corporate');
@@ -10705,6 +10794,7 @@ function readProgram() {
   cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
   cfg.chat_highlight = byId('fHighlight').checked;
   cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
+  cfg.chat_colour_text = byId('fColourText').checked;
   cfg.chat_seamless = byId('fSeamless').checked;
   cfg.chat_display = byId('fDisplay').value === 'corporate' ? 'corporate' : 'plain';
   cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);

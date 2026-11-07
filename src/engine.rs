@@ -1069,6 +1069,97 @@ pub fn chapters_words() -> String {
     )
 }
 
+// The four colours a model may put on its words: the mark that opens the colour,
+// and the mark that closes it. The names are the model's own, and the page paints
+// each of them with one colour of its own: `green` #24c935, `light_green` #61ff71,
+// `red` #c92424 and `light_red` #ff6161. The marks stand here and in the two
+// pages, and nowhere else.
+pub const COLOUR_MARKS: [(&str, &str); 4] = [
+    ("<green>", "</green>"),
+    ("<light_green>", "</light_green>"),
+    ("<red>", "</red>"),
+    ("<light_red>", "</light_red>"),
+];
+
+// The words that go before the model while the colours of the chat stand on. The
+// colours are not a call of any kind and have no panel of their own: the page
+// paints the words between the two marks, so the model has to be told what the
+// marks are and when they are worth using. The words go in a message of the role
+// `system` at the head of the talk, once for the talk, and they go away with the
+// switch.
+pub fn colour_words() -> String {
+    String::from(
+        "You may put colour on a few words of your answer. Write the words between a mark that opens a colour and the mark that closes it, for example <green>done</green>. The four colours are green, light_green, red and light_red, and the closing mark is the opening mark with a slash in it, so </green> closes the green. The program paints those words for the user and takes the marks out of the talk it reads back to you. Use a colour for a few words only: a result that is good or bad, a number that decides something, or a thing the user must not miss. Do not colour a whole sentence or a whole answer, do not put one colour inside another, do not write the marks inside a block of code, and do not speak of the colours in your answer.",
+    )
+}
+
+// Which colour a mark at the head of `words` asks for: the mark that opens it
+// and the mark that closes it. Nothing comes back for a less-than mark that
+// opens no colour, nor for `<greenish>` for example, nor for a pair of marks
+// with nothing between them.
+fn colour_at(words: &str) -> Option<(&'static str, &'static str)> {
+    for (open, close) in COLOUR_MARKS {
+        // The whole of the opening mark must stand, and more than the two marks
+        // must stand in all, so `<green>` with nothing in it is no colour.
+        if words.len() > open.len() + close.len() && words.starts_with(open) {
+            return Some((open, close));
+        }
+    }
+    None
+}
+
+// How deep one colour may stand inside another and still be gone into. The page
+// reads one colour and no more, for it cuts a line into its parts once over; the
+// words of an answer that put colour a long way down are a fault and not a look.
+// The count is a ceiling on the work, so a very long answer of nothing but marks
+// cannot ask for more steps than there is room for.
+const GREATEST_COLOUR_NESTING: usize = 8;
+
+// The words of an answer with the colour marks taken out of them: the words
+// between the two marks keep their place, and the marks go. A colour inside a
+// colour loses both pairs of marks. A mark that nothing closes stays where the
+// model wrote it, for an answer that stopped in the middle of a colour is the
+// model's own words and not ours to finish. The page paints the words and loses
+// the marks, so the marks would otherwise be read back to the model as words it
+// never meant to write.
+pub fn strip_colour_tags(text: &str) -> String {
+    strip_colour_tags_deep(text, 0)
+}
+
+// The same words, with the depth of the colours already gone into counted.
+fn strip_colour_tags_deep(text: &str, depth: usize) -> String {
+    if !text.contains('<') || depth >= GREATEST_COLOUR_NESTING {
+        return String::from(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut left = text;
+    while !left.is_empty() {
+        let Some(at) = left.find('<') else {
+            out.push_str(left);
+            break;
+        };
+        out.push_str(&left[..at]);
+        left = &left[at..];
+        let Some((open, close)) = colour_at(left) else {
+            out.push('<');
+            left = &left[1..];
+            continue;
+        };
+        match left[open.len()..].find(close) {
+            Some(where_it_stands) => {
+                let inner = &left[open.len()..open.len() + where_it_stands];
+                out.push_str(&strip_colour_tags_deep(inner, depth + 1));
+                left = &left[open.len() + where_it_stands + close.len()..];
+            }
+            None => {
+                out.push_str(open);
+                left = &left[open.len()..];
+            }
+        }
+    }
+    out
+}
+
 // A copy of everything a window needs to draw. It is made while the state lock
 // is held, and then used without the lock.
 pub struct Snap {
@@ -1147,6 +1238,9 @@ pub struct Snap {
     // Whether the marks of boldness are read as boldness in the words of the
     // chat, or as part of the words themselves.
     pub chat_bold_markdown: bool,
+    // Whether the colours the model asks for are painted on the words of the
+    // chat, and taken out of the talk that goes back to the model.
+    pub chat_colour_text: bool,
     // Whether the chat reads as one piece of writing, with nothing drawn about
     // a panel of the thoughts or of a call.
     pub chat_seamless: bool,
@@ -2405,6 +2499,16 @@ impl State {
                 "content": corporate::system_prompt(),
             }));
         }
+        // The words of the colours the model may put on its words, beside the
+        // words of the program. The page paints them, and the marks go out of the
+        // talk with the answers, so the model has to know what it writes into.
+        // The words go away with the switch.
+        if self.cfg.chat_colour_text {
+            out.push(json!({
+                "role": "system",
+                "content": colour_words(),
+            }));
+        }
         // The prompt of planning mode, beside the words of the program. It goes
         // out for every ask of a planning chat, and it goes away with the mode:
         // the chat that works from the plan is asked with none of it, and with no
@@ -2463,9 +2567,19 @@ impl State {
                     }));
                 }
                 "Assistant" => {
+                    // The marks of a colour are a look over the words and not
+                    // words of the answer: the page paints the words between them
+                    // and loses the marks, so the marks go out of the talk here.
+                    // With the switch off the page reads no colour, and the marks
+                    // stay where the model wrote them.
+                    let said = if self.cfg.chat_colour_text {
+                        json!(strip_colour_tags(&message.body))
+                    } else {
+                        json!(message.body)
+                    };
                     let mut entry = json!({
                         "role": "assistant",
-                        "content": message.body,
+                        "content": said,
                     });
                     // The thinking of the answer rides beside its words, so the
                     // template may put it back where it stood. An answer that
@@ -3009,6 +3123,7 @@ impl State {
             chat_date_new_chat: self.cfg.chat_date_new_chat,
             chat_highlight: self.cfg.chat_highlight,
             chat_bold_markdown: self.cfg.chat_bold_markdown,
+            chat_colour_text: self.cfg.chat_colour_text,
             chat_seamless: self.cfg.chat_seamless,
             chat_display: self.cfg.chat_display.clone(),
             welcomed: self.cfg.welcomed,
@@ -4675,6 +4790,7 @@ impl Snap {
             chat_date_new_chat: true,
             chat_highlight: true,
             chat_bold_markdown: true,
+            chat_colour_text: true,
             chat_seamless: false,
             chat_display: String::from(config::PLAIN_DISPLAY),
             welcomed: true,
@@ -9768,6 +9884,149 @@ mod tests {
         }
     }
 
+    // The marks of a colour keep the words they stand about and add nothing of
+    // their own. A mark that nothing closes stays where the model wrote it, for
+    // the answer stopped in the middle of it. A mark of another kind, a mark with
+    // more words in its name, and a pair of marks with nothing between them are
+    // none of the four colours, and nothing of them is touched.
+    #[test]
+    fn the_colour_marks_are_taken_out_of_their_words() {
+        // Words with no marks in them come back as they went in.
+        assert_eq!(strip_colour_tags("nothing coloured here"), "nothing coloured here");
+        // The four colours, each with its words kept.
+        assert_eq!(strip_colour_tags("<green>done</green>"), "done");
+        assert_eq!(
+            strip_colour_tags("<light_green>almost done</light_green>"),
+            "almost done"
+        );
+        assert_eq!(strip_colour_tags("<red>it failed</red>"), "it failed");
+        assert_eq!(
+            strip_colour_tags("<light_red>it may fail</light_red>"),
+            "it may fail"
+        );
+        // Two colours in one line of words, and words between them.
+        assert_eq!(
+            strip_colour_tags("the build is <green>green</green> and the test is <red>red</red>."),
+            "the build is green and the test is red."
+        );
+        // A colour inside a colour loses both pairs of marks.
+        assert_eq!(
+            strip_colour_tags("<green>a <red>b</red> c</green>"),
+            "a b c"
+        );
+        // A mark that nothing closes stays, and so does a mark of another kind.
+        assert_eq!(strip_colour_tags("a <green>b"), "a <green>b");
+        assert_eq!(strip_colour_tags("<b>words</b>"), "<b>words</b>");
+        assert_eq!(
+            strip_colour_tags("<greenish>words</greenish>"),
+            "<greenish>words</greenish>"
+        );
+        assert_eq!(strip_colour_tags("<green></green>"), "<green></green>");
+        // A mark of one colour closed by the mark of another is left alone.
+        assert_eq!(strip_colour_tags("<green>a</red>"), "<green>a</red>");
+        // Words with no colour in them at all, of any length, are not gone over.
+        let plain = "n".repeat(5000);
+        assert_eq!(strip_colour_tags(&plain), plain);
+        // Marks of one colour with nothing between them but more marks of the
+        // same colour, and one mark that closes them: the first mark that closes
+        // is the one the words stand in, and the marks inside it stay, for
+        // nothing closes them where they stand. The page reads the same pair.
+        let deep = "<green>".repeat(200) + "x" + &"</green>".repeat(200);
+        assert_eq!(
+            strip_colour_tags(&deep),
+            "<green>".repeat(199) + "x" + &"</green>".repeat(199)
+        );
+        // The depth of the colours is counted. Past the depth the page reads, the
+        // words are given back as they stand, so an answer that put colour a long
+        // way down cannot ask for more work than there is room for.
+        let one = "<green>x</green>";
+        assert_eq!(strip_colour_tags_deep(one, 0), "x");
+        assert_eq!(strip_colour_tags_deep(one, GREATEST_COLOUR_NESTING), one);
+        assert_eq!(strip_colour_tags_deep(one, GREATEST_COLOUR_NESTING - 1), "x");
+    }
+
+    // The marks of a colour are a look over the words and not words of the
+    // answer. While the switch stands on, they go out of the talk that goes back
+    // to the model, and the words that tell the model of them stand at the head
+    // of it. With the switch off the marks stay where the model wrote them, and
+    // those words go away with the switch.
+    #[test]
+    fn the_talk_carries_the_colour_marks_only_while_the_switch_stands_off() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            if let Some(chat) = state.chat_mut() {
+                chat.messages.push(Message {
+                    role: String::from("You"),
+                    body: String::from("is the build finished?"),
+                    ..Default::default()
+                });
+                chat.messages.push(Message {
+                    role: String::from("Assistant"),
+                    body: String::from(
+                        "the build is <green>green</green> and the test is <light_red>red</light_red>",
+                    ),
+                    ..Default::default()
+                });
+            }
+            let list = state.build_history();
+            let answers = list
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|message| message["role"].as_str() == Some("assistant"))
+                .map(|message| message["content"].as_str().unwrap_or_default())
+                .collect::<Vec<&str>>();
+            assert_eq!(answers, vec!["the build is green and the test is red"]);
+            // The words of the colours stand at the head of the talk, once for it.
+            let told = list
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|message| {
+                    message["content"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .starts_with("You may put colour on a few words")
+                })
+                .count();
+            assert_eq!(told, 1);
+        }
+        // The switch off: the marks travel back as the model wrote them, for the
+        // page reads no colour then and the model must still find its own marks.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.cfg.chat_colour_text = false;
+            let list = state.build_history();
+            let answers = list
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|message| message["role"].as_str() == Some("assistant"))
+                .map(|message| message["content"].as_str().unwrap_or_default())
+                .collect::<Vec<&str>>();
+            assert_eq!(
+                answers,
+                vec!["the build is <green>green</green> and the test is <light_red>red</light_red>"]
+            );
+            let told = list
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|message| {
+                    message["content"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .starts_with("You may put colour on a few words")
+                })
+                .count();
+            assert_eq!(told, 0);
+        }
+    }
+
     // A chapter is begun by a main heading of an answer. The chapters are given
     // to the window in the order they begin, each tied to the message before the
     // answer that carries it, and the heading itself stays among the words of the
@@ -12089,7 +12348,11 @@ mod tests {
             .iter()
             .filter(|message| {
                 let said = message["content"].as_str().unwrap_or_default();
-                !said.starts_with(DATE_HEAD) && !said.starts_with("The chapters of this chat are read from")
+                // The line of the day, the words of the chapters and the words of
+                // the colours are words of the program, not of the talk.
+                !said.starts_with(DATE_HEAD)
+                    && !said.starts_with("The chapters of this chat are read from")
+                    && !said.starts_with("You may put colour on a few words")
             })
             .cloned()
             .collect()
@@ -12930,12 +13193,14 @@ mod tests {
         // the talk came to the limit while the call was being written. The room
         // is small enough that the estimate of the talk, with the telling of the
         // call in it, reads past the limit, and the estimate of the same talk
-        // without the telling reads under it.
+        // without the telling reads under it. The room the words of the program
+        // take is counted in here: the line of the day, the words of the chapters
+        // and the words of the colours ride with every ask.
         state.ctx_total = 2048;
         state.ctx_used = 1600;
         let cfg = Config {
             chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
-            chat_compact_reserve: 1500,
+            chat_compact_reserve: 1350,
             ..Default::default()
         };
         state.cfg = cfg;
@@ -12988,12 +13253,13 @@ mod tests {
         // The room and the limit, set so that the talk came to the limit while
         // the answer was being written, and so that a summary of the talk frees
         // the room: the estimate of the talk with the summary in it reads under
-        // the limit.
+        // the limit. The room the words of the program take is counted in, as it
+        // is in the test above.
         state.ctx_total = 2048;
         state.ctx_used = 1600;
         let cfg = Config {
             chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
-            chat_compact_reserve: 1500,
+            chat_compact_reserve: 1350,
             ..Default::default()
         };
         state.cfg = cfg;
