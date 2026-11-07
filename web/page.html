@@ -93,13 +93,13 @@ body.dark {
   --ring: 0 0 0 3px rgba(237, 116, 1, .16);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
 }
-/* The corporate skin: grey and white, and the shades between them. The five warm
+/* The silver skin: grey and white, and the shades between them. The five warm
    accents of the program are put away here, for a screen drawn in this skin may
    carry no colour that a printed report would not carry. One ladder of grey stands
    for the whole of it: the ground is the darkest step, the surfaces climb from it,
    the words come down from white, and what was told by colour in the other skins is
    told here by weight, by shape and by place. */
-body.corporate {
+body.silver {
   --accent: #6f6f6f; --warm: #5c5c5c; --strong: #4a4a4a; --leaf: #8c8c8c; --deep: #383838;
   --accent-soft: rgba(255, 255, 255, .10);
   --accent-line: rgba(255, 255, 255, .30);
@@ -122,6 +122,35 @@ body.corporate {
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
   --shadow-2: 0 2px 6px rgba(0, 0, 0, .45), 0 16px 38px rgba(0, 0, 0, .5);
 }
+/* The corporate skin: the same ladder of grey, on a ground near black. It carries
+   no colour of its own either, and it is the silver skin taken down to a darker
+   room: the ground, the surfaces and the hairlines all begin lower, and the words
+   stay white, so a screen in a dark office shows one block of writing and nothing
+   else. What the silver skin says with a step of grey, this skin says with the
+   same step from a lower place. */
+body.corporate {
+  --accent: #8a8a8a; --warm: #747474; --strong: #5e5e5e; --leaf: #a6a6a6; --deep: #454545;
+  --accent-soft: rgba(255, 255, 255, .08);
+  --accent-line: rgba(255, 255, 255, .26);
+
+  --bg: #080808; --fade-top: rgba(8,8,8,1); --fade-out: rgba(8,8,8,0);
+  --surface: #121212; --surface-2: #1a1a1a; --surface-3: #232323;
+  --line: #2c2c2c; --line-soft: #222222; --line-strong: #4a4a4a;
+  --text: #ffffff; --text-2: #e6e6e6; --dim: #a8a8a8; --faint: #8a8a8a;
+  --hover: #1a1a1a; --tint: #222222; --on-accent: #ffffff;
+
+  --bubble: #1c1c1c; --bubble-line: #333333;
+  --plate: rgba(255, 255, 255, .07); --plate-line: rgba(255, 255, 255, .14);
+  --plate-mark: rgba(255, 255, 255, .09);
+  --plate-shadow: 0 1px 3px rgba(0, 0, 0, .55);
+  --code-bg: #141414; --code-line: #2c2c2c;
+  --think-bg: #141414; --tool-bg: #101010;
+  --scrim: rgba(0, 0, 0, .74);
+  --ring: 0 0 0 3px rgba(255, 255, 255, .14);
+  --bad-hover: rgba(255, 255, 255, .14);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .5);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, .5), 0 16px 38px rgba(0, 0, 0, .58);
+}
 /* A word in an accent colour needs the bright end of the accent in the dark
    skin, where #C53C01 cannot be read on #0a0400. The mix is of an allowed
    accent with a neutral, so no new colour is added. A plain value stands
@@ -131,7 +160,7 @@ body.dark { --ink: #f08a2a; --ink-leaf: #d9713f; --ink-fail: #e0603a; }
 /* A word that stands in an accent colour is white on a ground of grey, and the two
    weaker inks are the steps below it. A fault keeps a colour of its own: a very
    light red, so a failed tool call is known as one and not as plain words. */
-body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #f0b4ad; }
+body.silver, body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #f0b4ad; }
 /* The two counts of a change of a file. Green for what was written and red for
    what was taken away are the colours the eye knows for the two already; they
    are kept pale, so that they sit with the warm colours of the skin instead of
@@ -141,7 +170,7 @@ body.dark { --hunk-add: #a3c98c; --hunk-cut: #e09b86; }
 /* The two counts in pale green and pale red. The skin is else without colour, but
    the sign before a count and the two colours beside it say which is which at one
    look, as they do in the other skins. */
-body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
+body.silver, body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
 @supports (color: color-mix(in oklab, red, blue)) {
   body.dark {
     --ink: color-mix(in oklab, var(--accent) 74%, #fff6ec);
@@ -155,7 +184,7 @@ body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
    skin instead of the usual pale grey. */
 :root { color-scheme: light; }
 body.dark { color-scheme: dark; }
-body.corporate { color-scheme: dark; }
+body.silver, body.corporate { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -199,9 +228,10 @@ textarea, input { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; padding-right: 2px; }
 .brand .mark { width: 21px; height: 21px; display: block; }
 /* The program mark is drawn in the warm colours of the program. A screen in the
-   corporate skin may hold no colour of its own, so the mark is put through the ladder
-   of grey with everything else. The other two skins show the mark as it is drawn. */
-body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
+   silver skin or the corporate skin may hold no colour of its own, so the mark is
+   put through the ladder of grey with everything else. The other two skins show the
+   mark as it is drawn. */
+body.silver img.mark, body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
 .brand .word { font-size: 14.5px; font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
 .rule { width: 1px; height: 24px; background: var(--line); flex: 0 0 auto; }
 
@@ -743,10 +773,15 @@ body.dark {
 }
 /* The colours of a block of code in grey. The weight of a word, and the shape the
    words of it make, say which kind it is: here there is nothing else to say it with,
-   and a block of code can still be read. */
-body.corporate {
+   and a block of code can still be read. The corporate skin reads the same list from
+   a darker ground, so the steps that stand on the ground are lifted a little. */
+body.silver {
   --t-com: #8d8d8d; --t-key: #ffffff; --t-str: #dcdcdc; --t-num: #e4e4e4;
   --t-name: #ffffff; --t-var: #dcdcdc; --t-pun: #ababab;
+}
+body.corporate {
+  --t-com: #9a9a9a; --t-key: #ffffff; --t-str: #e0e0e0; --t-num: #eaeaea;
+  --t-name: #ffffff; --t-var: #e0e0e0; --t-pun: #b6b6b6;
 }
 pre.code .t-c { color: var(--t-com); font-style: italic; }
 pre.code .t-k { color: var(--t-key); font-weight: 600; }
@@ -2446,10 +2481,11 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
         <div class="sec">Appearance</div>
         <div class="fld"><span class="lbl">Skin</span>
-          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a ground near black, and Corporate grey and white and the shades between them alone. The skin changes at once.</span>
+          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a ground near black, Silver grey and white and the shades between them alone, and Corporate that same ladder of grey on a ground near black. The skin changes at once.</span>
           <div class="ctl"><div class="seg" id="fTheme" role="group" aria-label="Which skin to draw the page in">
               <button class="on" id="fThemeLight" type="button">Light</button>
               <button id="fThemeDark" type="button">Dark</button>
+              <button id="fThemeSilver" type="button">Silver</button>
               <button id="fThemeCorporate" type="button">Corporate</button>
             </div></div></div>
 
@@ -6115,9 +6151,9 @@ function welcomeMock(kind) {
       + '<rect x="24" y="92" width="104" height="5" rx="2" fill="currentColor" opacity=".3"/></svg>';
     return box;
   }
-  // The three skins: the ground of the page and the words upon it.
-  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', corporate: '#2b2b2b' };
-  var inks = { light: '#232323', dark: '#e8e8e8', corporate: '#dcdcdc' };
+  // The four skins: the ground of the page and the words upon it.
+  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', silver: '#2b2b2b', corporate: '#0d0d0d' };
+  var inks = { light: '#232323', dark: '#e8e8e8', silver: '#dcdcdc', corporate: '#e6e6e6' };
   var box2 = document.createElement('div');
   box2.innerHTML = '<span class="wswatch" style="background:' + grounds[kind] + '">'
     + '<svg viewBox="0 0 62 40" width="62" height="40" xmlns="http://www.w3.org/2000/svg">'
@@ -6206,10 +6242,11 @@ function drawWelcome() {
   long.appendChild(longOpts);
   screen.appendChild(long);
 
-  var skins = welcomePart('The skin of the pages', 'Pale, dark, or the grey and white of the corporate skin.');
+  var skins = welcomePart('The skin of the pages', 'Pale, dark, the grey and white of the silver skin, or the near black of the corporate one.');
   var skinCards = make('div', 'wcards');
   skinCards.appendChild(welcomeCard('theme', 'light', 'light', 'Light', ''));
   skinCards.appendChild(welcomeCard('theme', 'dark', 'dark', 'Dark', ''));
+  skinCards.appendChild(welcomeCard('theme', 'silver', 'silver', 'Silver', ''));
   skinCards.appendChild(welcomeCard('theme', 'corporate', 'corporate', 'Corporate', ''));
   skins.appendChild(skinCards);
   screen.appendChild(skins);
@@ -9488,10 +9525,11 @@ wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
 // A click anywhere else in the page puts the menus away.
 document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); });
 
-// The quick switch of the skin: it steps through the three of them, and the mark
+// The quick switch of the skin: it steps through the four of them, and the mark
 // under it says which one the page stands in.
 el.themebtn.addEventListener('click', function () {
-  chooseTheme(themeWord === 'light' ? 'dark' : (themeWord === 'dark' ? 'corporate' : 'light'));
+  var next = SKINS[(SKINS.indexOf(themeWord) + 1) % SKINS.length];
+  chooseTheme(next);
 });
 el.draft.addEventListener('input', function () {
   grow();
@@ -9906,7 +9944,7 @@ function showSetTab(tab) {
 
 // ------------------------------------------------------------------ skins
 //
-// The three skins of the page. The pale skin is the ground the page is cut for and
+// The four skins of the page. The pale skin is the ground the page is cut for and
 // puts no mark on the body; the dark skin and the corporate skin each put one, and
 // every colour of the page comes from the variables stood under that mark. The word
 // of the skin comes with the state, so the window and the browser page follow the
@@ -9914,10 +9952,14 @@ function showSetTab(tab) {
 
 var themeWord = 'light';   // the skin the page stands in
 
-// The word of a skin out of any words: one of the three stands, and anything else
+// The four skins, in the order the sheet and the mark of the browser page step
+// through them.
+var SKINS = ['light', 'dark', 'silver', 'corporate'];
+
+// The word of a skin out of any words: one of the four stands, and anything else
 // is the pale skin, which is the one a new set of settings stands on.
 function themeOf(word) {
-  return (word === 'dark' || word === 'corporate') ? word : 'light';
+  return SKINS.indexOf(word) >= 0 ? word : 'light';
 }
 
 // Put a skin on the page. The mark of the old two-way switch is kept in step, for a
@@ -9925,18 +9967,19 @@ function themeOf(word) {
 function showTheme(word) {
   themeWord = themeOf(word);
   document.body.classList.toggle('dark', themeWord === 'dark');
+  document.body.classList.toggle('silver', themeWord === 'silver');
   document.body.classList.toggle('corporate', themeWord === 'corporate');
 }
 
-// The three marks of the sheet, so the switch stands at the skin in use.
+// The four marks of the sheet, so the switch stands at the skin in use.
 function showThemeButtons() {
-  ['light', 'dark', 'corporate'].forEach(function (one) {
+  SKINS.forEach(function (one) {
     var node = byId('fTheme' + one.charAt(0).toUpperCase() + one.slice(1));
     if (node) { node.classList.toggle('on', one === themeWord); }
   });
 }
 
-// One of the three buttons of the sheet. The skin goes on at once, and is written to
+// One of the four buttons of the sheet. The skin goes on at once, and is written to
 // the program beside: nothing of a server moves with a skin.
 function chooseTheme(word) {
   showTheme(word);
@@ -11091,6 +11134,7 @@ byId('fOpenRepo').addEventListener('change', function (e) {
 });
 byId('fThemeLight').addEventListener('click', function () { chooseTheme('light'); });
 byId('fThemeDark').addEventListener('click', function () { chooseTheme('dark'); });
+byId('fThemeSilver').addEventListener('click', function () { chooseTheme('silver'); });
 byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('corporate'); });
 
 ['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mCachePrompt', 'mNoShift',

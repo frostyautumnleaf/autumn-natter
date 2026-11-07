@@ -34,8 +34,9 @@
 //     puts the pace of the log on manual, which is how the button of Refresh is
 //     looked at standing live; the other two paces leave it greyed
 //   AN_THEME=corporate node page-shot.js home-pale p.png
-//     draws the scene in one of the three skins: light, dark or corporate. A name
-//     that ends in -dark or -corporate does the same, and -pale asks for the pale one
+//     draws the scene in one of the four skins: light, dark, silver or corporate. A
+//     name that ends in -dark, -silver or -corporate does the same, and -pale asks
+//     for the pale one
 //   AN_LOGKIND=program node page-shot.js sheet-logs p.png
 //     reads the log of the program instead of the output of llama.cpp, which is
 //     how the switch at the head of the Logs tab is looked at
@@ -929,9 +930,10 @@ async function main() {
   let dark = false;
   let theme = process.env.AN_THEME || '';
   if (name.endsWith('-dark')) { dark = true; theme = 'dark'; name = name.slice(0, -5); }
+  else if (name.endsWith('-silver')) { theme = 'silver'; name = name.slice(0, -7); }
   else if (name.endsWith('-corporate')) { theme = 'corporate'; name = name.slice(0, -10); }
   else if (name.endsWith('-pale')) { theme = 'light'; name = name.slice(0, -5); }
-  if (theme && theme !== 'light' && theme !== 'dark' && theme !== 'corporate') { theme = 'light'; }
+  if (theme && ['light', 'dark', 'silver', 'corporate'].indexOf(theme) < 0) { theme = 'light'; }
   const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs' || name === 'sheet-mcp';
   const state = scene(isSheet ? 'chat' : name, dark, theme);
   CONFIG.theme = theme || 'light';

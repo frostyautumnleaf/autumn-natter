@@ -4459,7 +4459,7 @@ impl Engine {
         cfg.chat_compact_prompt = config::sanitize_handoff_prompt(&cfg.chat_compact_prompt);
         cfg.chat_compact_prompt_short =
             config::sanitize_handoff_prompt_short(&cfg.chat_compact_prompt_short);
-        // The skin of the pages is kept to one of the three words, and the switch of
+        // The skin of the pages is kept to one of the four words, and the switch of
         // the two that stood before them keeps its old meaning: it is on for the dark
         // skin alone.
         cfg.theme = config::theme_word(&cfg.theme, cfg.dark_mode);
@@ -4483,12 +4483,13 @@ impl Engine {
         }
     }
 
-    // The skin of the pages: `light`, `dark` or `corporate`. The browser page has
-    // this switch too. Nothing of a server moves with a skin, so the pages put the
-    // new skin on before this answers. The switch of the two skins that stood before
-    // the third keeps its old meaning and is on for the dark skin alone: the third
-    // skin is a dark ground too, but a program written for two knows no other dark
-    // skin than the one it has, and the pale skin is an honest fall back.
+    // The skin of the pages: `light`, `dark`, `silver` or `corporate`. The browser
+    // page has this switch too. Nothing of a server moves with a skin, so the pages
+    // put the new skin on before this answers. The switch of the two skins that stood
+    // before the others keeps its old meaning and is on for the dark skin alone: the
+    // two skins of the grey ladder stand on dark grounds too, but a program written
+    // for two knows no other dark skin than the one it has, and the pale skin is an
+    // honest fall back.
     pub fn set_theme(&self, word: &str) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -12423,10 +12424,16 @@ mod tests {
         engine.set_theme("corporate");
         assert_eq!(engine.snapshot().theme, "corporate");
         assert!(!engine.snapshot().dark_mode);
+        // The silver skin is the ladder of grey the older program called corporate.
+        // Like the two skins of no colour it is not the dark skin, so the old switch
+        // stays off.
+        engine.set_theme("silver");
+        assert_eq!(engine.snapshot().theme, "silver");
+        assert!(!engine.snapshot().dark_mode);
         engine.set_theme("dark");
         assert_eq!(engine.snapshot().theme, "dark");
         assert!(engine.snapshot().dark_mode);
-        // A word that is none of the three is the pale skin.
+        // A word that is none of the four is the pale skin.
         engine.set_theme("nothing_of_a_skin");
         assert_eq!(engine.snapshot().theme, "light");
         assert!(!engine.snapshot().dark_mode);

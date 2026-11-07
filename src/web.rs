@@ -370,7 +370,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox_fetch": snap.sandbox_access.fetch,
         "status": snap.status,
         "dark": snap.dark_mode,
-        // The skin of the pages: `light`, `dark` or `corporate`. The word of the skin
+        // The skin of the pages: `light`, `dark`, `silver` or `corporate`. The word of the skin
         // travels beside the switch of the two that stood before the third, so a page
         // written for the two of them still reads a skin.
         "theme": snap.theme,
