@@ -17,7 +17,7 @@
 // Nothing here draws. `script.rs` keeps words, `draw.rs` turns them into a
 // picture, and `encode.rs` turns pictures into a file.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 // The name of the file the whole of a project stands in.
@@ -379,6 +379,9 @@ pub struct Block {
 
     // The words.
     pub text: String,
+    // The lines of a list, of a process, of a timeline. A line may be written as
+    // words alone. See `words_or_items`.
+    #[serde(default, deserialize_with = "words_or_items")]
     pub items: Vec<Item>,
     pub spans: Vec<Span>,
     // The two sides of a compare, each with a head and lines of its own.
@@ -481,12 +484,48 @@ pub struct Item {
     pub at: f64,
 }
 
+// The lines of a list, with a line let through as words alone. `"items":
+// ["Explore", "Mine", "Craft", "Build"]` is how a list is written first, and a
+// model that is answered with "expected struct Item" has no word to go on for
+// what an item is. A line of words stands for an item whose words are those
+// words; a set of parts is read as it always was; anything else is answered with
+// the line that is wrong, and not with the name of a shape no one has read.
+fn words_or_items<'de, D>(reader: D) -> Result<Vec<Item>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error as _;
+    let rows = Vec::<Value>::deserialize(reader)?;
+    let mut out = Vec::with_capacity(rows.len());
+    for (place, one) in rows.into_iter().enumerate() {
+        match one {
+            Value::String(words) => out.push(Item {
+                text: words.trim().to_string(),
+                ..Default::default()
+            }),
+            Value::Object(_) => out.push(serde_json::from_value::<Item>(one).map_err(|why| {
+                D::Error::custom(format!("line {}: {why}", place + 1))
+            })?),
+            other => {
+                return Err(D::Error::custom(format!(
+                    "line {}: a line of a list is a line of words or a set of parts, not {other}",
+                    place + 1
+                )))
+            }
+        }
+    }
+    Ok(out)
+}
+
 // One side of a compare: the head of it, and the lines under it.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Group {
     pub title: String,
     pub text: String,
+    // The lines of the side, a line written as words alone let through as it is
+    // for a block.
+    #[serde(default, deserialize_with = "words_or_items")]
     pub items: Vec<Item>,
     pub colour: String,
 }
@@ -704,6 +743,17 @@ fn shared_letters(one: &str, other: &str) -> usize {
 
 // ---------------------------------------------------------------- reading it
 
+// The part a call named. A part written as nothing at all is a part the call
+// says nothing about: a model that has no word for the colours very often writes
+// `"colours": null`, and the project then keeps what it had. A null read as a
+// part is a fault the model cannot mend, for nothing is no colour and no ground.
+fn named<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    match value.get(key) {
+        Some(one) if !one.is_null() => Some(one),
+        _ => None,
+    }
+}
+
 // The project out of the words of a tool call. The parts a call leaves out keep
 // what the project had, so a call that changes the palette does not empty the
 // scenes. A fault of writing is answered with the list of faults and no project.
@@ -791,7 +841,7 @@ pub fn merge(
             made.palette = one;
         }
     }
-    if let Some(one) = value.get("colours") {
+    if let Some(one) = named(value, "colours") {
         match serde_json::from_value::<Colours>(one.clone()) {
             Ok(held) => made.colours = held,
             Err(why) => faults.push(format!("the part \"colours\" does not read: {why}")),
@@ -809,13 +859,13 @@ pub fn merge(
             made.heading_weight = one;
         }
     }
-    if let Some(one) = value.get("background") {
+    if let Some(one) = named(value, "background") {
         match read_background(one) {
             Ok(held) => made.background = held,
             Err(why) => faults.push(format!("the part \"background\" does not read: {why}")),
         }
     }
-    if let Some(list) = value.get("scenes") {
+    if let Some(list) = named(value, "scenes") {
         let rows = match list.as_array() {
             Some(rows) => rows,
             None => {
@@ -829,6 +879,19 @@ pub fn merge(
             match read_scene(one, number, &mut faults) {
                 Some(scene) => held.push(scene),
                 None => {}
+            }
+        }
+        // A head of a scene that names no blocks keeps the blocks that stood at
+        // that place. The tool of the plan says that a part you do not name is
+        // kept as it was, and a model that comes back to the plan to change the
+        // size of the picture, or to put one more scene at the end, must not lose
+        // the scenes it had already filled.
+        for (place, one) in held.iter_mut().enumerate() {
+            if !one.blocks.is_empty() {
+                continue;
+            }
+            if let Some(before) = had.scenes.get(place) {
+                one.blocks = before.blocks.clone();
             }
         }
         if held.len() > GREATEST_SCENES {
@@ -987,7 +1050,7 @@ fn read_scene(value: &Value, number: usize, faults: &mut Vec<String>) -> Option<
         ));
         scene.seconds = GREATEST_SCENE_SECONDS;
     }
-    if let Some(one) = map.get("transition") {
+    if let Some(one) = named(value, "transition") {
         scene.transition = read_transition(one, number, faults);
     } else {
         scene.transition = Transition {
@@ -996,7 +1059,7 @@ fn read_scene(value: &Value, number: usize, faults: &mut Vec<String>) -> Option<
             dir: String::from("left"),
         };
     }
-    match map.get("blocks") {
+    match named(value, "blocks") {
         Some(Value::Array(rows)) => {
             let bad = block_faults(rows);
             for one in bad {
@@ -1012,7 +1075,7 @@ fn read_scene(value: &Value, number: usize, faults: &mut Vec<String>) -> Option<
         Some(_) => faults.push(format!("scene {number}: \"blocks\" is not a list.")),
         None => {}
     }
-    if let Some(one) = map.get("background") {
+    if let Some(one) = named(value, "background") {
         match read_background(one) {
             Ok(held) => scene.background = Some(held),
             Err(why) => faults.push(format!("scene {number}: the ground does not read: {why}")),
@@ -1248,6 +1311,134 @@ mod tests {
         assert_eq!(made.canvas, "720p");
         assert_eq!(made.fps, 30);
         assert_eq!(made.scenes.len(), 1);
+    }
+
+    // A new list of scene heads stands in place of the list that stood, but a head
+    // that names no blocks keeps the blocks that stood at its place: coming back to
+    // the plan to change the size of the picture, or to put one more scene at the
+    // end, costs the work already done nothing.
+    #[test]
+    fn a_new_list_of_scene_heads_keeps_the_blocks_that_stood() {
+        let had = Project {
+            name: String::from("main"),
+            scenes: vec![Scene {
+                title: String::from("One"),
+                seconds: 3.0,
+                blocks: vec![Block {
+                    kind: String::from("head"),
+                    text: String::from("Hello"),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let made = merge(
+            &had,
+            &json!({"canvas": "square", "scenes": [{"title": "One again", "seconds": 4}]}),
+        )
+        .expect("a plan of heads");
+        assert_eq!(made.canvas, "square");
+        assert_eq!(made.scenes.len(), 1);
+        assert_eq!(made.scenes[0].title, "One again");
+        assert_eq!(made.scenes[0].seconds, 4.0);
+        assert_eq!(made.scenes[0].blocks.len(), 1);
+        assert_eq!(made.scenes[0].blocks[0].text, "Hello");
+        // A head with blocks of its own takes the place of what stood, and a head
+        // that stands where no scene stood has nothing to keep.
+        let made = merge(
+            &had,
+            &json!({"scenes": [
+                {"title": "New", "seconds": 2, "blocks": [{"kind": "rule", "col": 0, "row": 8, "w": 24, "h": 1}]},
+                {"title": "Two", "seconds": 2}
+            ]}),
+        )
+        .expect("a new list of scenes");
+        assert_eq!(made.scenes.len(), 2);
+        assert_eq!(made.scenes[0].blocks.len(), 1);
+        assert_eq!(made.scenes[0].blocks[0].kind, "rule");
+        assert!(made.scenes[1].blocks.is_empty());
+    }
+
+    // A part the call wrote as nothing at all is a part it said nothing about. The
+    // project keeps what it had and answers with no fault, for nothing is neither
+    // a colour nor a ground, and a model has nothing to mend.
+    #[test]
+    fn a_part_written_as_nothing_keeps_what_the_project_had() {
+        let had = Project {
+            name: String::from("main"),
+            canvas: String::from("720p"),
+            fps: 30,
+            palette: String::from("forest"),
+            scenes: vec![Scene {
+                title: String::from("One"),
+                seconds: 3.0,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let bare = json!({
+            "about": null,
+            "canvas": null,
+            "fps": null,
+            "palette": null,
+            "colours": null,
+            "font": null,
+            "heading_weight": null,
+            "background": null,
+            "scenes": null
+        });
+        let made = merge(&had, &bare).expect("a part written as nothing is no part");
+        assert_eq!(made.canvas, "720p");
+        assert_eq!(made.fps, 30);
+        assert_eq!(made.palette, "forest");
+        assert_eq!(made.scenes.len(), 1);
+        // The same holds for the parts of a scene: a ground written as nothing is
+        // the ground of the video, and a list of blocks written as nothing is a
+        // scene with no block in it.
+        let heads = json!({"scenes": [{
+            "title": "Two",
+            "seconds": 2.0,
+            "blocks": null,
+            "background": null,
+            "transition": null
+        }]});
+        let made = merge(&had, &heads).expect("a scene of heads");
+        assert_eq!(made.scenes.len(), 1);
+        assert_eq!(made.scenes[0].title, "Two");
+        assert!(made.scenes[0].blocks.is_empty());
+        assert!(made.scenes[0].background.is_none());
+        assert_eq!(made.scenes[0].transition.kind, "fade");
+    }
+
+    // A line of a list may be written as words alone, for that is how a list is
+    // written first. A set of parts is read as it always was, and a line that is
+    // neither is answered with the line, and not with the name of a shape no one
+    // has read.
+    #[test]
+    fn a_line_of_a_list_may_be_written_as_words_alone() {
+        let made: Block = serde_json::from_value(json!({
+            "kind": "steps",
+            "col": 2,
+            "row": 7,
+            "w": 20,
+            "h": 6,
+            "items": ["Explore", "Mine", {"text": "Craft", "sub": "and place"}]
+        }))
+        .expect("a list of words and of parts");
+        assert_eq!(made.items.len(), 3);
+        assert_eq!(made.items[0].text, "Explore");
+        assert_eq!(made.items[2].text, "Craft");
+        assert_eq!(made.items[2].sub, "and place");
+        // A line that is neither words nor parts names the line that is wrong.
+        let wrong = serde_json::from_value::<Block>(json!({"kind": "bullets", "items": [42]}));
+        let said = wrong.err().expect("a number is no line of a list").to_string();
+        assert!(said.contains("line 1"), "the fault names the line: {said}");
+        assert!(!said.contains("Item"), "the fault says nothing of a shape: {said}");
+        // A list left out is no fault at all.
+        let none: Block =
+            serde_json::from_value(json!({"kind": "head", "text": "A head"})).expect("a head");
+        assert!(none.items.is_empty());
     }
 
     #[test]

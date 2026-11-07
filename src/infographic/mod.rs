@@ -47,6 +47,22 @@ pub fn is_tool(name: &str) -> bool {
     )
 }
 
+// The words of a call, made into an object. The five tools of this suite take
+// their parts as a json object and not as a command of the terminal, so the
+// object is read as it stands, and through a fenced block when the model put one
+// about it. It used to be read with `parse_arguments`, whose second answer is the
+// reason a model gives for a terminal command: that reason is empty here, so
+// every call of this suite came in with no part at all, and a plan was made of
+// nothing but the parts the call left out.
+fn object(raw: &str) -> Value {
+    let text = raw.trim();
+    let cut = crate::tools::extract_object(text).unwrap_or(text);
+    match serde_json::from_str::<Value>(cut) {
+        Ok(given) if given.is_object() => given,
+        _ => json!({}),
+    }
+}
+
 // The words of the state line for one call: the tool, and the project it works
 // on when the model named one.
 pub fn shown(name: &str, raw: &str) -> String {
@@ -58,8 +74,7 @@ pub fn shown(name: &str, raw: &str) -> String {
         RENDER_NAME => "the frames of a video",
         _ => "an infographic",
     };
-    let given: Value = serde_json::from_str(&crate::tools::parse_arguments(raw).1)
-        .unwrap_or(Value::Null);
+    let given = object(raw);
     let named = given.get("project").and_then(Value::as_str).unwrap_or("");
     if named.trim().is_empty() {
         head.to_string()
@@ -97,7 +112,7 @@ pub fn definitions() -> Vec<Value> {
             "function": {
                 "name": PLAN_NAME,
                 "description": with_rule(format!(
-                    "Make or change the head of an infographic project and the list of its scenes. The head carries the name, the size of the picture, the frames of the second, the colours and the type. The scenes are given as a list of heads and lengths, and each one is filled later with the scene tool. A part you do not name is kept as it was. The sizes are: {canvases}. The colour sets are: {colours}. The project stands in the folder infographics/<name>/ of the room of this chat."
+                    "Make or change the head of an infographic project and the list of its scenes. The head carries the name, the size of the picture, the frames of the second, the colours and the type. The scenes are given as a list of heads and lengths, and each one is filled later with the scene tool. A part you do not name is kept as it was. A list of scenes you give stands in place of the list that stood, but a scene head that names no blocks keeps the blocks that stood at its place, so coming back to the plan costs nothing. The sizes are: {canvases}. The colour sets are: {colours}. The project stands in the folder infographics/<name>/ of the room of this chat."
                 )),
                 "parameters": {
                     "type": "object",
@@ -214,10 +229,7 @@ pub fn run(
     cancel: &AtomicBool,
     mut told: impl FnMut(&str),
 ) -> String {
-    let given: Value = match serde_json::from_str(&crate::tools::parse_arguments(raw).1) {
-        Ok(one) => one,
-        Err(_) => json!({}),
-    };
+    let given = object(raw);
     let room = room_of(workdir, given.get("project").and_then(Value::as_str).unwrap_or(""));
     match name {
         GUIDE_NAME => guide(&given),
@@ -262,37 +274,23 @@ fn plan(room: &Path, given: &Value) -> String {
         background: Default::default(),
         scenes: Vec::new(),
     });
-    let head = json!({
-        "name": name,
-        "about": given.get("about").cloned().unwrap_or(Value::Null),
-        "canvas": given.get("canvas").cloned().unwrap_or(Value::Null),
-        "fps": given.get("fps").cloned().unwrap_or(Value::Null),
-        "palette": given.get("palette").cloned().unwrap_or(Value::Null),
-        "colours": given.get("colours").cloned().unwrap_or(Value::Null),
-        "font": given.get("font").cloned().unwrap_or(Value::Null),
-        "heading_weight": given.get("heading_weight").cloned().unwrap_or(Value::Null),
-        "background": given.get("background").cloned().unwrap_or(Value::Null),
-    });
-    let mut made = match script::merge(&had, &head) {
+    // The head is made of the parts a call may name, and of nothing else. The
+    // name of a project is the name of its folder, which the call does not write
+    // into the script, and the scenes are read here as much as anywhere else, so
+    // that a head of a scene is answered with the words of `read_scene` and comes
+    // with a way of coming in, as every scene does.
+    let mut head = serde_json::Map::new();
+    for part in script::PROJECT_PARTS {
+        if let Some(one) = given.get(*part) {
+            head.insert((*part).to_string(), one.clone());
+        }
+    }
+    let mut made = match script::merge(&had, &Value::Object(head)) {
         Ok(one) => one,
         Err(faults) => return faults.join("; "),
     };
-    // The list of scenes is taken whole when it is given at all: a plan is read
-    // better as one list than as a change to a list.
-    if let Some(list) = given.get("scenes").and_then(Value::as_array) {
-        let mut scenes: Vec<script::Scene> = Vec::new();
-        let mut faults: Vec<String> = Vec::new();
-        for (place, one) in list.iter().enumerate() {
-            match serde_json::from_value::<script::Scene>(one.clone()) {
-                Ok(scene) => scenes.push(scene),
-                Err(why) => faults.push(format!("scene {}: {why}", place + 1)),
-            }
-        }
-        if !faults.is_empty() {
-            return faults.join("; ");
-        }
-        made.scenes = scenes;
-    }
+    // The name of the project is the name of the folder it stands in.
+    made.name = name;
     if let Err(why) = write(room, &made) {
         return why;
     }
@@ -482,6 +480,17 @@ fn look(project: &script::Project, at: Option<usize>, fonts: &fonts::Fonts) -> (
                 continue;
             }
         }
+        // A scene with nothing in it draws nothing, and the video then has a blank
+        // in the middle of it. The tool of the check says that it looks for this,
+        // so it is looked for here.
+        if scene.blocks.is_empty() {
+            faults.push(format!(
+                "scene {} ({}): the scene holds no block, so it draws nothing. Put the blocks in with infographic_scene, or take the scene out of the plan.",
+                place + 1,
+                scene.title
+            ));
+            continue;
+        }
         let (made, bad) = layout::scene(project, &palette, fonts, &scene.blocks, board, None);
         drawn += made.len();
         for one in bad {
@@ -489,4 +498,133 @@ fn look(project: &script::Project, at: Option<usize>, fonts: &fonts::Fonts) -> (
         }
     }
     (faults, drawn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The room of one test: a folder of its own under the temp place, thrown
+    // away when the test is over.
+    fn place(what: &str) -> PathBuf {
+        let room = std::env::temp_dir().join(format!(
+            "atnatter-infographic-{}-{what}-{}",
+            std::process::id(),
+            std::time::UNIX_EPOCH
+                .elapsed()
+                .map(|one| one.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&room);
+        room
+    }
+
+    // One call of one of the five tools, with no word of the way through.
+    fn call(which: &str, raw: &str, work: &Path) -> String {
+        let stop = AtomicBool::new(false);
+        run(which, raw, work, &stop, |_| {})
+    }
+
+    // The plan tool answers with the storyboard of a project and writes its
+    // script. It used to answer with three faults on every call, whatever the
+    // model sent: the name of the project was put among the parts a call may
+    // name, every part the call left out was put in as nothing, and the parts the
+    // call did name never came at all, because the words of the call were read
+    // with the reader of a terminal command.
+    #[test]
+    fn a_plan_of_scene_heads_stands_and_says_so() {
+        let work = place("plan");
+        let said = call(
+            PLAN_NAME,
+            "{\"project\":\"minecraft-explained\",\"about\":\"What Minecraft is\",\"canvas\":\"720p\",\"fps\":30,\"palette\":\"forest\",\"scenes\":[{\"title\":\"A block world\",\"seconds\":4},{\"title\":\"The loop\",\"seconds\":3.5},{\"title\":\"Most sold ever\",\"seconds\":2.5}]}",
+            &work,
+        );
+        assert!(!said.contains("has no part"), "the plan was refused: {said}");
+        assert!(!said.contains("does not read"), "the plan was refused: {said}");
+        assert!(said.contains("minecraft-explained"), "the name: {said}");
+        assert!(said.contains("A block world"), "the storyboard: {said}");
+        assert!(said.contains("10"), "the length of the video: {said}");
+        let held = read(&room_of(&work, "minecraft-explained")).expect("the script was written");
+        assert_eq!(held.name, "minecraft-explained");
+        assert_eq!(held.about, "What Minecraft is");
+        assert_eq!(held.canvas, "720p");
+        assert_eq!(held.fps, 30);
+        assert_eq!(held.palette, "forest");
+        assert_eq!(held.scenes.len(), 3);
+        assert_eq!(held.scenes[1].seconds, 3.5);
+        // A scene head comes with a way of coming in, as every scene does.
+        assert_eq!(held.scenes[1].transition.kind, "fade");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    // A plan that names nothing but the project stands too: the parts it says
+    // nothing about keep what a project of this program stands on.
+    #[test]
+    fn a_plan_that_names_nothing_but_the_project_stands() {
+        let work = place("bare");
+        let said = call(PLAN_NAME, "{\"project\":\"bare\"}", &work);
+        assert!(!said.contains("has no part"), "the plan was refused: {said}");
+        assert!(!said.contains("does not read"), "the plan was refused: {said}");
+        let held = read(&room_of(&work, "bare")).expect("the script was written");
+        assert_eq!(held.canvas, "1080p");
+        assert_eq!(held.fps, 24);
+        assert_eq!(held.palette, "ink");
+        assert!(held.scenes.is_empty());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    // The parts of a call come through a fenced block as they come plain, the
+    // guide answers for the one kind named, and the line over the block of the
+    // run names the project the call works on.
+    #[test]
+    fn the_parts_of_a_call_come_through_a_fence() {
+        let work = place("fence");
+        let said = call(GUIDE_NAME, "```json\n{\"kind\":\"bars\"}\n```", &work);
+        assert!(said.contains("A block of kind \"bars\""), "the guide of one kind: {said}");
+        // The guide of everything, and the guide of one kind, are not the same.
+        let all = call(GUIDE_NAME, "{}", &work);
+        assert!(!all.contains("A block of kind \"bars\" reads"), "the whole guide: {all}");
+        assert_eq!(
+            shown(PLAN_NAME, "{\"project\":\"minecraft-explained\"}"),
+            "the plan of a video (minecraft-explained)"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    // The way the model works, through: a plan of heads, one scene with blocks in
+    // it, and the check of the layout. A scene of nothing is named by the check,
+    // for it draws nothing and the video would stand on a blank in the middle of
+    // it.
+    #[test]
+    fn a_scene_lands_on_a_plan_and_the_check_reads_the_video() {
+        let work = place("flow");
+        call(PLAN_NAME, "{\"project\":\"loop\"}", &work);
+        let said = call(
+            SCENE_NAME,
+            "{\"project\":\"loop\",\"at\":0,\"scene\":{\"title\":\"The loop\",\"seconds\":4,\"blocks\":[{\"kind\":\"head\",\"text\":\"MINECRAFT\",\"col\":2,\"row\":2,\"w\":20,\"h\":3},{\"kind\":\"steps\",\"items\":[\"Explore\",\"Mine\",\"Craft\",\"Build\"],\"col\":2,\"row\":7,\"w\":20,\"h\":6}]}}",
+            &work,
+        );
+        assert!(said.starts_with("Scene 1"), "the scene stands: {said}");
+        assert!(said.contains("2 blocks were laid out"), "the blocks are laid: {said}");
+        let told = call(CHECK_NAME, "{\"project\":\"loop\"}", &work);
+        assert!(told.starts_with("Nothing is wrong"), "the check: {told}");
+        // A second scene that was planned but never filled is a blank in the
+        // video, and the check says so.
+        call(
+            PLAN_NAME,
+            "{\"project\":\"loop\",\"scenes\":[{\"title\":\"The loop\",\"seconds\":4},{\"title\":\"The stats\",\"seconds\":3}]}",
+            &work,
+        );
+        let told = call(CHECK_NAME, "{\"project\":\"loop\"}", &work);
+        assert!(told.contains("holds no block"), "the empty scene is named: {told}");
+        // Both scenes filled, the check has nothing left to say.
+        call(
+            SCENE_NAME,
+            "{\"project\":\"loop\",\"at\":1,\"scene\":{\"title\":\"The stats\",\"seconds\":3,\"blocks\":[{\"kind\":\"stat\",\"value\":300,\"suffix\":\"m\",\"text\":\"copies sold\",\"col\":4,\"row\":5,\"w\":16,\"h\":6}]}}",
+            &work,
+        );
+        let told = call(CHECK_NAME, "{\"project\":\"loop\"}", &work);
+        assert!(told.starts_with("Nothing is wrong"), "the video may be rendered: {told}");
+        let _ = std::fs::remove_dir_all(&work);
+    }
 }
