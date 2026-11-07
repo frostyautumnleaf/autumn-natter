@@ -341,6 +341,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "hand_out": snap.tool_switches.hand_out,
             "display": snap.tool_switches.display,
             "ask": snap.tool_switches.ask,
+            "infographics": snap.tool_switches.infographics,
         },
         "search": snap.search_enabled,
         "sandbox": snap.sandbox_enabled,

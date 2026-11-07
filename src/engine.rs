@@ -23,6 +23,7 @@ use crate::display;
 use crate::download;
 use crate::editfile;
 use crate::gpu::{self, Gpu};
+use crate::infographic;
 use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
 use crate::mcp;
@@ -345,6 +346,12 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         planning::ASK_NAME => (String::from("the questions of the plan"), String::new(), String::new()),
         planning::END_NAME => (String::from("the plan is agreed"), String::new(), String::new()),
         viewimage::NAME | viewimage::ONE_NAME => (viewimage::partial_words(raw), String::new(), String::new()),
+        // A tool of the infographic suite is named by the tool and the project.
+        name if infographic::is_tool(name) => (
+            infographic::shown(name, raw),
+            String::new(),
+            String::new(),
+        ),
         // A tool of a server of the user's own is named by the tool itself,
         // and the parts the model is writing are the words of the block.
         name if mcp::is_tool(name) => (
@@ -8052,6 +8059,7 @@ fn group_of(name: &str) -> Option<&'static str> {
         download::NAME => Some("hand_out"),
         display::NAME => Some("display"),
         askuser::NAME => Some("ask"),
+        name if infographic::is_tool(name) => Some("infographics"),
         _ => None,
     }
 }
@@ -8078,6 +8086,7 @@ fn tool_group_word(part: &str) -> String {
         "hand_out" => String::from("Handing a file to the user"),
         "display" => String::from("Showing the contents of a file"),
         "ask" => String::from("Asking the user"),
+        "infographics" => String::from("Create infographics"),
         other => String::from(other),
     }
 }
@@ -8176,6 +8185,11 @@ fn offered(
         }
         if switches.ask {
             list.push(askuser::definition());
+        }
+        // The five tools of the infographic suite stand or fall as one line of
+        // the badge: a script without a renderer draws nothing.
+        if switches.infographics {
+            list.extend(infographic::definitions());
         }
     }
     if search_on {
@@ -8570,6 +8584,23 @@ fn run_program_tool(
         let made = display::show(workdir, &call.arguments, jailed);
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_displayed(&message_id, &made.report.output, made.report.ok, made.shown);
+        return;
+    }
+    // An infographic. The five tools of the suite work on one file of words in
+    // the room of the chat, and the last of them draws the frames. A render is
+    // the slow work of a minute, so the way it comes is put on the line of the
+    // state as it goes.
+    if infographic::is_tool(&call.name) {
+        let cancel_render = cancel.clone();
+        let told = |one: &str| {
+            if let Ok(mut guard) = state.lock() {
+                guard.set_status(one);
+            }
+        };
+        let made = infographic::run(&call.name, &call.arguments, workdir, &cancel_render, told);
+        let ok = !made.starts_with("the ") || made.contains("stands");
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &made, ok);
         return;
     }
     // A file the user is offered. Nothing is copied and nothing is fetched: the

@@ -280,6 +280,11 @@ pub struct ToolSwitches {
     // The model may stop and ask the user a question.
     #[serde(default = "switch_on")]
     pub ask: bool,
+    // The model may make an infographic video: the script, the layout, and the
+    // file of frames. The five tools of the suite stand or fall together.
+    // Off at first, for a video costs a long run.
+    #[serde(default)]
+    pub infographics: bool,
 }
 
 // The switch of a tool that nothing has touched yet.
@@ -296,6 +301,7 @@ impl Default for ToolSwitches {
             hand_out: true,
             display: true,
             ask: true,
+            infographics: false,
         }
     }
 }
@@ -311,6 +317,7 @@ impl ToolSwitches {
             "hand_out" => self.hand_out = on,
             "display" => self.display = on,
             "ask" => self.ask = on,
+            "infographics" => self.infographics = on,
             _ => return false,
         }
         true
@@ -326,6 +333,7 @@ impl ToolSwitches {
             ("hand_out", self.hand_out),
             ("display", self.display),
             ("ask", self.ask),
+            ("infographics", self.infographics),
         ]
     }
 
@@ -345,6 +353,7 @@ impl ToolSwitches {
             "hand_out" => self.hand_out,
             "display" => self.display,
             "ask" => self.ask,
+            "infographics" => self.infographics,
             _ => true,
         }
     }
