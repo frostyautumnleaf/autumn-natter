@@ -232,13 +232,10 @@ fn take_one(place: &str) -> Option<Value> {
     if kind != "file" {
         if let Some(bytes) = read_small(Path::new(place)) {
             if kind == "image" {
-                let made = format!("data:{mime};base64,{}", STANDARD.encode(&bytes));
-                // A picture that no longer fits a message once it is written
-                // out goes by its name too, and the user is told no lie
-                // about what stands on the message.
-                if made.len() <= attach::MAX_DATA_CHARS {
-                    data = made;
-                }
+                // A picture goes out whatever its size, for there is no ceiling
+                // on the size of a file the user hangs on a message. Only the
+                // reading of it is bounded, by the room of one file above.
+                data = format!("data:{mime};base64,{}", STANDARD.encode(&bytes));
             } else {
                 match String::from_utf8(bytes) {
                     Ok(all) => {
@@ -346,19 +343,19 @@ pub fn clipboard_take() -> Result<Value, String> {
                     problem
                 )
             })?;
+            // The picture goes out whatever its size, for there is no ceiling on
+            // the size of a file the user hangs on a message.
             let data = format!("data:image/png;base64,{}", STANDARD.encode(&png));
-            if data.len() <= attach::MAX_DATA_CHARS {
-                return Ok(json!({
-                    "files": [{
-                        "name": "pasted-picture.png",
-                        "mime": "image/png",
-                        "kind": "image",
-                        "data": data,
-                        "text": "",
-                    }],
-                    "road": "machine",
-                }));
-            }
+            return Ok(json!({
+                "files": [{
+                    "name": "pasted-picture.png",
+                    "mime": "image/png",
+                    "kind": "image",
+                    "data": data,
+                    "text": "",
+                }],
+                "road": "machine",
+            }));
         }
     }
     // Words of the clipboard are the business of the chat box, which was given

@@ -392,11 +392,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "welcomed": snap.welcomed,
             "silent_retries": snap.chat_silent_retries,
             "chapters": snap.chat_chapters,
+            // The line of the user's own messages at the right of the chat.
+            "userline": snap.chat_userline,
             // Whether the talk a chat worked through is kept in a file, so that
             // it does not have to be read through again. The sheet of the
             // settings shows the switch; the keeping itself is all behind the
             // ask, and the page has nothing else to do with it.
             "context_files": snap.chat_context_files,
+            // The same for the compressed shape of those files: the sheet of the
+            // settings shows the switch, and the page does nothing else with it.
+            "context_compression": snap.chat_context_compression,
             "paste_limit": snap.chat_paste_limit,
             "width": snap.chat_width,
             // How long the model waits for an answer to a question it put to the
@@ -605,11 +610,7 @@ pub fn preview_line(engine: &crate::engine::Engine, id: &str, settings: Value) -
         &held,
         &cards,
         0,
-        snap.code_enabled,
-        snap.thinking_mode.as_str(),
-        // The line shown in the sheet is the line of the chat in hand, so the
-        // choice of keeping the thinking of the earlier turns stands in it too.
-        snap.thinking_preserve_available.then_some(snap.thinking_preserve),
+        true,
         &mut notes,
     );
     let mut line = String::from("llama-server ");
@@ -620,6 +621,19 @@ pub fn preview_line(engine: &crate::engine::Engine, id: &str, settings: Value) -
             line.push_str(&arg);
         }
         line.push(' ');
+    }
+    // The thinking is no part of the command line: it rides on every ask. The
+    // line of the chat in hand says what the next ask will carry, so that the
+    // sheet shows the whole of what the model is given.
+    let thought = llama::thinking_kwargs(
+        snap.thinking_mode.as_str(),
+        snap.thinking_preserve_available.then_some(snap.thinking_preserve),
+    );
+    if !thought.is_null() {
+        notes.push(format!(
+            "Every ask carries chat_template_kwargs: {}",
+            thought
+        ));
     }
     for note in notes {
         line.push('\n');

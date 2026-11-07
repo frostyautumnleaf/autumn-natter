@@ -60,10 +60,6 @@ pub const NO_WORDS_NOTE: &str =
 pub const CLOSED_NOTE: &str =
     "(this document keeps its words behind a code this program cannot read, so only its name is sent)";
 
-// The most bytes one attachment may hold, counted in the base64 form the
-// page sends. A file larger than this has no business standing in a chat.
-pub const MAX_DATA_CHARS: usize = 24 * 1024 * 1024;
-
 // Endings that stand for a picture the vision projector can read.
 const IMAGE_ENDINGS: [&str; 8] = [
     "png", "jpg", "jpeg", "gif", "bmp", "webp", "tif", "tiff",
@@ -317,8 +313,10 @@ pub fn tidy_name(raw: &str) -> String {
 }
 
 // The attachments of a send call, in the order the page sent them. An entry
-// with no name is dropped, and so is a picture or a text that is larger
-// than the room. The order of what is left stands as the user made it.
+// with no name is dropped. The order of what is left stands as the user made
+// it. A file is kept whatever its size, for there is no ceiling on the size
+// of a file the user hangs on a message; the words of a file of words are cut
+// only where they go to the model, and the model is told of the cut.
 pub fn parse_incoming(value: Value) -> Vec<Incoming> {
     let Some(items) = value.as_array() else {
         return Vec::new();
@@ -346,9 +344,6 @@ pub fn parse_incoming(value: Value) -> Vec<Incoming> {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        if data.len() > MAX_DATA_CHARS || text.chars().count() > MAX_TEXT_CHARS {
-            continue;
-        }
         out.push(Incoming {
             name,
             mime,
@@ -715,9 +710,13 @@ mod tests {
         assert_eq!(made[0].name, "first.png");
         assert_eq!(made[1].name, "second.txt");
         assert_eq!(made[1].text, "the words");
-        // A file over the room is dropped, so a giant cannot stand in a chat.
+        // A file of any size is kept, for there is no ceiling on the size of a
+        // file the user hangs on a message.
         let big = json!([{ "name": "big.txt", "mime": "text/plain", "text": "x".repeat(MAX_TEXT_CHARS + 1) }]);
-        assert!(parse_incoming(big).is_empty());
+        let kept_big = parse_incoming(big);
+        assert_eq!(kept_big.len(), 1);
+        assert_eq!(kept_big[0].name, "big.txt");
+        assert_eq!(kept_big[0].text.chars().count(), MAX_TEXT_CHARS + 1);
     }
 
     // With no attachments the message goes out exactly as it did before

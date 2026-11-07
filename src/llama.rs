@@ -269,16 +269,6 @@ pub struct Server {
     // Tokens the current chat can hold.
     pub ctx_total: u64,
     pub model_id: String,
-    // The thinking mode the server was started with. A change needs a restart.
-    pub thinking_mode: String,
-    // Whether the server was started to keep the thinking of the turns before
-    // the last answer. Nothing is kept when the template has no switch for it.
-    pub preserve_thinking: Option<bool>,
-    // Whether the server was started with tool support. A tool coming needs a
-    // restart, for the server reads the chat template once and one started
-    // without the flag reads no tool call. A tool going needs nothing: such a
-    // server answers a chat that asks for none as plain words.
-    pub tools_on: bool,
     // Notes for the user, for example a missing vision projector.
     pub notes: Vec<String>,
 }
@@ -301,21 +291,24 @@ impl Server {
     }
 
 
-    // Start llama-server and wait until it answers. use_tools is true when the
-    // chat may call a tool of any kind: a command, or a mark of a chapter.
+    // Start llama-server and wait until it answers.
+    //
+    // The thinking mode, the choice of keeping the thinking, the tools of the
+    // chat and the jail of the sandbox stand on none of the flags of the
+    // server: they ride on every ask instead (see `thinking_kwargs`), so a
+    // change of any of them leaves this process, and the model it loaded, be.
+    // What a server is started with is the model and the settings of the Model
+    // tab, and nothing else.
+    //
     // `keep_talks` names the folder the server writes the talks it has worked
     // through into, and reads them back from -- see `slot_save_flags`. It is
     // none when the user has switched the keeping off, and nothing of a talk
     // is then kept anywhere.
-    #[allow(clippy::too_many_arguments)]
     pub fn start(
         binary: &Path,
         model: &ModelInfo,
         settings: &ModelSettings,
         gpus: &[Gpu],
-        use_tools: bool,
-        thinking_mode: &str,
-        preserve_thinking: Option<bool>,
         keep_talks: Option<&Path>,
     ) -> Result<Server, String> {
         let port = util::free_port().ok_or("No free port on this machine")?;
@@ -338,15 +331,19 @@ impl Server {
             },
             None => Vec::new(),
         };
+        // Every start asks for the chat template of the model. Three things of
+        // a chat are read out of that template and nothing else: the tools the
+        // chat offers, the thinking mode, and the keeping of the thinking. A
+        // model whose template will not stand is started again without it, and
+        // such a server reads no tool call and no thinking flag.
+        let mut template = true;
         let mut args = build_args(
             binary,
             model,
             settings,
             gpus,
             port,
-            use_tools,
-            thinking_mode,
-            preserve_thinking,
+            template,
             &mut notes,
         );
         args.extend(keeping.iter().cloned());
@@ -386,9 +383,6 @@ impl Server {
                 url: format!("http://127.0.0.1:{}", port),
                 ctx_total: settings.ctx_size as u64,
                 model_id: model.id(),
-                thinking_mode: thinking_mode.to_string(),
-                preserve_thinking,
-                tools_on: use_tools,
                 notes: notes.clone(),
             };
             match server.wait_ready(log_place.as_deref()) {
@@ -405,23 +399,23 @@ impl Server {
                     return Ok(server);
                 }
                 Err(problem) => {
-                    // A model without a chat template cannot use --jinja. One
-                    // retry without the tool support tells the user less and
-                    // still works.
-                    if attempt == 1 && use_tools && problem.exited {
+                    // A model whose chat template will not stand cannot carry
+                    // the tools of a chat, a thinking mode, or the keeping of
+                    // the thinking. One retry without the template tells the
+                    // user less and still works.
+                    if attempt == 1 && template && problem.exited {
                         notes.push(
-                            "This model has no usable chat template, so no tool is offered"
+                            "This model has no usable chat template, so no tool and no thinking mode is offered"
                                 .to_string(),
                         );
+                        template = false;
                         args = build_args(
                             binary,
                             model,
                             settings,
                             gpus,
                             port,
-                            false,
-                            thinking_mode,
-                            preserve_thinking,
+                            template,
                             &mut notes,
                         );
                         // The retry is a whole new command line, so the folder
@@ -536,16 +530,20 @@ pub fn graphs_of_a_spread_model(gpus: &[Gpu]) -> bool {
 
 // Build the command line for llama-server. The server takes many knobs,
 // so the call is a flat list.
-#[allow(clippy::too_many_arguments)]
+//
+// `template` says whether the chat template of the model is asked for with
+// `--jinja`. It is asked for on every start, for the three things a chat may
+// change between one answer and the next are all read out of that template and
+// are sent with the ask instead of with the command line: the tools of the
+// chat, the thinking mode, and the keeping of the thinking of the earlier
+// turns. `thinking_kwargs` is the other half of that.
 pub fn build_args(
     _binary: &Path,
     model: &ModelInfo,
     settings: &ModelSettings,
     gpus: &[Gpu],
     port: u16,
-    use_tools: bool,
-    thinking_mode: &str,
-    preserve_thinking: Option<bool>,
+    template: bool,
     notes: &mut Vec<String>,
 ) -> Vec<String> {
     let mut args: Vec<String> = vec![
@@ -743,36 +741,12 @@ pub fn build_args(
         args.push(settings.reasoning_message.clone());
     }
 
-    // Thinking mode from the chat badge.
-    match thinking_mode {
-        "off" => {
-            args.push("--reasoning".into());
-            args.push("off".into());
-        }
-        "on" => {
-            args.push("--reasoning".into());
-            args.push("on".into());
-        }
-        "low" | "medium" | "high" | "xhigh" => {
-            args.push("--reasoning".into());
-            args.push("on".into());
-            args.push("--reasoning-effort".into());
-            args.push(thinking_mode.to_string());
-        }
-        _ => {}
-    }
-
-    // The thinking of the turns before the last answer. llama.cpp keeps it on
-    // its own for a template that can, so the flag stays away when the template
-    // of the model has no switch for it. The two flags of llama.cpp are the
-    // plain way to say the same thing; the older spelling, a template keyword
-    // of the json of --chat-template-kwargs, is now looked at and pointed at
-    // these two.
-    match preserve_thinking {
-        Some(true) => args.push("--reasoning-preserve".into()),
-        Some(false) => args.push("--no-reasoning-preserve".into()),
-        None => {}
-    }
+    // Thinking stands on no flag of the server. The mode of the chat in hand,
+    // and the choice of keeping the thinking of the earlier turns, are words
+    // for the chat template and are sent with every ask -- see
+    // `thinking_kwargs` -- so a badge moved between two answers neither changes
+    // this command line nor sends the model away with it. The reasoning budget
+    // of the Model tab is a setting of the server and stays here.
 
     // Speculative decoding.
     let spec = SPEC_TYPES[clamp(settings.spec_index, SPEC_TYPES.len())];
@@ -787,21 +761,19 @@ pub fn build_args(
         }
     }
 
-    // Both the tools of the chat and a template of the user's own need the chat
-    // template of the model, and `--jinja` is the word that says so. The two asks
-    // are the commonest pair there is -- a chat with the tools turned on, and a
-    // template written into the Model tab -- and each of them used to push the
-    // flag for itself, so the command line carried `--jinja` twice. It is one
-    // switch of the server, and it stands here once, for the pair of them.
-    let template = settings.chat_template.trim().to_string();
-    if use_tools || !template.is_empty() {
+    // The chat template of the model, asked for with `--jinja`. The tools of a
+    // chat, the thinking mode and the keeping of the thinking are all read out
+    // of that template, so the flag is asked for on every start and no longer
+    // stands over by itself for each of the two asks that used to push it.
+    if template {
         args.push("--jinja".into());
     }
 
     // A custom chat template replaces the one embedded in the model.
-    if !template.is_empty() {
+    let custom = settings.chat_template.trim().to_string();
+    if !custom.is_empty() {
         args.push("--chat-template".into());
-        args.push(template);
+        args.push(custom);
     }
 
     // Free form arguments of the user come last, so they win.
@@ -809,6 +781,51 @@ pub fn build_args(
         args.push(part);
     }
     args
+}
+
+// What one ask tells the chat template about thinking, as the json of
+// `chat_template_kwargs`. Nothing of the thinking stands on the command line
+// of the server, so a badge moved between two answers costs no load of a
+// model: the word for it goes out with the ask instead.
+//
+// The server reads these words over the ones it was started with, so a keyword
+// named here holds for this ask and for this ask only. A mode this program
+// does not know -- the word `auto` of a chat kept from an older version, for
+// example -- sends nothing, which leaves the model to its own ways.
+//
+// `enable_thinking` and `reasoning_effort` are the two words llama.cpp has for
+// a long time. `preserve_reasoning` is the word of a newer one: the server
+// takes it from the same place as the flag `--reasoning-preserve` of the
+// command line, and puts the four words behind it the same way. Those four are
+// named here as well, for a server old enough to know only the words of the
+// template itself then reads the same choice, and a template that names none
+// of them takes no heed of any.
+pub fn thinking_kwargs(mode: &str, preserve: Option<bool>) -> Value {
+    let mut made: serde_json::Map<String, Value> = serde_json::Map::new();
+    match mode {
+        "off" => {
+            made.insert(String::from("enable_thinking"), json!(false));
+        }
+        "on" => {
+            made.insert(String::from("enable_thinking"), json!(true));
+        }
+        "low" | "medium" | "high" | "xhigh" => {
+            made.insert(String::from("enable_thinking"), json!(true));
+            made.insert(String::from("reasoning_effort"), json!(mode));
+        }
+        _ => {}
+    }
+    if let Some(kept) = preserve {
+        made.insert(String::from("preserve_reasoning"), json!(kept));
+        made.insert(String::from("preserve_thinking"), json!(kept));
+        made.insert(String::from("clear_thinking"), json!(!kept));
+        made.insert(String::from("truncate_history_thinking"), json!(!kept));
+        made.insert(String::from("drop_thinking"), json!(!kept));
+    }
+    if made.is_empty() {
+        return Value::Null;
+    }
+    Value::Object(made)
 }
 
 // The arguments that hand the server the folder it writes the talks it has
@@ -840,6 +857,11 @@ fn clamp(index: usize, len: usize) -> usize {
 // which lays the state from such a file in the slot again, so that the next
 // ask of that slot is read on from where the talk left off instead of from its
 // first word.
+//
+// Nothing here shortens or lays out that file: the talk is gigabytes, and it
+// stands in its short shape except for the moment the server is writing it or
+// reading it. `write_talk` and `read_talk` in the engine are the two places
+// that ask for the file, and they do the shortening round this call.
 //
 // The name of the file goes in the body of the call, and the server looks for
 // it in that folder and nowhere else: a name with a folder mark in it, or with
@@ -1393,9 +1415,7 @@ mod tests {
             &settings,
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         let find = |flag: &str| -> String {
@@ -1419,9 +1439,7 @@ mod tests {
             &ModelSettings::default(),
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "--temp"), "0.7");
@@ -1434,11 +1452,11 @@ mod tests {
         assert_eq!(find_flag(&args, "--seed"), "-1");
     }
 
-    // The chat template of the model is asked for once, whichever of the two
-    // asks for it: the tools of the chat, or a template of the user's own. The
-    // two asks are the commonest pair there is, and each of them used to push the
-    // flag for itself, so a chat with its tools turned on and a template written
-    // in the Model tab sent `--jinja` to the server twice.
+    // The chat template of the model is asked for once, and it is asked for on
+    // every start. The tools of a chat, the thinking mode and the keeping of
+    // the thinking are all read out of that template and go out with the ask,
+    // so the flag can no longer stand over for one of them alone -- and a
+    // start without it would take all three away from the chat.
     #[test]
     fn the_chat_template_is_asked_for_once() {
         let templated = ModelSettings {
@@ -1446,7 +1464,7 @@ mod tests {
             ..Default::default()
         };
         // How many times the flag stands on the command line.
-        let asked = |settings: &ModelSettings, tools: bool| -> usize {
+        let asked = |settings: &ModelSettings, template: bool| -> usize {
             let mut notes = Vec::new();
             let args = build_args(
                 std::path::Path::new(""),
@@ -1454,21 +1472,18 @@ mod tests {
                 settings,
                 &[],
                 8080,
-                tools,
-                "off",
-                None,
+                template,
                 &mut notes,
             );
             args.iter().filter(|a| a.as_str() == "--jinja").count()
         };
         let plain = ModelSettings::default();
-        // Neither ask, and the model keeps its own ways with the flag away.
-        assert_eq!(asked(&plain, false), 0);
-        // One ask apiece.
+        // One ask, whichever of the two settings stands behind it.
         assert_eq!(asked(&plain, true), 1);
-        assert_eq!(asked(&templated, false), 1);
-        // Both together, which is the pair that used to write it twice.
         assert_eq!(asked(&templated, true), 1);
+        // The way the flag is put away again is the retry of a model whose
+        // template will not stand, and it is asked for once there too.
+        assert_eq!(asked(&plain, false), 0);
         // And the template of the user still goes to the server beside the ask.
         let mut notes = Vec::new();
         let args = build_args(
@@ -1478,14 +1493,86 @@ mod tests {
             &[],
             8080,
             true,
-            "off",
-            None,
             &mut notes,
         );
         assert_eq!(
             find_flag(&args, "--chat-template"),
             "{% for message in messages %}{{ message.content }}{% endfor %}"
         );
+    }
+
+    // Nothing of the thinking stands on the command line of the server any
+    // more, so no choice of a badge moves a loaded model.
+    #[test]
+    fn no_thinking_choice_moves_the_command_line() {
+        let line = || {
+            let mut notes = Vec::new();
+            build_args(
+                std::path::Path::new(""),
+                &model(),
+                &ModelSettings::default(),
+                &[],
+                8080,
+                true,
+                &mut notes,
+            )
+        };
+        let args = line();
+        for flag in [
+            "--reasoning",
+            "--reasoning-effort",
+            "--reasoning-preserve",
+            "--no-reasoning-preserve",
+        ] {
+            assert!(!args.iter().any(|a| a == flag), "{} stands in the line", flag);
+        }
+    }
+
+    // The thinking of an ask goes out with the ask. The switch, the level and
+    // the keeping are the three words a chat may move between two answers, and
+    // each of them is said to the chat template of that one ask.
+    #[test]
+    fn the_thinking_of_an_ask_rides_on_the_ask() {
+        let off = thinking_kwargs("off", None);
+        assert_eq!(off["enable_thinking"], json!(false));
+        assert!(off.get("reasoning_effort").is_none());
+        assert!(off.get("preserve_reasoning").is_none());
+
+        let on = thinking_kwargs("on", None);
+        assert_eq!(on["enable_thinking"], json!(true));
+        assert!(on.get("reasoning_effort").is_none());
+
+        let level = thinking_kwargs("medium", None);
+        assert_eq!(level["enable_thinking"], json!(true));
+        assert_eq!(level["reasoning_effort"], json!("medium"));
+
+        // A mode the program does not know says nothing at all, which is what
+        // a chat kept from an older version stood on before.
+        assert!(thinking_kwargs("auto", None).is_null());
+        assert!(thinking_kwargs("", None).is_null());
+    }
+
+    // The choice to keep the thinking of the turns before the last answer is
+    // said in the one word of a newer server and in the four words a template
+    // names for itself, so that both read the same choice. A model whose
+    // template has no switch for it -- the choice of none -- says nothing.
+    #[test]
+    fn the_kept_thinking_rides_on_the_ask() {
+        let held = thinking_kwargs("on", Some(true));
+        assert_eq!(held["preserve_reasoning"], json!(true));
+        assert_eq!(held["preserve_thinking"], json!(true));
+        assert_eq!(held["clear_thinking"], json!(false));
+        assert_eq!(held["truncate_history_thinking"], json!(false));
+        assert_eq!(held["drop_thinking"], json!(false));
+
+        let dropped = thinking_kwargs("on", Some(false));
+        assert_eq!(dropped["preserve_reasoning"], json!(false));
+        assert_eq!(dropped["preserve_thinking"], json!(false));
+        assert_eq!(dropped["clear_thinking"], json!(true));
+        assert_eq!(dropped["truncate_history_thinking"], json!(true));
+        assert_eq!(dropped["drop_thinking"], json!(true));
+
+        assert!(thinking_kwargs("on", None).get("preserve_reasoning").is_none());
     }
 
     // The whole of the layers go to the cards, and llama.cpp is read with its
@@ -1507,9 +1594,7 @@ mod tests {
             &ModelSettings::default(),
             std::slice::from_ref(&card),
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "--device"), "CUDA0");
@@ -1528,9 +1613,7 @@ mod tests {
             &ModelSettings::default(),
             &[back],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert_eq!(find_flag(&held, "--device"), "none");
@@ -1553,9 +1636,7 @@ mod tests {
             &settings,
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "--ctx-checkpoints"), "4");
@@ -1568,9 +1649,7 @@ mod tests {
             &ModelSettings::default(),
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "--ctx-checkpoints"), "32");
@@ -1588,9 +1667,7 @@ mod tests {
             &ModelSettings::default(),
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert!(args.iter().any(|a| a == "--cache-prompt"));
@@ -1607,9 +1684,7 @@ mod tests {
             &settings,
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--cache-prompt"));
@@ -1634,9 +1709,7 @@ mod tests {
             &settings,
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "--image-min-tokens"), "256");
@@ -1649,9 +1722,7 @@ mod tests {
             &ModelSettings::default(),
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--image-min-tokens"));
@@ -1668,9 +1739,7 @@ mod tests {
             &settings,
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--image-min-tokens"));
@@ -1688,9 +1757,7 @@ mod tests {
             &ModelSettings::default(),
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert_eq!(find_flag(&args, "-fa"), "on");
@@ -1707,9 +1774,7 @@ mod tests {
             &ModelSettings::default(),
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--no-context-shift"));
@@ -1725,9 +1790,7 @@ mod tests {
             &settings,
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert!(args.iter().any(|a| a == "--no-context-shift"));
@@ -1744,9 +1807,7 @@ mod tests {
             &ModelSettings::default(),
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert!(!args.iter().any(|a| a == "--no-mmproj-offload"));
@@ -1763,65 +1824,10 @@ mod tests {
             &settings,
             &[],
             8080,
-            false,
-            "off",
-            None,
+            true,
             &mut notes,
         );
         assert!(args.iter().any(|a| a == "--no-mmproj-offload"));
-    }
-
-    // The choice to keep the thinking of the turns before the last answer sends
-    // one of the two flags of llama.cpp for it. A model whose template has no
-    // switch for it gets neither, and the server then does as it likes.
-    #[test]
-    fn the_kept_thinking_sends_its_flag() {
-        let holds = |args: &Vec<String>, flag: &str| args.iter().any(|a| a == flag);
-
-        let mut notes = Vec::new();
-        let args = build_args(
-            std::path::Path::new(""),
-            &model(),
-            &ModelSettings::default(),
-            &[],
-            8080,
-            false,
-            "on",
-            None,
-            &mut notes,
-        );
-        assert!(!holds(&args, "--reasoning-preserve"));
-        assert!(!holds(&args, "--no-reasoning-preserve"));
-
-        let mut notes = Vec::new();
-        let args = build_args(
-            std::path::Path::new(""),
-            &model(),
-            &ModelSettings::default(),
-            &[],
-            8080,
-            false,
-            "on",
-            Some(true),
-            &mut notes,
-        );
-        assert!(holds(&args, "--reasoning-preserve"));
-        assert!(!holds(&args, "--no-reasoning-preserve"));
-
-        let mut notes = Vec::new();
-        let args = build_args(
-            std::path::Path::new(""),
-            &model(),
-            &ModelSettings::default(),
-            &[],
-            8080,
-            false,
-            "off",
-            Some(false),
-            &mut notes,
-        );
-        assert!(holds(&args, "--no-reasoning-preserve"));
-        assert!(!holds(&args, "--reasoning-preserve"));
     }
 
     // The server answers a request for the state of the prompt work with a
