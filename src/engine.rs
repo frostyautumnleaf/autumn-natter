@@ -32,6 +32,7 @@ use crate::corporate;
 use crate::planning;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
+use crate::suggest;
 use crate::summarise;
 use crate::tools;
 use crate::viewimage;
@@ -335,6 +336,11 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         // A question of the user is named by the question.
         askuser::NAME => {
             let one = askuser::partial_words(raw);
+            (one.clone(), String::new(), one)
+        }
+        // The offer of the next steps is named by the first button of it.
+        suggest::NAME => {
+            let one = suggest::partial_words(raw);
             (one.clone(), String::new(), one)
         }
         // A look about the web is named by the words to look for, or by the
@@ -2399,6 +2405,36 @@ impl State {
                 message.tool = text;
                 message.failed = !ok;
                 message.displayed = displayed;
+            }
+        }
+        self.running = None;
+        self.persist();
+        self.touch();
+    }
+
+    // The same, with the next steps one run of the suggestion tool offered. The
+    // offer rides on the message of the run, so the buttons are drawn again when
+    // the chat is opened another day. Only the newest offer stands: every other
+    // message of the chat is stripped of what it offered, for the roads an older
+    // answer named are no longer the roads the talk is at.
+    fn finish_suggestions(
+        &mut self,
+        id: &str,
+        output: &str,
+        ok: bool,
+        asks: Vec<crate::suggest::Suggestion>,
+    ) {
+        let text = self.with_stopped_head(output);
+        let standing = !asks.is_empty();
+        if let Some(chat) = self.chat_mut() {
+            for message in chat.messages.iter_mut() {
+                if message.id == id {
+                    message.tool = text.clone();
+                    message.failed = !ok;
+                    message.suggestions = asks.clone();
+                } else if standing && !message.suggestions.is_empty() {
+                    message.suggestions = Vec::new();
+                }
             }
         }
         self.running = None;
@@ -8434,6 +8470,7 @@ fn group_of(name: &str) -> Option<&'static str> {
         download::NAME => Some("hand_out"),
         display::NAME => Some("display"),
         askuser::NAME => Some("ask"),
+        suggest::NAME => Some("suggest"),
         summarise::NAME => Some("summarise"),
         name if infographic::is_tool(name) => Some("infographics"),
         _ => None,
@@ -8467,6 +8504,7 @@ fn tool_group_word(part: &str) -> String {
         "hand_out" => String::from("Handing a file to the user"),
         "display" => String::from("Showing the contents of a file"),
         "ask" => String::from("Asking the user"),
+        "suggest" => String::from("The offer of a next step"),
         "infographics" => String::from("Create infographics"),
         // The words of the line, in the shape the sentence about a tool that
         // was not let through reads well in.
@@ -8580,6 +8618,11 @@ fn offered(
         }
         if switches.ask {
             list.push(askuser::definition());
+        }
+        // The buttons at the foot of an answer stand behind the badge like every
+        // other tool of the program, and behind the line of their own.
+        if switches.suggest {
+            list.push(suggest::definition());
         }
         // The five tools of the infographic suite stand or fall as one line of
         // the badge: a script without a renderer draws nothing.
@@ -8740,6 +8783,7 @@ fn run_program_tool(
         download::NAME => "Offering a file",
         display::NAME => "Showing a file to the user",
         askuser::NAME => "Asking the user",
+        suggest::NAME => "Offering a next step",
         planning::INIT_NAME => "Writing the plan",
         planning::EDIT_NAME => "Changing the plan",
         planning::READ_NAME => "Reading the plan",
@@ -9004,6 +9048,17 @@ fn run_program_tool(
         let made = display::show(workdir, &call.arguments, jailed);
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_displayed(&message_id, &made.report.output, made.report.ok, made.shown);
+        return;
+    }
+    // The next steps the user may take with a press. Nothing is waited for: the
+    // offer rides on the message of the run, and the page puts the buttons at the
+    // end of the answer once the model has stopped writing. The newest offer is
+    // the one that stands, so an older offer of the same chat is taken away here
+    // as well, and the talk holds one offer and not a trail of them.
+    if call.name == suggest::NAME {
+        let made = suggest::offer(&call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_suggestions(&message_id, &made.report.output, made.report.ok, made.asks);
         return;
     }
     // An infographic. The five tools of the suite work on one file of words in
@@ -10901,6 +10956,117 @@ mod tests {
         assert_eq!(called, "page.zip");
         assert_eq!(&kept[0..4], b"PK\x03\x04");
         assert!(engine.gift_zip(&[String::from("nowhere.txt")]).is_none());
+        let _ = std::fs::remove_dir_all(&workdir);
+    }
+
+    // The offer of the next steps hangs on the run that made it, and the state
+    // carries it with the run, so the buttons are drawn again when the chat is
+    // opened another day and in the page of the remote mode. The newest offer of
+    // a chat is the one that stands: a second call takes the buttons of the
+    // first away, for the roads an older answer named are no longer the roads
+    // the talk is at. The line of the drop-down of the badge holds the tool as it
+    // holds every other tool of the program.
+    #[test]
+    fn the_offer_of_a_next_step_hangs_on_the_run_and_the_newest_stands() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let workdir = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
+            std::fs::create_dir_all(&room).unwrap();
+            room
+        };
+        let run = |engine: &Engine, id: &str, arguments: &str| {
+            run_program_tool(
+                &ToolCall {
+                    id: String::from(id),
+                    name: String::from(suggest::NAME),
+                    arguments: String::from(arguments),
+                },
+                "",
+                0,
+                &engine.state,
+                &workdir,
+                &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            );
+        };
+        run(
+            &engine,
+            "call-one",
+            "{\"suggestions\":[{\"label\":\"Run the tests\",\"prompt\":\"Run the tests of the core.\"},{\"label\":\"Read the log\"}]}",
+        );
+        let snap = engine.snapshot();
+        let first = snap
+            .messages
+            .iter()
+            .find(|one| one.tool_name == suggest::NAME)
+            .expect("the chat holds the run");
+        assert_eq!(first.role, "Tool");
+        assert!(!first.failed, "{}", first.tool);
+        assert_eq!(first.suggestions.len(), 2);
+        assert_eq!(first.suggestions[0].label, "Run the tests");
+        assert_eq!(first.suggestions[0].prompt, "Run the tests of the core.");
+        assert_eq!(first.suggestions[1].prompt, "Read the log");
+        assert!(first.tool.contains("2 next steps are offered"), "{}", first.tool);
+        // The state of a page carries the offer with the run.
+        let value = crate::web::state(&snap, None);
+        let rows = value["messages"].as_array().expect("the state carries the talk");
+        let row = rows
+            .iter()
+            .find(|one| one["tool_name"] == suggest::NAME)
+            .expect("the run stands in the state");
+        assert_eq!(row["suggestions"][0]["label"], "Run the tests");
+        assert_eq!(row["suggestions"][0]["prompt"], "Run the tests of the core.");
+        assert_eq!(row["suggestions"][1]["label"], "Read the log");
+        // A second call takes the buttons of the first away: the newest offer is
+        // the one the user is given.
+        run(&engine, "call-two", "{\"suggestions\":[\"Show me the diff\"]}");
+        let snap = engine.snapshot();
+        let runs: Vec<&Message> = snap
+            .messages
+            .iter()
+            .filter(|one| one.tool_name == suggest::NAME)
+            .collect();
+        assert_eq!(runs.len(), 2, "both runs stand in the talk");
+        assert!(runs[0].suggestions.is_empty(), "the older offer went");
+        assert_eq!(runs[1].suggestions.len(), 1);
+        assert_eq!(runs[1].suggestions[0].label, "Show me the diff");
+        // The tool stands behind the line of the drop-down, and the line takes it
+        // out of the ask as it takes out every other tool of the program.
+        let names = |switches: &store::ToolSwitches| {
+            offered(
+                false,
+                true,
+                false,
+                tools::Access::default(),
+                &[],
+                switches,
+                true,
+            )
+            .map(|list| {
+                list.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect::<Vec<_>>()
+            })
+        };
+        assert!(
+            names(&engine.snapshot().tool_switches).is_some_and(|list| list
+                .iter()
+                .any(|one| one == suggest::NAME)),
+            "the tool is offered while the line stands on"
+        );
+        engine.set_tool_switch("suggest", false);
+        assert!(
+            !names(&engine.snapshot().tool_switches)
+                .unwrap_or_default()
+                .iter()
+                .any(|one| one == suggest::NAME),
+            "the line takes the tool out of the ask"
+        );
         let _ = std::fs::remove_dir_all(&workdir);
     }
 

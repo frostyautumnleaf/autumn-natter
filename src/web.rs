@@ -147,6 +147,14 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                     "path": one.path,
                     "size": one.size,
                 })).collect::<Vec<Value>>(),
+                // The next steps one run of the suggestion tool offered. The page
+                // draws a button for each of them at the end of the answer that made
+                // the offer, and only once the model has stopped writing. A press
+                // sends the prompt as a message of the user.
+                "suggestions": m.suggestions.iter().map(|one| json!({
+                    "label": one.label,
+                    "prompt": one.prompt,
+                })).collect::<Vec<Value>>(),
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is
@@ -341,6 +349,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "hand_out": snap.tool_switches.hand_out,
             "display": snap.tool_switches.display,
             "ask": snap.tool_switches.ask,
+            "suggest": snap.tool_switches.suggest,
             "infographics": snap.tool_switches.infographics,
             // The line of the handoff summary stands in the drop-down only
             // while `compaction.type` below says that the room is made by a

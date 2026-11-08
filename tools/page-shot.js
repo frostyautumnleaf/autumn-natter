@@ -27,6 +27,10 @@
 //   AN_CUT=1 node page-shot.js rich p.png         # a tool call the user stopped
 //   AN_GIFTS=1 node page-shot.js rich p.png       # the talk ends with the blocks
 //     of the files the download tool offered, with their buttons
+//   AN_SUGGEST=1 node page-shot.js rich p.png     # the talk ends with the button
+//     that opens the window over the files shown, and with the buttons of the
+//     roads the suggestion tool offered for what comes next. Stand it with
+//     AN_GIFTS=1 to see the three kinds of the end of an answer together
 //   AN_SUMMARISING=1 node page-shot.js rich p.png # a summary being written,
 //     which is written out of sight: no live answer stands in the chat
 //   AN_FIELD=fCompactPrompt node page-shot.js sheet-program p.png
@@ -499,6 +503,36 @@ function scene(name, dark, theme) {
           'The page and the table of the run stand under this answer, each with a '
           + 'button of its own.\n\nThe page holds the work, and the table the '
           + 'counts of the runs it went through.')
+      ]);
+    }
+    // AN_SUGGEST=1 ends the talk with a run of the show tool and a run of the
+    // suggestion tool. The button that opens the window over the files shown and
+    // the buttons of the roads offered for what comes next both stand at the end
+    // of the answer, one under the other, and with them the blocks of AN_GIFTS if
+    // that stands too. Three kinds in one place is how the place is proved.
+    if (process.env.AN_SUGGEST === '1') {
+      start.messages = start.messages.concat([
+        said(23, 'Tool', 'notes/plan.md', {
+          tool_name: 'display_files',
+          tool: '1 file is in the window over the chat: notes/plan.md',
+          displayed: [{ path: 'notes/plan.md', size: 2140 }]
+        }),
+        said(24, 'Tool', 'the plan of the parser', {
+          tool_name: 'offer_suggestions',
+          tool: '3 next steps are offered for the end of your answer: Run the '
+            + 'tests of the parser, Show me the diff, Read the log of the run',
+          suggestions: [
+            { label: 'Run the tests of the parser',
+              prompt: 'Run the tests of the parser and tell me what failed.' },
+            { label: 'Show me the diff' },
+            { label: 'Read the log of the run',
+              prompt: 'Read the log of the last run and say what it cost.' }
+          ]
+        }),
+        said(25, 'Assistant',
+          'The plan is in the window over the chat, and the roads the talk may go '
+          + 'on by stand under this answer.\n\nPress one of them, or write what '
+          + 'you would rather have.')
       ]);
     }
     // The chapters the model marked, tied to the message each begins after.

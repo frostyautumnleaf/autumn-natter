@@ -280,6 +280,10 @@ pub struct ToolSwitches {
     // The model may stop and ask the user a question.
     #[serde(default = "switch_on")]
     pub ask: bool,
+    // The model may end an answer with up to three buttons, each one a next
+    // step the user may take with a press.
+    #[serde(default = "switch_on")]
+    pub suggest: bool,
     // The model may make an infographic video: the script, the layout, and the
     // file of frames. The five tools of the suite stand or fall together.
     // Off at first, for a video costs a long run.
@@ -308,6 +312,7 @@ impl Default for ToolSwitches {
             hand_out: true,
             display: true,
             ask: true,
+            suggest: true,
             infographics: false,
             summarise: true,
         }
@@ -325,6 +330,7 @@ impl ToolSwitches {
             "hand_out" => self.hand_out = on,
             "display" => self.display = on,
             "ask" => self.ask = on,
+            "suggest" => self.suggest = on,
             "infographics" => self.infographics = on,
             "summarise" => self.summarise = on,
             _ => return false,
@@ -342,6 +348,7 @@ impl ToolSwitches {
             ("hand_out", self.hand_out),
             ("display", self.display),
             ("ask", self.ask),
+            ("suggest", self.suggest),
             ("infographics", self.infographics),
             ("summarise", self.summarise),
         ]
@@ -374,6 +381,7 @@ impl ToolSwitches {
             "hand_out" => self.hand_out,
             "display" => self.display,
             "ask" => self.ask,
+            "suggest" => self.suggest,
             "infographics" => self.infographics,
             "summarise" => self.summarise,
             _ => true,
@@ -608,6 +616,11 @@ pub struct Message {
     // opens the window over these files again.
     #[serde(default)]
     pub displayed: Vec<crate::display::Shown>,
+    // The next steps one run of the suggestion tool offered. The buttons stand
+    // at the end of the answer that made the offer, and only once the model has
+    // stopped writing: see `crate::suggest`.
+    #[serde(default)]
+    pub suggestions: Vec<crate::suggest::Suggestion>,
     // A message of the role "Summary" only. The room the talk took when the
     // handoff summary was asked for, in tokens.
     #[serde(default)]
@@ -1939,10 +1952,18 @@ mod tests {
         assert!(!switches.value_of("summarise"));
         assert!(switches.any_on(), "the other lines stand on");
         assert!(switches.any_on_with(false), "the other lines stand on");
-        // Every line but that of the handoff summary is taken away. The badge
-        // stands on while the room is made by a summary, and goes out when it
-        // is not.
-        for part in ["commands", "files", "picture", "hand_out", "display", "ask"] {
+        // Every line but that of the handoff summary is taken away. The lines
+        // are read from the switches themselves, so a line the program learns
+        // later is taken out here as well rather than leaving this test to say a
+        // thing that is no longer true of it. The badge stands on while the room
+        // is made by a summary, and goes out when it is not.
+        let lines: Vec<&'static str> = switches
+            .words()
+            .into_iter()
+            .map(|(part, _)| part)
+            .filter(|part| *part != "summarise")
+            .collect();
+        for part in lines.iter() {
             switches.set(part, false);
         }
         switches.set("summarise", true);

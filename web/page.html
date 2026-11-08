@@ -1260,9 +1260,15 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
 .look-md { font-size: 13.5px; color: var(--text); }
 .look-md > :first-child { margin-top: 0; }
 .look-md > :last-child { margin-bottom: 0; }
-/* The button of a show, under the block of the run that made it. The window goes
-   away with the key of escape, so the block keeps the way back to it. */
-.shown-again { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+/* The button of a show, at the end of the answer that made it. The window goes
+   away with the key of escape, so the answer keeps the way back to it. It
+   stands with the other blocks an answer ends with, and not in the block of the
+   run: what the user asked to see is read after the answer, not in the middle
+   of the account of how it was made. */
+.shown-again {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 2px 0 10px;
+}
 .shown-again button {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
@@ -1576,6 +1582,45 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 /* The button of the whole offer stands under the files it takes, in the middle
    of the chat as they are. */
 .gifts .all { align-self: center; }
+/* The blocks an answer ends with: the button that opens the window over the
+   files it showed, the files it offered, and the roads it suggested for what
+   comes next. They stand one under the other, in that order, so no two of them
+   are ever given the same place. The way back to what the user asked to see
+   stands first, for it belongs to the words above it; the work the user may
+   take or go on by stands after them. */
+.answer-end { display: flex; flex-direction: column; }
+/* The roads the model offered for what comes next. A button is one road: the
+   words it shows are short, and the words it sends may be longer. They stand in
+   the middle of the chat, under the answer that offered them, and only once the
+   model has stopped writing: a road offered in the middle of an answer leads to
+   work that is not finished. Only the newest offer of a chat stands, so the
+   buttons of an older answer go when the user speaks again. */
+.suggests {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  padding: 2px 0 12px; animation: rise 240ms ease-out;
+}
+/* One road spreads over the room it shares with its fellows, so two or three
+   of them fill the width of the chat and stand in one line. A road keeps its
+   own words, so the line goes under when the words of all of them will not
+   stand side by side, and the line that goes is centred like the line above it.
+   A single road whose words are wider than the chat is cut by the width of the
+   chat, with the mark of the ellipsis at its end, and never runs out of it. */
+.suggest {
+  flex: 1 1 auto; min-width: 0; max-width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 7px 12px; border: 1px solid var(--accent-line); border-radius: 999px;
+  background: var(--accent-soft); color: var(--ink); font-size: 12px;
+  font-weight: 650; font-family: inherit; cursor: pointer; white-space: nowrap;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease;
+}
+.suggest:hover { background: var(--tint); border-color: var(--accent); }
+/* A road that has been taken is not taken twice: the buttons are put by while
+   the words of the choice are on their way. */
+.suggest:disabled { opacity: .55; cursor: default; }
+.suggest:disabled:hover { background: var(--accent-soft); border-color: var(--accent-line); }
+.suggest .svg { flex: 0 0 auto; width: 13px; height: 13px; stroke: var(--ink); }
+.suggest .said { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
 /* The box says that a file let go there would land in it. */
 .box.drop { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line); }
 /* The files that hang on a message the user has sent stand under its words,
@@ -1937,6 +1982,7 @@ pre.code.line {
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
   .gifts { animation: none; }
+  .suggests { animation: none; }
   .ask { animation: none; }
   .look { animation: none; }
   .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
@@ -3652,6 +3698,8 @@ var TOOL_LINES = [
    'The model may put the contents of files of the chat in a window over the chat, and only when you asked to see them. A click on the block of the show opens that window again. Only the kinds the window can show are let through, and while the sandbox stands only the working directory of the chat is opened.'],
   ['ask', 'Ask questions',
    'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.'],
+  ['suggest', 'Suggest next steps',
+   'The model may end an answer with up to three buttons, each one a road the talk may go on by. The buttons appear only once the answer has stopped, and only the newest offer stands: the buttons of an older answer go when you speak again. A press sends the words of that road as a message of your own, so the model is never left waiting for one.'],
   ['infographics', 'Create infographics',
    'The model may make an infographic video: a script of scenes and blocks, a check of the layout, and the frames written into a file. The work stands in the folder infographics of the chat, and the video is made there too. The last step takes a while, and the line of the state tells how far it has come.'],
   ['summarise', 'Manually summarise',
@@ -4696,6 +4744,16 @@ var TOOL_SHAPES = {
     head: 'Asking the user: ', done: 'Asked the user: ', word: 'question', end: 'answer',
     empty: 'no question', begun: 'the question being written'
   },
+  // The roads the model offered for what comes next. The block of the run says
+  // which roads were offered; the buttons themselves stand under the answer,
+  // and only once the answer has stopped. The signpost is the mark of the tool,
+  // for a road is pointed at and not handed over.
+  offer_suggestions: {
+    mark: 'M8 2.4v11.2M8 3.6h4.4l1.6 1.6-1.6 1.6H8',
+    head: 'Suggesting a next step: ', done: 'Suggested: ', pluralDone: 'Suggested: ',
+    word: 'roads', end: 'result',
+    empty: 'no next step', begun: 'the roads being written', suggest: true
+  },
   // The talk of the chat put into a handoff summary. The head says what the call
   // worked on; the body carries the reason the model gave and the receipt of the
   // run, which names the room the talk took before the summary and after it.
@@ -4770,21 +4828,36 @@ function shownHead(shape, m, over) {
   return (given.length > 1 ? (shape.pluralDone || '') : (shape.done || '')) + held.join(', ');
 }
 
-// The button of a show, under the receipt of the run that made it. The window over
+// The words of the head of a block that offered the next steps. Every road the
+// call named is spoken, as the head of an offer names the files it offered: the
+// sentence the tool sent back is not a name of a road, and a head that carried it
+// said the same thing twice. A call that offered nothing - one that failed, or
+// one the user stopped - keeps what came back, which is the reason.
+function suggestHead(shape, m, over) {
+  var asks = m.suggestions || [];
+  if (!asks.length) { return headWords(shape, firstLine(m.body), over); }
+  var held = [];
+  var n;
+  for (n = 0; n < asks.length; n++) { held.push(String(asks[n].label || '')); }
+  return (asks.length > 1 ? (shape.pluralDone || '') : (shape.done || '')) + held.join(', ');
+}
+
+// The button of a show, at the end of the answer that made it. The window over
 // the contents of a file is opened by the model once and by the user as often as
-// they like, so the block keeps the mark that opens the same files again.
+// they like, so the answer keeps the mark that opens the same files again. The
+// files of every show of the answer stand in the one window, in the order they
+// were named, so a second call adds to the window instead of hiding the first.
 var SHOWN_MARK = 'M1.7 8S3.9 3.9 8 3.9 14.3 8 14.3 8 12.1 12.1 8 12.1 1.7 8 1.7 8z'
   + 'M8 6.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4';
 
-function shownAgain(m) {
-  var given = m.displayed;
+function shownRow(given) {
   if (!given || !given.length) { return null; }
   var row = make('div', 'shown-again');
   var button = make('button');
   button.type = 'button';
   button.appendChild(mark(SHOWN_MARK));
   var said = make('span');
-  said.textContent = given.length > 1 ? 'Show these files again' : 'Show this file again';
+  said.textContent = 'Show files';
   button.appendChild(said);
   var names = [];
   for (var n = 0; n < given.length; n++) { names.push(wholeOf(given[n])); }
@@ -4986,7 +5059,9 @@ function toolBox(m) {
     ? offerHead(shape, m, !running && !m.failed && !cut)
     : shape.shown
       ? shownHead(shape, m, !running && !m.failed && !cut)
-      : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
+      : shape.suggest
+        ? suggestHead(shape, m, !running && !m.failed && !cut)
+        : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
   // A change of a file says how many lines it wrote and how many it took away.
   var hunks = hunkCount(m);
@@ -5028,10 +5103,6 @@ function toolBox(m) {
   // bytes of a picture are sent to the model and never written into the block.
   var shots = viewedPics(m);
   if (shots) { space.appendChild(shots); }
-  // The window over the contents of files goes away with the key of escape, or with
-  // a click outside it, so the block of the run keeps the way back to the files.
-  var again = shownAgain(m);
-  if (again) { space.appendChild(again); }
   space.appendChild(labTwo);
   space.appendChild(output);
   body.appendChild(space);
@@ -7166,9 +7237,12 @@ function roleStamp(m) {
     // The blocks of an offer stand under the answer, so the row that carries them
     // is made again when an offer comes in or goes out.
     m.downloads ? 'gift' + m.downloads.length : '',
-    // The button of a show stands in the block of the run, so the row is made
-    // again when a show comes in.
+    // The button of a show stands at the end of the answer too, so the row that
+    // carries the end is made again when a show comes in.
     m.displayed ? 'shown' + m.displayed.length : '',
+    // The roads offered for what comes next stand at the end of the answer with
+    // them, so the row is made again when an offer of roads comes in.
+    m.suggestions ? 'suggest' + m.suggestions.length : '',
     m.cancelled ? 'cut' : '',
     // The line under a message carries the mark of going on with it, so the row
     // is made again when the state says an answer was stopped.
@@ -7618,7 +7692,7 @@ function drawThread(s) {
   // panel stands in the key, so the thread is made again when a panel grows.
   var spans = thoughtSpans(items);
   var rows = threadRows(items, spans);
-  var plan = giftPlan(items, rows);
+  var plan = endPlan(items, rows, !!(s && s.generating));
   var key = items.map(function (m) { return m.id; }).join('|')
           + '#' + spans.map(function (r) { return r.from + '-' + r.to; }).join(',');
   var open = (s.chat && s.chat.id) || '';
@@ -7672,7 +7746,7 @@ function drawThread(s) {
       }
     }
     while (turns.length > rows.length) { box.removeChild(turns.pop()); }
-    for (var p = 0; p < rows.length; p++) { placeGifts(turns[p], plan[p]); }
+    for (var p = 0; p < rows.length; p++) { placeEnd(turns[p], plan[p]); }
     if (fresh) {
       // A chat that was opened or turned stands at the top.
       el.thread.scrollTop = 0;
@@ -7695,11 +7769,13 @@ function drawThread(s) {
     for (var k = rows.length - 3; k < rows.length; k++) {
       if (k >= 0) { syncTurn(turns[k], items, rows[k]); }
     }
-    // The offers of the last answers are looked at again here as well: an offer
-    // that came in while the model was writing stands aside until the answer is
-    // over, and the row that carries it has nothing else to say when it ends.
+    // The blocks the last answers end with are looked at again here as well: an
+    // offer that came in while the model was writing stands aside until the
+    // answer is over, and the row that carries it has nothing else to say when it
+    // ends. The same is true of the button of a show and of the roads offered for
+    // what comes next, which stand in the same place.
     for (var q = rows.length - 3; q < rows.length; q++) {
-      if (q >= 0) { placeGifts(turns[q], plan[q]); }
+      if (q >= 0) { placeEnd(turns[q], plan[q]); }
     }
   }
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
@@ -7910,10 +7986,52 @@ function giftRow(list) {
   return row;
 }
 
+// The mark of a road the model offered: a line to the place it leads, and the
+// bar of the place itself.
+var SUGGEST_MARK = 'M2.8 8h8.4M8.4 4.8 11.6 8l-3.2 3.2M13.6 3.2v9.6';
+
+// The roads the model offered for what comes next, as buttons. A press sends
+// the words of the road the way the chat box sends the words written in it, and
+// takes the buttons by at once: a road that has been taken is not offered twice
+// while the words of the choice are on their way.
+function suggestRow(asks) {
+  var row = make('div', 'suggests');
+  for (var n = 0; n < asks.length; n++) {
+    var one = asks[n] || {};
+    var said = String(one.label || one.prompt || '');
+    if (!said.trim()) { continue; }
+    var button = make('button', 'suggest');
+    button.type = 'button';
+    button.appendChild(mark(SUGGEST_MARK));
+    var word = make('span', 'said');
+    word.textContent = said;
+    button.appendChild(word);
+    var send = String(one.prompt || said);
+    button.title = 'Send these words to the model: ' + send;
+    (function (words, self) {
+      self.addEventListener('click', function () {
+        for (var k = 0; k < row.children.length; k++) { row.children[k].disabled = true; }
+        sendWords(words, self.getBoundingClientRect());
+      });
+    })(send, button);
+    row.appendChild(button);
+  }
+  return row;
+}
+
 // The answers of a chat, in the order they stand: where one begins, where it
-// ends, whether the model is still writing it, and what it offered. An answer is
-// the talk between one word of the user and the next, which is why the offer
-// belongs to a whole answer and not to the one message the tool ran in.
+// ends, whether the model is still writing it, what it offered to be taken away,
+// what it put in the window over the contents of files, and what it suggested
+// for what comes next. An answer is the talk between one word of the user and
+// the next, which is why these belong to a whole answer and not to the one
+// message the tool ran in.
+//
+// The files of an offer and the files of a show are gathered over the whole of
+// the answer, in the order the calls named them: a user who was offered two
+// files by two calls was offered two files. The roads are not gathered. The
+// newest call of an answer wins, and an answer that is not the newest of the
+// chat carries none of them, for the roads an older answer named are no longer
+// the roads the talk is at.
 function chatAnswers(items) {
   var out = [];
   var begin = 0;
@@ -7921,6 +8039,8 @@ function chatAnswers(items) {
     if (n === items.length || items[n].role === 'You') {
       if (n > begin) {
         var held = [];
+        var shown = [];
+        var asks = [];
         var writing = false;
         for (var k = begin; k < n; k++) {
           if (items[k].id === 'live') { writing = true; }
@@ -7928,8 +8048,17 @@ function chatAnswers(items) {
           if (given && given.length) {
             for (var j = 0; j < given.length; j++) { held.push(given[j]); }
           }
+          var seen = items[k].displayed;
+          if (seen && seen.length) {
+            for (var g = 0; g < seen.length; g++) {
+              if (!holdsPath(shown, seen[g].path)) { shown.push(seen[g]); }
+            }
+          }
+          var wants = items[k].suggestions;
+          if (wants && wants.length) { asks = wants; }
         }
-        out.push({ from: begin, to: n, writing: writing, gifts: held });
+        out.push({ from: begin, to: n, writing: writing, gifts: held, shown: shown,
+          asks: asks, last: n === items.length });
       }
       begin = n + 1;
     }
@@ -7937,10 +8066,22 @@ function chatAnswers(items) {
   return out;
 }
 
-// Which row of the thread carries the offer of its answer, and what it is made
-// of. Only the last row of an answer carries it, and an answer that is still
-// being written carries nothing at all.
-function giftPlan(items, rows) {
+// True when a file of this road already stands in the list gathered for the end
+// of an answer, for a file shown twice is opened from one place and not two.
+function holdsPath(list, path) {
+  for (var n = 0; n < list.length; n++) {
+    if (String(list[n].path) === String(path)) { return true; }
+  }
+  return false;
+}
+
+// Which row of the thread carries the blocks its answer ends with, and what they
+// are made of. Only the last row of an answer carries them, and an answer that is
+// still being written carries nothing at all: an offer made in the middle of an
+// answer is not finished work. The roads asked for more besides - the newest
+// answer of the chat only, and nothing at all while the model is writing - so
+// they go the moment the user takes one or says something of their own.
+function endPlan(items, rows, generating) {
   var answers = chatAnswers(items);
   var plan = [];
   var at = 0;
@@ -7948,30 +8089,52 @@ function giftPlan(items, rows) {
     var row = rows[r];
     while (at + 1 < answers.length && answers[at + 1].from <= row.from) { at += 1; }
     var one = answers[at];
-    var given = (one && !one.writing && one.gifts.length
-      && row.from >= one.from && row.to === one.to) ? one.gifts : null;
-    plan.push(given);
+    var held = null;
+    if (one && !one.writing && row.from >= one.from && row.to === one.to) {
+      var asks = (one.last && !generating) ? one.asks : [];
+      if (one.gifts.length || one.shown.length || asks.length) {
+        held = { gifts: one.gifts, shown: one.shown, asks: asks };
+      }
+    }
+    plan.push(held);
   }
   return plan;
 }
 
-// The blocks of an offer are put under the row that carries them, or taken away,
-// or left alone. A row that was made again has lost them with the rest of its
-// words, so what stands in the row is looked at and not only what the row said
-// it was made of last.
-function placeGifts(turn, given) {
+// The blocks an answer ends with are put under the row that carries them, or
+// taken away, or left alone. A row that was made again has lost them with the
+// rest of its words, so what stands in the row is looked at and not only what
+// the row said it was made of last.
+//
+// The three kinds stand inside one block of their own, in the order the chat
+// reads them: the button that opens the window over the files that were shown,
+// the files that may be taken, and the roads for what comes next. They stand one
+// under the other, so no two of them are ever given the same place, whatever
+// came in last.
+function placeEnd(turn, one) {
   if (!turn) { return; }
-  var want = given ? given.map(function (one) {
-    return String(one.path) + ':' + String(one.size);
-  }).join('|') : '';
+  var want = one ? [
+    (one.gifts || []).map(function (f) {
+      return String(f.path) + ':' + String(f.size);
+    }).join('|'),
+    (one.shown || []).map(function (f) { return String(f.path); }).join('|'),
+    (one.asks || []).map(function (a) {
+      return String(a.label) + '>' + String(a.prompt);
+    }).join('|')
+  ].join('#') : '';
   var held = null;
   for (var n = 0; n < turn.children.length; n++) {
-    if (turn.children[n].classList.contains('gifts')) { held = turn.children[n]; break; }
+    if (turn.children[n].classList.contains('answer-end')) { held = turn.children[n]; break; }
   }
-  if (turn.dataset.gifts === want && (held || !want)) { return; }
-  turn.dataset.gifts = want;
+  if (turn.dataset.end === want && (held || !want)) { return; }
+  turn.dataset.end = want;
   if (held) { turn.removeChild(held); }
-  if (given && given.length) { turn.appendChild(giftRow(given)); }
+  if (!one) { return; }
+  var box = make('div', 'answer-end');
+  if (one.shown && one.shown.length) { box.appendChild(shownRow(one.shown)); }
+  if (one.gifts && one.gifts.length) { box.appendChild(giftRow(one.gifts)); }
+  if (one.asks && one.asks.length) { box.appendChild(suggestRow(one.asks)); }
+  turn.appendChild(box);
 }
 
 // ------------------------------------------------------ the question of the user
@@ -9426,6 +9589,24 @@ function send() {
   // box until the answer it waited for is over.
   startFly(text, where);
   post('/api/send', messageBody(text, files));
+}
+
+// Words that did not stand in the box go out the same road as words that did:
+// the list over the box while the model is writing, the ask otherwise. The copy
+// of them is carried from the place they were pressed on, which is where the
+// hand of the user was. `where` is that place, or nothing at all.
+function sendWords(text, where) {
+  var words = String(text || '').trim();
+  if (!words) { return; }
+  if (cur && cur.generating) {
+    queueSeq += 1;
+    queue.push({ id: queueSeq, text: words, files: [] });
+    if (queueChat === null) { queueChat = chatIdOf(cur); }
+    drawQueue();
+    return;
+  }
+  startFly(words, where);
+  post('/api/send', messageBody(words, []));
 }
 
 // ---------------------------------------------- the journey of a sent message

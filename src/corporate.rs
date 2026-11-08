@@ -28,6 +28,7 @@ use crate::display;
 use crate::download;
 use crate::editfile;
 use crate::search;
+use crate::suggest;
 use crate::summarise;
 use crate::tools;
 use crate::viewimage;
@@ -125,6 +126,7 @@ fn doing_word(name: &str) -> &'static str {
         editfile::CREATE_NAME => "Creating file",
         search::NAME => "Searching the web",
         display::NAME => "Reading the screen",
+        suggest::NAME => "Offering a next step",
         download::NAME => "Offering files",
         viewimage::NAME => "Looking at a picture",
         summarise::NAME => "Summarising the talk",
@@ -142,6 +144,7 @@ fn done_word(name: &str) -> &'static str {
         editfile::CREATE_NAME => "Created a file",
         search::NAME => "Searched the web",
         display::NAME => "Read the screen",
+        suggest::NAME => "Offered a next step",
         download::NAME => "Offered files",
         viewimage::NAME => "Looked at a picture",
         summarise::NAME => "Summarised the talk",
@@ -160,6 +163,7 @@ fn known(name: &str) -> bool {
             | editfile::CREATE_NAME
             | search::NAME
             | display::NAME
+            | suggest::NAME
             | download::NAME
             | viewimage::NAME
             | summarise::NAME
