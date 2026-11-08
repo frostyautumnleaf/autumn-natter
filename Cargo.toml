@@ -80,3 +80,10 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 strip = "symbols"
+
+# The live checks that stand in tests/ speak to a server of their own over HTTP,
+# so they want the same client the program speaks with. It is already in the list
+# above; naming it here as well costs nothing and no new package is read.
+[dev-dependencies]
+ureq = { version = "2", default-features = false, features = ["json"] }
+serde_json = { version = "1", features = ["preserve_order"] }
