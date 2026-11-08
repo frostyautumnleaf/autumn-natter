@@ -854,6 +854,55 @@ fn system_words_of(cfg: &Config) -> String {
     format!("{front}\n\n{own}")
 }
 
+// The mark llama.cpp puts into its template where a picture goes: `<__media_`
+// with a random tail, `<__media_Qv1A...__>`. The server counts those marks in the
+// words it is sent and looks for a picture at every one of them, and it refuses
+// the whole ask when a mark stands where no picture is: `number of media markers
+// in text (1) exceeds number of bitmaps (0)`, which the window reads as `Failed
+// to tokenize prompt`. Words of that shape come into a chat on their own: the
+// model asks for the properties of an inference server with a command and the
+// answer carries the mark, or the user pastes such a reading. The mark then rides
+// in the talk for ever after, and every later ask is refused, so the chat is
+// stuck on one line of output.
+//
+// Nothing here sends a picture inside words: a picture goes as a part of its own
+// (`image_url`), and the server puts its own mark where the template wants one.
+// A mark found among the words is therefore always a thing being talked about
+// and never a place for a picture. One space after the opening bracket breaks the
+// mark, and the words still read as they did: the server sees no place for a
+// picture, and the chat keeps its room.
+fn break_media_marks(words: &str) -> Option<String> {
+    if !words.contains("<__media_") {
+        return None;
+    }
+    Some(words.replace("<__media_", "< __media_"))
+}
+
+// The same over a whole ask: every string at whatever depth is looked at, so a
+// mark in the receipt of a command, in the words of an answer, in the arguments
+// of a call or in a line of a file the model read is broken as well. Words with
+// no mark in them are left exactly where they stand.
+fn break_media_marks_in(value: &mut Value) {
+    match value {
+        Value::String(words) => {
+            if let Some(made) = break_media_marks(words) {
+                *words = made;
+            }
+        }
+        Value::Array(items) => {
+            for one in items.iter_mut() {
+                break_media_marks_in(one);
+            }
+        }
+        Value::Object(fields) => {
+            for (_name, one) in fields.iter_mut() {
+                break_media_marks_in(one);
+            }
+        }
+        _ => {}
+    }
+}
+
 // Where the newest handoff summary that was really written stands among the
 // messages of a chat. None means the chat was never summarised.
 fn last_summary_place(chat: &Chat) -> Option<usize> {
@@ -2764,7 +2813,12 @@ impl State {
                 _ => {}
             }
         }
-        json!(out)
+        // A mark of a picture standing among the words is broken before the talk
+        // goes out: the server would look for a picture at it and refuse the whole
+        // ask. See `break_media_marks`.
+        let mut history = Value::Array(out);
+        break_media_marks_in(&mut history);
+        history
     }
 
     // Read the chats of the current scope from disk.
@@ -12143,6 +12197,99 @@ mod tests {
         let last = items[items.len() - 1].clone();
         assert_eq!(last["role"], json!("user"));
         assert!(last["content"].as_str().expect("words").starts_with("Summarise it."));
+    }
+
+    // A mark of a picture is what llama.cpp looks for in the words it is sent: it
+    // counts the marks and expects a bitmap at every one of them, and it refuses
+    // the whole ask when a mark stands where no picture is. A command that read
+    // the properties of an inference server carried such a mark into a chat, and
+    // every later ask of that chat was refused. Words with no mark in them are
+    // left exactly as they stand, and a mark is broken by one space, so the words
+    // still say what they said.
+    #[test]
+    fn a_media_mark_quoted_in_words_is_broken() {
+        assert_eq!(break_media_marks("nothing of a picture here"), None);
+        assert_eq!(break_media_marks(""), None);
+        // The mark of the server, and the plain mark of the template, are both
+        // broken, and so are two marks in one line.
+        assert_eq!(
+            break_media_marks("a: <__media_Qv1A2b3C4d5E6f7G8h9I0jK__> b: <__media__>"),
+            Some(String::from("a: < __media_Qv1A2b3C4d5E6f7G8h9I0jK__> b: < __media__>"))
+        );
+        // Broken once, the words hold no mark any more, so the ask of this turn
+        // and the ask of the next carry the same words and the server keeps the
+        // work it did on them.
+        let once = break_media_marks("media_marker: '<__media_Qv1A2b3C4d5E6f7G8h9I0jK__>'")
+            .expect("a mark was broken");
+        assert_eq!(break_media_marks(&once), None);
+    }
+
+    // The mark is broken wherever it stands in the ask: in the receipt of a
+    // command, in the parts of a message, in the arguments of a call. A number
+    // and a word with no mark in it are left where they stand.
+    #[test]
+    fn a_media_mark_is_broken_wherever_it_stands_in_an_ask() {
+        let mut ask = json!({
+            "messages": [
+                { "role": "user", "content": "What does the server say?" },
+                { "role": "assistant", "content": Value::Null,
+                  "tool_calls": [{ "id": "c1", "type": "function",
+                                   "function": { "name": "run_terminal",
+                                                 "arguments": "{\"command\":\"curl -s /props\"}" } }] },
+                { "role": "tool", "tool_call_id": "c1",
+                  "content": [{ "type": "text",
+                                "text": "'media_marker': '<__media_Qv1A2b3C4d5E6f7G8h9I0jK__>'" }] },
+            ],
+            "max_tokens": 400,
+        });
+        break_media_marks_in(&mut ask);
+        let items = ask["messages"].as_array().expect("the talk");
+        let receipt = items[2]["content"][0]["text"].as_str().expect("the receipt");
+        assert!(!receipt.contains("<__media_"), "the mark still stands");
+        assert!(receipt.contains("< __media_"), "the words still say what they said");
+        assert_eq!(items[0]["content"], json!("What does the server say?"));
+        assert_eq!(
+            items[1]["tool_calls"][0]["function"]["arguments"],
+            json!("{\"command\":\"curl -s /props\"}")
+        );
+        assert_eq!(ask["max_tokens"], json!(400));
+    }
+
+    // The talk that goes out is where the mark is broken. The chat keeps the words
+    // as the user reads them: the receipt of the command still shows the line the
+    // server wrote, and only what goes to the model is broken.
+    #[test]
+    fn the_talk_that_goes_out_carries_no_media_mark() {
+        let mark = "<__media_Qv1A2b3C4d5E6f7G8h9I0jK__>";
+        let engine = engine_with(vec![
+            Message {
+                id: String::from("a"),
+                role: String::from("You"),
+                body: String::from("What does the server say about its media marker?"),
+                ..Default::default()
+            },
+            Message {
+                id: String::from("b"),
+                role: String::from("Tool"),
+                call_id: String::from("c1"),
+                tool_name: String::from("run_terminal"),
+                tool_args: String::from("{\"command\":\"curl -s /props\"}"),
+                tool: format!("'media_marker': '{}'", mark),
+                ..Default::default()
+            },
+        ]);
+        let state = engine.state.lock().unwrap();
+        let talk = state.build_history();
+        let items = talk.as_array().expect("the talk");
+        let mut told = String::new();
+        for one in items {
+            told.push_str(&one.to_string());
+        }
+        assert!(!told.contains("<__media_"), "a mark went out to the server");
+        assert!(told.contains("< __media_"), "the receipt lost its words");
+        // The chat itself still holds the line as it was read.
+        let chat = state.chat().expect("the chat stands open");
+        assert!(chat.messages[1].tool.contains(mark), "the chat lost the line");
     }
 
     // A talk that ends on a call, or on the receipt of one, used to end the ask on
