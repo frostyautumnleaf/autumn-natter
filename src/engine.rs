@@ -340,8 +340,10 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
         // A look about the web is named by the words to look for, or by the
         // address that is to be read.
         search::NAME => (search::partial_words(raw), String::new(), String::new()),
-        // The tools of planning name themselves: one changes the plan file of
-        // this chat, one reads it back, and one says the plan is agreed.
+        // The tools of planning name themselves: one writes the whole plan, one
+        // changes the plan file of this chat, one reads it back, and one says the
+        // plan is agreed.
+        planning::INIT_NAME => (String::from("the plan file"), String::new(), String::new()),
         planning::EDIT_NAME => (String::from("the plan file"), String::new(), String::new()),
         planning::READ_NAME => (String::from("the plan file"), String::new(), String::new()),
         planning::ASK_NAME => (String::from("the questions of the plan"), String::new(), String::new()),
@@ -8525,6 +8527,7 @@ fn offered_with_planning(
     .and_then(|made| made.as_array().cloned())
     .unwrap_or_default();
     if planning_on {
+        list.push(planning::init_definition());
         list.push(planning::edit_definition());
         list.push(planning::read_definition());
         list.push(planning::ask_definition());
@@ -8737,6 +8740,7 @@ fn run_program_tool(
         download::NAME => "Offering a file",
         display::NAME => "Showing a file to the user",
         askuser::NAME => "Asking the user",
+        planning::INIT_NAME => "Writing the plan",
         planning::EDIT_NAME => "Changing the plan",
         planning::READ_NAME => "Reading the plan",
         planning::ASK_NAME => "Asking about the plan",
@@ -8912,6 +8916,22 @@ fn run_program_tool(
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool(&message_id, &words, ok);
         guard.clear_asking(&asking);
+        return;
+    }
+    // The whole plan in one call. The plan file of a chat that has nothing in it
+    // has no words to match against, so the first writing of a plan is a whole of
+    // words sent at once; every writing after it goes through `edit_plan`.
+    if call.name == planning::INIT_NAME {
+        let name = match state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.plan_file.clone())
+                .unwrap_or_default(),
+            Err(_) => return,
+        };
+        let report = planning::write_init(&name, &call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &report.output, report.ok);
         return;
     }
     // The plan file of this chat. The tool reaches that one file and no other, so
@@ -9326,6 +9346,67 @@ mod tests {
         assert!(!kept.picture);
         assert!(!kept.hand_out, "the offer of a file is still off");
         assert!(!lines.is_empty(), "the badge has lines to switch");
+    }
+
+    // The tools of planning stand only while planning mode is on, and the whole of
+    // them stands then: the first writing of the plan, the changes of it, the
+    // reading of it back, the questions of the user, and the letting go. A chat
+    // that never planned is offered none of them, for a plan file it has no hold
+    // of is nothing a tool could reach.
+    #[test]
+    fn the_tools_of_planning_stand_only_while_planning_is_on() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+        }
+        let switches = engine.snapshot().tool_switches;
+        let names = |on: bool| {
+            offered_with_planning(
+                false,
+                on,
+                false,
+                false,
+                false,
+                tools::Access::default(),
+                &[],
+                &switches,
+                true,
+            )
+            .map(|list| {
+                list.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect::<Vec<_>>()
+            })
+        };
+        let wanted = [
+            planning::INIT_NAME,
+            planning::EDIT_NAME,
+            planning::READ_NAME,
+            planning::ASK_NAME,
+            planning::END_NAME,
+        ];
+        let plain = names(false).unwrap_or_default();
+        for one in wanted {
+            assert!(
+                !plain.iter().any(|two| two == one),
+                "{} stands outside planning mode",
+                one
+            );
+        }
+        let planned = names(true).expect("planning mode always offers a tool");
+        for one in wanted {
+            assert!(
+                planned.iter().any(|two| two == one),
+                "{} is missing while planning mode stands on: {:?}",
+                one,
+                planned
+            );
+        }
     }
 
     // The handoff summary the model may ask for stands behind the badge of the

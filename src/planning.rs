@@ -26,9 +26,11 @@ use std::path::{Path, PathBuf};
 use crate::config;
 use crate::tools::{self, with_rule};
 
-// The name the model uses to change the plan, and the name it uses to say that
+// The name the model uses to change the plan, the name it uses to write the
+// whole of a plan that has nothing in it yet, and the name it uses to say that
 // the plan is done and the work may begin.
 pub const EDIT_NAME: &str = "edit_plan";
+pub const INIT_NAME: &str = "init_plan";
 pub const END_NAME: &str = "end_planning";
 
 // The word a user writes for planning mode, and the words of the same command
@@ -79,19 +81,14 @@ pub fn create(chat: &str) -> String {
     if let Some(place) = path_of(&name) {
         if !place.is_file() {
             let _ = fs::create_dir_all(folder());
-            let _ = fs::write(&place, opening());
+            // The file is made empty. Words of the program's own in a new plan
+            // were words the model then had to hunt out of the plan, and words
+            // the user read in the window for a plan that was never written.
+            // An empty plan is read as not written yet, which is what it is.
+            let _ = fs::write(&place, "");
         }
     }
     name
-}
-
-// The first words of a new plan. The file is never empty, for a tool that
-// changes a file by matching words needs words to match.
-fn opening() -> String {
-    String::from(
-        "# The plan\n\n\
-         The plan stands here. Nothing of it is written yet.\n",
-    )
 }
 
 // The whole of a plan, for the popup of the heading and for the first message of
@@ -111,6 +108,81 @@ const GREATEST_PLAN_BYTES: usize = 8 * 1024 * 1024;
 
 // The most changes one call may make to the plan.
 const MAX_EDITS: usize = 100;
+
+// The call that writes the whole plan at once. It stands beside the tool that
+// changes the plan by matching words, for a plan that has nothing in it has no
+// words to match: the first writing of a plan is a whole of words sent in one
+// call, and every writing after it is a change of the plan that stands.
+pub fn init_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": INIT_NAME,
+            "description": with_rule(String::from(
+                "Write the whole plan of this chat in one call. This tool has no path, because it reaches the plan file of this chat and no other. It is the first writing of the plan: call it once, when the plan file holds nothing yet, with the whole of the plan from its first heading to its last line. What you send becomes the plan from beginning to end, and anything that stood in the plan file is gone. Never call it again once the plan has been begun: a second call throws away the plan and every part of it the user read. Change a plan that stands with the tool `edit_plan`, part by part, so a change is seen as a change and nothing that was agreed is lost. The words must be the plan itself, and not a promise of it: a plan of one line is refused as no plan. Never write the plan with another tool, and never write the plan in your answer.",
+            )),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plan": {
+                        "type": "string",
+                        "description": "The whole of the plan, as it is to stand in the plan file. Every part of it, from the first heading to the last line."
+                    }
+                },
+                "required": ["plan"]
+            }
+        }
+    })
+}
+
+// Write the whole plan of a chat at once. What stands in the plan file is
+// written over, for the call is the first writing of a plan and not a change of
+// one: a plan of no words at all is refused, so a call that meant nothing never
+// takes a written plan away.
+pub fn write_init(name: &str, raw: &str) -> tools::Report {
+    let failed = |output: String| tools::Report { ok: false, output };
+    let Some(place) = path_of(name) else {
+        return failed(String::from(
+            "This chat has no plan file, so there is nothing to write.",
+        ));
+    };
+    let Ok(call) = serde_json::from_str::<Value>(raw) else {
+        return failed(String::from(
+            "The call was not whole words of JSON, so nothing was written.",
+        ));
+    };
+    let Some(words) = call.get("plan").and_then(|one| one.as_str()) else {
+        return failed(String::from(
+            "The call carries no words of a plan. Give the whole plan in `plan`.",
+        ));
+    };
+    if words.trim().is_empty() {
+        return failed(String::from(
+            "Nothing was written. The words you sent hold no plan, and a plan of nothing is no plan.",
+        ));
+    }
+    if words.len() > GREATEST_PLAN_BYTES {
+        return failed(String::from(
+            "Nothing was written. The plan is longer than the length this program keeps a plan to.",
+        ));
+    }
+    let before = fs::read_to_string(&place).unwrap_or_default();
+    if let Err(why) = write_plan(&place, words) {
+        return failed(format!("The plan could not be written: {}", why));
+    }
+    let mut said = format!(
+        "The plan was written whole. It holds {} lines.",
+        lines_of(words)
+    );
+    if !before.trim().is_empty() {
+        said.push_str(" What stood in the plan file before this call is gone.");
+    }
+    if let Some(head) = head_of(words) {
+        said.push_str("\nThe plan begins:\n");
+        said.push_str(&head);
+    }
+    tools::Report { ok: true, output: said }
+}
 
 // The call that changes the plan. It carries no place: the plan file of this chat
 // is the only file it can reach.
@@ -194,15 +266,22 @@ pub fn system_prompt(plan: &str) -> String {
     out.push_str(&format!(
         "The plan file.\n\
          The plan of this chat stands in one file: `{}`. It lives in a folder of \
-         the planning directory of this program, away from the work it plans. You \
-         change it with the tool `{}` and with nothing else. Never write the plan \
-         with any other tool: not with a file tool, not with a command of the \
-         terminal, not by sending the words in an answer. The plan file is the \
-         only file you may change in this mode, and `{}` is the only way into it. \
+         the planning directory of this program, away from the work it plans. Two \
+         tools reach it, and nothing else does. `{}` writes the whole plan in one \
+         call, and it is for the first writing only: when the file holds nothing \
+         yet, send the plan from its first heading to its last line in one call. \
+         `{}` changes a plan that stands, by matching words in it, and it is the \
+         way into the plan for every writing after the first: a change made there \
+         reads as a change, and nothing the user has read or agreed to is thrown \
+         away. Never call `{}` a second time, for it writes over the whole of what \
+         stands. Never write the plan with any other tool: not with a file tool, \
+         not with a command of the terminal, not by sending the words in an answer. \
+         The plan file is the only file you may change in this mode, and these two \
+         tools are the only way into it. \
          Your answers to the user stay short: they say what changed in the plan, \
          what you still need, and nothing else. Never repeat the plan in the \
          talk.\n\n",
-        plan, EDIT_NAME, EDIT_NAME
+        plan, INIT_NAME, EDIT_NAME, INIT_NAME
     ));
     out.push_str(
         "How deep the plan must go.\n\
@@ -258,18 +337,20 @@ pub fn system_prompt(plan: &str) -> String {
          project, no setting, no record, no commit. Where a tool would change \
          something, do not call it. Say in the plan what you looked at, so a \
          reader knows what the plan was built on.\n\
-         Take the plan one step at a time: write the part that is settled, then \
-         look again, then write the next part. Change the plan with `{}` as soon \
-         as a part of it is settled, rather than holding a page of it back for the \
-         next answer. A plan that is written in five calls is a better plan than \
-         one written in one.\n\
+         Take the plan one step at a time. A plan file that holds nothing is \
+         written whole with `{}`: send all of the plan you have in one call, and \
+         call it once. After that first writing, write the part that is settled, \
+         then look again, then write the next part. Change the plan with `{}` as \
+         soon as a part of it is settled, rather than holding a page of it back for \
+         the next answer. A plan that is gone over in five calls is a better plan \
+         than one written in one.\n\
          When the user asks for a change, change the plan file first and then \
          answer. When the user asks a question about the work, answer it from what \
          you read, and put what you learned into the plan.\n\
          Ask the user about what you cannot settle, a few questions at a time, \
          and write their answers into the plan as they come.\n\
          Keep the plan in the language the user writes in.\n\n",
-        EDIT_NAME
+        INIT_NAME, EDIT_NAME
     ));
     out.push_str(&format!(
         "The user, and what the plan must never hold.\n\n\
@@ -404,7 +485,7 @@ pub fn edit_plan(name: &str, raw: &str) -> tools::Report {
                     quote_head(&change.old),
                     if after.trim().is_empty() {
                         String::from(
-                            " (the plan is empty, so put the whole part in new_string with an empty old_string)",
+                            " (the plan holds nothing yet: write the whole plan with `init_plan`, or put a whole part in new_string with an empty old_string)",
                         )
                     } else {
                         String::new()
@@ -815,6 +896,16 @@ pub fn read_plan(name: &str, raw: &str) -> tools::Report {
             "The plan file could not be read, so nothing was answered.",
         ));
     };
+    // A new plan holds nothing at all, and there is no line to read in it. The
+    // word about it names the tool that writes the plan whole.
+    if words.trim().is_empty() {
+        return tools::Report {
+            ok: true,
+            output: String::from(
+                "The plan holds nothing yet. Write the whole plan with `init_plan`.",
+            ),
+        };
+    }
     let Ok(call) = serde_json::from_str::<Value>(raw) else {
         return failed(String::from(
             "The call was not whole words of JSON, so nothing was answered.",
@@ -973,7 +1064,10 @@ mod tests {
         assert!(place.starts_with(folder()));
         assert!(place.is_file(), "the plan file is made with planning mode");
         let held = words(&name).expect("the plan reads back");
-        assert!(held.contains("# The plan"), "{}", held);
+        // A new plan holds nothing. Words of the program in a new plan were
+        // words the model had to hunt out of the plan again, and words the user
+        // read in the window of a plan that was never written.
+        assert!(held.trim().is_empty(), "{}", held);
         // A second look leaves the plan as it stands.
         let _ = fs::write(&place, "the plan as the model wrote it");
         create("ab12cd34ef");
@@ -990,9 +1084,14 @@ mod tests {
     fn the_plan_is_changed_by_matching_words() {
         let _guard = config::test_turn();
         let name = create("1234567890");
+        let first = write_init(
+            &name,
+            "{\"plan\":\"# The plan\\n\\nThe work is not laid out yet.\\n\"}",
+        );
+        assert!(first.ok, "{}", first.output);
         let made = edit_plan(
             &name,
-            r#"{"edits":[{"old_string":"Nothing of it is written yet.","new_string":"The work is laid out below."}]}"#,
+            r#"{"edits":[{"old_string":"The work is not laid out yet.","new_string":"The work is laid out below."}]}"#,
         );
         assert!(made.ok, "{}", made.output);
         assert!(made.output.contains("1 change"), "{}", made.output);
@@ -1006,6 +1105,73 @@ mod tests {
         assert!(held.ends_with("## Step one\n"), "{}", held);
         let place = path_of(&name).unwrap();
         let _ = fs::remove_file(&place);
+    }
+
+    // The first writing of a plan is one call of whole words. What stands in the
+    // plan file is written over, and a call that carries no plan is refused, so a
+    // call that meant nothing never takes a written plan away.
+    #[test]
+    fn the_first_writing_of_a_plan_is_one_call() {
+        let _guard = config::test_turn();
+        let name = create("8800880088");
+        let place = path_of(&name).unwrap();
+        assert!(words(&name).unwrap().trim().is_empty(), "a new plan holds nothing");
+        let begun = write_init(&name, r##"{"plan":"# The way in\n\nStep one.\n"}"##);
+        assert!(begun.ok, "{}", begun.output);
+        assert!(begun.output.contains("3 lines"), "{}", begun.output);
+        assert!(begun.output.contains("# The way in"), "{}", begun.output);
+        // Nothing stood before, so nothing is said about what was lost.
+        assert!(!begun.output.contains("gone"), "{}", begun.output);
+        assert_eq!(
+            fs::read_to_string(&place).unwrap(),
+            "# The way in\n\nStep one.\n"
+        );
+        // The plan may be gone through again in parts, for the tool that matches
+        // words has words to match now.
+        let part = edit_plan(
+            &name,
+            r#"{"edits":[{"old_string":"Step one.","new_string":"Step one. Then step two."}]}"#,
+        );
+        assert!(part.ok, "{}", part.output);
+        // A second whole writing takes the plan that stood with it, and says so.
+        let again = write_init(&name, r##"{"plan":"# Another way in\n"}"##);
+        assert!(again.ok, "{}", again.output);
+        assert!(again.output.contains("gone"), "{}", again.output);
+        assert_eq!(fs::read_to_string(&place).unwrap(), "# Another way in\n");
+        // A call of no words, or of spaces only, writes nothing at all.
+        let empty = write_init(&name, r#"{"plan":"   \n\n  "}"#);
+        assert!(!empty.ok);
+        assert!(empty.output.contains("no plan"), "{}", empty.output);
+        assert_eq!(fs::read_to_string(&place).unwrap(), "# Another way in\n");
+        let missing = write_init(&name, r#"{"other":"words of a plan"}"#);
+        assert!(!missing.ok);
+        assert!(missing.output.contains("`plan`"), "{}", missing.output);
+        let broken = write_init(&name, r#"{"plan":"cut off"#);
+        assert!(!broken.ok);
+        assert!(broken.output.contains("JSON"), "{}", broken.output);
+        // A name that is not one of this module's own reaches no file at all.
+        let stranger = write_init("notes.md", r#"{"plan":"out of the folder"}"#);
+        assert!(!stranger.ok);
+        let _ = fs::remove_file(&place);
+    }
+
+    // A change asked for of a plan that holds nothing says which tool writes the
+    // plan whole, for there is nothing there to match against.
+    #[test]
+    fn an_empty_plan_says_which_tool_writes_it() {
+        let _guard = config::test_turn();
+        let name = create("7700770077");
+        let made = edit_plan(
+            &name,
+            r#"{"edits":[{"old_string":"Step one","new_string":"Step two"}]}"#,
+        );
+        assert!(!made.ok);
+        assert!(made.output.contains(INIT_NAME), "{}", made.output);
+        // A part written into an empty plan with no place to match still stands.
+        let part = edit_plan(&name, r##"{"edits":[{"old_string":"","new_string":"# Step one\n"}]}"##);
+        assert!(part.ok, "{}", part.output);
+        assert_eq!(words(&name).unwrap(), "# Step one\n");
+        let _ = fs::remove_file(path_of(&name).unwrap());
     }
 
     // A change that matches no place, or more than one, writes nothing at all.
@@ -1051,9 +1217,23 @@ mod tests {
         assert_eq!(words, "/planets are far");
     }
 
-    // The two tools name themselves, and neither takes a place.
+    // The three tools name themselves, and none of them takes a place.
     #[test]
     fn the_tools_of_planning_carry_no_place() {
+        let begun = init_definition();
+        assert_eq!(begun["function"]["name"], json!(INIT_NAME));
+        let wants = begun["function"]["parameters"]["required"]
+            .as_array()
+            .expect("a list of what the call wants");
+        assert_eq!(wants.len(), 1, "the call wants `plan` and nothing else");
+        assert_eq!(wants[0], json!("plan"));
+        let first = begun["function"]["description"].as_str().unwrap();
+        assert!(first.contains("no path"), "{}", first);
+        assert!(
+            first.contains("first writing"),
+            "the tool must say that it stands for the first writing only: {}",
+            first
+        );
         let edit = edit_definition();
         assert_eq!(edit["function"]["name"], json!(EDIT_NAME));
         let wanted = edit["function"]["parameters"]["required"]
@@ -1079,11 +1259,28 @@ mod tests {
         let said = system_prompt("ab12cd34ef.md");
         assert!(said.contains("PLANNING MODE IS ON"));
         assert!(said.contains("ab12cd34ef.md"));
+        assert!(said.contains(INIT_NAME));
         assert!(said.contains(EDIT_NAME));
         assert!(said.contains("down to the smallest detail"));
         assert!(said.contains(END_NAME));
         // The plan file is named, and no other file is offered to it.
         assert!(!said.contains("edit_file"), "{}", said);
+    }
+
+    // A plan that was never written reads back as nothing written, and says which
+    // tool writes it whole: the model is never left with a blank space for a file.
+    #[test]
+    fn a_plan_that_was_never_written_reads_back_as_nothing() {
+        let _guard = config::test_turn();
+        let name = create("6600660066");
+        let whole = read_plan(&name, "{}");
+        assert!(whole.ok, "{}", whole.output);
+        assert!(whole.output.contains("holds nothing"), "{}", whole.output);
+        assert!(whole.output.contains(INIT_NAME), "{}", whole.output);
+        let asked = read_plan(&name, r#"{"pattern":"step"}"#);
+        assert!(asked.ok, "{}", asked.output);
+        assert!(asked.output.contains("holds nothing"), "{}", asked.output);
+        let _ = fs::remove_file(path_of(&name).unwrap());
     }
 
     // The plan is read back with the lines about each place that was found, and

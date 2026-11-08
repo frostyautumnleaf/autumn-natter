@@ -4616,6 +4616,14 @@ var TOOL_SHAPES = {
     head: 'Editing file: ', done: 'Edited file: ', word: 'file', end: 'result',
     empty: 'no file name', begun: 'a file, started', file: true
   },
+  // The first writing of the plan of planning mode. The whole of the plan goes
+  // out in one call, so the head says the plan is being written, and not mended:
+  // the words of it stream under the head as those of a file being made do.
+  init_plan: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.5 7.1h4.2M6.5 9.1h4.2M6.5 11.1h2.4',
+    head: 'Writing ', done: 'Wrote ', named: 'the plan', word: 'plan', end: 'result',
+    empty: 'the plan', begun: 'the plan, started', file: false
+  },
   // The plan of planning mode. The tool reaches one file and no other, so the
   // head has no name of a file to wait for: it says what is being done to the
   // plan, and the words of the changes stream under it as those of a file do.
