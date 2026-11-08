@@ -347,6 +347,13 @@ pub struct Config {
     // asked without scrolling the whole of the talk over.
     #[serde(default = "on_by_default")]
     pub chat_userline: bool,
+    // Carry a message you sent into the chat with a little movement: the words
+    // leave the box, go over the chat and unfold into the message itself. The
+    // movement is only on the screen. Nothing about the sending waits for it,
+    // and a chat told to stand still shows the message where it always stood,
+    // at once.
+    #[serde(default = "on_by_default")]
+    pub chat_send_anim: bool,
     // Keep the talk of a chat that the model has worked its way through in a
     // file of the program, so the chat does not have to be read through again
     // when it comes back: after another chat took the model, or after the program
@@ -746,6 +753,7 @@ impl Default for Config {
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_userline: true,
+            chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,
             chat_max_tool_steps: -1,
@@ -1075,6 +1083,7 @@ mod tests {
         assert!(cfg.chat_colour_text);
         assert!(cfg.chat_chapters);
         assert!(cfg.chat_userline);
+        assert!(cfg.chat_send_anim);
         assert!(cfg.chat_context_files);
         // The compressed shape is asked for, not given: a config that says
         // nothing keeps the files as they have always been written.

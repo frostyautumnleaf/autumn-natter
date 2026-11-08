@@ -808,6 +808,8 @@ const CONFIG = {
   chat_date_new_chat: true,
   chat_highlight: true,
   chat_chapters: true,
+  // A sent message is carried from the box into the chat.
+  chat_send_anim: true,
   // The two rooms for steps stand unlimited, as they do for a new set of settings.
   chat_max_tool_steps: -1,
   chat_max_answer_steps: -1,

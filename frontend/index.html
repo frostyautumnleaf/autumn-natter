@@ -639,6 +639,25 @@ body.home .stage { display: none; }
   border: 1px solid var(--bubble-line); border-radius: var(--r-l) var(--r-l) 4px var(--r-l);
   white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
 }
+/* The copy of the words that are on their way from the chat box to the chat.
+   It stands over the page, holds the words in the shape of the bubble they are
+   to become, and is moved along a curve by the page. It catches nothing the
+   hand does, for it is a look and not a thing to press. */
+.flycard {
+  position: fixed; left: 0; top: 0; z-index: 55; pointer-events: none;
+  padding: 11px 14px; background: var(--bubble);
+  border: 1px solid var(--bubble-line); border-radius: var(--r-l) var(--r-l) 4px var(--r-l);
+  white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
+  max-height: 34vh; overflow: hidden; box-shadow: var(--shadow-2);
+  transform-origin: 0 0; will-change: transform, opacity;
+}
+/* The message a copy is on its way to. It stands where it will stand and keeps
+   its room in the chat, so nothing jumps, but it is not seen until the copy
+   arrives: the words are read once, in the message, and not twice over. */
+.turn.landing { visibility: hidden; }
+/* The message unfolding into its place as the copy goes away. */
+.turn.landed { animation: unfold 190ms ease-out; }
+@keyframes unfold { from { transform: scale(.94); opacity: .5; } to { transform: none; opacity: 1; } }
 .plain { min-width: 0; }
 /* The time of a message. It takes no room of its own until the user hovers
    over the message; then it opens out below the words. Only what hangs under
@@ -1925,6 +1944,8 @@ pre.code.line {
   .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
   .gauge .spin { animation: none; }
   img.pic { animation: none; }
+  .flycard { display: none; }
+  .turn.landed { animation: none; }
 }
 
 /* ------------------------------------------------------------------ side bar
@@ -2564,6 +2585,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <span class="sub">How wide the column of the chat may be. 780 pixels is the width the chat always had, and it is the least. The chat never grows past 80 per cent of the width of the window, and it keeps clear of the line of the chapters, the line of the summarisations and the arrows of the chat.</span>
           <div class="ctl"><input id="fChatWidth" type="number" min="780" max="4000" step="10" placeholder="780"><span class="unit">pixels</span></div></div>
 
+        <div class="fld"><span class="lbl">Carry a sent message into the chat</span>
+          <span class="sub">The words you sent leave the box as a small card, go over the chat and unfold into the message itself. The message goes out at once either way: this is only how it arrives. Turn this off to have the message stand in the chat the moment you send it. A machine asked for few moves is given none of this.</span>
+          <div class="ctl"><input id="fSendAnim" type="checkbox"></div></div>
+
         <div class="fld"><span class="lbl">A question of the model waits</span>
           <span class="sub">How long the model waits for you to answer a question it put to you before it goes on without an answer and is told that you did not reply. Questions of this kind are the ordinary ones: the model could go on, but would rather ask.</span>
           <div class="ctl"><input id="fAskSeconds" type="number" min="1" max="86400" step="1" placeholder="30"><span class="unit">seconds</span></div></div>
@@ -3010,7 +3035,8 @@ var cur = null;        // the last state
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
-  highlight: true, bold: true, colour: true, seamless: false, chapters: true, userline: true, paste: 6000, width: 780 };
+  highlight: true, bold: true, colour: true, seamless: false, chapters: true, userline: true,
+  send_anim: true, paste: 6000, width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -3183,6 +3209,9 @@ function readChatting(s) {
   // The line of the user's own messages, at the right of the chat. It stands
   // unless the settings took it away.
   chatting.userline = chat.userline !== false;
+  // The little journey a message makes from the chat box into the chat. It
+  // stands unless the settings took it away.
+  chatting.send_anim = chat.send_anim !== false;
   chatting.paste = chat.paste_limit || 6000;
   chatting.width = Number(chat.width) || CHAT_LEAST;
   setChatWidth();
@@ -7607,6 +7636,9 @@ function drawThread(s) {
         // Only the turn that came in fades up. A chat that was opened is already
         // there, and its turns do not need to say so again.
         if (r === rows.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
+        // A message of the user that came in while a copy of the words is on
+        // its way is the place that copy is going to.
+        claimFlyTurn(turn, rows[r].to - rows[r].from === 1 ? items[rows[r].from] : null);
         addTurn(box, turn);
         turns.push(turn);
       } else if (child.dataset.row !== ids) {
@@ -7621,6 +7653,12 @@ function drawThread(s) {
         unfoldRow(again, kept);
         box.replaceChild(again, child);
         turns[r] = again;
+        // A row that was made again lost the mark that holds a message back
+        // from sight, so it is put on again while the copy is still on its way.
+        if (fly && fly.mid && again.dataset.mid === fly.mid) {
+          fly.turn = again;
+          again.classList.add('landing');
+        }
       } else {
         syncTurn(child, items, rows[r]);
       }
@@ -9449,6 +9487,9 @@ function send() {
   pendingCommand = '';
   drawCommandChip();
   var files = heldFiles.slice();
+  // The place the words stand in now, taken before the box is emptied: the copy
+  // of them is stood over the very place they were written on.
+  var where = el.draft.getBoundingClientRect();
   el.draft.value = '';
   heldFiles = [];
   drawParts();
@@ -9461,7 +9502,206 @@ function send() {
     drawQueue();
     return;
   }
+  // The words are carried into the chat as the ask goes out. A message that
+  // waits its turn in the list is not carried: it stands in the list over the
+  // box until the answer it waited for is over.
+  startFly(text, where);
   post('/api/send', messageBody(text, files));
+}
+
+// ---------------------------------------------- the journey of a sent message
+//
+// The words you send do not simply appear at the end of the chat. A copy of
+// them is taken out of the box, squeezed to a small card, and carried along a
+// curve to the message they became. That message stands in its place from the
+// moment it comes in, but it is not seen until the copy reaches it, so the
+// words are read once and not twice over. The sending waits for none of this:
+// the ask goes out at the same moment the copy is made, and the whole of the
+// journey is on the screen. The Chatting setting 'Carry a sent message into the
+// chat' turns it off, and a machine asked for few moves is given none of it.
+var fly = null;              // the copy that is on its way, or nothing
+var FLY_HOLD = 150;          // how long the copy takes to squeeze itself small
+var FLY_RUN = 430;           // how long the journey from the box to the chat is
+var FLY_WAIT = 4000;         // how long the copy waits for its message to come
+var FLY_SMALL = 0.4;         // the size of the copy while it waits for its place
+
+// Whether the journey is gone through at all: the setting, and a machine that
+// was not asked for few moves.
+function sendAnimOn() {
+  return chatting.send_anim !== false && !reduce;
+}
+
+// The copy is put away, and a message that was held back for it is let through.
+function dropFly() {
+  if (!fly) { return; }
+  if (fly.card && fly.card.parentNode) { fly.card.parentNode.removeChild(fly.card); }
+  if (fly.turn) { fly.turn.classList.remove('landing'); }
+  fly = null;
+}
+
+// True when another chat stands under the copy. Words written for one chat are
+// not carried into another.
+function flyLeftChat() {
+  return !!fly && !!fly.chat && chatIdOf(cur) !== fly.chat;
+}
+
+// Whether these are the words the copy carries. The copy is only ever stood
+// over the message it was made from.
+function flyWordsMatch(words) {
+  if (!fly || !fly.text) { return true; }
+  var said = String(words || '');
+  return said === fly.text || said.slice(0, fly.text.length) === fly.text
+    || fly.text.slice(0, said.length) === said;
+}
+
+// The words leave the box: the copy is made, and the place it is going to is
+// looked for among the messages that come in after it. `where` is the place the
+// words stood in the box, taken before the box was emptied; when it is not
+// given, the box is measured as it stands. Files hung on the message are not
+// copied; they come in with the message itself.
+function startFly(text, where) {
+  dropFly();
+  if (!sendAnimOn() || !text || !el.draft || !el.col) { return; }
+  var box = where || el.draft.getBoundingClientRect();
+  if (box.width < 40 || box.height < 8) { return; }
+  var seen = {};
+  var turns = el.col.querySelectorAll('.turn.t-you');
+  for (var i = 0; i < turns.length; i++) {
+    if (turns[i].dataset.mid) { seen[turns[i].dataset.mid] = true; }
+  }
+  var card = make('div', 'flycard');
+  card.setAttribute('aria-hidden', 'true');
+  card.textContent = text;
+  card.style.width = Math.round(Math.max(160, box.width)) + 'px';
+  document.body.appendChild(card);
+  fly = { card: card, text: text, chat: chatIdOf(cur), seen: seen,
+    mid: '', turn: null, x: box.left, y: box.top, w: card.offsetWidth || Math.round(box.width),
+    kx: box.left + (card.offsetWidth || Math.round(box.width)), ky: box.top,
+    s: 1, start: 0, s0: 1, born: Date.now() };
+  putFly(fly.x, fly.y, 1, 1);
+  requestAnimationFrame(flyStep);
+}
+
+// The copy is stood at this place, at this size, with this weight. It is moved
+// by one transform, so nothing else on the page is laid out again while it
+// flies. The place asked for is the corner the copy is stood on: its top right,
+// for a message of the user stands hard against the right of the chat.
+function putFly(x, y, s, o) {
+  if (!fly || !fly.card) { return; }
+  fly.card.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)'
+    + ' scale(' + s.toFixed(3) + ')';
+  fly.card.style.opacity = o >= 0.999 ? '' : o.toFixed(2);
+  fly.kx = x + fly.w * s;
+  fly.ky = y;
+}
+
+// The turn of one message, by its number.
+function turnByMid(mid) {
+  if (!mid || !el.col) { return null; }
+  var turns = el.col.querySelectorAll('.turn');
+  for (var i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].dataset.mid === mid) { return turns[i]; }
+  }
+  return null;
+}
+
+// The thread points out a row as it is made. When it is a message of the user
+// that was not there before, and a copy is waiting, that message is the place
+// the copy is going to: it is held back from sight until the copy arrives.
+function claimFlyTurn(turn, m) {
+  if (!fly || fly.turn || flyLeftChat()) { return; }
+  if (!m || m.role !== 'You' || !m.id || fly.seen[m.id]) { return; }
+  if (!flyWordsMatch(m.body)) { return; }
+  fly.mid = m.id;
+  fly.turn = turn;
+  turn.classList.add('landing');
+}
+
+// The message a copy is on its way to, when the thread did not point it out as
+// it came in: the newest message of the user that was not in the chat when the
+// words went out.
+function findFlyTurn() {
+  if (!fly || fly.turn || flyLeftChat()) { return; }
+  var turns = el.col.querySelectorAll('.turn.t-you');
+  for (var i = turns.length - 1; i >= 0; i--) {
+    var mid = turns[i].dataset.mid;
+    if (!mid || fly.seen[mid]) { continue; }
+    var bubble = turns[i].querySelector('.bubble');
+    if (!bubble || !flyWordsMatch(bubble.textContent)) { continue; }
+    fly.mid = mid;
+    fly.turn = turns[i];
+    turns[i].classList.add('landing');
+    return;
+  }
+}
+
+// The place the copy is going to: the bubble of the message, or the whole of
+// the message when it has no bubble. It is measured again on every step, for
+// the chat is followed while the copy flies, and the message moves with it.
+function flyPlace() {
+  if (!fly) { return null; }
+  if (!fly.turn || !fly.turn.parentNode) {
+    fly.turn = turnByMid(fly.mid);
+    if (fly.turn) { fly.turn.classList.add('landing'); }
+  }
+  if (!fly.turn || !fly.turn.parentNode) { return null; }
+  var bubble = fly.turn.querySelector('.bubble');
+  var r = (bubble || fly.turn).getBoundingClientRect();
+  return r.width > 3 ? r : null;
+}
+
+// One step of the journey.
+function flyStep() {
+  if (!fly) { return; }
+  if (flyLeftChat()) { dropFly(); return; }
+  var now = Date.now();
+  if (!fly.turn) { findFlyTurn(); }
+  if (!fly.turn) {
+    if (now - fly.born > FLY_WAIT) { dropFly(); return; }
+    // The copy waits over the box, squeezing itself into a card of itself.
+    var k = Math.min(1, (now - fly.born) / FLY_HOLD);
+    fly.s = 1 - (1 - FLY_SMALL) * k;
+    putFly(fly.x, fly.y - 6 * k, fly.s, 1);
+    requestAnimationFrame(flyStep);
+    return;
+  }
+  var to = flyPlace();
+  if (!to) { dropFly(); return; }
+  if (!fly.start) { fly.start = now; fly.s0 = fly.s; }
+  var t = Math.min(1, (now - fly.start) / FLY_RUN);
+  var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  // The curve out of the box, read off the corner the copy stands on: a little
+  // lift, then up the chat, then in and down onto the message.
+  var x0 = fly.kx, y0 = fly.ky;
+  var dx = to.right - x0, dy = to.top - y0;
+  var c1x = x0 + dx * 0.2, c1y = y0 - 26;
+  var c2x = x0 + dx * 0.7, c2y = to.top + 30;
+  var u = e, v = 1 - u;
+  var kx = v * v * v * x0 + 3 * v * v * u * c1x + 3 * v * u * u * c2x + u * u * u * to.right;
+  var ky = v * v * v * y0 + 3 * v * v * u * c1y + 3 * v * u * u * c2y + u * u * u * to.top;
+  fly.s = fly.s0 + (1 - fly.s0) * flyBack(t);
+  putFly(kx - fly.w * fly.s, ky, fly.s, t > 0.8 ? Math.max(0, 1 - (t - 0.8) / 0.2) : 1);
+  if (t >= 1) { landFly(); return; }
+  requestAnimationFrame(flyStep);
+}
+
+// How the copy grows back to the size of the message: it goes a little past the
+// full size and settles back onto it, which is what an un-squeeze looks like.
+function flyBack(t) {
+  var c = 1.2;
+  var p = t - 1;
+  return 1 + (c + 1) * p * p * p + c * p * p;
+}
+
+// The copy is on its message. The message is let through, unfolding into its
+// place, and the copy goes away over the same short time.
+function landFly() {
+  var f = fly;
+  fly = null;
+  if (f.card && f.card.parentNode) { f.card.parentNode.removeChild(f.card); }
+  if (!f.turn || !f.turn.parentNode) { return; }
+  f.turn.classList.remove('landing');
+  f.turn.classList.add('landed');
 }
 
 // Send the oldest message of the list when the chat has come to the end of an
@@ -10391,6 +10631,7 @@ function loadProgram() {
     buildPromptLines(cfg.chat_system_prompts_on || []);
     byId('fTimeline').checked = cfg.chat_timeline !== false;
     byId('fUserline').checked = cfg.chat_userline !== false;
+    byId('fSendAnim').checked = cfg.chat_send_anim !== false;
     // The note is what the program found when it asked its own jail whether it
     // keeps what it promises.
     byId('fSandbox').textContent = (cur && cur.sandbox_note)
@@ -10987,6 +11228,7 @@ function readProgram() {
   cfg.chat_system_prompts_on = checkedPromptIds();
   cfg.chat_timeline = byId('fTimeline').checked;
   cfg.chat_userline = byId('fUserline').checked;
+  cfg.chat_send_anim = byId('fSendAnim').checked;
   return cfg;
 }
 
