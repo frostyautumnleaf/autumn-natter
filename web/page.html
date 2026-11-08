@@ -580,6 +580,18 @@ body.home .stage { display: none; }
 .overlay { position: fixed; inset: 0; z-index: 60; background: var(--scrim);
   display: flex; align-items: center; justify-content: center; padding: 22px; }
 .overlay.hidden { display: none; }
+/* One line of the pre-written prompts in the Program settings: the mark for the
+   prompt, its name, the short account of what it does, and the button that
+   shows the whole of its words. */
+.prompt-line { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 7px; }
+.prompt-line:last-child { margin-bottom: 0; }
+.prompt-line .p-mark { display: flex; align-items: flex-start; gap: 7px; min-width: 210px; }
+.prompt-line .p-name { font-size: 13px; color: var(--text); line-height: 1.45; }
+.prompt-line .p-sum { flex: 1 1 auto; font-size: 12px; color: var(--dim); line-height: 1.45; }
+/* The words of a prompt stand in the window of reading as they were written,
+   with their own line breaks: a prompt is a thing of lines and headings. */
+.sumview .sbody.raw { white-space: pre-wrap; }
+
 .sumview { width: min(720px, 100%); max-height: 100%; display: flex; flex-direction: column;
   background: var(--surface); color: var(--text); border: 1px solid var(--line);
   border-radius: var(--r-l); box-shadow: var(--shadow-2); overflow: hidden; }
@@ -2602,6 +2614,14 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Message timeline</span>
           <span class="sub">A vertical line hard against the right edge of the chat, with one short dash for every message you sent. A dash says which message it is and when you sent it, and shows part of it and what hung on it; clicking one scrolls there. Turn this off to hide the line.</span>
           <div class="ctl"><input id="fUserline" type="checkbox"></div></div>
+
+        <div class="sec">Custom system prompt</div>
+        <div class="fld wide"><span class="lbl">System prompt</span>
+          <span class="sub">Words of your own that stand at the head of every chat, before the first message. The model reads them as the rules it is to write by: how long an answer is, what tone it keeps, what it never does. The words of the program, which tell the model about the tools and the chat, still stand, and these words of yours go in front of them. Leave it empty for no prompt of your own. At most 8000 characters.</span>
+          <div class="ctl"><textarea id="fSystemPrompt" rows="6" maxlength="8000" spellcheck="false" placeholder="Answer in short sentences. Use the names a developer uses. Never open with praise."></textarea></div></div>
+        <div class="fld wide"><span class="lbl">Pre-written prompts</span>
+          <span class="sub">Prompts written beforehand, which you may put in with a mark instead of writing your own. A marked prompt stands in front of the words you wrote, in the order of this table. The View button shows the whole of a prompt.</span>
+          <div class="ctl"><div id="fPromptLines"></div></div></div>
       </div>
 
       <div class="pane hidden" id="paneModel">
@@ -2903,6 +2923,24 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       </button>
     </div>
     <div class="sbody" id="sumWords"></div>
+  </div>
+</div>
+
+<!-- One pre-written prompt, whole, in a window of its own. The page never carries
+     the words of the prompts: it asks for the one the user clicked on, and shows
+     it here for reading. Nothing in this window is written back. -->
+<div class="overlay hidden" id="promptOverlay">
+  <div class="sumview" role="dialog" aria-modal="true" aria-label="A pre-written prompt">
+    <div class="vhead">
+      <div class="shead">
+        <span class="stitle" id="promptTitle">A pre-written prompt</span>
+        <span class="smeta" id="promptMeta"></span>
+      </div>
+      <button class="mark-btn x" id="promptClose" type="button" title="Close" aria-label="Close">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+    </div>
+    <div class="sbody raw" id="promptWords"></div>
   </div>
 </div>
 
@@ -10123,6 +10161,83 @@ function compactByRows() {
 }
 
 // Program tab: read the settings and every repository on disk.
+// The pre-written prompts of the Program tab. The table of them is read once and
+// kept, for it never changes while the program runs: the prompts stand in the
+// program and are not something the user may write.
+var promptTable = null;
+
+// The lines of the table, or the words of one prompt when an id is given with
+// the ask. The words of a prompt are never carried about with the settings.
+function readPrompts(id) { return ask('prompts' + (id ? '?id=' + encodeURIComponent(id) : '')); }
+
+function buildPromptLines(on) {
+  var box = byId('fPromptLines');
+  if (!box) { return; }
+  var fill = function (lines) {
+    box.textContent = '';
+    lines.forEach(function (one) {
+      var row = document.createElement('div');
+      row.className = 'prompt-line';
+      var mark = document.createElement('label');
+      mark.className = 'p-mark';
+      var check = document.createElement('input');
+      check.type = 'checkbox';
+      check.dataset.prompt = one.id;
+      check.checked = on.indexOf(one.id) >= 0;
+      var name = document.createElement('span');
+      name.className = 'p-name';
+      name.textContent = one.name;
+      mark.appendChild(check);
+      mark.appendChild(name);
+      var sum = document.createElement('span');
+      sum.className = 'p-sum';
+      sum.textContent = one.summary || '';
+      var view = document.createElement('button');
+      view.type = 'button';
+      view.className = 'btn';
+      view.dataset.promptView = one.id;
+      view.textContent = 'View prompt';
+      row.appendChild(mark);
+      row.appendChild(sum);
+      row.appendChild(view);
+      box.appendChild(row);
+    });
+  };
+  if (promptTable) { fill(promptTable); return; }
+  readPrompts('').then(function (answer) {
+    promptTable = (answer && answer.lines) || [];
+    fill(promptTable);
+  }, function () { promptTable = []; fill([]); });
+}
+
+// The ids of the prompts the user marked, in the order of the table.
+function checkedPromptIds() {
+  var out = [];
+  var box = byId('fPromptLines');
+  if (!box) { return out; }
+  var marks = box.querySelectorAll('input[data-prompt]');
+  for (var i = 0; i < marks.length; i += 1) {
+    if (marks[i].checked) { out.push(marks[i].dataset.prompt); }
+  }
+  return out;
+}
+
+// One pre-written prompt, whole, in a window of its own. The words are asked for
+// here and not before, and nothing in the window is written back.
+function openPromptView(id) {
+  readPrompts(id).then(function (answer) {
+    if (!answer || answer.words === undefined) { return; }
+    byId('promptTitle').textContent = answer.name || 'A pre-written prompt';
+    byId('promptMeta').textContent = 'read only';
+    byId('promptWords').textContent = answer.words;
+    byId('promptOverlay').classList.remove('hidden');
+  });
+}
+
+function closePromptView() {
+  byId('promptOverlay').classList.add('hidden');
+}
+
 function loadProgram() {
   Promise.all([ask('config'), ask('repositories')]).then(function (res) {
     var cfg = res[0]; var repos = res[1] || [];
@@ -10166,6 +10281,11 @@ function loadProgram() {
     compactByRows();
     byId('fCompactPrompt').value = cfg.chat_compact_prompt || '';
     byId('fCompactPromptShort').value = cfg.chat_compact_prompt_short || '';
+    // The words before the talk: the prompt of the user, and the marks on the
+    // pre-written prompts. The lines of the table are built from the program,
+    // which answers for what stands in it.
+    byId('fSystemPrompt').value = cfg.chat_system_prompt || '';
+    buildPromptLines(cfg.chat_system_prompts_on || []);
     byId('fTimeline').checked = cfg.chat_timeline !== false;
     byId('fUserline').checked = cfg.chat_userline !== false;
     // The note is what the program found when it asked its own jail whether it
@@ -10761,6 +10881,8 @@ function readProgram() {
   cfg.chat_compact_reserve = isNaN(reserve) ? (cfg.chat_compact_reserve || 10240) : reserve;
   cfg.chat_compact_prompt = byId('fCompactPrompt').value;
   cfg.chat_compact_prompt_short = byId('fCompactPromptShort').value;
+  cfg.chat_system_prompt = byId('fSystemPrompt').value;
+  cfg.chat_system_prompts_on = checkedPromptIds();
   cfg.chat_timeline = byId('fTimeline').checked;
   cfg.chat_userline = byId('fUserline').checked;
   return cfg;
@@ -11233,6 +11355,16 @@ byId('tabMcp').addEventListener('click', function () { showSetTab('mcp'); });
 byId('mcKind').addEventListener('change', mcpKindRows);
 // The way a summarisation is started moves which of its two numbers stands.
 byId('fCompactBy').addEventListener('change', compactByRows);
+// The pre-written prompts: the button of a line shows the whole of that prompt,
+// and the window of reading closes on its own button or on the glass behind it.
+byId('fPromptLines').addEventListener('click', function (e) {
+  var one = e.target && e.target.dataset ? e.target.dataset.promptView : '';
+  if (one) { openPromptView(one); }
+});
+byId('promptClose').addEventListener('click', closePromptView);
+byId('promptOverlay').addEventListener('click', function (e) {
+  if (e.target === byId('promptOverlay')) { closePromptView(); }
+});
 byId('mcpSave').addEventListener('click', mcpSave);
 byId('mcpClear').addEventListener('click', function () {
   byId('mcpSaveNote').textContent = 'Write the next one below.';

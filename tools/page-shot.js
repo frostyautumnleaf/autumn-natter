@@ -832,8 +832,37 @@ const CONFIG = {
     + 'come to an end within a few hundred words. Say what was done, what stands in '
     + 'hand right now, and what must be done next. Name the files that matter with '
     + 'one short line each.',
+  // The words before the talk. The shot reads the prompt of the user as if the
+  // user wrote it, and marks both pre-written prompts, so the table of them is
+  // drawn with its marks on.
+  chat_system_prompt: 'Answer in short sentences. Name the file and the line.',
+  chat_system_prompts_on: ['engineer', 'adhd'],
   chat_timeline: true
 };
+
+// The pre-written prompts of the Program tab. The words here are short stand-ins
+// for the words that stand in the program: a shot only has to show that the
+// table is drawn with its marks, and that the window of reading opens with the
+// words of the prompt that was clicked on.
+var PROMPT_LINES = [
+  { id: 'engineer', name: 'Software Engineer Writing Style',
+    summary: 'Plain professional English for developers: standard terms, short '
+           + 'sentences, no filler, facts only.',
+    words: 'You are a technical assistant for software developers. Write in clear, '
+         + 'normal professional English.\n\nLANGUAGE\n'
+         + '- Use standard technical terms.\n'
+         + '- Keep sentences short, under about 25 words.' },
+  { id: 'adhd', name: 'ADHD Rules',
+    summary: 'Answers the user can act on at once: the answer first, short lists, '
+           + 'one next step, no recap.',
+    words: 'Write every response so the user can act on it without scrolling or '
+         + 're-reading. Put the answer first.\n\nRULES\n'
+         + '1. Start with the next action or the direct answer.\n'
+         + '2. If the task has more than one step, use a numbered list.' }
+];
+
+// The answer of the program to an ask for the prompts. It is written inside the
+// bridge that is put into the page, because the page is the one that asks.
 
 const MODEL = {
   id: 'm1', name: 'Qwen3.5-0.8B-UD-Q6_K', kind: 'GGUF',
@@ -1024,7 +1053,21 @@ async function main() {
   view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
   view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
 
-  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, logsProgram, one, pic, pic2, listsOf, mcpHeld) {
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, logsProgram, one, pic, pic2, listsOf, mcpHeld, promptTable) {
+    // The answer to an ask for the pre-written prompts: the lines of the table
+    // when no id is given, the words of one prompt when an id comes with the ask.
+    function promptsAnswer(id) {
+      if (!id) {
+        return { lines: promptTable.map(function (one) {
+          return { id: one.id, name: one.name, summary: one.summary }; }) };
+      }
+      for (var i = 0; i < promptTable.length; i += 1) {
+        if (promptTable[i].id === id) {
+          return { id: id, name: promptTable[i].name, words: promptTable[i].words };
+        }
+      }
+      return { refused: 'No prompt of that name' };
+    }
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
@@ -1048,6 +1091,14 @@ async function main() {
         if (String(url).indexOf('/api/config') === 0) {
           return Promise.resolve({ json: function () {
             return Promise.resolve(JSON.parse(JSON.stringify(config))); } });
+        }
+        // The pre-written prompts of the Program tab: the lines of the table
+        // without an id, the words of one prompt with one.
+        if (String(url).indexOf('/api/prompts') === 0) {
+          var at = String(url).indexOf('id=');
+          var asked = at < 0 ? '' : decodeURIComponent(String(url).slice(at + 3));
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(promptsAnswer(asked)); } });
         }
         if (String(url).indexOf('/api/repositories') === 0) {
           return Promise.resolve({ json: function () {
@@ -1129,6 +1180,9 @@ async function main() {
           if (command === 'get_mcp') {
             return Promise.resolve(JSON.parse(JSON.stringify(mcpHeld)));
           }
+          if (command === 'get_prompts') {
+            return Promise.resolve(promptsAnswer(String((args && args.id) || '')));
+          }
           if (command === 'get_logs') {
             // The kind of the log stands in the ask.
             var listed = (args && args.kind) === 'program' ? logsProgram : logs;
@@ -1150,7 +1204,7 @@ async function main() {
         }
       }
     };
-  }, useFetch, state, CONFIG, MODEL, LOGS, LOGS_PROGRAM, LOG_ONE, ATT_PIC, ATT_TALL, lists(state), MCP_HELD);
+  }, useFetch, state, CONFIG, MODEL, LOGS, LOGS_PROGRAM, LOG_ONE, ATT_PIC, ATT_TALL, lists(state), MCP_HELD, PROMPT_LINES);
 
   await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
   await new Promise(function (r) { setTimeout(r, 700); });

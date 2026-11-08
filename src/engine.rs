@@ -837,6 +837,23 @@ pub fn date_message(cfg: &Config, began: i64) -> Option<Value> {
     }))
 }
 
+// The words before the talk that come from the settings: the marked pre-written
+// prompts in front, then the words the user wrote. A chat that marks nothing and
+// writes nothing gets nothing, and stands then exactly as it stood before these
+// prompts existed. The two blocks are kept apart by a blank line, so a prompt
+// that ends on a list does not run into the words of the user.
+fn system_words_of(cfg: &Config) -> String {
+    let front = crate::prompts::front(&cfg.chat_system_prompts_on);
+    let own = config::sanitize_system_prompt(&cfg.chat_system_prompt);
+    if front.is_empty() {
+        return own;
+    }
+    if own.is_empty() {
+        return front;
+    }
+    format!("{front}\n\n{own}")
+}
+
 // Where the newest handoff summary that was really written stands among the
 // messages of a chat. None means the chat was never summarised.
 fn last_summary_place(chat: &Chat) -> Option<usize> {
@@ -2129,6 +2146,14 @@ impl State {
         config::sanitize_compaction(&self.cfg.chat_compaction) == config::COMPACTION_HANDOFF
     }
 
+    // The words the user stands the chat on: the marked pre-written prompts in
+    // front of their own words. Nothing when nothing is marked and nothing is
+    // written, so a chat of a new set of settings reads exactly as it read
+    // before this stood.
+    fn system_words(&self) -> String {
+        system_words_of(&self.cfg)
+    }
+
     // A call began: the one block says what the model is at, and a block of the
     // call stands in the short of the work.
     fn corporate_begin(&mut self, call: &ToolCall, id: &str) {
@@ -2508,6 +2533,18 @@ impl State {
         };
         if let Some(line) = date_message(&self.cfg, began_of(chat)) {
             out.push(line);
+        }
+        // The words the user stands the chat on: the marked pre-written prompts
+        // and the words of their own, in one message of the role `system`. The
+        // line of the day keeps the first place, for the model reads the clock
+        // before it reads how it is to write. The message is left out when the
+        // user wrote nothing and marked nothing.
+        let words = self.system_words();
+        if !words.is_empty() {
+            out.push(json!({
+                "role": "system",
+                "content": words,
+            }));
         }
         // The words of the chapters of the chat, beside the words of the program.
         // While the switch of the Chatting settings stands on, the nodes beside the
@@ -4619,6 +4656,11 @@ impl Engine {
         cfg.chat_compact_prompt = config::sanitize_handoff_prompt(&cfg.chat_compact_prompt);
         cfg.chat_compact_prompt_short =
             config::sanitize_handoff_prompt_short(&cfg.chat_compact_prompt_short);
+        // The words before the talk. The prompt of the user is kept short enough
+        // to be sent beside a whole talk, and the marks are kept to the prompts
+        // the program knows, in the order of the table.
+        cfg.chat_system_prompt = config::sanitize_system_prompt(&cfg.chat_system_prompt);
+        cfg.chat_system_prompts_on = config::sanitize_prompt_ids(&cfg.chat_system_prompts_on);
         // The skin of the pages is kept to one of the four words, and the switch of
         // the two that stood before them keeps its old meaning: it is on for the dark
         // skin alone.
@@ -12792,6 +12834,31 @@ mod tests {
             .starts_with(DATE_HEAD));
         cfg.chat_date_new_chat = false;
         assert!(date_message(&cfg, 1_700_000_000).is_none(), "the switch off sends no line");
+    }
+
+    // The words of the user and the marked prompts of the program make one block
+    // before the talk. Nothing marked and nothing written gives nothing, so a
+    // chat of a new set of settings sends no such message at all; the words of
+    // the user alone are their own words; and the marked prompts stand in front
+    // of them, in the order of the table, kept apart by a blank line.
+    #[test]
+    fn the_words_before_the_talk_hold_the_marks_and_then_the_words_of_the_user() {
+        let mut cfg = Config::default();
+        assert_eq!(system_words_of(&cfg), "", "nothing written and nothing marked");
+        cfg.chat_system_prompt = String::from("  Answer in short sentences.  ");
+        assert_eq!(system_words_of(&cfg), "Answer in short sentences.");
+        let ids: Vec<String> = crate::prompts::lines()
+            .iter()
+            .map(|one| String::from(one["id"].as_str().unwrap_or("")))
+            .collect();
+        cfg.chat_system_prompt = String::new();
+        cfg.chat_system_prompts_on = ids.clone();
+        assert_eq!(system_words_of(&cfg), crate::prompts::front(&ids));
+        cfg.chat_system_prompt = String::from("Never open with praise.");
+        let both = system_words_of(&cfg);
+        assert!(both.starts_with(&crate::prompts::front(&ids)));
+        assert!(both.ends_with("Never open with praise."));
+        assert!(both.contains("\n\nNever open with praise."), "the blocks are kept apart");
     }
 
     // The head of the talk must not move while the talk runs. The line of the day

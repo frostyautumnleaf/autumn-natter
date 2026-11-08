@@ -46,6 +46,13 @@ pub const COMPACT_BY_TOKENS: &str = "tokens";
 // whole of the talk, so a prompt of a novel would cost room of its own.
 pub const GREATEST_HANDOFF_PROMPT: usize = 4096;
 
+// The most characters the system prompt of the user may hold. The words of the
+// pre-written prompts are not counted here: they stand in the program and are
+// of a size the program answers for. The whole block of words before the talk,
+// the pre-written prompts and the words of the user together, is kept under
+// GREATEST_SYSTEM_PROMPT by the settings and by the chat.
+pub const GREATEST_SYSTEM_PROMPT: usize = 8000;
+
 // The prompt that is given to the model when it is asked for the handoff
 // summary. The user may write another one in the settings.
 pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a detailed but concise handoff summary for AI consumption (no styling) that can be given to an AI to continue working from the current state of the session. Include the context of the session that an AI needs to carry on. Say what has been done so far and what needs to be done next. The AI will only receive the first initial prompt that the user sent, along with this handoff summary. Name the file paths that matter, one short line each, with what each file is used for. Keep the summary to about three hundred words: it must come to an end, for a summary that runs on for ever leaves the room it was asked to make unmade.";
@@ -422,6 +429,17 @@ pub struct Config {
     // to an end. No longer than GREATEST_HANDOFF_PROMPT characters.
     #[serde(default = "default_handoff_prompt_short")]
     pub chat_compact_prompt_short: String,
+    // The words the user writes for the model to stand on: the system prompt of
+    // the chat. Empty gives no prompt of the user, and the chat then reads only
+    // the words of the program and the marked pre-written prompts. No longer
+    // than GREATEST_SYSTEM_PROMPT characters.
+    #[serde(default)]
+    pub chat_system_prompt: String,
+    // The pre-written prompts the user put a mark on, by their ids. They stand
+    // in front of the words of the user, in the order of the table. A set of
+    // settings written before this stood reads with no mark at all.
+    #[serde(default)]
+    pub chat_system_prompts_on: Vec<String>,
     // The vertical timeline of the summarisations, at the right of the chat.
     #[serde(default = "on_by_default")]
     pub chat_timeline: bool,    // The servers of the user's own, spoken to over MCP. They stand here and
@@ -449,6 +467,33 @@ pub fn sanitize_compaction(value: &str) -> String {
         COMPACTION_OFF => String::from(COMPACTION_OFF),
         _ => String::from(COMPACTION_HANDOFF),
     }
+}
+
+// The system prompt of the user as the settings keep it. The words are cut to
+// GREATEST_SYSTEM_PROMPT characters, and the space at either end is taken off:
+// a prompt of nothing but spaces is no prompt, and the chat then reads as if
+// the box stood empty.
+pub fn sanitize_system_prompt(value: &str) -> String {
+    let words = value.trim();
+    if words.chars().count() <= GREATEST_SYSTEM_PROMPT {
+        return String::from(words);
+    }
+    words.chars().take(GREATEST_SYSTEM_PROMPT).collect()
+}
+
+// The marks on the pre-written prompts as the settings keep them. Only ids of
+// prompts the program knows are kept, each once, and in the order of the table
+// and not the order the window sent: the words go in front of the talk in one
+// order whatever the page sent.
+pub fn sanitize_prompt_ids(values: &[String]) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    for p in crate::prompts::lines() {
+        let id = p["id"].as_str().unwrap_or("");
+        if values.iter().any(|v| v == id) {
+            kept.push(String::from(id));
+        }
+    }
+    kept
 }
 
 // The way of setting the summarisation going. A word that is neither of the
@@ -718,6 +763,8 @@ impl Default for Config {
             chat_compact_reserve: default_compact_reserve(),
             chat_compact_prompt: default_handoff_prompt(),
             chat_compact_prompt_short: default_handoff_prompt_short(),
+            chat_system_prompt: String::new(),
+            chat_system_prompts_on: Vec::new(),
             chat_timeline: true,
             // No server of the user's own stands in a new set of settings.
             mcp_servers: Vec::new(),
@@ -1241,6 +1288,52 @@ mod tests {
             sanitize_handoff_prompt_short("  "),
             DEFAULT_HANDOFF_PROMPT_SHORT
         );
+    }
+
+    // The words before the talk. The prompt of the user is kept with its own
+    // words and cut at its own ceiling, and the space about it is taken off, so
+    // a box of nothing but spaces is no prompt.
+    #[test]
+    fn the_system_prompt_of_the_user_is_kept_and_cut_at_its_ceiling() {
+        assert_eq!(sanitize_system_prompt("Answer in short sentences."), "Answer in short sentences.");
+        assert_eq!(sanitize_system_prompt("  \n  Praise nothing.  \n "), "Praise nothing.");
+        assert_eq!(sanitize_system_prompt("   "), "");
+        let long = "x".repeat(GREATEST_SYSTEM_PROMPT + 400);
+        assert_eq!(
+            sanitize_system_prompt(&long).chars().count(),
+            GREATEST_SYSTEM_PROMPT
+        );
+        // A new set of settings stands with no prompt of the user and no mark on
+        // a pre-written prompt, so a chat reads as it read before these stood.
+        let fresh = Config::default();
+        assert_eq!(fresh.chat_system_prompt, "");
+        assert!(fresh.chat_system_prompts_on.is_empty());
+    }
+
+    // The marks on the pre-written prompts. A word the program does not know is
+    // dropped, a mark given twice is kept once, and the order kept is the order
+    // of the table and not the order the window sent.
+    #[test]
+    fn the_marks_on_the_pre_written_prompts_are_kept_in_the_order_of_the_table() {
+        let known: Vec<String> = crate::prompts::lines()
+            .iter()
+            .map(|one| String::from(one["id"].as_str().unwrap_or("")))
+            .collect();
+        assert!(!known.is_empty(), "the table of prompts is not empty");
+        let last = known.last().expect("the last id of the table");
+        let first = known.first().expect("the first id of the table");
+        // Both marks, sent in the wrong order, come back in the order of the
+        // table, and a mark sent twice stands once.
+        let sent = vec![
+            String::from(last),
+            String::from("no-such-prompt"),
+            String::from(first),
+            String::from(first),
+        ];
+        let kept = sanitize_prompt_ids(&sent);
+        assert_eq!(kept, vec![String::from(first), String::from(last)]);
+        assert!(sanitize_prompt_ids(&[]).is_empty());
+        assert_eq!(sanitize_prompt_ids(&sent).len(), kept.len());
     }
 
     // The rule that sets the summarisation going. The share of the room works

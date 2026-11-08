@@ -162,6 +162,13 @@ fn handle(engine: &Engine, mut request: Request) {
         ("GET", "/api/repositories") => {
             let _ = request.respond(json_response(&web::repositories_value(engine)));
         }
+        // The pre-written prompts of the Program tab. Without an id the call
+        // gives the lines of the table; with one it gives the words of that
+        // prompt, for the user asked to read it.
+        ("GET", "/api/prompts") => {
+            let id = query_value(&query, "id");
+            let _ = request.respond(json_response(&web::prompts_value(&id)));
+        }
         ("GET", "/api/model_settings") => {
             let id = query_value(&query, "id");
             let _ = request.respond(json_response(&web::model_settings_value(engine, &id)));

@@ -519,6 +519,24 @@ pub fn save_config(engine: &crate::engine::Engine, config: Value) -> Value {
     }
 }
 
+// The lines of the pre-written prompts, for the Program tab of the settings: the
+// id, the name and the short account of each. The words of a prompt are not in
+// these lines. The page asks for the words of one prompt when the user opens it
+// to read, by the same call with the id of the prompt in it.
+pub fn prompts_value(id: &str) -> Value {
+    if id.is_empty() {
+        return json!({ "lines": crate::prompts::lines() });
+    }
+    match crate::prompts::words(id) {
+        Some(words) => json!({
+            "id": id,
+            "name": crate::prompts::find(id).map(|p| p.name).unwrap_or(id),
+            "words": words,
+        }),
+        None => refused("No prompt of that name"),
+    }
+}
+
 // Every repository on disk, most recently used first. The sheet shows all of
 // them, while the top bar shows five.
 pub fn repositories_value(engine: &crate::engine::Engine) -> Value {
