@@ -1930,6 +1930,32 @@ img.pic { animation: plate-in 180ms ease-out; }
 .sheet-head .x { margin-left: auto; }
 .sheet-body { overflow: auto; padding: 2px 20px 8px; scrollbar-width: thin; }
 .pane.hidden { display: none; }
+/* The search over one tab of the sheet. It stands under the tabs and over the
+   settings, and only on the two tabs that hold settings to look for. The name of
+   a setting and the words that describe it are both searched. A setting whose
+   name matches is put above the settings whose description matched, so the thing
+   the user named comes before the things that merely talk about it. */
+.find { display: flex; align-items: center; gap: 9px; padding: 9px 16px;
+  border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.find.gone { display: none; }
+.find .svg { flex: 0 0 auto; width: 14px; height: 14px; stroke: var(--dim); }
+.find .txt { flex: 1 1 auto; background: var(--surface); }
+.find .find-x { flex: 0 0 auto; display: inline-flex; align-items: center;
+  justify-content: center; width: 24px; height: 24px; padding: 0; border: 0;
+  border-radius: 999px; background: none; cursor: pointer; }
+.find .find-x:hover { background: var(--hover); }
+.find .find-x .svg { width: 11px; height: 11px; }
+.find.gone-text .find-x { display: none; }
+.find .find-count { flex: 0 0 auto; font-size: 11.5px; color: var(--dim); }
+/* While the search holds words the pane shows only the list of what matched. */
+.pane.finding > * { display: none; }
+.pane.finding > .find-list { display: block; }
+.find-list .find-head { margin: 16px 0 0; font-size: 11px; font-weight: 650;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--ink-leaf);
+  display: flex; align-items: center; gap: 9px; }
+.find-list .find-head::after { content: ""; flex: 1 1 auto; height: 1px;
+  background: var(--line); }
+.find-list .find-none { padding: 22px 0; font-size: 12.5px; color: var(--dim); }
 .sec { margin: 20px 0 2px; font-size: 11px; font-weight: 650; letter-spacing: .09em;
   text-transform: uppercase; color: var(--ink-leaf); display: flex; align-items: center; gap: 9px; }
 .sec::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
@@ -2622,6 +2648,15 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
       <button class="mark-btn x" id="sheetClose" type="button" title="Close" aria-label="Close">
         <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
       </button>
+    </div>
+    <div class="find gone-text" id="sheetFind">
+      <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.7 1.7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM10.3 10.3l3.3 3.3"/></svg>
+      <input class="txt" id="sheetFindText" type="text" spellcheck="false" autocomplete="off"
+        placeholder="Search these settings" aria-label="Search these settings by name or by description">
+      <button class="find-x" id="sheetFindClear" type="button" title="Clear the search" aria-label="Clear the search">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+      <span class="find-count" id="sheetFindCount"></span>
     </div>
     <div class="sheet-body">
       <div class="pane" id="paneProgram">
@@ -11036,6 +11071,204 @@ function mcpSave() {
   setTimeout(loadMcp, 1500);
 }
 
+// ------------------------------------------------- the search over the settings
+//
+// The two tabs of settings hold a great many fields. A user who knows the word
+// they are after should not read the whole tab for it. The bar under the tabs
+// searches the names of the settings of the tab in front and the words that
+// describe them.
+//
+// The settings that match are moved into a list of their own at the head of the
+// pane: first the settings whose name matched, then the settings whose
+// description matched, and in each group the settings stand under the head of the
+// section they belong to. Nothing is copied. The field itself moves, so its
+// control keeps its value, its listeners and its identity. The order the pane
+// stood in is written down before the first move and put back when the search is
+// cleared, so the tab is exactly as it was.
+
+// The panes the search works on. The Logs tab and the MCP tab hold nothing to
+// search for, and the bar stands away from them.
+var FIND_TABS = ['program', 'model'];
+
+// The order the elements of one pane stood in, taken before the first move of one
+// search and put back when that search is cleared.
+var findCaptured = {};
+
+// The pane the bar searches now.
+function findPane() {
+  return setTab === 'model' ? byId('paneModel') : byId('paneProgram');
+}
+
+// The list the matches are put into. It is made once for each pane and kept, so
+// the pane never gains and loses a box of its own.
+function findList(pane) {
+  var box = pane.querySelector(':scope > .find-list');
+  if (!box) {
+    box = make('div', 'find-list');
+    pane.insertBefore(box, pane.firstChild);
+  }
+  return box;
+}
+
+// The name of a setting and the words that describe it, both in lower case. A
+// field with no name of its own is not a setting and is not searched.
+function findWords(field) {
+  var lbl = field.querySelector(':scope > .lbl');
+  var name = lbl ? String(lbl.textContent || '') : '';
+  if (!name.trim()) { return null; }
+  var said = '';
+  var subs = field.querySelectorAll(':scope > .sub');
+  for (var n = 0; n < subs.length; n++) {
+    said += ' ' + String(subs[n].textContent || '');
+  }
+  return { name: name.toLowerCase(), said: said.toLowerCase() };
+}
+
+// The head of the section a setting stands under: the last section head before it,
+// looked for in the place it stands in and then in the places above it. A setting
+// with no section of its own stands under no head.
+function findSection(node) {
+  var at = node;
+  while (at && at.classList && !at.classList.contains('pane')) {
+    var back = at.previousElementSibling;
+    while (back) {
+      if (back.classList && back.classList.contains('sec')) {
+        return String(back.textContent || '').trim();
+      }
+      back = back.previousElementSibling;
+    }
+    at = at.parentNode;
+  }
+  return '';
+}
+
+// The order the elements of one pane stand in, written down as pairs of a place
+// and the children that stand in it, from the pane down. The list of the matches
+// is skipped, for it is the search's own box and not part of the tab.
+function findCapture(pane) {
+  var pairs = [];
+  (function walk(node) {
+    var kids = [];
+    for (var child = node.firstElementChild; child; child = child.nextElementSibling) {
+      if (child.classList && child.classList.contains('find-list')) { continue; }
+      kids.push(child);
+    }
+    if (kids.length) { pairs.push({ place: node, kids: kids }); }
+    for (var n = 0; n < kids.length; n++) { walk(kids[n]); }
+  })(pane);
+  return pairs;
+}
+
+// The pane is put back as it stood. The pairs are read from the pane down, so a
+// place that holds another place is filled before that other place is, and what
+// was moved out of it comes back into it.
+function findRestore(pane) {
+  var pairs = findCaptured[pane.id];
+  if (!pairs) { return; }
+  for (var n = 0; n < pairs.length; n++) {
+    var kids = pairs[n].kids;
+    for (var i = 0; i < kids.length; i++) { pairs[n].place.appendChild(kids[i]); }
+  }
+  delete findCaptured[pane.id];
+}
+
+// The search is taken out of one pane: the matches go back to the places they
+// stood in, and the pane shows its settings again.
+function findClear(pane) {
+  if (!pane) { return; }
+  findRestore(pane);
+  var box = pane.querySelector(':scope > .find-list');
+  if (box) { box.innerHTML = ''; }
+  pane.classList.remove('finding');
+}
+
+// Both tabs are cleared, for the sheet was opened or put away.
+function findClearBoth() {
+  findClear(byId('paneProgram'));
+  findClear(byId('paneModel'));
+  var box = byId('sheetFindText');
+  if (box) { box.value = ''; }
+  byId('sheetFindCount').textContent = '';
+  byId('sheetFind').classList.add('gone-text');
+}
+
+// One group of the matches is put under its head: the settings in the order they
+// stand in the tab, each under the head of the section it belongs to.
+function findGroup(box, list, head) {
+  if (!list.length) { return; }
+  var title = make('div', 'find-head');
+  title.textContent = head;
+  box.appendChild(title);
+  var last = null;
+  for (var n = 0; n < list.length; n++) {
+    var section = list[n].section;
+    if (section && section !== last) {
+      var sec = make('div', 'sec');
+      sec.textContent = section;
+      box.appendChild(sec);
+    }
+    last = section;
+    box.appendChild(list[n].field);
+  }
+}
+
+// The list is read again over the words in the bar. The pane is put back first and
+// the search is then taken over the settings as they stand, so a tab that was
+// filled again while the search stood is never read from a list of fields that are
+// gone.
+function findApply() {
+  var pane = findPane();
+  var words = String(byId('sheetFindText').value || '').trim().toLowerCase();
+  var box = findList(pane);
+  findRestore(pane);
+  box.innerHTML = '';
+  if (!words) {
+    pane.classList.remove('finding');
+    byId('sheetFindCount').textContent = '';
+    byId('sheetFind').classList.add('gone-text');
+    return;
+  }
+  byId('sheetFind').classList.remove('gone-text');
+  findCaptured[pane.id] = findCapture(pane);
+  var named = [];
+  var said = [];
+  var fields = pane.querySelectorAll('.fld');
+  for (var n = 0; n < fields.length; n++) {
+    var held = findWords(fields[n]);
+    if (!held) { continue; }
+    var inName = held.name.indexOf(words) >= 0;
+    var inSaid = held.said.indexOf(words) >= 0;
+    if (!inName && !inSaid) { continue; }
+    // The section of every match is read before anything is moved, for a field
+    // that has gone into the list of the matches can no longer say what section
+    // it stood under.
+    (inName ? named : said).push({ field: fields[n], section: findSection(fields[n]) });
+  }
+  findGroup(box, named, 'Matches the name');
+  findGroup(box, said, 'Matches the description');
+  var total = named.length + said.length;
+  byId('sheetFindCount').textContent = total
+    ? total + (total === 1 ? ' setting' : ' settings')
+    : 'nothing';
+  if (!total) {
+    var none = make('div', 'find-none');
+    none.textContent = 'No setting of this tab holds "'
+      + byId('sheetFindText').value.trim() + '" in its name or in its description.';
+    box.appendChild(none);
+  }
+  pane.classList.add('finding');
+}
+
+// The bar follows the tab: it stands only over the two tabs of settings, the pane
+// that went out of sight is cleared, and the words in the bar are read again over
+// the pane that came forward.
+function findTab() {
+  byId('sheetFind').classList.toggle('gone', FIND_TABS.indexOf(setTab) < 0);
+  var pane = findPane();
+  findClear(pane === byId('paneModel') ? byId('paneProgram') : byId('paneModel'));
+  findApply();
+}
+
 function openSettings(tab) {
   setTab = tab === 'model' ? 'model' : tab === 'logs' ? 'logs'
     : tab === 'mcp' ? 'mcp' : 'program';
@@ -11052,6 +11285,7 @@ function openSettings(tab) {
 // log is read while the sheet stands closed.
 function closeSettings() {
   logsStop();
+  findClearBoth();
   byId('overlay').classList.add('hidden');
 }
 
@@ -11083,6 +11317,7 @@ function showSetTab(tab) {
     : 'A model that is loaded goes only when a value the server itself starts with has moved.';
   // Nothing of the Logs tab is saved, so the button for saving stands away.
   byId('saveSheet').style.display = (tab === 'logs' || tab === 'mcp') ? 'none' : '';
+  findTab();
 }
 
 // ------------------------------------------------------------------ skins
@@ -12291,6 +12526,21 @@ byId('logBody').addEventListener('scroll', function () {
     logFollow = near;
     byId('logFollow').checked = near;
   }
+});
+
+// The bar that searches the settings of the tab in front. The words are read a
+// moment after the last key, so a long word does not make and unmake the list on
+// every letter.
+var findTimer = 0;
+byId('sheetFindText').addEventListener('input', function () {
+  clearTimeout(findTimer);
+  findTimer = setTimeout(findApply, 90);
+});
+byId('sheetFindClear').addEventListener('click', function () {
+  clearTimeout(findTimer);
+  byId('sheetFindText').value = '';
+  findApply();
+  byId('sheetFindText').focus();
 });
 
 byId('tabProgram').addEventListener('click', function () {
