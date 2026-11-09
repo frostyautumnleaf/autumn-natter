@@ -159,6 +159,14 @@ fn done_word(name: &str) -> &'static str {
     }
 }
 
+// The heading of the area of work the model named in a call that is still being
+// written. Nothing stands in the head until the first word of the heading comes
+// in. See `crate::tools::partial_text`, which reads a part of a call as far as it
+// has been written.
+pub fn partial_words(raw: &str) -> String {
+    tools::partial_text(raw, "topic")
+}
+
 // True when a name is one of the tools of the program, rather than one a
 // server of tools added.
 fn known(name: &str) -> bool {

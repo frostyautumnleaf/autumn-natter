@@ -4820,6 +4820,13 @@ var TOOL_SHAPES = {
     head: 'Editing ', done: 'Edited ', named: 'plan', word: 'edits', end: 'result',
     empty: 'the plan', begun: 'the plan, started', file: true
   },
+  // The plan is let go. The head says the plan is being put down, and the body
+  // carries the words the model gave for the leave it was given.
+  end_planning: {
+    mark: 'M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM5.4 8.1 7.3 10l3.4-3.8',
+    head: 'Letting go of ', done: 'Let go of ', named: 'the plan', word: 'parts', end: 'result',
+    empty: 'the plan', begun: 'the plan'
+  },
   create_file: {
     mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
     head: 'Creating file: ', done: 'Created file: ', word: 'file', end: 'result',
@@ -4902,6 +4909,43 @@ var TOOL_SHAPES = {
     head: 'Running a call again: ', done: 'Ran a call again: ',
     word: 'changes', end: 'result',
     empty: 'the last failed call', begun: 'the call being named'
+  },
+  // The five tools of the infographic suite. The head names what the call works
+  // on and the project it stands in, which the engine gives; the body carries the
+  // parts of the call as the model writes them.
+  infographic_guide: {
+    mark: 'M2.8 3.2h4.8v9.6H2.8zM8.4 3.2h4.8v9.6H8.4M4.6 5.8h1.4M10.2 5.8h1.4',
+    head: 'Writing ', done: 'Wrote ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  infographic_plan: {
+    mark: 'M2.4 3h11.2v10H2.4zM2.4 6h11.2M5 8.4h2.6v2.6H5zM9.4 8.4h3',
+    head: 'Writing ', done: 'Wrote ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  infographic_scene: {
+    mark: 'M2.4 3.4h11.2v9.2H2.4zM4.6 6h4.4M4.6 8.4h6.8M4.6 10.8h3.2',
+    head: 'Writing ', done: 'Wrote ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  infographic_check: {
+    mark: 'M2.4 3h11.2v10H2.4zM5 8.2l1.9 1.9 4-4.2',
+    head: 'Checking ', done: 'Checked ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  infographic_render: {
+    mark: 'M2.4 3.4h11.2v9.2H2.4zM4.8 3.4v9.2M11.2 3.4v9.2M12.4 6h.6M12.4 10h.6',
+    head: 'Drawing ', done: 'Drew ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  // The short of the work the model writes for the corporate display. The head
+  // names the heading of the area of work, and the body carries that heading and
+  // the lines under it as they are written. The block of the run is the receipt,
+  // for the words themselves go into the one block of the answer.
+  work_log: {
+    mark: 'M4.2 2.6h7.6v10.8H4.2zM6.4 5.8h3.2M6.4 8h3.2M6.4 10.2h2',
+    head: 'Writing the short: ', done: 'Wrote the short: ', word: 'parts', end: 'result',
+    empty: 'the short of the work', begun: 'the short being written'
   },
   // The talk of the chat put into a handoff summary. The head says what the call
   // worked on; the body carries the reason the model gave and the receipt of the

@@ -310,11 +310,27 @@ impl Asking {
     }
 }
 
+// The one thing a call names, with the word a tool says when that name has not
+// come in yet, or never came. The body of the block of such a tool holds the
+// parts of the call as the model writes them, so the head cannot take its words
+// from there: the first line of those parts is the name of a part, and not the
+// one thing the call is pointed at.
+fn named(one: String, else_word: &str) -> String {
+    if one.trim().is_empty() {
+        return String::from(else_word);
+    }
+    one
+}
+
 // The words of a call that the user is given: the command of a terminal run,
 // or the one thing another tool names. The head of the block of a run and the
 // block of a call being written both come from here, so the two cannot say
 // different things about one call. The reason the model gave rides along for the
 // terminal tool, which is the only tool that ever asked for one.
+//
+// A tool whose words are not a command or a file shows its parts: every part of
+// the call that has come in stands on a line of its own under its name, so the
+// user watches the call grow instead of watching one word that never changes.
 fn words_of(name: &str, raw: &str) -> (String, String, String) {
     match name {
         tools::TOOL_NAME => {
@@ -326,25 +342,29 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             (command, String::new(), target)
         }
         // A file being offered to the user is named by the file itself.
-        download::NAME => {
-            let one = download::partial_words(raw);
-            (one.clone(), String::new(), one)
-        }
+        download::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(download::partial_words(raw), "a file"),
+        ),
         // A show of the contents of files is named by the first file of it.
-        display::NAME => {
-            let one = display::partial_words(raw);
-            (one.clone(), String::new(), one)
-        }
+        display::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(display::partial_words(raw), "a file"),
+        ),
         // A question of the user is named by the question.
-        askuser::NAME => {
-            let one = askuser::partial_words(raw);
-            (one.clone(), String::new(), one)
-        }
+        askuser::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(askuser::partial_words(raw), "a question"),
+        ),
         // The offer of the next steps is named by the first button of it.
-        suggest::NAME => {
-            let one = suggest::partial_words(raw);
-            (one.clone(), String::new(), one)
-        }
+        suggest::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(suggest::partial_words(raw), "the next step"),
+        ),
         // The list of the steps of the work is named by the title of the block,
         // or by the first step. The body of the block holds every step so far.
         steps::NAME => (
@@ -360,29 +380,64 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             rerun::partial_words(raw),
         ),
         // A look about the web is named by the words to look for, or by the
-        // address that is to be read.
-        search::NAME => (search::partial_words(raw), String::new(), String::new()),
+        // address that is being read.
+        search::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(search::partial_words(raw), "the web"),
+        ),
         // The tools of planning name themselves: one writes the whole plan, one
         // changes the plan file of this chat, one reads it back, and one says the
-        // plan is agreed.
-        planning::INIT_NAME => (String::from("the plan file"), String::new(), String::new()),
-        planning::EDIT_NAME => (String::from("the plan file"), String::new(), String::new()),
-        planning::READ_NAME => (String::from("the plan file"), String::new(), String::new()),
-        planning::ASK_NAME => (String::from("the questions of the plan"), String::new(), String::new()),
-        planning::END_NAME => (String::from("the plan is agreed"), String::new(), String::new()),
+        // plan is agreed. The words of the plan stream in the body.
+        planning::INIT_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the plan file"),
+        ),
+        planning::EDIT_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the plan file"),
+        ),
+        planning::READ_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the plan file"),
+        ),
+        planning::ASK_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the questions of the plan"),
+        ),
+        planning::END_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the plan is agreed"),
+        ),
         // The handoff summary is named by the talk it puts away. The reason the
         // model gives with the call rides beside it.
         summarise::NAME => (
-            String::from("the talk of this chat"),
+            tools::live_arguments(raw),
             summarise::reason(raw),
-            String::new(),
+            String::from("the talk of this chat"),
         ),
-        viewimage::NAME | viewimage::ONE_NAME => (viewimage::partial_words(raw), String::new(), String::new()),
+        viewimage::NAME | viewimage::ONE_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(viewimage::partial_words(raw), "a picture"),
+        ),
         // A tool of the infographic suite is named by the tool and the project.
         name if infographic::is_tool(name) => (
+            tools::live_arguments(raw),
+            String::new(),
             infographic::shown(name, raw),
+        ),
+        // The short of the work the model writes for the corporate display is
+        // named by the heading of the area of work it stands under.
+        corporate::NAME => (
+            tools::live_arguments(raw),
             String::new(),
-            String::new(),
+            named(corporate::partial_words(raw), "the short of the work"),
         ),
         // A tool of a server of the user's own is named by the tool itself,
         // and the parts the model is writing are the words of the block.
@@ -8871,6 +8926,11 @@ fn run_program_tool(
         planning::READ_NAME => "Reading the plan",
         planning::ASK_NAME => "Asking about the plan",
         planning::END_NAME => "Letting the plan go",
+        infographic::GUIDE_NAME => "Writing the guide of a script",
+        infographic::PLAN_NAME => "Planning the video",
+        infographic::SCENE_NAME => "Writing a scene",
+        infographic::CHECK_NAME => "Checking the layout",
+        infographic::RENDER_NAME => "Drawing the frames",
         _ => "A tool of the program",
     };
     let message_id = {
@@ -11141,6 +11201,77 @@ mod tests {
         assert_eq!(&kept[0..4], b"PK\x03\x04");
         assert!(engine.gift_zip(&[String::from("nowhere.txt")]).is_none());
         let _ = std::fs::remove_dir_all(&workdir);
+    }
+
+    // A tool whose words are neither a command nor a file shows the parts of the
+    // call as they come in, so the block is not blank while the model writes, and
+    // the head still names the one thing the call is pointed at.
+    #[test]
+    fn the_parts_of_a_call_are_written_into_the_block() {
+        let ask = ToolCall {
+            id: String::from("call-ask-parts"),
+            name: String::from(askuser::NAME),
+            arguments: String::from(
+                "{\"question\":\"Which room?\",\"choices\":[\"The big one\",\"The small one\"]}",
+            ),
+        };
+        let made = watched(std::slice::from_ref(&ask));
+        assert_eq!(made[0].target, "Which room?");
+        assert_eq!(
+            made[0].command,
+            "question: Which room?\nchoices: [\"The big one\",\"The small one\"]"
+        );
+        // The whole plan of planning mode stands in the body as it is written.
+        // Before, the block said only 'the plan file' and grew by nothing.
+        let plan = ToolCall {
+            id: String::from("call-plan-parts"),
+            name: String::from(planning::INIT_NAME),
+            arguments: String::from("{\"plan\":\"# Plan\\nFix the parser\"}"),
+        };
+        let made = watched(std::slice::from_ref(&plan));
+        assert_eq!(made[0].target, "the plan file");
+        assert_eq!(made[0].command, "plan: # Plan\nFix the parser");
+        // A tool of the infographic suite is named for the project it works on,
+        // and carries its parts under their own names.
+        let scene = ToolCall {
+            id: String::from("call-scene-parts"),
+            name: String::from(infographic::SCENE_NAME),
+            arguments: String::from("{\"project\":\"launch\",\"scene\":{\"title\":\"First light\"}}"),
+        };
+        let made = watched(std::slice::from_ref(&scene));
+        assert_eq!(made[0].target, "a scene of a video (launch)");
+        assert_eq!(
+            made[0].command,
+            "project: launch\nscene: {\"title\":\"First light\"}"
+        );
+        // The short of the work for the corporate display is named by the heading
+        // of the area of work, and the lines stand in the body.
+        let short = ToolCall {
+            id: String::from("call-short-parts"),
+            name: String::from(corporate::NAME),
+            arguments: String::from("{\"topic\":\"The parser\",\"lines\":[\"Found the fault\"]}"),
+        };
+        let made = watched(std::slice::from_ref(&short));
+        assert_eq!(made[0].target, "The parser");
+        assert_eq!(
+            made[0].command,
+            "topic: The parser\nlines: [\"Found the fault\"]"
+        );
+        // A call that has named nothing yet has no name to put in the head, so
+        // the head says what the tool is pointed at. The body still shows the
+        // part the model is writing.
+        let half = ToolCall {
+            id: String::from("call-half-parts"),
+            name: String::from(search::NAME),
+            arguments: String::from("{\"depth\":2,\"query\":\"sea"),
+        };
+        let made = watched(std::slice::from_ref(&half));
+        assert!(!made[0].target.trim().is_empty(), "the head never stands blank");
+        assert!(
+            made[0].command.starts_with("depth: 2"),
+            "{}",
+            made[0].command
+        );
     }
 
     // A call that failed is run again with one parameter changed. The model does
