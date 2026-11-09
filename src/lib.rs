@@ -43,6 +43,7 @@ pub mod prompts;
 pub mod remote;
 pub mod search;
 pub mod store;
+pub mod steps;
 pub mod suggest;
 pub mod summarise;
 pub mod tools;

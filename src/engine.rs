@@ -32,6 +32,7 @@ use crate::corporate;
 use crate::planning;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
+use crate::steps;
 use crate::suggest;
 use crate::summarise;
 use crate::tools;
@@ -343,6 +344,13 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             let one = suggest::partial_words(raw);
             (one.clone(), String::new(), one)
         }
+        // The list of the steps of the work is named by the title of the block,
+        // or by the first step. The body of the block holds every step so far.
+        steps::NAME => (
+            steps::live_body(raw),
+            String::new(),
+            steps::partial_words(raw),
+        ),
         // A look about the web is named by the words to look for, or by the
         // address that is to be read.
         search::NAME => (search::partial_words(raw), String::new(), String::new()),
@@ -2411,6 +2419,38 @@ impl State {
                     message.suggestions = asks.clone();
                 } else if standing && !message.suggestions.is_empty() {
                     message.suggestions = Vec::new();
+                }
+            }
+        }
+        self.running = None;
+        self.persist();
+        self.touch();
+    }
+
+    // The same, with the steps of the work one run of the steps tool showed. The
+    // block rides on the message of the run, so it is drawn again when the chat is
+    // opened another day. The newest call of the answer wins: an earlier call of
+    // the same answer is cleared, so a model that corrects its own list does not
+    // leave two blocks under the answer.
+    fn finish_steps(
+        &mut self,
+        id: &str,
+        output: &str,
+        ok: bool,
+        plan: Option<crate::steps::Plan>,
+    ) {
+        let text = self.with_stopped_head(output);
+        let standing = plan.is_some();
+        if let Some(chat) = self.chat_mut() {
+            let mut reached = false;
+            for message in chat.messages.iter_mut() {
+                if message.id == id {
+                    message.tool = text.clone();
+                    message.failed = !ok;
+                    message.steps = plan.clone();
+                    reached = true;
+                } else if standing && message.steps.is_some() && !reached {
+                    message.steps = None;
                 }
             }
         }
@@ -8408,6 +8448,7 @@ fn group_of(name: &str) -> Option<&'static str> {
         display::NAME => Some("display"),
         askuser::NAME => Some("ask"),
         suggest::NAME => Some("suggest"),
+        steps::NAME => Some("steps"),
         summarise::NAME => Some("summarise"),
         name if infographic::is_tool(name) => Some("infographics"),
         _ => None,
@@ -8560,6 +8601,11 @@ fn offered(
         // other tool of the program, and behind the line of their own.
         if switches.suggest {
             list.push(suggest::definition());
+        }
+        // The list of the steps of the work stands behind the badge like every
+        // other tool of the program, and behind the line of its own.
+        if switches.steps {
+            list.push(steps::definition());
         }
         // The five tools of the infographic suite stand or fall as one line of
         // the badge: a script without a renderer draws nothing.
@@ -8721,6 +8767,7 @@ fn run_program_tool(
         display::NAME => "Showing a file to the user",
         askuser::NAME => "Asking the user",
         suggest::NAME => "Offering a next step",
+        steps::NAME => "Writing the steps of the work",
         planning::INIT_NAME => "Writing the plan",
         planning::EDIT_NAME => "Changing the plan",
         planning::READ_NAME => "Reading the plan",
@@ -8996,6 +9043,15 @@ fn run_program_tool(
         let made = suggest::offer(&call.arguments);
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_suggestions(&message_id, &made.report.output, made.report.ok, made.asks);
+        return;
+    }
+    // The steps of the work, shown one at a time in a block of their own. Nothing
+    // is waited for: the list rides on the message of the run, and the page puts
+    // the block at the end of the answer once the model has stopped writing.
+    if call.name == steps::NAME {
+        let made = steps::show(&call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_steps(&message_id, &made.report.output, made.report.ok, made.plan);
         return;
     }
     // An infographic. The five tools of the suite work on one file of words in
@@ -11004,6 +11060,128 @@ mod tests {
                 .any(|one| one == suggest::NAME),
             "the line takes the tool out of the ask"
         );
+        let _ = std::fs::remove_dir_all(&workdir);
+    }
+
+    // The list of the steps of the work hangs on the run that made it, and the
+    // state carries it with the run, so the block is drawn again when the chat is
+    // opened another day and in the page of the remote mode. The newest call of
+    // the answer wins, so a model that corrects its own list leaves one block and
+    // not two. The line of the drop-down of the badge holds the tool as it holds
+    // every other tool of the program, and the head of the live block names the
+    // title while the body holds the steps written so far.
+    #[test]
+    fn the_list_of_the_steps_hangs_on_the_run_and_the_newest_stands() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let workdir = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
+            std::fs::create_dir_all(&room).unwrap();
+            room
+        };
+        let run = |engine: &Engine, id: &str, arguments: &str| {
+            run_program_tool(
+                &ToolCall {
+                    id: String::from(id),
+                    name: String::from(steps::NAME),
+                    arguments: String::from(arguments),
+                },
+                "",
+                0,
+                &engine.state,
+                &workdir,
+                &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            );
+        };
+        run(
+            &engine,
+            "call-one",
+            "{\"title\":\"Ship it\",\"steps\":[{\"label\":\"Build\",\"content\":\"Run build.sh.\"},{\"label\":\"Test\",\"content\":\"Run the tests.\"}]}",
+        );
+        let snap = engine.snapshot();
+        let first = snap
+            .messages
+            .iter()
+            .find(|one| one.tool_name == steps::NAME)
+            .expect("the chat holds the run");
+        assert_eq!(first.role, "Tool");
+        assert!(!first.failed, "{}", first.tool);
+        let plan = first.steps.as_ref().expect("the block stands");
+        assert_eq!(plan.title, "Ship it");
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[0].content, "Run build.sh.");
+        assert!(first.tool.contains("2 steps are shown"), "{}", first.tool);
+        // The state of a page carries the block with the run.
+        let value = crate::web::state(&snap, None);
+        let rows = value["messages"].as_array().expect("the state carries the talk");
+        let row = rows
+            .iter()
+            .find(|one| one["tool_name"] == steps::NAME)
+            .expect("the run stands in the state");
+        assert_eq!(row["steps"]["title"], "Ship it");
+        assert_eq!(row["steps"]["steps"][1]["label"], "Test");
+        // A second call takes the block of the first away.
+        run(&engine, "call-two", "{\"steps\":[\"Only one step\"]}");
+        let snap = engine.snapshot();
+        let runs: Vec<&Message> = snap
+            .messages
+            .iter()
+            .filter(|one| one.tool_name == steps::NAME)
+            .collect();
+        assert_eq!(runs.len(), 2, "both runs stand in the talk");
+        assert!(runs[0].steps.is_none(), "the older block went");
+        let second = runs[1].steps.as_ref().expect("the newest block stands");
+        assert_eq!(second.steps.len(), 1);
+        assert_eq!(second.steps[0].content, "Only one step");
+        // The tool stands behind the line of the drop-down, as every other tool
+        // of the program does.
+        let names = |switches: &store::ToolSwitches| {
+            offered(
+                false,
+                true,
+                false,
+                tools::Access::default(),
+                &[],
+                switches,
+                true,
+            )
+            .map(|list| {
+                list.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect::<Vec<_>>()
+            })
+        };
+        assert!(
+            names(&engine.snapshot().tool_switches).is_some_and(|list| list
+                .iter()
+                .any(|one| one == steps::NAME)),
+            "the tool is offered while the line stands on"
+        );
+        assert_eq!(group_of(steps::NAME), Some("steps"));
+        engine.set_tool_switch("steps", false);
+        assert!(
+            !names(&engine.snapshot().tool_switches)
+                .unwrap_or_default()
+                .iter()
+                .any(|one| one == steps::NAME),
+            "the line takes the tool out of the ask"
+        );
+        // The head of a block being written names the title, and its body holds
+        // the steps written so far.
+        let writing = ToolCall {
+            id: String::from("call-three"),
+            name: String::from(steps::NAME),
+            arguments: String::from("{\"title\":\"Ship it\",\"steps\":[{\"label\":\"Build\",\"content\":\"Run build"),
+        };
+        let made = watched(std::slice::from_ref(&writing));
+        assert_eq!(made[0].target, "Ship it");
+        assert!(made[0].command.contains("1. Build"), "{}", made[0].command);
+        assert!(made[0].command.contains("Run build"), "{}", made[0].command);
         let _ = std::fs::remove_dir_all(&workdir);
     }
 

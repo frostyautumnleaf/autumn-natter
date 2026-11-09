@@ -155,6 +155,17 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                     "label": one.label,
                     "prompt": one.prompt,
                 })).collect::<Vec<Value>>(),
+                // The steps of the work one run of the steps tool showed. The page
+                // draws one block at the end of the answer that made the call,
+                // above the other blocks an answer ends with, and shows one step
+                // at a time.
+                "steps": m.steps.as_ref().map(|one| json!({
+                    "title": one.title,
+                    "steps": one.steps.iter().map(|step| json!({
+                        "label": step.label,
+                        "content": step.content,
+                    })).collect::<Vec<Value>>(),
+                })),
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is

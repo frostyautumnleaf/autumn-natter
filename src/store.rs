@@ -284,6 +284,10 @@ pub struct ToolSwitches {
     // step the user may take with a press.
     #[serde(default = "switch_on")]
     pub suggest: bool,
+    // The model may end an answer with a list of the steps of the work, shown
+    // one step at a time in a block of its own. See `crate::steps`.
+    #[serde(default = "switch_on")]
+    pub steps: bool,
     // The model may make an infographic video: the script, the layout, and the
     // file of frames. The five tools of the suite stand or fall together.
     // Off at first, for a video costs a long run.
@@ -313,6 +317,7 @@ impl Default for ToolSwitches {
             display: true,
             ask: true,
             suggest: true,
+            steps: true,
             infographics: false,
             summarise: true,
         }
@@ -331,6 +336,7 @@ impl ToolSwitches {
             "display" => self.display = on,
             "ask" => self.ask = on,
             "suggest" => self.suggest = on,
+            "steps" => self.steps = on,
             "infographics" => self.infographics = on,
             "summarise" => self.summarise = on,
             _ => return false,
@@ -349,6 +355,7 @@ impl ToolSwitches {
             ("display", self.display),
             ("ask", self.ask),
             ("suggest", self.suggest),
+            ("steps", self.steps),
             ("infographics", self.infographics),
             ("summarise", self.summarise),
         ]
@@ -621,6 +628,12 @@ pub struct Message {
     // stopped writing: see `crate::suggest`.
     #[serde(default)]
     pub suggestions: Vec<crate::suggest::Suggestion>,
+    // The steps of the work one run of the steps tool showed. The block stands
+    // at the end of the answer that made the call, above the other blocks an
+    // answer ends with, and only once the model has stopped writing: see
+    // `crate::steps`.
+    #[serde(default)]
+    pub steps: Option<crate::steps::Plan>,
     // A message of the role "Summary" only. The room the talk took when the
     // handoff summary was asked for, in tokens.
     #[serde(default)]

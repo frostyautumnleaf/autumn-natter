@@ -1624,6 +1624,89 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .suggest .svg { flex: 0 0 auto; width: 13px; height: 13px; stroke: var(--ink); }
 .suggest .said { min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
+/* The steps of the work, shown one at a time. The block stands under the answer
+   that made the call, above the other blocks an answer ends with, and only once
+   the model has stopped writing. The head names the list, the body holds the text
+   of one step, and the row under it holds one button per step. */
+.steps {
+  margin: 2px 0 12px; border: 1px solid var(--plate-line); border-radius: 12px;
+  background: var(--surface-2); overflow: hidden; animation: rise 240ms ease-out;
+}
+.steps .stitle {
+  display: flex; align-items: center; gap: 7px; padding: 9px 13px;
+  border-bottom: 1px solid var(--plate-line); font-size: 11px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--dim);
+}
+.steps .stitle .svg { flex: 0 0 auto; width: 13px; height: 13px; stroke: var(--ink); }
+.steps .stitle .count { margin-left: auto; font-weight: 620; letter-spacing: .02em; }
+/* The text of the step, and the two buttons of going back and going on. The
+   buttons stand in the same area as the text, at its bottom corners, and the text
+   keeps room for them. Only the text moves when the step changes: it slides out
+   of the block and the text of the new step slides in. */
+.steps .sbody { position: relative; padding-bottom: 46px; }
+.steps .spage { position: relative; overflow: hidden; }
+.steps .stext {
+  padding: 12px 14px 2px; font-size: 13.5px; line-height: 1.55; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+}
+.steps .stext.leaving { position: absolute; left: 0; right: 0; top: 0; }
+.steps .stext.out-left { animation: step-out-left 220ms ease both; }
+.steps .stext.out-right { animation: step-out-right 220ms ease both; }
+.steps .stext.in-right { animation: step-in-right 220ms ease both; }
+.steps .stext.in-left { animation: step-in-left 220ms ease both; }
+@keyframes step-out-left { from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-45%); opacity: 0; } }
+@keyframes step-out-right { from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(45%); opacity: 0; } }
+@keyframes step-in-right { from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; } }
+@keyframes step-in-left { from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; } }
+.steps .snav {
+  position: absolute; bottom: 11px; display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 1px solid var(--accent-line); border-radius: 999px;
+  background: var(--accent-soft); color: var(--ink); font-size: 12px; font-weight: 650;
+  font-family: inherit; cursor: pointer;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease;
+}
+.steps .snav:hover { background: var(--tint); border-color: var(--accent); }
+.steps .sprev { left: 12px; }
+.steps .snext { right: 12px; }
+.steps .snav.gone { display: none; }
+/* The row of the steps. It stands on one line and never wraps: the rail is cut by
+   the width of the chat, and an arrow comes out at an end of it when the buttons
+   behind that end will not stand in the room. */
+.steps .srow {
+  display: flex; align-items: center; gap: 6px; padding: 9px 10px;
+  border-top: 1px solid var(--plate-line);
+}
+.steps .srail {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px;
+  overflow: hidden; scroll-behavior: smooth;
+}
+.steps .sbtn {
+  flex: 0 0 auto; max-width: 220px; display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border: 1px solid var(--plate-line); border-radius: 999px;
+  background: var(--surface-3); color: var(--text-2); font-size: 11.5px;
+  font-weight: 620; font-family: inherit; cursor: pointer; white-space: nowrap;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease,
+    color var(--t-move) ease;
+}
+.steps .sbtn:hover { border-color: var(--accent-line); color: var(--text); }
+.steps .sbtn.now {
+  background: var(--accent-soft); border-color: var(--accent-line); color: var(--ink);
+}
+.steps .sbtn .num { font-variant-numeric: tabular-nums; opacity: .65; }
+.steps .sbtn .said { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.steps .sarrow {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 25px; height: 25px; padding: 0; border: 1px solid var(--plate-line);
+  border-radius: 999px; background: var(--surface-3); cursor: pointer;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease;
+}
+.steps .sarrow:hover { border-color: var(--accent-line); background: var(--tint); }
+.steps .sarrow .svg { width: 12px; height: 12px; stroke: var(--ink); }
+.steps .sarrow.gone { display: none; }
 /* The box says that a file let go there would land in it. */
 .box.drop { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line); }
 /* The files that hang on a message the user has sent stand under its words,
@@ -1986,6 +2069,9 @@ pre.code.line {
   .turn.in { animation: none; }
   .gifts { animation: none; }
   .suggests { animation: none; }
+  .steps { animation: none; }
+  .steps .stext { animation: none; }
+  .steps .srail { scroll-behavior: auto; }
   .ask { animation: none; }
   .look { animation: none; }
   .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
@@ -3703,6 +3789,8 @@ var TOOL_LINES = [
    'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.'],
   ['suggest', 'Suggest next steps',
    'The model may end an answer with up to three buttons, each one a road the talk may go on by. The buttons appear only once the answer has stopped, and only the newest offer stands: the buttons of an older answer go when you speak again. A press sends the words of that road as a message of your own, so the model is never left waiting for one.'],
+  ['steps', 'Show steps',
+   'The model may end an answer with a step by step list of the work, in a block of its own. The block shows the text of one step at a time, with one button per step under it and buttons for going back and going on. It appears only once the answer has stopped, and it stands above the other blocks an answer ends with. The model gives as many steps as the work needs.'],
   ['infographics', 'Create infographics',
    'The model may make an infographic video: a script of scenes and blocks, a check of the layout, and the frames written into a file. The work stands in the folder infographics of the chat, and the video is made there too. The last step takes a while, and the line of the state tells how far it has come.'],
   ['summarise', 'Manually summarise',
@@ -4757,6 +4845,15 @@ var TOOL_SHAPES = {
     word: 'roads', end: 'result',
     empty: 'no next step', begun: 'the roads being written', suggest: true
   },
+  // The steps of the work, shown one at a time. The block of the run says how
+  // many steps the call wrote; the block of the list itself stands above the
+  // other blocks an answer ends with, and only once the answer has stopped.
+  show_steps: {
+    mark: 'M2.6 3.6h7.4M2.6 8h7.4M2.6 12.4h4.6M11.4 11.5l1.5 1.5 3-3.4',
+    head: 'Writing the steps: ', done: 'Wrote the steps: ', pluralDone: 'Wrote the steps: ',
+    word: 'steps', end: 'result',
+    empty: 'no steps', begun: 'the steps being written', steps: true
+  },
   // The talk of the chat put into a handoff summary. The head says what the call
   // worked on; the body carries the reason the model gave and the receipt of the
   // run, which names the room the talk took before the summary and after it.
@@ -4843,6 +4940,20 @@ function suggestHead(shape, m, over) {
   var n;
   for (n = 0; n < asks.length; n++) { held.push(String(asks[n].label || '')); }
   return (asks.length > 1 ? (shape.pluralDone || '') : (shape.done || '')) + held.join(', ');
+}
+
+// The words of the head of a block that wrote the steps of the work. The head
+// names the title of the list and counts the steps, for the sentence the tool
+// sent back is not a name and a head that carried it said the same thing twice.
+// A call that wrote nothing - one that failed, or one the user stopped - keeps
+// what came back, which is the reason.
+function stepsHead(shape, m, over) {
+  var plan = m.steps;
+  var list = (plan && plan.steps) || [];
+  if (!list.length) { return headWords(shape, firstLine(m.body), over); }
+  var said = String(plan.title || '').trim() || 'the steps of the work';
+  return (over ? (shape.done || '') : (shape.head || ''))
+    + said + ' (' + list.length + (list.length === 1 ? ' step)' : ' steps)');
 }
 
 // The button of a show, at the end of the answer that made it. The window over
@@ -5064,7 +5175,9 @@ function toolBox(m) {
       ? shownHead(shape, m, !running && !m.failed && !cut)
       : shape.suggest
         ? suggestHead(shape, m, !running && !m.failed && !cut)
-        : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
+        : shape.steps
+          ? stepsHead(shape, m, !running && !m.failed && !cut)
+          : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
   // A change of a file says how many lines it wrote and how many it took away.
   var hunks = hunkCount(m);
@@ -7281,6 +7394,9 @@ function roleStamp(m) {
     // The roads offered for what comes next stand at the end of the answer with
     // them, so the row is made again when an offer of roads comes in.
     m.suggestions ? 'suggest' + m.suggestions.length : '',
+    // The block of the steps of the work stands at the end of the answer too, so
+    // the row that carries the end is made again when a list of steps comes in.
+    m.steps && m.steps.steps ? 'steps' + m.steps.steps.length : '',
     m.cancelled ? 'cut' : '',
     // The line under a message carries the mark of going on with it, so the row
     // is made again when the state says an answer was stopped.
@@ -8057,6 +8173,205 @@ function suggestRow(asks) {
   return row;
 }
 
+// The mark of the steps of the work: three lines of a list, and a check at the
+// end of the last of them.
+var STEPS_MARK = 'M2.6 3.6h7.4M2.6 8h7.4M2.6 12.4h4.6M11.4 11.5l1.5 1.5 3-3.4';
+// The marks of the two arrows that move the row of the steps.
+var STEP_LEFT = 'M9.8 3.6 5.4 8l4.4 4.4';
+var STEP_RIGHT = 'M6.2 3.6 10.6 8l-4.4 4.4';
+
+// The text of one step. The words of the model are shown as they stand, so a step
+// that names commands keeps its lines.
+function stepText(one) {
+  var node = make('div', 'stext');
+  node.textContent = String((one && one.content) || '');
+  return node;
+}
+
+// One button of the row of the steps: the number of the step and its label.
+function stepButton(one, n) {
+  var button = make('button', 'sbtn');
+  button.type = 'button';
+  var num = make('span', 'num');
+  num.textContent = String(n + 1);
+  button.appendChild(num);
+  var said = make('span', 'said');
+  said.textContent = String((one && one.label) || ('Step ' + (n + 1)));
+  button.appendChild(said);
+  button.title = said.textContent;
+  return button;
+}
+
+// The block of the steps of the work: the title, the text of one step at a time,
+// the buttons of going back and going on at the bottom corners of the text, and a
+// row of one button per step under them.
+//
+// The row stands on one line and never wraps. The buttons that fit are shown; when
+// the row holds more than the width of the chat, an arrow comes out at the end
+// that has more behind it and a press moves the row along. The arrow to the left
+// comes out as soon as the row has moved.
+//
+// Changing the step slides the text out of the block and the text of the new step
+// in, and moves nothing else. `chosen` is the step the user last looked at, when
+// the row that carries the block was made again for another reason.
+function stepsBlock(plan, chosen) {
+  var steps = (plan && plan.steps) || [];
+  if (!steps.length) { return null; }
+  var box = make('div', 'steps');
+
+  var title = make('div', 'stitle');
+  title.appendChild(mark(STEPS_MARK));
+  var head = make('span');
+  head.textContent = String(plan.title || '').trim() || 'Steps';
+  title.appendChild(head);
+  var count = make('span', 'count');
+  count.textContent = steps.length + (steps.length === 1 ? ' step' : ' steps');
+  title.appendChild(count);
+  box.appendChild(title);
+
+  var body = make('div', 'sbody');
+  var page = make('div', 'spage');
+  var at = Math.min(Math.max(parseInt(chosen, 10) || 0, 0), steps.length - 1);
+  var text = stepText(steps[at]);
+  page.appendChild(text);
+  body.appendChild(page);
+
+  var back = make('button', 'snav sprev');
+  back.type = 'button';
+  back.appendChild(mark(STEP_LEFT));
+  var backWord = make('span');
+  backWord.textContent = 'Previous';
+  back.appendChild(backWord);
+  var on = make('button', 'snav snext');
+  on.type = 'button';
+  var onWord = make('span');
+  onWord.textContent = 'Next';
+  on.appendChild(onWord);
+  on.appendChild(mark(STEP_RIGHT));
+  body.appendChild(back);
+  body.appendChild(on);
+  box.appendChild(body);
+
+  var row = make('div', 'srow');
+  var left = make('button', 'sarrow sleft');
+  left.type = 'button';
+  left.appendChild(mark(STEP_LEFT));
+  left.title = 'Back to the first steps of the row';
+  var rail = make('div', 'srail');
+  var right = make('button', 'sarrow sright');
+  right.type = 'button';
+  right.appendChild(mark(STEP_RIGHT));
+  right.title = 'More steps';
+  var buttons = [];
+  for (var n = 0; n < steps.length; n++) {
+    var one = stepButton(steps[n], n);
+    (function (to) {
+      one.addEventListener('click', function () { go(to); });
+    })(n);
+    buttons.push(one);
+    rail.appendChild(one);
+  }
+  row.appendChild(left);
+  row.appendChild(rail);
+  row.appendChild(right);
+  box.appendChild(row);
+
+  // Which ends of the row have buttons behind them. The arrows stand only over
+  // the room that is out of view, so a row that fits the chat wears neither.
+  function fit() {
+    var over = rail.scrollWidth - rail.clientWidth;
+    var behind = rail.scrollLeft;
+    left.classList.toggle('gone', behind <= 1);
+    right.classList.toggle('gone', over - behind <= 1);
+  }
+
+  function slide(node, word) {
+    if (reduce) { return; }
+    node.classList.add(word);
+    window.setTimeout(function () { node.classList.remove(word); }, 260);
+  }
+
+  // The step the block stands at, and the row of buttons that goes with it. The
+  // text slides; the head, the two buttons and the row of the steps stay where
+  // they are.
+  function go(to) {
+    to = Math.max(0, Math.min(steps.length - 1, to));
+    if (to === at) { return; }
+    var onward = to > at;
+    at = to;
+    box.dataset.at = String(at);
+    var next = stepText(steps[at]);
+    if (reduce) {
+      page.innerHTML = '';
+    } else {
+      text.classList.add('leaving');
+      slide(text, onward ? 'out-left' : 'out-right');
+      var old = text;
+      window.setTimeout(function () {
+        if (old.parentNode === page) { page.removeChild(old); }
+      }, 260);
+      slide(next, onward ? 'in-right' : 'in-left');
+    }
+    page.appendChild(next);
+    text = next;
+    show();
+  }
+
+  // The two buttons of the text, the mark of the step the row stands at, and the
+  // arrows of the row: all of them follow the step the block stands at.
+  function show() {
+    back.classList.toggle('gone', at === 0);
+    on.classList.toggle('gone', at === steps.length - 1);
+    for (var k = 0; k < buttons.length; k++) {
+      buttons[k].classList.toggle('now', k === at);
+    }
+    fit();
+    var now = buttons[at];
+    if (!now) { return; }
+    // The chosen button is brought into the row when it stands out of it, and not
+    // every time: a row that jumped back to the middle on every press could not be
+    // read.
+    var room = rail.getBoundingClientRect();
+    var held = now.getBoundingClientRect();
+    if (held.left < room.left) {
+      rail.scrollLeft -= (room.left - held.left) + 8;
+    } else if (held.right > room.right) {
+      rail.scrollLeft += (held.right - room.right) + 8;
+    }
+    fit();
+  }
+
+  back.addEventListener('click', function () { go(at - 1); });
+  on.addEventListener('click', function () { go(at + 1); });
+  left.addEventListener('click', function () {
+    rail.scrollBy({ left: -Math.max(rail.clientWidth * 0.8, 60), behavior: reduce ? 'auto' : 'smooth' });
+  });
+  right.addEventListener('click', function () {
+    rail.scrollBy({ left: Math.max(rail.clientWidth * 0.8, 60), behavior: reduce ? 'auto' : 'smooth' });
+  });
+  rail.addEventListener('scroll', fit, { passive: true });
+  stepRows.push({ box: box, rail: rail, fit: fit });
+
+  show();
+  box.dataset.at = String(at);
+  return box;
+}
+
+// The rows of the steps that stand in the chat, so one listener for the whole page
+// can fit them again when the chat is made wider or narrower. A row that goes out
+// of the chat is taken out of the list with it.
+var stepRows = [];
+
+function fitStepRows() {
+  for (var n = stepRows.length - 1; n >= 0; n--) {
+    var one = stepRows[n];
+    if (!one.box.isConnected) { stepRows.splice(n, 1); continue; }
+    one.fit();
+  }
+}
+
+window.addEventListener('resize', fitStepRows);
+
 // The answers of a chat, in the order they stand: where one begins, where it
 // ends, whether the model is still writing it, what it offered to be taken away,
 // what it put in the window over the contents of files, and what it suggested
@@ -8079,6 +8394,7 @@ function chatAnswers(items) {
         var held = [];
         var shown = [];
         var asks = [];
+        var plan = null;
         var writing = false;
         for (var k = begin; k < n; k++) {
           if (items[k].id === 'live') { writing = true; }
@@ -8094,9 +8410,11 @@ function chatAnswers(items) {
           }
           var wants = items[k].suggestions;
           if (wants && wants.length) { asks = wants; }
+          var list = items[k].steps;
+          if (list && list.steps && list.steps.length) { plan = list; }
         }
         out.push({ from: begin, to: n, writing: writing, gifts: held, shown: shown,
-          asks: asks, last: n === items.length });
+          asks: asks, plan: plan, last: n === items.length });
       }
       begin = n + 1;
     }
@@ -8130,8 +8448,8 @@ function endPlan(items, rows, generating) {
     var held = null;
     if (one && !one.writing && row.from >= one.from && row.to === one.to) {
       var asks = (one.last && !generating) ? one.asks : [];
-      if (one.gifts.length || one.shown.length || asks.length) {
-        held = { gifts: one.gifts, shown: one.shown, asks: asks };
+      if (one.plan || one.gifts.length || one.shown.length || asks.length) {
+        held = { plan: one.plan, gifts: one.gifts, shown: one.shown, asks: asks };
       }
     }
     plan.push(held);
@@ -8152,6 +8470,9 @@ function endPlan(items, rows, generating) {
 function placeEnd(turn, one) {
   if (!turn) { return; }
   var want = one ? [
+    one.plan ? String(one.plan.title || '') + '/' + (one.plan.steps || []).map(function (s) {
+      return String(s.label || '');
+    }).join('|') : '',
     (one.gifts || []).map(function (f) {
       return String(f.path) + ':' + String(f.size);
     }).join('|'),
@@ -8166,9 +8487,17 @@ function placeEnd(turn, one) {
   }
   if (turn.dataset.end === want && (held || !want)) { return; }
   turn.dataset.end = want;
+  // The step the user last looked at is carried across a making again of the row,
+  // for the row may be made again for a reason that has nothing to do with it.
+  var was = held ? held.querySelector('.steps') : null;
+  var keep = was ? was.dataset.at : '';
   if (held) { turn.removeChild(held); }
   if (!one) { return; }
   var box = make('div', 'answer-end');
+  if (one.plan) {
+    var made = stepsBlock(one.plan, keep);
+    if (made) { box.appendChild(made); }
+  }
   if (one.shown && one.shown.length) { box.appendChild(shownRow(one.shown)); }
   if (one.gifts && one.gifts.length) { box.appendChild(giftRow(one.gifts)); }
   if (one.asks && one.asks.length) { box.appendChild(suggestRow(one.asks)); }
