@@ -642,10 +642,13 @@ body.home .stage { display: none; }
 }
 /* The copy of the words that are on their way from the chat box to the chat.
    It stands over the page, holds the words in the shape of the bubble they are
-   to become, and is moved along a curve by the page. It catches nothing the
+   to become, and is moved along a curve by the page. It is as wide as its own
+   words and no wider, for the bubble it is going to is measured that way too:
+   a copy as wide as the chat would shrink when it landed. It catches nothing the
    hand does, for it is a look and not a thing to press. */
 .flycard {
   position: fixed; left: 0; top: 0; z-index: 55; pointer-events: none;
+  width: max-content;
   padding: 11px 14px; background: var(--bubble);
   border: 1px solid var(--bubble-line); border-radius: var(--r-l) var(--r-l) 4px var(--r-l);
   white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
@@ -9624,6 +9627,11 @@ var FLY_HOLD = 150;          // how long the copy takes to squeeze itself small
 var FLY_RUN = 430;           // how long the journey from the box to the chat is
 var FLY_WAIT = 4000;         // how long the copy waits for its message to come
 var FLY_SMALL = 0.4;         // the size of the copy while it waits for its place
+// The longest a copy may live. A timer, and not the counting of the steps, holds
+// to it, so a page that stops counting its steps - a window behind another, a
+// web view that gives the page no more frames - cannot leave a copy over the box
+// with its message held out of sight for nothing.
+var FLY_LONGEST = FLY_WAIT + FLY_RUN + 500;
 
 // Whether the journey is gone through at all: the setting, and a machine that
 // was not asked for few moves.
@@ -9632,12 +9640,23 @@ function sendAnimOn() {
 }
 
 // The copy is put away, and a message that was held back for it is let through.
+// Every road out of the journey goes through here, so a copy never goes away and
+// leaves its message unseen, and a message is never let through with a copy still
+// over the page.
 function dropFly() {
   if (!fly) { return; }
+  if (fly.timer) { clearTimeout(fly.timer); fly.timer = 0; }
   if (fly.card && fly.card.parentNode) { fly.card.parentNode.removeChild(fly.card); }
   if (fly.turn) { fly.turn.classList.remove('landing'); }
   fly = null;
 }
+
+// A window that goes behind another stops counting the steps of the journey, and
+// a copy left over the box holds its message out of sight. The journey is given
+// up when the page is not seen, and the words are read in the chat.
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) { dropFly(); }
+});
 
 // True when another chat stands under the copy. Words written for one chat are
 // not carried into another.
@@ -9646,12 +9665,23 @@ function flyLeftChat() {
 }
 
 // Whether these are the words the copy carries. The copy is only ever stood
-// over the message it was made from.
+// over the message it was made from. The bubble holds the words without the
+// marks they were written with - a heading, an emphasis, a colour, a link all
+// give their words and lose their marks - so the words are compared both as
+// they were written and as the page puts them on.
 function flyWordsMatch(words) {
   if (!fly || !fly.text) { return true; }
   var said = String(words || '');
-  return said === fly.text || said.slice(0, fly.text.length) === fly.text
-    || fly.text.slice(0, said.length) === said;
+  if (!said) { return false; }
+  var bare = plain(fly.text);
+  var held = [fly.text, bare];
+  for (var n = 0; n < held.length; n++) {
+    var one = held[n];
+    if (said === one || one.slice(0, said.length) === said || said.slice(0, one.length) === one) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // The words leave the box: the copy is made, and the place it is going to is
@@ -9662,6 +9692,10 @@ function flyWordsMatch(words) {
 function startFly(text, where) {
   dropFly();
   if (!sendAnimOn() || !text || !el.draft || !el.col) { return; }
+  // A page that is not seen is given no steps, so a copy made here would stand
+  // over the box and hold its message out of sight. The words go straight to the
+  // chat.
+  if (document.hidden) { return; }
   var box = where || el.draft.getBoundingClientRect();
   if (box.width < 40 || box.height < 8) { return; }
   var seen = {};
@@ -9672,12 +9706,23 @@ function startFly(text, where) {
   var card = make('div', 'flycard');
   card.setAttribute('aria-hidden', 'true');
   card.textContent = text;
-  card.style.width = Math.round(Math.max(160, box.width)) + 'px';
+  // The copy is as wide as its own words, under the cap a bubble stands under.
+  // The box it came out of is as wide as the chat, and the bubble it is going to
+  // is only as wide as its words: a copy cut to the width of the box read as a
+  // message that shrank when it came to its place.
+  var seat = el.col.querySelector('.turn');
+  var room = seat ? seat.clientWidth : Math.max(240, (el.col.clientWidth || box.width) - 52);
+  card.style.maxWidth = Math.max(160, Math.min(Math.round(room * 0.82), Math.round(box.width)))
+    + 'px';
   document.body.appendChild(card);
   fly = { card: card, text: text, chat: chatIdOf(cur), seen: seen,
     mid: '', turn: null, x: box.left, y: box.top, w: card.offsetWidth || Math.round(box.width),
     kx: box.left + (card.offsetWidth || Math.round(box.width)), ky: box.top,
-    s: 1, start: 0, s0: 1, born: Date.now() };
+    s: 1, start: 0, s0: 1, born: Date.now(), timer: 0 };
+  // The bound is kept by a timer as well as by the steps, for the steps are the
+  // only thing that would otherwise take a copy away, and a page that is given no
+  // frames takes none.
+  fly.timer = setTimeout(function () { dropFly(); }, FLY_LONGEST);
   putFly(fly.x, fly.y, 1, 1);
   requestAnimationFrame(flyStep);
 }
@@ -9723,15 +9768,26 @@ function claimFlyTurn(turn, m) {
 function findFlyTurn() {
   if (!fly || fly.turn || flyLeftChat()) { return; }
   var turns = el.col.querySelectorAll('.turn.t-you');
+  var newest = null;
   for (var i = turns.length - 1; i >= 0; i--) {
     var mid = turns[i].dataset.mid;
     if (!mid || fly.seen[mid]) { continue; }
+    if (!newest) { newest = turns[i]; }
     var bubble = turns[i].querySelector('.bubble');
     if (!bubble || !flyWordsMatch(bubble.textContent)) { continue; }
     fly.mid = mid;
     fly.turn = turns[i];
     turns[i].classList.add('landing');
     return;
+  }
+  // No turn carries the words of the copy. The newest turn that was not in the
+  // chat when the words went out is the message they became: the page answers an
+  // ask with the very words it was sent, and a mark the page took out of them is
+  // no reason to leave the copy over the box for nothing.
+  if (newest) {
+    fly.mid = newest.dataset.mid;
+    fly.turn = newest;
+    newest.classList.add('landing');
   }
 }
 
@@ -9750,9 +9806,20 @@ function flyPlace() {
   return r.width > 3 ? r : null;
 }
 
-// One step of the journey.
+// One step of the journey. A step that faults gives the journey up rather than
+// stop the counting: a copy that cannot be moved must not stay over the box with
+// its message held out of sight behind it.
 function flyStep() {
   if (!fly) { return; }
+  if (document.hidden) { dropFly(); return; }
+  try {
+    flyGo();
+  } catch (e) {
+    dropFly();
+  }
+}
+
+function flyGo() {
   if (flyLeftChat()) { dropFly(); return; }
   var now = Date.now();
   if (!fly.turn) { findFlyTurn(); }
@@ -9798,6 +9865,7 @@ function flyBack(t) {
 function landFly() {
   var f = fly;
   fly = null;
+  if (f.timer) { clearTimeout(f.timer); }
   if (f.card && f.card.parentNode) { f.card.parentNode.removeChild(f.card); }
   if (!f.turn || !f.turn.parentNode) { return; }
   f.turn.classList.remove('landing');
