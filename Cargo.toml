@@ -70,6 +70,12 @@ ttf-parser = "0.25"
 gif = "0.14"
 # The pictures a block may carry, read out of the words of a script.
 base64 = "0.22"
+# The WebP of the `view_images` tool, decoded here and sent to the model as a PNG.
+# The projector of llama.cpp reads a WebP only through ffmpeg, which stands on some
+# machines and not on others. Both of these are already in the tree through resvg,
+# so neither adds anything to the binary.
+image-webp = "0.2"
+png = "0.18"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
