@@ -11274,6 +11274,49 @@ mod tests {
         );
     }
 
+    // None of the tools that show their parts stands with a blank head: a call
+    // with nothing in it still says what the tool is pointed at, and never the
+    // words of the body, which are the parts of the call.
+    #[test]
+    fn the_head_of_a_call_that_named_nothing_still_says_something() {
+        let names = [
+            search::NAME,
+            download::NAME,
+            display::NAME,
+            askuser::NAME,
+            suggest::NAME,
+            viewimage::NAME,
+            summarise::NAME,
+            planning::INIT_NAME,
+            planning::EDIT_NAME,
+            planning::READ_NAME,
+            planning::ASK_NAME,
+            planning::END_NAME,
+            infographic::GUIDE_NAME,
+            infographic::PLAN_NAME,
+            infographic::SCENE_NAME,
+            infographic::CHECK_NAME,
+            infographic::RENDER_NAME,
+            corporate::NAME,
+            rerun::NAME,
+        ];
+        for one in names.iter() {
+            let call = ToolCall {
+                id: format!("call-{}", one),
+                name: String::from(*one),
+                arguments: String::from("{}"),
+            };
+            let made = watched(std::slice::from_ref(&call));
+            assert!(!made[0].target.trim().is_empty(), "{} stands blank", one);
+            assert!(
+                !made[0].target.contains(':'),
+                "{} names a part of the call instead of the thing it is at: {}",
+                one,
+                made[0].target
+            );
+        }
+    }
+
     // A call that failed is run again with one parameter changed. The model does
     // not write the whole call out again: the tool reads the parameters of the
     // call that failed off the chat, changes the one parameter each change names,
