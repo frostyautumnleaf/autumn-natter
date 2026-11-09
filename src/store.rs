@@ -288,6 +288,10 @@ pub struct ToolSwitches {
     // one step at a time in a block of its own. See `crate::steps`.
     #[serde(default = "switch_on")]
     pub steps: bool,
+    // The model may run a call of another tool again with a changed parameter,
+    // instead of writing the whole call out again. See `crate::rerun`.
+    #[serde(default = "switch_on")]
+    pub rerun: bool,
     // The model may make an infographic video: the script, the layout, and the
     // file of frames. The five tools of the suite stand or fall together.
     // Off at first, for a video costs a long run.
@@ -318,6 +322,7 @@ impl Default for ToolSwitches {
             ask: true,
             suggest: true,
             steps: true,
+            rerun: true,
             infographics: false,
             summarise: true,
         }
@@ -337,6 +342,7 @@ impl ToolSwitches {
             "ask" => self.ask = on,
             "suggest" => self.suggest = on,
             "steps" => self.steps = on,
+            "rerun" => self.rerun = on,
             "infographics" => self.infographics = on,
             "summarise" => self.summarise = on,
             _ => return false,
@@ -356,6 +362,7 @@ impl ToolSwitches {
             ("ask", self.ask),
             ("suggest", self.suggest),
             ("steps", self.steps),
+            ("rerun", self.rerun),
             ("infographics", self.infographics),
             ("summarise", self.summarise),
         ]

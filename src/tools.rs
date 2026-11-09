@@ -1285,6 +1285,163 @@ pub fn partial_text(text: &str, wanted: &str) -> String {
     out
 }
 
+// The whole of a call that is being written, shown part by part. Every part of
+// the object that has come in stands on a line of its own under the name of it,
+// and a part that is still open gives what has come so far. A part that holds a
+// list or another object is given as the JSON of it so far, so the user watches
+// the call grow instead of watching an empty block.
+//
+// This is the back of the live writing of the tool blocks. A tool whose words are
+// worth showing in another shape, such as the command of a terminal run or the
+// text of a new file, says so itself; every other tool is shown with this.
+pub fn live_arguments(raw: &str) -> String {
+    let letters: Vec<char> = raw.trim_start().chars().collect();
+    let mut at = match letters.iter().position(|one| *one == '{') {
+        Some(place) => place + 1,
+        None => return String::new(),
+    };
+    let mut out: Vec<String> = Vec::new();
+    loop {
+        at = rest_of_space(&letters, at);
+        if at >= letters.len() {
+            break;
+        }
+        match letters[at] {
+            '}' => break,
+            ',' => {
+                at += 1;
+                continue;
+            }
+            _ => {}
+        }
+        if letters[at] != '"' {
+            break;
+        }
+        let (name, after) = match read_quoted(&letters, at) {
+            Some(made) => made,
+            None => break,
+        };
+        let colon = rest_of_space(&letters, after);
+        if colon >= letters.len() {
+            out.push(format!("{}:", name));
+            break;
+        }
+        if letters[colon] != ':' {
+            at = after;
+            continue;
+        }
+        let place = rest_of_space(&letters, colon + 1);
+        if place >= letters.len() {
+            out.push(format!("{}:", name));
+            break;
+        }
+        let (value, next) = read_value(&letters, place);
+        out.push(format!("{}: {}", name, value));
+        if next <= place {
+            break;
+        }
+        at = next;
+    }
+    out.join("\n")
+}
+
+// The place the words go on from, past the spaces of the JSON.
+fn rest_of_space(letters: &[char], mut at: usize) -> usize {
+    while at < letters.len() && letters[at].is_whitespace() {
+        at += 1;
+    }
+    at
+}
+
+// The words of a quoted part, and the place after its closing mark. A part the
+// model has not shut yet gives what has come.
+fn read_quoted(letters: &[char], at: usize) -> Option<(String, usize)> {
+    let mut read = at + 1;
+    let mut out = String::new();
+    while read < letters.len() {
+        let ch = letters[read];
+        if ch == '"' {
+            return Some((out, read + 1));
+        }
+        if ch != '\\' {
+            out.push(ch);
+            read += 1;
+            continue;
+        }
+        let Some(next) = letters.get(read + 1) else {
+            return Some((out, read + 1));
+        };
+        match next {
+            'n' => out.push('\n'),
+            't' => out.push('\t'),
+            'r' => out.push('\r'),
+            'b' | 'f' => {}
+            other => out.push(*other),
+        }
+        read += 2;
+    }
+    Some((out, read))
+}
+
+// The value that stands at a place, and the place after it. Words give their own
+// words; a list or an object gives the JSON of it as far as it has come, and the
+// rest gives what is there.
+fn read_value(letters: &[char], at: usize) -> (String, usize) {
+    match letters[at] {
+        '"' => match read_quoted(letters, at) {
+            Some((words, next)) => (words, next),
+            None => (String::new(), at + 1),
+        },
+        open @ ('{' | '[') => {
+            let close = match open {
+                '{' => '}',
+                _ => ']',
+            };
+            let mut depth = 0usize;
+            let mut read = at;
+            let mut inside = false;
+            while read < letters.len() {
+                let ch = letters[read];
+                if inside {
+                    if ch == '\\' {
+                        read += 1;
+                    } else if ch == '"' {
+                        inside = false;
+                    }
+                    read += 1;
+                    continue;
+                }
+                match ch {
+                    '"' => inside = true,
+                    one if one == open => depth += 1,
+                    one if one == close => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return (slice(&letters, at, read + 1), read + 1);
+                        }
+                    }
+                    _ => {}
+                }
+                read += 1;
+            }
+            // The model has not shut it yet. Everything from here is the part.
+            (slice(&letters, at, letters.len()), letters.len())
+        }
+        _ => {
+            let mut read = at;
+            while read < letters.len() && !matches!(letters[read], ',' | '}' | ']') {
+                read += 1;
+            }
+            (slice(&letters, at, read).trim().to_string(), read)
+        }
+    }
+}
+
+// The words of a place in the characters of the call.
+fn slice(letters: &[char], from: usize, to: usize) -> String {
+    letters[from..to.max(from)].iter().collect()
+}
+
 // Return the part between the first brace and the matching one.
 pub fn extract_object(text: &str) -> Option<&str> {
     let start = text.find('{')?;

@@ -361,6 +361,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "display": snap.tool_switches.display,
             "ask": snap.tool_switches.ask,
             "suggest": snap.tool_switches.suggest,
+            // The list of the steps of the work, and the running of a failed
+            // call again. Both stand on until the user takes them out.
+            "steps": snap.tool_switches.steps,
+            "rerun": snap.tool_switches.rerun,
             "infographics": snap.tool_switches.infographics,
             // The line of the handoff summary stands in the drop-down only
             // while `compaction.type` below says that the room is made by a

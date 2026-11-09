@@ -40,6 +40,7 @@ pub mod planning;
 pub mod mcp;
 pub mod proglog;
 pub mod prompts;
+pub mod rerun;
 pub mod remote;
 pub mod search;
 pub mod store;

@@ -3826,6 +3826,8 @@ var TOOL_LINES = [
    'The model may end an answer with up to three buttons, each one a road the talk may go on by. The buttons appear only once the answer has stopped, and only the newest offer stands: the buttons of an older answer go when you speak again. A press sends the words of that road as a message of your own, so the model is never left waiting for one.'],
   ['steps', 'Show steps',
    'The model may end an answer with a step by step list of the work, in a block of its own. The block shows the text of one step at a time, with one button per step under it and buttons for going back and going on. It appears only once the answer has stopped, and it stands above the other blocks an answer ends with. The model gives as many steps as the work needs.'],
+  ['rerun', 'Rerun failed calls',
+   'The model may have a call that failed run again with one parameter changed, instead of writing the whole call out again. The call is taken from this chat, the change is made inside the one parameter the model names, and the tool answers for the run in a block of its own. A call that never ran, because a line of this badge was off or a limit was spent, is not run again.'],
   ['infographics', 'Create infographics',
    'The model may make an infographic video: a script of scenes and blocks, a check of the layout, and the frames written into a file. The work stands in the folder infographics of the chat, and the video is made there too. The last step takes a while, and the line of the state tells how far it has come.'],
   ['summarise', 'Manually summarise',
@@ -4888,6 +4890,16 @@ var TOOL_SHAPES = {
     head: 'Writing the steps: ', done: 'Wrote the steps: ', pluralDone: 'Wrote the steps: ',
     word: 'steps', end: 'result',
     empty: 'no steps', begun: 'the steps being written', steps: true
+  },
+  // A call of another tool, run again with a parameter changed. The head names
+  // the tool whose call is taken up again, or says that the last failed call of
+  // this chat is used. The body holds the changes as the model writes them, and
+  // the answer of the tool that ran stands under the second label.
+  rerun_tool: {
+    mark: 'M12.8 8a4.8 4.8 0 1 1-1.7-3.7M11.5 2.1v2.7H8.8',
+    head: 'Running a call again: ', done: 'Ran a call again: ',
+    word: 'changes', end: 'result',
+    empty: 'the last failed call', begun: 'the call being named'
   },
   // The talk of the chat put into a handoff summary. The head says what the call
   // worked on; the body carries the reason the model gave and the receipt of the
