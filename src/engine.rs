@@ -4666,6 +4666,113 @@ impl Engine {
         state.set_status("The message was removed, with everything after it");
     }
 
+    // Take a message of the user back out of the talk, so that its words can be
+    // written again in the chat box. Everything that came after it goes with it,
+    // for the model answered a talk that no longer reads that way. A message of
+    // the model is refused here: its words are written over where they stand, and
+    // the question behind them is not thrown away behind the user's back.
+    //
+    // The files hung on the message go with it, as the files of every message
+    // after it go. The page knows this, and reads the words and the bytes of the
+    // files back before it asks, so the user loses nothing: what comes out of the
+    // chat comes into the chat box beside the words.
+    pub fn rewrite_message(&self, id: String) {
+        let Ok(mut state) = self.state.lock() else { return };
+        if state.generating {
+            state.set_status("An answer is still being generated");
+            return;
+        }
+        let Some(index) = state
+            .chat()
+            .and_then(|chat| chat.messages.iter().position(|one| one.id == id))
+        else {
+            state.set_status("That message is not in this chat");
+            return;
+        };
+        if state.chat().map(|chat| chat.messages[index].role.as_str()) != Some("You") {
+            state.set_status("Only a message of yours goes back into the chat box");
+            return;
+        }
+        // The shelf is named while the chat still stands whole, for naming it
+        // needs the chat for a moment of its own.
+        let gone: Vec<String> = {
+            let Some(chat) = state.chat() else { return };
+            chat.messages[index..]
+                .iter()
+                .flat_map(|one| one.attachments.iter().map(|a| a.id.clone()))
+                .collect()
+        };
+        let room = state
+            .chat()
+            .map(|chat| state.attach_place_for(chat))
+            .unwrap_or_default();
+        if let Some(chat) = state.chat_mut() {
+            chat.messages.truncate(index);
+            chat.meta.updated = store::now_secs();
+        }
+        if !gone.is_empty() {
+            attach::remove_at(&room, &gone);
+        }
+        // A chat left with nothing of the talk is not taken away here, as it is
+        // when a message is simply removed: the words are on their way back into
+        // the box, and the chat is where they will go. Only the file of it goes,
+        // for a chat with no talk has no file, and the first message that comes
+        // back makes it again.
+        let empty = state
+            .chat()
+            .map(|chat| chat.messages.is_empty())
+            .unwrap_or(true);
+        let (repo, chat_id) = match state.chat() {
+            Some(chat) => (chat.meta.repo_id.clone(), chat.meta.id.clone()),
+            None => return,
+        };
+        if empty {
+            state.store.delete_chat(&repo, &chat_id);
+            state.touch_structure();
+        } else {
+            state.persist();
+        }
+        state.touch();
+        state.set_status("The message went back into the chat box");
+    }
+
+    // Write the words of an answer again, where they stand. The user is putting
+    // right what the model said: nothing else of the talk moves, for the turns
+    // around the answer read as they did. What the model is told from now on is
+    // read out of these messages, so the next answer sees the words as they now
+    // stand. The thought of the answer, and the short of its work, are left where
+    // they were: the user is writing the words, not the work.
+    pub fn edit_answer(&self, id: String, body: String) {
+        let Ok(mut state) = self.state.lock() else { return };
+        if state.generating {
+            state.set_status("An answer is still being generated");
+            return;
+        }
+        let words = body.trim().to_string();
+        let Some(index) = state
+            .chat()
+            .and_then(|chat| chat.messages.iter().position(|one| one.id == id))
+        else {
+            state.set_status("That message is not in this chat");
+            return;
+        };
+        if state.chat().map(|chat| chat.messages[index].role.as_str()) != Some("Assistant") {
+            state.set_status("Only an answer of the model is written over");
+            return;
+        }
+        if words.is_empty() {
+            state.set_status("An answer needs some words");
+            return;
+        }
+        if let Some(chat) = state.chat_mut() {
+            chat.messages[index].body = words;
+            chat.meta.updated = store::now_secs();
+        }
+        state.persist();
+        state.touch();
+        state.set_status("The answer was written again");
+    }
+
     // Write the answer of a message again. A message of the user keeps its
     // place, and the talk is cut back after it; a message of the model goes with
     // the answer that came after it. The ask is then the talk as it stands, which
@@ -14775,6 +14882,200 @@ mod tests {
             state.snap().home,
             "the window is not at the first screen with nothing open"
         );
+    }
+
+    // A message of the user goes back into the chat box, and the talk behind it
+    // goes with it. The chat keeps the place it had in the window: the words are
+    // on their way back to the same chat, and the box belongs to it.
+    #[test]
+    fn a_message_sent_back_cuts_the_talk_at_itself() {
+        let engine = engine_with(four_messages());
+        engine.rewrite_message(String::from("c"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        let left: Vec<&str> = chat.messages.iter().map(|one| one.id.as_str()).collect();
+        assert_eq!(left, vec!["a", "b"], "the talk behind the message stayed");
+        assert_eq!(
+            state.status, "The message went back into the chat box",
+            "the window was not told the message went back"
+        );
+    }
+
+    // Only a message of the user goes back. An answer of the model is written
+    // over where it stands, so the question behind it is not thrown away behind
+    // the user's back, and the talk does not move.
+    #[test]
+    fn only_a_message_of_yours_goes_back_into_the_chat_box() {
+        let engine = engine_with(four_messages());
+        engine.rewrite_message(String::from("b"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages.len(), 4, "an answer was taken out of the talk");
+        assert_eq!(
+            state.status, "Only a message of yours goes back into the chat box",
+            "the window was not told why nothing moved"
+        );
+    }
+
+    // The records of the files hung on the messages that go are taken off the
+    // shelf with them. A file hung on a message that stays is left where it is.
+    #[test]
+    fn a_message_sent_back_takes_the_files_behind_it_off_the_shelf() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        let shelf = {
+            let chat = state.chat().expect("a blank chat stands open");
+            state.attach_place_for(chat)
+        };
+        let files = vec![
+            attach::Incoming {
+                name: String::from("first.txt"),
+                mime: String::from("text/plain"),
+                data: String::new(),
+                text: String::from("the note of the first message"),
+            },
+            attach::Incoming {
+                name: String::from("second.txt"),
+                mime: String::from("text/plain"),
+                data: String::new(),
+                text: String::from("the note of the second message"),
+            },
+        ];
+        let kept = attach::save_at(&shelf, &files);
+        assert_eq!(kept.len(), 2, "both files were not put on the shelf");
+        let mut messages = four_messages();
+        messages[0].attachments = vec![kept[0].clone()];
+        messages[2].attachments = vec![kept[1].clone()];
+        if let Some(chat) = state.chat_mut() {
+            chat.messages = messages;
+        }
+        drop(state);
+
+        engine.rewrite_message(String::from("c"));
+
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert!(
+            attach::read_at(&shelf, &kept[0].id).is_some(),
+            "the file of a message that stayed was taken off the shelf"
+        );
+        assert!(
+            attach::read_at(&shelf, &kept[1].id).is_none(),
+            "the file of a message that went is still on the shelf"
+        );
+        assert_eq!(chat.messages.len(), 2, "the talk behind the message stayed");
+    }
+
+    // A chat left with nothing of the talk is not closed and not taken out of the
+    // window: the words are on their way back into the box of that same chat.
+    // Only the file of it goes, for a chat with no talk has no file. The first
+    // message that comes back makes the file again.
+    #[test]
+    fn a_chat_left_with_nothing_keeps_its_place_and_loses_its_file() {
+        let engine = engine_with(four_messages()[..2].to_vec());
+        let file = {
+            let mut state = engine.state.lock().unwrap();
+            state.persist();
+            let id = state.chat().expect("the chat stands open").meta.id.clone();
+            config::paths().chats.join(format!("{id}.json"))
+        };
+        assert!(file.exists(), "the chat was never written out");
+
+        engine.rewrite_message(String::from("a"));
+
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open in the window");
+        assert!(chat.messages.is_empty(), "a message of the talk stayed");
+        assert!(!file.exists(), "the file of a chat with no talk is still there");
+        assert!(!state.snap().home, "the window left the chat it is writing again");
+    }
+
+    // A message that is not in the talk is refused with the words that say so,
+    // and nothing moves.
+    #[test]
+    fn nothing_goes_back_of_a_message_that_is_not_there() {
+        let engine = engine_with(four_messages());
+        engine.rewrite_message(String::from("zzzz"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages.len(), 4, "a message went out on a name of nothing");
+        assert_eq!(state.status, "That message is not in this chat");
+    }
+
+    // The words the user writes take the place of the words of the answer, and
+    // nothing else moves. The thought of the answer and the short of its work are
+    // left where they were: the user is writing the words, not the work.
+    #[test]
+    fn the_words_of_an_answer_are_written_over_where_they_stand() {
+        let engine = engine_with(four_messages());
+        engine.edit_answer(String::from("d"), String::from("the answer as the user wrote it"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        let left: Vec<&str> = chat.messages.iter().map(|one| one.id.as_str()).collect();
+        assert_eq!(left, vec!["a", "b", "c", "d"], "the talk moved under the answer");
+        assert_eq!(chat.messages[3].body, "the answer as the user wrote it");
+        assert_eq!(chat.messages[2].body, "the second question", "a message of the user was written over");
+        assert!(chat.messages[3].stopped, "the mark of the stopped answer went with the old words");
+        assert_eq!(state.status, "The answer was written again");
+    }
+
+    // The words are trimmed as they go in. A message of the model that ends on
+    // spaces of the stream is not kept with them, and the answer of the talk the
+    // model is next told is the words without them.
+    #[test]
+    fn the_words_of_an_answer_are_trimmed_as_they_go_in() {
+        let engine = engine_with(four_messages());
+        engine.edit_answer(String::from("b"), String::from("  the answer  \n"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages[1].body, "the answer", "the spaces were kept");
+    }
+
+    // Only an answer of the model is written over. The words of a message of the
+    // user go back into the chat box instead, which is another ask.
+    #[test]
+    fn only_an_answer_of_the_model_is_written_over() {
+        let engine = engine_with(four_messages());
+        engine.edit_answer(String::from("a"), String::from("words that do not belong here"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages[0].body, "the first question", "a message of the user was written over");
+        assert_eq!(state.status, "Only an answer of the model is written over");
+    }
+
+    // An answer with no words in it is refused: the talk would go on from a turn
+    // of the model that says nothing, and the user would lose the words they had.
+    #[test]
+    fn an_answer_needs_some_words() {
+        let engine = engine_with(four_messages());
+        engine.edit_answer(String::from("b"), String::from("   \n  "));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages[1].body, "the first answer", "the answer was emptied");
+        assert_eq!(state.status, "An answer needs some words");
+    }
+
+    // While an answer is being generated, neither ask is done. The talk is being
+    // written under the user's hand, and a cut or a write over it would be lost
+    // when the stream ends.
+    #[test]
+    fn nothing_is_moved_while_an_answer_is_generated() {
+        let engine = engine_with(four_messages());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.generating = true;
+        }
+        engine.rewrite_message(String::from("c"));
+        engine.edit_answer(String::from("d"), String::from("words that do not belong here"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        let left: Vec<&str> = chat.messages.iter().map(|one| one.id.as_str()).collect();
+        assert_eq!(left, vec!["a", "b", "c", "d"], "the talk moved while an answer was generated");
+        assert_eq!(chat.messages[3].body, "the second answer", "an answer was written over while one was generated");
+        assert_eq!(state.status, "An answer is still being generated");
     }
 
     // Only an answer the user stopped may be gone on with. An answer that came

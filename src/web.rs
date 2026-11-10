@@ -961,6 +961,20 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.remove_message(text_field(&value, "id"));
             done()
         }
+        // Take a message of the user back out of the talk and into the chat box,
+        // with everything that came after it. The page has read the files hung on
+        // the message before it asks, so those files are left where they stand and
+        // go out again with the words.
+        "/api/rewrite_message" | "rewrite_message" => {
+            engine.rewrite_message(text_field(&value, "id"));
+            done()
+        }
+        // Write the words of an answer again, where they stand. The talk around it
+        // does not move, for the user is putting right what the model said.
+        "/api/edit_answer" | "edit_answer" => {
+            engine.edit_answer(text_field(&value, "id"), text_field(&value, "body"));
+            done()
+        }
         // Write the answer of a message again. The talk is cut back to the message
         // the user is going on from, and the model is asked again from there.
         "/api/retry_message" | "retry_message" => {

@@ -1617,6 +1617,26 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .answer-end {
   display: flex; flex-direction: column; gap: 12px; margin-top: 20px;
 }
+/* The words of an answer being written again stand in a box where the answer
+   stood. The box keeps the measure of the chat's words, so the answer does not
+   change shape under the hand putting it right, and the two marks under it say
+   whether the new words stand or the answer goes back as it was. */
+.answer-edit {
+  display: block; box-sizing: border-box; width: 100%; min-height: 76px;
+  max-height: 40vh; padding: 9px 11px; resize: none; overflow-y: auto;
+  scrollbar-width: thin; margin: 0;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px;
+  color: var(--text); font: inherit; font-size: 14px; line-height: 1.55;
+}
+.answer-edit:focus { outline: none; border-color: var(--accent-line); box-shadow: var(--ring); }
+.answer-edit-acts { display: flex; gap: 8px; margin-top: 8px; }
+.ae-mark {
+  padding: 5px 12px; border: 1px solid var(--line-strong); border-radius: 999px;
+  background: var(--surface); color: var(--text-2); font: inherit; font-size: 12.5px;
+  cursor: pointer;
+}
+.ae-mark:hover { border-color: var(--accent); color: var(--accent); }
+.ae-save { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text); }
 /* The roads the model offered for what comes next. A button is one road: the
    words it shows are short, and the words it sends may be longer. They stand in
    the middle of the chat, under the answer that offered them, and only once the
@@ -7004,8 +7024,14 @@ function fill(turn, m) {
         words.appendChild(sentParts(m));
       }
     } else {
+      // The words of an answer stand in a block of their own, marked with the
+      // number of the message, so that the mark under the answer can turn them
+      // into a box of words where they lie.
+      var written = make('div', 'answer-words');
+      if (m.id) { written.dataset.mid = m.id; }
       var made = blocks(m.body);
-      for (var n = 0; n < made.length; n++) { words.appendChild(blockNode(made[n])); }
+      for (var n = 0; n < made.length; n++) { written.appendChild(blockNode(made[n])); }
+      words.appendChild(written);
     }
     turn.appendChild(words);
   }
@@ -7042,8 +7068,8 @@ function actsOf(m) {
   if (m.role === 'You' || m.role === 'Assistant') {
     acts.appendChild(actMark(ACT_EDIT,
       m.role === 'You'
-        ? 'Write this message again. The words go into the chat box, and this message and everything after it go out of the chat.'
-        : 'Take these words back into the chat box. This answer and everything after it go out of the chat.',
+        ? 'Write this message again. The words and the files go into the chat box, and this message and everything after it go out of the chat.'
+        : 'Write these words again where they stand. The rest of the chat does not move.',
       function () { editMessage(m); }));
     acts.appendChild(actMark(ACT_RETRY,
       'Write the answer again, from this message. Everything after it goes out of the chat.',
@@ -7084,14 +7110,115 @@ var ACT_RETRY = 'M13.2 8a5.2 5.2 0 1 1-1.6-3.8M13.4 2.2v2.9h-2.9';
 var ACT_REMOVE = 'M3.2 4.7h9.6M6.4 4.7V3.3h3.2v1.4M4.7 4.7l.7 8.1h5.2l.7-8.1';
 var ACT_CONTINUE = 'M3.4 8h7.4M7.6 4.6 11 8l-3.4 3.4';
 
-// Take the words of a message back into the chat box. The message goes out of the
-// chat with everything after it, so what the user sends again is the talk as it
-// stood before that message.
+// Take the words of a message back into the chat box. A message of the user goes
+// out of the chat with everything that came after it, for the model answered a
+// talk that no longer reads that way. Its files come back with its words: they
+// are read out of the chat first, for the chat gives them up with the message.
+// An answer of the model is not taken back at all; it is written again where it
+// stands, for the talk around it does not move.
 function editMessage(m) {
-  post('/api/delete_message', { id: m.id });
+  if (cur && cur.generating) { return; }
+  if (m.role === 'Assistant') { editAnswer(m); return; }
+  var hung = m.attachments || [];
+  if (!hung.length) { takeBack(m, []); return; }
+  var wants = [];
+  for (var n = 0; n < hung.length && n < MOST_FILES; n++) { wants.push(readBack(hung[n].id)); }
+  Promise.all(wants).then(function (back) { takeBack(m, back); });
+}
+
+// The record of one file that hung on a message, or nothing at all when the
+// record is not there. A file that cannot be read is left behind, for the words
+// of the message are worth having on their own.
+function readBack(id) {
+  return attachmentWords(id).then(function (one) {
+    return one && one.name ? one : null;
+  }, function () { return null; });
+}
+
+// The message out of the chat and into the box: its words, and the files hung on
+// them again, so what the user sends a second time is what they sent before.
+function takeBack(m, records) {
+  post('/api/rewrite_message', { id: m.id });
   el.draft.value = m.body;
+  for (var n = 0; n < records.length && heldFiles.length < MOST_FILES; n++) {
+    if (records[n]) { heldFiles.push(heldFromRecord(records[n])); }
+  }
+  drawParts();
   grow();
   el.draft.focus();
+}
+
+// A file that comes back out of the chat, in the shape the box holds its files
+// in. The bytes of a picture and the words of a file of words stand in the
+// record already, so nothing of the machine is read again.
+function heldFromRecord(one) {
+  var kind = fileKind(one.name, one.mime);
+  return { name: freeName(one.name), mime: one.mime || '', kind: kind,
+    data: one.data || '', text: one.text || '',
+    url: kind === 'image' ? (one.data || '') : '' };
+}
+
+// Write the words of an answer again where they stand. The block of the answer
+// is turned into a plain box of words, and two marks under it: the one writes
+// the words into the chat, the other leaves the answer as it stood. Nothing else
+// of the talk moves, for the user is putting right what the model said, and not
+// asking for a new saying of it.
+var answerEdit = null;
+
+function editAnswer(m) {
+  if (answerEdit) { answerEdit(); }
+  var host = el.col.querySelector('.answer-words[data-mid="' + m.id + '"]');
+  if (!host) { return; }
+  var was = host.innerHTML;
+  var field = make('textarea', 'answer-edit');
+  field.value = m.body;
+  field.setAttribute('aria-label', 'The words of this answer');
+  host.innerHTML = '';
+  host.appendChild(field);
+  var acts = make('div', 'answer-edit-acts');
+  var save = make('button', 'ae-mark ae-save');
+  save.type = 'button';
+  save.textContent = 'Write it';
+  var off = make('button', 'ae-mark');
+  off.type = 'button';
+  off.textContent = 'Leave it';
+  acts.appendChild(save);
+  acts.appendChild(off);
+  host.appendChild(acts);
+
+  function fit() {
+    field.style.height = 'auto';
+    field.style.height = Math.min(field.scrollHeight, 400) + 'px';
+  }
+  function shut() {
+    if (answerEdit === shut) { answerEdit = null; }
+    host.innerHTML = was;
+  }
+  function write() {
+    var words = field.value;
+    if (!words.trim()) { return; }
+    answerEdit = null;
+    // The new words are put back through the renderer at once, and not read out
+    // of the chat again: the row is made anew only when the mark of the row
+    // moves, and an answer written over with as many words as it had leaves the
+    // mark where it stood.
+    m.body = words;
+    host.innerHTML = '';
+    var cut = blocks(words);
+    for (var n = 0; n < cut.length; n++) { host.appendChild(blockNode(cut[n])); }
+    post('/api/edit_answer', { id: m.id, body: words });
+  }
+  answerEdit = shut;
+  fit();
+  field.addEventListener('input', fit);
+  field.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') { ev.preventDefault(); shut(); }
+    if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); write(); }
+  });
+  save.addEventListener('click', write);
+  off.addEventListener('click', shut);
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
 }
 
 function retryMessage(m) {
@@ -7498,7 +7625,7 @@ function fillGroup(turn, items, from, to) {
   for (var k = from; k < to; k++) {
     var tail = items[k];
     if (tail.role === 'Tool' || !String(tail.body || '').trim()) { continue; }
-    var said = make('div', 'plain');
+    var said = make('div', 'plain answer-words');
     if (tail.id) { said.dataset.mid = tail.id; }
     var cut = blocks(tail.body);
     for (var j = 0; j < cut.length; j++) { said.appendChild(blockNode(cut[j])); }
