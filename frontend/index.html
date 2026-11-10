@@ -1603,20 +1603,73 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 /* The button of the whole offer stands under the files it takes, in the middle
    of the chat as they are. */
 .gifts .all { align-self: center; }
-/* The blocks an answer ends with: the button that opens the window over the
-   files it showed, the files it offered, and the roads it suggested for what
-   comes next. They stand one under the other, in that order, so no two of them
-   are ever given the same place. The way back to what the user asked to see
+/* The blocks an answer ends with: the steps of its work, the button that opens
+   the window over the files it showed, the files it offered, and the roads it
+   suggested for what comes next. They stand in the one block under the answer,
+   in the order the chat reads them. The way back to what the user asked to see
    stands first, for it belongs to the words above it; the work the user may
    take or go on by stands after them.
 
-   The room above them is the room between a message and the line between two
-   messages, twenty pixels. These blocks are the next part of the chat and not a
-   tail on the answer, and with less room they read as words the answer had not
-   finished. The blocks are twelve apart within the block of their own. */
+   The block is one card: the ground of the surface, a hairline, and the corners
+   the plates of the chat wear. Each kind stands in a part of the card, cut from
+   the next by a hairline, so the kinds read as one thing the answer left and
+   not as four blocks that came in last. The card takes the surface the tool
+   panels take, which stands a step above the ground of the chat: the eye sees a
+   thing set down in the talk, and not a hole cut into it.
+
+   The room above it is the room between a message and the line between two
+   messages, twenty pixels. It is the next part of the chat and not a tail on
+   the answer, and with less room it reads as words the answer had not
+   finished. */
 .answer-end {
-  display: flex; flex-direction: column; gap: 12px; margin-top: 20px;
+  margin-top: 20px; border: 1px solid var(--line); border-radius: var(--r-l);
+  background: var(--surface); box-shadow: var(--shadow-1); overflow: hidden;
+  animation: rise 240ms ease-out;
 }
+/* The head of the block. It names what stands under it, and it takes the deeper
+   surface, so the head and the parts are told apart without a second line. */
+.ae-head {
+  display: flex; align-items: center; gap: 7px; padding: 9px 13px;
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--dim);
+}
+.ae-head .svg { width: 13px; height: 13px; stroke: var(--dim); }
+/* One part of the block: the room of the card inside it, and the hairline that
+   cuts it from the part above. */
+.answer-end > .shown-again, .answer-end > .gifts, .answer-end > .suggests {
+  padding: 12px 13px;
+}
+.answer-end > * + * { border-top: 1px solid var(--line); }
+/* Inside the card no kind wears a ground or a shadow of its own, for the card is
+   the ground. The steps lose the box they had and keep their own head; the hair
+   line of their own parts takes the colour of the card. A file of the offer
+   spreads over the width of the card, which is what a row of a list does. The
+   button of the whole offer and the button of a show stand at the left hand edge
+   under the head of the card, and not in the middle, for the card is read from
+   that edge. */
+/* The button of a show and the button of the whole offer stand at the left hand
+   edge under the head of the card, and not in the middle, for the card is read
+   from that edge. In a chat as narrow as the window can be made a button is cut
+   by the room it has, as a road is, and never runs over the edge of the card. */
+.answer-end .steps { border: 0; border-radius: 0; background: none; animation: none; }
+.answer-end .steps .stitle, .answer-end .steps .srow { border-color: var(--line); }
+.answer-end .steps .sbtn, .answer-end .steps .sarrow { border-color: var(--line); }
+/* The parts of the steps take the room of the card, so their left edges line up
+   with the head of the card and with the rows of the other parts. */
+.answer-end .steps .stext { padding-left: 13px; padding-right: 13px; }
+.answer-end .steps .srow { padding: 9px 13px; }
+.answer-end .steps .sprev { left: 13px; }
+.answer-end .steps .snext { right: 13px; }
+.answer-end .gifts { align-items: stretch; gap: 7px; animation: none; }
+.answer-end .gift { max-width: none; box-shadow: none; }
+.answer-end .gifts .all { align-self: flex-start; max-width: 100%; min-width: 0; }
+.answer-end .shown-again { justify-content: flex-start; flex-wrap: wrap; animation: none; }
+.answer-end .shown-again button { max-width: 100%; min-width: 0; }
+.answer-end .shown-again button span, .answer-end .gifts .all span {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.answer-end .suggests { animation: none; }
 /* The words of an answer being written again stand in a box where the answer
    stood. The box keeps the measure of the chat's words, so the answer does not
    change shape under the hand putting it right, and the two marks under it say
@@ -8837,6 +8890,11 @@ function endPlan(items, rows, generating) {
   return plan;
 }
 
+// The mark of the blocks an answer ends with: a tray, for the answer puts its
+// work down in it and the user takes it out of there.
+var END_MARK = 'M2.2 9.2h3.3l1.1 2h2.8l1.1-2h3.3'
+  + 'M2.2 9.2 4.4 3.4h7.2l2.2 5.8v3.4a.8.8 0 0 1-.8.8H3a.8.8 0 0 1-.8-.8z';
+
 // The blocks an answer ends with are put under the row that carries them, or
 // taken away, or left alone. A row that was made again has lost them with the
 // rest of its words, so what stands in the row is looked at and not only what
@@ -8881,6 +8939,16 @@ function placeEnd(turn, one) {
   if (one.shown && one.shown.length) { box.appendChild(shownRow(one.shown)); }
   if (one.gifts && one.gifts.length) { box.appendChild(giftRow(one.gifts)); }
   if (one.asks && one.asks.length) { box.appendChild(suggestRow(one.asks)); }
+  if (!box.children.length) { return; }
+  // The head names the card once, over the parts, so the parts read as one thing
+  // the answer left behind and not as four blocks that came in last. It is made
+  // after them, for a card with nothing in it has no head either.
+  var head = make('div', 'ae-head');
+  head.appendChild(mark(END_MARK));
+  var said = make('span');
+  said.textContent = 'From this answer';
+  head.appendChild(said);
+  box.insertBefore(head, box.firstChild);
   turn.appendChild(box);
 }
 

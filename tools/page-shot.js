@@ -535,6 +535,34 @@ function scene(name, dark, theme) {
           + 'you would rather have.')
       ]);
     }
+    // AN_STEPS=1 ends the talk with a run of the steps tool, so the block of the
+    // steps of the work stands in the card with the other kinds. Four kinds in
+    // one place is how the card is proved.
+    if (process.env.AN_STEPS === '1') {
+      start.messages = start.messages.concat([
+        said(26, 'Tool', 'the plan for the parser', {
+          tool_name: 'show_steps',
+          tool: 'The steps of the work stand under your answer: Read the fault, '
+            + 'Write the parser, Run the tests, Tell the user',
+          steps: {
+            title: 'The plan for the parser',
+            steps: [
+              { label: 'Read the fault', content: 'Read the fault of the run and '
+                  + 'say which line of the parser gives it.' },
+              { label: 'Write the parser', content: 'Write the parser of the plan '
+                  + 'in `markdown.rs`, one function for each kind of line.' },
+              { label: 'Run the tests', content: 'Run the tests of the parser and '
+                  + 'keep the ones that fail in the answer.' },
+              { label: 'Tell the user', content: 'Say what changed, what the tests '
+                  + 'cost, and what is still open.' }
+            ]
+          }
+        }),
+        said(27, 'Assistant',
+          'The steps of the work stand under this answer. Press one of them and '
+          + 'the block shows that step.')
+      ]);
+    }
     // The chapters the model marked, tied to the message each begins after.
     start.chapters = name === 'rich'
       ? [{ id: 'ch1', name: 'The plan for the parser', after: 1 },

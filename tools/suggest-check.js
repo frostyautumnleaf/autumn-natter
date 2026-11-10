@@ -18,7 +18,9 @@
 //   * the buttons are put by as soon as one is taken;
 //   * nothing is offered while the model is still writing, and the offer of an
 //     answer comes back when the writing is over;
-//   * the button of a show is named 'Show files' and stands above the other
+//   * one answer that showed a file, offered a file and offered roads: the three
+//     kinds stand in the one card, in that order, under the head of the card;
+//   * the button of the show is named 'Show files' and stands above the other
 //     buttons of the end, so no two of them are ever given the same place;
 //   * the roads spread over the width of the chat and stand in one line while
 //     their words fit in it;
@@ -237,9 +239,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     drawThread(cur);
     var end = document.querySelector('.answer-end');
     if (!end) { return { missing: 'the answer ends with nothing at all' }; }
+    // The card carries one head over the parts, and the parts are the kinds.
     var kinds = [];
     var boxes = [];
+    var headWords = '';
     for (var n = 0; n < end.children.length; n++) {
+      if (end.children[n].classList.contains('ae-head')) {
+        headWords = end.children[n].textContent.trim();
+        continue;
+      }
       kinds.push(end.children[n].className);
       var b = end.children[n].getBoundingClientRect();
       boxes.push({ top: Math.round(b.top), bottom: Math.round(b.bottom),
@@ -257,6 +265,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     return {
       kinds: kinds,
       words: words ? words.textContent.trim() : '',
+      headFirst: end.firstElementChild
+        && end.firstElementChild.classList.contains('ae-head'),
+      headWords: headWords,
       shownFirst: kinds.length ? kinds[0] === 'shown-again' : false,
       overlapped: overlapped,
       boxes: boxes
@@ -278,6 +289,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (three.kinds && three.kinds.join('|') !== 'shown-again|gifts|suggests') {
     note('the answer ends with ' + JSON.stringify(three.kinds));
   }
+  if (three.headFirst === false) { note('the card of the end has no head over its parts'); }
+  if (three.headWords !== 'From this answer') {
+    note('the head of the card says "' + three.headWords + '"');
+  }
   if (three.words !== 'Show files') { note('the button of a show says "' + three.words + '"'); }
   if (three.overlapped && three.overlapped.length) {
     note('two blocks of the end stand over one another: ' + three.overlapped.join(', '));
@@ -294,7 +309,15 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     drawThread(cur);
     var row = document.querySelector('.suggests');
     var buttons = row.querySelectorAll('.suggest');
-    var rowBox = row.getBoundingClientRect();
+    // The roads fill the room of the card, which is the row without its own
+    // padding. The padding is taken away here, for the check is about the roads
+    // and not about the room the card gives them.
+    var outer = row.getBoundingClientRect();
+    var pad = getComputedStyle(row);
+    var rowBox = { left: outer.left + parseFloat(pad.paddingLeft || 0),
+      right: outer.right - parseFloat(pad.paddingRight || 0),
+      width: outer.width - parseFloat(pad.paddingLeft || 0)
+        - parseFloat(pad.paddingRight || 0) };
     var tops = [];
     var sum = 0;
     var out = [];
@@ -341,7 +364,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     drawThread(cur);
     var row = document.querySelector('.suggests');
     var buttons = row.querySelectorAll('.suggest');
-    var rowBox = row.getBoundingClientRect();
+    var outer = row.getBoundingClientRect();
+    var pad = getComputedStyle(row);
+    var rowBox = { left: outer.left + parseFloat(pad.paddingLeft || 0),
+      right: outer.right - parseFloat(pad.paddingRight || 0),
+      width: outer.width - parseFloat(pad.paddingLeft || 0)
+        - parseFloat(pad.paddingRight || 0) };
     var lines = {};
     var outside = [];
     var cut = [];
@@ -395,7 +423,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     readChatting(cur);
     drawThread(cur);
     var row = document.querySelector('.suggests');
-    var rowBox = row.getBoundingClientRect();
+    var outer = row.getBoundingClientRect();
+    var pad = getComputedStyle(row);
+    var rowBox = { left: outer.left + parseFloat(pad.paddingLeft || 0),
+      right: outer.right - parseFloat(pad.paddingRight || 0),
+      width: outer.width - parseFloat(pad.paddingLeft || 0)
+        - parseFloat(pad.paddingRight || 0) };
     var buttons = row.querySelectorAll('.suggest');
     var outside = [];
     for (var n = 0; n < buttons.length; n++) {
