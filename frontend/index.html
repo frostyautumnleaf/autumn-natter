@@ -884,9 +884,11 @@ pre.code .t-p { color: var(--t-pun); }
    block stands for an answer: its head says what the model is at, and the short
    of the work stands under it, in blocks of its own. */
 body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: none !important; }
-
-   block stands for an answer: its head says what the model is at, and the short
-   of the work stands under it, in blocks of its own. */
+/* A row that has nothing to show while the corporate display stands: a run of a
+   tool whose block is hidden, with no answer after it. It stands away, for a
+   chat is not read through gaps that hold nothing. A row that carries the blocks
+   an answer ends with keeps its place, for the files of an offer stand there. */
+body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
 .work { margin: 14px 0; border: 1px solid var(--line); border-radius: 9px; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
   cursor: pointer; color: var(--ink-leaf); font-weight: 600; }
@@ -911,6 +913,18 @@ body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: n
 .wbbody .wblock > .wbhead { padding: 6px 10px; }
 .wbbody .wblock > .wbbody { padding: 0 10px 6px 26px; }
 .wline { padding: 3px 0; }
+/* The words of a call inside the short: the command that ran, the file it worked
+   on, and what came back. The block of the run itself is hidden while the mode
+   stands, so these are the only words of a command a user can read. The words
+   that came back keep a window of their own, for a command may write a page and
+   the short is read in a glance. */
+.wcmd, .wout {
+  font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+  background: var(--code-bg); border: 1px solid var(--code-line); border-radius: 7px;
+  padding: 6px 8px; margin: 5px 0 0; color: var(--ink); }
+.wout { max-height: 190px; overflow: auto; color: var(--ink-leaf); }
+.wfile { color: var(--ink-leaf); font-size: 11.5px; padding: 4px 0 0; word-break: break-all; }
 .wplus, .wminus { font-variant-numeric: tabular-nums; margin-left: 7px; }
 .wplus { color: var(--hunk-add); }
 .wminus { color: var(--hunk-cut); }
@@ -6379,6 +6393,11 @@ function feedInk(m) {
   ink.musing = String(m.reasoning || '');
   ink.ms = ink.base + (Number(m.reasoning_ms) || 0);
   ink.done = !!m.reasoning_done;
+  // The one block of the corporate display says what the model is at, and that
+  // moves while the answer comes in: a heading the model wrote, a call that
+  // began, a call that came back. The row is not made again for these, for the
+  // words of the answer are the writer's own, so the block is put again here.
+  drawWork(ink.turn, m);
   if (ink.panel && ink.musing) { ink.panel.classList.remove('hidden'); }
   // Words of the answer have come, so the model has moved on from the thought
   // above, and every call it asks for from here on stands under the words rather
@@ -6430,13 +6449,6 @@ function stopInk() {
 // thought before it going on, so it stands in the same panel. Without a group
 // the answer brings a thinking panel of its own.
 function fillLive(turn, m, group) {
-  if (chatting.corporate) {
-    // The one block of the answer that is coming in. Its head is what the model
-    // is at this moment, and it is put again with every piece that comes.
-    var short = corporateBlock(m.work_head || '', m.work || []);
-    var old = turn.querySelector(':scope > .work');
-    if (old) { old.parentNode.replaceChild(short, old); } else { turn.insertBefore(short, turn.firstChild); }
-  }
   stopInk();
   var panel, body, head, label;
   if (group) {
@@ -6487,6 +6499,36 @@ function fillLive(turn, m, group) {
   ink.tools = [];
   ink.toolKey = '';
   feedWrite(m.tools);
+  // The one block of the answer that is coming in stands at the head of the turn.
+  // It is put after the turn is built, for a turn of its own is emptied first,
+  // and a block put in before that emptying would go out with the rest.
+  drawWork(turn, m);
+}
+
+// The one block of an answer, put at the head of the turn that carries it. The
+// block of an answer that is coming in is put again as the work grows, so its
+// head says what the model is at this moment. The fold the user gave the block is
+// kept over the putting again, for the block is made anew under a hand that may
+// be reading it.
+//
+// A message that carries no short of the work leaves the block that stands
+// alone. The answer that is coming in is often without one at the first look, at
+// the end of a row whose earlier messages already made a block, and taking that
+// block away for the moment before the first heading comes would empty the row
+// under the reader.
+function drawWork(turn, m) {
+  if (!turn || !chatting.corporate) { return; }
+  var blocks = m.work || [];
+  var head = m.work_head || '';
+  var old = turn.querySelector(':scope > .work');
+  if (!blocks.length && !head) { return; }
+  var made = corporateBlock(head || 'Done', blocks);
+  if (old) {
+    if (old.classList.contains('shut')) { made.classList.add('shut'); }
+    turn.replaceChild(made, old);
+  } else {
+    turn.insertBefore(made, turn.firstChild);
+  }
 }
 
 // The words of one message, put into a turn. The turn is made once, and the
@@ -6522,27 +6564,41 @@ function workBlock(one, deep) {
   block.appendChild(head);
   var lines = one.lines || [];
   var under = one.sub || [];
-  if (lines.length) {
-    var body = make('div', 'wbbody');
-    for (var n = 0; n < lines.length; n++) {
-      var line = make('div', 'wline');
-      line.textContent = lines[n];
-      body.appendChild(line);
-    }
-    // The calls made under this heading stand inside it, each a block of its
-    // own, so a heading of the work and the work of that heading are read
-    // together.
-    for (var k = 0; k < under.length; k++) {
-      body.appendChild(workBlock(under[k], true));
-    }
-    block.appendChild(body);
-  } else if (under.length) {
-    var box = make('div', 'wbbody');
-    for (var j = 0; j < under.length; j++) {
-      box.appendChild(workBlock(under[j], true));
-    }
-    block.appendChild(box);
-  } else {
+  // The body stands when there is anything to stand in it: the lines the model
+  // wrote, the words of the call itself, and the calls made under a heading.
+  var body = null;
+  function put(node) {
+    if (!body) { body = make('div', 'wbbody'); block.appendChild(body); }
+    body.appendChild(node);
+  }
+  for (var n = 0; n < lines.length; n++) {
+    var line = make('div', 'wline');
+    line.textContent = lines[n];
+    put(line);
+  }
+  // The words of the call. The block of the run is hidden while the corporate
+  // display stands, so the command, the file and what came back stand here, or
+  // the user would read none of them.
+  if (one.command) {
+    var cmd = make('pre', 'wcmd');
+    cmd.textContent = one.command;
+    put(cmd);
+  }
+  if (one.file) {
+    var file = make('div', 'wfile');
+    file.textContent = one.file;
+    put(file);
+  }
+  if (one.output) {
+    var out = make('pre', 'wout');
+    out.textContent = one.output;
+    put(out);
+  }
+  // The calls made under this heading stand inside it, each a block of its
+  // own, so a heading of the work and the work of that heading are read
+  // together.
+  for (var k = 0; k < under.length; k++) { put(workBlock(under[k], true)); }
+  if (!body) {
     block.className = 'wblock';
     head.style.cursor = 'default';
   }
@@ -6578,10 +6634,23 @@ function corporateBlock(head, blocks) {
 // is drawn for an answer that has no short at all, which is an answer written
 // before the mode stood.
 function corporateOf(m) {
+  if (!m) { return null; }
   var blocks = m.work || [];
   var head = m.work_head || '';
   if (!blocks.length && !head) { return null; }
   return corporateBlock(head || 'Done', blocks);
+}
+
+// The short of the work of a row of the thread: the last message of the row that
+// carries one. The engine keeps the whole of the work of an answer with the last
+// message of it, so one message of a row carries the short and the others carry
+// none. A row that came to no answer gives nothing back.
+function groupAnswer(items, from, to) {
+  for (var n = to - 1; n >= from; n--) {
+    if (items[n].role !== 'Assistant') { continue; }
+    if ((items[n].work || []).length || items[n].work_head) { return items[n]; }
+  }
+  return null;
 }
 
 // The settings that the corporate display has nothing to say about: the panels
@@ -6802,11 +6871,22 @@ function corporateGreyed(on) {
 function fill(turn, m) {
   turn.className = 'turn ' + roleClass(m) + (m.failed ? ' bad' : '');
   turn.innerHTML = '';
-  if (chatting.corporate && m.role === 'Assistant') {
+  if (chatting.corporate) {
     // The corporate display: one block for the answer, and the words of the
     // answer under it. The thoughts and the calls are hidden whole.
-    var short = corporateOf(m);
-    if (short) { turn.appendChild(short); }
+    drawWork(turn, m);
+    // A run of a tool, or a turn that gave only thinking, leaves a row with
+    // nothing seen in it while the mode stands: the block of the run and the
+    // panel of the thought are both hidden. Such a row stands away, unless the
+    // blocks an answer ends with hang on it, for the files of an offer stand
+    // there and the user must still reach them.
+    var blank = m.role === 'Tool'
+      || (m.role === 'Assistant' && !String(m.body || '').trim());
+    if (blank && !turn.querySelector('.work') && !(m.downloads || []).length
+        && !(m.displayed || []).length && !(m.suggestions || []).length
+        && !(m.steps && m.steps.steps && m.steps.steps.length)) {
+      turn.classList.add('t-hush');
+    }
   }
   if (m.role === 'Note') {
     // A note from the program stands in the middle, between two hairlines,
@@ -7044,7 +7124,31 @@ function roleStamp(m) {
     m.steps && m.steps.steps ? 'steps' + m.steps.steps.length : '',
     // The line under a message carries the mark of going on with it, so the row
     // is made again when the state says an answer was stopped.
-    m.stopped ? 'stopped' : ''].join('#');
+    m.stopped ? 'stopped' : '',
+    // The one block of the corporate display stands with the answer, so the row
+    // is made again when the short of the work comes in or grows.
+    workStamp(m)].join('#');
+}
+
+// What the short of the work is made of: the head of the block, the heads of the
+// blocks under it, the lines under those, and the two numbers of a file. A row is
+// made again when this changes, for the block of the work is part of the row.
+function workStamp(m) {
+  var list = m.work || [];
+  if (!list.length && !m.work_head) { return ''; }
+  var parts = [m.work_head || ''];
+  for (var n = 0; n < list.length; n++) { parts.push(workMark(list[n])); }
+  return 'work:' + parts.join('/');
+}
+
+function workMark(one) {
+  var parts = [one.head || '', String((one.lines || []).length),
+    String((one.command || '').length), String((one.file || '').length),
+    String((one.output || '').length), one.failed ? 'x' : '',
+    (one.adds || 0) + '/' + (one.cuts || 0)];
+  var under = one.sub || [];
+  for (var n = 0; n < under.length; n++) { parts.push(workMark(under[n])); }
+  return parts.join('~');
 }
 
 // ------------------------------------------------ a train of thought
@@ -7363,6 +7467,15 @@ function syncTurn(turn, items, row) {
 function fillGroup(turn, items, from, to) {
   turn.className = 'turn t-tool';
   turn.innerHTML = '';
+  // The corporate display: the one block of the answer stands at the head of the
+  // row, as it does for an answer that stands on its own. The panel of the
+  // thoughts and the blocks of the calls are hidden whole by the mode, so this
+  // block is the only account of the work the user is given.
+  var short = chatting.corporate ? corporateOf(groupAnswer(items, from, to)) : null;
+  if (short) { turn.appendChild(short); }
+  // While the corporate display stands the row reads as the answer it led to, for
+  // nothing else in it is seen.
+  if (chatting.corporate && items[to - 1].role === 'Assistant') { turn.className = 'turn t-ai'; }
   var made = thinkPanel();
   var ms = 0;
   var parts = groupParts(items, from, to);
@@ -7395,6 +7508,11 @@ function fillGroup(turn, items, from, to) {
   // the answer the thought led to, or the last run of a tool.
   var line = actLine(items[to - 1]);
   if (line) { turn.appendChild(line); }
+  // A row of thoughts and runs that came to no answer shows nothing at all while
+  // the corporate display stands, so it stands away.
+  if (chatting.corporate && !short && !turn.querySelector('.plain > .thought, .plain > .tool')) {
+    turn.classList.add('t-hush');
+  }
   return { panel: made.panel, words: made.words, head: made.head,
     label: made.label, ms: ms };
 }

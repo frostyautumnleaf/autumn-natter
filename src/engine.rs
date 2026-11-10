@@ -1935,7 +1935,28 @@ impl State {
         // belongs to, so the one block can be drawn again when the chat is read
         // after, and not only while the answer comes in.
         let work = if role == "Assistant" && self.corporate_on() {
-            std::mem::take(&mut self.live_work)
+            let mut held = std::mem::take(&mut self.live_work);
+            // An answer that worked with a tool stands in more than one message:
+            // the words of a turn, the runs of the calls, and the words after
+            // them. The short belongs to the whole of the answer, so what an
+            // earlier message of it holds comes over to this one. The one block
+            // therefore stands with the last message of the answer, and not with
+            // the first message the work was written beside.
+            if let Some(chat) = self.chat_mut() {
+                for one in chat.messages.iter_mut().rev() {
+                    if one.role == "You" {
+                        break;
+                    }
+                    if one.role != "Assistant" || one.work.is_empty() {
+                        continue;
+                    }
+                    let mut older = std::mem::take(&mut one.work);
+                    older.extend(std::mem::take(&mut held));
+                    held = older;
+                    one.work_head.clear();
+                }
+            }
+            held
         } else {
             Vec::new()
         };
@@ -2281,8 +2302,9 @@ impl State {
     }
 
     // A call came back: the head of its block is said in the words of a thing
-    // that happened, and what a call that changed a file did to it stands with
-    // it, for the two numbers are read out of the words of the receipt.
+    // that happened, what a call that changed a file did to it stands with it,
+    // and the words that came back stand inside it, for the block of the call is
+    // hidden while the corporate display stands.
     fn corporate_finish(&mut self, id: &str, output: &str, ok: bool) {
         if !self.corporate_on() {
             return;
@@ -2290,13 +2312,8 @@ impl State {
         let Some(place) = corporate::find_mut(&mut self.live_work, id) else {
             return;
         };
-        corporate::settle(place);
-        place.failed = !ok;
         let (adds, cuts) = plus_minus(output);
-        if adds > 0 || cuts > 0 {
-            place.adds = adds;
-            place.cuts = cuts;
-        }
+        corporate::came_back(place, output, ok, adds, cuts);
         // The head of the one block is said again in the words of a thing that
         // happened, so a search that came back is not still standing at the head
         // as a search on its way.

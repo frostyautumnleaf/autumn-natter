@@ -77,6 +77,18 @@ pub struct WorkBlock {
     pub adds: i64,
     #[serde(default)]
     pub cuts: i64,
+    // The command a run of the terminal ran. The corporate display hides the
+    // block of the call, so this is the only place a user can read what ran.
+    #[serde(default)]
+    pub command: String,
+    // The file, or the files, a call worked on. Empty for a call that worked on
+    // nothing a name reaches.
+    #[serde(default)]
+    pub file: String,
+    // The words that came back, short. A fault is read out of these, for no
+    // other block of the call stands while the mode is on.
+    #[serde(default)]
+    pub output: String,
     // The blocks inside this one. A heading the model wrote holds the calls that
     // belong under it, so the short of the work reads as a heading and the work
     // of that heading, and not as one long flat list.
@@ -92,7 +104,7 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": String::from(
-                "Write the short of your work into the one block the user sees. The user is reading the corporate display: the thoughts and the tool blocks are hidden, and all of your work shows as a single block whose head says what you are at. This tool puts blocks inside that block. Give the heading of the area, the task or the topic you are working on -- not the tool, and not a file name -- and one to three lines under it, each a very short summary of a thing you did or are doing: 'Comparing the two attention methods.', 'Checking which version the feature needs.' No more than a sentence to a line, and never the answer itself, which the user reads in the chat. Call it again with the same heading to add lines to the same block, and with another heading to open a new one. Call it before or as you start a piece of work, so a user who watches sees what you are at; it is not needed for every small thing, and it is not needed at all for a one-call answer."
+                "Write the short of your work into the one block the user sees. The user is reading the corporate display: the thoughts and the tool blocks are hidden, and all of your work shows as a single block whose head says what you are at. This tool puts blocks inside that block. Give the heading of the area, the task or the topic you are working on -- not the tool, and not a file name -- and one to three lines under it, each a very short summary of a thing you did or are doing: 'Comparing the two attention methods.', 'Checking which version the feature needs.' No more than a sentence to a line, and never the answer itself, which the user reads in the chat. Call it again with the same heading to add lines to the same block, and with another heading to open a new one. Call it before a call that takes time, and again when that call comes back, so a user who watches sees the work move: a block nothing has been written into for a minute reads as a program that has stopped. It is not needed for a short answer that asks for nothing, and it is not needed twice for one small thing."
             ),
             "parameters": {
                 "type": "object",
@@ -241,7 +253,8 @@ fn one_line(text: String) -> String {
 }
 
 // The block of a call, as it stands in the short of the work.
-pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {    let head = if known(name) {
+pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {
+    let head = if known(name) {
         let word = doing_word(name);
         let what = short_of(name, args);
         if what.is_empty() {
@@ -261,24 +274,90 @@ pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {    let head 
         failed: false,
         adds: 0,
         cuts: 0,
+        command: command_of(name, args),
+        file: file_of(name, args),
+        output: String::new(),
         sub: Vec::new(),
     }
 }
 
-// Put a call right in the short of the work: the words of a call that came
-// back, and what a call that changed a file did to it.
-pub fn finish(block: &mut WorkBlock, ok: bool, adds: i64, cuts: i64) {
-    block.done = true;
+// The command of a call, whole. The head of the block carries only the first
+// line of it, for the head is read in a glance; the block carries the whole of
+// it, for a command that failed is read from the beginning.
+fn command_of(name: &str, args: &Value) -> String {
+    if name != tools::TOOL_NAME {
+        return String::new();
+    }
+    let text = args
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    cut(text, ROOM_COMMAND)
+}
+
+// The thing a call worked on: the file it edited, the picture it looked at, or
+// the files it offered. Two of a kind are named on one line. A tool that takes
+// one name and a tool that takes a list are read the same way here.
+fn file_of(name: &str, args: &Value) -> String {
+    match name {
+        editfile::EDIT_NAME | editfile::CREATE_NAME | viewimage::NAME | display::NAME
+        | download::NAME => {
+            let mut held: Vec<String> = Vec::new();
+            for key in ["path", "paths"] {
+                let Some(one) = args.get(key) else { continue };
+                let mut add = |word: &str| {
+                    let word = word.trim();
+                    if !word.is_empty() && !held.iter().any(|was| was == word) {
+                        held.push(String::from(word));
+                    }
+                };
+                match one {
+                    Value::String(text) => add(text),
+                    Value::Array(list) => {
+                        for part in list.iter().filter_map(Value::as_str) {
+                            add(part);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            cut(&held.join(", "), ROOM_FILE)
+        }
+        _ => String::new(),
+    }
+}
+
+// Words cut to the room a part of the block has, with a mark that more came
+// after them.
+fn cut(text: &str, room: usize) -> String {
+    let count = text.chars().count();
+    if count <= room {
+        return String::from(text);
+    }
+    let kept: String = text.chars().take(room).collect();
+    format!("{}\u{2026}", kept.trim_end())
+}
+
+const ROOM_COMMAND: usize = 400;
+const ROOM_FILE: usize = 200;
+const ROOM_OUTPUT: usize = 1200;
+
+// A call came back: the head of its block is said in the words of a thing that
+// happened, the mark of a fault stands with it, what a call that changed a file
+// did to it stands with it, and the words that came back stand inside it. The
+// block of the call itself is hidden while the mode stands, so these words are
+// the only account of the run the user can read.
+pub fn came_back(block: &mut WorkBlock, output: &str, ok: bool, adds: i64, cuts: i64) {
+    settle(block);
     block.failed = !ok;
-    block.adds = adds;
-    block.cuts = cuts;
-    if block.lines.is_empty() || !known(&block.tool) {
-        let word = done_word(&block.tool);
-        block.head = if block.head.is_empty() {
-            String::from(word)
-        } else {
-            block.head.replace(doing_word(&block.tool), word)
-        };
+    if adds > 0 || cuts > 0 {
+        block.adds = adds;
+        block.cuts = cuts;
+    }
+    let text = output.trim();
+    if !text.is_empty() {
+        block.output = cut(text, ROOM_OUTPUT);
     }
 }
 
@@ -320,43 +399,54 @@ pub fn find_mut<'a>(blocks: &'a mut [WorkBlock], id: &str) -> Option<&'a mut Wor
     None
 }
 
-// The head of the one block when an answer is over: the last thing the work
-// was, in the words of a thing that has happened.
+// The head of the one block when an answer is over: what the answer did, in the
+// words of things that have happened. A search that came back is said as a
+// search that was made, and a command that came back as a command that ran.
+// Several kinds of work are named one after another, in the order they were
+// done; several runs of one kind are named once.
 pub fn head_after(blocks: &[WorkBlock]) -> String {
-    let last = blocks.iter().rev().find_map(|one| {
-        if !one.tool.is_empty() && one.tool != NAME {
-            return Some(one);
+    let mut words: Vec<String> = Vec::new();
+    let mut failed = false;
+    gather(blocks, &mut words, &mut failed);
+    if words.is_empty() {
+        return String::from("Done");
+    }
+    // The three last say what the answer ended with. A head that carried every
+    // kind of work would be longer than the answer.
+    const ROOM: usize = 3;
+    let from = words.len().saturating_sub(ROOM);
+    let mut text = words[from..].join(", ");
+    if from > 0 {
+        text = format!("\u{2026} {}", text);
+    }
+    if failed {
+        text.push_str(", it failed");
+    }
+    text
+}
+
+// The words of the calls of a short, in the order they were made, with each
+// kind named once. `failed` says whether the last call of all came back with a
+// fault, which is the fault the head stands for.
+fn gather(blocks: &[WorkBlock], words: &mut Vec<String>, failed: &mut bool) {
+    for one in blocks.iter() {
+        if one.tool.is_empty() {
+            gather(&one.sub, words, failed);
+            continue;
         }
-        last_call(one)
-    });
-    match last {
-        Some(one) => {
-            let word = if one.tool == search::NAME {
-                String::from("Searched the web")
-            } else if known(&one.tool) {
+        if one.tool != NAME {
+            let word = if known(&one.tool) {
                 String::from(done_word(&one.tool))
             } else {
                 one.head.clone()
             };
-            if one.failed {
-                format!("{}, it failed", word)
-            } else {
-                word
+            if !words.contains(&word) {
+                words.push(word);
             }
+            *failed = one.failed;
         }
-        None => String::from("Done"),
+        gather(&one.sub, words, failed);
     }
-}
-
-// The last call inside one block of the model's own heading. Nothing comes back
-// when the heading holds no call.
-fn last_call(block: &WorkBlock) -> Option<&WorkBlock> {
-    block.sub.iter().rev().find_map(|one| {
-        if one.tool.is_empty() || one.tool == NAME {
-            return last_call(one);
-        }
-        Some(one)
-    })
 }
 
 // Take the short of the work out of what the model sent, and put it into the
@@ -418,7 +508,9 @@ pub fn note(blocks: &mut Vec<WorkBlock>, entry: &Entry) -> bool {
 pub fn system_prompt() -> String {
     String::from(
         "The chat stands in the corporate display. The user does not see your thoughts, and does not see the blocks of the calls you make: those are hidden whole. One block stands for each of your answers. Its head says what you are at, and the writing inside it is the short of your work.\n\
-         You write that short yourself with work_log. Call it as you start a piece of work, not after the answer is done, so a user who watches sees what you are at. Give the heading of the area you are working in, and one to three very short lines under it. Call it again with the same heading to add lines to that heading, and with another heading to open another one; the calls you make go under the heading you opened last. A heading is the area or the task, never a tool name and never a file name.\n\
+         You write that short yourself with work_log. The user reads it while you work, so keep it moving: write to it before a call that takes time, and again when that call comes back. Two calls in a row are two writings, and not one writing after both. A block nothing has been written into for a minute reads as a program that has stopped. A short answer that asks for nothing needs no writing, and one small thing needs no writing of its own.\n\
+         Give the heading of the area you are working in, and one to three very short lines under it. Call it again with the same heading to add lines to that heading, and with another heading to open another one; the calls you make go under the heading you opened last. A heading is the area or the task, never a tool name and never a file name.\n\
+         When a call comes back, say in one line what it gave you, or what went wrong, so the user learns of a fault as you read it.\n\
          Do not put the answer into those lines. The user reads the answer in the chat, and the short only says what you did to get it.",
     )
 }
@@ -497,7 +589,10 @@ mod tests {
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0].sub.len(), 1, "the first heading keeps its work");
         assert_eq!(blocks[1].sub.len(), 1);
-        assert_eq!(head_after(&blocks), "Searched the web");
+        // The head of the block names every kind of work the answer did, in the
+        // order the kinds were done. The user reads one line and knows the answer
+        // both ran a command and searched.
+        assert_eq!(head_after(&blocks), "Ran a command, Searched the web");
     }
 
     #[test]
