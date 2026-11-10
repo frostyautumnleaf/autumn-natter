@@ -671,6 +671,12 @@ body.home .stage { display: none; }
   transition: opacity 160ms, height 160ms, margin-top 160ms;
   font-variant-numeric: tabular-nums; }
 .turn:hover .stamp { opacity: 1; height: 15px; margin-top: 5px; }
+/* The blocks an answer ends with - the steps, the files offered, the window of
+   shown files, the roads offered - are not the words of the message. The line of
+   the time and the marks does not open under a pointer that stands on them: it
+   would push the block down under the hand reaching for one of its buttons. The
+   line opens again the moment the pointer is back on the words. */
+.turn:has(.answer-end:hover) .stamp { opacity: 0; height: 0; margin-top: 0; }
 .turn.t-you .stamp { padding-right: 2px; }
 /* What the user may do with a message. The marks stand in the line where the
    time of the message stands, and that line opens when the pointer goes over the
@@ -1269,7 +1275,6 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
    of the account of how it was made. */
 .shown-again {
   display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 2px 0 10px;
 }
 .shown-again button {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
@@ -1399,7 +1404,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    boxes of the answers keep a ground of their own, for a box to write in has to
    say that it can be written in. */
 .planask {
-  margin: 16px 0 6px; padding: 2px 0 2px 13px;
+  margin: 20px 0 6px; padding: 2px 0 2px 13px;
   border: 0; border-left: 2px solid var(--line-strong);
   border-radius: 0; background: none; box-shadow: none;
 }
@@ -1545,7 +1550,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    answer left and not a saying of it. */
 .gifts {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
-  padding: 6px 0 12px; animation: rise 240ms ease-out;
+  animation: rise 240ms ease-out;
 }
 .gift {
   display: flex; align-items: center; gap: 11px; width: 100%; max-width: 430px;
@@ -1589,8 +1594,15 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    comes next. They stand one under the other, in that order, so no two of them
    are ever given the same place. The way back to what the user asked to see
    stands first, for it belongs to the words above it; the work the user may
-   take or go on by stands after them. */
-.answer-end { display: flex; flex-direction: column; }
+   take or go on by stands after them.
+
+   The room above them is the room between a message and the line between two
+   messages, twenty pixels. These blocks are the next part of the chat and not a
+   tail on the answer, and with less room they read as words the answer had not
+   finished. The blocks are twelve apart within the block of their own. */
+.answer-end {
+  display: flex; flex-direction: column; gap: 12px; margin-top: 20px;
+}
 /* The roads the model offered for what comes next. A button is one road: the
    words it shows are short, and the words it sends may be longer. They stand in
    the middle of the chat, under the answer that offered them, and only once the
@@ -1599,7 +1611,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    buttons of an older answer go when the user speaks again. */
 .suggests {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
-  padding: 2px 0 12px; animation: rise 240ms ease-out;
+  animation: rise 240ms ease-out;
 }
 /* One road spreads over the room it shares with its fellows, so two or three
    of them fill the width of the chat and stand in one line. A road keeps its
@@ -1628,7 +1640,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    the model has stopped writing. The head names the list, the body holds the text
    of one step, and the row under it holds one button per step. */
 .steps {
-  margin: 2px 0 12px; border: 1px solid var(--plate-line); border-radius: 12px;
+  margin: 0; border: 1px solid var(--plate-line); border-radius: 12px;
   background: var(--surface-2); overflow: hidden; animation: rise 240ms ease-out;
 }
 .steps .stitle {
@@ -8396,12 +8408,29 @@ function stepsBlock(plan, chosen) {
     window.setTimeout(function () { node.classList.remove(word); }, 260);
   }
 
+  // The block keeps its bottom edge where it stood. The chat is moved by the
+  // change in the height of the block, so a step with more lines takes its room
+  // above, out of the answer, instead of pushing its own buttons below the fold:
+  // the block grows upward, and the step the user is reading is never covered.
+  // A step with fewer lines needs no moving - nothing of the block is out of
+  // sight then, and pulling the chat up under the answer would only shake it.
+  function holdBottom(before) {
+    var room = el.thread;
+    if (!room) { return; }
+    var delta = Math.round(box.getBoundingClientRect().height - before);
+    if (delta > 0) { room.scrollTop += delta; }
+  }
+
   // The step the block stands at, and the row of buttons that goes with it. The
   // text slides; the head, the two buttons and the row of the steps stay where
   // they are.
   function go(to) {
     to = Math.max(0, Math.min(steps.length - 1, to));
     if (to === at) { return; }
+    // The height of the whole block before the new step goes in. The head and
+    // the row of buttons keep their height, so what is measured here is the room
+    // the step of the words takes.
+    var before = box.getBoundingClientRect().height;
     var onward = to > at;
     at = to;
     box.dataset.at = String(at);
@@ -8419,6 +8448,7 @@ function stepsBlock(plan, chosen) {
     }
     page.appendChild(next);
     text = next;
+    holdBottom(before);
     show();
   }
 
