@@ -8695,6 +8695,72 @@ function giftWhole(one) {
   return one.extension ? one.name + '.' + one.extension : one.name;
 }
 
+// The kind of a file of an offer, in the words a save dialog of the browser reads.
+// The map is short on purpose: a file of a kind it does not know is saved under
+// whatever ending the user writes, which is what a dialog offers when nothing is
+// asked for.
+var GIFT_MIMES = {
+  txt: 'text/plain', log: 'text/plain', md: 'text/markdown',
+  markdown: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
+  json: 'application/json', html: 'text/html', htm: 'text/html', css: 'text/css',
+  js: 'text/javascript', mjs: 'text/javascript', svg: 'image/svg+xml',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', pdf: 'application/pdf', zip: 'application/zip',
+  gz: 'application/gzip', tar: 'application/x-tar', mp3: 'audio/mpeg',
+  wav: 'audio/wav', mp4: 'video/mp4', rs: 'text/plain', py: 'text/x-python',
+  c: 'text/plain', h: 'text/plain', toml: 'application/toml',
+  yaml: 'application/yaml', yml: 'application/yaml'
+};
+
+// The words of the kind for one file of an offer. Nothing comes back for a file
+// with no ending, or of a kind the map does not know.
+function giftMime(one) {
+  var tail = String((one && one.extension) || '').toLowerCase();
+  return GIFT_MIMES[tail] || '';
+}
+
+// Where a file of an offer is to go. A browser that answers to
+// `showSaveFilePicker` is asked, and the native dialog of the operating system
+// comes up: the user chooses the folder, may write the name again, and the bytes
+// are written there. The browser answers only where the page stands on a secure
+// place - the machine itself, or a name behind https - and only while the hand of
+// the user is still on the button, which is why the ask is the first thing a
+// download does and not the last.
+//
+// `plain` comes back when the browser cannot ask or would not: the file then goes
+// to the folder the browser downloads into, as it always did. `cancel` comes back
+// when the user let the dialog go, which is a thing they said no to, so nothing is
+// asked for and nothing is written. Otherwise the handle of the file the user chose
+// comes back, in a word of its own.
+function saveChosen(name, mime) {
+  if (!window.showSaveFilePicker) { return Promise.resolve('plain'); }
+  var wants = { suggestedName: name || 'a-file' };
+  if (mime) {
+    var accept = {};
+    accept[mime] = [];
+    wants.types = [{ description: name || 'a file', accept: accept }];
+  }
+  return window.showSaveFilePicker(wants).then(function (held) {
+    return { handle: held };
+  }, function (why) {
+    return (why && String(why.name) === 'AbortError') ? 'cancel' : 'plain';
+  });
+}
+
+// Write the bytes of an offer into the file the user chose in the dialog. The
+// handle is opened, written and closed; a handle that will not open, or a disk
+// that will not take the bytes, is said on the button, which is where the user is
+// looking.
+function writeChosen(where, made, button) {
+  if (!where || !where.handle) { return Promise.resolve(false); }
+  return where.handle.createWritable().then(function (held) {
+    return held.write(made).then(function () { return held.close(); });
+  }, function () {
+    failGift(button, 'Not written');
+    return false;
+  });
+}
+
 // Take a file the browser has been given the road to.
 function takeDown(href, name) {
   var link = document.createElement('a');
@@ -8721,26 +8787,44 @@ function failGift(button, words) {
   }, 2400);
 }
 
-// Take one file of an offer. The bytes are asked for first, so a file that has
+// Take one file of an offer. The dialog of the browser is asked first, while the
+// hand is on the button, and the bytes are asked for after it, so a file that has
 // gone out of the room of the chat says so instead of bringing down nothing.
 function takeGift(one, button) {
-  window.fetch(giftHref(one)).then(function (answer) {
-    if (!answer.ok) { failGift(button, 'Not here'); return null; }
-    return answer.blob().then(function (made) {
-      takeDown(window.URL.createObjectURL(made), giftWhole(one));
-    });
-  }).catch(function () { failGift(button, 'Not here'); });
+  var whole = giftWhole(one);
+  saveChosen(whole, giftMime(one)).then(function (where) {
+    if (where === 'cancel') { return; }
+    window.fetch(giftHref(one)).then(function (answer) {
+      if (!answer.ok) { failGift(button, 'Not here'); return null; }
+      return answer.blob().then(function (made) {
+        if (where === 'plain') {
+          takeDown(window.URL.createObjectURL(made), whole);
+          return;
+        }
+        writeChosen(where, made, button);
+      });
+    }).catch(function () { failGift(button, 'Not here'); });
+  });
 }
 
 // Take the whole of an offer at once. The archive is made in the memory of the
-// program and is never written out to the room of the chat.
+// program and is never written out to the room of the chat. The dialog is asked
+// for the archive by the same rule as it is for one file.
 function takeGifts(list, button) {
-  window.fetch(giftZipHref(list)).then(function (answer) {
-    if (!answer.ok) { failGift(button, 'Not here'); return null; }
-    return answer.blob().then(function (made) {
-      takeDown(window.URL.createObjectURL(made), giftWhole(list[0]) + '.zip');
-    });
-  }).catch(function () { failGift(button, 'Not here'); });
+  var whole = giftWhole(list[0]) + '.zip';
+  saveChosen(whole, 'application/zip').then(function (where) {
+    if (where === 'cancel') { return; }
+    window.fetch(giftZipHref(list)).then(function (answer) {
+      if (!answer.ok) { failGift(button, 'Not here'); return null; }
+      return answer.blob().then(function (made) {
+        if (where === 'plain') {
+          takeDown(window.URL.createObjectURL(made), whole);
+          return;
+        }
+        writeChosen(where, made, button);
+      });
+    }).catch(function () { failGift(button, 'Not here'); });
+  });
 }
 
 // One file of an offer: the mark of its kind, its name with the ending under it,
