@@ -568,7 +568,8 @@ function scene(name, dark, theme) {
     sandbox_note: 'bubblewrap works. A command sees only the working directory of '
       + 'the chat, and it has no network.',
     status: 'Ready', dark: !!dark, theme: theme || (dark ? 'dark' : 'light'),
-    data_dir: '/home/user/.local/share/autumn-natter'
+    data_dir: '/home/user/.local/share/autumn-natter',
+    contexts_dir: '/home/user/.local/share/autumn-natter/contexts'
   };
   if (name === 'chat' || name === 'rich' || name === 'parts' || name === 'streaming'
     || name === 'streaming-code' || name === 'previews') {
