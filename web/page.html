@@ -1761,8 +1761,11 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 /* The text of the step, and the two buttons of going back and going on. The
    buttons stand in the same area as the text, at its bottom corners, and the text
    keeps room for them. Only the text moves when the step changes: it slides out
-   of the block and the text of the new step slides in. */
-.steps .sbody { position: relative; padding-bottom: 46px; }
+   of the block and the text of the new step slides in.
+   The room under the text belongs to the buttons: it is the height of a button
+   with the same breathing room above it as below it, so a button neither touches
+   the words of the step nor leans on the line over the row of the steps. */
+.steps .sbody { position: relative; padding-bottom: 56px; }
 .steps .spage { position: relative; overflow: hidden; }
 .steps .stext {
   padding: 12px 14px 2px; font-size: 13.5px; line-height: 1.55; color: var(--text);
@@ -1782,7 +1785,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 @keyframes step-in-left { from { transform: translateX(-100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; } }
 .steps .snav {
-  position: absolute; bottom: 11px; display: inline-flex; align-items: center; gap: 6px;
+  position: absolute; bottom: 12px; display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 12px; border: 1px solid var(--accent-line); border-radius: 999px;
   background: var(--accent-soft); color: var(--ink); font-size: 12px; font-weight: 650;
   font-family: inherit; cursor: pointer;
