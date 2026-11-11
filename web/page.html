@@ -914,6 +914,26 @@ body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
 .wbbody .wblock > .wbhead { padding: 6px 10px; }
 .wbbody .wblock > .wbbody { padding: 0 10px 6px 26px; }
 .wline { padding: 3px 0; }
+/* A line of the short with no call of its own under it. There is nothing to open
+   in such a line, so it stands as a plain line where the block of a call would
+   have stood, and the lines of the short read as one short of the work. */
+.wplainline { padding: 7px 12px; line-height: 1.45; }
+.wbbody .wplainline { padding: 3px 0; }
+/* A thought of the model inside the one block of the answer. The mode hides the
+   panels of the thoughts whole, so this is where the user reads them, and they
+   stand there while the model is thinking and not only once it has done. */
+.wthought { white-space: pre-wrap; word-break: break-word; color: var(--dim);
+  font-size: 12.5px; line-height: 1.55; }
+.wthink > .wbhead { font-style: italic; }
+/* The thought that is the whole of what an answer did. The head of the block
+   says it already, so the thought stands as words under that head, with no head
+   of its own. */
+.wthink.wsolo > .wbbody { padding: 2px 12px 10px 12px; }
+/* The words the model wrote to the user while it worked, before the block of the
+   work was closed. They are markdown, and they stand under the first line of
+   them, which is the head of the block. */
+.wwords > .wbbody { color: var(--ink); }
+.wwords > .wbbody > :first-child { margin-top: 0; }
 /* The words of a call inside the short: the command that ran, the file it worked
    on, and what came back. The block of the run itself is hidden while the mode
    stands, so these are the only words of a command a user can read. The words
@@ -1741,8 +1761,11 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 /* The text of the step, and the two buttons of going back and going on. The
    buttons stand in the same area as the text, at its bottom corners, and the text
    keeps room for them. Only the text moves when the step changes: it slides out
-   of the block and the text of the new step slides in. */
-.steps .sbody { position: relative; padding-bottom: 46px; }
+   of the block and the text of the new step slides in.
+   The room under the text belongs to the buttons: it is the height of a button
+   with the same breathing room above it as below it, so a button neither touches
+   the words of the step nor leans on the line over the row of the steps. */
+.steps .sbody { position: relative; padding-bottom: 56px; }
 .steps .spage { position: relative; overflow: hidden; }
 .steps .stext {
   padding: 12px 14px 2px; font-size: 13.5px; line-height: 1.55; color: var(--text);
@@ -1762,7 +1785,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 @keyframes step-in-left { from { transform: translateX(-100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; } }
 .steps .snav {
-  position: absolute; bottom: 11px; display: inline-flex; align-items: center; gap: 6px;
+  position: absolute; bottom: 12px; display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 12px; border: 1px solid var(--accent-line); border-radius: 999px;
   background: var(--accent-soft); color: var(--ink); font-size: 12px; font-weight: 650;
   font-family: inherit; cursor: pointer;
@@ -1975,9 +1998,10 @@ img.pic { animation: plate-in 180ms ease-out; }
 
 /* The tooltip of the page. The tooltip of the machine is a grey box that answers
    to none of the colours of the chat, and in the window of the program it is not
-   even that. So the page draws its own out of the words a part carries in its
-   `title`, and borrows the `title` while it stands, for two tooltips over one part
-   read as a fault of the page. */
+   even themed, so the page draws its own out of the words a part carries. Those
+   words are taken out of the `title` and stood in `data-tip` for good, so the grey
+   box has nothing to show: two tooltips over one part read as a fault of the page,
+   and the box of the machine is the one that must give way. */
 .tip { position: fixed; z-index: 90; max-width: 340px; padding: 7px 9px;
   background: var(--surface-2); border: 1px solid var(--line-strong);
   border-radius: 7px; box-shadow: var(--shadow); color: var(--text-2);
@@ -2760,9 +2784,18 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     <div class="sheet-body">
       <div class="pane" id="paneProgram">
         <div class="sec">Folders</div>
-        <div class="fld wide"><span class="lbl">Data directory</span>
-          <span class="sub">Where Autumn Natter stores the settings, the chats and the repository data.</span>
+        <div class="fld wide"><span class="lbl">Data directory in use</span>
+          <span class="sub">Where Autumn Natter stores the settings, the chats and the repository data, for this run of the program.</span>
           <div class="ctl"><span class="ro" id="fData"></span></div></div>
+        <div class="fld"><span class="lbl">Other data directory</span>
+          <span class="sub">Another place for the settings, the talks, the logs and the records. Leave it empty for the directory in use above. The folder must stand already, the program reads from it when it starts again, and nothing of the old place is moved for you.</span>
+          <div class="ctl"><input class="txt" id="fDataDir" type="text" placeholder="the usual place"></div></div>
+        <div class="fld wide"><span class="lbl">Context folder in use</span>
+          <span class="sub">Where the talks the model worked its way through are read from and written to, for this run of the program.</span>
+          <div class="ctl"><span class="ro" id="fContextsInUse"></span></div></div>
+        <div class="fld"><span class="lbl">Context folder</span>
+          <span class="sub">Where the talks the model worked its way through stand, which it reads back instead of reading the chat again. Leave it empty for the contexts folder inside the data directory. The talks of the old place are read no more.</span>
+          <div class="ctl"><input class="txt" id="fContexts" type="text" placeholder="the usual place"></div></div>
         <div class="fld"><span class="lbl">llama.cpp folder</span>
           <span class="sub">The folder that contains llama-server. The program starts that file for every answer.</span>
           <div class="ctl"><input class="txt" id="fLlama" type="text" placeholder="the folder of llama.cpp"></div></div>
@@ -3463,8 +3496,14 @@ function readChatting(s) {
   chatting.colour = colour;
   chatting.seamless = !!chat.seamless;
   // The corporate display hides the thoughts and the calls, so the settings
-  // that lay those panels out have nothing left to say.
-  chatting.corporate = !!(chat.corporate);
+  // that lay those panels out have nothing left to say. It changes the words that
+  // stand on the page as well, and not only the ground under them: the whole of
+  // an answer moves into the one block, and the rows of its parts stand away. The
+  // talk is therefore put on again when the display changes, as it is for a look
+  // that changes the words themselves.
+  var corporate = !!chat.corporate;
+  if (corporate !== chatting.corporate) { threadAgainForLook(); }
+  chatting.corporate = corporate;
   document.body.classList.toggle('corpwork', chatting.corporate);
   corporateGreyed(chatting.corporate);
   // The first screen of the program stands until the user has said how they
@@ -6586,24 +6625,71 @@ function fillLive(turn, m, group) {
 // kept over the putting again, for the block is made anew under a hand that may
 // be reading it.
 //
-// A message that carries no short of the work leaves the block that stands
-// alone. The answer that is coming in is often without one at the first look, at
-// the end of a row whose earlier messages already made a block, and taking that
-// block away for the moment before the first heading comes would empty the row
-// under the reader.
+// The block holds the whole of the answer: the thoughts of the model, the words
+// it wrote that stand inside the block, and the short of the work. An answer
+// stands in more than one message, so the parts are gathered from every message
+// of it, and the block stands once, at the head of the row that ends the answer.
 function drawWork(turn, m) {
   if (!turn || !chatting.corporate) { return; }
-  var blocks = m.work || [];
-  var head = m.work_head || '';
+  var items = threadItems();
+  var at = threadPlace(items, m);
+  if (at < 0) { return; }
+  putCard(turn, items, at);
+}
+
+// The one block of the answer the message at this place belongs to, put at the
+// head of the turn. Only the turn that carries the last message of the answer
+// takes the block, so an answer is given one block and not one for every message
+// of it; the other turns of the answer stand away, see `rowHushed`. The fold the
+// user gave the block is kept over the putting again, for the block is made anew
+// under a hand that may be reading it.
+function putCard(turn, items, at) {
+  if (answerEnd(items, at) !== at) { return; }
+  var made = answerCard(items, at);
+  if (!made) { return; }
   var old = turn.querySelector(':scope > .work');
-  if (!blocks.length && !head) { return; }
-  var made = corporateBlock(head || 'Done', blocks);
   if (old) {
     if (old.classList.contains('shut')) { made.classList.add('shut'); }
     turn.replaceChild(made, old);
   } else {
     turn.insertBefore(made, turn.firstChild);
   }
+}
+
+// The place of a message in the thread, or -1 when it stands in none. The one
+// block of an answer is gathered from the thread, so a message is looked for by
+// the number the engine gave it. `messageIndex` above knows only the messages of
+// the chat; this knows the answer that is coming in as well.
+function threadPlace(items, m) {
+  if (!m || !items) { return -1; }
+  for (var n = items.length - 1; n >= 0; n--) {
+    if (items[n].id && items[n].id === m.id) { return n; }
+  }
+  return -1;
+}
+
+// The answer that is coming in, as one message of the thread. The engine keeps
+// what the model has written so far apart from the messages of the chat, and the
+// one block of an answer is drawn from the messages of it, so the two are put
+// together here in the one place they are put together on the page.
+function liveMessage(s) {
+  return {
+    id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
+    reasoning_ms: s.reasoning_ms || 0, reasoning_done: !!s.reasoning_done,
+    tool: '', tools: s.live_tools || [], mono: false, failed: false, when: '',
+    work: s.live_work || [], work_head: s.live_work_head || '',
+    work_closed: !!s.live_work_closed
+  };
+}
+
+// The messages the thread is made of. The thread and the one block of an answer
+// are drawn from the same list, so a block put on the page says what the rows of
+// the answer say.
+function threadItems() {
+  var s = cur || {};
+  var items = (s.messages || []).slice();
+  if (s.generating && !s.summarising) { items.push(liveMessage(s)); }
+  return items;
 }
 
 // The words of one message, put into a turn. The turn is made once, and the
@@ -6614,7 +6700,107 @@ function drawWork(turn, m) {
 // carry the headings the model wrote for its own, together with the blocks of
 // the calls it made. The thoughts and the calls are hidden whole, so this block
 // is the only way in.
+// The words for the time the model spent thinking, for the head of a thought
+// that stands inside the one block of the answer. The block says the time in
+// whole seconds, where the panel of the thoughts in the plain display tells it
+// in the finer words of `thoughtWords`.
+function thoughtSaidWords(ms) {
+  var secs = Math.round((Number(ms) || 0) / 1000);
+  if (!isFinite(secs) || secs < 1) { secs = 1; }
+  return 'Thought for ' + secs + (secs === 1 ? ' second' : ' seconds');
+}
+
+// The head of a block of the model's own words: the first line of them, cut
+// short for the head is read in a glance.
+function headOfWords(text) {
+  var lines = String(text || '').split('\n');
+  for (var n = 0; n < lines.length; n++) {
+    var one = lines[n].trim();
+    if (!one) { continue; }
+    return one.length > 90 ? one.slice(0, 90) + '\u2026' : one;
+  }
+  return '';
+}
+
+// The words after their first line, for the body of the block that first line
+// stands at.
+function restOfWords(text) {
+  var lines = String(text || '').split('\n');
+  var seen = false, out = [];
+  for (var n = 0; n < lines.length; n++) {
+    if (!seen && lines[n].trim()) { seen = true; continue; }
+    out.push(lines[n]);
+  }
+  return out.join('\n').replace(/^\s+/, '');
+}
+
+// A thought of the model, inside the one block of the answer. The mode hides the
+// panels of the thoughts whole, so this is where the user reads them, and they
+// stand there while the model is thinking, not only when it has done. The head
+// says how long the thought took once it is over.
+function thinkingBlock(text, ms, done) {
+  var block = make('div', 'wblock wthink');
+  block.dataset.kind = 'thought';
+  var head = make('div', 'wbhead');
+  var fold = make('span', 'wfold');
+  fold.textContent = '\u25BE';
+  var title = make('span');
+  title.textContent = done ? thoughtSaidWords(ms) : 'Thinking';
+  head.appendChild(fold);
+  head.appendChild(title);
+  block.appendChild(head);
+  var body = make('div', 'wbbody');
+  var words = make('div', 'wthought');
+  words.textContent = String(text || '').replace(/\s+$/, '');
+  body.appendChild(words);
+  block.appendChild(body);
+  head.addEventListener('click', function () { block.classList.toggle('shut'); });
+  return block;
+}
+
+// The words the model wrote to the user while it worked, inside the one block of
+// the answer. The first line of them stands at the head of the block, and the
+// rest stand inside it. Words written after the model closed the block of the
+// work stand outside the block whole, under no head of their own.
+function wordsBlock(text, mid) {
+  var block = make('div', 'wblock wwords');
+  if (mid) { block.dataset.said = mid; }
+  var head = make('div', 'wbhead');
+  var fold = make('span', 'wfold');
+  fold.textContent = '\u25BE';
+  var title = make('span');
+  title.textContent = headOfWords(text);
+  head.appendChild(fold);
+  head.appendChild(title);
+  block.appendChild(head);
+  var rest = restOfWords(text);
+  if (rest) {
+    var body = make('div', 'wbbody');
+    var cut = blocks(rest);
+    for (var n = 0; n < cut.length; n++) { body.appendChild(blockNode(cut[n])); }
+    block.appendChild(body);
+  } else {
+    // One line, and nothing under it: the head is the whole of the words, so
+    // there is nothing to open and the mark that opens is left out.
+    fold.style.visibility = 'hidden';
+    head.style.cursor = 'default';
+  }
+  head.addEventListener('click', function () { block.classList.toggle('shut'); });
+  return block;
+}
+
+// One block of the short of the work.
 function workBlock(one, deep) {
+  var lines = one.lines || [];
+  var under = one.sub || [];
+  // A line of the short with nothing under it is drawn as a plain line. The
+  // calls that fall under it are what make it a block the user can open.
+  var spare = !lines.length && !under.length && !one.command && !one.file && !one.output;
+  if (one.line && spare) {
+    var plain = make('div', 'wline wplainline');
+    plain.textContent = one.head || '';
+    return plain;
+  }
   var block = make('div', 'wblock' + (deep ? ' shut' : ''));
   var head = make('div', 'wbhead');
   var fold = make('span', 'wfold');
@@ -6637,8 +6823,6 @@ function workBlock(one, deep) {
     head.appendChild(bad);
   }
   block.appendChild(head);
-  var lines = one.lines || [];
-  var under = one.sub || [];
   // The body stands when there is anything to stand in it: the lines the model
   // wrote, the words of the call itself, and the calls made under a heading.
   var body = null;
@@ -6681,9 +6865,10 @@ function workBlock(one, deep) {
   return block;
 }
 
-// The one block of an answer. `head` is what the model is at, and `blocks` the
-// short of the work under it.
-function corporateBlock(head, blocks) {
+// The one block of an answer: `head` is what the model is at, and `parts` the
+// blocks that stand inside it -- the thoughts of the model, the words it wrote
+// while it worked, and the short of the work.
+function corporateCard(head, parts) {
   var box = make('div', 'work');
   var top = make('div', 'whead');
   var fold = make('span', 'wfold');
@@ -6694,39 +6879,117 @@ function corporateBlock(head, blocks) {
   top.appendChild(title);
   box.appendChild(top);
   var body = make('div', 'wbody');
-  for (var n = 0; n < blocks.length; n++) { body.appendChild(workBlock(blocks[n], false)); }
+  for (var n = 0; n < parts.length; n++) { body.appendChild(parts[n]); }
   box.appendChild(body);
   top.addEventListener('click', function () { box.classList.toggle('shut'); });
   return box;
 }
 
-// The one block of an answer of the model, or nothing at all when the answer
-// has no short of the work -- an answer of a chat that was written before the
-// corporate display stood, or one with no work in it.
-// The one block of an answer of the model. The block always stands after an
-// answer of a chat that was written while the corporate display stood, even
-// when the model wrote nothing of its work: the head then says "Done". Nothing
-// is drawn for an answer that has no short at all, which is an answer written
-// before the mode stood.
-function corporateOf(m) {
-  if (!m) { return null; }
-  var blocks = m.work || [];
-  var head = m.work_head || '';
-  if (!blocks.length && !head) { return null; }
-  return corporateBlock(head || 'Done', blocks);
+// The parts of the one block that one message of an answer brings: the thought
+// of it, the words of it that stand inside the block, and the short of the work.
+// A message of a tool run brings nothing of its own, for the words of a run
+// stand in the short, under the line of it the model wrote before the call.
+function cardParts(m, thoughtDone, saidLast) {
+  var out = [];
+  if (!m || (m.role && m.role !== 'Assistant')) { return out; }
+  if (m.reasoning) { out.push(thinkingBlock(m.reasoning, m.reasoning_ms, !!thoughtDone)); }
+  var said = String(m.body || '').trim();
+  if (said && !wordsOutside(m, saidLast)) { out.push(wordsBlock(said, m.id)); }
+  var short = m.work || [];
+  for (var n = 0; n < short.length; n++) { out.push(workBlock(short[n], false)); }
+  return out;
 }
 
-// The short of the work of a row of the thread: the last message of the row that
-// carries one. The engine keeps the whole of the work of an answer with the last
-// message of it, so one message of a row carries the short and the others carry
-// none. A row that came to no answer gives nothing back.
-function groupAnswer(items, from, to) {
-  for (var n = to - 1; n >= from; n--) {
-    if (items[n].role !== 'Assistant') { continue; }
-    if ((items[n].work || []).length || items[n].work_head) { return items[n]; }
-  }
-  return null;
+// True when the words of a message stand outside the one block of the answer, in
+// the plain words of the chat. Two things make them do so: the message is the
+// last one of the answer that said anything, which is the answer the user came
+// for; or the model wrote them after it closed the block with its own tool,
+// which is the same saying in the words of the model. The words of any other
+// message were said while the model worked, and stand inside the block.
+function wordsOutside(m, saidLast) {
+  return m.work_closed === true || !!saidLast;
 }
+
+// True of the messages an answer is made of: the words of the model, and the
+// runs of the calls it made. Everything else -- the words of the user, a note of
+// the program, a handoff summary -- stands between two answers.
+function ofAnswer(m) {
+  return !!m && (m.role === 'Assistant' || m.role === 'Tool');
+}
+
+// The messages of the answer the message at this place belongs to: every message
+// since the last words of the user, in the order they were written. An answer of
+// the model stands in more than one message -- the words of a turn, the runs of
+// the calls, the words after them -- and the one block stands for the whole of
+// it once.
+function answerFrom(items, at) {
+  var out = [];
+  for (var n = at; n >= 0 && ofAnswer(items[n]); n--) { out.unshift(items[n]); }
+  return out;
+}
+
+// The place of the last message of the answer the message at this place belongs
+// to. The one block of an answer stands at the head of the row that carries that
+// message, and no other row of the answer is put on the page. A message that is
+// no part of an answer -- a word of the user, a note, a summary -- ends its own
+// row, for it belongs to no answer.
+function answerEnd(items, at) {
+  if (!ofAnswer(items[at])) { return at; }
+  var end = at;
+  for (var n = at + 1; n < items.length && ofAnswer(items[n]); n++) { end = n; }
+  return end;
+}
+
+// The one block of the answer the message at this place belongs to, or nothing
+// at all when the answer has no thought, no words inside the block, and no short
+// of the work.
+function answerCard(items, at) {
+  if (!items || at < 0 || at >= items.length) { return null; }
+  var run = answerFrom(items, at);
+  // The answer the user came for is the last message of the run that said
+  // anything. What was said before it was said while the model worked.
+  var said = -1;
+  for (var n = 0; n < run.length; n++) {
+    if (run[n].role === 'Assistant' && String(run[n].body || '').trim()) { said = n; }
+  }
+  var parts = [], head = '';
+  for (var k = 0; k < run.length; k++) {
+    var m = run[k];
+    if (m.role !== 'Assistant') { continue; }
+    parts = parts.concat(cardParts(m, m.id === 'live' ? !!m.reasoning_done : true, k === said));
+    if ((m.work || []).length || m.work_head) { head = m.work_head || 'Done'; }
+  }
+  if (!parts.length) { return null; }
+  var made = corporateCard(head || 'Done', parts);
+  // A thought that is the whole of what an answer did needs no second saying of
+  // itself. The head of the block says it already; the thought under it stands as
+  // words, and not as a block that repeats the head.
+  if (parts.length === 1 && parts[0].dataset && parts[0].dataset.kind === 'thought') {
+    var inner = parts[0].firstElementChild;
+    if (inner && inner.classList.contains('wbhead')) {
+      parts[0].removeChild(inner);
+      parts[0].classList.add('wsolo');
+    }
+  }
+  return made;
+}
+
+// True when the row of the messages from `from` to `to` stands away while the
+// corporate display stands. The one block of the answer holds the whole of the
+// row -- the thoughts, the words said while the model worked, and an account of
+// every call it made -- and that block stands with the row which ends the answer
+// alone. A row whose own words stand outside the block keeps its place, for
+// nothing else on the page would show them.
+function rowHushed(items, from, to) {
+  if (!chatting.corporate || !items || from < 0 || to > items.length) { return false; }
+  if (answerEnd(items, to - 1) <= to - 1) { return false; }
+  for (var n = from; n < to; n++) {
+    if (items[n].role === 'Assistant' && String(items[n].body || '').trim()
+        && items[n].work_closed === true) { return false; }
+  }
+  return true;
+}
+
 
 // The settings that the corporate display has nothing to say about: the panels
 // it hides are the panels those settings lay out.
@@ -6949,15 +7212,20 @@ function fill(turn, m) {
   if (chatting.corporate) {
     // The corporate display: one block for the answer, and the words of the
     // answer under it. The thoughts and the calls are hidden whole.
-    drawWork(turn, m);
+    var items = threadItems();
+    var at = threadPlace(items, m);
+    if (at >= 0) { putCard(turn, items, at); }
     // A run of a tool, or a turn that gave only thinking, leaves a row with
     // nothing seen in it while the mode stands: the block of the run and the
-    // panel of the thought are both hidden. Such a row stands away, unless the
-    // blocks an answer ends with hang on it, for the files of an offer stand
-    // there and the user must still reach them.
+    // panel of the thought are both hidden. A turn of an answer that the one
+    // block stands over is hidden as well, for the block holds its thought, its
+    // words of the work and an account of its calls. Either row stands away,
+    // unless the blocks an answer ends with hang on it, for the files of an
+    // offer stand there and the user must still reach them.
+    var held = at >= 0 && rowHushed(items, at, at + 1);
     var blank = m.role === 'Tool'
       || (m.role === 'Assistant' && !String(m.body || '').trim());
-    if (blank && !turn.querySelector('.work') && !(m.downloads || []).length
+    if ((held || blank) && !turn.querySelector('.work') && !(m.downloads || []).length
         && !(m.displayed || []).length && !(m.suggestions || []).length
         && !(m.steps && m.steps.steps && m.steps.steps.length)) {
       turn.classList.add('t-hush');
@@ -7608,8 +7876,12 @@ function fillGroup(turn, items, from, to) {
   // The corporate display: the one block of the answer stands at the head of the
   // row, as it does for an answer that stands on its own. The panel of the
   // thoughts and the blocks of the calls are hidden whole by the mode, so this
-  // block is the only account of the work the user is given.
-  var short = chatting.corporate ? corporateOf(groupAnswer(items, from, to)) : null;
+  // block is the only account of the work the user is given, and it stands with
+  // the row that ends the answer alone.
+  var short = null;
+  if (chatting.corporate && answerEnd(items, to - 1) === to - 1) {
+    short = answerCard(items, to - 1);
+  }
   if (short) { turn.appendChild(short); }
   // While the corporate display stands the row reads as the answer it led to, for
   // nothing else in it is seen.
@@ -7647,8 +7919,10 @@ function fillGroup(turn, items, from, to) {
   var line = actLine(items[to - 1]);
   if (line) { turn.appendChild(line); }
   // A row of thoughts and runs that came to no answer shows nothing at all while
-  // the corporate display stands, so it stands away.
-  if (chatting.corporate && !short && !turn.querySelector('.plain > .thought, .plain > .tool')) {
+  // the corporate display stands, so it stands away. So does a row of an answer
+  // that the one block stands over, for the block holds the whole of it.
+  if (chatting.corporate && (rowHushed(items, from, to)
+      || (!short && !turn.querySelector('.plain > .thought, .plain > .tool')))) {
     turn.classList.add('t-hush');
   }
   return { panel: made.panel, words: made.words, head: made.head,
@@ -7970,6 +8244,25 @@ function drawPlanAsks(s) {
   // The mark of send wakes at once on what the user had ticked before this block
   // was made, and sleeps for good once the answers went.
   planReady(box, one.id, items.length);
+  planAskShown(box);
+}
+
+// The questions are what the model is waited for, so the talk is brought to a
+// questionnaire that comes new into it. The head of the block is stood at the top
+// of the chat, and the scroll the chat cannot make is held back by the browser
+// itself: a short sheet ends with its button of send in view, and a long one
+// begins where it is read from and is gone down into by scrolling. A sheet that
+// stands whole in view is left alone, and so is one that stands already - the
+// state is read again and again, and a sheet that jumped on every read could not
+// be answered by the hand that was busy ticking boxes.
+function planAskShown(box) {
+  var room = el.thread;
+  if (!room || !box || !box.isConnected) { return; }
+  var held = box.getBoundingClientRect();
+  var seen = room.getBoundingClientRect();
+  var edge = Math.round(seen.top) + 12;
+  if (Math.round(held.top) >= edge && Math.round(held.bottom) <= Math.round(seen.bottom)) { return; }
+  room.scrollTop = Math.max(0, room.scrollTop + Math.round(held.top) - edge);
 }
 
 // The mark of send wakes when the user has answered something, and sleeps while
@@ -8211,19 +8504,16 @@ function addTurn(box, turn) {
 }
 
 function drawThread(s) {
+  // The state the thread is made from is the last state the page stands on, so
+  // the one block of an answer, which is gathered from the thread, is gathered
+  // from these messages and not from the ones of an earlier look.
+  cur = s;
   var box = el.col;
   foldsFollowSettings();
   var items = s.messages.slice();
   // A handoff summary is written out of sight: nothing of it is put on the page
   // while it grows, so no live answer stands while the program is at one.
-  if (s.generating && !s.summarising) {
-    items.push({
-      id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
-      reasoning_ms: s.reasoning_ms || 0, reasoning_done: !!s.reasoning_done,
-      tool: '', tools: s.live_tools || [], mono: false, failed: false, when: '',
-      work: s.live_work || [], work_head: s.live_work_head || ''
-    });
-  }
+  if (s.generating && !s.summarising) { items.push(liveMessage(s)); }
   if (items.length === 0) {
     stopInk();
     if (box.dataset.key !== 'blank') {
@@ -8336,7 +8626,10 @@ function drawThread(s) {
       if (q >= 0) { placeEnd(turns[q], plan[q]); }
     }
   }
-  if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
+  if (stick) {
+    el.thread.scrollTop = el.thread.scrollHeight;
+    stepHeadShown();
+  }
 }
 
 // Send the blocks of code of a part of the chat back to their first line, when
@@ -8421,6 +8714,72 @@ function giftWhole(one) {
   return one.extension ? one.name + '.' + one.extension : one.name;
 }
 
+// The kind of a file of an offer, in the words a save dialog of the browser reads.
+// The map is short on purpose: a file of a kind it does not know is saved under
+// whatever ending the user writes, which is what a dialog offers when nothing is
+// asked for.
+var GIFT_MIMES = {
+  txt: 'text/plain', log: 'text/plain', md: 'text/markdown',
+  markdown: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
+  json: 'application/json', html: 'text/html', htm: 'text/html', css: 'text/css',
+  js: 'text/javascript', mjs: 'text/javascript', svg: 'image/svg+xml',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', pdf: 'application/pdf', zip: 'application/zip',
+  gz: 'application/gzip', tar: 'application/x-tar', mp3: 'audio/mpeg',
+  wav: 'audio/wav', mp4: 'video/mp4', rs: 'text/plain', py: 'text/x-python',
+  c: 'text/plain', h: 'text/plain', toml: 'application/toml',
+  yaml: 'application/yaml', yml: 'application/yaml'
+};
+
+// The words of the kind for one file of an offer. Nothing comes back for a file
+// with no ending, or of a kind the map does not know.
+function giftMime(one) {
+  var tail = String((one && one.extension) || '').toLowerCase();
+  return GIFT_MIMES[tail] || '';
+}
+
+// Where a file of an offer is to go. A browser that answers to
+// `showSaveFilePicker` is asked, and the native dialog of the operating system
+// comes up: the user chooses the folder, may write the name again, and the bytes
+// are written there. The browser answers only where the page stands on a secure
+// place - the machine itself, or a name behind https - and only while the hand of
+// the user is still on the button, which is why the ask is the first thing a
+// download does and not the last.
+//
+// `plain` comes back when the browser cannot ask or would not: the file then goes
+// to the folder the browser downloads into, as it always did. `cancel` comes back
+// when the user let the dialog go, which is a thing they said no to, so nothing is
+// asked for and nothing is written. Otherwise the handle of the file the user chose
+// comes back, in a word of its own.
+function saveChosen(name, mime) {
+  if (!window.showSaveFilePicker) { return Promise.resolve('plain'); }
+  var wants = { suggestedName: name || 'a-file' };
+  if (mime) {
+    var accept = {};
+    accept[mime] = [];
+    wants.types = [{ description: name || 'a file', accept: accept }];
+  }
+  return window.showSaveFilePicker(wants).then(function (held) {
+    return { handle: held };
+  }, function (why) {
+    return (why && String(why.name) === 'AbortError') ? 'cancel' : 'plain';
+  });
+}
+
+// Write the bytes of an offer into the file the user chose in the dialog. The
+// handle is opened, written and closed; a handle that will not open, or a disk
+// that will not take the bytes, is said on the button, which is where the user is
+// looking.
+function writeChosen(where, made, button) {
+  if (!where || !where.handle) { return Promise.resolve(false); }
+  return where.handle.createWritable().then(function (held) {
+    return held.write(made).then(function () { return held.close(); });
+  }, function () {
+    failGift(button, 'Not written');
+    return false;
+  });
+}
+
 // Take a file the browser has been given the road to.
 function takeDown(href, name) {
   var link = document.createElement('a');
@@ -8447,26 +8806,44 @@ function failGift(button, words) {
   }, 2400);
 }
 
-// Take one file of an offer. The bytes are asked for first, so a file that has
+// Take one file of an offer. The dialog of the browser is asked first, while the
+// hand is on the button, and the bytes are asked for after it, so a file that has
 // gone out of the room of the chat says so instead of bringing down nothing.
 function takeGift(one, button) {
-  window.fetch(giftHref(one)).then(function (answer) {
-    if (!answer.ok) { failGift(button, 'Not here'); return null; }
-    return answer.blob().then(function (made) {
-      takeDown(window.URL.createObjectURL(made), giftWhole(one));
-    });
-  }).catch(function () { failGift(button, 'Not here'); });
+  var whole = giftWhole(one);
+  saveChosen(whole, giftMime(one)).then(function (where) {
+    if (where === 'cancel') { return; }
+    window.fetch(giftHref(one)).then(function (answer) {
+      if (!answer.ok) { failGift(button, 'Not here'); return null; }
+      return answer.blob().then(function (made) {
+        if (where === 'plain') {
+          takeDown(window.URL.createObjectURL(made), whole);
+          return;
+        }
+        writeChosen(where, made, button);
+      });
+    }).catch(function () { failGift(button, 'Not here'); });
+  });
 }
 
 // Take the whole of an offer at once. The archive is made in the memory of the
-// program and is never written out to the room of the chat.
+// program and is never written out to the room of the chat. The dialog is asked
+// for the archive by the same rule as it is for one file.
 function takeGifts(list, button) {
-  window.fetch(giftZipHref(list)).then(function (answer) {
-    if (!answer.ok) { failGift(button, 'Not here'); return null; }
-    return answer.blob().then(function (made) {
-      takeDown(window.URL.createObjectURL(made), giftWhole(list[0]) + '.zip');
-    });
-  }).catch(function () { failGift(button, 'Not here'); });
+  var whole = giftWhole(list[0]) + '.zip';
+  saveChosen(whole, 'application/zip').then(function (where) {
+    if (where === 'cancel') { return; }
+    window.fetch(giftZipHref(list)).then(function (answer) {
+      if (!answer.ok) { failGift(button, 'Not here'); return null; }
+      return answer.blob().then(function (made) {
+        if (where === 'plain') {
+          takeDown(window.URL.createObjectURL(made), whole);
+          return;
+        }
+        writeChosen(where, made, button);
+      });
+    }).catch(function () { failGift(button, 'Not here'); });
+  });
 }
 
 // One file of an offer: the mark of its kind, its name with the ending under it,
@@ -8701,11 +9078,22 @@ function stepsBlock(plan, chosen) {
   // the block grows upward, and the step the user is reading is never covered.
   // A step with fewer lines needs no moving - nothing of the block is out of
   // sight then, and pulling the chat up under the answer would only shake it.
+  //
+  // A step longer than the chat itself has no room above to take. Holding its
+  // bottom edge leaves the head of the block, and the first lines of the step
+  // with it, above the chat, where no scroll can bring them back: the chat stops
+  // at its own head. The growth is therefore given back above only while the head
+  // of the block stands in view. Past that the chat stands at the head of the
+  // block instead, and the rest of the long step is read by scrolling down.
   function holdBottom(before) {
     var room = el.thread;
     if (!room) { return; }
     var delta = Math.round(box.getBoundingClientRect().height - before);
-    if (delta > 0) { room.scrollTop += delta; }
+    if (delta <= 0) { return; }
+    room.scrollTop += delta;
+    var edge = Math.round(room.getBoundingClientRect().top) + 12;
+    var head = Math.round(box.getBoundingClientRect().top);
+    if (head < edge) { room.scrollTop = Math.max(0, room.scrollTop + head - edge); }
   }
 
   // The step the block stands at, and the row of buttons that goes with it. The
@@ -8793,6 +9181,29 @@ function fitStepRows() {
 }
 
 window.addEventListener('resize', fitStepRows);
+
+// The head of the block of the steps is never left above the chat. A block of the
+// steps that is longer than the chat cannot be followed to its end and read from
+// its head at the same time, and the head wins once, when the block comes into the
+// chat: it names the list, counts the steps and carries the step the block stands
+// at, while the end of it is only the last lines of that one step. The rest of a
+// long step is read by scrolling down. Only the block nearest the end of the chat
+// is looked at, only while the chat follows its end, and only the first time the
+// block stands there - a block once looked at is left to the reader, who may have
+// gone down into its long step, and the chat that follows its end says so.
+function stepHeadShown() {
+  var room = el.thread;
+  if (!room) { return; }
+  var blocks = room.querySelectorAll('.steps');
+  if (!blocks.length) { return; }
+  var box = blocks[blocks.length - 1];
+  if (box.dataset.headShown) { return; }
+  box.dataset.headShown = '1';
+  var edge = Math.round(room.getBoundingClientRect().top) + 12;
+  var head = Math.round(box.getBoundingClientRect().top);
+  if (head >= edge) { return; }
+  room.scrollTop = Math.max(0, room.scrollTop + head - edge);
+}
 
 // The answers of a chat, in the order they stand: where one begins, where it
 // ends, whether the model is still writing it, what it offered to be taken away,
@@ -11751,9 +12162,12 @@ function loadProgram() {
     var cfg = res[0]; var repos = res[1] || [];
     progCfg = cfg;
     byId('fData').textContent = (cur && cur.data_dir) || '';
+    byId('fContextsInUse').textContent = (cur && cur.contexts_dir) || '';
     byId('fLlama').value = cfg.llama_dir || '';
     byId('fModels').value = cfg.models_dir || '';
     byId('fRepos').value = cfg.repositories_dir || '';
+    byId('fDataDir').value = cfg.data_dir || '';
+    byId('fContexts').value = cfg.contexts_dir || '';
     byId('fPort').value = cfg.remote_port || '';
     byId('fUpnp').checked = !!cfg.upnp_enabled;
     // The switch of the skin stands at the skin in use, which the state brought.
@@ -12169,14 +12583,19 @@ function copyModel() {
   });
 }
 
-// The Paste button. The clipboard is asked first, then the box, then the words this
-// tab copied last: the first of them that holds a shape of the settings goes into
-// the fields.
+// The Paste button. The clipboard is asked first, then the box, then - when
+// neither of them holds a word - the words this tab copied last: the first of
+// them that holds a shape of the settings goes into the fields. The memory of
+// this tab is never an answer to words that are not settings, for the user put
+// those words in the box on purpose, and a third thing behind their back would
+// move the fields of a paste that was meant to be refused.
 function pasteModel() {
   clipRead().then(function (words) {
+    var box = String(byId('mCarryBox').value || '');
+    var nothing = !String(words || '').trim() && !box.trim();
     var made = settingsFromWords(words)
-      || settingsFromWords(byId('mCarryBox').value)
-      || settingsFromWords(mdlCopied);
+      || settingsFromWords(box)
+      || (nothing ? settingsFromWords(mdlCopied) : null);
     if (!made) {
       carryNote('There was nothing to paste. Copy the settings of a model first, or put the words into the box below.', true);
       return;
@@ -12360,6 +12779,8 @@ function readProgram() {
   cfg.llama_dir = byId('fLlama').value;
   cfg.models_dir = byId('fModels').value;
   cfg.repositories_dir = byId('fRepos').value;
+  cfg.data_dir = byId('fDataDir').value;
+  cfg.contexts_dir = byId('fContexts').value;
   var port = parseInt(byId('fPort').value, 10);
   cfg.remote_port = isNaN(port) ? (cfg.remote_port || 8723) : port;
   cfg.upnp_enabled = byId('fUpnp').checked;
@@ -13660,18 +14081,93 @@ sEl('sidebtn') && sEl('sidebtn').addEventListener('click', function () { sideSho
 
 // The tooltips of the page are drawn by the page itself. The tooltip of the
 // machine is a grey box that answers to none of the colours of the chat, and in
-// the window of the program it is not even themed; so the words a part carries in
-// its `title` are borrowed for a tooltip of the chat's own colours. The `title` is
-// taken away while the tooltip stands, for two tooltips over one part read as a
-// fault, and is put back when the pointer leaves - nothing else about the part
-// changes, a screen reader still reads the words, and any part of the page that
-// writes its own words is none the wiser.
-// A part that must never carry a tooltip of the machine stands its words in
-// `data-tip` instead. No native box can come over such a part, which is what a
-// picture wants: the grey box of the machine hides the very thing it speaks of.
-// `data-tip` is read first, so a part may name its words once and keep them.
-var tipBox = null, tipOwner = null, tipWords = '', tipTimer = null, tipWatch = null,
-    tipBorrowed = false;
+// the window of the program it is not even themed.
+//
+// A part carries its words in `title`, for that is where the machine looks for
+// them, and because a part written by hand should not have to know how the page
+// draws. The page therefore takes the words once: they move to `data-tip`, the
+// `title` goes away for good, and `aria-label` keeps them for a screen reader when
+// the part has no words of its own to read. Nothing is ever put back. Words
+// standing in a `title` once more let the grey box of the machine come up under
+// the pointer, and the `mouseover` that would have taken them away does not come
+// again until the pointer leaves the part and enters it, so a tooltip put away by
+// a scroll, a click or a key left the machine's box in charge for the rest of the
+// hover: the themed tooltip of a part and the grey box of the machine taking turns
+// over one part, which is what a reader saw.
+//
+// A part written with `data-tip` from the beginning keeps them. A part that must
+// never carry a tooltip at all keeps `title=""`, which stands over the words of an
+// ancestor and lets none of them come up; empty words are therefore never moved.
+//
+// The page writes the words of some parts again on every poll - the words of a
+// badge follow the state - and a part made new brings words of its own, so the
+// taking is stood over rather than done once: one observer over the page takes a
+// `title` whenever one appears, and a tooltip that stands reads the fresh words as
+// they come.
+var tipBox = null, tipOwner = null, tipWords = '', tipTimer = null;
+
+// The words a part carries. `data-tip` is read first, so a part may name its words
+// once and keep them; `title` is read after, for the parts written before the page
+// drew tooltips of its own.
+function tipWordsOf(one) {
+  var held = one.getAttribute('data-tip');
+  if (held !== null && String(held).trim()) { return String(held); }
+  return String(one.getAttribute('title') || '');
+}
+
+// Move the words of a `title` into `data-tip`, once and for good. Empty words are
+// left where they stand, for `title=""` is how a part says it wants no tooltip at
+// all, and taking it away would let the words of an ancestor through.
+function tipTake(one) {
+  if (!one || !one.getAttribute) { return; }
+  var words = one.getAttribute('title');
+  if (words === null || !String(words).trim()) { return; }
+  one.removeAttribute('title');
+  one.setAttribute('data-tip', words);
+  if (!one.getAttribute('aria-label')) { one.setAttribute('aria-label', words); }
+}
+
+// The taking over a piece of the page: the part itself, and the parts under it.
+function tipTakeAll(where) {
+  if (!where || !where.querySelectorAll) { return; }
+  if (where.getAttribute && where.getAttribute('title') !== null) { tipTake(where); }
+  var held = where.querySelectorAll('[title]');
+  for (var n = 0; n < held.length; n++) { tipTake(held[n]); }
+}
+
+// The page writes a `title` again on every poll, and a part made new brings one
+// with it, so both are watched and the words are taken as they appear. One
+// observer stands for the whole page, and a tooltip that stands over a part keeps
+// up with the words of it.
+function tipWatchOn() {
+  if (!window.MutationObserver || tipWatchOn.on) { return; }
+  tipWatchOn.on = new MutationObserver(function (rows) {
+    for (var n = 0; n < rows.length; n++) {
+      var one = rows[n].target;
+      if (rows[n].type === 'childList') {
+        // A part put in with its words already standing in a `title` is not a
+        // change of the title, for the title came with the part.
+        var added = rows[n].addedNodes;
+        for (var k = 0; k < added.length; k++) {
+          if (added[k].nodeType === 1) { tipTakeAll(added[k]); }
+        }
+        continue;
+      }
+      if (!one.getAttribute || one.getAttribute('title') === null) { continue; }
+      var fresh = String(one.getAttribute('title') || '');
+      tipTake(one);
+      if (one === tipOwner && fresh.trim() && fresh !== tipWords) {
+        tipWords = fresh;
+        if (tipBox && tipBox.classList.contains('on')) {
+          tipBox.textContent = tipWords;
+          tipPlace(one);
+        }
+      }
+    }
+  });
+  tipWatchOn.on.observe(document.documentElement,
+    { subtree: true, childList: true, attributes: true, attributeFilter: ['title'] });
+}
 
 function tipPlace(one) {
   var r = one.getBoundingClientRect();
@@ -13685,40 +14181,13 @@ function tipPlace(one) {
   tipBox.style.top = top + 'px';
 }
 
-// The page writes the words of some parts again on every poll - the words of a
-// badge follow the state - so the borrowed `title` would come back the moment it
-// was taken. The part is watched instead: fresh words are read, taken again, and
-// stood in the tooltip, so a tooltip that stands over a badge keeps up with it.
-function tipWatchStart(one) {
-  if (!window.MutationObserver) { return; }
-  tipWatch = new MutationObserver(function (rows) {
-    if (!tipOwner) { return; }
-    for (var n = 0; n < rows.length; n++) {
-      if (rows[n].attributeName !== 'title' || !tipOwner.hasAttribute('title')) { continue; }
-      tipWords = String(tipOwner.getAttribute('title') || '');
-      tipOwner.removeAttribute('title');
-      if (tipBox && tipBox.classList.contains('on')) {
-        tipBox.textContent = tipWords;
-        tipPlace(tipOwner);
-      }
-    }
-  });
-  tipWatch.observe(one, { attributes: true, attributeFilter: ['title'] });
-}
-
-function tipWatchStop() {
-  if (tipWatch) { tipWatch.disconnect(); tipWatch = null; }
-}
-
-// The words go back to the part they came from, unless that part was written over
-// while the tooltip stood - the words of a badge change with the state.
+// The tooltip is put away. Nothing goes back to the part, for the words stand in
+// `data-tip` from the moment the pointer came: the machine has none of them to
+// show while the pointer stays where it stands, and a part that is hovered again
+// is served the same way as the first time.
 function tipPutBack() {
   if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
-  tipWatchStop();
-  if (tipBorrowed && tipOwner && tipWords && !tipOwner.hasAttribute('title')) {
-    tipOwner.setAttribute('title', tipWords);
-  }
-  tipOwner = null; tipWords = ''; tipBorrowed = false;
+  tipOwner = null; tipWords = '';
   if (tipBox) { tipBox.classList.remove('on'); tipBox.textContent = ''; }
 }
 
@@ -13742,21 +14211,15 @@ document.addEventListener('mouseover', function (event) {
   if (one === tipOwner) { return; }
   tipPutBack();
   if (!one) { return; }
-  // The words of `data-tip` stand where they were put, for no box of the machine
-  // reads them; the words of a `title` are borrowed, for the box of the machine
-  // reads them and two tooltips over one part read as a fault.
-  var held = one.getAttribute('data-tip');
-  var words = String((held === null ? one.getAttribute('title') : held) || '');
+  // The words are taken as the pointer comes to them, so the box of the machine
+  // has nothing left to show. The tooltip of the page does not come up at once
+  // either: a pointer on its way across a row of badges is not asking for the
+  // words of every one of them.
+  tipTake(one);
+  var words = tipWordsOf(one);
   if (!words.trim()) { return; }
   tipOwner = one;
   tipWords = words;
-  tipBorrowed = held === null;
-  if (tipBorrowed) {
-    one.removeAttribute('title');
-    tipWatchStart(one);
-  }
-  // The tooltip of the machine does not come up at once either: a pointer on its
-  // way across a row of badges is not asking for the words of every one of them.
   tipTimer = setTimeout(tipShow, 320);
 }, true);
 
@@ -13773,6 +14236,12 @@ window.addEventListener('scroll', tipPutBack, true);
 window.addEventListener('resize', tipPutBack, true);
 document.addEventListener('click', tipPutBack, true);
 document.addEventListener('keydown', tipPutBack, true);
+
+// The words the page was written with, and the watching over the words that come
+// after: no part of the page has to know that the tooltip of the machine is not
+// used here.
+tipTakeAll(document);
+tipWatchOn();
 
 sideLoad();
 sideApply();

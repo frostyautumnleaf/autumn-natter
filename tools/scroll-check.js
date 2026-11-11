@@ -25,7 +25,7 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 
 const PAGES = process.env.AN_PAGE
-  ? [{ name: 'the page named', file: path.resolve(__dirname, process.env.AN_PAGE) }]
+  ? [{ name: 'the page named', file: path.resolve(path.join(__dirname, '..'), process.env.AN_PAGE) }]
   : [
     { name: 'the window', file: path.join(__dirname, '..', 'frontend', 'index.html') },
     { name: 'the browser page', file: path.join(__dirname, '..', 'web', 'page.html') }

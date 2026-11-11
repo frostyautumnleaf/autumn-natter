@@ -71,7 +71,7 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Put a question to the user and wait for the answer. Use it only when the work cannot go on without a word from the user: a secret or token that was never given, a choice the user has to make, a permission that has to be given. Ask one question, and offer up to five short answers the user may choose from; the user may always write an answer of their own instead. Say in the question why you are asking, for it is shown as the title of the ask. An ordinary question is waited for a short while and then given up, and you are told the user did not answer; use 'critical' only when you truly cannot go on, for such a question waits until the user answers.",
+                "Put a question to the user and wait for the answer. Use it only when the work cannot go on without a word from the user: a secret or token that was never given, a choice the user has to make, a permission that has to be given. Ask one question, and offer up to five short answers the user may choose from; the user may always write an answer of their own instead. Say in the question why you are asking, for it is shown as the title of the ask. An ordinary question is waited for a short while and then given up, and you are told the user did not answer; use 'critical' only when you truly cannot go on, for such a question waits until the user answers. While planning mode is on, questions about the work go to `ask_plan` instead, which stands the whole of them in the talk and waits as long as it takes: keep this tool for the thing only the user can hand you - a token, a permission - which no plan can settle in advance.",
             )),
             "parameters": {
                 "type": "object",
@@ -249,6 +249,19 @@ fn one_line(words: &str, bound: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // While planning mode is on, the questions of the work go to the questionnaire
+    // of the plan rather than to this card over the chat box: the words of the tool
+    // say so, so a model that has both in front of it chooses the one that waits as
+    // long as it takes and brings the answers back together.
+    #[test]
+    fn the_words_send_the_questions_of_a_plan_elsewhere() {
+        let made = definition();
+        let said = made["function"]["description"].as_str().expect("words");
+        assert!(said.contains("planning mode"), "{said}");
+        assert!(said.contains("ask_plan"), "{said}");
+        assert!(said.contains("instead"), "{said}");
+    }
 
     // The shape of the tool: one question, up to five answers to choose from, and
     // the two kinds of wait.

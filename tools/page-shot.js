@@ -53,7 +53,10 @@
 //
 // The scenes: home, chat, rich, markdown, streaming, streaming-code, writing,
 // processing, previews, sheet-program, sheet-model, sheet-logs, sheet-mcp,
-// mcp-menu. AN_NOKIND=1 leaves the kind of the editor of the MCP tab as it
+// mcp-menu, corp, corplive. The last two stand for the corporate display: one
+// block for an answer, holding its thoughts, the words said while the model
+// worked and the short of the work, with the answer itself outside the block.
+// AN_CORP=1 puts that display over any other scene. AN_NOKIND=1 leaves the kind of the editor of the MCP tab as it
 // stands, so the empty field of the code can be looked at. A name that ends in -dark draws the dark skin, and
 // a name that ends in -pale draws the pale one. AN_SCROLL=top puts the talk at
 // the top instead of the end.
@@ -334,6 +337,114 @@ function chats(count, open) {
   return out;
 }
 
+// ------------------------------------------------------- the corporate display
+//
+// The corporate display hides the thoughts and the calls, and gives one block for
+// an answer. That block holds the thoughts of the model, the words it wrote while
+// it worked, and the short of the work it wrote itself; the answer it ended with
+// stands outside the block, in the plain words of the chat. The shapes below are
+// the shapes `corporate::WorkBlock` gives back, so a picture of the corporate
+// display is a picture of what the engine sends.
+
+// The parts every block of the short carries, so a shape of one is written by
+// naming what stands in it and nothing else.
+function corpBase(extra) {
+  return Object.assign({
+    head: '', lines: [], tool: '', id: '', done: false, failed: false,
+    adds: 0, cuts: 0, command: '', file: '', output: '', sub: [],
+    line: false, group: false
+  }, extra || {});
+}
+
+// A heading the model wrote for its own. The lines of the short and the calls
+// that belong under it stand inside it.
+function corpHead(head, sub) {
+  return corpBase({ head: head, tool: 'work_log', sub: sub || [] });
+}
+
+// A line of the short. With calls under it the line is a block the user opens;
+// with none it is drawn as a plain line, for there is nothing to open.
+function corpLine(head, sub) {
+  return corpBase({ head: head, tool: 'work_log', line: true, sub: sub || [] });
+}
+
+// One call of one tool, come back or not.
+function corpCall(tool, id, head, extra) {
+  return corpBase(Object.assign({ tool: tool, id: id, head: head, done: true }, extra || {}));
+}
+
+// A run of calls of one tool made one after another. Its head is said in the
+// plural, with the number of the calls in it, and the calls stand under it.
+function corpGroup(tool, head, run) {
+  return corpBase({ head: head, tool: tool, group: true, done: true, sub: run });
+}
+
+// The short of the work of the first answer of the scene below. A heading of the
+// model holds two lines and the calls that fell under them: the first line was
+// written with no call after it, and the second holds a command, an edit, and a
+// run of three files made one after another.
+const CORP_WORK = [corpHead('Mending the order of the blocks', [
+  corpLine('Reading the parser to find where a list is closed.'),
+  corpLine('Running the tests of the parser.', [
+    corpCall('run_terminal', 'call-1', 'Ran a command cargo test --release markdown', {
+      command: 'cargo test --release markdown',
+      output: 'running 6 tests\ntest markdown::tests::list_after_paragraph ... ok\n' +
+        'all 6 tests passed'
+    })
+  ]),
+  corpLine('Writing the plan down, and the notes that came with it.', [
+    corpCall('edit_file', 'call-2', 'Edited a file notes/plan.md', {
+      file: 'notes/plan.md', adds: 2, cuts: 1,
+      output: 'Edited notes/plan.md (2 replacements)'
+    }),
+    corpGroup('create_file', 'Created files (3)', [
+      corpCall('create_file', 'call-3', 'Created a file notes/a.md', { file: 'notes/a.md' }),
+      corpCall('create_file', 'call-4', 'Created a file notes/b.md', { file: 'notes/b.md' }),
+      corpCall('create_file', 'call-5', 'Created a file notes/c.md', {
+        file: 'notes/c.md', done: false, failed: true,
+        output: 'Error: an error came between the file and the disk.'
+      })
+    ])
+  ])
+])];
+
+// A talk of two answers of the model, in the shapes the corporate display is made
+// of. The first answer worked: it said a word before the calls, ran a command,
+// changed a file and made three more, and ended with the words the user came for
+// outside the block. The second answer is a short question with nothing but a
+// thought in it, and its head says how long the model thought for.
+const CORP = [
+  said(1, 'You', 'Mend the order the blocks come out in, run the tests, and tell me what changed.'),
+  said(2, 'Assistant', 'I will read the parser first, then run the tests of it.', {
+    reasoning: 'The fault is in the order the blocks come out in, so read the parser before touching it.',
+    reasoning_ms: 4200, work: [], work_head: '', work_closed: false
+  }),
+  said(3, 'Tool', 'cargo test --release markdown', {
+    tool_name: 'run_terminal',
+    tool: 'running 6 tests\ntest markdown::tests::list_after_paragraph ... ok\nall 6 tests passed'
+  }),
+  said(4, 'Tool', 'notes/plan.md', {
+    tool_name: 'edit_file',
+    tool: 'Edited notes/plan.md (2 replacements)'
+  }),
+  said(5, 'Assistant',
+    'Two files changed, and the six tests of the parser pass.\n\n' +
+    '- A list that follows a paragraph keeps its place.\n' +
+    '- The bar beside a heading takes its height from the words beside it.\n\n' +
+    'One file of the three I meant to make was already standing there, so I left it.', {
+    reasoning: 'The order is mended and the tests stand. Say what changed, and say of the file that was there.',
+    reasoning_ms: 2600,
+    work: CORP_WORK,
+    work_head: 'Ran a command, Edited a file, Created files (3)',
+    work_closed: true
+  }),
+  said(6, 'You', 'And the height of the bar?'),
+  said(7, 'Assistant', 'The bar takes its height from the words beside it, and never from the block under it.', {
+    reasoning: 'A short question, and the answer of it is already known from the reading above.',
+    reasoning_ms: 11800, work: [], work_head: 'Thought for 12 seconds', work_closed: true
+  })
+];
+
 // The state of the engine, as the record of web::state.
 
 // The lists of the side bar. Two repositories stand with their chats, one with
@@ -457,7 +568,8 @@ function scene(name, dark, theme) {
     sandbox_note: 'bubblewrap works. A command sees only the working directory of '
       + 'the chat, and it has no network.',
     status: 'Ready', dark: !!dark, theme: theme || (dark ? 'dark' : 'light'),
-    data_dir: '/home/user/.local/share/autumn-natter'
+    data_dir: '/home/user/.local/share/autumn-natter',
+    contexts_dir: '/home/user/.local/share/autumn-natter/contexts'
   };
   if (name === 'chat' || name === 'rich' || name === 'parts' || name === 'streaming'
     || name === 'streaming-code' || name === 'previews') {
@@ -852,6 +964,52 @@ function scene(name, dark, theme) {
     ];
     start.context = { used: '2,040', total: '8,192', ratio: 0.25 };
   }
+  // The corporate display. The scene `corp` is a talk of two answers of the
+  // model, both come to their end. The one worked: its block holds the thoughts,
+  // the words the model said while it worked, and the short of the work it wrote,
+  // and the answer it ended with stands outside the block. The other is nothing
+  // but a thought, and the head of its block says how long the model thought for.
+  // The scene `corplive` stands in the middle of the first answer: the block is
+  // being written, its head says what the model is at, the rows of the parts
+  // written before it stand away, and the words of the answer come in outside it.
+  // AN_CORPCLOSED=1 says the model closed the block with its own tool, so the head
+  // stands done and the words of the answer stand after that mark. AN_CORP=1 puts
+  // the display over any other scene, which is how a plain talk is read behind the
+  // one block.
+  if (name === 'corp' || name === 'corplive') {
+    start.home = false;
+    start.chat = { id: 'c1', title: 'Order of the blocks' };
+    start.chatting.corporate = true;
+    start.chats = chats(3, 1);
+    start.carousel = { index: 1, count: 3, blank: false };
+    start.context = { used: '3,204', total: '8,192', ratio: 0.39 };
+    start.code = true;
+    start.search = true;
+    if (name === 'corp') {
+      start.messages = CORP;
+      start.status = 'Ready';
+    } else {
+      start.messages = CORP.slice(0, 4);
+      start.generating = true;
+      start.live = 'Two files changed, and the six tests of the parser pass.\n\n'
+        + '- A list that follows a paragraph keeps its place.\n';
+      start.reasoning = 'The order is mended and the tests stand. Say what changed, '
+        + 'and say of the file that was there.';
+      start.reasoning_ms = 2600;
+      start.reasoning_done = true;
+      start.live_work = CORP_WORK;
+      start.live_work_head = 'Creating files (3)';
+      start.live_work_closed = false;
+      start.status = 'Answering';
+      if (process.env.AN_CORPCLOSED === '1') {
+        start.live_work_head = 'Ran a command, Edited a file, Created files (3)';
+        start.live_work_closed = true;
+      }
+    }
+  }
+  if (process.env.AN_CORP === '1') {
+    start.chatting.corporate = true;
+  }
   return start;
 }
 
@@ -1099,7 +1257,8 @@ async function main() {
   const puppeteer = require('puppeteer');
   let shell = '';
   try {
-    shell = execSync('find "' + process.env.HOME + '/.cache/puppeteer" '
+    shell = execSync('find "' + (process.env.PUPPETEER_CACHE_DIR
+      || process.env.HOME + '/.cache/puppeteer') + '" '
       + '-name chrome-headless-shell -type f | head -1').toString().trim();
   } catch (e) { shell = ''; }
 

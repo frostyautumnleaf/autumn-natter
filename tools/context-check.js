@@ -109,10 +109,14 @@ const STATES = STEPS.map(function (step, n) { return stateOf(Object.assign({ n: 
     if (fetchMode) {
       window.fetch = function (url) {
         if (String(url).indexOf('/api/state') === 0) {
+          // Only a look at the state of the engine moves the list of states on.
+          // A page of the remote mode asks for other things between two looks -
+          // the lists, a plan, the bytes of a file - and counting those as well
+          // sent the states out at a pace no window keeps, so a number of the
+          // meter was gone before the roll had stood on it.
           asked++;
           return Promise.resolve({ json: function () { return Promise.resolve(held()); } });
         }
-        asked++;
         return Promise.resolve({ json: function () { return Promise.resolve({ ok: true }); } });
       };
       return;

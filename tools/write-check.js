@@ -4,11 +4,18 @@
 // every look the block is read back. Two things the user sees while a call is
 // written are looked at too: only one mark beats, and the block does not stand
 // hard against the words above it.
+//   node write-check.js                  # the window page
+//   AN_PAGE=web/page.html node write-check.js            one face
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
 
-const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
+// The page is loaded from the file of the face, as the other checks load it: the
+// writer of a live answer needs no bridge and no engine, so both faces are read
+// the same way.
+const PAGE = process.env.AN_PAGE
+  ? path.resolve(path.join(__dirname, '..'), process.env.AN_PAGE)
+  : path.join(__dirname, '..', 'frontend', 'index.html');
 
 (async () => {
   const shell = process.env.AN_SHELL_BIN;
@@ -70,7 +77,10 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
           continue;
         }
         var box = ink.tools[0];
-        var written = box.text.textContent;
+        // The words of the block stand in the writing record of the box: the
+        // command is held between the part that grew and the part behind it, with
+        // the mark of the writing between the two.
+        var written = box.writing.text.textContent;
         if (written !== one.command) {
           faults.push('the command on the page is ' + JSON.stringify(written) + ' at ' + s +
             ', not ' + JSON.stringify(one.command) + ' ' + where);
@@ -78,17 +88,26 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
         // The mark of the writing never stands before the words of it.
         var caret = box.caret;
         if (!caret.parentNode) { faults.push('the mark of the writing is gone ' + where); continue; }
-        if (caret.nextSibling) {
-          faults.push('words stand after the mark of the writing ' + where);
+        // The mark of the writing never stands before the words of it. The block
+        // holds the words in two nodes, the part that grew before the mark and the
+        // part behind it, so what is looked at is whether anything stands behind
+        // the mark - an empty node behind it is the shape of the block.
+        var after = '';
+        for (var node = caret.nextSibling; node; node = node.nextSibling) {
+          after += String(node.nodeValue === null ? (node.textContent || '') : node.nodeValue);
         }
-        var inCommand = caret.parentNode === box.text;
+        if (after) {
+          faults.push('words stand after the mark of the writing ' + where
+            + ': ' + JSON.stringify(after.slice(0, 24)));
+        }
+        var inCommand = caret.parentNode === box.writing.text;
         if (one.purpose && inCommand) {
           faults.push('the mark stayed on the command while the reason was written ' + where);
         }
         if (!one.purpose && !inCommand) {
           faults.push('the mark left the command before the reason came ' + where);
         }
-        if (one.purpose && box.why.words.nodeValue !== one.purpose) {
+        if (one.purpose && box.why.text.textContent !== one.purpose) {
           faults.push('the reason on the page is behind ' + where);
         }
         // The head of the block says the first line of the command.
@@ -190,13 +209,17 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
           break;
         }
         var partBox = ink.tools[0];
-        if (partBox.words.nodeValue !== half.command) {
-          faults.push('the body of the file block is ' + JSON.stringify(partBox.words.nodeValue)
+        // The words of a block of a file are held the same way as a command is:
+        // in the writing record, between the part that grew and the part behind
+        // it, so the whole of what stands in the block is read off the block.
+        if (partBox.writing.text.textContent !== half.command) {
+          faults.push('the body of the file block is '
+            + JSON.stringify(partBox.writing.text.textContent)
             + ' and not the words of the change ' + where);
         }
         // A half of a change that has come in can be read. The block was
         // once blank until the two halves of a change happened to meet.
-        if (half.command.trim() && !partBox.text.textContent.trim()) {
+        if (half.command.trim() && !partBox.writing.text.textContent.trim()) {
           faults.push('the body of the file block was blank over words that had come ' + where);
         }
         var head = found[0].querySelector('.cmd').textContent;

@@ -18,8 +18,8 @@ const USE_FETCH = process.env.AN_FETCH === '1';
 // kinds of tool stand switched on, and `all` whether the badge of the tools is.
 function stateOf(tools, all) {
   const held = {};
-  ['commands', 'files', 'picture', 'hand_out', 'display', 'ask', 'suggest',
-   'infographics'].forEach(function (part) {
+  ['commands', 'files', 'picture', 'hand_out', 'display', 'ask', 'suggest', 'steps',
+   'rerun', 'infographics'].forEach(function (part) {
     held[part] = tools;
   });
   return {
@@ -160,9 +160,13 @@ async function main() {
   if (lines.indexOf('All the tools') >= 0) { throw new Error('the badge is a line of its own menu'); }
   // Every kind of tool of the program is a line of the menu, in the order the
   // list of the lines gives them. The line of the handoff summary stands only
-  // while a summary is chosen, so it is not looked for here.
+  // while a summary is chosen, so it is not looked for here. The steps of an
+  // answer and the running of a failed call again are kinds of their own, added
+  // after the menu was first drawn, and they stand between the offers of the
+  // next road and the making of an infographic.
   const named = ['Terminal commands', 'File management', 'View images', 'Offer files',
-    'Show files', 'Ask questions', 'Suggest next steps', 'Create infographics'];
+    'Show files', 'Ask questions', 'Suggest next steps', 'Show steps', 'Rerun failed calls',
+    'Create infographics'];
   if (lines.join('|') !== named.join('|')) {
     throw new Error('the menu of the tools is not named for what it lets through: ' + lines);
   }
