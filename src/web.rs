@@ -147,6 +147,25 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                     "path": one.path,
                     "size": one.size,
                 })).collect::<Vec<Value>>(),
+                // The next steps one run of the suggestion tool offered. The page
+                // draws a button for each of them at the end of the answer that made
+                // the offer, and only once the model has stopped writing. A press
+                // sends the prompt as a message of the user.
+                "suggestions": m.suggestions.iter().map(|one| json!({
+                    "label": one.label,
+                    "prompt": one.prompt,
+                })).collect::<Vec<Value>>(),
+                // The steps of the work one run of the steps tool showed. The page
+                // draws one block at the end of the answer that made the call,
+                // above the other blocks an answer ends with, and shows one step
+                // at a time.
+                "steps": m.steps.as_ref().map(|one| json!({
+                    "title": one.title,
+                    "steps": one.steps.iter().map(|step| json!({
+                        "label": step.label,
+                        "content": step.content,
+                    })).collect::<Vec<Value>>(),
+                })),
                 "when": store::format_clock(m.when),
                 // A summarisation carries the two numbers of the room it stood
                 // for, and the day as well as the hour, for the card of it is
@@ -341,6 +360,16 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "hand_out": snap.tool_switches.hand_out,
             "display": snap.tool_switches.display,
             "ask": snap.tool_switches.ask,
+            "suggest": snap.tool_switches.suggest,
+            // The list of the steps of the work, and the running of a failed
+            // call again. Both stand on until the user takes them out.
+            "steps": snap.tool_switches.steps,
+            "rerun": snap.tool_switches.rerun,
+            "infographics": snap.tool_switches.infographics,
+            // The line of the handoff summary stands in the drop-down only
+            // while `compaction.type` below says that the room is made by a
+            // summary; the page hides the line when it does not.
+            "summarise": snap.tool_switches.summarise,
         },
         "search": snap.search_enabled,
         "sandbox": snap.sandbox_enabled,
@@ -369,7 +398,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox_fetch": snap.sandbox_access.fetch,
         "status": snap.status,
         "dark": snap.dark_mode,
-        // The skin of the pages: `light`, `dark` or `corporate`. The word of the skin
+        // The skin of the pages: `light`, `dark`, `silver` or `corporate`. The word of the skin
         // travels beside the switch of the two that stood before the third, so a page
         // written for the two of them still reads a skin.
         "theme": snap.theme,
@@ -383,6 +412,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "date_new_chat": snap.chat_date_new_chat,
             "highlight": snap.chat_highlight,
             "bold_markdown": snap.chat_bold_markdown,
+            // The colours the model asks for: painted on the words while this
+            // stands on, and read as plain words while it stands off.
+            "colour_text": snap.chat_colour_text,
             "seamless": snap.chat_seamless,
             // The corporate way of showing the work. The page hides the
             // thoughts and the calls when it stands, and draws one block for an
@@ -394,6 +426,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "chapters": snap.chat_chapters,
             // The line of the user's own messages at the right of the chat.
             "userline": snap.chat_userline,
+            // Whether a message you sent is carried into the chat with a
+            // little movement. The movement is all on the screen, so the
+            // engine only says that the switch stands.
+            "send_anim": snap.chat_send_anim,
             // Whether the talk a chat worked through is kept in a file, so that
             // it does not have to be read through again. The sheet of the
             // settings shows the switch; the keeping itself is all behind the
@@ -508,6 +544,24 @@ pub fn save_config(engine: &crate::engine::Engine, config: Value) -> Value {
             "The settings could not be read: {}",
             problem
         )),
+    }
+}
+
+// The lines of the pre-written prompts, for the Program tab of the settings: the
+// id, the name and the short account of each. The words of a prompt are not in
+// these lines. The page asks for the words of one prompt when the user opens it
+// to read, by the same call with the id of the prompt in it.
+pub fn prompts_value(id: &str) -> Value {
+    if id.is_empty() {
+        return json!({ "lines": crate::prompts::lines() });
+    }
+    match crate::prompts::words(id) {
+        Some(words) => json!({
+            "id": id,
+            "name": crate::prompts::find(id).map(|p| p.name).unwrap_or(id),
+            "words": words,
+        }),
+        None => refused("No prompt of that name"),
     }
 }
 
@@ -905,6 +959,20 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         // The page asks under a message, when the pointer goes over it.
         "/api/delete_message" | "delete_message" => {
             engine.remove_message(text_field(&value, "id"));
+            done()
+        }
+        // Take a message of the user back out of the talk and into the chat box,
+        // with everything that came after it. The page has read the files hung on
+        // the message before it asks, so those files are left where they stand and
+        // go out again with the words.
+        "/api/rewrite_message" | "rewrite_message" => {
+            engine.rewrite_message(text_field(&value, "id"));
+            done()
+        }
+        // Write the words of an answer again, where they stand. The talk around it
+        // does not move, for the user is putting right what the model said.
+        "/api/edit_answer" | "edit_answer" => {
+            engine.edit_answer(text_field(&value, "id"), text_field(&value, "body"));
             done()
         }
         // Write the answer of a message again. The talk is cut back to the message

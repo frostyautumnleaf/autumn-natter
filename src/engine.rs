@@ -23,14 +23,19 @@ use crate::display;
 use crate::download;
 use crate::editfile;
 use crate::gpu::{self, Gpu};
+use crate::infographic;
 use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
 use crate::mcp;
 use crate::proglog;
 use crate::corporate;
 use crate::planning;
+use crate::rerun;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
+use crate::steps;
+use crate::suggest;
+use crate::summarise;
 use crate::tools;
 use crate::viewimage;
 
@@ -305,11 +310,27 @@ impl Asking {
     }
 }
 
+// The one thing a call names, with the word a tool says when that name has not
+// come in yet, or never came. The body of the block of such a tool holds the
+// parts of the call as the model writes them, so the head cannot take its words
+// from there: the first line of those parts is the name of a part, and not the
+// one thing the call is pointed at.
+fn named(one: String, else_word: &str) -> String {
+    if one.trim().is_empty() {
+        return String::from(else_word);
+    }
+    one
+}
+
 // The words of a call that the user is given: the command of a terminal run,
 // or the one thing another tool names. The head of the block of a run and the
 // block of a call being written both come from here, so the two cannot say
 // different things about one call. The reason the model gave rides along for the
 // terminal tool, which is the only tool that ever asked for one.
+//
+// A tool whose words are not a command or a file shows its parts: every part of
+// the call that has come in stands on a line of its own under its name, so the
+// user watches the call grow instead of watching one word that never changes.
 fn words_of(name: &str, raw: &str) -> (String, String, String) {
     match name {
         tools::TOOL_NAME => {
@@ -321,30 +342,103 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             (command, String::new(), target)
         }
         // A file being offered to the user is named by the file itself.
-        download::NAME => {
-            let one = download::partial_words(raw);
-            (one.clone(), String::new(), one)
-        }
+        download::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(download::partial_words(raw), "a file"),
+        ),
         // A show of the contents of files is named by the first file of it.
-        display::NAME => {
-            let one = display::partial_words(raw);
-            (one.clone(), String::new(), one)
-        }
+        display::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(display::partial_words(raw), "a file"),
+        ),
         // A question of the user is named by the question.
-        askuser::NAME => {
-            let one = askuser::partial_words(raw);
-            (one.clone(), String::new(), one)
-        }
+        askuser::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(askuser::partial_words(raw), "a question"),
+        ),
+        // The offer of the next steps is named by the first button of it.
+        suggest::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(suggest::partial_words(raw), "the next step"),
+        ),
+        // The list of the steps of the work is named by the title of the block,
+        // or by the first step. The body of the block holds every step so far.
+        steps::NAME => (
+            steps::live_body(raw),
+            String::new(),
+            steps::partial_words(raw),
+        ),
+        // A call to run another call again is named by the tool it names. The
+        // body holds the changes as they are written.
+        rerun::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            rerun::partial_words(raw),
+        ),
         // A look about the web is named by the words to look for, or by the
-        // address that is to be read.
-        search::NAME => (search::partial_words(raw), String::new(), String::new()),
-        // The tools of planning name themselves: one changes the plan file of
-        // this chat, one reads it back, and one says the plan is agreed.
-        planning::EDIT_NAME => (String::from("the plan file"), String::new(), String::new()),
-        planning::READ_NAME => (String::from("the plan file"), String::new(), String::new()),
-        planning::ASK_NAME => (String::from("the questions of the plan"), String::new(), String::new()),
-        planning::END_NAME => (String::from("the plan is agreed"), String::new(), String::new()),
-        viewimage::NAME | viewimage::ONE_NAME => (viewimage::partial_words(raw), String::new(), String::new()),
+        // address that is being read.
+        search::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(search::partial_words(raw), "the web"),
+        ),
+        // The tools of planning name themselves: one writes the whole plan, one
+        // changes the plan file of this chat, one reads it back, and one says the
+        // plan is agreed. The words of the plan stream in the body.
+        planning::INIT_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the plan file"),
+        ),
+        planning::EDIT_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the plan file"),
+        ),
+        planning::READ_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the plan file"),
+        ),
+        planning::ASK_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the questions of the plan"),
+        ),
+        planning::END_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the plan is agreed"),
+        ),
+        // The handoff summary is named by the talk it puts away. The reason the
+        // model gives with the call rides beside it.
+        summarise::NAME => (
+            tools::live_arguments(raw),
+            summarise::reason(raw),
+            String::from("the talk of this chat"),
+        ),
+        viewimage::NAME | viewimage::ONE_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(viewimage::partial_words(raw), "a picture"),
+        ),
+        // A tool of the infographic suite is named by the tool and the project.
+        name if infographic::is_tool(name) => (
+            tools::live_arguments(raw),
+            String::new(),
+            infographic::shown(name, raw),
+        ),
+        // The short of the work the model writes for the corporate display is
+        // named by the heading of the area of work it stands under.
+        corporate::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(corporate::partial_words(raw), "the short of the work"),
+        ),
         // A tool of a server of the user's own is named by the tool itself,
         // and the parts the model is writing are the words of the block.
         name if mcp::is_tool(name) => (
@@ -641,45 +735,13 @@ pub const CANCELLED_WORDS: &str = "The call was cancelled. The conversation reac
 // the room stands behind it: the user pressed stop, and the tool never ran.
 pub const STOPPED_WORDS: &str = "The call was cancelled: you stopped the answer while the call was being written, so the writing was stopped and the tool never ran";
 
-// The most of the words of a cut-off tool call that go back to the model. The
-// words of such a call are seldom short: a model writing a file out has the
-// whole of the file in them, and the room the summarisation just made is eaten
-// up by sending all of that again. The head of a call names what it was for --
-// the file, the command, the first of the words -- which is the part worth the
-// room.
+// The most of the words of a cut-off tool call that are kept. The words of such
+// a call are seldom short: a model writing a file out has the whole of the file
+// in them. The block the user is shown and the telling the summary is written of
+// both give the head of the call, which names what it was for: the file, the
+// command, the first of the words. More words than this are a file, and the file
+// is the work the summary of the turn stands for.
 pub const GREATEST_CUT_ARGS: usize = 4000;
-
-// The least of the words of a cut-off call that are kept, whatever the room. A
-// call is kept for what its head names, and fewer words than this would not even
-// name the file the model was writing into.
-// The head of a call is what names the work it was, and a head of fewer words
-// than this would not even name the file the model was writing into.
-pub const LEAST_CUT_ARGS: usize = 120;
-
-// How much of the words of a cut-off call may go back to the model. The room the
-// summarisation made is spent on the words of the call as much as on anything
-// else, and a telling that filled the room again would have the model stopped a
-// second time before it had a word to give -- which is what the limit is looked
-// at for. The telling is therefore bounded by the limit set for the summarisation
-// and not by the whole of the window: the ask that carries the telling is weighed
-// against that limit, and a telling that stands the ask past it brings the
-// writing to a stop again at the first word of the answer, the room is made
-// again, and the selfsame call is asked for again with no end to it. A tenth of
-// the limit is held back over it besides, for the answer the model is to write,
-// and the telling itself is given at most a tenth of the limit: it is the echo of
-// a call that never ran, and the room it takes is room the work has not. What is
-// left is turned into characters at the four characters to a token the estimate of
-// a talk goes by.
-pub fn cut_bound(used: u64, limit: u64) -> usize {
-    if limit == 0 || limit == u64::MAX {
-        // Nothing is known of the room, or no limit stands at all, so the most a
-        // telling is ever given.
-        return GREATEST_CUT_ARGS;
-    }
-    let left = limit.saturating_sub(used + limit / 10);
-    let allowed = left.min(limit / 10);
-    (allowed as usize * 4).clamp(LEAST_CUT_ARGS, GREATEST_CUT_ARGS)
-}
 
 // The first `wanted` characters of a text, counted as characters and not as
 // bytes, for the words of a call hold whatever the model was writing.
@@ -687,13 +749,16 @@ fn head_chars(text: &str, wanted: usize) -> String {
     text.chars().take(wanted).collect()
 }
 
-// The words of a tool call the room gave out under, given back to the model as
-// the words of the turn that was cut short. Three things have to come across:
-// that the call was cancelled and never ran, that the words of it are only as
-// much as the model had written when it was stopped, and that the room has since
-// been made, so the work may go on. The whole call is asked for again, for half
-// a call is of no use to anyone -- and a call bigger than the room is asked for
-// in pieces, for the same room will give out under it again.
+// The words of a tool call the room gave out under, given back as the words of
+// the turn that was cut short. Three things have to come across: that the call
+// was cancelled and never ran, that the words of it are only as much as the model
+// had written when it was stopped, and that nothing of it is wanted now.
+//
+// The telling stands above the mark of the summarisation, so the model that reads
+// it is most often the model writing the summary, and an ask for a summary must
+// not read as a call to work. The words therefore say out loud that the telling is
+// a record and not a question. A model asked on behind the handoff block reads the
+// summary in place of these words.
 //
 // Whether the words of the call stop in the middle is told by the words
 // themselves: a call that shut all its marks is whole as far as anyone can tell,
@@ -701,7 +766,7 @@ fn head_chars(text: &str, wanted: usize) -> String {
 // hear either way.
 pub fn cut_words(name: &str, args: &str) -> String {
     format!(
-        "[A tool call was cancelled. The conversation reached the summarisation limit while the model was still writing the call, so the program stopped the writing and the tool never ran: nothing of what the call asked for was done. Space has since been made by a handoff summary, and the conversation continues. The call as it was when the writing stopped is given below. If the work still needs this, write the call again from the start, in parts small enough to fit in the context the model has.\n{}\n{}]",
+        "[A tool call was cancelled. The conversation reached the summarisation limit while the model was still writing the call, so the program stopped the writing and the tool never ran: nothing of what the call asked for was done. The call as it was when the writing stopped is given below. It is a record of the turn and not a question: do not answer it, and do not run what it asked for. If the work still needs it, write the call again from the start, in parts small enough to fit in the context.\n{}\n{}]",
         named_call(name),
         cut_call_text(name, args)
     )
@@ -822,42 +887,78 @@ pub fn date_message(cfg: &Config, began: i64) -> Option<Value> {
     }))
 }
 
+// The words before the talk that come from the settings: the marked pre-written
+// prompts in front, then the words the user wrote. A chat that marks nothing and
+// writes nothing gets nothing, and stands then exactly as it stood before these
+// prompts existed. The two blocks are kept apart by a blank line, so a prompt
+// that ends on a list does not run into the words of the user.
+fn system_words_of(cfg: &Config) -> String {
+    let front = crate::prompts::front(&cfg.chat_system_prompts_on);
+    let own = config::sanitize_system_prompt(&cfg.chat_system_prompt);
+    if front.is_empty() {
+        return own;
+    }
+    if own.is_empty() {
+        return front;
+    }
+    format!("{front}\n\n{own}")
+}
+
+// The mark llama.cpp puts into its template where a picture goes: `<__media_`
+// with a random tail, `<__media_Qv1A...__>`. The server counts those marks in the
+// words it is sent and looks for a picture at every one of them, and it refuses
+// the whole ask when a mark stands where no picture is: `number of media markers
+// in text (1) exceeds number of bitmaps (0)`, which the window reads as `Failed
+// to tokenize prompt`. Words of that shape come into a chat on their own: the
+// model asks for the properties of an inference server with a command and the
+// answer carries the mark, or the user pastes such a reading. The mark then rides
+// in the talk for ever after, and every later ask is refused, so the chat is
+// stuck on one line of output.
+//
+// Nothing here sends a picture inside words: a picture goes as a part of its own
+// (`image_url`), and the server puts its own mark where the template wants one.
+// A mark found among the words is therefore always a thing being talked about
+// and never a place for a picture. One space after the opening bracket breaks the
+// mark, and the words still read as they did: the server sees no place for a
+// picture, and the chat keeps its room.
+fn break_media_marks(words: &str) -> Option<String> {
+    if !words.contains("<__media_") {
+        return None;
+    }
+    Some(words.replace("<__media_", "< __media_"))
+}
+
+// The same over a whole ask: every string at whatever depth is looked at, so a
+// mark in the receipt of a command, in the words of an answer, in the arguments
+// of a call or in a line of a file the model read is broken as well. Words with
+// no mark in them are left exactly where they stand.
+fn break_media_marks_in(value: &mut Value) {
+    match value {
+        Value::String(words) => {
+            if let Some(made) = break_media_marks(words) {
+                *words = made;
+            }
+        }
+        Value::Array(items) => {
+            for one in items.iter_mut() {
+                break_media_marks_in(one);
+            }
+        }
+        Value::Object(fields) => {
+            for (_name, one) in fields.iter_mut() {
+                break_media_marks_in(one);
+            }
+        }
+        _ => {}
+    }
+}
+
 // Where the newest handoff summary that was really written stands among the
 // messages of a chat. None means the chat was never summarised.
 fn last_summary_place(chat: &Chat) -> Option<usize> {
     chat.messages.iter().rposition(|message| {
         message.role == "Summary" && !message.body.trim().is_empty()
     })
-}
-
-// True when the talk that goes out to the server ends on a call the server has
-// to answer: a call of a tool, the receipt of one, or the telling of a call that
-// was stopped while the model wrote it. A server set to read calls
-// out of an answer is put to work behind such a call, and the words of the turn
-// that holds it are never given back. The two asks that are not an answer of the
-// model -- the ask for a handoff summary, and the ask that puts the model back to
-// work behind one -- therefore have to name the words of that call themselves:
-// `handoff_block` says not to answer what stands before it, and a call that begs
-// an answer is the one thing a model cannot read past. It writes the call instead
-// of going on with the work, and the call of a summary ask is thrown away, so
-// nothing at all comes of the ask and the chat stands still under its heading.
-fn ends_on_a_call(history: &Value) -> bool {
-    match history.as_array().and_then(|items| items.last()) {
-        Some(last) => {
-            last.get("tool_calls").is_some()
-                || last.get("role").and_then(|r| r.as_str()) == Some("tool")
-                // The telling of a call the room gave out under is a call as well:
-                // it stands in the place of the turn that was cut short, and the
-                // model is asked for that call again. A word of the program goes
-                // out after it, so the ask ends on a question and what comes back
-                // is an answer and not a thing thrown away.
-                || last
-                    .get("content")
-                    .and_then(|c| c.as_str())
-                    .is_some_and(|said| said.starts_with(CUT_TOLD_FIRST))
-        }
-        None => false,
-    }
 }
 
 // The first words of `cut_words`. They are looked for whole, and only at the
@@ -1062,6 +1163,110 @@ pub fn chapters_words() -> String {
     )
 }
 
+// The four colours a model may put on its words: the mark that opens the colour,
+// and the mark that closes it. The names are the model's own, and the page paints
+// each of them with one colour of its own: `green` #24c935, `light_green` #61ff71,
+// `red` #c92424 and `light_red` #ff6161. The marks stand here and in the two
+// pages, and nowhere else.
+pub const COLOUR_MARKS: [(&str, &str); 4] = [
+    ("<green>", "</green>"),
+    ("<light_green>", "</light_green>"),
+    ("<red>", "</red>"),
+    ("<light_red>", "</light_red>"),
+];
+
+// The words that go before the model while the colours of the chat stand on. The
+// colours are not a call of any kind and have no panel of their own: the page
+// paints the words between the two marks, so the model has to be told what the
+// marks are and when they are worth using. The words go in a message of the role
+// `system` at the head of the talk, once for the talk, and they go away with the
+// switch.
+pub fn colour_words() -> String {
+    String::from(
+        "You may put colour on a few words of your answer. Write the words between a mark that opens a colour and the mark that closes it, for example <green>done</green>. The four colours are green, light_green, red and light_red, and the closing mark is the opening mark with a slash in it, so </green> closes the green. The program paints those words for the user and takes the marks out of the talk it reads back to you. Use a colour for a few words only: a result that is good or bad, a number that decides something, or a thing the user must not miss. Do not colour a whole sentence or a whole answer, do not put one colour inside another, do not write the marks inside a block of code, and do not speak of the colours in your answer.",
+    )
+}
+
+// The words that go before the model while the room of the talk is made by a
+// handoff summary. A model that is never told how the room is kept open reads a
+// full context as the end of its work: it shortens the piece it was asked for,
+// leaves a part of it out, or stops to ask leave for the next step, all because
+// it counts the words it has left. These words say that there is nothing to
+// count. They go in a message of the role `system` at the head of the talk,
+// once for the talk, and they go away when compaction stands off.
+pub fn compaction_words() -> String {
+    String::from(
+        "The room of this conversation is kept open while you work. When the context of the model is filled, this program writes a handoff summary of the talk, puts it in the place of the words it stands for, and the work goes on in the room that is made. That may happen again and again, without end, and nothing of the work is lost by it: the files stand where you wrote them, and the summary carries the state of the work.\n\nYou therefore have no budget of context, no limit of time and no limit on the number of tool calls. Do not measure the work against the room you think you have. Never leave a part of the work out, never write a simpler thing because the full thing is large, and never stop to ask whether there is room for the next step: where there is no room, the room is made. Work until the work is complete, one step at a time, and say nothing of the room, the context or the summary in your answer.",
+    )
+}
+
+// Which colour a mark at the head of `words` asks for: the mark that opens it
+// and the mark that closes it. Nothing comes back for a less-than mark that
+// opens no colour, nor for `<greenish>` for example, nor for a pair of marks
+// with nothing between them.
+fn colour_at(words: &str) -> Option<(&'static str, &'static str)> {
+    for (open, close) in COLOUR_MARKS {
+        // The whole of the opening mark must stand, and more than the two marks
+        // must stand in all, so `<green>` with nothing in it is no colour.
+        if words.len() > open.len() + close.len() && words.starts_with(open) {
+            return Some((open, close));
+        }
+    }
+    None
+}
+
+// How deep one colour may stand inside another and still be gone into. The page
+// reads one colour and no more, for it cuts a line into its parts once over; the
+// words of an answer that put colour a long way down are a fault and not a look.
+// The count is a ceiling on the work, so a very long answer of nothing but marks
+// cannot ask for more steps than there is room for.
+const GREATEST_COLOUR_NESTING: usize = 8;
+
+// The words of an answer with the colour marks taken out of them: the words
+// between the two marks keep their place, and the marks go. A colour inside a
+// colour loses both pairs of marks. A mark that nothing closes stays where the
+// model wrote it, for an answer that stopped in the middle of a colour is the
+// model's own words and not ours to finish. The page paints the words and loses
+// the marks, so the marks would otherwise be read back to the model as words it
+// never meant to write.
+pub fn strip_colour_tags(text: &str) -> String {
+    strip_colour_tags_deep(text, 0)
+}
+
+// The same words, with the depth of the colours already gone into counted.
+fn strip_colour_tags_deep(text: &str, depth: usize) -> String {
+    if !text.contains('<') || depth >= GREATEST_COLOUR_NESTING {
+        return String::from(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut left = text;
+    while !left.is_empty() {
+        let Some(at) = left.find('<') else {
+            out.push_str(left);
+            break;
+        };
+        out.push_str(&left[..at]);
+        left = &left[at..];
+        let Some((open, close)) = colour_at(left) else {
+            out.push('<');
+            left = &left[1..];
+            continue;
+        };
+        match left[open.len()..].find(close) {
+            Some(where_it_stands) => {
+                let inner = &left[open.len()..open.len() + where_it_stands];
+                out.push_str(&strip_colour_tags_deep(inner, depth + 1));
+                left = &left[open.len() + where_it_stands + close.len()..];
+            }
+            None => {
+                out.push_str(open);
+                left = &left[open.len()..];
+            }
+        }
+    }
+    out
+}
+
 // A copy of everything a window needs to draw. It is made while the state lock
 // is held, and then used without the lock.
 pub struct Snap {
@@ -1140,6 +1345,9 @@ pub struct Snap {
     // Whether the marks of boldness are read as boldness in the words of the
     // chat, or as part of the words themselves.
     pub chat_bold_markdown: bool,
+    // Whether the colours the model asks for are painted on the words of the
+    // chat, and taken out of the talk that goes back to the model.
+    pub chat_colour_text: bool,
     // Whether the chat reads as one piece of writing, with nothing drawn about
     // a panel of the thoughts or of a call.
     pub chat_seamless: bool,
@@ -1156,6 +1364,10 @@ pub struct Snap {
     pub chat_chapters: bool,
     // The line of the user's own messages, at the right of the chat.
     pub chat_userline: bool,
+    // Whether a message the user sent is carried into the chat with a little
+    // movement. The movement is only on the screen, so the engine only tells
+    // the page that the switch stands.
+    pub chat_send_anim: bool,
     // Whether the talk that the model has worked its way through is kept in a
     // file of the program, so that a chat coming back is not read through
     // again. The sheet of the settings reads it, and the page has nothing of
@@ -1723,12 +1935,37 @@ impl State {
         // belongs to, so the one block can be drawn again when the chat is read
         // after, and not only while the answer comes in.
         let work = if role == "Assistant" && self.corporate_on() {
-            std::mem::take(&mut self.live_work)
+            let mut held = std::mem::take(&mut self.live_work);
+            // An answer that worked with a tool stands in more than one message:
+            // the words of a turn, the runs of the calls, and the words after
+            // them. The short belongs to the whole of the answer, so what an
+            // earlier message of it holds comes over to this one. The one block
+            // therefore stands with the last message of the answer, and not with
+            // the first message the work was written beside.
+            if let Some(chat) = self.chat_mut() {
+                for one in chat.messages.iter_mut().rev() {
+                    if one.role == "You" {
+                        break;
+                    }
+                    if one.role != "Assistant" || one.work.is_empty() {
+                        continue;
+                    }
+                    let mut older = std::mem::take(&mut one.work);
+                    older.extend(std::mem::take(&mut held));
+                    held = older;
+                    one.work_head.clear();
+                }
+            }
+            held
         } else {
             Vec::new()
         };
+        // The head of the block is said in the words of a thing that happened, so
+        // a search that stood at the head while the answer came in is a search
+        // that was made. With no work at all the block still stands, and says
+        // "Done": the short of an answer never goes away after it.
         let head = if role == "Assistant" && self.corporate_on() {
-            std::mem::take(&mut self.live_work_head)
+            corporate::head_after(&work)
         } else {
             String::new()
         };
@@ -1756,6 +1993,15 @@ impl State {
     // stands at the end of the talk. False means the message is no longer the last
     // one of the talk, and the words have to stand on their own.
     fn append_resumed(&mut self, id: &str, body: &str, reasoning: &str, reasoning_ms: u64) -> bool {
+        // The work of this part of the answer joins the short of the answer it
+        // was gone on from, so the one block of the corporate display holds the
+        // whole of the work and not only the last part of it.
+        let more = if self.corporate_on() {
+            std::mem::take(&mut self.live_work)
+        } else {
+            Vec::new()
+        };
+        let joined = self.corporate_on();
         let Some(chat) = self.chat_mut() else { return false };
         let Some(last) = chat.messages.last_mut() else { return false };
         if last.id != id || last.role != "Assistant" {
@@ -1772,6 +2018,12 @@ impl State {
         }
         last.reasoning_ms += reasoning_ms;
         last.when = store::now_secs();
+        if !more.is_empty() {
+            last.work.extend(more);
+        }
+        if joined {
+            last.work_head = corporate::head_after(&last.work);
+        }
         true
     }
 
@@ -1871,17 +2123,14 @@ impl State {
     // wrong. The two numbers of the room stand with the mark, so the user can
     // see what the compaction cost.
     //
-    // A summarisation stands where the talk was cut, so whatever of the talk
-    // stands after the mark is carried to the front of it. The mark goes into
-    // the chat at the end of it before the ask, for a server that goes away
-    // in the middle of a summary must leave a sign of it. But the cut was
-    // made before the ask went out: the words and the tool blocks of the
-    // answer that was cut stand before the mark, and the summary stands for
-    // them. Left after it, they would read as the words that came after the
-    // compaction, and the model would read the summary and the words of a
-    // turn it was told to carry on from, with the thinking of that turn
-    // standing in the middle. The mark is the cut of the talk, and the cut
-    // stands before the words it cuts off.
+    // The mark goes into the chat at the end of it, before the ask, for a server
+    // that goes away in the middle of a summary must leave a sign of it. The
+    // words a summarisation stands for are therefore already above it: a turn
+    // whose writing was stopped puts its words, its thinking and the blocks of
+    // the calls it was writing in before the room is asked for. Nothing is moved
+    // here, and nothing that came after the mark is taken into the summary: a
+    // message the user sent while the words were being written stands after it,
+    // where they sent it.
     fn finish_summary(&mut self, id: &str, summary: &str, before: u64, after: u64, why: &str) {
         let Some(open) = self.current.clone() else {
             return;
@@ -1894,15 +2143,54 @@ impl State {
             return;
         };
         if let Some(place) = chat.messages.iter().position(|m| m.id == id) {
-            let moved: Vec<Message> = chat.messages.drain(place + 1..).collect();
             if let Some(mark) = chat.messages.get_mut(place) {
                 mark.body = summary.to_string();
                 mark.context_before = before;
                 mark.context_after = after;
                 mark.tool = why.to_string();
             }
-            chat.messages.extend(moved);
         }
+        self.persist();
+        self.touch();
+    }
+
+    // Move one message of the chat to the place above the newest handoff summary
+    // that was written. A call the model made before the room was made stands
+    // where it was made: the summary stands for the words above it, and a block
+    // that went in below the mark reads as a thing that came after the
+    // compaction, and costs the room of every ask that follows. A mark with no
+    // words in it cuts nothing off, and an older mark is not the place a block of
+    // this turn belongs at, so nothing moves while the newest mark holds nothing.
+    fn stand_before_summary(&mut self, id: &str) {
+        let Some(open) = self.current.clone() else {
+            return;
+        };
+        let Some(chat) = self
+            .chats
+            .iter_mut()
+            .find(|c| c.meta.id == open)
+        else {
+            return;
+        };
+        let Some(where_the_mark_stands) = chat.messages.iter().rposition(|m| m.role == "Summary")
+        else {
+            return;
+        };
+        if chat.messages[where_the_mark_stands]
+            .body
+            .trim()
+            .is_empty()
+        {
+            return;
+        }
+        let Some(place) = chat.messages.iter().position(|m| m.id == id) else {
+            return;
+        };
+        if place <= where_the_mark_stands {
+            return;
+        }
+        let moved = chat.messages.remove(place);
+        chat.messages.insert(where_the_mark_stands, moved);
         self.persist();
         self.touch();
     }
@@ -1979,6 +2267,23 @@ impl State {
         config::display_is_corporate(&self.cfg.chat_display)
     }
 
+    // True when the settings make the room of a talk by a handoff summary. With
+    // compaction off nothing is ever summarised: the words of the room go out no
+    // more, and the tool that asks for the room has nothing to ask for, so it is
+    // offered nowhere and a call of its name is answered as a tool that is
+    // switched off.
+    fn compaction_on(&self) -> bool {
+        config::sanitize_compaction(&self.cfg.chat_compaction) == config::COMPACTION_HANDOFF
+    }
+
+    // The words the user stands the chat on: the marked pre-written prompts in
+    // front of their own words. Nothing when nothing is marked and nothing is
+    // written, so a chat of a new set of settings reads exactly as it read
+    // before this stood.
+    fn system_words(&self) -> String {
+        system_words_of(&self.cfg)
+    }
+
     // A call began: the one block says what the model is at, and a block of the
     // call stands in the short of the work.
     fn corporate_begin(&mut self, call: &ToolCall, id: &str) {
@@ -1988,29 +2293,31 @@ impl State {
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
         let head = corporate::head_of(&call.name, &args);
         self.live_work_head = head.clone();
-        match self.live_work.iter_mut().rev().find(|one| one.id == id) {
+        match corporate::find_mut(&mut self.live_work, id) {
             Some(place) => place.head = head,
-            None => self.live_work.push(corporate::block_for(&call.name, id, &args)),
+            // The call stands under the heading the model opened last, when it
+            // opened one, and on its own else.
+            None => corporate::begin(&mut self.live_work, &call.name, id, &args),
         }
     }
 
     // A call came back: the head of its block is said in the words of a thing
-    // that happened, and what a call that changed a file did to it stands with
-    // it, for the two numbers are read out of the words of the receipt.
+    // that happened, what a call that changed a file did to it stands with it,
+    // and the words that came back stand inside it, for the block of the call is
+    // hidden while the corporate display stands.
     fn corporate_finish(&mut self, id: &str, output: &str, ok: bool) {
         if !self.corporate_on() {
             return;
         }
-        let Some(place) = self.live_work.iter_mut().rev().find(|one| one.id == id) else {
+        let Some(place) = corporate::find_mut(&mut self.live_work, id) else {
             return;
         };
-        corporate::settle(place);
-        place.failed = !ok;
         let (adds, cuts) = plus_minus(output);
-        if adds > 0 || cuts > 0 {
-            place.adds = adds;
-            place.cuts = cuts;
-        }
+        corporate::came_back(place, output, ok, adds, cuts);
+        // The head of the one block is said again in the words of a thing that
+        // happened, so a search that came back is not still standing at the head
+        // as a search on its way.
+        self.live_work_head = corporate::head_after(&self.live_work);
     }
 
     // Write the output of a tool run into its message.
@@ -2141,9 +2448,10 @@ impl State {
     // `gifts_till` for the offer of a turn.
     fn finish_gifts(&mut self, id: &str, output: &str, ok: bool, gifts: Vec<download::Gift>) {
         let text = self.with_stopped_head(output);
+        let hint = self.rerun_hint(id, ok);
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
-                message.tool = text;
+                message.tool = format!("{}{}", text, hint);
                 message.failed = !ok;
                 message.downloads = gifts;
             }
@@ -2158,11 +2466,126 @@ impl State {
     // same files again when the chat is opened another day.
     fn finish_displayed(&mut self, id: &str, output: &str, ok: bool, displayed: Vec<display::Shown>) {
         let text = self.with_stopped_head(output);
+        let hint = self.rerun_hint(id, ok);
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
-                message.tool = text;
+                message.tool = format!("{}{}", text, hint);
                 message.failed = !ok;
                 message.displayed = displayed;
+            }
+        }
+        self.running = None;
+        self.persist();
+        self.touch();
+    }
+
+    // The same, with the next steps one run of the suggestion tool offered. The
+    // offer rides on the message of the run, so the buttons are drawn again when
+    // the chat is opened another day. Only the newest offer stands: every other
+    // message of the chat is stripped of what it offered, for the roads an older
+    // answer named are no longer the roads the talk is at.
+    fn finish_suggestions(
+        &mut self,
+        id: &str,
+        output: &str,
+        ok: bool,
+        asks: Vec<crate::suggest::Suggestion>,
+    ) {
+        let text = self.with_stopped_head(output);
+        let hint = self.rerun_hint(id, ok);
+        let standing = !asks.is_empty();
+        if let Some(chat) = self.chat_mut() {
+            for message in chat.messages.iter_mut() {
+                if message.id == id {
+                    message.tool = format!("{}{}", text, hint);
+                    message.failed = !ok;
+                    message.suggestions = asks.clone();
+                } else if standing && !message.suggestions.is_empty() {
+                    message.suggestions = Vec::new();
+                }
+            }
+        }
+        self.running = None;
+        self.persist();
+        self.touch();
+    }
+
+    // The call a rerun is asked for, read off the chat: the tool it called, the
+    // parameters the model wrote, and the words the tool gave back. A call that
+    // never ran, because the room gave out under it or the user stopped the
+    // writing of it, is not given out: its parameters may be unfinished. Neither
+    // is a call of the rerunning tool, for that would run a rerun again.
+    fn failed_call(&self, id: &str, tool: &str) -> Option<(String, String, String)> {
+        let chat = self.chat()?;
+        let wanted = id.trim();
+        let kind = tool.trim();
+        for message in chat.messages.iter().rev() {
+            if message.role != "Tool" || !message.failed || message.cancelled || message.user_stopped {
+                continue;
+            }
+            if message.tool_name == rerun::NAME || message.tool_args.trim().is_empty() {
+                continue;
+            }
+            if !wanted.is_empty() {
+                if message.call_id == wanted || message.id == wanted {
+                    return Some((
+                        message.tool_name.clone(),
+                        message.tool_args.clone(),
+                        message.tool.clone(),
+                    ));
+                }
+                continue;
+            }
+            if !kind.is_empty() && message.tool_name != kind {
+                continue;
+            }
+            return Some((
+                message.tool_name.clone(),
+                message.tool_args.clone(),
+                message.tool.clone(),
+            ));
+        }
+        None
+    }
+
+    // The words a run gave back, and whether it failed, looked up by the id of
+    // the call. The tool that runs a call again reads the answer of the call it
+    // set going, for that answer stands in a block of its own above this one.
+    fn answer_of(&self, call_id: &str) -> Option<(String, bool)> {
+        let chat = self.chat()?;
+        chat.messages
+            .iter()
+            .rev()
+            .find(|one| one.call_id == call_id)
+            .map(|one| (one.tool.clone(), one.failed))
+    }
+
+    // The same, with the steps of the work one run of the steps tool showed. The
+    // block rides on the message of the run, so it is drawn again when the chat is
+    // opened another day. The newest call of the answer wins: an earlier call of
+    // the same answer is cleared, so a model that corrects its own list does not
+    // leave two blocks under the answer.
+    fn finish_steps(
+        &mut self,
+        id: &str,
+        output: &str,
+        ok: bool,
+        plan: Option<crate::steps::Plan>,
+    ) {
+        let text = self.with_stopped_head(output);
+        let hint = self.rerun_hint(id, ok);
+        let standing = plan.is_some();
+        if let Some(chat) = self.chat_mut() {
+            let mut reached = false;
+            for message in chat.messages.iter_mut() {
+                if message.id == id {
+                    message.tool = format!("{}{}", text, hint);
+                    message.failed = !ok;
+                    message.steps = plan.clone();
+                    reached = true;
+                } else if standing && message.steps.is_some() && !reached {
+                    message.steps = None;
+                }
             }
         }
         self.running = None;
@@ -2183,9 +2606,10 @@ impl State {
         pictures: Vec<Attachment>,
     ) {
         let text = self.with_stopped_head(output);
+        let hint = self.rerun_hint(id, ok);
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
-                message.tool = text;
+                message.tool = format!("{}{}", text, hint);
                 message.failed = !ok;
                 message.attachments = pictures;
             }
@@ -2252,6 +2676,34 @@ impl State {
             Some(head) if output.trim().is_empty() => head,
             Some(head) => format!("{}\n{}", head, output),
         }
+    }
+
+    // The line that tells the model it may run a failed call again with one
+    // parameter changed. It stands at the end of the receipt of a call that was
+    // put under a clock and came back failing. A call refused before it ran,
+    // because a line of the badge was off or a limit was spent, gets nothing:
+    // there is no parameter of such a call to mend.
+    fn rerun_hint(&self, id: &str, ok: bool) -> &'static str {
+        if ok {
+            return "";
+        }
+        match self.running.as_ref() {
+            Some(one) if one.id == id => {}
+            _ => return "",
+        }
+        let name = self
+            .chat()
+            .and_then(|chat| {
+                chat.messages
+                    .iter()
+                    .find(|one| one.id == id)
+                    .map(|one| one.tool_name.clone())
+            })
+            .unwrap_or_default();
+        if name.is_empty() || name == rerun::NAME {
+            return "";
+        }
+        rerun::HINT
     }
 
     // Write down a tool call that the room gave out under. The call stands in the
@@ -2353,6 +2805,18 @@ impl State {
         if let Some(line) = date_message(&self.cfg, began_of(chat)) {
             out.push(line);
         }
+        // The words the user stands the chat on: the marked pre-written prompts
+        // and the words of their own, in one message of the role `system`. The
+        // line of the day keeps the first place, for the model reads the clock
+        // before it reads how it is to write. The message is left out when the
+        // user wrote nothing and marked nothing.
+        let words = self.system_words();
+        if !words.is_empty() {
+            out.push(json!({
+                "role": "system",
+                "content": words,
+            }));
+        }
         // The words of the chapters of the chat, beside the words of the program.
         // While the switch of the Chatting settings stands on, the nodes beside the
         // chat are read out of the headings of the answers, and the model has to
@@ -2361,6 +2825,37 @@ impl State {
             out.push(json!({
                 "role": "system",
                 "content": chapters_words(),
+            }));
+        }
+        // The words of the corporate display, beside the words of the program.
+        // The mode hides the thoughts and the call blocks, so the model has to
+        // know that the short it writes is the only account of its work the user
+        // reads. The words go away with the mode.
+        if self.corporate_on() {
+            out.push(json!({
+                "role": "system",
+                "content": corporate::system_prompt(),
+            }));
+        }
+        // The words of the colours the model may put on its words, beside the
+        // words of the program. The page paints them, and the marks go out of the
+        // talk with the answers, so the model has to know what it writes into.
+        // The words go away with the switch.
+        if self.cfg.chat_colour_text {
+            out.push(json!({
+                "role": "system",
+                "content": colour_words(),
+            }));
+        }
+        // The words of the room the talk stands on, beside the words of the
+        // program. A chat whose room is made by a handoff summary has no ceiling
+        // the model has to work within, and a model that does not know that
+        // shortens its own work for a limit that is not there. The words go away
+        // when compaction stands off.
+        if self.compaction_on() {
+            out.push(json!({
+                "role": "system",
+                "content": compaction_words(),
             }));
         }
         // The prompt of planning mode, beside the words of the program. It goes
@@ -2421,9 +2916,19 @@ impl State {
                     }));
                 }
                 "Assistant" => {
+                    // The marks of a colour are a look over the words and not
+                    // words of the answer: the page paints the words between them
+                    // and loses the marks, so the marks go out of the talk here.
+                    // With the switch off the page reads no colour, and the marks
+                    // stay where the model wrote them.
+                    let said = if self.cfg.chat_colour_text {
+                        json!(strip_colour_tags(&message.body))
+                    } else {
+                        json!(message.body)
+                    };
                     let mut entry = json!({
                         "role": "assistant",
-                        "content": message.body,
+                        "content": said,
                     });
                     // The thinking of the answer rides beside its words, so the
                     // template may put it back where it stood. An answer that
@@ -2457,28 +2962,12 @@ impl State {
                             "role": "assistant",
                             "content": told,
                         }));
-                        // The telling of a call that was cut at the limit stands for
-                        // the work the model was put to. Whatever of the talk it
-                        // stands after -- the words of the turn it cut, and the
-                        // thinking of that turn -- stands with it, and the words of
-                        // the summary stand for them as much as for the rest of the
-                        // talk. The cut is where the limit was come to, and it stands
-                        // before the words it cuts off, so the model reads the
-                        // summary and the words that came after it in the order the
-                        // chat stands in.
-                        if !message.user_stopped {
-                            let place = out.len();
-                            if let Some(where_it_stands) = out.iter().rposition(|item| {
-                                item.get("role").and_then(|r| r.as_str()) == Some("user")
-                                    && item.get("content")
-                                        .and_then(|c| c.as_str())
-                                        .is_some_and(|said| said.starts_with(HANDOFF_FIRST))
-                            }) {
-                                let moved: Vec<Value> =
-                                    out.drain(where_it_stands + 1..place).collect();
-                                out.splice(where_it_stands + 1..where_it_stands + 1, moved);
-                            }
-                        }
+                        // The telling stands where the writing stopped: above the
+                        // mark of the summarisation, so the ask for the summary
+                        // carries it and the mark then cuts it off. A chat written
+                        // before that rule can still hold a telling below the mark;
+                        // it goes back where it stands, and the model is told what
+                        // it was put to.
                         continue;
                     }
                     if message.call_id.is_empty() {
@@ -2530,7 +3019,12 @@ impl State {
                 _ => {}
             }
         }
-        json!(out)
+        // A mark of a picture standing among the words is broken before the talk
+        // goes out: the server would look for a picture at it and refuse the whole
+        // ask. See `break_media_marks`.
+        let mut history = Value::Array(out);
+        break_media_marks_in(&mut history);
+        history
     }
 
     // Read the chats of the current scope from disk.
@@ -2967,12 +3461,14 @@ impl State {
             chat_date_new_chat: self.cfg.chat_date_new_chat,
             chat_highlight: self.cfg.chat_highlight,
             chat_bold_markdown: self.cfg.chat_bold_markdown,
+            chat_colour_text: self.cfg.chat_colour_text,
             chat_seamless: self.cfg.chat_seamless,
             chat_display: self.cfg.chat_display.clone(),
             welcomed: self.cfg.welcomed,
             chat_silent_retries: self.cfg.chat_silent_retries,
             chat_chapters: self.cfg.chat_chapters,
             chat_userline: self.cfg.chat_userline,
+            chat_send_anim: self.cfg.chat_send_anim,
             chat_context_files: self.cfg.chat_context_files,
             chat_context_compression: self.cfg.chat_context_compression,
             mcp: self.mcp_snap(),
@@ -3394,6 +3890,10 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        // The line of the handoff summary counts toward the badge of the tools
+        // only while the settings make the room of the talk by a summary, for
+        // with compaction off nothing stands behind that line.
+        let room = state.compaction_on();
         if let Some(chat) = state.chat_mut() {
             if !chat.meta.tools.set(part, on) {
                 return;
@@ -3402,14 +3902,14 @@ impl Engine {
             // drop-down that is switched on opens that door, for a tool behind a
             // shut door is no tool at all; and when the last line goes out the
             // door shuts with it, so the badge never stands on over nothing.
-            chat.meta.code_enabled = chat.meta.tools.any_on();
+            chat.meta.code_enabled = chat.meta.tools.any_on_with(room);
         }
         // The same choice opens the next chat too, whatever stands open now, as
         // with the badge of the tools itself.
         if !state.new_tools.set(part, on) {
             return;
         }
-        state.new_code = state.new_tools.any_on();
+        state.new_code = state.new_tools.any_on_with(room);
         state.persist();
         let word = tool_group_word(part);
         let words = if on {
@@ -4166,6 +4666,113 @@ impl Engine {
         state.set_status("The message was removed, with everything after it");
     }
 
+    // Take a message of the user back out of the talk, so that its words can be
+    // written again in the chat box. Everything that came after it goes with it,
+    // for the model answered a talk that no longer reads that way. A message of
+    // the model is refused here: its words are written over where they stand, and
+    // the question behind them is not thrown away behind the user's back.
+    //
+    // The files hung on the message go with it, as the files of every message
+    // after it go. The page knows this, and reads the words and the bytes of the
+    // files back before it asks, so the user loses nothing: what comes out of the
+    // chat comes into the chat box beside the words.
+    pub fn rewrite_message(&self, id: String) {
+        let Ok(mut state) = self.state.lock() else { return };
+        if state.generating {
+            state.set_status("An answer is still being generated");
+            return;
+        }
+        let Some(index) = state
+            .chat()
+            .and_then(|chat| chat.messages.iter().position(|one| one.id == id))
+        else {
+            state.set_status("That message is not in this chat");
+            return;
+        };
+        if state.chat().map(|chat| chat.messages[index].role.as_str()) != Some("You") {
+            state.set_status("Only a message of yours goes back into the chat box");
+            return;
+        }
+        // The shelf is named while the chat still stands whole, for naming it
+        // needs the chat for a moment of its own.
+        let gone: Vec<String> = {
+            let Some(chat) = state.chat() else { return };
+            chat.messages[index..]
+                .iter()
+                .flat_map(|one| one.attachments.iter().map(|a| a.id.clone()))
+                .collect()
+        };
+        let room = state
+            .chat()
+            .map(|chat| state.attach_place_for(chat))
+            .unwrap_or_default();
+        if let Some(chat) = state.chat_mut() {
+            chat.messages.truncate(index);
+            chat.meta.updated = store::now_secs();
+        }
+        if !gone.is_empty() {
+            attach::remove_at(&room, &gone);
+        }
+        // A chat left with nothing of the talk is not taken away here, as it is
+        // when a message is simply removed: the words are on their way back into
+        // the box, and the chat is where they will go. Only the file of it goes,
+        // for a chat with no talk has no file, and the first message that comes
+        // back makes it again.
+        let empty = state
+            .chat()
+            .map(|chat| chat.messages.is_empty())
+            .unwrap_or(true);
+        let (repo, chat_id) = match state.chat() {
+            Some(chat) => (chat.meta.repo_id.clone(), chat.meta.id.clone()),
+            None => return,
+        };
+        if empty {
+            state.store.delete_chat(&repo, &chat_id);
+            state.touch_structure();
+        } else {
+            state.persist();
+        }
+        state.touch();
+        state.set_status("The message went back into the chat box");
+    }
+
+    // Write the words of an answer again, where they stand. The user is putting
+    // right what the model said: nothing else of the talk moves, for the turns
+    // around the answer read as they did. What the model is told from now on is
+    // read out of these messages, so the next answer sees the words as they now
+    // stand. The thought of the answer, and the short of its work, are left where
+    // they were: the user is writing the words, not the work.
+    pub fn edit_answer(&self, id: String, body: String) {
+        let Ok(mut state) = self.state.lock() else { return };
+        if state.generating {
+            state.set_status("An answer is still being generated");
+            return;
+        }
+        let words = body.trim().to_string();
+        let Some(index) = state
+            .chat()
+            .and_then(|chat| chat.messages.iter().position(|one| one.id == id))
+        else {
+            state.set_status("That message is not in this chat");
+            return;
+        };
+        if state.chat().map(|chat| chat.messages[index].role.as_str()) != Some("Assistant") {
+            state.set_status("Only an answer of the model is written over");
+            return;
+        }
+        if words.is_empty() {
+            state.set_status("An answer needs some words");
+            return;
+        }
+        if let Some(chat) = state.chat_mut() {
+            chat.messages[index].body = words;
+            chat.meta.updated = store::now_secs();
+        }
+        state.persist();
+        state.touch();
+        state.set_status("The answer was written again");
+    }
+
     // Write the answer of a message again. A message of the user keeps its
     // place, and the talk is cut back after it; a message of the model goes with
     // the answer that came after it. The ask is then the talk as it stands, which
@@ -4417,7 +5024,12 @@ impl Engine {
         cfg.chat_compact_prompt = config::sanitize_handoff_prompt(&cfg.chat_compact_prompt);
         cfg.chat_compact_prompt_short =
             config::sanitize_handoff_prompt_short(&cfg.chat_compact_prompt_short);
-        // The skin of the pages is kept to one of the three words, and the switch of
+        // The words before the talk. The prompt of the user is kept short enough
+        // to be sent beside a whole talk, and the marks are kept to the prompts
+        // the program knows, in the order of the table.
+        cfg.chat_system_prompt = config::sanitize_system_prompt(&cfg.chat_system_prompt);
+        cfg.chat_system_prompts_on = config::sanitize_prompt_ids(&cfg.chat_system_prompts_on);
+        // The skin of the pages is kept to one of the four words, and the switch of
         // the two that stood before them keeps its old meaning: it is on for the dark
         // skin alone.
         cfg.theme = config::theme_word(&cfg.theme, cfg.dark_mode);
@@ -4441,12 +5053,13 @@ impl Engine {
         }
     }
 
-    // The skin of the pages: `light`, `dark` or `corporate`. The browser page has
-    // this switch too. Nothing of a server moves with a skin, so the pages put the
-    // new skin on before this answers. The switch of the two skins that stood before
-    // the third keeps its old meaning and is on for the dark skin alone: the third
-    // skin is a dark ground too, but a program written for two knows no other dark
-    // skin than the one it has, and the pale skin is an honest fall back.
+    // The skin of the pages: `light`, `dark`, `silver` or `corporate`. The browser
+    // page has this switch too. Nothing of a server moves with a skin, so the pages
+    // put the new skin on before this answers. The switch of the two skins that stood
+    // before the others keeps its old meaning and is on for the dark skin alone: the
+    // two skins of the grey ladder stand on dark grounds too, but a program written
+    // for two knows no other dark skin than the one it has, and the pale skin is an
+    // honest fall back.
     pub fn set_theme(&self, word: &str) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -4632,12 +5245,14 @@ impl Snap {
             chat_date_new_chat: true,
             chat_highlight: true,
             chat_bold_markdown: true,
+            chat_colour_text: true,
             chat_seamless: false,
             chat_display: String::from(config::PLAIN_DISPLAY),
             welcomed: true,
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_userline: true,
+            chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,
             chat_paste_limit: 6000,
@@ -5148,29 +5763,6 @@ pub const SUMMARY_GUARD: &str = " Do not call any tools. The tools stand offered
 // short as well.
 pub const NO_SUMMARY_CEILING: i64 = -1;
 
-// The words put after the telling of a call that was cut short, when that telling
-// is the last thing of the talk. The telling asks the model for the call again, so
-// the ask has to end on a word of the user and not on the telling itself: a
-// server set to read calls out of an answer writes one behind it, and the ask that
-// made that call is thrown away with the call, which leaves no answer of the model
-// at all. Nothing of these words is written into the chat, for the user never
-// wrote them.
-pub const CUT_CONTINUE_WORDS: &str = "The space above was written by the program, and the call it tells of never ran. Do not answer it and do not write it again. Go on with the work from the point it reached before that call, and write the call only when the work still needs it and in parts small enough for the space you have. If the work is done, say so in one line and stop.";
-
-// The word a talk that ends on the telling of a cut call is asked with. The talk
-// is read as it stands, so the telling is the last thing of it whenever a call was
-// stopped and nothing else came after it: the words of an answer, the mark of a
-// summarisation and the thinking of the turn all stand before it.
-pub fn cut_asks_for_a_call(history: &Value) -> bool {
-    ends_on_a_call(history)
-        && history
-            .as_array()
-            .and_then(|items| items.last())
-            .and_then(|last| last.get("content"))
-            .and_then(|c| c.as_str())
-            .is_some_and(|said| said.starts_with(CUT_TOLD_FIRST))
-}
-
 // The words put after a turn of the model that left nothing of itself behind, when
 // that turn is the last thing of the talk. The turn goes back to the server as a
 // saying of the model with nothing after it, which is a thing to go on with rather
@@ -5477,7 +6069,17 @@ fn ask_summary_for_handoff(
 // into the front of the talk, so an ask that carried another list -- or none, as
 // this ask used to -- is a talk worked through again from its first word.
 fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
-    let (sandbox_on, code_on, search_on, planning_on, corporate_on, access, switches, mcp_tools) = {
+    let (
+        sandbox_on,
+        code_on,
+        search_on,
+        planning_on,
+        corporate_on,
+        access,
+        switches,
+        mcp_tools,
+        compaction_on,
+    ) = {
         let Ok(guard) = state.lock() else { return None };
         let chat = guard.chat();
         (
@@ -5489,6 +6091,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
             chat.as_ref().map(|c| access_of(&c.meta)).unwrap_or_default(),
             chat.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
             guard.mcp_definitions(),
+            guard.compaction_on(),
         )
     };
     offered_with_planning(
@@ -5500,6 +6103,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
         access,
         &mcp_tools,
         &switches,
+        compaction_on,
     )
 }
 
@@ -6766,8 +7370,8 @@ fn run_turn(
     // into the chat after the ask was made ready, and it is the talk of the answer as
     // the runs left it that the next ask goes out with.
     // The word is looked for again before every step, and not once for the turn, for
-    // an answer whose writing was stopped at the limit goes on with the telling of
-    // the call it was stopped at at the end of the talk: see `CUT_CONTINUE_WORDS`.
+    // a step may leave a turn of the model with nothing in it at the end of the
+    // talk: see `empty_turn_words`.
     let mut carried: Option<String> = None;
     // How many asks of this answer went out on a turn of the model with nothing in
     // it. A model with nothing left to give answers the word of the program with
@@ -6820,6 +7424,11 @@ fn run_turn(
     // How many times an answer of this one came back with nothing to read and was
     // asked over again. The room for that is read from the Chatting settings.
     let mut silences = 0usize;
+    // True once this answer has made the room on the word of the model. The room
+    // is made once in one answer: a model that asks for it again after it would
+    // put a summary under the summary it just had, and spend what it won on words
+    // of its own making.
+    let mut room_made = false;
     let silence_room = {
         let Ok(guard) = state.lock() else { return Ended::Halted };
         guard.cfg.chat_silent_retries.max(0) as usize
@@ -6859,7 +7468,8 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, planning_on, corporate_on, switches, thought) = {
+        let (mut history, code_on, search_on, planning_on, corporate_on, switches, thought,
+         compaction_on) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 go_on_words(&guard, carried_prompt),
@@ -6875,6 +7485,7 @@ fn run_turn(
                     .map(|c| c.meta.tools.clone())
                     .unwrap_or_default(),
                 guard.thinking_ask(),
+                guard.compaction_on(),
             )
         };
         // The room of the talk is weighed before the ask goes out, and the room
@@ -7005,6 +7616,7 @@ fn run_turn(
                 access,
                 &mcp_tools,
                 &switches,
+                compaction_on,
             ) {
                 body["tools"] = list;
                 body["tool_choice"] = json!("auto");
@@ -7045,9 +7657,10 @@ fn run_turn(
             guard.answer_rate = 0.0;
             guard.rate_start = None;
             // The calls of the step before this one stand in the chat by now, so
-            // the blocks of the words being written start anew.
+            // the blocks of the words being written start anew. The short of the
+            // work does not: it belongs to the whole of the answer, and the one
+            // block of the corporate display keeps it until the answer is kept.
             guard.live_tools = Vec::new();
-            guard.live_work = Vec::new();
         }
         let progress_state = state.clone();
         let context_state = state.clone();
@@ -7279,7 +7892,6 @@ fn run_turn(
         // run of the command stands in the chat in its place, and says what
         // became of it.
         guard.live_tools.clear();
-        guard.live_work.clear();
         // How long the model spent thinking in this step. The words of the
         // panel are made from this.
         let thought_ms = match (guard.thought_start, guard.thought_end) {
@@ -7344,6 +7956,26 @@ fn run_turn(
                 // on the far side of it.
                 guard.push_message("Assistant", "", &thoughts, thought_ms, false);
                 thoughts = String::new();
+            }
+            // The calls that were stopped are written down where the writing
+            // stopped: after the words of the turn, and above the heading of the
+            // summarisation. The ask for a summary is made of the talk as it
+            // stands, so it carries the telling of the call, and the model that
+            // writes the summary reads what it was put to and can say so in the
+            // words that stand in the place of the turn. The mark then cuts the
+            // telling off, for the words before a summarisation go back to the
+            // model no more: the room the words of a call that never ran take is
+            // won back at once, instead of being paid for again on every ask that
+            // follows. The whole of the words of the call is kept, for the telling
+            // no longer has to fit in the room a summarisation left over.
+            for call in cut.iter() {
+                guard.push_cancelled(call, &thoughts, thought_ms, GREATEST_CUT_ARGS);
+                thoughts = String::new();
+            }
+            if !thoughts.trim().is_empty() {
+                // Nothing of the turn was shown to the user, so its thinking
+                // stands on its own rather than being lost.
+                guard.push_message("Assistant", "", &thoughts, thought_ms, false);
             }
             // The meter keeps the number the server last spoke of. An answer that
             // never came to its end gives no usage numbers of its own.
@@ -7436,7 +8068,7 @@ fn run_turn(
                 )
             } else {
                 String::from(
-                    "The conversation reached the summarisation limit while a tool call was being written, so the writing stopped and the call was cancelled. Space is being made, and the model is asked to write the call again",
+                    "The conversation reached the summarisation limit while a tool call was being written, so the writing stopped and the call was cancelled. Space is being made, and the model continues the answer",
                 )
             };
             guard.push_note(&told, false);
@@ -7475,30 +8107,9 @@ fn run_turn(
                     config::compaction_room(&guard.cfg, guard.ctx_total)
                 ),
             );
-            // How much of the words of the stopped call the room that was made can
-            // carry. A call whose whole of words were sent back would fill the
-            // room again, and the model would be stopped before it had a word.
-            let bound = cut_bound(
-                guard.ctx_used,
-                config::compaction_room(&guard.cfg, guard.ctx_total),
-            );
-            // The calls that were stopped are written down after the summarisation
-            // and never before it, for the words that stand before a summarisation
-            // go back to the model no more. The model has to be told what it was
-            // put to, and the telling has to stand where the model will read it.
-            for call in cut.iter() {
-                guard.push_cancelled(call, &thoughts, thought_ms, bound);
-                thoughts = String::new();
-            }
-            if !thoughts.trim().is_empty() {
-                // Nothing of the turn was shown to the user, so its thinking
-                // stands on its own rather than being lost.
-                guard.push_message("Assistant", "", &thoughts, thought_ms, false);
-            }
             // The meter of the talk is written to the chat, for the user reads
-            // it from there, and the telling of a stopped call costs room as much
-            // as anything else does. The number the server gave at the cut is not
-            // kept, for it holds the whole of the room.
+            // it from there. The number the server gave at the cut is not kept,
+            // for it holds the whole of the room.
             let used_now = guard.ctx_used;
             if let Some(chat) = guard.chat_mut() {
                 chat.meta.context_used = used_now;
@@ -7515,8 +8126,8 @@ fn run_turn(
             // under the block of a call that never ran, and every fresh send ended
             // the same way. So the room is weighed with the telling left out,
             // which is what a second summarisation is made of, and which is what
-            // the model is asked with once the words of the call are bounded to
-            // the room. The weighing goes by the same measure as the limit was
+            // the model is asked with once the mark of the summarisation cuts the
+            // telling off. The weighing goes by the same measure as the limit was
             // come to, and it says nothing of what the server will count when the
             // ask goes out: the meter is read again on the first number of the
             // next ask, and the hand is put up again on the word that is past the
@@ -7584,35 +8195,27 @@ fn run_turn(
                 );
                 break Ended::Halted;
             }
-            // The talk that the words of the stopped call went into ends on the
-            // telling of them, which is a call the server is owed an answer to: the
-            // telling asks for the call again, and nothing of the user stands after
-            // it. A word of the program therefore goes out behind it, so the ask ends
-            // on a question. Without it a server set to read calls out of an answer
-            // writes one of its own, and the words of it are thrown away with the ask
-            // that made it, so the step that follows the room being made gives back
-            // no answer at all and the chat stands under the block of the call that
-            // never ran. See `cut_asks_for_a_call`. The word is no note of the chat,
-            // for the user never wrote it and has nothing to read where it stands;
-            // it rides on the ask alone, as `CONTINUE_PROMPT` does. The first message
-            // of the user keeps the front of the prompt, so it costs the room of a
-            // fresh tail and nothing else.
-            if cut_asks_for_a_call(&guard.build_history()) {
-                carried = Some(String::from(CUT_CONTINUE_WORDS));
-            }
-            // The room is made and the telling of the call stands where the model
-            // will read it, so the answer is asked on from there. It is not gone on
-            // with by the worker, for the worker asks the model to go on once for a
-            // send, and that one going on is spent on the summarisation of the chat
-            // box. The step that comes now is asked afresh out of the talk as it
-            // stands, so the work is not begun again.
+            // The mark of the summarisation ends the talk the words of the stopped
+            // call went into, and the handoff block says in its own words that the
+            // work is to be gone on with. No word of the program therefore goes out
+            // behind it: a stale word of an earlier step is dropped rather than paid
+            // for out of the room the summarisation was come to win, which is what
+            // happens when a turn of nothing is gone on with below.
+            carried = None;
+            // The room is made and the telling of the call stands above the mark,
+            // where the model read it as the summary was written, so the answer is
+            // asked on from there. It is not gone on with by the worker, for the
+            // worker asks the model to go on once for a send, and that one going on
+            // is spent on the summarisation of the chat box. The step that comes
+            // now is asked afresh out of the talk as it stands, so the work is not
+            // begun again.
             guard.generating = true;
             guard.set_status("Space was made. The model is continuing the answer");
             proglog::note(
                 proglog::CUT,
                 &format!(
-                    "the answer is asked on from the talk as it stands, which measures {}; the words of the call that was stopped went back to the model bounded to {} characters",
-                    ask_now, bound
+                    "the answer is asked on from the talk as it stands, which measures {}; the telling of the call that was stopped stands before the mark, and the summary was written of it",
+                    ask_now
                 ),
             );
             continue;
@@ -7930,6 +8533,63 @@ fn run_turn(
                 guard.finish_tool(&id, &note, true);
                 continue;
             }
+            // The model asks for the room of the talk to be made now. The
+            // summary is written here, in the middle of the answer, as it is
+            // when the writing is stopped under the weight of the talk: the
+            // answer stands aside while the words are written, and is taken up
+            // again when the mark holds them. The block of the call cannot go
+            // into the chat before the ask: it would stand in the talk the
+            // summary is written of as a call that is still running, and the
+            // model that writes the summary would be asked to read a receipt
+            // that does not exist yet. It therefore goes in after the mark and
+            // is moved above it, so the call stands where the model made it.
+            if call.name == summarise::NAME {
+                let thinking = std::mem::take(&mut thoughts);
+                let (before, empty) = {
+                    let Ok(guard) = state.lock() else { continue };
+                    (
+                        guard.ctx_used,
+                        guard.chat().map(ends_on_summary).unwrap_or(false),
+                    )
+                };
+                // The room is made once in one answer. A model that asks again
+                // after it would put a summary under the summary it just had,
+                // and spend the room it asked for on words of its own making.
+                if empty || room_made {
+                    let note = summarise::refused_words();
+                    let Ok(mut guard) = state.lock() else { continue };
+                    let id = guard.begin_tool(call, SUMMARISE_SHOWN, &thinking, thought_ms);
+                    guard.finish_tool(&id, &note, true);
+                    continue;
+                }
+                room_made = true;
+                // The answer is laid aside while the summary takes the chat, as
+                // it is at every other place where the room is made.
+                if let Ok(mut guard) = state.lock() {
+                    guard.generating = false;
+                    guard.busy = false;
+                }
+                let kept = run_handoff(state, server, cancel);
+                let Ok(mut guard) = state.lock() else { return Ended::Halted };
+                // The answer is taken up again: the call was one step of it, and
+                // the work stands on after the room that was made.
+                guard.generating = true;
+                let after = estimate_tokens(&guard.build_history());
+                let note = if kept {
+                    summarise::kept_words(guard.handoffs().len(), before, after)
+                } else {
+                    summarise::failed_words(before)
+                };
+                let id = guard.begin_tool(call, SUMMARISE_SHOWN, &thinking, thought_ms);
+                guard.finish_tool(&id, &note, kept);
+                // The call was made before the room was made, so its block goes
+                // above the mark of the summarisation: the user reads the call
+                // where the model made it, and the summary stands for the ask of
+                // it. A summary that never came cuts nothing off, and the block
+                // stays below the mark with the word of what failed under it.
+                guard.stand_before_summary(&id);
+                continue;
+            }
             // Only a command of the terminal tool eats the room for commands.
             // The other tools work in the room of the chat in the program
             // itself, and the setting that holds the room speaks of commands.
@@ -8025,6 +8685,11 @@ fn run_turn(
     outcome
 }
 
+// The words of the head of the block of a handoff summary. The reason the model
+// gave with the call stands in the body of the block under its own label, so the
+// head says only what the call worked on.
+const SUMMARISE_SHOWN: &str = "the talk of this chat";
+
 // True of a call the model had begun to write: it has a name of its own, or
 // words of its arguments, or both. A call stopped before either came is nothing
 // the user was shown, and nothing to tell the model about.
@@ -8052,6 +8717,11 @@ fn group_of(name: &str) -> Option<&'static str> {
         download::NAME => Some("hand_out"),
         display::NAME => Some("display"),
         askuser::NAME => Some("ask"),
+        suggest::NAME => Some("suggest"),
+        steps::NAME => Some("steps"),
+        rerun::NAME => Some("rerun"),
+        summarise::NAME => Some("summarise"),
+        name if infographic::is_tool(name) => Some("infographics"),
         _ => None,
     }
 }
@@ -8062,6 +8732,11 @@ fn group_of(name: &str) -> Option<&'static str> {
 fn tool_allowed(state: &Arc<Mutex<State>>, name: &str) -> bool {
     let Some(part) = group_of(name) else { return true };
     let Ok(guard) = state.lock() else { return false };
+    // The handoff summary is no tool at all while compaction stands off: there
+    // is no summary to be written, whatever the line of the drop-down says.
+    if part == "summarise" && !guard.compaction_on() {
+        return false;
+    }
     guard
         .chat()
         .map(|c| c.meta.tools.value_of(part))
@@ -8078,6 +8753,11 @@ fn tool_group_word(part: &str) -> String {
         "hand_out" => String::from("Handing a file to the user"),
         "display" => String::from("Showing the contents of a file"),
         "ask" => String::from("Asking the user"),
+        "suggest" => String::from("The offer of a next step"),
+        "infographics" => String::from("Create infographics"),
+        // The words of the line, in the shape the sentence about a tool that
+        // was not let through reads well in.
+        "summarise" => String::from("Manual summaries"),
         other => String::from(other),
     }
 }
@@ -8120,11 +8800,21 @@ fn offered_with_planning(
     access: tools::Access,
     mcp_tools: &[Value],
     switches: &store::ToolSwitches,
+    compaction_on: bool,
 ) -> Option<Value> {
-    let mut list = offered(sandbox, code_on, search_on, access, mcp_tools, switches)
-        .and_then(|made| made.as_array().cloned())
-        .unwrap_or_default();
+    let mut list = offered(
+        sandbox,
+        code_on,
+        search_on,
+        access,
+        mcp_tools,
+        switches,
+        compaction_on,
+    )
+    .and_then(|made| made.as_array().cloned())
+    .unwrap_or_default();
     if planning_on {
+        list.push(planning::init_definition());
         list.push(planning::edit_definition());
         list.push(planning::read_definition());
         list.push(planning::ask_definition());
@@ -8149,6 +8839,7 @@ fn offered(
     access: tools::Access,
     mcp_tools: &[Value],
     switches: &store::ToolSwitches,
+    compaction_on: bool,
 ) -> Option<Value> {
     if !(code_on || search_on || !mcp_tools.is_empty()) {
         return None;
@@ -8176,6 +8867,34 @@ fn offered(
         }
         if switches.ask {
             list.push(askuser::definition());
+        }
+        // The buttons at the foot of an answer stand behind the badge like every
+        // other tool of the program, and behind the line of their own.
+        if switches.suggest {
+            list.push(suggest::definition());
+        }
+        // The list of the steps of the work stands behind the badge like every
+        // other tool of the program, and behind the line of its own.
+        if switches.steps {
+            list.push(steps::definition());
+        }
+        // Running a failed call again stands behind the badge like every other
+        // tool of the program, and behind the line of its own.
+        if switches.rerun {
+            list.push(rerun::definition());
+        }
+        // The five tools of the infographic suite stand or fall as one line of
+        // the badge: a script without a renderer draws nothing.
+        if switches.infographics {
+            list.extend(infographic::definitions());
+        }
+        // The handoff summary the model may ask for stands behind the badge like
+        // every other tool of the program, and behind the line of its own. It
+        // stands at all only while the settings make the room of the talk by a
+        // handoff summary: with compaction off there is no summary to be asked
+        // for, and a tool that can do nothing is not offered at all.
+        if compaction_on && switches.summarise {
+            list.push(summarise::definition());
         }
     }
     if search_on {
@@ -8323,10 +9042,19 @@ fn run_program_tool(
         download::NAME => "Offering a file",
         display::NAME => "Showing a file to the user",
         askuser::NAME => "Asking the user",
+        suggest::NAME => "Offering a next step",
+        steps::NAME => "Writing the steps of the work",
+        rerun::NAME => "Running a failed call again",
+        planning::INIT_NAME => "Writing the plan",
         planning::EDIT_NAME => "Changing the plan",
         planning::READ_NAME => "Reading the plan",
         planning::ASK_NAME => "Asking about the plan",
         planning::END_NAME => "Letting the plan go",
+        infographic::GUIDE_NAME => "Writing the guide of a script",
+        infographic::PLAN_NAME => "Planning the video",
+        infographic::SCENE_NAME => "Writing a scene",
+        infographic::CHECK_NAME => "Checking the layout",
+        infographic::RENDER_NAME => "Drawing the frames",
         _ => "A tool of the program",
     };
     let message_id = {
@@ -8500,6 +9228,22 @@ fn run_program_tool(
         guard.clear_asking(&asking);
         return;
     }
+    // The whole plan in one call. The plan file of a chat that has nothing in it
+    // has no words to match against, so the first writing of a plan is a whole of
+    // words sent at once; every writing after it goes through `edit_plan`.
+    if call.name == planning::INIT_NAME {
+        let name = match state.lock() {
+            Ok(guard) => guard
+                .chat()
+                .map(|one| one.meta.plan_file.clone())
+                .unwrap_or_default(),
+            Err(_) => return,
+        };
+        let report = planning::write_init(&name, &call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &report.output, report.ok);
+        return;
+    }
     // The plan file of this chat. The tool reaches that one file and no other, so
     // it wants no room of the chat and no word of the sandbox: the plan stands in
     // a folder of the planning directory of the program, away from the work.
@@ -8570,6 +9314,136 @@ fn run_program_tool(
         let made = display::show(workdir, &call.arguments, jailed);
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_displayed(&message_id, &made.report.output, made.report.ok, made.shown);
+        return;
+    }
+    // The next steps the user may take with a press. Nothing is waited for: the
+    // offer rides on the message of the run, and the page puts the buttons at the
+    // end of the answer once the model has stopped writing. The newest offer is
+    // the one that stands, so an older offer of the same chat is taken away here
+    // as well, and the talk holds one offer and not a trail of them.
+    if call.name == suggest::NAME {
+        let made = suggest::offer(&call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_suggestions(&message_id, &made.report.output, made.report.ok, made.asks);
+        return;
+    }
+    // The steps of the work, shown one at a time in a block of their own. Nothing
+    // is waited for: the list rides on the message of the run, and the page puts
+    // the block at the end of the answer once the model has stopped writing.
+    if call.name == steps::NAME {
+        let made = steps::show(&call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_steps(&message_id, &made.report.output, made.report.ok, made.plan);
+        return;
+    }
+    // A call of another tool, run again with changed parameters. The call that
+    // failed is read off the chat, the changes are made to the one parameter each
+    // one names, and the call then goes down the same road it went down the first
+    // time. The tool answers for itself in a block of its own, and this block
+    // says what was changed and what came back.
+    if call.name == rerun::NAME {
+        let asked = match rerun::asking(&call.arguments) {
+            Ok(one) => one,
+            Err(why) => {
+                let Ok(mut guard) = state.lock() else { return };
+                guard.finish_tool(&message_id, &why, false);
+                return;
+            }
+        };
+        let held = {
+            let Ok(guard) = state.lock() else { return };
+            guard.failed_call(&asked.call, &asked.tool)
+        };
+        let (name, before, _) = match held {
+            Some(one) => one,
+            None => {
+                let note = if asked.tool.is_empty() && asked.call.is_empty() {
+                    "No failed call of this chat was found to run again. Name the tool in tool, or the id of the call in call."
+                } else {
+                    "No failed call was found under that name in this chat. The call may have been run again already, or its id may be wrong."
+                };
+                let Ok(mut guard) = state.lock() else { return };
+                guard.finish_tool(&message_id, note, false);
+                return;
+            }
+        };
+        // The badge of the tools is the door over every tool of the program, and a
+        // rerun opens it no more than a fresh call does.
+        if !tool_allowed(state, &name) {
+            let note = format!(
+                "{} are switched off for this chat, so the call was not run again",
+                tool_group_word(group_of(&name).unwrap_or("tools"))
+            );
+            let Ok(mut guard) = state.lock() else { return };
+            guard.finish_tool(&message_id, &note, false);
+            return;
+        }
+        let made = match rerun::apply(&before, &asked.edits) {
+            Ok(one) => one,
+            Err(why) => {
+                let Ok(mut guard) = state.lock() else { return };
+                guard.finish_tool(&message_id, &why, false);
+                return;
+            }
+        };
+        let again = ToolCall {
+            id: store::new_id(),
+            name: name.clone(),
+            arguments: made,
+        };
+        let (sandbox_on, access) = {
+            let Ok(guard) = state.lock() else { return };
+            let on = guard
+                .chat()
+                .map(|one| one.meta.sandbox_enabled)
+                .unwrap_or(false);
+            (on, guard.access_of_open())
+        };
+        if name == tools::TOOL_NAME {
+            run_command(&again, "", 0, state, workdir, sandbox_on, access);
+        } else {
+            run_program_tool(&again, "", 0, state, workdir, cancel);
+        }
+        // The answer of the call that ran again stands in its own block above
+        // this one. The block of the rerun fails when that call failed, so the
+        // model is told once, in the same words, whether the work was done.
+        let (said, failed) = {
+            let Ok(guard) = state.lock() else { return };
+            guard.answer_of(&again.id).unwrap_or_else(|| {
+                (
+                    "The call ran again and gave nothing back.".to_string(),
+                    true,
+                )
+            })
+        };
+        let changed = asked.edits.len();
+        let words = format!(
+            "Ran {} again, with {} {} changed ({}). It answered: {}",
+            name,
+            changed,
+            if changed == 1 { "parameter" } else { "parameters" },
+            rerun::shown(&before, &asked.edits),
+            first_line(&said)
+        );
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &words, !failed);
+        return;
+    }
+    // An infographic. The five tools of the suite work on one file of words in
+    // the room of the chat, and the last of them draws the frames. A render is
+    // the slow work of a minute, so the way it comes is put on the line of the
+    // state as it goes.
+    if infographic::is_tool(&call.name) {
+        let cancel_render = cancel.clone();
+        let told = |one: &str| {
+            if let Ok(mut guard) = state.lock() {
+                guard.set_status(one);
+            }
+        };
+        let made = infographic::run(&call.name, &call.arguments, workdir, &cancel_render, told);
+        let ok = !made.starts_with("the ") || made.contains("stands");
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &made, ok);
         return;
     }
     // A file the user is offered. Nothing is copied and nothing is fetched: the
@@ -8834,7 +9708,7 @@ mod tests {
         assert!(snap.tool_switches.picture);
         assert!(snap.tool_switches.hand_out);
         let words = |code_on: bool, switches: &store::ToolSwitches| {
-            offered(false, code_on, false, tools::Access::default(), &[], switches)
+            offered(false, code_on, false, tools::Access::default(), &[], switches, true)
                 .map(|list| {
                     list.as_array()
                         .unwrap()
@@ -8895,6 +9769,202 @@ mod tests {
         assert!(!kept.picture);
         assert!(!kept.hand_out, "the offer of a file is still off");
         assert!(!lines.is_empty(), "the badge has lines to switch");
+    }
+
+    // The tools of planning stand only while planning mode is on, and the whole of
+    // them stands then: the first writing of the plan, the changes of it, the
+    // reading of it back, the questions of the user, and the letting go. A chat
+    // that never planned is offered none of them, for a plan file it has no hold
+    // of is nothing a tool could reach.
+    #[test]
+    fn the_tools_of_planning_stand_only_while_planning_is_on() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+        }
+        let switches = engine.snapshot().tool_switches;
+        let names = |on: bool| {
+            offered_with_planning(
+                false,
+                on,
+                false,
+                false,
+                false,
+                tools::Access::default(),
+                &[],
+                &switches,
+                true,
+            )
+            .map(|list| {
+                list.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect::<Vec<_>>()
+            })
+        };
+        let wanted = [
+            planning::INIT_NAME,
+            planning::EDIT_NAME,
+            planning::READ_NAME,
+            planning::ASK_NAME,
+            planning::END_NAME,
+        ];
+        let plain = names(false).unwrap_or_default();
+        for one in wanted {
+            assert!(
+                !plain.iter().any(|two| two == one),
+                "{} stands outside planning mode",
+                one
+            );
+        }
+        let planned = names(true).expect("planning mode always offers a tool");
+        for one in wanted {
+            assert!(
+                planned.iter().any(|two| two == one),
+                "{} is missing while planning mode stands on: {:?}",
+                one,
+                planned
+            );
+        }
+    }
+
+    // The handoff summary the model may ask for stands behind the badge of the
+    // tools and behind the line of its own, as every other tool of the program
+    // does. It stands at all only while the settings make the room of the talk
+    // by a handoff summary: with compaction off there is no summary to be
+    // written, so the tool is offered nowhere and a call of its name is answered
+    // as a tool that is switched off.
+    #[test]
+    fn the_tool_of_the_handoff_summary_stands_only_while_the_room_is_made_by_one() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        engine.set_code(true);
+        let names = |list: Option<Value>| -> Vec<String> {
+            list.map(|made| {
+                made.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect()
+            })
+            .unwrap_or_default()
+        };
+        let given = |room: bool, switches: &store::ToolSwitches| {
+            names(offered(
+                false,
+                true,
+                false,
+                tools::Access::default(),
+                &[],
+                switches,
+                room,
+            ))
+        };
+        // The room is made by a summary and the line stands on: the tool is
+        // offered beside the others.
+        let open = given(true, &engine.snapshot().tool_switches);
+        assert!(open.contains(&tools::TOOL_NAME.to_string()), "the badge of the tools stands on");
+        assert!(
+            open.contains(&summarise::NAME.to_string()),
+            "the handoff summary was not offered: {:?}",
+            open
+        );
+        // The same chat with compaction off: the tool is gone, and every other
+        // tool of the badge stands where it stood.
+        let shut = given(false, &engine.snapshot().tool_switches);
+        assert!(shut.contains(&tools::TOOL_NAME.to_string()));
+        assert!(
+            !shut.contains(&summarise::NAME.to_string()),
+            "a summary was offered with compaction off: {:?}",
+            shut
+        );
+        // The line of the drop-down takes the tool out on its own, as every
+        // other line does, and the badge stays open over the rest.
+        engine.set_tool_switch("summarise", false);
+        let taken = given(true, &engine.snapshot().tool_switches);
+        assert!(!taken.contains(&summarise::NAME.to_string()));
+        assert!(taken.contains(&tools::TOOL_NAME.to_string()));
+        assert!(engine.snapshot().code_enabled, "the badge stands on over the other lines");
+        engine.set_tool_switch("summarise", true);
+        // A call of the name is let through while compaction stands on, and is
+        // answered as a tool that is switched off when it does not: the badge
+        // and the line say yes, and there is nothing for the tool to do.
+        assert!(tool_allowed(&engine.state, summarise::NAME), "the chat lets the call through");
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.cfg.chat_compaction = String::from(config::COMPACTION_OFF);
+        }
+        assert!(
+            !tool_allowed(&engine.state, summarise::NAME),
+            "a summary was let through with compaction off"
+        );
+        assert!(
+            tool_allowed(&engine.state, tools::TOOL_NAME),
+            "the other tools of the badge are untouched"
+        );
+        // The line of the drop-down is named, so the block of a call that was
+        // not let through says what was switched off.
+        assert_eq!(group_of(summarise::NAME), Some("summarise"));
+        assert!(tool_group_word("summarise").contains("ummar"));
+    }
+
+    // The words of the room go out with the talk while the settings make the
+    // room by a handoff summary, and go away when it stands off. A model that
+    // is never told how the room is kept reads a full context as the end of its
+    // work, and shortens the piece it was asked for.
+    #[test]
+    fn the_words_of_the_room_stand_with_the_talk_while_compaction_stands_on() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        let said = {
+            let state = engine.state.lock().unwrap();
+            state.build_history().to_string()
+        };
+        assert!(
+            said.contains("The room of this conversation is kept open"),
+            "the words of the room did not go out with the talk"
+        );
+        // The words say what the model is to take from them: nothing to count,
+        // and nothing to be left out of the work.
+        assert!(said.contains("no limit on the number of tool calls"));
+        assert!(said.contains("Never leave a part of the work out"));
+        assert!(said.contains("Work until the work is complete"));
+        // The words go out once for the talk, in a message of the role `system`.
+        let count = {
+            let state = engine.state.lock().unwrap();
+            state
+                .build_history()
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|one| {
+                    one["content"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .starts_with("The room of this conversation is kept open")
+                })
+                .count()
+        };
+        assert_eq!(count, 1, "the words of the room ride more than once with the talk");
+        // Compaction off: no summary is ever written, so nothing is told of a
+        // room that is never made.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.cfg.chat_compaction = String::from(config::COMPACTION_OFF);
+            let said = state.build_history().to_string();
+            assert!(
+                !said.contains("The room of this conversation is kept open"),
+                "the words of the room stood with compaction off"
+            );
+        }
     }
 
     // The user works in one chat with the tools on and a level of thinking
@@ -9701,6 +10771,149 @@ mod tests {
         }
     }
 
+    // The marks of a colour keep the words they stand about and add nothing of
+    // their own. A mark that nothing closes stays where the model wrote it, for
+    // the answer stopped in the middle of it. A mark of another kind, a mark with
+    // more words in its name, and a pair of marks with nothing between them are
+    // none of the four colours, and nothing of them is touched.
+    #[test]
+    fn the_colour_marks_are_taken_out_of_their_words() {
+        // Words with no marks in them come back as they went in.
+        assert_eq!(strip_colour_tags("nothing coloured here"), "nothing coloured here");
+        // The four colours, each with its words kept.
+        assert_eq!(strip_colour_tags("<green>done</green>"), "done");
+        assert_eq!(
+            strip_colour_tags("<light_green>almost done</light_green>"),
+            "almost done"
+        );
+        assert_eq!(strip_colour_tags("<red>it failed</red>"), "it failed");
+        assert_eq!(
+            strip_colour_tags("<light_red>it may fail</light_red>"),
+            "it may fail"
+        );
+        // Two colours in one line of words, and words between them.
+        assert_eq!(
+            strip_colour_tags("the build is <green>green</green> and the test is <red>red</red>."),
+            "the build is green and the test is red."
+        );
+        // A colour inside a colour loses both pairs of marks.
+        assert_eq!(
+            strip_colour_tags("<green>a <red>b</red> c</green>"),
+            "a b c"
+        );
+        // A mark that nothing closes stays, and so does a mark of another kind.
+        assert_eq!(strip_colour_tags("a <green>b"), "a <green>b");
+        assert_eq!(strip_colour_tags("<b>words</b>"), "<b>words</b>");
+        assert_eq!(
+            strip_colour_tags("<greenish>words</greenish>"),
+            "<greenish>words</greenish>"
+        );
+        assert_eq!(strip_colour_tags("<green></green>"), "<green></green>");
+        // A mark of one colour closed by the mark of another is left alone.
+        assert_eq!(strip_colour_tags("<green>a</red>"), "<green>a</red>");
+        // Words with no colour in them at all, of any length, are not gone over.
+        let plain = "n".repeat(5000);
+        assert_eq!(strip_colour_tags(&plain), plain);
+        // Marks of one colour with nothing between them but more marks of the
+        // same colour, and one mark that closes them: the first mark that closes
+        // is the one the words stand in, and the marks inside it stay, for
+        // nothing closes them where they stand. The page reads the same pair.
+        let deep = "<green>".repeat(200) + "x" + &"</green>".repeat(200);
+        assert_eq!(
+            strip_colour_tags(&deep),
+            "<green>".repeat(199) + "x" + &"</green>".repeat(199)
+        );
+        // The depth of the colours is counted. Past the depth the page reads, the
+        // words are given back as they stand, so an answer that put colour a long
+        // way down cannot ask for more work than there is room for.
+        let one = "<green>x</green>";
+        assert_eq!(strip_colour_tags_deep(one, 0), "x");
+        assert_eq!(strip_colour_tags_deep(one, GREATEST_COLOUR_NESTING), one);
+        assert_eq!(strip_colour_tags_deep(one, GREATEST_COLOUR_NESTING - 1), "x");
+    }
+
+    // The marks of a colour are a look over the words and not words of the
+    // answer. While the switch stands on, they go out of the talk that goes back
+    // to the model, and the words that tell the model of them stand at the head
+    // of it. With the switch off the marks stay where the model wrote them, and
+    // those words go away with the switch.
+    #[test]
+    fn the_talk_carries_the_colour_marks_only_while_the_switch_stands_off() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            if let Some(chat) = state.chat_mut() {
+                chat.messages.push(Message {
+                    role: String::from("You"),
+                    body: String::from("is the build finished?"),
+                    ..Default::default()
+                });
+                chat.messages.push(Message {
+                    role: String::from("Assistant"),
+                    body: String::from(
+                        "the build is <green>green</green> and the test is <light_red>red</light_red>",
+                    ),
+                    ..Default::default()
+                });
+            }
+            let list = state.build_history();
+            let answers = list
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|message| message["role"].as_str() == Some("assistant"))
+                .map(|message| message["content"].as_str().unwrap_or_default())
+                .collect::<Vec<&str>>();
+            assert_eq!(answers, vec!["the build is green and the test is red"]);
+            // The words of the colours stand at the head of the talk, once for it.
+            let told = list
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|message| {
+                    message["content"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .starts_with("You may put colour on a few words")
+                })
+                .count();
+            assert_eq!(told, 1);
+        }
+        // The switch off: the marks travel back as the model wrote them, for the
+        // page reads no colour then and the model must still find its own marks.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.cfg.chat_colour_text = false;
+            let list = state.build_history();
+            let answers = list
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|message| message["role"].as_str() == Some("assistant"))
+                .map(|message| message["content"].as_str().unwrap_or_default())
+                .collect::<Vec<&str>>();
+            assert_eq!(
+                answers,
+                vec!["the build is <green>green</green> and the test is <light_red>red</light_red>"]
+            );
+            let told = list
+                .as_array()
+                .expect("a list of the talk")
+                .iter()
+                .filter(|message| {
+                    message["content"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .starts_with("You may put colour on a few words")
+                })
+                .count();
+            assert_eq!(told, 0);
+        }
+    }
+
     // A chapter is begun by a main heading of an answer. The chapters are given
     // to the window in the order they begin, each tied to the message before the
     // answer that carries it, and the heading itself stays among the words of the
@@ -10114,6 +11327,511 @@ mod tests {
         let _ = std::fs::remove_dir_all(&workdir);
     }
 
+    // A tool whose words are neither a command nor a file shows the parts of the
+    // call as they come in, so the block is not blank while the model writes, and
+    // the head still names the one thing the call is pointed at.
+    #[test]
+    fn the_parts_of_a_call_are_written_into_the_block() {
+        let ask = ToolCall {
+            id: String::from("call-ask-parts"),
+            name: String::from(askuser::NAME),
+            arguments: String::from(
+                "{\"question\":\"Which room?\",\"choices\":[\"The big one\",\"The small one\"]}",
+            ),
+        };
+        let made = watched(std::slice::from_ref(&ask));
+        assert_eq!(made[0].target, "Which room?");
+        assert_eq!(
+            made[0].command,
+            "question: Which room?\nchoices: [\"The big one\",\"The small one\"]"
+        );
+        // The whole plan of planning mode stands in the body as it is written.
+        // Before, the block said only 'the plan file' and grew by nothing.
+        let plan = ToolCall {
+            id: String::from("call-plan-parts"),
+            name: String::from(planning::INIT_NAME),
+            arguments: String::from("{\"plan\":\"# Plan\\nFix the parser\"}"),
+        };
+        let made = watched(std::slice::from_ref(&plan));
+        assert_eq!(made[0].target, "the plan file");
+        assert_eq!(made[0].command, "plan: # Plan\nFix the parser");
+        // A tool of the infographic suite is named for the project it works on,
+        // and carries its parts under their own names.
+        let scene = ToolCall {
+            id: String::from("call-scene-parts"),
+            name: String::from(infographic::SCENE_NAME),
+            arguments: String::from("{\"project\":\"launch\",\"scene\":{\"title\":\"First light\"}}"),
+        };
+        let made = watched(std::slice::from_ref(&scene));
+        assert_eq!(made[0].target, "a scene of a video (launch)");
+        assert_eq!(
+            made[0].command,
+            "project: launch\nscene: {\"title\":\"First light\"}"
+        );
+        // The short of the work for the corporate display is named by the heading
+        // of the area of work, and the lines stand in the body.
+        let short = ToolCall {
+            id: String::from("call-short-parts"),
+            name: String::from(corporate::NAME),
+            arguments: String::from("{\"topic\":\"The parser\",\"lines\":[\"Found the fault\"]}"),
+        };
+        let made = watched(std::slice::from_ref(&short));
+        assert_eq!(made[0].target, "The parser");
+        assert_eq!(
+            made[0].command,
+            "topic: The parser\nlines: [\"Found the fault\"]"
+        );
+        // A call that has named nothing yet has no name to put in the head, so
+        // the head says what the tool is pointed at. The body still shows the
+        // part the model is writing.
+        let half = ToolCall {
+            id: String::from("call-half-parts"),
+            name: String::from(search::NAME),
+            arguments: String::from("{\"depth\":2,\"query\":\"sea"),
+        };
+        let made = watched(std::slice::from_ref(&half));
+        assert!(!made[0].target.trim().is_empty(), "the head never stands blank");
+        assert!(
+            made[0].command.starts_with("depth: 2"),
+            "{}",
+            made[0].command
+        );
+    }
+
+    // None of the tools that show their parts stands with a blank head: a call
+    // with nothing in it still says what the tool is pointed at, and never the
+    // words of the body, which are the parts of the call.
+    #[test]
+    fn the_head_of_a_call_that_named_nothing_still_says_something() {
+        let names = [
+            search::NAME,
+            download::NAME,
+            display::NAME,
+            askuser::NAME,
+            suggest::NAME,
+            viewimage::NAME,
+            summarise::NAME,
+            planning::INIT_NAME,
+            planning::EDIT_NAME,
+            planning::READ_NAME,
+            planning::ASK_NAME,
+            planning::END_NAME,
+            infographic::GUIDE_NAME,
+            infographic::PLAN_NAME,
+            infographic::SCENE_NAME,
+            infographic::CHECK_NAME,
+            infographic::RENDER_NAME,
+            corporate::NAME,
+            rerun::NAME,
+        ];
+        for one in names.iter() {
+            let call = ToolCall {
+                id: format!("call-{}", one),
+                name: String::from(*one),
+                arguments: String::from("{}"),
+            };
+            let made = watched(std::slice::from_ref(&call));
+            assert!(!made[0].target.trim().is_empty(), "{} stands blank", one);
+            assert!(
+                !made[0].target.contains(':'),
+                "{} names a part of the call instead of the thing it is at: {}",
+                one,
+                made[0].target
+            );
+        }
+    }
+
+    // A call that failed is run again with one parameter changed. The model does
+    // not write the whole call out again: the tool reads the parameters of the
+    // call that failed off the chat, changes the one parameter each change names,
+    // and sends the call down the same road it went the first time. The tool
+    // answers in a block of its own, and the block of the rerun says what was
+    // changed and what came back.
+    #[test]
+    fn a_failed_call_is_run_again_with_one_parameter_changed() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let workdir = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
+            std::fs::create_dir_all(&room).unwrap();
+            std::fs::write(room.join("notes.txt"), "the first line\n").unwrap();
+            room
+        };
+        let idle = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // The first call asks for text the file does not hold, so it fails. Its
+        // receipt tells the model the call may be run again with a change.
+        let first = ToolCall {
+            id: String::from("call-first"),
+            name: String::from(editfile::EDIT_NAME),
+            arguments: String::from(
+                "{\"path\":\"notes.txt\",\"edits\":[{\"old_string\":\"the first lien\",\"new_string\":\"the third line\"}]}",
+            ),
+        };
+        run_program_tool(&first, "", 0, &engine.state, &workdir, &idle);
+        let snap = engine.snapshot();
+        let run = snap
+            .messages
+            .iter()
+            .rev()
+            .find(|one| one.tool_name == editfile::EDIT_NAME)
+            .expect("the chat holds the call");
+        assert!(run.failed, "{}", run.tool);
+        assert!(
+            run.tool.contains(rerun::NAME),
+            "the receipt names the way to run the call again: {}",
+            run.tool
+        );
+        std::mem::drop(snap);
+        // The rerun names only the parameter that was wrong. The name of the file
+        // and the new text of the change stand as they stood.
+        let again = ToolCall {
+            id: String::from("call-again"),
+            name: String::from(rerun::NAME),
+            arguments: String::from(
+                "{\"tool\":\"edit_file\",\"edits\":[{\"parameter\":\"edits.0.old_string\",\"new_string\":\"the first line\"}]}",
+            ),
+        };
+        run_program_tool(&again, "", 0, &engine.state, &workdir, &idle);
+        let made =
+            std::fs::read_to_string(workdir.join("notes.txt")).expect("the file stands in the room");
+        assert_eq!(made, "the third line\n", "the change went in as meant");
+        let snap = engine.snapshot();
+        let runs: Vec<&Message> = snap
+            .messages
+            .iter()
+            .filter(|one| one.tool_name == editfile::EDIT_NAME)
+            .collect();
+        assert_eq!(runs.len(), 2, "the rerun made a block of its own");
+        assert!(runs[0].failed, "the first call still stands as a failure");
+        assert!(!runs[1].failed, "{}", runs[1].tool);
+        let said = snap
+            .messages
+            .iter()
+            .find(|one| one.tool_name == rerun::NAME)
+            .expect("the chat holds the rerun");
+        assert!(!said.failed, "{}", said.tool);
+        assert!(said.tool.contains(editfile::EDIT_NAME), "{}", said.tool);
+        assert!(said.tool.contains("edits.0.old_string"), "{}", said.tool);
+        assert!(
+            !said.tool.contains(rerun::NAME),
+            "the receipt of a rerun does not ask for another: {}",
+            said.tool
+        );
+        // A tool that never failed in this chat has nothing to run again, and the
+        // model is told so instead of having a call made up for it.
+        std::mem::drop(snap);
+        let strange = ToolCall {
+            id: String::from("call-strange"),
+            name: String::from(rerun::NAME),
+            arguments: String::from(
+                "{\"tool\":\"web_search\",\"edits\":[{\"parameter\":\"query\",\"new_string\":\"cats\"}]}",
+            ),
+        };
+        run_program_tool(&strange, "", 0, &engine.state, &workdir, &idle);
+        let last = engine.snapshot();
+        let said = last
+            .messages
+            .iter()
+            .rev()
+            .find(|one| one.tool_name == rerun::NAME)
+            .expect("the chat holds the second call");
+        assert!(said.failed, "{}", said.tool);
+        assert!(said.tool.contains("No failed call"), "{}", said.tool);
+        let _ = std::fs::remove_dir_all(&workdir);
+    }
+
+    // A command that failed is run again too. The command does not go through a
+    // tool of the program but through the terminal, so the rerun has to put it
+    // down that road instead.
+    #[test]
+    fn a_failed_command_is_run_again_in_the_terminal() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let workdir = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
+            std::fs::create_dir_all(&room).unwrap();
+            std::fs::write(room.join("notes.txt"), "hello\n").unwrap();
+            room
+        };
+        // The command runs loose here: the jail is on for a new chat, and this
+        // test is about the call going down the terminal road again, not about
+        // what the jail lets through.
+        engine.set_sandbox(false);
+        let idle = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let first = ToolCall {
+            id: String::from("call-read"),
+            name: String::from(tools::TOOL_NAME),
+            arguments: String::from("{\"command\":\"cat note.txt\"}"),
+        };
+        run_command(&first, "", 0, &engine.state, &workdir, false, tools::Access::default());
+        let snap = engine.snapshot();
+        let run = snap
+            .messages
+            .iter()
+            .rev()
+            .find(|one| one.tool_name == tools::TOOL_NAME)
+            .expect("the chat holds the command");
+        assert!(run.failed, "{}", run.tool);
+        std::mem::drop(snap);
+        let again = ToolCall {
+            id: String::from("call-read-again"),
+            name: String::from(rerun::NAME),
+            arguments: String::from(
+                "{\"tool\":\"run_terminal\",\"edits\":[{\"parameter\":\"command\",\"old_string\":\"note.txt\",\"new_string\":\"notes.txt\"}]}",
+            ),
+        };
+        run_program_tool(&again, "", 0, &engine.state, &workdir, &idle);
+        let snap = engine.snapshot();
+        let said = snap
+            .messages
+            .iter()
+            .rev()
+            .find(|one| one.tool_name == rerun::NAME)
+            .expect("the chat holds the rerun");
+        assert!(!said.failed, "{}", said.tool);
+        assert!(said.tool.contains("hello"), "the answer of the command comes back with the rerun: {}", said.tool);
+        let _ = std::fs::remove_dir_all(&workdir);
+    }
+
+    // The offer of the next steps hangs on the run that made it, and the state
+    // carries it with the run, so the buttons are drawn again when the chat is
+    // opened another day and in the page of the remote mode. The newest offer of
+    // a chat is the one that stands: a second call takes the buttons of the
+    // first away, for the roads an older answer named are no longer the roads
+    // the talk is at. The line of the drop-down of the badge holds the tool as it
+    // holds every other tool of the program.
+    #[test]
+    fn the_offer_of_a_next_step_hangs_on_the_run_and_the_newest_stands() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let workdir = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
+            std::fs::create_dir_all(&room).unwrap();
+            room
+        };
+        let run = |engine: &Engine, id: &str, arguments: &str| {
+            run_program_tool(
+                &ToolCall {
+                    id: String::from(id),
+                    name: String::from(suggest::NAME),
+                    arguments: String::from(arguments),
+                },
+                "",
+                0,
+                &engine.state,
+                &workdir,
+                &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            );
+        };
+        run(
+            &engine,
+            "call-one",
+            "{\"suggestions\":[{\"label\":\"Run the tests\",\"prompt\":\"Run the tests of the core.\"},{\"label\":\"Read the log\"}]}",
+        );
+        let snap = engine.snapshot();
+        let first = snap
+            .messages
+            .iter()
+            .find(|one| one.tool_name == suggest::NAME)
+            .expect("the chat holds the run");
+        assert_eq!(first.role, "Tool");
+        assert!(!first.failed, "{}", first.tool);
+        assert_eq!(first.suggestions.len(), 2);
+        assert_eq!(first.suggestions[0].label, "Run the tests");
+        assert_eq!(first.suggestions[0].prompt, "Run the tests of the core.");
+        assert_eq!(first.suggestions[1].prompt, "Read the log");
+        assert!(first.tool.contains("2 next steps are offered"), "{}", first.tool);
+        // The state of a page carries the offer with the run.
+        let value = crate::web::state(&snap, None);
+        let rows = value["messages"].as_array().expect("the state carries the talk");
+        let row = rows
+            .iter()
+            .find(|one| one["tool_name"] == suggest::NAME)
+            .expect("the run stands in the state");
+        assert_eq!(row["suggestions"][0]["label"], "Run the tests");
+        assert_eq!(row["suggestions"][0]["prompt"], "Run the tests of the core.");
+        assert_eq!(row["suggestions"][1]["label"], "Read the log");
+        // A second call takes the buttons of the first away: the newest offer is
+        // the one the user is given.
+        run(&engine, "call-two", "{\"suggestions\":[\"Show me the diff\"]}");
+        let snap = engine.snapshot();
+        let runs: Vec<&Message> = snap
+            .messages
+            .iter()
+            .filter(|one| one.tool_name == suggest::NAME)
+            .collect();
+        assert_eq!(runs.len(), 2, "both runs stand in the talk");
+        assert!(runs[0].suggestions.is_empty(), "the older offer went");
+        assert_eq!(runs[1].suggestions.len(), 1);
+        assert_eq!(runs[1].suggestions[0].label, "Show me the diff");
+        // The tool stands behind the line of the drop-down, and the line takes it
+        // out of the ask as it takes out every other tool of the program.
+        let names = |switches: &store::ToolSwitches| {
+            offered(
+                false,
+                true,
+                false,
+                tools::Access::default(),
+                &[],
+                switches,
+                true,
+            )
+            .map(|list| {
+                list.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect::<Vec<_>>()
+            })
+        };
+        assert!(
+            names(&engine.snapshot().tool_switches).is_some_and(|list| list
+                .iter()
+                .any(|one| one == suggest::NAME)),
+            "the tool is offered while the line stands on"
+        );
+        engine.set_tool_switch("suggest", false);
+        assert!(
+            !names(&engine.snapshot().tool_switches)
+                .unwrap_or_default()
+                .iter()
+                .any(|one| one == suggest::NAME),
+            "the line takes the tool out of the ask"
+        );
+        let _ = std::fs::remove_dir_all(&workdir);
+    }
+
+    // The list of the steps of the work hangs on the run that made it, and the
+    // state carries it with the run, so the block is drawn again when the chat is
+    // opened another day and in the page of the remote mode. The newest call of
+    // the answer wins, so a model that corrects its own list leaves one block and
+    // not two. The line of the drop-down of the badge holds the tool as it holds
+    // every other tool of the program, and the head of the live block names the
+    // title while the body holds the steps written so far.
+    #[test]
+    fn the_list_of_the_steps_hangs_on_the_run_and_the_newest_stands() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let workdir = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
+            std::fs::create_dir_all(&room).unwrap();
+            room
+        };
+        let run = |engine: &Engine, id: &str, arguments: &str| {
+            run_program_tool(
+                &ToolCall {
+                    id: String::from(id),
+                    name: String::from(steps::NAME),
+                    arguments: String::from(arguments),
+                },
+                "",
+                0,
+                &engine.state,
+                &workdir,
+                &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            );
+        };
+        run(
+            &engine,
+            "call-one",
+            "{\"title\":\"Ship it\",\"steps\":[{\"label\":\"Build\",\"content\":\"Run build.sh.\"},{\"label\":\"Test\",\"content\":\"Run the tests.\"}]}",
+        );
+        let snap = engine.snapshot();
+        let first = snap
+            .messages
+            .iter()
+            .find(|one| one.tool_name == steps::NAME)
+            .expect("the chat holds the run");
+        assert_eq!(first.role, "Tool");
+        assert!(!first.failed, "{}", first.tool);
+        let plan = first.steps.as_ref().expect("the block stands");
+        assert_eq!(plan.title, "Ship it");
+        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps[0].content, "Run build.sh.");
+        assert!(first.tool.contains("2 steps are shown"), "{}", first.tool);
+        // The state of a page carries the block with the run.
+        let value = crate::web::state(&snap, None);
+        let rows = value["messages"].as_array().expect("the state carries the talk");
+        let row = rows
+            .iter()
+            .find(|one| one["tool_name"] == steps::NAME)
+            .expect("the run stands in the state");
+        assert_eq!(row["steps"]["title"], "Ship it");
+        assert_eq!(row["steps"]["steps"][1]["label"], "Test");
+        // A second call takes the block of the first away.
+        run(&engine, "call-two", "{\"steps\":[\"Only one step\"]}");
+        let snap = engine.snapshot();
+        let runs: Vec<&Message> = snap
+            .messages
+            .iter()
+            .filter(|one| one.tool_name == steps::NAME)
+            .collect();
+        assert_eq!(runs.len(), 2, "both runs stand in the talk");
+        assert!(runs[0].steps.is_none(), "the older block went");
+        let second = runs[1].steps.as_ref().expect("the newest block stands");
+        assert_eq!(second.steps.len(), 1);
+        assert_eq!(second.steps[0].content, "Only one step");
+        // The tool stands behind the line of the drop-down, as every other tool
+        // of the program does.
+        let names = |switches: &store::ToolSwitches| {
+            offered(
+                false,
+                true,
+                false,
+                tools::Access::default(),
+                &[],
+                switches,
+                true,
+            )
+            .map(|list| {
+                list.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect::<Vec<_>>()
+            })
+        };
+        assert!(
+            names(&engine.snapshot().tool_switches).is_some_and(|list| list
+                .iter()
+                .any(|one| one == steps::NAME)),
+            "the tool is offered while the line stands on"
+        );
+        assert_eq!(group_of(steps::NAME), Some("steps"));
+        engine.set_tool_switch("steps", false);
+        assert!(
+            !names(&engine.snapshot().tool_switches)
+                .unwrap_or_default()
+                .iter()
+                .any(|one| one == steps::NAME),
+            "the line takes the tool out of the ask"
+        );
+        // The head of a block being written names the title, and its body holds
+        // the steps written so far.
+        let writing = ToolCall {
+            id: String::from("call-three"),
+            name: String::from(steps::NAME),
+            arguments: String::from("{\"title\":\"Ship it\",\"steps\":[{\"label\":\"Build\",\"content\":\"Run build"),
+        };
+        let made = watched(std::slice::from_ref(&writing));
+        assert_eq!(made[0].target, "Ship it");
+        assert!(made[0].command.contains("1. Build"), "{}", made[0].command);
+        assert!(made[0].command.contains("Run build"), "{}", made[0].command);
+        let _ = std::fs::remove_dir_all(&workdir);
+    }
+
     // The picture a run opened for the model hangs on the message of the run. The
     // bytes of a picture are never written into the words of a block, so this is
     // the one way the user can look at what the model was shown: the state
@@ -10385,7 +12103,8 @@ mod tests {
             false,
             tools::Access::default(),
             &[],
-            &store::ToolSwitches::default()
+            &store::ToolSwitches::default(),
+            true
         )
         .is_none());
         // The badge on: every tool of the program stands there.
@@ -10396,6 +12115,7 @@ mod tests {
             tools::Access::default(),
             &[],
             &store::ToolSwitches::default(),
+            true
         )
         .unwrap();
         let words = names(&open);
@@ -10413,6 +12133,7 @@ mod tests {
             tools::Access::default(),
             &[],
             &store::ToolSwitches::default(),
+            true
         )
         .unwrap();
         assert_eq!(names(&looked), vec![search::NAME.to_string()]);
@@ -10424,6 +12145,7 @@ mod tests {
             tools::Access::default(),
             &[],
             &store::ToolSwitches::default(),
+            true
         )
         .unwrap();
         let words = names(&both);
@@ -10438,6 +12160,7 @@ mod tests {
             tools::Access { network: true, pip: true, fetch: true },
             &[],
             &store::ToolSwitches::default(),
+            true
         )
         .unwrap();
         let said = String::from(open[0]["function"]["description"].as_str().unwrap_or(""));
@@ -10477,6 +12200,7 @@ mod tests {
                 tools::Access::default(),
                 &[],
                 &store::ToolSwitches::default(),
+                true
             )
             .expect("the badge of the tools stands open")
             .as_array()
@@ -10550,6 +12274,7 @@ mod tests {
             tools::Access::default(),
             &made,
             &store::ToolSwitches::default(),
+            true
         )
         .expect("a server of the user's own is a tool");
         let names: Vec<&str> = list
@@ -11489,6 +13214,99 @@ mod tests {
         assert!(last["content"].as_str().expect("words").starts_with("Summarise it."));
     }
 
+    // A mark of a picture is what llama.cpp looks for in the words it is sent: it
+    // counts the marks and expects a bitmap at every one of them, and it refuses
+    // the whole ask when a mark stands where no picture is. A command that read
+    // the properties of an inference server carried such a mark into a chat, and
+    // every later ask of that chat was refused. Words with no mark in them are
+    // left exactly as they stand, and a mark is broken by one space, so the words
+    // still say what they said.
+    #[test]
+    fn a_media_mark_quoted_in_words_is_broken() {
+        assert_eq!(break_media_marks("nothing of a picture here"), None);
+        assert_eq!(break_media_marks(""), None);
+        // The mark of the server, and the plain mark of the template, are both
+        // broken, and so are two marks in one line.
+        assert_eq!(
+            break_media_marks("a: <__media_Qv1A2b3C4d5E6f7G8h9I0jK__> b: <__media__>"),
+            Some(String::from("a: < __media_Qv1A2b3C4d5E6f7G8h9I0jK__> b: < __media__>"))
+        );
+        // Broken once, the words hold no mark any more, so the ask of this turn
+        // and the ask of the next carry the same words and the server keeps the
+        // work it did on them.
+        let once = break_media_marks("media_marker: '<__media_Qv1A2b3C4d5E6f7G8h9I0jK__>'")
+            .expect("a mark was broken");
+        assert_eq!(break_media_marks(&once), None);
+    }
+
+    // The mark is broken wherever it stands in the ask: in the receipt of a
+    // command, in the parts of a message, in the arguments of a call. A number
+    // and a word with no mark in it are left where they stand.
+    #[test]
+    fn a_media_mark_is_broken_wherever_it_stands_in_an_ask() {
+        let mut ask = json!({
+            "messages": [
+                { "role": "user", "content": "What does the server say?" },
+                { "role": "assistant", "content": Value::Null,
+                  "tool_calls": [{ "id": "c1", "type": "function",
+                                   "function": { "name": "run_terminal",
+                                                 "arguments": "{\"command\":\"curl -s /props\"}" } }] },
+                { "role": "tool", "tool_call_id": "c1",
+                  "content": [{ "type": "text",
+                                "text": "'media_marker': '<__media_Qv1A2b3C4d5E6f7G8h9I0jK__>'" }] },
+            ],
+            "max_tokens": 400,
+        });
+        break_media_marks_in(&mut ask);
+        let items = ask["messages"].as_array().expect("the talk");
+        let receipt = items[2]["content"][0]["text"].as_str().expect("the receipt");
+        assert!(!receipt.contains("<__media_"), "the mark still stands");
+        assert!(receipt.contains("< __media_"), "the words still say what they said");
+        assert_eq!(items[0]["content"], json!("What does the server say?"));
+        assert_eq!(
+            items[1]["tool_calls"][0]["function"]["arguments"],
+            json!("{\"command\":\"curl -s /props\"}")
+        );
+        assert_eq!(ask["max_tokens"], json!(400));
+    }
+
+    // The talk that goes out is where the mark is broken. The chat keeps the words
+    // as the user reads them: the receipt of the command still shows the line the
+    // server wrote, and only what goes to the model is broken.
+    #[test]
+    fn the_talk_that_goes_out_carries_no_media_mark() {
+        let mark = "<__media_Qv1A2b3C4d5E6f7G8h9I0jK__>";
+        let engine = engine_with(vec![
+            Message {
+                id: String::from("a"),
+                role: String::from("You"),
+                body: String::from("What does the server say about its media marker?"),
+                ..Default::default()
+            },
+            Message {
+                id: String::from("b"),
+                role: String::from("Tool"),
+                call_id: String::from("c1"),
+                tool_name: String::from("run_terminal"),
+                tool_args: String::from("{\"command\":\"curl -s /props\"}"),
+                tool: format!("'media_marker': '{}'", mark),
+                ..Default::default()
+            },
+        ]);
+        let state = engine.state.lock().unwrap();
+        let talk = state.build_history();
+        let items = talk.as_array().expect("the talk");
+        let mut told = String::new();
+        for one in items {
+            told.push_str(&one.to_string());
+        }
+        assert!(!told.contains("<__media_"), "a mark went out to the server");
+        assert!(told.contains("< __media_"), "the receipt lost its words");
+        // The chat itself still holds the line as it was read.
+        let chat = state.chat().expect("the chat stands open");
+        assert!(chat.messages[1].tool.contains(mark), "the chat lost the line");
+    }
+
     // A talk that ends on a call, or on the receipt of one, used to end the ask on
     // a word of the model once the calls were gone, and the server was then asked
     // to go on where the model left off instead of to summarise it. Nothing is
@@ -11564,54 +13382,14 @@ mod tests {
         assert_eq!(silent[0]["content"], Value::Null);
     }
 
-    // The talk of a chat that ends on a call of a tool cannot be sent as it
-    // stands: the server has a debt to pay and pays it with a call of its own.
-    // The ask that puts the model back to work behind a handoff summary therefore
-    // carries a word of its own, and the talk ends on a question again. This is
-    // how such a talk is known, and how it stops being one the moment the model
-    // writes words of its own after the run.
+    // A call that was stopped before the model had written the whole of it is not
+    // a call: the words of it stop in the middle. It therefore goes back to the
+    // server as a saying of the model and never as a call of a tool, for a server
+    // set to read arguments out of words that stop in the middle of a string
+    // faults over them. A tool that ran is the other shape: the call and its
+    // receipt both stand in the talk.
     #[test]
-    fn the_talk_after_a_summarisation_ends_on_a_question_after_a_call() {
-        let _guard = config::test_turn();
-        setup();
-        let engine = Engine::start(Config::default());
-        let mut state = engine.state.lock().unwrap();
-        state.start_chat();
-        add_message(&mut state, "You", "the first prompt");
-        // A run whose command has run: the call and its receipt stand in the
-        // talk, and the server has the receipt to read. The id of the call is
-        // what a real answer carries, and a run with none sends nothing at all.
-        let mut call = cut_call(tools::TOOL_NAME, "{\"command\":\"ls\"}");
-        call.id = String::from("call-1");
-        let id = state.begin_tool(&call, "ls", "", 0);
-        state.finish_tool(&id, "notes.txt todo.txt", true);
-        // The line of the day and the clock time stands at the head of the talk,
-        // so the words of the talk are counted without it.
-        let items = undated(&state.build_history());
-        assert!(
-            ends_on_a_call(&json!(items)),
-            "a talk that ends on a call was not known: {}",
-            json!(items)
-        );
-        // A word of the model after the run, and the talk may be sent as it
-        // stands: nobody is waiting for an answer any more.
-        add_message(&mut state, "Assistant", "two files stand here");
-        let items = undated(&state.build_history());
-        assert!(
-            !ends_on_a_call(&json!(items)),
-            "a plain turn was taken for a call: {}",
-            json!(items)
-        );
-    }
-
-    // The telling of a call that the room gave out under stands in the place of the
-    // turn that was cut short, and asks the model for that call again. The talk that
-    // ends on it is therefore a call the server owes an answer to, as a run whose
-    // receipt stands last is. Without a word of the user after it a server set to
-    // read calls writes one of its own, the words of it are thrown away with the ask
-    // that made it, and the user is left with no answer at all.
-    #[test]
-    fn the_telling_of_a_cut_call_asks_the_server_for_an_answer() {
+    fn the_telling_of_a_cut_call_goes_back_as_words_and_never_as_a_call() {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
@@ -11621,79 +13399,38 @@ mod tests {
         let cut = cut_call(editfile::EDIT_NAME, "{\"path\":\"notes.md\"");
         state.push_cancelled(&cut, "", 0, GREATEST_CUT_ARGS);
         let items = undated(&state.build_history());
-        // The telling stands last, as the words of the turn it stood in, and the
-        // server is owed the call it tells of.
+        // The telling stands last, as the words of the turn it stood in, and it
+        // carries no call the server could read the arguments of.
         let last = items.last().expect("a talk with the telling in it");
         assert_eq!(last["role"], json!("assistant"));
+        assert!(
+            last.get("tool_calls").is_none(),
+            "a telling went back as a call: {}",
+            last
+        );
         assert!(last["content"]
             .as_str()
             .expect("words")
             .starts_with(CUT_TOLD_FIRST));
-        assert!(
-            ends_on_a_call(&json!(items)),
-            "the telling of a call was not known as a call: {}",
-            json!(items)
-        );
-        assert!(
-            cut_asks_for_a_call(&json!(items)),
-            "the ask was not known to carry a debt: {}",
-            json!(items)
-        );
-        // A run of a tool, and the talk ends on the receipt of it: that is a debt of
-        // another kind, and no word of the cut call stands at the end of it.
+        // A tool that ran keeps the marks of a call: the call of it, and the
+        // receipt that answers it.
         let mut ran = cut_call(tools::TOOL_NAME, "{\"command\":\"ls\"}");
         ran.id = String::from("call-9");
         let id = state.begin_tool(&ran, "ls", "", 0);
         state.finish_tool(&id, "notes.md", true);
         let items = undated(&state.build_history());
-        assert!(ends_on_a_call(&json!(items)), "a receipt was not a debt");
+        let last = items.last().expect("a talk with the receipt in it");
+        assert_eq!(last["role"], json!("tool"));
+        assert_eq!(last["tool_call_id"], json!("call-9"));
+        let call = &items[items.len() - 2];
+        assert_eq!(call["role"], json!("assistant"));
         assert!(
-            !cut_asks_for_a_call(&json!(items)),
-            "a plain receipt was taken for the telling of a cut call: {}",
-            json!(items)
+            call["tool_calls"].is_array(),
+            "a run went back without a call: {}",
+            call
         );
-        // A word of the model after the telling, and the ask may go out as the talk
-        // stands: nobody waits for the call any more.
-        add_message(&mut state, "Assistant", "I will write it in pieces");
-        let items = undated(&state.build_history());
-        assert!(!ends_on_a_call(&json!(items)));
-        assert!(!cut_asks_for_a_call(&json!(items)));
-        // The word of the user that pays the debt is not the telling itself, so a
-        // talk that ends on it is no debt.
-        let asked = go_on_words(&state, CUT_CONTINUE_WORDS);
-        let items = undated(&asked);
-        assert_eq!(items.last().expect("a talk")["role"], json!("user"));
-        assert!(!cut_asks_for_a_call(&json!(items)));
-    }
-
-    // The word that pays the debt of a cut call is a word of the program and not of
-    // the user, so it stands in no message of the chat: the user never wrote it
-    // and has nothing to read where it stands. It rides on the ask alone, and comes
-    // to no window.
-    #[test]
-    fn the_word_that_pays_the_debt_of_a_cut_call_never_reaches_the_window() {
-        let _guard = config::test_turn();
-        setup();
-        let engine = Engine::start(Config::default());
-        let mut state = engine.state.lock().unwrap();
-        state.start_chat();
-        add_message(&mut state, "You", "the first prompt");
-        let cut = cut_call(editfile::EDIT_NAME, "{\"path\":\"notes.md\"");
-        state.push_cancelled(&cut, "", 0, GREATEST_CUT_ARGS);
-        // The word goes out with the ask, and the talk ends on the user.
-        let asked = undated(&go_on_words(&state, CUT_CONTINUE_WORDS));
-        let last = asked.last().expect("a talk with the word in it");
-        assert_eq!(last["role"], json!("user"));
-        assert_eq!(last["content"].as_str().expect("words"), CUT_CONTINUE_WORDS);
-        // Nothing of it stands in the chat, so nothing of it can come to the window.
-        let said = json!(state.snap().messages).to_string();
-        assert!(
-            !said.contains(CUT_CONTINUE_WORDS),
-            "the word of the program came to the window"
-        );
-        // The words of the cut call are told once, and once only: the word of the
-        // program names the debt without repeating the telling of it.
-        let told = asked
+        // The telling of the call that was cut stands once, and once only.
+        let told = items
             .iter()
             .filter(|item| {
                 item["content"]
@@ -11740,13 +13477,27 @@ mod tests {
         let ran = state.begin_tool(&call, "ls", "", 0);
         state.finish_tool(&ran, "notes.txt todo.txt", true);
         let debt = state.build_history();
-        assert!(ends_on_a_call(&debt), "a receipt was not known as a debt: {}", debt);
+        let receipt = debt
+            .as_array()
+            .expect("a talk")
+            .last()
+            .expect("a talk with a receipt in it");
+        assert_eq!(
+            receipt["role"].as_str().expect("a role"),
+            "tool",
+            "the receipt of the run did not stand last: {}",
+            debt
+        );
         let history = go_on_words(&state, CONTINUE_PROMPT);
         let items = undated(&history);
         let last = items.last().expect("a talk the ask was given");
         assert_eq!(last["role"], json!("user"), "the ask did not end on the user");
         assert_eq!(last["content"].as_str().expect("words"), CONTINUE_PROMPT);
-        assert!(!ends_on_a_call(&json!(items)), "the ask still ends on a call: {}", history);
+        assert!(
+            last.get("tool_calls").is_none(),
+            "the ask still ends on a call: {}",
+            history
+        );
         // The handoff block of the summarisation is carried once, and once only.
         let block = handoff_block("The talk was about one thing.");
         let carried = items
@@ -12022,7 +13773,13 @@ mod tests {
             .iter()
             .filter(|message| {
                 let said = message["content"].as_str().unwrap_or_default();
-                !said.starts_with(DATE_HEAD) && !said.starts_with("The chapters of this chat are read from")
+                // The line of the day, the words of the chapters, the words of
+                // the colours and the words of the room are words of the
+                // program, not of the talk.
+                !said.starts_with(DATE_HEAD)
+                    && !said.starts_with("The chapters of this chat are read from")
+                    && !said.starts_with("You may put colour on a few words")
+                    && !said.starts_with("The room of this conversation is kept open")
             })
             .cloned()
             .collect()
@@ -12172,6 +13929,31 @@ mod tests {
             .starts_with(DATE_HEAD));
         cfg.chat_date_new_chat = false;
         assert!(date_message(&cfg, 1_700_000_000).is_none(), "the switch off sends no line");
+    }
+
+    // The words of the user and the marked prompts of the program make one block
+    // before the talk. Nothing marked and nothing written gives nothing, so a
+    // chat of a new set of settings sends no such message at all; the words of
+    // the user alone are their own words; and the marked prompts stand in front
+    // of them, in the order of the table, kept apart by a blank line.
+    #[test]
+    fn the_words_before_the_talk_hold_the_marks_and_then_the_words_of_the_user() {
+        let mut cfg = Config::default();
+        assert_eq!(system_words_of(&cfg), "", "nothing written and nothing marked");
+        cfg.chat_system_prompt = String::from("  Answer in short sentences.  ");
+        assert_eq!(system_words_of(&cfg), "Answer in short sentences.");
+        let ids: Vec<String> = crate::prompts::lines()
+            .iter()
+            .map(|one| String::from(one["id"].as_str().unwrap_or("")))
+            .collect();
+        cfg.chat_system_prompt = String::new();
+        cfg.chat_system_prompts_on = ids.clone();
+        assert_eq!(system_words_of(&cfg), crate::prompts::front(&ids));
+        cfg.chat_system_prompt = String::from("Never open with praise.");
+        let both = system_words_of(&cfg);
+        assert!(both.starts_with(&crate::prompts::front(&ids)));
+        assert!(both.ends_with("Never open with praise."));
+        assert!(both.contains("\n\nNever open with praise."), "the blocks are kept apart");
     }
 
     // The head of the talk must not move while the talk runs. The line of the day
@@ -12357,10 +14139,16 @@ mod tests {
         engine.set_theme("corporate");
         assert_eq!(engine.snapshot().theme, "corporate");
         assert!(!engine.snapshot().dark_mode);
+        // The silver skin is the ladder of grey the older program called corporate.
+        // Like the two skins of no colour it is not the dark skin, so the old switch
+        // stays off.
+        engine.set_theme("silver");
+        assert_eq!(engine.snapshot().theme, "silver");
+        assert!(!engine.snapshot().dark_mode);
         engine.set_theme("dark");
         assert_eq!(engine.snapshot().theme, "dark");
         assert!(engine.snapshot().dark_mode);
-        // A word that is none of the three is the pale skin.
+        // A word that is none of the four is the pale skin.
         engine.set_theme("nothing_of_a_skin");
         assert_eq!(engine.snapshot().theme, "light");
         assert!(!engine.snapshot().dark_mode);
@@ -12514,29 +14302,12 @@ mod tests {
         assert_eq!(state.ctx_used, 1500);
     }
 
-    // The room the summarisation made is spent on the words of a stopped call as
-    // much as on anything else, so what goes back is bounded by what is left over
-    // against the limit and not against the whole of the window: a telling that
-    // stands the ask past the limit has the model stopped a second time before it
-    // had a word to give.
+    // The words of a call that was stopped are kept to the head of it: the head
+    // names the work the call was, and the rest of it is a file the summary of the
+    // turn stands for. What the user is shown and what the model is told are made
+    // from the same words, so the two cannot differ.
     #[test]
     fn the_words_of_a_cut_call_are_kept_to_the_room() {
-        // A limit nearly full keeps the least the telling is ever given, for the
-        // head of a call is what names the work it was and less of it is of no use.
-        assert_eq!(cut_bound(8100, 8192), LEAST_CUT_ARGS);
-        // A limit nothing has been spent on is given a tenth of itself for the
-        // telling: the telling is the echo of a call that never ran, and the room
-        // the summarisation cleared is for the work, not for the echo.
-        assert_eq!(cut_bound(0, 8192), 3276);
-        // In between, a tenth of the limit is held back for the answer the model
-        // is to write, and what is left over is turned into characters at the four
-        // characters to a token the estimate of a talk goes by.
-        assert_eq!(cut_bound(6873, 8192), 2000);
-        assert_eq!(cut_bound(5000, 6554), 2620);
-        // Nothing is known of the room, so the most is given rather than nothing.
-        assert_eq!(cut_bound(9000, 0), GREATEST_CUT_ARGS);
-        assert_eq!(cut_bound(9000, u64::MAX), GREATEST_CUT_ARGS);
-
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
@@ -12635,12 +14406,13 @@ mod tests {
         assert!(!said.contains(&"y".repeat(2000)), "the whole call went to the summary ask");
     }
 
-    // The words that stand before a summarisation go back to the model no more.
-    // So the call that was stopped has to be written down after the mark of the
-    // summarisation, or the model would be left with no word of what it was put
-    // to -- and the room it was stopped at would be spent again on the next ask.
+    // The block of a call that was stopped stands where the writing stopped, above
+    // the mark of the summarisation. The ask for a summary is made of the talk as
+    // it stands, so it carries the telling of the call and the summary can say
+    // what the model was put to; the mark then cuts the telling off, and the words
+    // of a call that never ran are sent back no more.
     #[test]
-    fn a_cut_call_is_written_after_the_summarisation_so_the_model_reads_it() {
+    fn a_cut_call_is_written_before_the_summarisation_so_the_summary_carries_it() {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
@@ -12648,56 +14420,59 @@ mod tests {
         state.start_chat();
         add_message(&mut state, "You", "the first prompt");
         add_message(&mut state, "Assistant", "a long answer, and then some more of it");
-        // A call written down before the summarisation stands with the words the
-        // summary stands for, and is left out of the prompt.
-        let early = cut_call(tools::TOOL_NAME, "{\"command\":\"cargo test ");
-        state.push_cancelled(&early, "", 0, GREATEST_CUT_ARGS);
+        let cut = cut_call(
+            editfile::EDIT_NAME,
+            "{\"path\":\"notes/zzz-keep.md\",\"edits\":[{\"old_string\":\"zzz-old");
+        state.push_cancelled(&cut, "", 0, GREATEST_CUT_ARGS);
+        // The mark holds no words yet, so it cuts nothing off: the talk the
+        // summary is written of still holds the telling of the call, and the model
+        // that writes the summary reads what it was put to. The head of the call
+        // names the work it was, and the words of it are kept to the head: a whole
+        // file is the work the summary stands for.
         let mark = state.begin_summary();
+        let asked = summary_ask(&state.build_history(), "Summarise it.", None).to_string();
+        assert!(
+            asked.contains(CUT_TOLD_FIRST),
+            "the telling of the cut call did not go to the ask"
+        );
+        assert!(asked.contains(editfile::EDIT_NAME), "the tool of the call was lost");
+        assert!(asked.contains("zzz-old"), "the head of the call was lost");
         state.finish_summary(&mark, "Done: the cut. Next: the words.", 7000, 88, "");
-        let late = cut_call(editfile::EDIT_NAME, "{\"path\":\"notes.md\",\"edits\":[{\"old_string\":\"the pl");
-        state.push_cancelled(&late, "", 0, GREATEST_CUT_ARGS);
-        let history = state.build_history();
-        let told = history.to_string();
-        assert!(!told.contains("cargo test"), "a call before the summary came back");
-        // The call that was stopped after the summarisation comes back, and the
-        // model is told what it had been writing. The head of the call names the
-        // work it was, and the words of the call are kept to the head: the whole
-        // of the file is the work the summary already stands for, and sending it
-        // again would spend the room the summarisation just made on words the
-        // model has read in the summary already.
-        assert!(told.contains(editfile::EDIT_NAME), "the tool the call was for was not named");
-        assert!(told.contains("the pl"), "the head of the call was lost");
-        assert!(told.contains("writing"), "the model was not told what it had been writing");
-        assert!(told.contains("cancelled"));
-        // It stands after the summary, where the model reads it.
-        let items = history.as_array().expect("a list of the talk");
-        let where_summary = items
+        // The mark cuts the telling off: it stands with the words the summary
+        // stands for, and the room the words of the call take is won back.
+        let told = state.build_history().to_string();
+        assert!(
+            !told.contains(editfile::EDIT_NAME),
+            "the call that never ran came back to the model"
+        );
+        assert!(!told.contains("zzz-old"), "the words of the call came back");
+        // The block stands above the mark in the chat, where the user watched the
+        // writing stop, and not under the heading of the summarisation.
+        let chat = state.chat().expect("a chat stands open");
+        let where_mark = chat
+            .messages
             .iter()
-            .position(|item| {
-                item["content"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains("The session was compacted")
-            })
-            .expect("the summary stands in the prompt");
-        let where_cut = items
+            .position(|m| m.id == mark)
+            .expect("the mark stands in the chat");
+        let where_cut = chat
+            .messages
             .iter()
-            .rposition(|item| {
-                item["content"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains("cancelled")
-            })
-            .expect("the cut call stands in the prompt");
-        assert!(where_cut > where_summary);
+            .position(|m| m.role == "Tool" && m.cancelled)
+            .expect("the block of the cut call stands in the chat");
+        assert!(
+            where_cut < where_mark,
+            "the block stood under the heading: the block at {} and the mark at {}",
+            where_cut,
+            where_mark
+        );
     }
 
     // A turn may have put words into the chat before the mark of the
-    // summarisation was put in: the words of the answer that was cut, and the
-    // thinking of that turn. They are the words the summary stands for, and the
-    // mark is carried to the front of them, so the chat stands as the model
-    // reads it: the first prompt, the summary, and the words that came after
-    // it.
+    // summarisation was put in: the words of the answer that was cut, the thinking
+    // of that turn, and the blocks of the calls it was writing. They are the words
+    // the summary stands for, and the mark goes in after them, so the chat stands
+    // as the model reads it: the first prompt, the summary, and the words that
+    // came after it.
     #[test]
     fn the_words_of_a_cut_turn_stand_before_the_mark_of_the_summarisation() {
         let _guard = config::test_turn();
@@ -12768,6 +14543,60 @@ mod tests {
             !said.contains("the thinking of the turn"),
             "the thinking the summary stands for went back to the model"
         );
+    }
+
+    // The block of the call for the room cannot go into the chat before the ask:
+    // it would stand in the talk the summary is written of as a call that is still
+    // running. It therefore goes in below the mark and is moved above it, so the
+    // call stands where the model made it and the summary stands for the ask of
+    // it. A mark with no words in it cuts nothing off, and nothing moves.
+    #[test]
+    fn the_block_of_a_call_for_the_room_stands_above_the_mark() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        add_message(&mut state, "You", "the first prompt");
+        add_message(&mut state, "Assistant", "the answer, and the ask for the room");
+        let mark = state.begin_summary();
+        state.finish_summary(&mark, "Done: the plan. Next: the bar.", 7000, 88, "");
+        let mut call = cut_call(summarise::NAME, "{\"reason\":\"the talk is full\"}");
+        call.id = String::from("call-sum");
+        let id = state.begin_tool(&call, SUMMARISE_SHOWN, "", 0);
+        state.finish_tool(&id, "Space was made.", true);
+        // The block went in below the mark, where the room was made.
+        let place_of = |state: &State, id: &str| {
+            state
+                .chat()
+                .expect("a chat stands open")
+                .messages
+                .iter()
+                .position(|m| m.id == id)
+                .expect("the message stands in the chat")
+        };
+        assert!(place_of(&state, &id) > place_of(&state, &mark));
+        state.stand_before_summary(&id);
+        // The call now stands above the heading of the summarisation, where the
+        // model made it, and the summary stands for the ask of it.
+        assert!(place_of(&state, &id) < place_of(&state, &mark));
+        let said = state.build_history().to_string();
+        assert!(
+            !said.contains(SUMMARISE_SHOWN),
+            "the block of the call went back to the model"
+        );
+        assert!(!said.contains("call-sum"), "the call went back to the model");
+        // A mark that holds no words cuts nothing off, and an older mark is not
+        // the place this block belongs at: the word of what became of the call
+        // stays where the model can read it.
+        let second = state.begin_summary();
+        state.finish_summary(&second, "", 7000, 0, "the server went away");
+        let mut again = cut_call(summarise::NAME, "{\"reason\":\"the talk is full\"}");
+        again.id = String::from("call-sum-2");
+        let again_id = state.begin_tool(&again, SUMMARISE_SHOWN, "", 0);
+        state.finish_tool(&again_id, "The summary never came.", false);
+        state.stand_before_summary(&again_id);
+        assert!(place_of(&state, &again_id) > place_of(&state, &second));
     }
 
     // A mark of a summarisation that was never written stands in the chat with
@@ -12857,12 +14686,14 @@ mod tests {
         // the talk came to the limit while the call was being written. The room
         // is small enough that the estimate of the talk, with the telling of the
         // call in it, reads past the limit, and the estimate of the same talk
-        // without the telling reads under it.
+        // without the telling reads under it. The room the words of the program
+        // take is counted in here: the line of the day, the words of the chapters,
+        // the words of the colours and the words of the room ride with every ask.
         state.ctx_total = 2048;
         state.ctx_used = 1600;
         let cfg = Config {
             chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
-            chat_compact_reserve: 1500,
+            chat_compact_reserve: 1100,
             ..Default::default()
         };
         state.cfg = cfg;
@@ -12915,12 +14746,13 @@ mod tests {
         // The room and the limit, set so that the talk came to the limit while
         // the answer was being written, and so that a summary of the talk frees
         // the room: the estimate of the talk with the summary in it reads under
-        // the limit.
+        // the limit. The room the words of the program take is counted in, as it
+        // is in the test above.
         state.ctx_total = 2048;
         state.ctx_used = 1600;
         let cfg = Config {
             chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
-            chat_compact_reserve: 1500,
+            chat_compact_reserve: 1100,
             ..Default::default()
         };
         state.cfg = cfg;
@@ -12963,43 +14795,6 @@ mod tests {
         assert!(
             stopped,
             "the answer was not stopped under a room that stayed past the limit"
-        );
-    }
-
-    // The word that pays the debt of a cut call is a word of the program and not
-    // of the user, so it stands in no message of the chat: the user never
-    // wrote it and has nothing to read where it stands. It rides on the ask
-    // alone, and comes to no window. It says nothing of a summarisation, for the
-    // handoff block of the summary stands in the talk already, and a second copy
-    // of it would cost the room the summarisation was made to win.
-    #[test]
-    fn the_word_that_pays_the_debt_of_a_cut_call_carries_no_block_of_its_own() {
-        let _guard = config::test_turn();
-        setup();
-        let engine = Engine::start(Config::default());
-        let mut state = engine.state.lock().unwrap();
-        state.start_chat();
-        add_message(&mut state, "You", "the first prompt");
-        let cut = cut_call(editfile::EDIT_NAME, "{\"path\":\"notes.md\"");
-        state.push_cancelled(&cut, "", 0, GREATEST_CUT_ARGS);
-        // The word goes out with the ask, and the talk ends on the user.
-        let asked = undated(&go_on_words(&state, CUT_CONTINUE_WORDS));
-        let last = asked.last().expect("a talk with the word in it");
-        assert_eq!(last["role"], json!("user"));
-        assert_eq!(last["content"].as_str().expect("words"), CUT_CONTINUE_WORDS);
-        // The word says nothing of a summarisation, for the handoff block of the
-        // summary stands in the talk already.
-        assert!(
-            !CUT_CONTINUE_WORDS.contains(HANDOFF_FIRST),
-            "the word carried a block of its own: {}",
-            CUT_CONTINUE_WORDS
-        );
-        // Nothing of it stands in the chat, so nothing of it can come to the
-        // window.
-        let said = json!(state.snap().messages).to_string();
-        assert!(
-            !said.contains(CUT_CONTINUE_WORDS),
-            "the word of the program came to the window"
         );
     }
 
@@ -13087,6 +14882,200 @@ mod tests {
             state.snap().home,
             "the window is not at the first screen with nothing open"
         );
+    }
+
+    // A message of the user goes back into the chat box, and the talk behind it
+    // goes with it. The chat keeps the place it had in the window: the words are
+    // on their way back to the same chat, and the box belongs to it.
+    #[test]
+    fn a_message_sent_back_cuts_the_talk_at_itself() {
+        let engine = engine_with(four_messages());
+        engine.rewrite_message(String::from("c"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        let left: Vec<&str> = chat.messages.iter().map(|one| one.id.as_str()).collect();
+        assert_eq!(left, vec!["a", "b"], "the talk behind the message stayed");
+        assert_eq!(
+            state.status, "The message went back into the chat box",
+            "the window was not told the message went back"
+        );
+    }
+
+    // Only a message of the user goes back. An answer of the model is written
+    // over where it stands, so the question behind it is not thrown away behind
+    // the user's back, and the talk does not move.
+    #[test]
+    fn only_a_message_of_yours_goes_back_into_the_chat_box() {
+        let engine = engine_with(four_messages());
+        engine.rewrite_message(String::from("b"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages.len(), 4, "an answer was taken out of the talk");
+        assert_eq!(
+            state.status, "Only a message of yours goes back into the chat box",
+            "the window was not told why nothing moved"
+        );
+    }
+
+    // The records of the files hung on the messages that go are taken off the
+    // shelf with them. A file hung on a message that stays is left where it is.
+    #[test]
+    fn a_message_sent_back_takes_the_files_behind_it_off_the_shelf() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        let shelf = {
+            let chat = state.chat().expect("a blank chat stands open");
+            state.attach_place_for(chat)
+        };
+        let files = vec![
+            attach::Incoming {
+                name: String::from("first.txt"),
+                mime: String::from("text/plain"),
+                data: String::new(),
+                text: String::from("the note of the first message"),
+            },
+            attach::Incoming {
+                name: String::from("second.txt"),
+                mime: String::from("text/plain"),
+                data: String::new(),
+                text: String::from("the note of the second message"),
+            },
+        ];
+        let kept = attach::save_at(&shelf, &files);
+        assert_eq!(kept.len(), 2, "both files were not put on the shelf");
+        let mut messages = four_messages();
+        messages[0].attachments = vec![kept[0].clone()];
+        messages[2].attachments = vec![kept[1].clone()];
+        if let Some(chat) = state.chat_mut() {
+            chat.messages = messages;
+        }
+        drop(state);
+
+        engine.rewrite_message(String::from("c"));
+
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert!(
+            attach::read_at(&shelf, &kept[0].id).is_some(),
+            "the file of a message that stayed was taken off the shelf"
+        );
+        assert!(
+            attach::read_at(&shelf, &kept[1].id).is_none(),
+            "the file of a message that went is still on the shelf"
+        );
+        assert_eq!(chat.messages.len(), 2, "the talk behind the message stayed");
+    }
+
+    // A chat left with nothing of the talk is not closed and not taken out of the
+    // window: the words are on their way back into the box of that same chat.
+    // Only the file of it goes, for a chat with no talk has no file. The first
+    // message that comes back makes the file again.
+    #[test]
+    fn a_chat_left_with_nothing_keeps_its_place_and_loses_its_file() {
+        let engine = engine_with(four_messages()[..2].to_vec());
+        let file = {
+            let mut state = engine.state.lock().unwrap();
+            state.persist();
+            let id = state.chat().expect("the chat stands open").meta.id.clone();
+            config::paths().chats.join(format!("{id}.json"))
+        };
+        assert!(file.exists(), "the chat was never written out");
+
+        engine.rewrite_message(String::from("a"));
+
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open in the window");
+        assert!(chat.messages.is_empty(), "a message of the talk stayed");
+        assert!(!file.exists(), "the file of a chat with no talk is still there");
+        assert!(!state.snap().home, "the window left the chat it is writing again");
+    }
+
+    // A message that is not in the talk is refused with the words that say so,
+    // and nothing moves.
+    #[test]
+    fn nothing_goes_back_of_a_message_that_is_not_there() {
+        let engine = engine_with(four_messages());
+        engine.rewrite_message(String::from("zzzz"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages.len(), 4, "a message went out on a name of nothing");
+        assert_eq!(state.status, "That message is not in this chat");
+    }
+
+    // The words the user writes take the place of the words of the answer, and
+    // nothing else moves. The thought of the answer and the short of its work are
+    // left where they were: the user is writing the words, not the work.
+    #[test]
+    fn the_words_of_an_answer_are_written_over_where_they_stand() {
+        let engine = engine_with(four_messages());
+        engine.edit_answer(String::from("d"), String::from("the answer as the user wrote it"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        let left: Vec<&str> = chat.messages.iter().map(|one| one.id.as_str()).collect();
+        assert_eq!(left, vec!["a", "b", "c", "d"], "the talk moved under the answer");
+        assert_eq!(chat.messages[3].body, "the answer as the user wrote it");
+        assert_eq!(chat.messages[2].body, "the second question", "a message of the user was written over");
+        assert!(chat.messages[3].stopped, "the mark of the stopped answer went with the old words");
+        assert_eq!(state.status, "The answer was written again");
+    }
+
+    // The words are trimmed as they go in. A message of the model that ends on
+    // spaces of the stream is not kept with them, and the answer of the talk the
+    // model is next told is the words without them.
+    #[test]
+    fn the_words_of_an_answer_are_trimmed_as_they_go_in() {
+        let engine = engine_with(four_messages());
+        engine.edit_answer(String::from("b"), String::from("  the answer  \n"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages[1].body, "the answer", "the spaces were kept");
+    }
+
+    // Only an answer of the model is written over. The words of a message of the
+    // user go back into the chat box instead, which is another ask.
+    #[test]
+    fn only_an_answer_of_the_model_is_written_over() {
+        let engine = engine_with(four_messages());
+        engine.edit_answer(String::from("a"), String::from("words that do not belong here"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages[0].body, "the first question", "a message of the user was written over");
+        assert_eq!(state.status, "Only an answer of the model is written over");
+    }
+
+    // An answer with no words in it is refused: the talk would go on from a turn
+    // of the model that says nothing, and the user would lose the words they had.
+    #[test]
+    fn an_answer_needs_some_words() {
+        let engine = engine_with(four_messages());
+        engine.edit_answer(String::from("b"), String::from("   \n  "));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        assert_eq!(chat.messages[1].body, "the first answer", "the answer was emptied");
+        assert_eq!(state.status, "An answer needs some words");
+    }
+
+    // While an answer is being generated, neither ask is done. The talk is being
+    // written under the user's hand, and a cut or a write over it would be lost
+    // when the stream ends.
+    #[test]
+    fn nothing_is_moved_while_an_answer_is_generated() {
+        let engine = engine_with(four_messages());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.generating = true;
+        }
+        engine.rewrite_message(String::from("c"));
+        engine.edit_answer(String::from("d"), String::from("words that do not belong here"));
+        let state = engine.state.lock().unwrap();
+        let chat = state.chat().expect("the chat is still open");
+        let left: Vec<&str> = chat.messages.iter().map(|one| one.id.as_str()).collect();
+        assert_eq!(left, vec!["a", "b", "c", "d"], "the talk moved while an answer was generated");
+        assert_eq!(chat.messages[3].body, "the second answer", "an answer was written over while one was generated");
+        assert_eq!(state.status, "An answer is still being generated");
     }
 
     // Only an answer the user stopped may be gone on with. An answer that came

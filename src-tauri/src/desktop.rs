@@ -34,6 +34,7 @@ pub fn run(cfg: Config) -> Result<(), String> {
             commands::get_config,
             commands::save_config,
             commands::list_repositories,
+            commands::get_prompts,
             commands::get_model_settings,
             commands::save_model_settings,
             commands::preview_command,

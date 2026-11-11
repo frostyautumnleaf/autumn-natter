@@ -114,6 +114,14 @@ pub async fn list_repositories(engine: State<'_, Engine>) -> Result<Value, Strin
     Ok(web::repositories_value(&engine))
 }
 
+// The pre-written prompts of the Program tab. Without an id the call gives the
+// lines of the table; with one it gives the words of that prompt, for the user
+// asked to read it.
+#[tauri::command]
+pub async fn get_prompts(id: String) -> Result<Value, String> {
+    Ok(web::prompts_value(&id))
+}
+
 // Everything the Model tab needs: the settings it holds, the devices
 // of the machine, and the three lists of choices.
 #[tauri::command]

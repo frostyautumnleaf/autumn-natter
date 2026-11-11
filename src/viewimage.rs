@@ -19,12 +19,17 @@
 //
 // The kind of the picture is read from the marks at its front, for a name may
 // say anything. Only the kinds the projector of llama.cpp can turn into pixels
-// are let through: PNG, JPEG, GIF and BMP. A WebP or a TIFF of a trusting name
-// would be nothing over there, so it is refused here, where a reason can still
-// be given.
+// are let through: PNG, JPEG, GIF, BMP and WebP.
+//
+// A WebP is decoded by this program and sent as a PNG. The projector reads PNG,
+// JPEG, GIF and BMP with stb_image, and decodes a WebP only when the server was
+// built with video support and ffmpeg stands in the path of the machine. Sending
+// the WebP whole would therefore work on one machine and fail on the next, so the
+// picture is decoded here, where a reason can still be given, and re-encoded.
+// A TIFF is refused, for nothing on either side reads it.
 
 use serde_json::{json, Value};
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::path::Path;
 use std::time::Duration;
 
@@ -77,7 +82,7 @@ pub fn definition(sandbox: bool) -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(format!(
-                "Send one or more images to yourself, so that you can be asked about them. Give the names of files in the chat as a list, as [\"notes/cat.png\", \"notes/dog.png\"], or the addresses of images on the web as a list, as [\"https://example.org/cat.png\"]. One name or a list of names is read either way, and one call may carry up to eight images, which arrive in the order you named them. {} Each image must be of a kind the projector reads: PNG, JPEG, GIF or BMP, and no more than twelve megabytes. An image can only be shown while vision is turned on for the model; without it the call says so and nothing is read. The images are not stored after the conversation.",
+                "Send one or more images to yourself, so that you can be asked about them. Give the names of files in the chat as a list, as [\"notes/cat.png\", \"notes/dog.png\"], or the addresses of images on the web as a list, as [\"https://example.org/cat.png\"]. One name or a list of names is read either way, and one call may carry up to eight images, which arrive in the order you named them. {} Each image must be of a kind the projector reads: PNG, JPEG, GIF, BMP or WebP, and no more than twelve megabytes. A WebP is decoded and sent to you as a PNG. An image can only be shown while vision is turned on for the model; without it the call says so and nothing is read. The images are not stored after the conversation.",
                 said
             )),
             "parameters": {
@@ -269,13 +274,34 @@ pub fn open(workdir: &Path, raw: &str, vision_on: bool, in_room: bool) -> Openin
             Some(kind) => kind,
             None => {
                 not_shown.push(format!(
-                    "'{}' is not an image this program can send. The projector reads PNG, JPEG, GIF and BMP. The type is read from the first bytes of the file, not from the end of its name.",
+                    "'{}' is not an image this program can send. The projector reads PNG, JPEG, GIF, BMP and WebP. The type is read from the first bytes of the file, not from the end of its name.",
                     short(&name)
                 ));
                 continue;
             }
         };
-        let size = pixels(kind, &bytes);
+        // A WebP is decoded here and sent as a PNG, so that the answer does not
+        // depend on whether the server was built with ffmpeg.
+        let decoded = if kind.mime == WEBP.mime {
+            match webp_to_png(&bytes) {
+                Ok(one) => Some(one),
+                Err(problem) => {
+                    not_shown.push(format!("'{}' is a WebP and {}.", short(&name), problem));
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        let mime: &str = if decoded.is_some() { PNG.mime } else { kind.mime };
+        let out: &[u8] = decoded
+            .as_ref()
+            .map(|one| one.bytes.as_slice())
+            .unwrap_or(&bytes);
+        let size = match decoded.as_ref() {
+            Some(one) => Some((one.wide, one.high)),
+            None => pixels(kind, &bytes),
+        };
         if let Some((wide, high)) = size {
             if wide.saturating_mul(high) > MOST_PIXELS {
                 not_shown.push(format!(
@@ -291,17 +317,17 @@ pub fn open(workdir: &Path, raw: &str, vision_on: bool, in_room: bool) -> Openin
         let measure = match size {
             Some((wide, high)) => format!(
                 "{}, {} by {} pixels, {}",
-                kind.name,
+                called(kind, decoded.is_some()),
                 util::count(wide),
                 util::count(high),
-                weight(bytes.len())
+                weight(out.len())
             ),
-            None => format!("{}, {}", kind.name, weight(bytes.len())),
+            None => format!("{}, {}", called(kind, decoded.is_some()), weight(out.len())),
         };
         said.push(format!("{}: {} ({})", name, measure, part + 1));
         pictures.push(Picture {
-            mime: String::from(kind.mime),
-            data: format!("data:{};base64,{}", kind.mime, util::b64(&bytes)),
+            mime: String::from(mime),
+            data: format!("data:{};base64,{}", mime, util::b64(out)),
             name,
         });
     }
@@ -450,6 +476,15 @@ fn name_of_address(address: &str) -> String {
     }
 }
 
+// How the receipt names a picture. A WebP is sent as a PNG, and the user is told
+// both: what stood on the disk, and what went to the model.
+fn called(kind: &Kind, converted: bool) -> String {
+    if converted {
+        return format!("{}, sent as PNG", kind.name);
+    }
+    String::from(kind.name)
+}
+
 // One kind of picture, with the words the receipt calls it and the mark the data
 // URL of it carries.
 struct Kind {
@@ -461,9 +496,13 @@ const PNG: Kind = Kind { name: "PNG", mime: "image/png" };
 const JPEG: Kind = Kind { name: "JPEG", mime: "image/jpeg" };
 const GIF: Kind = Kind { name: "GIF", mime: "image/gif" };
 const BMP: Kind = Kind { name: "BMP", mime: "image/bmp" };
+// A WebP is recognised so that it can be turned into a PNG. The mime of it is
+// never sent to the model: the projector reads it only when the server was built
+// with video support and ffmpeg stands in the path.
+const WEBP: Kind = Kind { name: "WebP", mime: "image/webp" };
 
 // The kind of a picture, from the marks at its front. Nothing comes back for a
-// file that is none of the kinds the projector reads.
+// file that is none of the kinds the projector can be given.
 fn kind_of(bytes: &[u8]) -> Option<&'static Kind> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Some(&PNG);
@@ -477,7 +516,60 @@ fn kind_of(bytes: &[u8]) -> Option<&'static Kind> {
     if bytes.starts_with(b"BM") {
         return Some(&BMP);
     }
+    // A WebP is a RIFF page that names itself WEBP twelve bytes in.
+    if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        return Some(&WEBP);
+    }
     None
+}
+
+// A WebP made ready for the model: the PNG bytes, and the measure of the picture
+// as its own decoder read them.
+struct Decoded {
+    bytes: Vec<u8>,
+    wide: u64,
+    high: u64,
+}
+
+// Turn a WebP into a PNG. The projector of llama.cpp reads PNG, JPEG, GIF and BMP
+// with stb_image, and reaches a WebP only through ffmpeg, which stands in the path
+// on some machines and not on others. Decoding here keeps one answer for every
+// machine. An animated WebP gives its first frame, which is the picture a model
+// can be asked about.
+fn webp_to_png(bytes: &[u8]) -> Result<Decoded, String> {
+    let mut decoder = image_webp::WebPDecoder::new(Cursor::new(bytes))
+        .map_err(|one| format!("the file could not be read as a WebP ({one})"))?;
+    let (wide, high) = decoder.dimensions();
+    let room = decoder.output_buffer_size().ok_or_else(|| {
+        String::from("the picture is too large for this program to hold in memory")
+    })?;
+    let mut pixels = vec![0u8; room];
+    decoder
+        .read_image(&mut pixels)
+        .map_err(|one| format!("its pixels could not be decoded ({one})"))?;
+    let colour = if decoder.has_alpha() {
+        png::ColorType::Rgba
+    } else {
+        png::ColorType::Rgb
+    };
+    let mut out: Vec<u8> = Vec::new();
+    {
+        let mut writer = png::Encoder::new(&mut out, wide, high);
+        writer.set_color(colour);
+        // The picture is written for a projector to read once, not kept for long,
+        // so the fastest compression is the one that costs the least time.
+        writer.set_compression(png::Compression::Fast);
+        let mut page = writer
+            .write_header()
+            .map_err(|one| format!("a PNG of it could not be begun ({one})"))?;
+        page.write_image_data(&pixels)
+            .map_err(|one| format!("a PNG of it could not be written ({one})"))?;
+    }
+    Ok(Decoded {
+        bytes: out,
+        wide: u64::from(wide),
+        high: u64::from(high),
+    })
 }
 
 // How wide and how high a picture is, for the ceiling of pixels. A kind whose
@@ -820,7 +912,50 @@ mod tests {
         std::fs::write(room.join("notes.txt"), b"one two three").expect("the file could not be written");
         let made = open(&room, "{\"path\":\"notes.txt\"}", true, true);
         assert!(!made.report.ok);
-        assert!(made.report.output.contains("PNG, JPEG, GIF and BMP"), "{}", made.report.output);
+        assert!(made.report.output.contains("PNG, JPEG, GIF, BMP and WebP"), "{}", made.report.output);
+    }
+
+    // A WebP is let through and sent as a PNG, for the projector of llama.cpp
+    // reads a WebP only through ffmpeg. The receipt names both.
+    #[test]
+    fn a_webp_is_sent_as_a_png() {
+        let room = room_of("webp");
+        std::fs::write(room.join("cat.webp"), webp_of(4, 3)).expect("the file could not be written");
+        let made = open(&room, "{\"path\":\"cat.webp\"}", true, true);
+        assert!(made.report.ok, "{}", made.report.output);
+        assert_eq!(made.pictures.len(), 1);
+        assert_eq!(made.pictures[0].mime, "image/png", "the model is given a PNG");
+        assert!(
+            made.pictures[0]
+                .data
+                .starts_with("data:image/png;base64,iVBORw0KGgo"),
+            "the data URL holds a PNG"
+        );
+        assert!(made.report.output.contains("WebP, sent as PNG"), "{}", made.report.output);
+        assert!(made.report.output.contains("4 by 3 pixels"), "{}", made.report.output);
+    }
+
+    // A file that names itself a WebP and holds nothing of one is refused with a
+    // reason, and the rest of the call is not held up by it.
+    #[test]
+    fn a_webp_that_will_not_decode_is_refused_with_a_reason() {
+        let room = room_of("badwebp");
+        std::fs::write(
+            room.join("hollow.webp"),
+            b"RIFF\x14\x00\x00\x00WEBPVP8 \x0c\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+        )
+        .expect("the file could not be written");
+        std::fs::write(room.join("good.webp"), webp_of(2, 2)).expect("the file could not be written");
+        let made = open(
+            &room,
+            "{\"paths\":[\"hollow.webp\",\"good.webp\"]}",
+            true,
+            true,
+        );
+        assert!(made.report.ok, "{}", made.report.output);
+        assert_eq!(made.pictures.len(), 1, "the good picture still goes");
+        assert!(made.report.output.contains("hollow.webp"), "{}", made.report.output);
+        assert!(made.report.output.contains("WebP"), "{}", made.report.output);
     }
 
     // A picture of more pixels than the ceiling is refused, before the model is
@@ -849,10 +984,34 @@ mod tests {
             Some("image/gif")
         );
         assert_eq!(kind_of(b"BM\x00\x00\x00\x00\x00\x00").map(|k| k.mime), Some("image/bmp"));
-        // A WebP names itself as a RIFF page, and the projector has no reader
-        // for it, so it is no picture here.
-        assert!(kind_of(b"RIFF\x00\x00\x00\x00WEBPVP8 ").is_none());
+        // A WebP names itself as a RIFF page, and it is let through: this program
+        // decodes it and sends a PNG in its place.
+        assert_eq!(
+            kind_of(&webp_of(2, 2)).map(|k| k.mime),
+            Some("image/webp")
+        );
         assert!(kind_of(b"not a picture at all").is_none());
+        // A TIFF is refused, for nothing on either side reads it.
+        assert!(kind_of(b"II\x2a\x00\x08\x00\x00\x00").is_none());
+    }
+
+    // A WebP of one colour, made by the encoder of the same crate the tool reads
+    // with, so the test holds a real WebP and not a picture of one.
+    fn webp_of(wide: u32, high: u32) -> Vec<u8> {
+        let mut pixels: Vec<u8> = Vec::new();
+        for y in 0..high {
+            for x in 0..wide {
+                pixels.push((x * 40) as u8);
+                pixels.push((y * 60) as u8);
+                pixels.push(128);
+                pixels.push(255);
+            }
+        }
+        let mut out: Vec<u8> = Vec::new();
+        image_webp::WebPEncoder::new(&mut out)
+            .encode(&pixels, wide, high, image_webp::ColorType::Rgba8)
+            .expect("the picture could not be written as a WebP");
+        out
     }
 
     // The number of pixels of a header, of each of the four kinds.

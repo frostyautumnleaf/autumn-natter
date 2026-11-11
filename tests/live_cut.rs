@@ -4,9 +4,10 @@
 // streams a tool call whose words never stop coming, while the room of the talk
 // climbs on every piece of it. A model that is writing such a call never stops of
 // itself, so the check is that the program stops the writing at the limit set for
-// the summarisation, that the call which never ran stands in the chat, that the
-// room is then made by a handoff summary, and that the model is told the call was
-// cancelled -- and what it had written -- when it is asked again.
+// the summarisation, that the call which never ran stands in the chat where the
+// writing stopped, that the room is then made by a handoff summary written of the
+// telling of that call, and that the words of a call that never ran go back to the
+// model no more.
 //
 //     cargo test --test live_cut -- --nocapture --test-threads=1
 
@@ -113,16 +114,17 @@ fn a_tool_call_bigger_than_the_room_is_cut_off_and_told_of() {
     assert!(cut.tool.chars().count() > 20, "the block says nothing of it");
     println!("the cancelled call: {} [{}]", cut.body, cut.tool);
 
-    // And it stands after the summarisation, for the words before a summarisation
-    // go back to the model no more: the telling has to stand where the model reads.
+    // And it stands before the summarisation, where the writing stopped: the ask
+    // for the summary is made of the talk as it stands, so it carries the telling
+    // of the call, and the mark then cuts the telling off.
     let summary_at = snap
         .messages
         .iter()
         .position(|m| m.role == "Summary" && !m.body.trim().is_empty())
         .expect("the room was made by a handoff summary");
     assert!(
-        cut_at > summary_at,
-        "the telling of the call stands before the summarisation"
+        cut_at < summary_at,
+        "the block of the call stands under the heading of the summarisation"
     );
 
     // What the three asks looked like from the side of a server.
@@ -134,15 +136,40 @@ fn a_tool_call_bigger_than_the_room_is_cut_off_and_told_of() {
     assert!(lines[0].contains("\"kind\": \"call\""), "the first ask: {}", lines[0]);
     assert!(lines[1].contains("\"kind\": \"summary\""), "the second ask: {}", lines[1]);
     assert!(lines[2].contains("\"kind\": \"answer\""), "the third ask: {}", lines[2]);
-    // The ask that came after the room was made carries the telling of the call:
-    // that it was cancelled, and the words of it the model had written.
-    assert!(lines[2].contains("A tool call was cancelled"));
-    assert!(lines[2].contains("notes/big.md"));
-    // And it carries them as words, and not as a call the server would have to
-    // read arguments out of -- which is the fault the broken words would make.
+    // The ask for the summary carries the telling of the call that never ran: the
+    // model that writes the summary reads what it was put to, and what it had
+    // written when the writing stopped.
+    assert!(
+        lines[1].contains("A tool call was cancelled"),
+        "the ask for the summary carried no telling of the call"
+    );
+    // The ask that came after the room was made carries no telling of it, for the
+    // mark cuts it off with the rest of the words the summary stands for. The talk
+    // ends on the handoff block, which says in its own words that the work is to
+    // be gone on with.
+    assert!(
+        !lines[2].contains("A tool call was cancelled"),
+        "the telling of the call went back to the model after the summarisation"
+    );
     assert!(
         !lines[2].contains("tool_calls"),
         "the words of the cut-off call went back as a call"
+    );
+    let third: serde_json::Value = serde_json::from_str(lines[2]).expect("an ask of the server");
+    let items = third["messages"].as_array().expect("the talk of the ask");
+    let last = items.last().expect("a talk with a last message");
+    assert_eq!(
+        last["role"].as_str().expect("a role"),
+        "user",
+        "the ask after the room was made did not end on the handoff block"
+    );
+    assert!(
+        last["content"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("[The session was compacted"),
+        "the ask after the room was made did not end on the handoff block: {}",
+        last
     );
 
     // The client went away in the middle of the call, which is the whole point: no

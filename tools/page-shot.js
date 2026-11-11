@@ -18,12 +18,19 @@
 //   AN_CLICK='#think' node page-shot.js chat p.png
 //   AN_CHAPTERS=12 node page-shot.js rich p.png   # that many marks on the line
 //   AN_NOCHAPTERS=1 node page-shot.js rich p.png  # the Chatting switch turned off
+//   AN_NOCOLOUR=1 node page-shot.js markdown p.png
+//     the switch of the colours the model asks for, turned off: the words between
+//     the four marks then stand in the colour of the words about them
 //   AN_SUMMARIES=6 node page-shot.js rich p.png   # that many handoff summaries
 //   AN_NOTIMELINE=1 node page-shot.js rich p.png  # the line turned off
 //   AN_BROKEN=1 node page-shot.js rich p.png      # the newest one never written
 //   AN_CUT=1 node page-shot.js rich p.png         # a tool call the user stopped
 //   AN_GIFTS=1 node page-shot.js rich p.png       # the talk ends with the blocks
 //     of the files the download tool offered, with their buttons
+//   AN_SUGGEST=1 node page-shot.js rich p.png     # the talk ends with the button
+//     that opens the window over the files shown, and with the buttons of the
+//     roads the suggestion tool offered for what comes next. Stand it with
+//     AN_GIFTS=1 to see the three kinds of the end of an answer together
 //   AN_SUMMARISING=1 node page-shot.js rich p.png # a summary being written,
 //     which is written out of sight: no live answer stands in the chat
 //   AN_FIELD=fCompactPrompt node page-shot.js sheet-program p.png
@@ -34,8 +41,9 @@
 //     puts the pace of the log on manual, which is how the button of Refresh is
 //     looked at standing live; the other two paces leave it greyed
 //   AN_THEME=corporate node page-shot.js home-pale p.png
-//     draws the scene in one of the three skins: light, dark or corporate. A name
-//     that ends in -dark or -corporate does the same, and -pale asks for the pale one
+//     draws the scene in one of the four skins: light, dark, silver or corporate. A
+//     name that ends in -dark, -silver or -corporate does the same, and -pale asks
+//     for the pale one
 //   AN_LOGKIND=program node page-shot.js sheet-logs p.png
 //     reads the log of the program instead of the output of llama.cpp, which is
 //     how the switch at the head of the Logs tab is looked at
@@ -283,7 +291,8 @@ const WRITING_NAMES = {
   edit_file: 'notes/plan.md',
   create_file: 'notes/todo.txt',
   web_search: 'largest lake in Africa by volume',
-  view_image: 'notes/cat.png'
+  view_image: 'notes/cat.png',
+  summarise_chat: 'the talk of this chat'
 };
 
 // The words a file tool is making, as the user is given them while the call
@@ -300,7 +309,8 @@ const WRITING_DOING = {
   edit_file: 'Editing a file: ',
   create_file: 'Creating a file: ',
   web_search: 'Searching the web: ',
-  view_image: 'Looking at an image: '
+  view_image: 'Looking at an image: ',
+  summarise_chat: 'Summarising '
 };
 
 // The command the model writes in the `writing` scene, and the reason it gives
@@ -495,6 +505,64 @@ function scene(name, dark, theme) {
           + 'counts of the runs it went through.')
       ]);
     }
+    // AN_SUGGEST=1 ends the talk with a run of the show tool and a run of the
+    // suggestion tool. The button that opens the window over the files shown and
+    // the buttons of the roads offered for what comes next both stand at the end
+    // of the answer, one under the other, and with them the blocks of AN_GIFTS if
+    // that stands too. Three kinds in one place is how the place is proved.
+    if (process.env.AN_SUGGEST === '1') {
+      start.messages = start.messages.concat([
+        said(23, 'Tool', 'notes/plan.md', {
+          tool_name: 'display_files',
+          tool: '1 file is in the window over the chat: notes/plan.md',
+          displayed: [{ path: 'notes/plan.md', size: 2140 }]
+        }),
+        said(24, 'Tool', 'the plan of the parser', {
+          tool_name: 'offer_suggestions',
+          tool: '3 next steps are offered for the end of your answer: Run the '
+            + 'tests of the parser, Show me the diff, Read the log of the run',
+          suggestions: [
+            { label: 'Run the tests of the parser',
+              prompt: 'Run the tests of the parser and tell me what failed.' },
+            { label: 'Show me the diff' },
+            { label: 'Read the log of the run',
+              prompt: 'Read the log of the last run and say what it cost.' }
+          ]
+        }),
+        said(25, 'Assistant',
+          'The plan is in the window over the chat, and the roads the talk may go '
+          + 'on by stand under this answer.\n\nPress one of them, or write what '
+          + 'you would rather have.')
+      ]);
+    }
+    // AN_STEPS=1 ends the talk with a run of the steps tool, so the block of the
+    // steps of the work stands in the card with the other kinds. Four kinds in
+    // one place is how the card is proved.
+    if (process.env.AN_STEPS === '1') {
+      start.messages = start.messages.concat([
+        said(26, 'Tool', 'the plan for the parser', {
+          tool_name: 'show_steps',
+          tool: 'The steps of the work stand under your answer: Read the fault, '
+            + 'Write the parser, Run the tests, Tell the user',
+          steps: {
+            title: 'The plan for the parser',
+            steps: [
+              { label: 'Read the fault', content: 'Read the fault of the run and '
+                  + 'say which line of the parser gives it.' },
+              { label: 'Write the parser', content: 'Write the parser of the plan '
+                  + 'in `markdown.rs`, one function for each kind of line.' },
+              { label: 'Run the tests', content: 'Run the tests of the parser and '
+                  + 'keep the ones that fail in the answer.' },
+              { label: 'Tell the user', content: 'Say what changed, what the tests '
+                  + 'cost, and what is still open.' }
+            ]
+          }
+        }),
+        said(27, 'Assistant',
+          'The steps of the work stand under this answer. Press one of them and '
+          + 'the block shows that step.')
+      ]);
+    }
     // The chapters the model marked, tied to the message each begins after.
     start.chapters = name === 'rich'
       ? [{ id: 'ch1', name: 'The plan for the parser', after: 1 },
@@ -516,6 +584,10 @@ function scene(name, dark, theme) {
       addSummaries(start, Number(process.env.AN_SUMMARIES) || 0);
     }
     if (process.env.AN_NOTIMELINE === '1') { start.compaction.timeline = false; }
+    // AN_NOCOMPACTION=1 puts the Compaction section on `No summary`. The line of
+    // the handoff summary then leaves the menu of the badge of the tools, for the
+    // tool has nothing to do in a chat that is never summarised.
+    if (process.env.AN_NOCOMPACTION === '1') { start.compaction.type = 'off'; }
     if (process.env.AN_BROKEN === '1' && start.handoffs.length) {
       var lastCut = start.handoffs[start.handoffs.length - 1];
       lastCut.state = 'owed';
@@ -676,7 +748,8 @@ function scene(name, dark, theme) {
       // stands under a word about files.
       var asked = {
         web_search: 'Look up how large the largest lake in Africa is, and tell me what you found.',
-        view_image: 'Look at the picture of the cat in the chat, and tell me what stands in it.'
+        view_image: 'Look at the picture of the cat in the chat, and tell me what stands in it.',
+        summarise_chat: 'The first part of the work is finished. Put the talk into a summary, and go on with the second part in the room that is made.'
       };
       start.messages = [said(1, 'You', asked[tool] ||
         'Put the plan in a file of the chat, and tell me what you changed.')];
@@ -761,6 +834,21 @@ function scene(name, dark, theme) {
         + '| :--- | :--- | ---: | ---: | ---: | ---: | ---: |\n'
         + '| markdown.rs | the cutting of the blocks into kinds | 390 | 14 | 16 | 3 min | none |\n'
         + '| page.html | the page of the remote mode | 3207 | 6 | 8 | 1 min | none |'),
+      // The four colours a model may put on its own words. The marks stand in the
+      // words and are painted: the two greens and the two reds of the page, in a
+      // line of words and inside a heading. The switch of the Chatting settings
+      // is AN_NOCOLOUR=1 below, which reads the same words with no colour.
+      said(9, 'You', 'And colour on a few of the words?'),
+      said(10, 'Assistant',
+        'The model names the colour and the page paints the words between its two '
+        + 'marks: <green>the build passed</green>, <light_green>it may pass</light_green>, '
+        + '<red>the build failed</red> and <light_red>it may fail</light_red>.\n\n'
+        + '## <red>A heading with a fault in it</red>\n\n'
+        + 'A colour that nothing closes is left as it was written: <green>and here the '
+        + 'model stopped before the mark that closes it.',
+        { reasoning: 'The marks are read inside one line, and the words between them keep '
+          + 'their place. <light_red>The marks go out of the talk that goes back to the model.</light_red>',
+          reasoning_ms: 2100 }),
     ];
     start.context = { used: '2,040', total: '8,192', ratio: 0.25 };
   }
@@ -782,6 +870,8 @@ const CONFIG = {
   chat_date_new_chat: true,
   chat_highlight: true,
   chat_chapters: true,
+  // A sent message is carried from the box into the chat.
+  chat_send_anim: true,
   // The two rooms for steps stand unlimited, as they do for a new set of settings.
   chat_max_tool_steps: -1,
   chat_max_answer_steps: -1,
@@ -806,8 +896,37 @@ const CONFIG = {
     + 'come to an end within a few hundred words. Say what was done, what stands in '
     + 'hand right now, and what must be done next. Name the files that matter with '
     + 'one short line each.',
+  // The words before the talk. The shot reads the prompt of the user as if the
+  // user wrote it, and marks both pre-written prompts, so the table of them is
+  // drawn with its marks on.
+  chat_system_prompt: 'Answer in short sentences. Name the file and the line.',
+  chat_system_prompts_on: ['engineer', 'adhd'],
   chat_timeline: true
 };
+
+// The pre-written prompts of the Program tab. The words here are short stand-ins
+// for the words that stand in the program: a shot only has to show that the
+// table is drawn with its marks, and that the window of reading opens with the
+// words of the prompt that was clicked on.
+var PROMPT_LINES = [
+  { id: 'engineer', name: 'Software Engineer Writing Style',
+    summary: 'Plain professional English for developers: standard terms, short '
+           + 'sentences, no filler, facts only.',
+    words: 'You are a technical assistant for software developers. Write in clear, '
+         + 'normal professional English.\n\nLANGUAGE\n'
+         + '- Use standard technical terms.\n'
+         + '- Keep sentences short, under about 25 words.' },
+  { id: 'adhd', name: 'ADHD Rules',
+    summary: 'Answers the user can act on at once: the answer first, short lists, '
+           + 'one next step, no recap.',
+    words: 'Write every response so the user can act on it without scrolling or '
+         + 're-reading. Put the answer first.\n\nRULES\n'
+         + '1. Start with the next action or the direct answer.\n'
+         + '2. If the task has more than one step, use a numbered list.' }
+];
+
+// The answer of the program to an ask for the prompts. It is written inside the
+// bridge that is put into the page, because the page is the one that asks.
 
 const MODEL = {
   id: 'm1', name: 'Qwen3.5-0.8B-UD-Q6_K', kind: 'GGUF',
@@ -929,9 +1048,10 @@ async function main() {
   let dark = false;
   let theme = process.env.AN_THEME || '';
   if (name.endsWith('-dark')) { dark = true; theme = 'dark'; name = name.slice(0, -5); }
+  else if (name.endsWith('-silver')) { theme = 'silver'; name = name.slice(0, -7); }
   else if (name.endsWith('-corporate')) { theme = 'corporate'; name = name.slice(0, -10); }
   else if (name.endsWith('-pale')) { theme = 'light'; name = name.slice(0, -5); }
-  if (theme && theme !== 'light' && theme !== 'dark' && theme !== 'corporate') { theme = 'light'; }
+  if (theme && ['light', 'dark', 'silver', 'corporate'].indexOf(theme) < 0) { theme = 'light'; }
   const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs' || name === 'sheet-mcp';
   const state = scene(isSheet ? 'chat' : name, dark, theme);
   CONFIG.theme = theme || 'light';
@@ -949,6 +1069,12 @@ async function main() {
   if (process.env.AN_HL === '0') {
     state.chatting.highlight = false;
     CONFIG.chat_highlight = false;
+  }
+  // AN_NOCOLOUR=1 turns the colours the model asks for off: the words of the four
+  // colours then stand in the colour of the words about them.
+  if (process.env.AN_NOCOLOUR === '1') {
+    state.chatting.colour_text = false;
+    CONFIG.chat_colour_text = false;
   }
   // AN_PRESERVE=0 takes the choice to keep the thinking of the earlier turns
   // away from the model, so the switch of the menu can be looked at off, and
@@ -991,7 +1117,21 @@ async function main() {
   view.on('pageerror', function (e) { console.log('PAGEERROR', String(e)); });
   view.on('console', function (m) { if (m.type() === 'error') { console.log('CONSOLE', m.text()); } });
 
-  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, logsProgram, one, pic, pic2, listsOf, mcpHeld) {
+  await view.evaluateOnNewDocument(function (fetchMode, held, config, model, logs, logsProgram, one, pic, pic2, listsOf, mcpHeld, promptTable) {
+    // The answer to an ask for the pre-written prompts: the lines of the table
+    // when no id is given, the words of one prompt when an id comes with the ask.
+    function promptsAnswer(id) {
+      if (!id) {
+        return { lines: promptTable.map(function (one) {
+          return { id: one.id, name: one.name, summary: one.summary }; }) };
+      }
+      for (var i = 0; i < promptTable.length; i += 1) {
+        if (promptTable[i].id === id) {
+          return { id: id, name: promptTable[i].name, words: promptTable[i].words };
+        }
+      }
+      return { refused: 'No prompt of that name' };
+    }
     if (fetchMode) {
       // The page of the remote mode asks a small HTTP server. The records are
       // the same, so the same scenes can be drawn.
@@ -1015,6 +1155,14 @@ async function main() {
         if (String(url).indexOf('/api/config') === 0) {
           return Promise.resolve({ json: function () {
             return Promise.resolve(JSON.parse(JSON.stringify(config))); } });
+        }
+        // The pre-written prompts of the Program tab: the lines of the table
+        // without an id, the words of one prompt with one.
+        if (String(url).indexOf('/api/prompts') === 0) {
+          var at = String(url).indexOf('id=');
+          var asked = at < 0 ? '' : decodeURIComponent(String(url).slice(at + 3));
+          return Promise.resolve({ json: function () {
+            return Promise.resolve(promptsAnswer(asked)); } });
         }
         if (String(url).indexOf('/api/repositories') === 0) {
           return Promise.resolve({ json: function () {
@@ -1096,6 +1244,9 @@ async function main() {
           if (command === 'get_mcp') {
             return Promise.resolve(JSON.parse(JSON.stringify(mcpHeld)));
           }
+          if (command === 'get_prompts') {
+            return Promise.resolve(promptsAnswer(String((args && args.id) || '')));
+          }
           if (command === 'get_logs') {
             // The kind of the log stands in the ask.
             var listed = (args && args.kind) === 'program' ? logsProgram : logs;
@@ -1117,7 +1268,7 @@ async function main() {
         }
       }
     };
-  }, useFetch, state, CONFIG, MODEL, LOGS, LOGS_PROGRAM, LOG_ONE, ATT_PIC, ATT_TALL, lists(state), MCP_HELD);
+  }, useFetch, state, CONFIG, MODEL, LOGS, LOGS_PROGRAM, LOG_ONE, ATT_PIC, ATT_TALL, lists(state), MCP_HELD, PROMPT_LINES);
 
   await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
   await new Promise(function (r) { setTimeout(r, 700); });

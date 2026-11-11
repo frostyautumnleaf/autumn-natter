@@ -94,7 +94,10 @@ fn a_badge_moved_loads_no_model_again() {
     };
     cfg.model_settings.insert(model, ms);
     cfg.chat_compaction = String::from("off");
-
+    // A copy of the settings is kept beside the engine, so a switch of the
+    // Chatting section can be written over later as the sheet of the settings
+    // writes it: the whole of the settings, with one thing in them changed.
+    let kept = cfg.clone();
     let engine = Engine::start(cfg);
     engine.new_chat();
     engine.set_thinking("off");
@@ -122,6 +125,12 @@ fn a_badge_moved_loads_no_model_again() {
     engine.set_code(false);
     engine.set_search(true);
     engine.set_sandbox(false);
+    // The Chatting switch of the journey a sent message makes is written over at
+    // the same moment. It touches nothing of the server, for the movement is
+    // only on the screen, and the page is told of it with the next state.
+    let mut moved = kept.clone();
+    moved.chat_send_anim = false;
+    engine.save_settings(moved);
     engine.prompt("two".to_string(), Vec::new());
     wait_for_ask(&asks, 1);
     wait_for_answer(&engine);
@@ -142,5 +151,10 @@ fn a_badge_moved_loads_no_model_again() {
         began.len(),
         1,
         "a badge moved, and the model was loaded again"
+    );
+    // The switch reached the page, and the model never noticed it.
+    assert!(
+        !engine.snapshot().chat_send_anim,
+        "the writing of the switch never reached the page"
     );
 }

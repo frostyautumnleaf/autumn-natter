@@ -57,6 +57,25 @@ pulldown-cmark = "0.13"
 # those bytes; the Rust back end keeps the build free of C, as the rest of the
 # program is. See `src/contexts.rs`.
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
+# The infographic suite: a frame is a document of SVG, and these turn the words
+# into a picture, a picture into bytes, and bytes into a film. resvg is pure
+# Rust, so no C library is added to the build.
+resvg = "0.48"
+# The two readers of the letters: `fontdb` finds the fonts of the machine,
+# `ttf-parser` measures them. The layout must know how wide a word is before it
+# is drawn, and the answer must be the width the picture will show.
+fontdb = "0.24"
+ttf-parser = "0.25"
+# The moving picture, when the machine has no `ffmpeg`.
+gif = "0.14"
+# The pictures a block may carry, read out of the words of a script.
+base64 = "0.22"
+# The WebP of the `view_images` tool, decoded here and sent to the model as a PNG.
+# The projector of llama.cpp reads a WebP only through ffmpeg, which stands on some
+# machines and not on others. Both of these are already in the tree through resvg,
+# so neither adds anything to the binary.
+image-webp = "0.2"
+png = "0.18"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -67,3 +86,10 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 strip = "symbols"
+
+# The live checks that stand in tests/ speak to a server of their own over HTTP,
+# so they want the same client the program speaks with. It is already in the list
+# above; naming it here as well costs nothing and no new package is read.
+[dev-dependencies]
+ureq = { version = "2", default-features = false, features = ["json"] }
+serde_json = { version = "1", features = ["preserve_order"] }

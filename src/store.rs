@@ -280,6 +280,30 @@ pub struct ToolSwitches {
     // The model may stop and ask the user a question.
     #[serde(default = "switch_on")]
     pub ask: bool,
+    // The model may end an answer with up to three buttons, each one a next
+    // step the user may take with a press.
+    #[serde(default = "switch_on")]
+    pub suggest: bool,
+    // The model may end an answer with a list of the steps of the work, shown
+    // one step at a time in a block of its own. See `crate::steps`.
+    #[serde(default = "switch_on")]
+    pub steps: bool,
+    // The model may run a call of another tool again with a changed parameter,
+    // instead of writing the whole call out again. See `crate::rerun`.
+    #[serde(default = "switch_on")]
+    pub rerun: bool,
+    // The model may make an infographic video: the script, the layout, and the
+    // file of frames. The five tools of the suite stand or fall together.
+    // Off at first, for a video costs a long run.
+    #[serde(default)]
+    pub infographics: bool,
+    // The model may put the talk of the chat into a handoff summary on its own
+    // word, or on the word of the user. The tool is nothing without a handoff
+    // summary, so it stands only while the settings make the room of the talk
+    // that way: with compaction off the line of the drop-down is hidden on the
+    // page and the tool is treated as off, whatever stands here.
+    #[serde(default = "switch_on")]
+    pub summarise: bool,
 }
 
 // The switch of a tool that nothing has touched yet.
@@ -296,6 +320,11 @@ impl Default for ToolSwitches {
             hand_out: true,
             display: true,
             ask: true,
+            suggest: true,
+            steps: true,
+            rerun: true,
+            infographics: false,
+            summarise: true,
         }
     }
 }
@@ -311,6 +340,11 @@ impl ToolSwitches {
             "hand_out" => self.hand_out = on,
             "display" => self.display = on,
             "ask" => self.ask = on,
+            "suggest" => self.suggest = on,
+            "steps" => self.steps = on,
+            "rerun" => self.rerun = on,
+            "infographics" => self.infographics = on,
+            "summarise" => self.summarise = on,
             _ => return false,
         }
         true
@@ -326,6 +360,11 @@ impl ToolSwitches {
             ("hand_out", self.hand_out),
             ("display", self.display),
             ("ask", self.ask),
+            ("suggest", self.suggest),
+            ("steps", self.steps),
+            ("rerun", self.rerun),
+            ("infographics", self.infographics),
+            ("summarise", self.summarise),
         ]
     }
 
@@ -333,6 +372,17 @@ impl ToolSwitches {
     // badge of the tools has nothing to let through, and so cannot stand on.
     pub fn any_on(&self) -> bool {
         self.words().iter().any(|(_, on)| *on)
+    }
+
+    // Whether any line of the drop-down stands on that the model could really
+    // be offered. The line of the handoff summary counts only while the
+    // settings make the room by a handoff summary, for with compaction off
+    // nothing stands behind it: a badge that would rest on that line alone
+    // opens a door over nothing, and is read as a fault.
+    pub fn any_on_with(&self, compaction_on: bool) -> bool {
+        self.words()
+            .iter()
+            .any(|(part, on)| *on && (compaction_on || *part != "summarise"))
     }
 
     // What one line of the drop-down stands on. A name of another kind reads as
@@ -345,6 +395,9 @@ impl ToolSwitches {
             "hand_out" => self.hand_out,
             "display" => self.display,
             "ask" => self.ask,
+            "suggest" => self.suggest,
+            "infographics" => self.infographics,
+            "summarise" => self.summarise,
             _ => true,
         }
     }
@@ -577,6 +630,17 @@ pub struct Message {
     // opens the window over these files again.
     #[serde(default)]
     pub displayed: Vec<crate::display::Shown>,
+    // The next steps one run of the suggestion tool offered. The buttons stand
+    // at the end of the answer that made the offer, and only once the model has
+    // stopped writing: see `crate::suggest`.
+    #[serde(default)]
+    pub suggestions: Vec<crate::suggest::Suggestion>,
+    // The steps of the work one run of the steps tool showed. The block stands
+    // at the end of the answer that made the call, above the other blocks an
+    // answer ends with, and only once the model has stopped writing: see
+    // `crate::steps`.
+    #[serde(default)]
+    pub steps: Option<crate::steps::Plan>,
     // A message of the role "Summary" only. The room the talk took when the
     // handoff summary was asked for, in tokens.
     #[serde(default)]
@@ -1892,5 +1956,40 @@ mod tests {
             .collect();
         assert_eq!(left, vec![String::from("chat.json")], "{:?}", left);
         let _ = fs::remove_dir_all(&room);
+    }
+
+    // The line of the handoff summary is a line of the drop-down like every
+    // other one, and it stands on from the beginning. With compaction off it
+    // counts for nothing: a chat whose only line stands on behind that line has
+    // no tool the model could reach, and the badge of the tools does not rest
+    // on it.
+    #[test]
+    fn the_line_of_the_handoff_summary_stands_with_the_other_lines() {
+        let mut switches = ToolSwitches::default();
+        assert!(switches.value_of("summarise"), "the line stands on at first");
+        assert!(switches.words().iter().any(|(part, _)| *part == "summarise"));
+        assert!(switches.set("summarise", false));
+        assert!(!switches.value_of("summarise"));
+        assert!(switches.any_on(), "the other lines stand on");
+        assert!(switches.any_on_with(false), "the other lines stand on");
+        // Every line but that of the handoff summary is taken away. The lines
+        // are read from the switches themselves, so a line the program learns
+        // later is taken out here as well rather than leaving this test to say a
+        // thing that is no longer true of it. The badge stands on while the room
+        // is made by a summary, and goes out when it is not.
+        let lines: Vec<&'static str> = switches
+            .words()
+            .into_iter()
+            .map(|(part, _)| part)
+            .filter(|part| *part != "summarise")
+            .collect();
+        for part in lines.iter() {
+            switches.set(part, false);
+        }
+        switches.set("summarise", true);
+        assert!(switches.any_on_with(true), "the summary is a tool the model may reach");
+        assert!(!switches.any_on_with(false), "with compaction off nothing stands behind the badge");
+        switches.set("summarise", false);
+        assert!(!switches.any_on_with(true), "no line stands on at all");
     }
 }

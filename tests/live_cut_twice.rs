@@ -1,19 +1,19 @@
-// A live check of a call cut short, and the call the telling of it asked for, cut
-// short again -- not for the repository.
+// A live check of a call cut short, and of the call the model wrote after the
+// room was made -- not for the repository.
 //
 // The server here is not llama.cpp but `probe/cut2/llama-server`: a script that
 // answers an ask offering tools with a call whose words never stop coming, and
-// answers an ask that carries the telling of a call the room gave out under with
-// another such call. That is what a server set to read calls out of an answer does
-// behind a telling, for the telling asks the model for the call again and nothing
-// of the reader stands after it.
+// answers an ask that ends on the handoff block of a summarisation with a smaller
+// call that does come to an end. That is what a model does with the room a
+// handoff summary just made, and the whole of what the reader was owed is that the
+// answer goes on after the room: the small call is let come, it runs, and an
+// answer of the step stands after it.
 //
-// The fault the reader met stands on the branch before this one: the second call
-// was cancelled, no room had to be made for the answer the first one came to, and
-// the chat stood under the block of the call with "(the model gave no answer)"
-// under it. The check is that the answer goes on after the room was made: the
-// model is asked with a word of the reader after the telling, so the ask ends on a
-// question, and the words of an answer come.
+// The check also reads the two asks the fault turned on. The ask for the summary
+// carries the telling of the call that was stopped, for the block of that call
+// stands where the writing stopped and the summary is written of the talk as it
+// stands. The ask that follows the mark carries the telling no more: the mark cuts
+// it off with the rest of the words the summary stands for.
 //
 //     cargo test --test live_cut_twice -- --nocapture --test-threads=1
 
@@ -53,8 +53,12 @@ fn a_call_cut_short_is_followed_by_an_answer_and_not_by_a_turn_with_none() {
         .display()
         .to_string();
     // A small room, so a few hundred words of a file run past the limit of it.
+    // The room has to hold the words of the program at the head of the talk and
+    // the telling of the call that was stopped besides, for the ask for the
+    // summary carries the talk as it stands: a room that is too small for both
+    // gives no room for the summary to be written in.
     let ms = ModelSettings {
-        ctx_size: 1024,
+        ctx_size: 2048,
         max_tokens: 200,
         gpu_enabled: vec![false; 8],
         ..Default::default()
@@ -93,7 +97,8 @@ fn a_call_cut_short_is_followed_by_an_answer_and_not_by_a_turn_with_none() {
             .collect::<Vec<String>>()
     );
 
-    // The call that never ran stands after the summarisation, as it always did.
+    // The call that never ran stands before the summarisation, where the writing
+    // stopped, and not under the heading of it.
     let cut_at = snap
         .messages
         .iter()
@@ -105,8 +110,8 @@ fn a_call_cut_short_is_followed_by_an_answer_and_not_by_a_turn_with_none() {
         .position(|m| m.role == "Summary" && !m.body.trim().is_empty())
         .expect("the room was made by a handoff summary");
     assert!(
-        cut_at > summary_at,
-        "the telling of the call stands before the summarisation"
+        cut_at < summary_at,
+        "the block of the call stands under the summarisation"
     );
 
     // The whole of the fault: the model gave no answer, and the chat stood under
@@ -123,35 +128,67 @@ fn a_call_cut_short_is_followed_by_an_answer_and_not_by_a_turn_with_none() {
         snap.status
     );
 
-    // The asks, as a server saw them. The ask that carries the telling of the first
-    // call carries a word of the reader after it, so it ends on a question.
+    // The asks, as a server saw them. The ask for the summary carries the telling
+    // of the call that never ran, and the ask that follows the mark carries it no
+    // more.
     let asks = wait_for("the asks of the server", || {
         let text = std::fs::read_to_string(scratch.join("asks.jsonl")).unwrap_or_default();
         (text.matches("\"kind\"").count() >= 3).then_some(text)
     });
     let lines: Vec<&str> = asks.lines().filter(|l| !l.trim().is_empty()).collect();
     println!("the asks: {}", lines.len());
-    assert!(lines[0].contains("\"kind\": \"call\""), "the first ask: {}", lines[0]);
-    assert!(lines[1].contains("\"kind\": \"summary\""), "the second ask: {}", lines[1]);
+    // The asks are read by what they were, for a summary the room did not like is
+    // asked again with the short prompt of the settings, and the count of the asks
+    // is not a thing a check should lean on.
+    let asked_for = |what: &str| {
+        lines
+            .iter()
+            .find(|line| line.contains(&format!("\"kind\": \"{}\"", what)))
+            .copied()
+            .unwrap_or_default()
+            .to_string()
+    };
+    let first = asked_for("call");
+    let summary = asked_for("summary");
+    let twice = asked_for("twice");
+    assert!(!first.is_empty(), "no ask for an answer: {}", lines.len());
+    assert!(!summary.is_empty(), "no ask for a summary");
     assert!(
-        lines[2].contains("A tool call was cancelled"),
-        "the third ask carries no telling of the call"
+        !twice.is_empty(),
+        "the ask that ends on the handoff block was never made"
     );
-    let third: serde_json::Value = serde_json::from_str(lines[2]).expect("an ask of the server");
+    assert!(
+        summary.contains("A tool call was cancelled"),
+        "the ask for the summary carried no telling of the call"
+    );
+    assert!(
+        !twice.contains("A tool call was cancelled"),
+        "the telling of the call went back to the model after the summarisation"
+    );
+    // The ask after the room was made ends on the handoff block, which says in its
+    // own words that the work is to be gone on with. No word of the program rides
+    // behind it.
+    let third: serde_json::Value = serde_json::from_str(&twice).expect("an ask of the server");
     let items = third["messages"].as_array().expect("the talk of the ask");
     let last = items.last().expect("a talk with a last message");
     assert_eq!(
         last["role"].as_str().expect("a role"),
         "user",
-        "the ask that carries the telling of a call did not end on the reader"
+        "the ask after the room was made did not end on the handoff block"
     );
-    // The telling of the first call goes back as words and never as a call, for a
-    // server set to read arguments out of the words that stop in the middle of a
-    // string would fault over them. A call that stands in a later ask is a call the
-    // model wrote anew after the room was made, and the program ran it: that is a
-    // different thing from a telling, and it is told with its own marks.
     assert!(
-        !lines[2].contains("tool_calls"),
+        last["content"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("[The session was compacted"),
+        "the ask after the room was made did not end on the handoff block: {}",
+        last
+    );
+    // Nothing of the call that never ran goes back as a call: the words of it stop
+    // in the middle, and a server set to read arguments out of them would fault
+    // over them.
+    assert!(
+        !twice.contains("tool_calls"),
         "the telling of the first call went back to the server as a call"
     );
 

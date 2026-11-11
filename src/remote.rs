@@ -27,7 +27,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 // stop flag, so Ctrl-C ends the run in an orderly way.
 const WAIT: Duration = Duration::from_millis(200);
 
-// The page, and the icon of the program, which the page asks for once.
+// The page, and the icon of the program, which the page asks for once. The same
+// file is the mark of the tab: the page names it with `<link rel="icon">`, and a
+// browser that does not read that asks for `/favicon.ico` on its own. The file
+// is a mark of lines, so one file serves every size of tab.
 const ICON: &[u8] = include_bytes!("../assets/icons/autumn-natter.svg");
 
 // Set by Ctrl-C. A signal handler may only write to a value like this.
@@ -106,7 +109,7 @@ fn handle(engine: &Engine, mut request: Request) {
                     .with_header(content_type("text/html; charset=utf-8")),
             );
         }
-        ("GET", "/autumn-natter.svg") => {
+        ("GET", "/autumn-natter.svg") | ("GET", "/favicon.ico") => {
             let _ = request.respond(
                 Response::from_data(ICON)
                     .with_header(content_type("image/svg+xml"))
@@ -158,6 +161,13 @@ fn handle(engine: &Engine, mut request: Request) {
         }
         ("GET", "/api/repositories") => {
             let _ = request.respond(json_response(&web::repositories_value(engine)));
+        }
+        // The pre-written prompts of the Program tab. Without an id the call
+        // gives the lines of the table; with one it gives the words of that
+        // prompt, for the user asked to read it.
+        ("GET", "/api/prompts") => {
+            let id = query_value(&query, "id");
+            let _ = request.respond(json_response(&web::prompts_value(&id)));
         }
         ("GET", "/api/model_settings") => {
             let id = query_value(&query, "id");

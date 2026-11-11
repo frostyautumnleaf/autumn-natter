@@ -46,6 +46,13 @@ pub const COMPACT_BY_TOKENS: &str = "tokens";
 // whole of the talk, so a prompt of a novel would cost room of its own.
 pub const GREATEST_HANDOFF_PROMPT: usize = 4096;
 
+// The most characters the system prompt of the user may hold. The words of the
+// pre-written prompts are not counted here: they stand in the program and are
+// of a size the program answers for. The whole block of words before the talk,
+// the pre-written prompts and the words of the user together, is kept under
+// GREATEST_SYSTEM_PROMPT by the settings and by the chat.
+pub const GREATEST_SYSTEM_PROMPT: usize = 8000;
+
 // The prompt that is given to the model when it is asked for the handoff
 // summary. The user may write another one in the settings.
 pub const DEFAULT_HANDOFF_PROMPT: &str = "Write a detailed but concise handoff summary for AI consumption (no styling) that can be given to an AI to continue working from the current state of the session. Include the context of the session that an AI needs to carry on. Say what has been done so far and what needs to be done next. The AI will only receive the first initial prompt that the user sent, along with this handoff summary. Name the file paths that matter, one short line each, with what each file is used for. Keep the summary to about three hundred words: it must come to an end, for a summary that runs on for ever leaves the room it was asked to make unmade.";
@@ -230,11 +237,18 @@ pub struct Config {
     pub models_dir: String,
     // Directory that holds the repositories. Empty means the default place.
     pub repositories_dir: String,
-    // The skin the pages are drawn in: `light`, `dark` or `corporate`. An empty
-    // word marks a settings file written before there were three skins, and the
-    // switch below answers for it.
+    // The skin the pages are drawn in: `light`, `dark`, `silver` or `corporate`.
+    // An empty word marks a settings file written before there were three skins,
+    // and the switch below answers for it.
     #[serde(default)]
     pub theme: String,
+    // True when this file was written by a program that knows the four skins. A
+    // file without the word holds `corporate` for the ladder of grey, which now
+    // answers to `silver`: the near-black skin took the older name. The mark is
+    // stood on when the settings are read, and the file is written again, so the
+    // two are never mixed up again after that.
+    #[serde(default)]
+    pub skins_v2: bool,
     // The switch of the two skins that stood before the third. It is kept in step
     // with the skin above, so that a settings file of this program can still be
     // read by a program written when there were two.
@@ -284,6 +298,14 @@ pub struct Config {
     // read as part of the words of the answer, as they were before.
     #[serde(default = "on_by_default")]
     pub chat_bold_markdown: bool,
+    // Let the colours the model asks for stand as colours: a run of words held
+    // between `<green>` and `</green>`, or between the marks of the three other
+    // colours, is shown in that colour. Turned off, the words are shown with no
+    // colour of their own. The marks are taken out of the talk that goes back to
+    // the model only while this stands on, for the page cannot paint what it no
+    // longer reads.
+    #[serde(default = "on_by_default")]
+    pub chat_colour_text: bool,
     // Read the chat as one piece of writing. The panels of the thoughts and of
     // the calls then stand on the chat itself: no ground of their own, no line
     // about them, and no rule of colour down the left hand edge of a thought.
@@ -325,6 +347,13 @@ pub struct Config {
     // asked without scrolling the whole of the talk over.
     #[serde(default = "on_by_default")]
     pub chat_userline: bool,
+    // Carry a message you sent into the chat with a little movement: the words
+    // leave the box, go over the chat and unfold into the message itself. The
+    // movement is only on the screen. Nothing about the sending waits for it,
+    // and a chat told to stand still shows the message where it always stood,
+    // at once.
+    #[serde(default = "on_by_default")]
+    pub chat_send_anim: bool,
     // Keep the talk of a chat that the model has worked its way through in a
     // file of the program, so the chat does not have to be read through again
     // when it comes back: after another chat took the model, or after the program
@@ -407,6 +436,17 @@ pub struct Config {
     // to an end. No longer than GREATEST_HANDOFF_PROMPT characters.
     #[serde(default = "default_handoff_prompt_short")]
     pub chat_compact_prompt_short: String,
+    // The words the user writes for the model to stand on: the system prompt of
+    // the chat. Empty gives no prompt of the user, and the chat then reads only
+    // the words of the program and the marked pre-written prompts. No longer
+    // than GREATEST_SYSTEM_PROMPT characters.
+    #[serde(default)]
+    pub chat_system_prompt: String,
+    // The pre-written prompts the user put a mark on, by their ids. They stand
+    // in front of the words of the user, in the order of the table. A set of
+    // settings written before this stood reads with no mark at all.
+    #[serde(default)]
+    pub chat_system_prompts_on: Vec<String>,
     // The vertical timeline of the summarisations, at the right of the chat.
     #[serde(default = "on_by_default")]
     pub chat_timeline: bool,    // The servers of the user's own, spoken to over MCP. They stand here and
@@ -434,6 +474,33 @@ pub fn sanitize_compaction(value: &str) -> String {
         COMPACTION_OFF => String::from(COMPACTION_OFF),
         _ => String::from(COMPACTION_HANDOFF),
     }
+}
+
+// The system prompt of the user as the settings keep it. The words are cut to
+// GREATEST_SYSTEM_PROMPT characters, and the space at either end is taken off:
+// a prompt of nothing but spaces is no prompt, and the chat then reads as if
+// the box stood empty.
+pub fn sanitize_system_prompt(value: &str) -> String {
+    let words = value.trim();
+    if words.chars().count() <= GREATEST_SYSTEM_PROMPT {
+        return String::from(words);
+    }
+    words.chars().take(GREATEST_SYSTEM_PROMPT).collect()
+}
+
+// The marks on the pre-written prompts as the settings keep them. Only ids of
+// prompts the program knows are kept, each once, and in the order of the table
+// and not the order the window sent: the words go in front of the talk in one
+// order whatever the page sent.
+pub fn sanitize_prompt_ids(values: &[String]) -> Vec<String> {
+    let mut kept: Vec<String> = Vec::new();
+    for p in crate::prompts::lines() {
+        let id = p["id"].as_str().unwrap_or("");
+        if values.iter().any(|v| v == id) {
+            kept.push(String::from(id));
+        }
+    }
+    kept
 }
 
 // The way of setting the summarisation going. A word that is neither of the
@@ -468,20 +535,24 @@ pub fn sanitize_compact_reserve(value: i64) -> u32 {
 // to.
 pub const GREATEST_PRESET_NAME: usize = 60;
 
-// The three skins the pages can be drawn in. `light` is the pale ground the
-// program is cut for, `dark` the same colours on a ground near black, and
-// `corporate` grey and white and the shades between them alone.
+// The four skins the pages can be drawn in. `light` is the pale ground the
+// program is cut for, `dark` the same colours on a ground near black, `silver`
+// grey and white and the shades between them alone, and `corporate` a ground
+// near black drawn in the same neutral ladder: the colours of the program are
+// put away there as they are in the silver skin, and only the ground is darker.
 pub const THEME_LIGHT: &str = "light";
 pub const THEME_DARK: &str = "dark";
+pub const THEME_SILVER: &str = "silver";
 pub const THEME_CORPORATE: &str = "corporate";
 
-// The word of a skin. A word that is none of the three answers as the pale skin,
-// which is the one a new set of settings stands on. An empty word is the mark of a
-// settings file written before there were three skins, and the switch of the two
+// The word of a skin. A word that is none of the four answers as the pale skin,
+// which is the one a new set of settings stands on. An empty word is the mark of
+// a settings file written before there were four skins, and the switch of the two
 // that such a file holds answers for it.
 pub fn theme_word(value: &str, dark: bool) -> String {
     match value {
         THEME_DARK => THEME_DARK,
+        THEME_SILVER => THEME_SILVER,
         THEME_CORPORATE => THEME_CORPORATE,
         "" if dark => THEME_DARK,
         _ => THEME_LIGHT,
@@ -661,6 +732,7 @@ impl Default for Config {
             models_dir: paths().models.display().to_string(),
             repositories_dir: String::new(),
             theme: String::new(),
+            skins_v2: true,
             dark_mode: false,
             remote_port: DEFAULT_REMOTE_PORT,
             upnp_enabled: false,
@@ -674,12 +746,14 @@ impl Default for Config {
             chat_date_new_chat: true,
             chat_highlight: true,
             chat_bold_markdown: true,
+            chat_colour_text: true,
             chat_seamless: false,
             chat_display: plain_display(),
             welcomed: false,
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_userline: true,
+            chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,
             chat_max_tool_steps: -1,
@@ -697,6 +771,8 @@ impl Default for Config {
             chat_compact_reserve: default_compact_reserve(),
             chat_compact_prompt: default_handoff_prompt(),
             chat_compact_prompt_short: default_handoff_prompt_short(),
+            chat_system_prompt: String::new(),
+            chat_system_prompts_on: Vec::new(),
             chat_timeline: true,
             // No server of the user's own stands in a new set of settings.
             mcp_servers: Vec::new(),
@@ -822,7 +898,29 @@ pub fn load() -> Config {
     // The switch of the two that such a file holds answers for it, so a chat that
     // stood on the dark skin does not wake up pale.
     cfg.theme = theme_word(&cfg.theme, cfg.dark_mode);
+    // A file written before the fourth skin holds `corporate` for the ladder of
+    // grey. That skin is called `silver` now, and the older name belongs to the
+    // near-black one, so the word is turned over once and the file is written
+    // again with the mark of the four skins on it.
+    if turn_the_skin_words(&mut cfg) {
+        let _ = save(&cfg);
+    }
     cfg
+}
+
+// Turn the word of a skin over for a settings file written before the four skins
+// stood. True comes back when the file was turned, which is when it is worth
+// writing again. A file that already holds the mark of the four skins is left
+// alone, so the word `corporate` chosen after the change keeps its new meaning.
+fn turn_the_skin_words(cfg: &mut Config) -> bool {
+    if cfg.skins_v2 {
+        return false;
+    }
+    if cfg.theme == THEME_CORPORATE {
+        cfg.theme = THEME_SILVER.to_string();
+    }
+    cfg.skins_v2 = true;
+    true
 }
 
 // Write settings.json. Parent directories are created when needed.
@@ -912,11 +1010,45 @@ mod tests {
         assert_eq!(theme_word(THEME_LIGHT, false), "light");
         assert_eq!(theme_word(THEME_DARK, false), "dark");
         assert_eq!(theme_word(THEME_CORPORATE, true), "corporate");
+        assert_eq!(theme_word(THEME_SILVER, false), "silver");
         assert_eq!(theme_word("", true), "dark");
         assert_eq!(theme_word("", false), "light");
         assert_eq!(theme_word("shiny_and_blue", true), "light");
         let fresh = Config::default();
         assert_eq!(theme_word(&fresh.theme, fresh.dark_mode), THEME_LIGHT);
+    }
+
+    // The word `corporate` meant the ladder of grey before the near-black skin
+    // took the name. A file that holds it without the mark of the four skins is
+    // such a file, and is read as `silver`; a file with the mark holds the word
+    // for the new skin and is left alone.
+    #[test]
+    fn the_older_word_for_the_ladder_of_grey_is_turned_once() {
+        let mut old = Config {
+            theme: THEME_CORPORATE.to_string(),
+            skins_v2: false,
+            ..Config::default()
+        };
+        assert!(turn_the_skin_words(&mut old), "the file was turned");
+        assert_eq!(old.theme, THEME_SILVER);
+        assert!(old.skins_v2);
+        // The same file, read again after it was written with the mark on it,
+        // stands as it is: the word now names the near-black skin.
+        let mut newer = Config {
+            theme: THEME_CORPORATE.to_string(),
+            skins_v2: true,
+            ..Config::default()
+        };
+        assert!(!turn_the_skin_words(&mut newer), "nothing to turn");
+        assert_eq!(newer.theme, THEME_CORPORATE);
+        // A file that held another skin keeps it.
+        let mut dark = Config {
+            theme: THEME_DARK.to_string(),
+            skins_v2: false,
+            ..Config::default()
+        };
+        assert!(turn_the_skin_words(&mut dark));
+        assert_eq!(dark.theme, THEME_DARK);
     }
 
     // The name a preset is kept under: the words the user wrote, with the space
@@ -948,8 +1080,10 @@ mod tests {
         assert!(cfg.chat_collapse_tools);
         assert!(cfg.chat_date_new_chat);
         assert!(cfg.chat_highlight);
+        assert!(cfg.chat_colour_text);
         assert!(cfg.chat_chapters);
         assert!(cfg.chat_userline);
+        assert!(cfg.chat_send_anim);
         assert!(cfg.chat_context_files);
         // The compressed shape is asked for, not given: a config that says
         // nothing keeps the files as they have always been written.
@@ -1120,6 +1254,7 @@ mod tests {
             DEFAULT_HANDOFF_PROMPT_SHORT
         );
         assert!(read.chat_timeline);
+        assert!(read.chat_colour_text);
     }
 
     // The fields of the Compaction section are kept inside their bounds. A word
@@ -1162,6 +1297,52 @@ mod tests {
             sanitize_handoff_prompt_short("  "),
             DEFAULT_HANDOFF_PROMPT_SHORT
         );
+    }
+
+    // The words before the talk. The prompt of the user is kept with its own
+    // words and cut at its own ceiling, and the space about it is taken off, so
+    // a box of nothing but spaces is no prompt.
+    #[test]
+    fn the_system_prompt_of_the_user_is_kept_and_cut_at_its_ceiling() {
+        assert_eq!(sanitize_system_prompt("Answer in short sentences."), "Answer in short sentences.");
+        assert_eq!(sanitize_system_prompt("  \n  Praise nothing.  \n "), "Praise nothing.");
+        assert_eq!(sanitize_system_prompt("   "), "");
+        let long = "x".repeat(GREATEST_SYSTEM_PROMPT + 400);
+        assert_eq!(
+            sanitize_system_prompt(&long).chars().count(),
+            GREATEST_SYSTEM_PROMPT
+        );
+        // A new set of settings stands with no prompt of the user and no mark on
+        // a pre-written prompt, so a chat reads as it read before these stood.
+        let fresh = Config::default();
+        assert_eq!(fresh.chat_system_prompt, "");
+        assert!(fresh.chat_system_prompts_on.is_empty());
+    }
+
+    // The marks on the pre-written prompts. A word the program does not know is
+    // dropped, a mark given twice is kept once, and the order kept is the order
+    // of the table and not the order the window sent.
+    #[test]
+    fn the_marks_on_the_pre_written_prompts_are_kept_in_the_order_of_the_table() {
+        let known: Vec<String> = crate::prompts::lines()
+            .iter()
+            .map(|one| String::from(one["id"].as_str().unwrap_or("")))
+            .collect();
+        assert!(!known.is_empty(), "the table of prompts is not empty");
+        let last = known.last().expect("the last id of the table");
+        let first = known.first().expect("the first id of the table");
+        // Both marks, sent in the wrong order, come back in the order of the
+        // table, and a mark sent twice stands once.
+        let sent = vec![
+            String::from(last),
+            String::from("no-such-prompt"),
+            String::from(first),
+            String::from(first),
+        ];
+        let kept = sanitize_prompt_ids(&sent);
+        assert_eq!(kept, vec![String::from(first), String::from(last)]);
+        assert!(sanitize_prompt_ids(&[]).is_empty());
+        assert_eq!(sanitize_prompt_ids(&sent).len(), kept.len());
     }
 
     // The rule that sets the summarisation going. The share of the room works

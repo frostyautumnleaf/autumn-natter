@@ -23,6 +23,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Autumn Natter</title>
+<!-- The mark of the program stands in the tab of the browser and, where the
+     web view reads it, in the tab of the window. The file is the one the bar of
+     the page already asks for. The browser page of the remote mode names the
+     same mark by its route: `/autumn-natter.svg`. -->
+<link rel="icon" type="image/svg+xml" href="assets/autumn-natter.svg">
 <style>
 /* ---------------------------------------------------------------- tokens */
 /* Five accents, one pale skin, one warm dark skin. Every other colour is a
@@ -87,13 +92,13 @@ body.dark {
   --ring: 0 0 0 3px rgba(237, 116, 1, .16);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
 }
-/* The corporate skin: grey and white, and the shades between them. The five warm
+/* The silver skin: grey and white, and the shades between them. The five warm
    accents of the program are put away here, for a screen drawn in this skin may
    carry no colour that a printed report would not carry. One ladder of grey stands
    for the whole of it: the ground is the darkest step, the surfaces climb from it,
    the words come down from white, and what was told by colour in the other skins is
    told here by weight, by shape and by place. */
-body.corporate {
+body.silver {
   --accent: #6f6f6f; --warm: #5c5c5c; --strong: #4a4a4a; --leaf: #8c8c8c; --deep: #383838;
   --accent-soft: rgba(255, 255, 255, .10);
   --accent-line: rgba(255, 255, 255, .30);
@@ -116,6 +121,35 @@ body.corporate {
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
   --shadow-2: 0 2px 6px rgba(0, 0, 0, .45), 0 16px 38px rgba(0, 0, 0, .5);
 }
+/* The corporate skin: the same ladder of grey, on a ground near black. It carries
+   no colour of its own either, and it is the silver skin taken down to a darker
+   room: the ground, the surfaces and the hairlines all begin lower, and the words
+   stay white, so a screen in a dark office shows one block of writing and nothing
+   else. What the silver skin says with a step of grey, this skin says with the
+   same step from a lower place. */
+body.corporate {
+  --accent: #8a8a8a; --warm: #747474; --strong: #5e5e5e; --leaf: #a6a6a6; --deep: #454545;
+  --accent-soft: rgba(255, 255, 255, .08);
+  --accent-line: rgba(255, 255, 255, .26);
+
+  --bg: #080808; --fade-top: rgba(8,8,8,1); --fade-out: rgba(8,8,8,0);
+  --surface: #121212; --surface-2: #1a1a1a; --surface-3: #232323;
+  --line: #2c2c2c; --line-soft: #222222; --line-strong: #4a4a4a;
+  --text: #ffffff; --text-2: #e6e6e6; --dim: #a8a8a8; --faint: #8a8a8a;
+  --hover: #1a1a1a; --tint: #222222; --on-accent: #ffffff;
+
+  --bubble: #1c1c1c; --bubble-line: #333333;
+  --plate: rgba(255, 255, 255, .07); --plate-line: rgba(255, 255, 255, .14);
+  --plate-mark: rgba(255, 255, 255, .09);
+  --plate-shadow: 0 1px 3px rgba(0, 0, 0, .55);
+  --code-bg: #141414; --code-line: #2c2c2c;
+  --think-bg: #141414; --tool-bg: #101010;
+  --scrim: rgba(0, 0, 0, .74);
+  --ring: 0 0 0 3px rgba(255, 255, 255, .14);
+  --bad-hover: rgba(255, 255, 255, .14);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .5);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, .5), 0 16px 38px rgba(0, 0, 0, .58);
+}
 /* A word in an accent colour needs the bright end of the accent in the dark
    skin, where #C53C01 cannot be read on #0a0400. The mix is of an allowed
    accent with a neutral, so no new colour is added. A plain value stands
@@ -125,7 +159,7 @@ body.dark { --ink: #f08a2a; --ink-leaf: #d9713f; --ink-fail: #e0603a; }
 /* A word that stands in an accent colour is white on a ground of grey, and the two
    weaker inks are the steps below it. A fault keeps a colour of its own: a very
    light red, so a failed tool call is known as one and not as plain words. */
-body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #f0b4ad; }
+body.silver, body.corporate { --ink: #ffffff; --ink-leaf: #dcdcdc; --ink-fail: #f0b4ad; }
 /* The two counts of a change of a file. Green for what was written and red for
    what was taken away are the colours the eye knows for the two already; they
    are kept pale, so that they sit with the warm colours of the skin instead of
@@ -135,7 +169,7 @@ body.dark { --hunk-add: #a3c98c; --hunk-cut: #e09b86; }
 /* The two counts in pale green and pale red. The skin is else without colour, but
    the sign before a count and the two colours beside it say which is which at one
    look, as they do in the other skins. */
-body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
+body.silver, body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
 @supports (color: color-mix(in oklab, red, blue)) {
   body.dark {
     --ink: color-mix(in oklab, var(--accent) 74%, #fff6ec);
@@ -149,7 +183,7 @@ body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
    skin instead of the usual pale grey. */
 :root { color-scheme: light; }
 body.dark { color-scheme: dark; }
-body.corporate { color-scheme: dark; }
+body.silver, body.corporate { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -193,9 +227,10 @@ textarea, input { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; padding-right: 2px; }
 .brand .mark { width: 21px; height: 21px; display: block; }
 /* The program mark is drawn in the warm colours of the program. A screen in the
-   corporate skin may hold no colour of its own, so the mark is put through the ladder
-   of grey with everything else. The other two skins show the mark as it is drawn. */
-body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
+   silver skin or the corporate skin may hold no colour of its own, so the mark is
+   put through the ladder of grey with everything else. The other two skins show the
+   mark as it is drawn. */
+body.silver img.mark, body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
 .brand .word { font-size: 14.5px; font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
 .rule { width: 1px; height: 24px; background: var(--line); flex: 0 0 auto; }
 
@@ -544,6 +579,18 @@ body.home .stage { display: none; }
    the mark under the card asks for the whole, which is a reading of its own: the
    words are long, and they stand over the chat in a sheet of their own rather
    than among the turns. */
+/* One line of the pre-written prompts in the Program settings: the mark for the
+   prompt, its name, the short account of what it does, and the button that
+   shows the whole of its words. */
+.prompt-line { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 7px; }
+.prompt-line:last-child { margin-bottom: 0; }
+.prompt-line .p-mark { display: flex; align-items: flex-start; gap: 7px; min-width: 210px; }
+.prompt-line .p-name { font-size: 13px; color: var(--text); line-height: 1.45; }
+.prompt-line .p-sum { flex: 1 1 auto; font-size: 12px; color: var(--dim); line-height: 1.45; }
+/* The words of a prompt stand in the window of reading as they were written,
+   with their own line breaks: a prompt is a thing of lines and headings. */
+.sumview .sbody.raw { white-space: pre-wrap; }
+
 .sumview { width: min(720px, 100%); max-height: 100%; display: flex; flex-direction: column;
   background: var(--surface); color: var(--text); border: 1px solid var(--line);
   border-radius: var(--r-l); box-shadow: var(--shadow-2); overflow: hidden; }
@@ -592,6 +639,28 @@ body.home .stage { display: none; }
   border: 1px solid var(--bubble-line); border-radius: var(--r-l) var(--r-l) 4px var(--r-l);
   white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
 }
+/* The copy of the words that are on their way from the chat box to the chat.
+   It stands over the page, holds the words in the shape of the bubble they are
+   to become, and is moved along a curve by the page. It is as wide as its own
+   words and no wider, for the bubble it is going to is measured that way too:
+   a copy as wide as the chat would shrink when it landed. It catches nothing the
+   hand does, for it is a look and not a thing to press. */
+.flycard {
+  position: fixed; left: 0; top: 0; z-index: 55; pointer-events: none;
+  width: max-content;
+  padding: 11px 14px; background: var(--bubble);
+  border: 1px solid var(--bubble-line); border-radius: var(--r-l) var(--r-l) 4px var(--r-l);
+  white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
+  max-height: 34vh; overflow: hidden; box-shadow: var(--shadow-2);
+  transform-origin: 0 0; will-change: transform, opacity;
+}
+/* The message a copy is on its way to. It stands where it will stand and keeps
+   its room in the chat, so nothing jumps, but it is not seen until the copy
+   arrives: the words are read once, in the message, and not twice over. */
+.turn.landing { visibility: hidden; }
+/* The message unfolding into its place as the copy goes away. */
+.turn.landed { animation: unfold 190ms ease-out; }
+@keyframes unfold { from { transform: scale(.94); opacity: .5; } to { transform: none; opacity: 1; } }
 .plain { min-width: 0; }
 /* The time of a message. It takes no room of its own until the user hovers
    over the message; then it opens out below the words. Only what hangs under
@@ -602,6 +671,12 @@ body.home .stage { display: none; }
   transition: opacity 160ms, height 160ms, margin-top 160ms;
   font-variant-numeric: tabular-nums; }
 .turn:hover .stamp { opacity: 1; height: 15px; margin-top: 5px; }
+/* The blocks an answer ends with - the steps, the files offered, the window of
+   shown files, the roads offered - are not the words of the message. The line of
+   the time and the marks does not open under a pointer that stands on them: it
+   would push the block down under the hand reaching for one of its buttons. The
+   line opens again the moment the pointer is back on the words. */
+.turn:has(.answer-end:hover) .stamp { opacity: 0; height: 0; margin-top: 0; }
 .turn.t-you .stamp { padding-right: 2px; }
 /* What the user may do with a message. The marks stand in the line where the
    time of the message stands, and that line opens when the pointer goes over the
@@ -698,6 +773,16 @@ a.link:hover { text-decoration-color: currentColor; }
    are made plain words again, and a link that was made a plain word would be a
    link lost. */
 a.link.fade { animation: ink 420ms ease-out; }
+/* The four colours a model may put on its own words. The model chose them, so
+   they stand the same in every skin and are mixed to nothing: green, the lighter
+   green, red and the lighter red. No weight and no shape is added, for the colour
+   is the whole of the mark, and the words keep the shape of the words about them.
+   The marks are read by `colourAt` above and taken out of the talk that goes back
+   to the model by the engine. */
+.tint-green { color: #24c935; }
+.tint-light-green { color: #61ff71; }
+.tint-red { color: #c92424; }
+.tint-light-red { color: #ff6161; }
 pre.code {
   margin: 4px 0 11px; padding: 11px 13px; background: var(--code-bg);
   border: 1px solid var(--code-line); border-radius: 10px;
@@ -737,10 +822,15 @@ body.dark {
 }
 /* The colours of a block of code in grey. The weight of a word, and the shape the
    words of it make, say which kind it is: here there is nothing else to say it with,
-   and a block of code can still be read. */
-body.corporate {
+   and a block of code can still be read. The corporate skin reads the same list from
+   a darker ground, so the steps that stand on the ground are lifted a little. */
+body.silver {
   --t-com: #8d8d8d; --t-key: #ffffff; --t-str: #dcdcdc; --t-num: #e4e4e4;
   --t-name: #ffffff; --t-var: #dcdcdc; --t-pun: #ababab;
+}
+body.corporate {
+  --t-com: #9a9a9a; --t-key: #ffffff; --t-str: #e0e0e0; --t-num: #eaeaea;
+  --t-name: #ffffff; --t-var: #e0e0e0; --t-pun: #b6b6b6;
 }
 pre.code .t-c { color: var(--t-com); font-style: italic; }
 pre.code .t-k { color: var(--t-key); font-weight: 600; }
@@ -794,9 +884,11 @@ pre.code .t-p { color: var(--t-pun); }
    block stands for an answer: its head says what the model is at, and the short
    of the work stands under it, in blocks of its own. */
 body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: none !important; }
-
-   block stands for an answer: its head says what the model is at, and the short
-   of the work stands under it, in blocks of its own. */
+/* A row that has nothing to show while the corporate display stands: a run of a
+   tool whose block is hidden, with no answer after it. It stands away, for a
+   chat is not read through gaps that hold nothing. A row that carries the blocks
+   an answer ends with keeps its place, for the files of an offer stand there. */
+body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
 .work { margin: 14px 0; border: 1px solid var(--line); border-radius: 9px; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
   cursor: pointer; color: var(--ink-leaf); font-weight: 600; }
@@ -813,7 +905,26 @@ body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: n
 .wblock.shut > .wbbody { display: none; }
 .wblock.shut > .wbhead .wfold { transform: rotate(-90deg); }
 .wbbody { padding: 0 12px 8px 30px; }
+/* A block inside a heading: the work of that heading, put in under it. It keeps
+   the shape of a block of the short, with a line of its own about it, so the
+   eye reads the heading and then the pieces of the work beneath. */
+.wbbody .wblock { border: 1px solid var(--line); border-radius: 8px; margin: 6px 0 0; }
+.wbbody .wblock:first-child { border-top: 1px solid var(--line); }
+.wbbody .wblock > .wbhead { padding: 6px 10px; }
+.wbbody .wblock > .wbbody { padding: 0 10px 6px 26px; }
 .wline { padding: 3px 0; }
+/* The words of a call inside the short: the command that ran, the file it worked
+   on, and what came back. The block of the run itself is hidden while the mode
+   stands, so these are the only words of a command a user can read. The words
+   that came back keep a window of their own, for a command may write a page and
+   the short is read in a glance. */
+.wcmd, .wout {
+  font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+  background: var(--code-bg); border: 1px solid var(--code-line); border-radius: 7px;
+  padding: 6px 8px; margin: 5px 0 0; color: var(--ink); }
+.wout { max-height: 190px; overflow: auto; color: var(--ink-leaf); }
+.wfile { color: var(--ink-leaf); font-size: 11.5px; padding: 4px 0 0; word-break: break-all; }
 .wplus, .wminus { font-variant-numeric: tabular-nums; margin-left: 7px; }
 .wplus { color: var(--hunk-add); }
 .wminus { color: var(--hunk-cut); }
@@ -1171,9 +1282,14 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
 .look-md { font-size: 13.5px; color: var(--text); }
 .look-md > :first-child { margin-top: 0; }
 .look-md > :last-child { margin-bottom: 0; }
-/* The button of a show, under the block of the run that made it. The window goes
-   away with the key of escape, so the block keeps the way back to it. */
-.shown-again { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+/* The button of a show, at the end of the answer that made it. The window goes
+   away with the key of escape, so the answer keeps the way back to it. It
+   stands with the other blocks an answer ends with, and not in the block of the
+   run: what the user asked to see is read after the answer, not in the middle
+   of the account of how it was made. */
+.shown-again {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
 .shown-again button {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
@@ -1302,7 +1418,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    boxes of the answers keep a ground of their own, for a box to write in has to
    say that it can be written in. */
 .planask {
-  margin: 16px 0 6px; padding: 2px 0 2px 13px;
+  margin: 20px 0 6px; padding: 2px 0 2px 13px;
   border: 0; border-left: 2px solid var(--line-strong);
   border-radius: 0; background: none; box-shadow: none;
 }
@@ -1448,7 +1564,7 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
    answer left and not a saying of it. */
 .gifts {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
-  padding: 6px 0 12px; animation: rise 240ms ease-out;
+  animation: rise 240ms ease-out;
 }
 .gift {
   display: flex; align-items: center; gap: 11px; width: 100%; max-width: 430px;
@@ -1487,6 +1603,208 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 /* The button of the whole offer stands under the files it takes, in the middle
    of the chat as they are. */
 .gifts .all { align-self: center; }
+/* The blocks an answer ends with: the steps of its work, the button that opens
+   the window over the files it showed, the files it offered, and the roads it
+   suggested for what comes next. They stand in the one block under the answer,
+   in the order the chat reads them. The way back to what the user asked to see
+   stands first, for it belongs to the words above it; the work the user may
+   take or go on by stands after them.
+
+   The block is one card: the ground of the surface, a hairline, and the corners
+   the plates of the chat wear. Each kind stands in a part of the card, cut from
+   the next by a hairline, so the kinds read as one thing the answer left and
+   not as four blocks that came in last. The card takes the surface the tool
+   panels take, which stands a step above the ground of the chat: the eye sees a
+   thing set down in the talk, and not a hole cut into it.
+
+   The room above it is the room between a message and the line between two
+   messages, twenty pixels. It is the next part of the chat and not a tail on
+   the answer, and with less room it reads as words the answer had not
+   finished. */
+.answer-end {
+  margin-top: 20px; border: 1px solid var(--line); border-radius: var(--r-l);
+  background: var(--surface); box-shadow: var(--shadow-1); overflow: hidden;
+  animation: rise 240ms ease-out;
+}
+/* The head of the block. It names what stands under it, and it takes the deeper
+   surface, so the head and the parts are told apart without a second line. */
+.ae-head {
+  display: flex; align-items: center; gap: 7px; padding: 9px 13px;
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--dim);
+}
+.ae-head .svg { width: 13px; height: 13px; stroke: var(--dim); }
+/* One part of the block: the room of the card inside it, and the hairline that
+   cuts it from the part above. */
+.answer-end > .shown-again, .answer-end > .gifts, .answer-end > .suggests {
+  padding: 12px 13px;
+}
+.answer-end > * + * { border-top: 1px solid var(--line); }
+/* Inside the card no kind wears a ground or a shadow of its own, for the card is
+   the ground. The steps lose the box they had and keep their own head; the hair
+   line of their own parts takes the colour of the card. A file of the offer
+   spreads over the width of the card, which is what a row of a list does. The
+   button of the whole offer and the button of a show stand at the left hand edge
+   under the head of the card, and not in the middle, for the card is read from
+   that edge. */
+/* The button of a show and the button of the whole offer stand at the left hand
+   edge under the head of the card, and not in the middle, for the card is read
+   from that edge. In a chat as narrow as the window can be made a button is cut
+   by the room it has, as a road is, and never runs over the edge of the card. */
+.answer-end .steps { border: 0; border-radius: 0; background: none; animation: none; }
+.answer-end .steps .stitle, .answer-end .steps .srow { border-color: var(--line); }
+.answer-end .steps .sbtn, .answer-end .steps .sarrow { border-color: var(--line); }
+/* The parts of the steps take the room of the card, so their left edges line up
+   with the head of the card and with the rows of the other parts. */
+.answer-end .steps .stext { padding-left: 13px; padding-right: 13px; }
+.answer-end .steps .srow { padding: 9px 13px; }
+.answer-end .steps .sprev { left: 13px; }
+.answer-end .steps .snext { right: 13px; }
+.answer-end .gifts { align-items: stretch; gap: 7px; animation: none; }
+.answer-end .gift { max-width: none; box-shadow: none; }
+.answer-end .gifts .all { align-self: flex-start; max-width: 100%; min-width: 0; }
+.answer-end .shown-again { justify-content: flex-start; flex-wrap: wrap; animation: none; }
+.answer-end .shown-again button { max-width: 100%; min-width: 0; }
+.answer-end .shown-again button span, .answer-end .gifts .all span {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.answer-end .suggests { animation: none; }
+/* The words of an answer being written again stand in a box where the answer
+   stood. The box keeps the measure of the chat's words, so the answer does not
+   change shape under the hand putting it right, and the two marks under it say
+   whether the new words stand or the answer goes back as it was. */
+.answer-edit {
+  display: block; box-sizing: border-box; width: 100%; min-height: 76px;
+  max-height: 40vh; padding: 9px 11px; resize: none; overflow-y: auto;
+  scrollbar-width: thin; margin: 0;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px;
+  color: var(--text); font: inherit; font-size: 14px; line-height: 1.55;
+}
+.answer-edit:focus { outline: none; border-color: var(--accent-line); box-shadow: var(--ring); }
+.answer-edit-acts { display: flex; gap: 8px; margin-top: 8px; }
+.ae-mark {
+  padding: 5px 12px; border: 1px solid var(--line-strong); border-radius: 999px;
+  background: var(--surface); color: var(--text-2); font: inherit; font-size: 12.5px;
+  cursor: pointer;
+}
+.ae-mark:hover { border-color: var(--accent); color: var(--accent); }
+.ae-save { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text); }
+/* The roads the model offered for what comes next. A button is one road: the
+   words it shows are short, and the words it sends may be longer. They stand in
+   the middle of the chat, under the answer that offered them, and only once the
+   model has stopped writing: a road offered in the middle of an answer leads to
+   work that is not finished. Only the newest offer of a chat stands, so the
+   buttons of an older answer go when the user speaks again. */
+.suggests {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  animation: rise 240ms ease-out;
+}
+/* One road spreads over the room it shares with its fellows, so two or three
+   of them fill the width of the chat and stand in one line. A road keeps its
+   own words, so the line goes under when the words of all of them will not
+   stand side by side, and the line that goes is centred like the line above it.
+   A single road whose words are wider than the chat is cut by the width of the
+   chat, with the mark of the ellipsis at its end, and never runs out of it. */
+.suggest {
+  flex: 1 1 auto; min-width: 0; max-width: 100%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 7px 12px; border: 1px solid var(--accent-line); border-radius: 999px;
+  background: var(--accent-soft); color: var(--ink); font-size: 12px;
+  font-weight: 650; font-family: inherit; cursor: pointer; white-space: nowrap;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease;
+}
+.suggest:hover { background: var(--tint); border-color: var(--accent); }
+/* A road that has been taken is not taken twice: the buttons are put by while
+   the words of the choice are on their way. */
+.suggest:disabled { opacity: .55; cursor: default; }
+.suggest:disabled:hover { background: var(--accent-soft); border-color: var(--accent-line); }
+.suggest .svg { flex: 0 0 auto; width: 13px; height: 13px; stroke: var(--ink); }
+.suggest .said { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+/* The steps of the work, shown one at a time. The block stands under the answer
+   that made the call, above the other blocks an answer ends with, and only once
+   the model has stopped writing. The head names the list, the body holds the text
+   of one step, and the row under it holds one button per step. */
+.steps {
+  margin: 0; border: 1px solid var(--plate-line); border-radius: 12px;
+  background: var(--surface-2); overflow: hidden; animation: rise 240ms ease-out;
+}
+.steps .stitle {
+  display: flex; align-items: center; gap: 7px; padding: 9px 13px;
+  border-bottom: 1px solid var(--plate-line); font-size: 11px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--dim);
+}
+.steps .stitle .svg { flex: 0 0 auto; width: 13px; height: 13px; stroke: var(--ink); }
+.steps .stitle .count { margin-left: auto; font-weight: 620; letter-spacing: .02em; }
+/* The text of the step, and the two buttons of going back and going on. The
+   buttons stand in the same area as the text, at its bottom corners, and the text
+   keeps room for them. Only the text moves when the step changes: it slides out
+   of the block and the text of the new step slides in. */
+.steps .sbody { position: relative; padding-bottom: 46px; }
+.steps .spage { position: relative; overflow: hidden; }
+.steps .stext {
+  padding: 12px 14px 2px; font-size: 13.5px; line-height: 1.55; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+}
+.steps .stext.leaving { position: absolute; left: 0; right: 0; top: 0; }
+.steps .stext.out-left { animation: step-out-left 220ms ease both; }
+.steps .stext.out-right { animation: step-out-right 220ms ease both; }
+.steps .stext.in-right { animation: step-in-right 220ms ease both; }
+.steps .stext.in-left { animation: step-in-left 220ms ease both; }
+@keyframes step-out-left { from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-45%); opacity: 0; } }
+@keyframes step-out-right { from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(45%); opacity: 0; } }
+@keyframes step-in-right { from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; } }
+@keyframes step-in-left { from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; } }
+.steps .snav {
+  position: absolute; bottom: 11px; display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 1px solid var(--accent-line); border-radius: 999px;
+  background: var(--accent-soft); color: var(--ink); font-size: 12px; font-weight: 650;
+  font-family: inherit; cursor: pointer;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease;
+}
+.steps .snav:hover { background: var(--tint); border-color: var(--accent); }
+.steps .sprev { left: 12px; }
+.steps .snext { right: 12px; }
+.steps .snav.gone { display: none; }
+/* The row of the steps. It stands on one line and never wraps: the rail is cut by
+   the width of the chat, and an arrow comes out at an end of it when the buttons
+   behind that end will not stand in the room. */
+.steps .srow {
+  display: flex; align-items: center; gap: 6px; padding: 9px 10px;
+  border-top: 1px solid var(--plate-line);
+}
+.steps .srail {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px;
+  overflow: hidden; scroll-behavior: smooth;
+}
+.steps .sbtn {
+  flex: 0 0 auto; max-width: 220px; display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border: 1px solid var(--plate-line); border-radius: 999px;
+  background: var(--surface-3); color: var(--text-2); font-size: 11.5px;
+  font-weight: 620; font-family: inherit; cursor: pointer; white-space: nowrap;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease,
+    color var(--t-move) ease;
+}
+.steps .sbtn:hover { border-color: var(--accent-line); color: var(--text); }
+.steps .sbtn.now {
+  background: var(--accent-soft); border-color: var(--accent-line); color: var(--ink);
+}
+.steps .sbtn .num { font-variant-numeric: tabular-nums; opacity: .65; }
+.steps .sbtn .said { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.steps .sarrow {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 25px; height: 25px; padding: 0; border: 1px solid var(--plate-line);
+  border-radius: 999px; background: var(--surface-3); cursor: pointer;
+  transition: background var(--t-move) ease, border-color var(--t-move) ease;
+}
+.steps .sarrow:hover { border-color: var(--accent-line); background: var(--tint); }
+.steps .sarrow .svg { width: 12px; height: 12px; stroke: var(--ink); }
+.steps .sarrow.gone { display: none; }
 /* The box says that a file let go there would land in it. */
 .box.drop { border-color: var(--accent-line); box-shadow: 0 0 0 2px var(--accent-line); }
 /* The files that hang on a message the user has sent stand under its words,
@@ -1711,6 +2029,32 @@ img.pic { animation: plate-in 180ms ease-out; }
 .sheet-head .x { margin-left: auto; }
 .sheet-body { overflow: auto; padding: 2px 20px 8px; scrollbar-width: thin; }
 .pane.hidden { display: none; }
+/* The search over one tab of the sheet. It stands under the tabs and over the
+   settings, and only on the two tabs that hold settings to look for. The name of
+   a setting and the words that describe it are both searched. A setting whose
+   name matches is put above the settings whose description matched, so the thing
+   the user named comes before the things that merely talk about it. */
+.find { display: flex; align-items: center; gap: 9px; padding: 9px 16px;
+  border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.find.gone { display: none; }
+.find .svg { flex: 0 0 auto; width: 14px; height: 14px; stroke: var(--dim); }
+.find .txt { flex: 1 1 auto; background: var(--surface); }
+.find .find-x { flex: 0 0 auto; display: inline-flex; align-items: center;
+  justify-content: center; width: 24px; height: 24px; padding: 0; border: 0;
+  border-radius: 999px; background: none; cursor: pointer; }
+.find .find-x:hover { background: var(--hover); }
+.find .find-x .svg { width: 11px; height: 11px; }
+.find.gone-text .find-x { display: none; }
+.find .find-count { flex: 0 0 auto; font-size: 11.5px; color: var(--dim); }
+/* While the search holds words the pane shows only the list of what matched. */
+.pane.finding > * { display: none; }
+.pane.finding > .find-list { display: block; }
+.find-list .find-head { margin: 16px 0 0; font-size: 11px; font-weight: 650;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--ink-leaf);
+  display: flex; align-items: center; gap: 9px; }
+.find-list .find-head::after { content: ""; flex: 1 1 auto; height: 1px;
+  background: var(--line); }
+.find-list .find-none { padding: 22px 0; font-size: 12.5px; color: var(--dim); }
 .sec { margin: 20px 0 2px; font-size: 11px; font-weight: 650; letter-spacing: .09em;
   text-transform: uppercase; color: var(--ink-leaf); display: flex; align-items: center; gap: 9px; }
 .sec::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
@@ -1851,11 +2195,17 @@ pre.code.line {
   * { transition-duration: .01ms !important; }
   .turn.in { animation: none; }
   .gifts { animation: none; }
+  .suggests { animation: none; }
+  .steps { animation: none; }
+  .steps .stext { animation: none; }
+  .steps .srail { scroll-behavior: auto; }
   .ask { animation: none; }
   .look { animation: none; }
   .caret, .ink, .link.fade, .pulse.busy, .state.run, .state.write,
   .gauge .spin { animation: none; }
   img.pic { animation: none; }
+  .flycard { display: none; }
+  .turn.landed { animation: none; }
 }
 
 /* ------------------------------------------------------------------ side bar
@@ -2151,6 +2501,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
   <button class="mark-btn" id="settingsbtn" title="Settings of the program" aria-label="Settings of the program">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.45" d="M14.86 6.60L14.86 9.40L12.97 9.37L12.48 10.55L13.84 11.86L11.86 13.84L10.55 12.48L9.37 12.97L9.40 14.86L6.60 14.86L6.63 12.97L5.45 12.48L4.14 13.84L2.16 11.86L3.52 10.55L3.03 9.37L1.14 9.40L1.14 6.60L3.03 6.63L3.52 5.45L2.16 4.14L4.14 2.16L5.45 3.52L6.63 3.03L6.60 1.14L9.40 1.14L9.37 3.03L10.55 3.52L11.86 2.16L13.84 4.14L12.48 5.45L12.97 6.63Z"/><circle cx="8" cy="8" r="2.15"/></svg>
   </button>
+  <button class="mark-btn" id="themebtn" title="The colours the page is drawn in. Click for the next skin." aria-label="The colours the page is drawn in">
+    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.4" d="M8 1.33C4.33 1.33 1.33 4.33 1.33 8s2.99 6.67 6.67 6.67c.92 0 1.67-.75 1.67-1.67 0-.41-.15-.8-.43-1.11-.05-.07-.09-.14-.09-.22 0-.19.15-.33.33-.33h1.19c2.02 0 3.67-1.65 3.67-3.67C14.33 4.01 11.34 1.33 8 1.33Z"/><circle cx="4.3" cy="8.1" r=".95" fill="currentColor"/><circle cx="6.2" cy="5.2" r=".95" fill="currentColor"/><circle cx="9.6" cy="4.9" r=".95" fill="currentColor"/><circle cx="11.8" cy="7.3" r=".95" fill="currentColor"/></svg>
+  </button>
 </header>
 
 <div class="area" id="area">
@@ -2395,6 +2748,15 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
       </button>
     </div>
+    <div class="find gone-text" id="sheetFind">
+      <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.7 1.7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM10.3 10.3l3.3 3.3"/></svg>
+      <input class="txt" id="sheetFindText" type="text" spellcheck="false" autocomplete="off"
+        placeholder="Search these settings" aria-label="Search these settings by name or by description">
+      <button class="find-x" id="sheetFindClear" type="button" title="Clear the search" aria-label="Clear the search">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+      <span class="find-count" id="sheetFindCount"></span>
+    </div>
     <div class="sheet-body">
       <div class="pane" id="paneProgram">
         <div class="sec">Folders</div>
@@ -2431,10 +2793,11 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
         <div class="sec">Appearance</div>
         <div class="fld"><span class="lbl">Skin</span>
-          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a ground near black, and Corporate grey and white and the shades between them alone. The skin changes at once.</span>
+          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a ground near black, Silver grey and white and the shades between them alone, and Corporate that same ladder of grey on a ground near black. The skin changes at once.</span>
           <div class="ctl"><div class="seg" id="fTheme" role="group" aria-label="Which skin to draw the page in">
               <button class="on" id="fThemeLight" type="button">Light</button>
               <button id="fThemeDark" type="button">Dark</button>
+              <button id="fThemeSilver" type="button">Silver</button>
               <button id="fThemeCorporate" type="button">Corporate</button>
             </div></div></div>
 
@@ -2457,6 +2820,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Bold words in the chat</span>
           <span class="sub">A word held between two marks of boldness is written in the heavier shape of the letters. Turn this off to read the marks as part of the words themselves.</span>
           <div class="ctl"><input id="fBoldMarkdown" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Colour words the model asks for</span>
+          <span class="sub">The model may put a colour on a few of its own words, and those words then stand in that colour: green, light green, red or light red. Turn this off to read the answer with no colour. The marks then stay in the talk that goes back to the model, and the model is told nothing of the colours.</span>
+          <div class="ctl"><input id="fColourText" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Show the work</span>
           <span class="sub">How the work of the model is laid out. The plain way shows the thoughts in their panels and every call the model made in a block of its own. The corporate way hides all of that: one block stands for an answer, its head saying what the model is at, and the short of the work stands inside it, which the model writes itself. The settings below that lay the panels out have nothing to say while the corporate way stands.</span>
           <div class="ctl"><select id="fDisplay">
@@ -2487,6 +2853,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Width of the chat</span>
           <span class="sub">How wide the column of the chat may be. 780 pixels is the width the chat always had, and it is the least. The chat never grows past 80 per cent of the width of the window, and it keeps clear of the line of the chapters, the line of the summarisations and the arrows of the chat.</span>
           <div class="ctl"><input id="fChatWidth" type="number" min="780" max="4000" step="10" placeholder="780"><span class="unit">pixels</span></div></div>
+
+        <div class="fld"><span class="lbl">Carry a sent message into the chat</span>
+          <span class="sub">The words you sent leave the box as a small card, go over the chat and unfold into the message itself. The message goes out at once either way: this is only how it arrives. Turn this off to have the message stand in the chat the moment you send it. A machine asked for few moves is given none of this.</span>
+          <div class="ctl"><input id="fSendAnim" type="checkbox"></div></div>
 
         <div class="fld"><span class="lbl">A question of the model waits</span>
           <span class="sub">How long the model waits for you to answer a question it put to you before it goes on without an answer and is told that you did not reply. Questions of this kind are the ordinary ones: the model could go on, but would rather ask.</span>
@@ -2539,6 +2909,14 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Message timeline</span>
           <span class="sub">A vertical line hard against the right edge of the chat, with one short dash for every message you sent. A dash says which message it is and when you sent it, and shows part of it and what hung on it; clicking one scrolls there. Turn this off to hide the line.</span>
           <div class="ctl"><input id="fUserline" type="checkbox"></div></div>
+
+        <div class="sec">Custom system prompt</div>
+        <div class="fld wide"><span class="lbl">System prompt</span>
+          <span class="sub">Words of your own that stand at the head of every chat, before the first message. The model reads them as the rules it is to write by: how long an answer is, what tone it keeps, what it never does. The words of the program, which tell the model about the tools and the chat, still stand, and these words of yours go in front of them. Leave it empty for no prompt of your own. At most 8000 characters.</span>
+          <div class="ctl"><textarea id="fSystemPrompt" rows="6" maxlength="8000" spellcheck="false" placeholder="Answer in short sentences. Use the names a developer uses. Never open with praise."></textarea></div></div>
+        <div class="fld wide"><span class="lbl">Pre-written prompts</span>
+          <span class="sub">Prompts written beforehand, which you may put in with a mark instead of writing your own. A marked prompt stands in front of the words you wrote, in the order of this table. The View button shows the whole of a prompt.</span>
+          <div class="ctl"><div id="fPromptLines"></div></div></div>
       </div>
 
       <div class="pane hidden" id="paneModel">
@@ -2843,6 +3221,24 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
   </div>
 </div>
 
+<!-- One pre-written prompt, whole, in a window of its own. The page never carries
+     the words of the prompts: it asks for the one the user clicked on, and shows
+     it here for reading. Nothing in this window is written back. -->
+<div class="overlay hidden" id="promptOverlay">
+  <div class="sumview" role="dialog" aria-modal="true" aria-label="A pre-written prompt">
+    <div class="vhead">
+      <div class="shead">
+        <span class="stitle" id="promptTitle">A pre-written prompt</span>
+        <span class="smeta" id="promptMeta"></span>
+      </div>
+      <button class="mark-btn x" id="promptClose" type="button" title="Close" aria-label="Close">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+    </div>
+    <div class="sbody raw" id="promptWords"></div>
+  </div>
+</div>
+
 <!-- The plan of planning mode in a window of its own. It opens from the row of
      words at the top of the talk, and shows the whole of the plan. -->
 <div class="overlay hidden" id="planOverlay">
@@ -2877,7 +3273,7 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 // every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
-  'newchat', 'settingsbtn', 'modelbtn', 'chapters', 'timeline', 'userline',
+  'newchat', 'settingsbtn', 'modelbtn', 'themebtn', 'chapters', 'timeline', 'userline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'think', 'thinktext', 'thinkwrap',
@@ -2908,7 +3304,8 @@ var cur = null;        // the last state
 // The number of characters where a paste of words into the chat box turns
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
-  highlight: true, bold: true, seamless: false, chapters: true, userline: true, paste: 6000, width: 780 };
+  highlight: true, bold: true, colour: true, seamless: false, chapters: true, userline: true,
+  send_anim: true, paste: 6000, width: 780 };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -2993,6 +3390,7 @@ function draw(s) {
   takeRunClock(s);
   showTheme(s.theme || (s.dark ? 'dark' : 'light'));
   readChatting(s);
+  el.themebtn.title = 'The colours the page is drawn in, now ' + themeWord + '. Click for the next skin.';
   drawHome(s);
   // The shape of the lists is carried in `structure_rev`. A chat that came,
   // went, was named, pinned, moved, put away or opened moves it, and the bar is
@@ -3057,6 +3455,13 @@ function readChatting(s) {
   chatting.tools = chat.collapse_tools !== false;
   chatting.highlight = chat.highlight !== false;
   chatting.bold = chat.bold_markdown !== false;
+  // The colours the model asks for. A change of this switch changes the words of
+  // an answer and not only the ground under them, so the talk is put on again:
+  // a row is kept while its message says the same thing, and a message says the
+  // same thing whether the colour stands or not.
+  var colour = chat.colour_text !== false;
+  if (colour !== chatting.colour) { threadAgainForLook(); }
+  chatting.colour = colour;
   chatting.seamless = !!chat.seamless;
   // The corporate display hides the thoughts and the calls, so the settings
   // that lay those panels out have nothing left to say.
@@ -3073,6 +3478,9 @@ function readChatting(s) {
   // The line of the user's own messages, at the right of the chat. It stands
   // unless the settings took it away.
   chatting.userline = chat.userline !== false;
+  // The little journey a message makes from the chat box into the chat. It
+  // stands unless the settings took it away.
+  chatting.send_anim = chat.send_anim !== false;
   chatting.paste = chat.paste_limit || 6000;
   chatting.width = Number(chat.width) || CHAT_LEAST;
   setChatWidth();
@@ -3500,7 +3908,10 @@ function drawMcp(s) {
 // over a kind of tool of the program, and the badge itself is the switch over all
 // of them: a tool whose line is off is not offered even while the badge stands
 // on, and a badge that is off offers nothing whatever the lines say. The first
-// word of a line is the name the program knows the switch by.
+// word of a line is the name the program knows the switch by. A fourth word,
+// when a line carries one, names the setting the line stands under: such a line
+// is drawn only while that setting stands, for the tool behind it has nothing to
+// do without it, and the engine offers it no more than the page draws it.
 var TOOL_LINES = [
   ['commands', 'Terminal commands',
    'The model may run a command. A command runs in the sandbox when the sandbox is on, and reaches only the working directory of the chat unless the menu of the sandbox badge opens more.'],
@@ -3513,8 +3924,38 @@ var TOOL_LINES = [
   ['display', 'Show files',
    'The model may put the contents of files of the chat in a window over the chat, and only when you asked to see them. A click on the block of the show opens that window again. Only the kinds the window can show are let through, and while the sandbox stands only the working directory of the chat is opened.'],
   ['ask', 'Ask questions',
-   'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.']
+   'The model may stop and put a question to you, with up to five answers to choose from, when it cannot go on without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.'],
+  ['suggest', 'Suggest next steps',
+   'The model may end an answer with up to three buttons, each one a road the talk may go on by. The buttons appear only once the answer has stopped, and only the newest offer stands: the buttons of an older answer go when you speak again. A press sends the words of that road as a message of your own, so the model is never left waiting for one.'],
+  ['steps', 'Show steps',
+   'The model may end an answer with a step by step list of the work, in a block of its own. The block shows the text of one step at a time, with one button per step under it and buttons for going back and going on. It appears only once the answer has stopped, and it stands above the other blocks an answer ends with. The model gives as many steps as the work needs.'],
+  ['rerun', 'Rerun failed calls',
+   'The model may have a call that failed run again with one parameter changed, instead of writing the whole call out again. The call is taken from this chat, the change is made inside the one parameter the model names, and the tool answers for the run in a block of its own. A call that never ran, because a line of this badge was off or a limit was spent, is not run again.'],
+  ['infographics', 'Create infographics',
+   'The model may make an infographic video: a script of scenes and blocks, a check of the layout, and the frames written into a file. The work stands in the folder infographics of the chat, and the video is made there too. The last step takes a while, and the line of the state tells how far it has come.'],
+  ['summarise', 'Manually summarise',
+   'The model may put the talk of this chat into a handoff summary, when it asks for it or when you ask it to. The program writes the summary where the talk was cut, and the words it stands for go back to the model no more: the work goes on in the room that is made. Nothing you have read is taken away, and the files the model wrote stand where they were written. The line stands only while the handoff summary is chosen in the Chatting settings.',
+   'compaction']
 ];
+
+// Whether the room of the talk is made by a handoff summary. The line of the
+// drop-down that summarises the talk stands only while it is: with no summary
+// chosen there is nothing for the tool to do, and the engine keeps it out of
+// the ask as well.
+function compactionOn(s) {
+  return ((((s || {}).compaction) || {}).type || '') === 'handoff';
+}
+
+// The lines the page draws for one state. A line that stands under a setting
+// which is off leaves the menu, and leaves the count over the badge with it, so
+// the badge never says that a line is switched off when it was never drawn.
+function shownToolLines(s) {
+  var out = [];
+  for (var n = 0; n < TOOL_LINES.length; n++) {
+    if (TOOL_LINES[n][3] !== 'compaction' || compactionOn(s)) { out.push(TOOL_LINES[n]); }
+  }
+  return out;
+}
 
 // Whether any kind of tool stands switched on for this chat. They stand on from
 // the beginning, so a chat offers its tools until the user takes them away - and
@@ -3522,8 +3963,9 @@ var TOOL_LINES = [
 // filled only when it is next opened.
 function anyToolOn(s) {
   var held = (s && s.tool_switches) || {};
-  for (var n = 0; n < TOOL_LINES.length; n++) {
-    if (held[TOOL_LINES[n][0]] !== false) { return true; }
+  var lines = shownToolLines(s);
+  for (var n = 0; n < lines.length; n++) {
+    if (held[lines[n][0]] !== false) { return true; }
   }
   return false;
 }
@@ -3554,8 +3996,9 @@ function fillToolMenu(s) {
   if (!menu) { return; }
   menu.innerHTML = '';
   var held = s.tool_switches || {};
-  for (var n = 0; n < TOOL_LINES.length; n++) {
-    var one = TOOL_LINES[n];
+  var lines = shownToolLines(s);
+  for (var n = 0; n < lines.length; n++) {
+    var one = lines[n];
     menu.appendChild(toolLine(one[0], one[1], one[2] + (s.code ? ''
       : ' The badge of the tools is off, so no tool is offered at all.'),
       held[one[0]] !== false));
@@ -3578,9 +4021,10 @@ function closeToolMenu() {
 function drawTools(s) {
   if (!el.code) { return; }
   var held = s.tool_switches || {};
+  var lines = shownToolLines(s);
   var off = 0;
-  for (var n = 0; n < TOOL_LINES.length; n++) {
-    if (held[TOOL_LINES[n][0]] === false) { off += 1; }
+  for (var n = 0; n < lines.length; n++) {
+    if (held[lines[n][0]] === false) { off += 1; }
   }
   // The badge is the door over every tool of the program, and a door that
   // stands on with nothing behind it reads as a fault: with every line of the
@@ -3592,9 +4036,9 @@ function drawTools(s) {
   el.code.title = (shown
       ? 'The model may reach the tools of the program in this chat.'
       : 'No tool of the program is offered to the model in this chat.')
-    + (off ? ' ' + off + ' of ' + TOOL_LINES.length + ' are switched off in the menu.' : '')
+    + (off ? ' ' + off + ' of ' + lines.length + ' are switched off in the menu.' : '')
     + ' Click to switch all of them on or off; the arrow at the right, or a right click over the badge, chooses them one by one.'
-    + (off === TOOL_LINES.length
+    + (off === lines.length
       ? ' With none of them switched on, the badge opens that menu instead.' : '');
   if (el.codemenu && !el.codemenu.classList.contains('hidden')) { fillToolMenu(s); }
 }
@@ -3873,6 +4317,35 @@ function boldAt(words, at) {
   }
 }
 
+// The four colours a model may put on its words, and the class that paints each
+// of them. The names and the marks are the same in the engine, which takes them
+// out of the talk that goes back to the model, and in the stylesheet, which says
+// what each of them looks like.
+var COLOUR_OPEN = /^<(green|light_green|red|light_red)>/;
+var COLOUR_CLOSE = { green: '</green>', light_green: '</light_green>',
+  red: '</red>', light_red: '</light_red>' };
+var COLOUR_CLASS = { green: 'tint-green', light_green: 'tint-light-green',
+  red: 'tint-red', light_red: 'tint-light-red' };
+
+// A colour the model asked for: the words between a mark that opens one of the
+// four colours and the mark that closes that colour again. The run is read inside
+// one line, as every other mark of this page is. Nothing comes back while the
+// switch of the colours stands off, while no mark of a colour stands here, and
+// while nothing closes it: the words then stand as they were written, so a mark
+// that is only half come in is not lost from the answer.
+function colourAt(words, at) {
+  if (!chatting.colour) { return null; }
+  var open = COLOUR_OPEN.exec(words.slice(at));
+  if (!open) { return null; }
+  var close = COLOUR_CLOSE[open[1]];
+  var from = at + open[0].length;
+  var end = words.indexOf(close, from);
+  // A pair of marks with nothing between them is no colour, and is left as it
+  // was written, as the engine leaves it.
+  if (end <= from) { return null; }
+  return { words: words.slice(from, end), colour: open[1], end: end + close.length };
+}
+
 function lineParts(line, out) {
   var words = String(line || ''), run = '', n = 0;
   while (n < words.length) {
@@ -3897,6 +4370,15 @@ function lineParts(line, out) {
       }
     }
     if (ch === '<') {
+      // The words the model put a colour on, read before the address of a link,
+      // for a colour is the shorter mark of the two and stands here more often.
+      var painted = colourAt(words, n);
+      if (painted) {
+        if (run) { out.push({ words: plain(run) }); run = ''; }
+        out.push({ words: plain(painted.words), colour: painted.colour });
+        n = painted.end;
+        continue;
+      }
       // An address between marks of less-than is a link of its own, and the
       // address is the whole of its words.
       var straight = /^<((?:https?:\/\/|mailto:)[^\s<>]*)>/.exec(words.slice(n));
@@ -3931,13 +4413,14 @@ function inlineWords(parts) {
   return said;
 }
 
-// The links of a run of words as one line. A link that comes in changes the look
-// of a block as much as a new line of words does, so it must stand in the shape
-// of an answer that is still coming.
+// The links and the colours of a run of words as one line. A link that comes in
+// changes the look of a block as much as a new line of words does, and so does a
+// colour the model asked for, so both stand in the shape of the words.
 function linkShape(text) {
   var parts = inlineParts(text), shape = '';
   for (var n = 0; n < parts.length; n++) {
     if (parts[n].href) { shape += ' link' + parts[n].href; }
+    if (parts[n].colour) { shape += ' colour' + parts[n].colour; }
   }
   return shape;
 }
@@ -3967,6 +4450,16 @@ function boldNode(words, href, fade) {
   return held;
 }
 
+// Words the model put a colour on. The colour comes from the stylesheet and from
+// nothing else: the model named it, and the page paints it. The words are set as
+// words and never as marks, and they fade in as the words about them do.
+function colourNode(words, colour, fade) {
+  var held = make('span', COLOUR_CLASS[colour] || '');
+  if (fade) { fresh(held, words); }
+  else { held.textContent = words; }
+  return held;
+}
+
 // The parts of a run of words put into a node. `fade` puts the words behind a
 // fade, as the new words of an answer are.
 function inlineInto(node, parts, fade) {
@@ -3974,6 +4467,7 @@ function inlineInto(node, parts, fade) {
     var part = parts[n];
     if (!part.words) { continue; }
     if (part.bold) { putLast(node, boldNode(part.words, part.href, fade)); }
+    else if (part.colour) { putLast(node, colourNode(part.words, part.colour, fade)); }
     else if (part.href) { putLast(node, linkNode(part.words, part.href, fade)); }
     else if (fade) { fresh(node, part.words); }
     else { putLast(node, document.createTextNode(part.words)); }
@@ -4399,6 +4893,14 @@ var TOOL_SHAPES = {
     head: 'Editing file: ', done: 'Edited file: ', word: 'file', end: 'result',
     empty: 'no file name', begun: 'a file, started', file: true
   },
+  // The first writing of the plan of planning mode. The whole of the plan goes
+  // out in one call, so the head says the plan is being written, and not mended:
+  // the words of it stream under the head as those of a file being made do.
+  init_plan: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.5 7.1h4.2M6.5 9.1h4.2M6.5 11.1h2.4',
+    head: 'Writing ', done: 'Wrote ', named: 'the plan', word: 'plan', end: 'result',
+    empty: 'the plan', begun: 'the plan, started', file: false
+  },
   // The plan of planning mode. The tool reaches one file and no other, so the
   // head has no name of a file to wait for: it says what is being done to the
   // plan, and the words of the changes stream under it as those of a file do.
@@ -4416,6 +4918,13 @@ var TOOL_SHAPES = {
     mark: 'M10.9 2.7 13.3 5.1 6.1 12.3l-3.7 1 1-3.7zM9.3 4.3l2.2 2.2',
     head: 'Editing ', done: 'Edited ', named: 'plan', word: 'edits', end: 'result',
     empty: 'the plan', begun: 'the plan, started', file: true
+  },
+  // The plan is let go. The head says the plan is being put down, and the body
+  // carries the words the model gave for the leave it was given.
+  end_planning: {
+    mark: 'M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM5.4 8.1 7.3 10l3.4-3.8',
+    head: 'Letting go of ', done: 'Let go of ', named: 'the plan', word: 'parts', end: 'result',
+    empty: 'the plan', begun: 'the plan'
   },
   create_file: {
     mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.7 8.4h3.6M8.5 6.6v3.6',
@@ -4470,6 +4979,80 @@ var TOOL_SHAPES = {
     mark: 'M6.1 5.5a1.95 1.95 0 1 1 2.7 1.8c-.7.3-1 .7-1 1.4M8 11.4v.5',
     head: 'Asking the user: ', done: 'Asked the user: ', word: 'question', end: 'answer',
     empty: 'no question', begun: 'the question being written'
+  },
+  // The roads the model offered for what comes next. The block of the run says
+  // which roads were offered; the buttons themselves stand under the answer,
+  // and only once the answer has stopped. The signpost is the mark of the tool,
+  // for a road is pointed at and not handed over.
+  offer_suggestions: {
+    mark: 'M8 2.4v11.2M8 3.6h4.4l1.6 1.6-1.6 1.6H8',
+    head: 'Suggesting a next step: ', done: 'Suggested: ', pluralDone: 'Suggested: ',
+    word: 'roads', end: 'result',
+    empty: 'no next step', begun: 'the roads being written', suggest: true
+  },
+  // The steps of the work, shown one at a time. The block of the run says how
+  // many steps the call wrote; the block of the list itself stands above the
+  // other blocks an answer ends with, and only once the answer has stopped.
+  show_steps: {
+    mark: 'M2.6 3.6h7.4M2.6 8h7.4M2.6 12.4h4.6M11.4 11.5l1.5 1.5 3-3.4',
+    head: 'Writing the steps: ', done: 'Wrote the steps: ', pluralDone: 'Wrote the steps: ',
+    word: 'steps', end: 'result',
+    empty: 'no steps', begun: 'the steps being written', steps: true
+  },
+  // A call of another tool, run again with a parameter changed. The head names
+  // the tool whose call is taken up again, or says that the last failed call of
+  // this chat is used. The body holds the changes as the model writes them, and
+  // the answer of the tool that ran stands under the second label.
+  rerun_tool: {
+    mark: 'M12.8 8a4.8 4.8 0 1 1-1.7-3.7M11.5 2.1v2.7H8.8',
+    head: 'Running a call again: ', done: 'Ran a call again: ',
+    word: 'changes', end: 'result',
+    empty: 'the last failed call', begun: 'the call being named'
+  },
+  // The five tools of the infographic suite. The head names what the call works
+  // on and the project it stands in, which the engine gives; the body carries the
+  // parts of the call as the model writes them.
+  infographic_guide: {
+    mark: 'M2.8 3.2h4.8v9.6H2.8zM8.4 3.2h4.8v9.6H8.4M4.6 5.8h1.4M10.2 5.8h1.4',
+    head: 'Writing ', done: 'Wrote ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  infographic_plan: {
+    mark: 'M2.4 3h11.2v10H2.4zM2.4 6h11.2M5 8.4h2.6v2.6H5zM9.4 8.4h3',
+    head: 'Writing ', done: 'Wrote ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  infographic_scene: {
+    mark: 'M2.4 3.4h11.2v9.2H2.4zM4.6 6h4.4M4.6 8.4h6.8M4.6 10.8h3.2',
+    head: 'Writing ', done: 'Wrote ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  infographic_check: {
+    mark: 'M2.4 3h11.2v10H2.4zM5 8.2l1.9 1.9 4-4.2',
+    head: 'Checking ', done: 'Checked ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  infographic_render: {
+    mark: 'M2.4 3.4h11.2v9.2H2.4zM4.8 3.4v9.2M11.2 3.4v9.2M12.4 6h.6M12.4 10h.6',
+    head: 'Drawing ', done: 'Drew ', word: 'parts', end: 'result',
+    empty: 'the project', begun: 'the project'
+  },
+  // The short of the work the model writes for the corporate display. The head
+  // names the heading of the area of work, and the body carries that heading and
+  // the lines under it as they are written. The block of the run is the receipt,
+  // for the words themselves go into the one block of the answer.
+  work_log: {
+    mark: 'M4.2 2.6h7.6v10.8H4.2zM6.4 5.8h3.2M6.4 8h3.2M6.4 10.2h2',
+    head: 'Writing the short: ', done: 'Wrote the short: ', word: 'parts', end: 'result',
+    empty: 'the short of the work', begun: 'the short being written'
+  },
+  // The talk of the chat put into a handoff summary. The head says what the call
+  // worked on; the body carries the reason the model gave and the receipt of the
+  // run, which names the room the talk took before the summary and after it.
+  summarise_chat: {
+    mark: 'M2.6 3.4h10.8M2.6 12.6h10.8M8 5.6v4.8M6.2 8.8 8 10.6l1.8-1.8',
+    head: 'Summarising ', done: 'Summarised ', word: 'reason', end: 'result',
+    empty: 'the talk of this chat', begun: 'the talk of this chat'
   }
 };
 
@@ -4537,21 +5120,50 @@ function shownHead(shape, m, over) {
   return (given.length > 1 ? (shape.pluralDone || '') : (shape.done || '')) + held.join(', ');
 }
 
-// The button of a show, under the receipt of the run that made it. The window over
+// The words of the head of a block that offered the next steps. Every road the
+// call named is spoken, as the head of an offer names the files it offered: the
+// sentence the tool sent back is not a name of a road, and a head that carried it
+// said the same thing twice. A call that offered nothing - one that failed, or
+// one the user stopped - keeps what came back, which is the reason.
+function suggestHead(shape, m, over) {
+  var asks = m.suggestions || [];
+  if (!asks.length) { return headWords(shape, firstLine(m.body), over); }
+  var held = [];
+  var n;
+  for (n = 0; n < asks.length; n++) { held.push(String(asks[n].label || '')); }
+  return (asks.length > 1 ? (shape.pluralDone || '') : (shape.done || '')) + held.join(', ');
+}
+
+// The words of the head of a block that wrote the steps of the work. The head
+// names the title of the list and counts the steps, for the sentence the tool
+// sent back is not a name and a head that carried it said the same thing twice.
+// A call that wrote nothing - one that failed, or one the user stopped - keeps
+// what came back, which is the reason.
+function stepsHead(shape, m, over) {
+  var plan = m.steps;
+  var list = (plan && plan.steps) || [];
+  if (!list.length) { return headWords(shape, firstLine(m.body), over); }
+  var said = String(plan.title || '').trim() || 'the steps of the work';
+  return (over ? (shape.done || '') : (shape.head || ''))
+    + said + ' (' + list.length + (list.length === 1 ? ' step)' : ' steps)');
+}
+
+// The button of a show, at the end of the answer that made it. The window over
 // the contents of a file is opened by the model once and by the user as often as
-// they like, so the block keeps the mark that opens the same files again.
+// they like, so the answer keeps the mark that opens the same files again. The
+// files of every show of the answer stand in the one window, in the order they
+// were named, so a second call adds to the window instead of hiding the first.
 var SHOWN_MARK = 'M1.7 8S3.9 3.9 8 3.9 14.3 8 14.3 8 12.1 12.1 8 12.1 1.7 8 1.7 8z'
   + 'M8 6.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4';
 
-function shownAgain(m) {
-  var given = m.displayed;
+function shownRow(given) {
   if (!given || !given.length) { return null; }
   var row = make('div', 'shown-again');
   var button = make('button');
   button.type = 'button';
   button.appendChild(mark(SHOWN_MARK));
   var said = make('span');
-  said.textContent = given.length > 1 ? 'Show these files again' : 'Show this file again';
+  said.textContent = 'Show files';
   button.appendChild(said);
   var names = [];
   for (var n = 0; n < given.length; n++) { names.push(wholeOf(given[n])); }
@@ -4753,7 +5365,11 @@ function toolBox(m) {
     ? offerHead(shape, m, !running && !m.failed && !cut)
     : shape.shown
       ? shownHead(shape, m, !running && !m.failed && !cut)
-      : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
+      : shape.suggest
+        ? suggestHead(shape, m, !running && !m.failed && !cut)
+        : shape.steps
+          ? stepsHead(shape, m, !running && !m.failed && !cut)
+          : headWords(shape, shape.named || firstLine(m.body), !running && !m.failed && !cut);
   head.appendChild(cmd);
   // A change of a file says how many lines it wrote and how many it took away.
   var hunks = hunkCount(m);
@@ -4795,10 +5411,6 @@ function toolBox(m) {
   // bytes of a picture are sent to the model and never written into the block.
   var shots = viewedPics(m);
   if (shots) { space.appendChild(shots); }
-  // The window over the contents of files goes away with the key of escape, or with
-  // a click outside it, so the block of the run keeps the way back to the files.
-  var again = shownAgain(m);
-  if (again) { space.appendChild(again); }
   space.appendChild(labTwo);
   space.appendChild(output);
   body.appendChild(space);
@@ -5854,6 +6466,11 @@ function feedInk(m) {
   ink.musing = String(m.reasoning || '');
   ink.ms = ink.base + (Number(m.reasoning_ms) || 0);
   ink.done = !!m.reasoning_done;
+  // The one block of the corporate display says what the model is at, and that
+  // moves while the answer comes in: a heading the model wrote, a call that
+  // began, a call that came back. The row is not made again for these, for the
+  // words of the answer are the writer's own, so the block is put again here.
+  drawWork(ink.turn, m);
   if (ink.panel && ink.musing) { ink.panel.classList.remove('hidden'); }
   // Words of the answer have come, so the model has moved on from the thought
   // above, and every call it asks for from here on stands under the words rather
@@ -5905,13 +6522,6 @@ function stopInk() {
 // thought before it going on, so it stands in the same panel. Without a group
 // the answer brings a thinking panel of its own.
 function fillLive(turn, m, group) {
-  if (chatting.corporate) {
-    // The one block of the answer that is coming in. Its head is what the model
-    // is at this moment, and it is put again with every piece that comes.
-    var short = corporateBlock(m.work_head || '', m.work || []);
-    var old = turn.querySelector(':scope > .work');
-    if (old) { old.parentNode.replaceChild(short, old); } else { turn.insertBefore(short, turn.firstChild); }
-  }
   stopInk();
   var panel, body, head, label;
   if (group) {
@@ -5962,6 +6572,36 @@ function fillLive(turn, m, group) {
   ink.tools = [];
   ink.toolKey = '';
   feedWrite(m.tools);
+  // The one block of the answer that is coming in stands at the head of the turn.
+  // It is put after the turn is built, for a turn of its own is emptied first,
+  // and a block put in before that emptying would go out with the rest.
+  drawWork(turn, m);
+}
+
+// The one block of an answer, put at the head of the turn that carries it. The
+// block of an answer that is coming in is put again as the work grows, so its
+// head says what the model is at this moment. The fold the user gave the block is
+// kept over the putting again, for the block is made anew under a hand that may
+// be reading it.
+//
+// A message that carries no short of the work leaves the block that stands
+// alone. The answer that is coming in is often without one at the first look, at
+// the end of a row whose earlier messages already made a block, and taking that
+// block away for the moment before the first heading comes would empty the row
+// under the reader.
+function drawWork(turn, m) {
+  if (!turn || !chatting.corporate) { return; }
+  var blocks = m.work || [];
+  var head = m.work_head || '';
+  var old = turn.querySelector(':scope > .work');
+  if (!blocks.length && !head) { return; }
+  var made = corporateBlock(head || 'Done', blocks);
+  if (old) {
+    if (old.classList.contains('shut')) { made.classList.add('shut'); }
+    turn.replaceChild(made, old);
+  } else {
+    turn.insertBefore(made, turn.firstChild);
+  }
 }
 
 // The words of one message, put into a turn. The turn is made once, and the
@@ -5996,15 +6636,42 @@ function workBlock(one, deep) {
   }
   block.appendChild(head);
   var lines = one.lines || [];
-  if (lines.length) {
-    var body = make('div', 'wbbody');
-    for (var n = 0; n < lines.length; n++) {
-      var line = make('div', 'wline');
-      line.textContent = lines[n];
-      body.appendChild(line);
-    }
-    block.appendChild(body);
-  } else {
+  var under = one.sub || [];
+  // The body stands when there is anything to stand in it: the lines the model
+  // wrote, the words of the call itself, and the calls made under a heading.
+  var body = null;
+  function put(node) {
+    if (!body) { body = make('div', 'wbbody'); block.appendChild(body); }
+    body.appendChild(node);
+  }
+  for (var n = 0; n < lines.length; n++) {
+    var line = make('div', 'wline');
+    line.textContent = lines[n];
+    put(line);
+  }
+  // The words of the call. The block of the run is hidden while the corporate
+  // display stands, so the command, the file and what came back stand here, or
+  // the user would read none of them.
+  if (one.command) {
+    var cmd = make('pre', 'wcmd');
+    cmd.textContent = one.command;
+    put(cmd);
+  }
+  if (one.file) {
+    var file = make('div', 'wfile');
+    file.textContent = one.file;
+    put(file);
+  }
+  if (one.output) {
+    var out = make('pre', 'wout');
+    out.textContent = one.output;
+    put(out);
+  }
+  // The calls made under this heading stand inside it, each a block of its
+  // own, so a heading of the work and the work of that heading are read
+  // together.
+  for (var k = 0; k < under.length; k++) { put(workBlock(under[k], true)); }
+  if (!body) {
     block.className = 'wblock';
     head.style.cursor = 'default';
   }
@@ -6034,10 +6701,29 @@ function corporateBlock(head, blocks) {
 // The one block of an answer of the model, or nothing at all when the answer
 // has no short of the work -- an answer of a chat that was written before the
 // corporate display stood, or one with no work in it.
+// The one block of an answer of the model. The block always stands after an
+// answer of a chat that was written while the corporate display stood, even
+// when the model wrote nothing of its work: the head then says "Done". Nothing
+// is drawn for an answer that has no short at all, which is an answer written
+// before the mode stood.
 function corporateOf(m) {
+  if (!m) { return null; }
   var blocks = m.work || [];
-  if (!blocks.length) { return null; }
-  return corporateBlock(m.work_head || '', blocks);
+  var head = m.work_head || '';
+  if (!blocks.length && !head) { return null; }
+  return corporateBlock(head || 'Done', blocks);
+}
+
+// The short of the work of a row of the thread: the last message of the row that
+// carries one. The engine keeps the whole of the work of an answer with the last
+// message of it, so one message of a row carries the short and the others carry
+// none. A row that came to no answer gives nothing back.
+function groupAnswer(items, from, to) {
+  for (var n = to - 1; n >= from; n--) {
+    if (items[n].role !== 'Assistant') { continue; }
+    if ((items[n].work || []).length || items[n].work_head) { return items[n]; }
+  }
+  return null;
 }
 
 // The settings that the corporate display has nothing to say about: the panels
@@ -6079,9 +6765,9 @@ function welcomeMock(kind) {
       + '<rect x="24" y="92" width="104" height="5" rx="2" fill="currentColor" opacity=".3"/></svg>';
     return box;
   }
-  // The three skins: the ground of the page and the words upon it.
-  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', corporate: '#2b2b2b' };
-  var inks = { light: '#232323', dark: '#e8e8e8', corporate: '#dcdcdc' };
+  // The four skins: the ground of the page and the words upon it.
+  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', silver: '#2b2b2b', corporate: '#0d0d0d' };
+  var inks = { light: '#232323', dark: '#e8e8e8', silver: '#dcdcdc', corporate: '#e6e6e6' };
   var box2 = document.createElement('div');
   box2.innerHTML = '<span class="wswatch" style="background:' + grounds[kind] + '">'
     + '<svg viewBox="0 0 62 40" width="62" height="40" xmlns="http://www.w3.org/2000/svg">'
@@ -6170,10 +6856,11 @@ function drawWelcome() {
   long.appendChild(longOpts);
   screen.appendChild(long);
 
-  var skins = welcomePart('The skin of the pages', 'Pale, dark, or the grey and white of the corporate skin.');
+  var skins = welcomePart('The skin of the pages', 'Pale, dark, the grey and white of the silver skin, or the near black of the corporate one.');
   var skinCards = make('div', 'wcards');
   skinCards.appendChild(welcomeCard('theme', 'light', 'light', 'Light', ''));
   skinCards.appendChild(welcomeCard('theme', 'dark', 'dark', 'Dark', ''));
+  skinCards.appendChild(welcomeCard('theme', 'silver', 'silver', 'Silver', ''));
   skinCards.appendChild(welcomeCard('theme', 'corporate', 'corporate', 'Corporate', ''));
   skins.appendChild(skinCards);
   screen.appendChild(skins);
@@ -6257,11 +6944,22 @@ function corporateGreyed(on) {
 function fill(turn, m) {
   turn.className = 'turn ' + roleClass(m) + (m.failed ? ' bad' : '');
   turn.innerHTML = '';
-  if (chatting.corporate && m.role === 'Assistant') {
+  if (chatting.corporate) {
     // The corporate display: one block for the answer, and the words of the
     // answer under it. The thoughts and the calls are hidden whole.
-    var short = corporateOf(m);
-    if (short) { turn.appendChild(short); }
+    drawWork(turn, m);
+    // A run of a tool, or a turn that gave only thinking, leaves a row with
+    // nothing seen in it while the mode stands: the block of the run and the
+    // panel of the thought are both hidden. Such a row stands away, unless the
+    // blocks an answer ends with hang on it, for the files of an offer stand
+    // there and the user must still reach them.
+    var blank = m.role === 'Tool'
+      || (m.role === 'Assistant' && !String(m.body || '').trim());
+    if (blank && !turn.querySelector('.work') && !(m.downloads || []).length
+        && !(m.displayed || []).length && !(m.suggestions || []).length
+        && !(m.steps && m.steps.steps && m.steps.steps.length)) {
+      turn.classList.add('t-hush');
+    }
   }
   if (m.role === 'Note') {
     // A note from the program stands in the middle, between two hairlines,
@@ -6379,8 +7077,14 @@ function fill(turn, m) {
         words.appendChild(sentParts(m));
       }
     } else {
+      // The words of an answer stand in a block of their own, marked with the
+      // number of the message, so that the mark under the answer can turn them
+      // into a box of words where they lie.
+      var written = make('div', 'answer-words');
+      if (m.id) { written.dataset.mid = m.id; }
       var made = blocks(m.body);
-      for (var n = 0; n < made.length; n++) { words.appendChild(blockNode(made[n])); }
+      for (var n = 0; n < made.length; n++) { written.appendChild(blockNode(made[n])); }
+      words.appendChild(written);
     }
     turn.appendChild(words);
   }
@@ -6417,8 +7121,8 @@ function actsOf(m) {
   if (m.role === 'You' || m.role === 'Assistant') {
     acts.appendChild(actMark(ACT_EDIT,
       m.role === 'You'
-        ? 'Write this message again. The words go into the chat box, and this message and everything after it go out of the chat.'
-        : 'Take these words back into the chat box. This answer and everything after it go out of the chat.',
+        ? 'Write this message again. The words and the files go into the chat box, and this message and everything after it go out of the chat.'
+        : 'Write these words again where they stand. The rest of the chat does not move.',
       function () { editMessage(m); }));
     acts.appendChild(actMark(ACT_RETRY,
       'Write the answer again, from this message. Everything after it goes out of the chat.',
@@ -6459,14 +7163,115 @@ var ACT_RETRY = 'M13.2 8a5.2 5.2 0 1 1-1.6-3.8M13.4 2.2v2.9h-2.9';
 var ACT_REMOVE = 'M3.2 4.7h9.6M6.4 4.7V3.3h3.2v1.4M4.7 4.7l.7 8.1h5.2l.7-8.1';
 var ACT_CONTINUE = 'M3.4 8h7.4M7.6 4.6 11 8l-3.4 3.4';
 
-// Take the words of a message back into the chat box. The message goes out of the
-// chat with everything after it, so what the user sends again is the talk as it
-// stood before that message.
+// Take the words of a message back into the chat box. A message of the user goes
+// out of the chat with everything that came after it, for the model answered a
+// talk that no longer reads that way. Its files come back with its words: they
+// are read out of the chat first, for the chat gives them up with the message.
+// An answer of the model is not taken back at all; it is written again where it
+// stands, for the talk around it does not move.
 function editMessage(m) {
-  post('/api/delete_message', { id: m.id });
+  if (cur && cur.generating) { return; }
+  if (m.role === 'Assistant') { editAnswer(m); return; }
+  var hung = m.attachments || [];
+  if (!hung.length) { takeBack(m, []); return; }
+  var wants = [];
+  for (var n = 0; n < hung.length && n < MOST_FILES; n++) { wants.push(readBack(hung[n].id)); }
+  Promise.all(wants).then(function (back) { takeBack(m, back); });
+}
+
+// The record of one file that hung on a message, or nothing at all when the
+// record is not there. A file that cannot be read is left behind, for the words
+// of the message are worth having on their own.
+function readBack(id) {
+  return attachmentWords(id).then(function (one) {
+    return one && one.name ? one : null;
+  }, function () { return null; });
+}
+
+// The message out of the chat and into the box: its words, and the files hung on
+// them again, so what the user sends a second time is what they sent before.
+function takeBack(m, records) {
+  post('/api/rewrite_message', { id: m.id });
   el.draft.value = m.body;
+  for (var n = 0; n < records.length && heldFiles.length < MOST_FILES; n++) {
+    if (records[n]) { heldFiles.push(heldFromRecord(records[n])); }
+  }
+  drawParts();
   grow();
   el.draft.focus();
+}
+
+// A file that comes back out of the chat, in the shape the box holds its files
+// in. The bytes of a picture and the words of a file of words stand in the
+// record already, so nothing of the machine is read again.
+function heldFromRecord(one) {
+  var kind = fileKind(one.name, one.mime);
+  return { name: freeName(one.name), mime: one.mime || '', kind: kind,
+    data: one.data || '', text: one.text || '',
+    url: kind === 'image' ? (one.data || '') : '' };
+}
+
+// Write the words of an answer again where they stand. The block of the answer
+// is turned into a plain box of words, and two marks under it: the one writes
+// the words into the chat, the other leaves the answer as it stood. Nothing else
+// of the talk moves, for the user is putting right what the model said, and not
+// asking for a new saying of it.
+var answerEdit = null;
+
+function editAnswer(m) {
+  if (answerEdit) { answerEdit(); }
+  var host = el.col.querySelector('.answer-words[data-mid="' + m.id + '"]');
+  if (!host) { return; }
+  var was = host.innerHTML;
+  var field = make('textarea', 'answer-edit');
+  field.value = m.body;
+  field.setAttribute('aria-label', 'The words of this answer');
+  host.innerHTML = '';
+  host.appendChild(field);
+  var acts = make('div', 'answer-edit-acts');
+  var save = make('button', 'ae-mark ae-save');
+  save.type = 'button';
+  save.textContent = 'Write it';
+  var off = make('button', 'ae-mark');
+  off.type = 'button';
+  off.textContent = 'Leave it';
+  acts.appendChild(save);
+  acts.appendChild(off);
+  host.appendChild(acts);
+
+  function fit() {
+    field.style.height = 'auto';
+    field.style.height = Math.min(field.scrollHeight, 400) + 'px';
+  }
+  function shut() {
+    if (answerEdit === shut) { answerEdit = null; }
+    host.innerHTML = was;
+  }
+  function write() {
+    var words = field.value;
+    if (!words.trim()) { return; }
+    answerEdit = null;
+    // The new words are put back through the renderer at once, and not read out
+    // of the chat again: the row is made anew only when the mark of the row
+    // moves, and an answer written over with as many words as it had leaves the
+    // mark where it stood.
+    m.body = words;
+    host.innerHTML = '';
+    var cut = blocks(words);
+    for (var n = 0; n < cut.length; n++) { host.appendChild(blockNode(cut[n])); }
+    post('/api/edit_answer', { id: m.id, body: words });
+  }
+  answerEdit = shut;
+  fit();
+  field.addEventListener('input', fit);
+  field.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') { ev.preventDefault(); shut(); }
+    if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); write(); }
+  });
+  save.addEventListener('click', write);
+  off.addEventListener('click', shut);
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
 }
 
 function retryMessage(m) {
@@ -6488,12 +7293,42 @@ function roleStamp(m) {
     // The blocks of an offer stand under the answer, so the row that carries them
     // is made again when an offer comes in or goes out.
     m.downloads ? 'gift' + m.downloads.length : '',
-    // The button of a show stands in the block of the run, so the row is made
-    // again when a show comes in.
+    // The button of a show stands at the end of the answer too, so the row that
+    // carries the end is made again when a show comes in.
     m.displayed ? 'shown' + m.displayed.length : '',
+    // The roads offered for what comes next stand at the end of the answer with
+    // them, so the row is made again when an offer of roads comes in.
+    m.suggestions ? 'suggest' + m.suggestions.length : '',
+    // The block of the steps of the work stands at the end of the answer too, so
+    // the row that carries the end is made again when a list of steps comes in.
+    m.steps && m.steps.steps ? 'steps' + m.steps.steps.length : '',
     // The line under a message carries the mark of going on with it, so the row
     // is made again when the state says an answer was stopped.
-    m.stopped ? 'stopped' : ''].join('#');
+    m.stopped ? 'stopped' : '',
+    // The one block of the corporate display stands with the answer, so the row
+    // is made again when the short of the work comes in or grows.
+    workStamp(m)].join('#');
+}
+
+// What the short of the work is made of: the head of the block, the heads of the
+// blocks under it, the lines under those, and the two numbers of a file. A row is
+// made again when this changes, for the block of the work is part of the row.
+function workStamp(m) {
+  var list = m.work || [];
+  if (!list.length && !m.work_head) { return ''; }
+  var parts = [m.work_head || ''];
+  for (var n = 0; n < list.length; n++) { parts.push(workMark(list[n])); }
+  return 'work:' + parts.join('/');
+}
+
+function workMark(one) {
+  var parts = [one.head || '', String((one.lines || []).length),
+    String((one.command || '').length), String((one.file || '').length),
+    String((one.output || '').length), one.failed ? 'x' : '',
+    (one.adds || 0) + '/' + (one.cuts || 0)];
+  var under = one.sub || [];
+  for (var n = 0; n < under.length; n++) { parts.push(workMark(under[n])); }
+  return parts.join('~');
 }
 
 // ------------------------------------------------ a train of thought
@@ -6734,6 +7569,7 @@ function drawRow(turn, items, row) {
     // The chapter nodes are tied to a message, so the line beside the chat
     // can find its place among the turns.
     turn.dataset.mid = items[row.from].id;
+    markTurnRange(turn, row);
     if (row.live) { fillLive(turn, items[row.to - 1], made); }
     return;
   }
@@ -6741,6 +7577,39 @@ function drawRow(turn, items, row) {
   if (m.id === 'live') { fillLive(turn, m); } else { fill(turn, m); }
   turn.dataset.stamp = roleStamp(m);
   turn.dataset.mid = m.id;
+  markTurnRange(turn, row);
+}
+
+// Where a turn stands among the messages of the talk. A row may hold more
+// messages than one - a train of thought with the runs of the tools inside it -
+// so the mark of the first message of a row does not say which row a message
+// stands in. The lines beside the chat look a place up by its message, so every
+// turn carries the place its row was made from.
+function markTurnRange(turn, row) {
+  turn.dataset.from = String(row.from);
+  turn.dataset.to = String(row.to);
+}
+
+// The place one message holds in the talk, or nothing when the talk no longer
+// holds it.
+function messageIndex(id) {
+  var messages = (cur && cur.messages) || [];
+  for (var n = 0; n < messages.length; n++) {
+    if (messages[n].id === id) { return n; }
+  }
+  return -1;
+}
+
+// The turn that holds the message at this place in the talk, or nothing when no
+// turn was made for it.
+function turnForIndex(at) {
+  if (at < 0) { return null; }
+  var turns = threadTurns(el.col);
+  for (var n = 0; n < turns.length; n++) {
+    if (turns[n].dataset.from === undefined || turns[n].dataset.to === undefined) { continue; }
+    if (at >= Number(turns[n].dataset.from) && at < Number(turns[n].dataset.to)) { return turns[n]; }
+  }
+  return null;
 }
 
 // One row of the thread is put again when it said something new. A panel of a
@@ -6778,6 +7647,15 @@ function syncTurn(turn, items, row) {
 function fillGroup(turn, items, from, to) {
   turn.className = 'turn t-tool';
   turn.innerHTML = '';
+  // The corporate display: the one block of the answer stands at the head of the
+  // row, as it does for an answer that stands on its own. The panel of the
+  // thoughts and the blocks of the calls are hidden whole by the mode, so this
+  // block is the only account of the work the user is given.
+  var short = chatting.corporate ? corporateOf(groupAnswer(items, from, to)) : null;
+  if (short) { turn.appendChild(short); }
+  // While the corporate display stands the row reads as the answer it led to, for
+  // nothing else in it is seen.
+  if (chatting.corporate && items[to - 1].role === 'Assistant') { turn.className = 'turn t-ai'; }
   var made = thinkPanel();
   var ms = 0;
   var parts = groupParts(items, from, to);
@@ -6800,7 +7678,7 @@ function fillGroup(turn, items, from, to) {
   for (var k = from; k < to; k++) {
     var tail = items[k];
     if (tail.role === 'Tool' || !String(tail.body || '').trim()) { continue; }
-    var said = make('div', 'plain');
+    var said = make('div', 'plain answer-words');
     if (tail.id) { said.dataset.mid = tail.id; }
     var cut = blocks(tail.body);
     for (var j = 0; j < cut.length; j++) { said.appendChild(blockNode(cut[j])); }
@@ -6810,6 +7688,11 @@ function fillGroup(turn, items, from, to) {
   // the answer the thought led to, or the last run of a tool.
   var line = actLine(items[to - 1]);
   if (line) { turn.appendChild(line); }
+  // A row of thoughts and runs that came to no answer shows nothing at all while
+  // the corporate display stands, so it stands away.
+  if (chatting.corporate && !short && !turn.querySelector('.plain > .thought, .plain > .tool')) {
+    turn.classList.add('t-hush');
+  }
   return { panel: made.panel, words: made.words, head: made.head,
     label: made.label, ms: ms };
 }
@@ -7296,6 +8179,24 @@ function threadTurns(box) {
   return out;
 }
 
+// The talk is put on again whole: every row is made again at the next draw. A
+// look that changes the words themselves, and not only the ground under them,
+// needs this, for a row is kept while its message says the same thing, and the
+// message says the same thing with the look on and with it off. The reading
+// place of the chat itself is kept, for the rows are put again where they stand.
+function threadAgainForLook() {
+  var box = el.col;
+  if (!box) { return; }
+  box.dataset.key = '';
+  var turns = threadTurns(box);
+  for (var n = 0; n < turns.length; n++) { turns[n].dataset.row = ''; }
+  // The answer that is coming in is written by the writer of the live words, and
+  // it keeps the shape its blocks stood in. That shape is of the look before
+  // this one, so it is thrown away with the rows.
+  ink.shape = '';
+  ink.thoughtShape.shape = '';
+}
+
 // A turn that came in stands at the end of the talk, and before the questions of
 // the plan when they stand there: the questions are the last word of the talk
 // while the model waits for them.
@@ -7345,7 +8246,7 @@ function drawThread(s) {
   // panel stands in the key, so the thread is made again when a panel grows.
   var spans = thoughtSpans(items);
   var rows = threadRows(items, spans);
-  var plan = giftPlan(items, rows);
+  var plan = endPlan(items, rows, !!(s && s.generating));
   var key = items.map(function (m) { return m.id; }).join('|')
           + '#' + spans.map(function (r) { return r.from + '-' + r.to; }).join(',');
   var open = (s.chat && s.chat.id) || '';
@@ -7371,6 +8272,9 @@ function drawThread(s) {
         // Only the turn that came in fades up. A chat that was opened is already
         // there, and its turns do not need to say so again.
         if (r === rows.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
+        // A message of the user that came in while a copy of the words is on
+        // its way is the place that copy is going to.
+        claimFlyTurn(turn, rows[r].to - rows[r].from === 1 ? items[rows[r].from] : null);
         addTurn(box, turn);
         turns.push(turn);
       } else if (child.dataset.row !== ids) {
@@ -7385,12 +8289,18 @@ function drawThread(s) {
         unfoldRow(again, kept);
         box.replaceChild(again, child);
         turns[r] = again;
+        // A row that was made again lost the mark that holds a message back
+        // from sight, so it is put on again while the copy is still on its way.
+        if (fly && fly.mid && again.dataset.mid === fly.mid) {
+          fly.turn = again;
+          again.classList.add('landing');
+        }
       } else {
         syncTurn(child, items, rows[r]);
       }
     }
     while (turns.length > rows.length) { box.removeChild(turns.pop()); }
-    for (var p = 0; p < rows.length; p++) { placeGifts(turns[p], plan[p]); }
+    for (var p = 0; p < rows.length; p++) { placeEnd(turns[p], plan[p]); }
     if (fresh) {
       // A chat that was opened or turned stands at the top.
       el.thread.scrollTop = 0;
@@ -7413,11 +8323,13 @@ function drawThread(s) {
     for (var k = rows.length - 3; k < rows.length; k++) {
       if (k >= 0) { syncTurn(turns[k], items, rows[k]); }
     }
-    // The offers of the last answers are looked at again here as well: an offer
-    // that came in while the model was writing stands aside until the answer is
-    // over, and the row that carries it has nothing else to say when it ends.
+    // The blocks the last answers end with are looked at again here as well: an
+    // offer that came in while the model was writing stands aside until the
+    // answer is over, and the row that carries it has nothing else to say when it
+    // ends. The same is true of the button of a show and of the roads offered for
+    // what comes next, which stand in the same place.
     for (var q = rows.length - 3; q < rows.length; q++) {
-      if (q >= 0) { placeGifts(turns[q], plan[q]); }
+      if (q >= 0) { placeEnd(turns[q], plan[q]); }
     }
   }
   if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
@@ -7643,10 +8555,269 @@ function giftRow(list) {
   return row;
 }
 
+// The mark of a road the model offered: a line to the place it leads, and the
+// bar of the place itself.
+var SUGGEST_MARK = 'M2.8 8h8.4M8.4 4.8 11.6 8l-3.2 3.2M13.6 3.2v9.6';
+
+// The roads the model offered for what comes next, as buttons. A press sends
+// the words of the road the way the chat box sends the words written in it, and
+// takes the buttons by at once: a road that has been taken is not offered twice
+// while the words of the choice are on their way.
+function suggestRow(asks) {
+  var row = make('div', 'suggests');
+  for (var n = 0; n < asks.length; n++) {
+    var one = asks[n] || {};
+    var said = String(one.label || one.prompt || '');
+    if (!said.trim()) { continue; }
+    var button = make('button', 'suggest');
+    button.type = 'button';
+    button.appendChild(mark(SUGGEST_MARK));
+    var word = make('span', 'said');
+    word.textContent = said;
+    button.appendChild(word);
+    var send = String(one.prompt || said);
+    button.title = 'Send these words to the model: ' + send;
+    (function (words, self) {
+      self.addEventListener('click', function () {
+        for (var k = 0; k < row.children.length; k++) { row.children[k].disabled = true; }
+        sendWords(words, self.getBoundingClientRect());
+      });
+    })(send, button);
+    row.appendChild(button);
+  }
+  return row;
+}
+
+// The mark of the steps of the work: three lines of a list, and a check at the
+// end of the last of them.
+var STEPS_MARK = 'M2.6 3.6h7.4M2.6 8h7.4M2.6 12.4h4.6M11.4 11.5l1.5 1.5 3-3.4';
+// The marks of the two arrows that move the row of the steps.
+var STEP_LEFT = 'M9.8 3.6 5.4 8l4.4 4.4';
+var STEP_RIGHT = 'M6.2 3.6 10.6 8l-4.4 4.4';
+
+// The text of one step. The words of the model are shown as they stand, so a step
+// that names commands keeps its lines.
+function stepText(one) {
+  var node = make('div', 'stext');
+  node.textContent = String((one && one.content) || '');
+  return node;
+}
+
+// One button of the row of the steps: the number of the step and its label.
+function stepButton(one, n) {
+  var button = make('button', 'sbtn');
+  button.type = 'button';
+  var num = make('span', 'num');
+  num.textContent = String(n + 1);
+  button.appendChild(num);
+  var said = make('span', 'said');
+  said.textContent = String((one && one.label) || ('Step ' + (n + 1)));
+  button.appendChild(said);
+  button.title = said.textContent;
+  return button;
+}
+
+// The block of the steps of the work: the title, the text of one step at a time,
+// the buttons of going back and going on at the bottom corners of the text, and a
+// row of one button per step under them.
+//
+// The row stands on one line and never wraps. The buttons that fit are shown; when
+// the row holds more than the width of the chat, an arrow comes out at the end
+// that has more behind it and a press moves the row along. The arrow to the left
+// comes out as soon as the row has moved.
+//
+// Changing the step slides the text out of the block and the text of the new step
+// in, and moves nothing else. `chosen` is the step the user last looked at, when
+// the row that carries the block was made again for another reason.
+function stepsBlock(plan, chosen) {
+  var steps = (plan && plan.steps) || [];
+  if (!steps.length) { return null; }
+  var box = make('div', 'steps');
+
+  var title = make('div', 'stitle');
+  title.appendChild(mark(STEPS_MARK));
+  var head = make('span');
+  head.textContent = String(plan.title || '').trim() || 'Steps';
+  title.appendChild(head);
+  var count = make('span', 'count');
+  count.textContent = steps.length + (steps.length === 1 ? ' step' : ' steps');
+  title.appendChild(count);
+  box.appendChild(title);
+
+  var body = make('div', 'sbody');
+  var page = make('div', 'spage');
+  var at = Math.min(Math.max(parseInt(chosen, 10) || 0, 0), steps.length - 1);
+  var text = stepText(steps[at]);
+  page.appendChild(text);
+  body.appendChild(page);
+
+  var back = make('button', 'snav sprev');
+  back.type = 'button';
+  back.appendChild(mark(STEP_LEFT));
+  var backWord = make('span');
+  backWord.textContent = 'Previous';
+  back.appendChild(backWord);
+  var on = make('button', 'snav snext');
+  on.type = 'button';
+  var onWord = make('span');
+  onWord.textContent = 'Next';
+  on.appendChild(onWord);
+  on.appendChild(mark(STEP_RIGHT));
+  body.appendChild(back);
+  body.appendChild(on);
+  box.appendChild(body);
+
+  var row = make('div', 'srow');
+  var left = make('button', 'sarrow sleft');
+  left.type = 'button';
+  left.appendChild(mark(STEP_LEFT));
+  left.title = 'Back to the first steps of the row';
+  var rail = make('div', 'srail');
+  var right = make('button', 'sarrow sright');
+  right.type = 'button';
+  right.appendChild(mark(STEP_RIGHT));
+  right.title = 'More steps';
+  var buttons = [];
+  for (var n = 0; n < steps.length; n++) {
+    var one = stepButton(steps[n], n);
+    (function (to) {
+      one.addEventListener('click', function () { go(to); });
+    })(n);
+    buttons.push(one);
+    rail.appendChild(one);
+  }
+  row.appendChild(left);
+  row.appendChild(rail);
+  row.appendChild(right);
+  box.appendChild(row);
+
+  // Which ends of the row have buttons behind them. The arrows stand only over
+  // the room that is out of view, so a row that fits the chat wears neither.
+  function fit() {
+    var over = rail.scrollWidth - rail.clientWidth;
+    var behind = rail.scrollLeft;
+    left.classList.toggle('gone', behind <= 1);
+    right.classList.toggle('gone', over - behind <= 1);
+  }
+
+  function slide(node, word) {
+    if (reduce) { return; }
+    node.classList.add(word);
+    window.setTimeout(function () { node.classList.remove(word); }, 260);
+  }
+
+  // The block keeps its bottom edge where it stood. The chat is moved by the
+  // change in the height of the block, so a step with more lines takes its room
+  // above, out of the answer, instead of pushing its own buttons below the fold:
+  // the block grows upward, and the step the user is reading is never covered.
+  // A step with fewer lines needs no moving - nothing of the block is out of
+  // sight then, and pulling the chat up under the answer would only shake it.
+  function holdBottom(before) {
+    var room = el.thread;
+    if (!room) { return; }
+    var delta = Math.round(box.getBoundingClientRect().height - before);
+    if (delta > 0) { room.scrollTop += delta; }
+  }
+
+  // The step the block stands at, and the row of buttons that goes with it. The
+  // text slides; the head, the two buttons and the row of the steps stay where
+  // they are.
+  function go(to) {
+    to = Math.max(0, Math.min(steps.length - 1, to));
+    if (to === at) { return; }
+    // The height of the whole block before the new step goes in. The head and
+    // the row of buttons keep their height, so what is measured here is the room
+    // the step of the words takes.
+    var before = box.getBoundingClientRect().height;
+    var onward = to > at;
+    at = to;
+    box.dataset.at = String(at);
+    var next = stepText(steps[at]);
+    if (reduce) {
+      page.innerHTML = '';
+    } else {
+      text.classList.add('leaving');
+      slide(text, onward ? 'out-left' : 'out-right');
+      var old = text;
+      window.setTimeout(function () {
+        if (old.parentNode === page) { page.removeChild(old); }
+      }, 260);
+      slide(next, onward ? 'in-right' : 'in-left');
+    }
+    page.appendChild(next);
+    text = next;
+    holdBottom(before);
+    show();
+  }
+
+  // The two buttons of the text, the mark of the step the row stands at, and the
+  // arrows of the row: all of them follow the step the block stands at.
+  function show() {
+    back.classList.toggle('gone', at === 0);
+    on.classList.toggle('gone', at === steps.length - 1);
+    for (var k = 0; k < buttons.length; k++) {
+      buttons[k].classList.toggle('now', k === at);
+    }
+    fit();
+    var now = buttons[at];
+    if (!now) { return; }
+    // The chosen button is brought into the row when it stands out of it, and not
+    // every time: a row that jumped back to the middle on every press could not be
+    // read.
+    var room = rail.getBoundingClientRect();
+    var held = now.getBoundingClientRect();
+    if (held.left < room.left) {
+      rail.scrollLeft -= (room.left - held.left) + 8;
+    } else if (held.right > room.right) {
+      rail.scrollLeft += (held.right - room.right) + 8;
+    }
+    fit();
+  }
+
+  back.addEventListener('click', function () { go(at - 1); });
+  on.addEventListener('click', function () { go(at + 1); });
+  left.addEventListener('click', function () {
+    rail.scrollBy({ left: -Math.max(rail.clientWidth * 0.8, 60), behavior: reduce ? 'auto' : 'smooth' });
+  });
+  right.addEventListener('click', function () {
+    rail.scrollBy({ left: Math.max(rail.clientWidth * 0.8, 60), behavior: reduce ? 'auto' : 'smooth' });
+  });
+  rail.addEventListener('scroll', fit, { passive: true });
+  stepRows.push({ box: box, rail: rail, fit: fit });
+
+  show();
+  box.dataset.at = String(at);
+  return box;
+}
+
+// The rows of the steps that stand in the chat, so one listener for the whole page
+// can fit them again when the chat is made wider or narrower. A row that goes out
+// of the chat is taken out of the list with it.
+var stepRows = [];
+
+function fitStepRows() {
+  for (var n = stepRows.length - 1; n >= 0; n--) {
+    var one = stepRows[n];
+    if (!one.box.isConnected) { stepRows.splice(n, 1); continue; }
+    one.fit();
+  }
+}
+
+window.addEventListener('resize', fitStepRows);
+
 // The answers of a chat, in the order they stand: where one begins, where it
-// ends, whether the model is still writing it, and what it offered. An answer is
-// the talk between one word of the user and the next, which is why the offer
-// belongs to a whole answer and not to the one message the tool ran in.
+// ends, whether the model is still writing it, what it offered to be taken away,
+// what it put in the window over the contents of files, and what it suggested
+// for what comes next. An answer is the talk between one word of the user and
+// the next, which is why these belong to a whole answer and not to the one
+// message the tool ran in.
+//
+// The files of an offer and the files of a show are gathered over the whole of
+// the answer, in the order the calls named them: a user who was offered two
+// files by two calls was offered two files. The roads are not gathered. The
+// newest call of an answer wins, and an answer that is not the newest of the
+// chat carries none of them, for the roads an older answer named are no longer
+// the roads the talk is at.
 function chatAnswers(items) {
   var out = [];
   var begin = 0;
@@ -7654,6 +8825,9 @@ function chatAnswers(items) {
     if (n === items.length || items[n].role === 'You') {
       if (n > begin) {
         var held = [];
+        var shown = [];
+        var asks = [];
+        var plan = null;
         var writing = false;
         for (var k = begin; k < n; k++) {
           if (items[k].id === 'live') { writing = true; }
@@ -7661,8 +8835,19 @@ function chatAnswers(items) {
           if (given && given.length) {
             for (var j = 0; j < given.length; j++) { held.push(given[j]); }
           }
+          var seen = items[k].displayed;
+          if (seen && seen.length) {
+            for (var g = 0; g < seen.length; g++) {
+              if (!holdsPath(shown, seen[g].path)) { shown.push(seen[g]); }
+            }
+          }
+          var wants = items[k].suggestions;
+          if (wants && wants.length) { asks = wants; }
+          var list = items[k].steps;
+          if (list && list.steps && list.steps.length) { plan = list; }
         }
-        out.push({ from: begin, to: n, writing: writing, gifts: held });
+        out.push({ from: begin, to: n, writing: writing, gifts: held, shown: shown,
+          asks: asks, plan: plan, last: n === items.length });
       }
       begin = n + 1;
     }
@@ -7670,10 +8855,22 @@ function chatAnswers(items) {
   return out;
 }
 
-// Which row of the thread carries the offer of its answer, and what it is made
-// of. Only the last row of an answer carries it, and an answer that is still
-// being written carries nothing at all.
-function giftPlan(items, rows) {
+// True when a file of this road already stands in the list gathered for the end
+// of an answer, for a file shown twice is opened from one place and not two.
+function holdsPath(list, path) {
+  for (var n = 0; n < list.length; n++) {
+    if (String(list[n].path) === String(path)) { return true; }
+  }
+  return false;
+}
+
+// Which row of the thread carries the blocks its answer ends with, and what they
+// are made of. Only the last row of an answer carries them, and an answer that is
+// still being written carries nothing at all: an offer made in the middle of an
+// answer is not finished work. The roads asked for more besides - the newest
+// answer of the chat only, and nothing at all while the model is writing - so
+// they go the moment the user takes one or says something of their own.
+function endPlan(items, rows, generating) {
   var answers = chatAnswers(items);
   var plan = [];
   var at = 0;
@@ -7681,30 +8878,78 @@ function giftPlan(items, rows) {
     var row = rows[r];
     while (at + 1 < answers.length && answers[at + 1].from <= row.from) { at += 1; }
     var one = answers[at];
-    var given = (one && !one.writing && one.gifts.length
-      && row.from >= one.from && row.to === one.to) ? one.gifts : null;
-    plan.push(given);
+    var held = null;
+    if (one && !one.writing && row.from >= one.from && row.to === one.to) {
+      var asks = (one.last && !generating) ? one.asks : [];
+      if (one.plan || one.gifts.length || one.shown.length || asks.length) {
+        held = { plan: one.plan, gifts: one.gifts, shown: one.shown, asks: asks };
+      }
+    }
+    plan.push(held);
   }
   return plan;
 }
 
-// The blocks of an offer are put under the row that carries them, or taken away,
-// or left alone. A row that was made again has lost them with the rest of its
-// words, so what stands in the row is looked at and not only what the row said
-// it was made of last.
-function placeGifts(turn, given) {
+// The mark of the blocks an answer ends with: a tray, for the answer puts its
+// work down in it and the user takes it out of there.
+var END_MARK = 'M2.2 9.2h3.3l1.1 2h2.8l1.1-2h3.3'
+  + 'M2.2 9.2 4.4 3.4h7.2l2.2 5.8v3.4a.8.8 0 0 1-.8.8H3a.8.8 0 0 1-.8-.8z';
+
+// The blocks an answer ends with are put under the row that carries them, or
+// taken away, or left alone. A row that was made again has lost them with the
+// rest of its words, so what stands in the row is looked at and not only what
+// the row said it was made of last.
+//
+// The three kinds stand inside one block of their own, in the order the chat
+// reads them: the button that opens the window over the files that were shown,
+// the files that may be taken, and the roads for what comes next. They stand one
+// under the other, so no two of them are ever given the same place, whatever
+// came in last.
+function placeEnd(turn, one) {
   if (!turn) { return; }
-  var want = given ? given.map(function (one) {
-    return String(one.path) + ':' + String(one.size);
-  }).join('|') : '';
+  var want = one ? [
+    one.plan ? String(one.plan.title || '') + '/' + (one.plan.steps || []).map(function (s) {
+      return String(s.label || '');
+    }).join('|') : '',
+    (one.gifts || []).map(function (f) {
+      return String(f.path) + ':' + String(f.size);
+    }).join('|'),
+    (one.shown || []).map(function (f) { return String(f.path); }).join('|'),
+    (one.asks || []).map(function (a) {
+      return String(a.label) + '>' + String(a.prompt);
+    }).join('|')
+  ].join('#') : '';
   var held = null;
   for (var n = 0; n < turn.children.length; n++) {
-    if (turn.children[n].classList.contains('gifts')) { held = turn.children[n]; break; }
+    if (turn.children[n].classList.contains('answer-end')) { held = turn.children[n]; break; }
   }
-  if (turn.dataset.gifts === want && (held || !want)) { return; }
-  turn.dataset.gifts = want;
+  if (turn.dataset.end === want && (held || !want)) { return; }
+  turn.dataset.end = want;
+  // The step the user last looked at is carried across a making again of the row,
+  // for the row may be made again for a reason that has nothing to do with it.
+  var was = held ? held.querySelector('.steps') : null;
+  var keep = was ? was.dataset.at : '';
   if (held) { turn.removeChild(held); }
-  if (given && given.length) { turn.appendChild(giftRow(given)); }
+  if (!one) { return; }
+  var box = make('div', 'answer-end');
+  if (one.plan) {
+    var made = stepsBlock(one.plan, keep);
+    if (made) { box.appendChild(made); }
+  }
+  if (one.shown && one.shown.length) { box.appendChild(shownRow(one.shown)); }
+  if (one.gifts && one.gifts.length) { box.appendChild(giftRow(one.gifts)); }
+  if (one.asks && one.asks.length) { box.appendChild(suggestRow(one.asks)); }
+  if (!box.children.length) { return; }
+  // The head names the card once, over the parts, so the parts read as one thing
+  // the answer left behind and not as four blocks that came in last. It is made
+  // after them, for a card with nothing in it has no head either.
+  var head = make('div', 'ae-head');
+  head.appendChild(mark(END_MARK));
+  var said = make('span');
+  said.textContent = 'From this answer';
+  head.appendChild(said);
+  box.insertBefore(head, box.firstChild);
+  turn.appendChild(box);
 }
 
 // The ask the card was last made for. A question that is still the one standing
@@ -7889,9 +9134,8 @@ function chapterRanges(chapters) {
   for (var c = 0; c < chapters.length; c++) {
     var at = 0;
     if (chapters[c].after) {
-      for (var n = 0; n < messages.length; n++) {
-        if (messages[n].id === chapters[c].after) { at = n + 1; break; }
-      }
+      var found = messageIndex(chapters[c].after);
+      if (found >= 0) { at = found + 1; }
     }
     begins.push(at);
   }
@@ -7994,16 +9238,35 @@ function drawChapters(s) {
 // Take the chat to the place one chapter begins. The words above that place are
 // brought up to the top of the view, and the chat stops following the answer,
 // for the user has gone looking somewhere else.
+//
+// The place is read off the rows of the talk and not off the mark of a message.
+// A row may hold several messages - a train of thought with the runs of its tools
+// inside it - and the message a chapter begins after may stand in the middle of
+// such a row. A row looked for by the first message of it alone was then not found
+// at all, and the chat did not move; or it was found, and the row past it was the
+// place the chat went to, which is a chapter further down than the one the user
+// pressed.
 function gotoChapter(chapter) {
+  var turns = threadTurns(el.col);
+  if (!turns.length) { return; }
   var node = null;
   if (!chapter.after) {
     // The first turn of the talk, and not whatever stands first in the room of
     // the talk: the questions of the plan stand in the same room, at the end of
     // it, and a talk that has no turn has no place to go to either.
-    node = threadTurns(el.col)[0];
+    node = turns[0];
   } else {
-    var before = el.col.querySelector('[data-mid="' + chapter.after + '"]');
-    node = (before && before.nextElementSibling) || before;
+    var at = messageIndex(chapter.after);
+    if (at >= 0) {
+      // The message after the one named is the first of the chapter. When it
+      // shares its row with the message before it, that row is the nearest place
+      // the chat can go to.
+      node = turnForIndex(at + 1) || turnForIndex(at);
+    }
+    if (!node) {
+      var before = el.col.querySelector('[data-mid="' + chapter.after + '"]');
+      node = (before && before.nextElementSibling) || before;
+    }
   }
   if (!node) { return; }
   var view = el.thread.getBoundingClientRect();
@@ -9213,6 +10476,9 @@ function send() {
   pendingCommand = '';
   drawCommandChip();
   var files = heldFiles.slice();
+  // The place the words stand in now, taken before the box is emptied: the copy
+  // of them is stood over the very place they were written on.
+  var where = el.draft.getBoundingClientRect();
   el.draft.value = '';
   heldFiles = [];
   drawParts();
@@ -9225,7 +10491,289 @@ function send() {
     drawQueue();
     return;
   }
+  // The words are carried into the chat as the ask goes out. A message that
+  // waits its turn in the list is not carried: it stands in the list over the
+  // box until the answer it waited for is over.
+  startFly(text, where);
   post('/api/send', messageBody(text, files));
+}
+
+// Words that did not stand in the box go out the same road as words that did:
+// the list over the box while the model is writing, the ask otherwise. The copy
+// of them is carried from the place they were pressed on, which is where the
+// hand of the user was. `where` is that place, or nothing at all.
+function sendWords(text, where) {
+  var words = String(text || '').trim();
+  if (!words) { return; }
+  if (cur && cur.generating) {
+    queueSeq += 1;
+    queue.push({ id: queueSeq, text: words, files: [] });
+    if (queueChat === null) { queueChat = chatIdOf(cur); }
+    drawQueue();
+    return;
+  }
+  startFly(words, where);
+  post('/api/send', messageBody(words, []));
+}
+
+// ---------------------------------------------- the journey of a sent message
+//
+// The words you send do not simply appear at the end of the chat. A copy of
+// them is taken out of the box, squeezed to a small card, and carried along a
+// curve to the message they became. That message stands in its place from the
+// moment it comes in, but it is not seen until the copy reaches it, so the
+// words are read once and not twice over. The sending waits for none of this:
+// the ask goes out at the same moment the copy is made, and the whole of the
+// journey is on the screen. The Chatting setting 'Carry a sent message into the
+// chat' turns it off, and a machine asked for few moves is given none of it.
+var fly = null;              // the copy that is on its way, or nothing
+var FLY_HOLD = 150;          // how long the copy takes to squeeze itself small
+var FLY_RUN = 430;           // how long the journey from the box to the chat is
+var FLY_WAIT = 4000;         // how long the copy waits for its message to come
+var FLY_SMALL = 0.4;         // the size of the copy while it waits for its place
+// The longest a copy may live. A timer, and not the counting of the steps, holds
+// to it, so a page that stops counting its steps - a window behind another, a
+// web view that gives the page no more frames - cannot leave a copy over the box
+// with its message held out of sight for nothing.
+var FLY_LONGEST = FLY_WAIT + FLY_RUN + 500;
+
+// Whether the journey is gone through at all: the setting, and a machine that
+// was not asked for few moves.
+function sendAnimOn() {
+  return chatting.send_anim !== false && !reduce;
+}
+
+// The copy is put away, and a message that was held back for it is let through.
+// Every road out of the journey goes through here, so a copy never goes away and
+// leaves its message unseen, and a message is never let through with a copy still
+// over the page.
+function dropFly() {
+  if (!fly) { return; }
+  if (fly.timer) { clearTimeout(fly.timer); fly.timer = 0; }
+  if (fly.card && fly.card.parentNode) { fly.card.parentNode.removeChild(fly.card); }
+  if (fly.turn) { fly.turn.classList.remove('landing'); }
+  fly = null;
+}
+
+// A window that goes behind another stops counting the steps of the journey, and
+// a copy left over the box holds its message out of sight. The journey is given
+// up when the page is not seen, and the words are read in the chat.
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) { dropFly(); }
+});
+
+// True when another chat stands under the copy. Words written for one chat are
+// not carried into another.
+function flyLeftChat() {
+  return !!fly && !!fly.chat && chatIdOf(cur) !== fly.chat;
+}
+
+// Whether these are the words the copy carries. The copy is only ever stood
+// over the message it was made from. The bubble holds the words without the
+// marks they were written with - a heading, an emphasis, a colour, a link all
+// give their words and lose their marks - so the words are compared both as
+// they were written and as the page puts them on.
+function flyWordsMatch(words) {
+  if (!fly || !fly.text) { return true; }
+  var said = String(words || '');
+  if (!said) { return false; }
+  var bare = plain(fly.text);
+  var held = [fly.text, bare];
+  for (var n = 0; n < held.length; n++) {
+    var one = held[n];
+    if (said === one || one.slice(0, said.length) === said || said.slice(0, one.length) === one) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// The words leave the box: the copy is made, and the place it is going to is
+// looked for among the messages that come in after it. `where` is the place the
+// words stood in the box, taken before the box was emptied; when it is not
+// given, the box is measured as it stands. Files hung on the message are not
+// copied; they come in with the message itself.
+function startFly(text, where) {
+  dropFly();
+  if (!sendAnimOn() || !text || !el.draft || !el.col) { return; }
+  // A page that is not seen is given no steps, so a copy made here would stand
+  // over the box and hold its message out of sight. The words go straight to the
+  // chat.
+  if (document.hidden) { return; }
+  var box = where || el.draft.getBoundingClientRect();
+  if (box.width < 40 || box.height < 8) { return; }
+  var seen = {};
+  var turns = el.col.querySelectorAll('.turn.t-you');
+  for (var i = 0; i < turns.length; i++) {
+    if (turns[i].dataset.mid) { seen[turns[i].dataset.mid] = true; }
+  }
+  var card = make('div', 'flycard');
+  card.setAttribute('aria-hidden', 'true');
+  card.textContent = text;
+  // The copy is as wide as its own words, under the cap a bubble stands under.
+  // The box it came out of is as wide as the chat, and the bubble it is going to
+  // is only as wide as its words: a copy cut to the width of the box read as a
+  // message that shrank when it came to its place.
+  var seat = el.col.querySelector('.turn');
+  var room = seat ? seat.clientWidth : Math.max(240, (el.col.clientWidth || box.width) - 52);
+  card.style.maxWidth = Math.max(160, Math.min(Math.round(room * 0.82), Math.round(box.width)))
+    + 'px';
+  document.body.appendChild(card);
+  fly = { card: card, text: text, chat: chatIdOf(cur), seen: seen,
+    mid: '', turn: null, x: box.left, y: box.top, w: card.offsetWidth || Math.round(box.width),
+    kx: box.left + (card.offsetWidth || Math.round(box.width)), ky: box.top,
+    s: 1, start: 0, s0: 1, born: Date.now(), timer: 0 };
+  // The bound is kept by a timer as well as by the steps, for the steps are the
+  // only thing that would otherwise take a copy away, and a page that is given no
+  // frames takes none.
+  fly.timer = setTimeout(function () { dropFly(); }, FLY_LONGEST);
+  putFly(fly.x, fly.y, 1, 1);
+  requestAnimationFrame(flyStep);
+}
+
+// The copy is stood at this place, at this size, with this weight. It is moved
+// by one transform, so nothing else on the page is laid out again while it
+// flies. The place asked for is the corner the copy is stood on: its top right,
+// for a message of the user stands hard against the right of the chat.
+function putFly(x, y, s, o) {
+  if (!fly || !fly.card) { return; }
+  fly.card.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)'
+    + ' scale(' + s.toFixed(3) + ')';
+  fly.card.style.opacity = o >= 0.999 ? '' : o.toFixed(2);
+  fly.kx = x + fly.w * s;
+  fly.ky = y;
+}
+
+// The turn of one message, by its number.
+function turnByMid(mid) {
+  if (!mid || !el.col) { return null; }
+  var turns = el.col.querySelectorAll('.turn');
+  for (var i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].dataset.mid === mid) { return turns[i]; }
+  }
+  return null;
+}
+
+// The thread points out a row as it is made. When it is a message of the user
+// that was not there before, and a copy is waiting, that message is the place
+// the copy is going to: it is held back from sight until the copy arrives.
+function claimFlyTurn(turn, m) {
+  if (!fly || fly.turn || flyLeftChat()) { return; }
+  if (!m || m.role !== 'You' || !m.id || fly.seen[m.id]) { return; }
+  if (!flyWordsMatch(m.body)) { return; }
+  fly.mid = m.id;
+  fly.turn = turn;
+  turn.classList.add('landing');
+}
+
+// The message a copy is on its way to, when the thread did not point it out as
+// it came in: the newest message of the user that was not in the chat when the
+// words went out.
+function findFlyTurn() {
+  if (!fly || fly.turn || flyLeftChat()) { return; }
+  var turns = el.col.querySelectorAll('.turn.t-you');
+  var newest = null;
+  for (var i = turns.length - 1; i >= 0; i--) {
+    var mid = turns[i].dataset.mid;
+    if (!mid || fly.seen[mid]) { continue; }
+    if (!newest) { newest = turns[i]; }
+    var bubble = turns[i].querySelector('.bubble');
+    if (!bubble || !flyWordsMatch(bubble.textContent)) { continue; }
+    fly.mid = mid;
+    fly.turn = turns[i];
+    turns[i].classList.add('landing');
+    return;
+  }
+  // No turn carries the words of the copy. The newest turn that was not in the
+  // chat when the words went out is the message they became: the page answers an
+  // ask with the very words it was sent, and a mark the page took out of them is
+  // no reason to leave the copy over the box for nothing.
+  if (newest) {
+    fly.mid = newest.dataset.mid;
+    fly.turn = newest;
+    newest.classList.add('landing');
+  }
+}
+
+// The place the copy is going to: the bubble of the message, or the whole of
+// the message when it has no bubble. It is measured again on every step, for
+// the chat is followed while the copy flies, and the message moves with it.
+function flyPlace() {
+  if (!fly) { return null; }
+  if (!fly.turn || !fly.turn.parentNode) {
+    fly.turn = turnByMid(fly.mid);
+    if (fly.turn) { fly.turn.classList.add('landing'); }
+  }
+  if (!fly.turn || !fly.turn.parentNode) { return null; }
+  var bubble = fly.turn.querySelector('.bubble');
+  var r = (bubble || fly.turn).getBoundingClientRect();
+  return r.width > 3 ? r : null;
+}
+
+// One step of the journey. A step that faults gives the journey up rather than
+// stop the counting: a copy that cannot be moved must not stay over the box with
+// its message held out of sight behind it.
+function flyStep() {
+  if (!fly) { return; }
+  if (document.hidden) { dropFly(); return; }
+  try {
+    flyGo();
+  } catch (e) {
+    dropFly();
+  }
+}
+
+function flyGo() {
+  if (flyLeftChat()) { dropFly(); return; }
+  var now = Date.now();
+  if (!fly.turn) { findFlyTurn(); }
+  if (!fly.turn) {
+    if (now - fly.born > FLY_WAIT) { dropFly(); return; }
+    // The copy waits over the box, squeezing itself into a card of itself.
+    var k = Math.min(1, (now - fly.born) / FLY_HOLD);
+    fly.s = 1 - (1 - FLY_SMALL) * k;
+    putFly(fly.x, fly.y - 6 * k, fly.s, 1);
+    requestAnimationFrame(flyStep);
+    return;
+  }
+  var to = flyPlace();
+  if (!to) { dropFly(); return; }
+  if (!fly.start) { fly.start = now; fly.s0 = fly.s; }
+  var t = Math.min(1, (now - fly.start) / FLY_RUN);
+  var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  // The curve out of the box, read off the corner the copy stands on: a little
+  // lift, then up the chat, then in and down onto the message.
+  var x0 = fly.kx, y0 = fly.ky;
+  var dx = to.right - x0, dy = to.top - y0;
+  var c1x = x0 + dx * 0.2, c1y = y0 - 26;
+  var c2x = x0 + dx * 0.7, c2y = to.top + 30;
+  var u = e, v = 1 - u;
+  var kx = v * v * v * x0 + 3 * v * v * u * c1x + 3 * v * u * u * c2x + u * u * u * to.right;
+  var ky = v * v * v * y0 + 3 * v * v * u * c1y + 3 * v * u * u * c2y + u * u * u * to.top;
+  fly.s = fly.s0 + (1 - fly.s0) * flyBack(t);
+  putFly(kx - fly.w * fly.s, ky, fly.s, t > 0.8 ? Math.max(0, 1 - (t - 0.8) / 0.2) : 1);
+  if (t >= 1) { landFly(); return; }
+  requestAnimationFrame(flyStep);
+}
+
+// How the copy grows back to the size of the message: it goes a little past the
+// full size and settles back onto it, which is what an un-squeeze looks like.
+function flyBack(t) {
+  var c = 1.2;
+  var p = t - 1;
+  return 1 + (c + 1) * p * p * p + c * p * p;
+}
+
+// The copy is on its message. The message is let through, unfolding into its
+// place, and the copy goes away over the same short time.
+function landFly() {
+  var f = fly;
+  fly = null;
+  if (f.timer) { clearTimeout(f.timer); }
+  if (f.card && f.card.parentNode) { f.card.parentNode.removeChild(f.card); }
+  if (!f.turn || !f.turn.parentNode) { return; }
+  f.turn.classList.remove('landing');
+  f.turn.classList.add('landed');
 }
 
 // Send the oldest message of the list when the chat has come to the end of an
@@ -9541,6 +11089,12 @@ document.addEventListener('click', function () { closeThinkMenu(); closeSandboxM
 
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
+// The quick switch of the skin: it steps through the four of them, and the mark
+// under it says which one the page stands in.
+el.themebtn.addEventListener('click', function () {
+  var next = SKINS[(SKINS.indexOf(themeWord) + 1) % SKINS.length];
+  chooseTheme(next);
+});
 el.draft.addEventListener('input', function () {
   grow();
   commandsFollow();
@@ -9916,6 +11470,204 @@ function mcpSave() {
   setTimeout(loadMcp, 1500);
 }
 
+// ------------------------------------------------- the search over the settings
+//
+// The two tabs of settings hold a great many fields. A user who knows the word
+// they are after should not read the whole tab for it. The bar under the tabs
+// searches the names of the settings of the tab in front and the words that
+// describe them.
+//
+// The settings that match are moved into a list of their own at the head of the
+// pane: first the settings whose name matched, then the settings whose
+// description matched, and in each group the settings stand under the head of the
+// section they belong to. Nothing is copied. The field itself moves, so its
+// control keeps its value, its listeners and its identity. The order the pane
+// stood in is written down before the first move and put back when the search is
+// cleared, so the tab is exactly as it was.
+
+// The panes the search works on. The Logs tab and the MCP tab hold nothing to
+// search for, and the bar stands away from them.
+var FIND_TABS = ['program', 'model'];
+
+// The order the elements of one pane stood in, taken before the first move of one
+// search and put back when that search is cleared.
+var findCaptured = {};
+
+// The pane the bar searches now.
+function findPane() {
+  return setTab === 'model' ? byId('paneModel') : byId('paneProgram');
+}
+
+// The list the matches are put into. It is made once for each pane and kept, so
+// the pane never gains and loses a box of its own.
+function findList(pane) {
+  var box = pane.querySelector(':scope > .find-list');
+  if (!box) {
+    box = make('div', 'find-list');
+    pane.insertBefore(box, pane.firstChild);
+  }
+  return box;
+}
+
+// The name of a setting and the words that describe it, both in lower case. A
+// field with no name of its own is not a setting and is not searched.
+function findWords(field) {
+  var lbl = field.querySelector(':scope > .lbl');
+  var name = lbl ? String(lbl.textContent || '') : '';
+  if (!name.trim()) { return null; }
+  var said = '';
+  var subs = field.querySelectorAll(':scope > .sub');
+  for (var n = 0; n < subs.length; n++) {
+    said += ' ' + String(subs[n].textContent || '');
+  }
+  return { name: name.toLowerCase(), said: said.toLowerCase() };
+}
+
+// The head of the section a setting stands under: the last section head before it,
+// looked for in the place it stands in and then in the places above it. A setting
+// with no section of its own stands under no head.
+function findSection(node) {
+  var at = node;
+  while (at && at.classList && !at.classList.contains('pane')) {
+    var back = at.previousElementSibling;
+    while (back) {
+      if (back.classList && back.classList.contains('sec')) {
+        return String(back.textContent || '').trim();
+      }
+      back = back.previousElementSibling;
+    }
+    at = at.parentNode;
+  }
+  return '';
+}
+
+// The order the elements of one pane stand in, written down as pairs of a place
+// and the children that stand in it, from the pane down. The list of the matches
+// is skipped, for it is the search's own box and not part of the tab.
+function findCapture(pane) {
+  var pairs = [];
+  (function walk(node) {
+    var kids = [];
+    for (var child = node.firstElementChild; child; child = child.nextElementSibling) {
+      if (child.classList && child.classList.contains('find-list')) { continue; }
+      kids.push(child);
+    }
+    if (kids.length) { pairs.push({ place: node, kids: kids }); }
+    for (var n = 0; n < kids.length; n++) { walk(kids[n]); }
+  })(pane);
+  return pairs;
+}
+
+// The pane is put back as it stood. The pairs are read from the pane down, so a
+// place that holds another place is filled before that other place is, and what
+// was moved out of it comes back into it.
+function findRestore(pane) {
+  var pairs = findCaptured[pane.id];
+  if (!pairs) { return; }
+  for (var n = 0; n < pairs.length; n++) {
+    var kids = pairs[n].kids;
+    for (var i = 0; i < kids.length; i++) { pairs[n].place.appendChild(kids[i]); }
+  }
+  delete findCaptured[pane.id];
+}
+
+// The search is taken out of one pane: the matches go back to the places they
+// stood in, and the pane shows its settings again.
+function findClear(pane) {
+  if (!pane) { return; }
+  findRestore(pane);
+  var box = pane.querySelector(':scope > .find-list');
+  if (box) { box.innerHTML = ''; }
+  pane.classList.remove('finding');
+}
+
+// Both tabs are cleared, for the sheet was opened or put away.
+function findClearBoth() {
+  findClear(byId('paneProgram'));
+  findClear(byId('paneModel'));
+  var box = byId('sheetFindText');
+  if (box) { box.value = ''; }
+  byId('sheetFindCount').textContent = '';
+  byId('sheetFind').classList.add('gone-text');
+}
+
+// One group of the matches is put under its head: the settings in the order they
+// stand in the tab, each under the head of the section it belongs to.
+function findGroup(box, list, head) {
+  if (!list.length) { return; }
+  var title = make('div', 'find-head');
+  title.textContent = head;
+  box.appendChild(title);
+  var last = null;
+  for (var n = 0; n < list.length; n++) {
+    var section = list[n].section;
+    if (section && section !== last) {
+      var sec = make('div', 'sec');
+      sec.textContent = section;
+      box.appendChild(sec);
+    }
+    last = section;
+    box.appendChild(list[n].field);
+  }
+}
+
+// The list is read again over the words in the bar. The pane is put back first and
+// the search is then taken over the settings as they stand, so a tab that was
+// filled again while the search stood is never read from a list of fields that are
+// gone.
+function findApply() {
+  var pane = findPane();
+  var words = String(byId('sheetFindText').value || '').trim().toLowerCase();
+  var box = findList(pane);
+  findRestore(pane);
+  box.innerHTML = '';
+  if (!words) {
+    pane.classList.remove('finding');
+    byId('sheetFindCount').textContent = '';
+    byId('sheetFind').classList.add('gone-text');
+    return;
+  }
+  byId('sheetFind').classList.remove('gone-text');
+  findCaptured[pane.id] = findCapture(pane);
+  var named = [];
+  var said = [];
+  var fields = pane.querySelectorAll('.fld');
+  for (var n = 0; n < fields.length; n++) {
+    var held = findWords(fields[n]);
+    if (!held) { continue; }
+    var inName = held.name.indexOf(words) >= 0;
+    var inSaid = held.said.indexOf(words) >= 0;
+    if (!inName && !inSaid) { continue; }
+    // The section of every match is read before anything is moved, for a field
+    // that has gone into the list of the matches can no longer say what section
+    // it stood under.
+    (inName ? named : said).push({ field: fields[n], section: findSection(fields[n]) });
+  }
+  findGroup(box, named, 'Matches the name');
+  findGroup(box, said, 'Matches the description');
+  var total = named.length + said.length;
+  byId('sheetFindCount').textContent = total
+    ? total + (total === 1 ? ' setting' : ' settings')
+    : 'nothing';
+  if (!total) {
+    var none = make('div', 'find-none');
+    none.textContent = 'No setting of this tab holds "'
+      + byId('sheetFindText').value.trim() + '" in its name or in its description.';
+    box.appendChild(none);
+  }
+  pane.classList.add('finding');
+}
+
+// The bar follows the tab: it stands only over the two tabs of settings, the pane
+// that went out of sight is cleared, and the words in the bar are read again over
+// the pane that came forward.
+function findTab() {
+  byId('sheetFind').classList.toggle('gone', FIND_TABS.indexOf(setTab) < 0);
+  var pane = findPane();
+  findClear(pane === byId('paneModel') ? byId('paneProgram') : byId('paneModel'));
+  findApply();
+}
+
 function openSettings(tab) {
   setTab = tab === 'model' ? 'model' : tab === 'logs' ? 'logs'
     : tab === 'mcp' ? 'mcp' : 'program';
@@ -9932,6 +11684,7 @@ function openSettings(tab) {
 // log is read while the sheet stands closed.
 function closeSettings() {
   logsStop();
+  findClearBoth();
   byId('overlay').classList.add('hidden');
 }
 
@@ -9963,11 +11716,12 @@ function showSetTab(tab) {
     : 'A model that is loaded goes only when a value the server itself starts with has moved.';
   // Nothing of the Logs tab is saved, so the button for saving stands away.
   byId('saveSheet').style.display = (tab === 'logs' || tab === 'mcp') ? 'none' : '';
+  findTab();
 }
 
 // ------------------------------------------------------------------ skins
 //
-// The three skins of the page. The pale skin is the ground the page is cut for and
+// The four skins of the page. The pale skin is the ground the page is cut for and
 // puts no mark on the body; the dark skin and the corporate skin each put one, and
 // every colour of the page comes from the variables stood under that mark. The word
 // of the skin comes with the state, so the window and the browser page follow the
@@ -9975,10 +11729,14 @@ function showSetTab(tab) {
 
 var themeWord = 'light';   // the skin the page stands in
 
-// The word of a skin out of any words: one of the three stands, and anything else
+// The four skins, in the order the sheet and the mark of the browser page step
+// through them.
+var SKINS = ['light', 'dark', 'silver', 'corporate'];
+
+// The word of a skin out of any words: one of the four stands, and anything else
 // is the pale skin, which is the one a new set of settings stands on.
 function themeOf(word) {
-  return (word === 'dark' || word === 'corporate') ? word : 'light';
+  return SKINS.indexOf(word) >= 0 ? word : 'light';
 }
 
 // Put a skin on the page. The mark of the old two-way switch is kept in step, for a
@@ -9986,18 +11744,19 @@ function themeOf(word) {
 function showTheme(word) {
   themeWord = themeOf(word);
   document.body.classList.toggle('dark', themeWord === 'dark');
+  document.body.classList.toggle('silver', themeWord === 'silver');
   document.body.classList.toggle('corporate', themeWord === 'corporate');
 }
 
-// The three marks of the sheet, so the switch stands at the skin in use.
+// The four marks of the sheet, so the switch stands at the skin in use.
 function showThemeButtons() {
-  ['light', 'dark', 'corporate'].forEach(function (one) {
+  SKINS.forEach(function (one) {
     var node = byId('fTheme' + one.charAt(0).toUpperCase() + one.slice(1));
     if (node) { node.classList.toggle('on', one === themeWord); }
   });
 }
 
-// One of the three buttons of the sheet. The skin goes on at once, and is written to
+// One of the four buttons of the sheet. The skin goes on at once, and is written to
 // the program beside: nothing of a server moves with a skin.
 function chooseTheme(word) {
   showTheme(word);
@@ -10017,6 +11776,83 @@ function compactByRows() {
 }
 
 // Program tab: read the settings and every repository on disk.
+// The pre-written prompts of the Program tab. The table of them is read once and
+// kept, for it never changes while the program runs: the prompts stand in the
+// program and are not something the user may write.
+var promptTable = null;
+
+// The lines of the table, or the words of one prompt when an id is given with
+// the ask. The words of a prompt are never carried about with the settings.
+function readPrompts(id) { return invoke('get_prompts', { id: id || '' }); }
+
+function buildPromptLines(on) {
+  var box = byId('fPromptLines');
+  if (!box) { return; }
+  var fill = function (lines) {
+    box.textContent = '';
+    lines.forEach(function (one) {
+      var row = document.createElement('div');
+      row.className = 'prompt-line';
+      var mark = document.createElement('label');
+      mark.className = 'p-mark';
+      var check = document.createElement('input');
+      check.type = 'checkbox';
+      check.dataset.prompt = one.id;
+      check.checked = on.indexOf(one.id) >= 0;
+      var name = document.createElement('span');
+      name.className = 'p-name';
+      name.textContent = one.name;
+      mark.appendChild(check);
+      mark.appendChild(name);
+      var sum = document.createElement('span');
+      sum.className = 'p-sum';
+      sum.textContent = one.summary || '';
+      var view = document.createElement('button');
+      view.type = 'button';
+      view.className = 'btn';
+      view.dataset.promptView = one.id;
+      view.textContent = 'View prompt';
+      row.appendChild(mark);
+      row.appendChild(sum);
+      row.appendChild(view);
+      box.appendChild(row);
+    });
+  };
+  if (promptTable) { fill(promptTable); return; }
+  readPrompts('').then(function (answer) {
+    promptTable = (answer && answer.lines) || [];
+    fill(promptTable);
+  }, function () { promptTable = []; fill([]); });
+}
+
+// The ids of the prompts the user marked, in the order of the table.
+function checkedPromptIds() {
+  var out = [];
+  var box = byId('fPromptLines');
+  if (!box) { return out; }
+  var marks = box.querySelectorAll('input[data-prompt]');
+  for (var i = 0; i < marks.length; i += 1) {
+    if (marks[i].checked) { out.push(marks[i].dataset.prompt); }
+  }
+  return out;
+}
+
+// One pre-written prompt, whole, in a window of its own. The words are asked for
+// here and not before, and nothing in the window is written back.
+function openPromptView(id) {
+  readPrompts(id).then(function (answer) {
+    if (!answer || answer.words === undefined) { return; }
+    byId('promptTitle').textContent = answer.name || 'A pre-written prompt';
+    byId('promptMeta').textContent = 'read only';
+    byId('promptWords').textContent = answer.words;
+    byId('promptOverlay').classList.remove('hidden');
+  });
+}
+
+function closePromptView() {
+  byId('promptOverlay').classList.add('hidden');
+}
+
 function loadProgram() {
   Promise.all([invoke('get_config'), invoke('list_repositories')]).then(function (res) {
     var cfg = res[0]; var repos = res[1] || [];
@@ -10035,6 +11871,7 @@ function loadProgram() {
     byId('fToolsInThink').checked = cfg.chat_tools_in_thinking !== false;
     byId('fHighlight').checked = cfg.chat_highlight !== false;
     byId('fBoldMarkdown').checked = cfg.chat_bold_markdown !== false;
+    byId('fColourText').checked = cfg.chat_colour_text !== false;
     byId('fSeamless').checked = !!cfg.chat_seamless;
     byId('fDisplay').value = cfg.chat_display === 'corporate' ? 'corporate' : 'plain';
     corporateGreyed(byId('fDisplay').value === 'corporate');
@@ -10059,8 +11896,14 @@ function loadProgram() {
     compactByRows();
     byId('fCompactPrompt').value = cfg.chat_compact_prompt || '';
     byId('fCompactPromptShort').value = cfg.chat_compact_prompt_short || '';
+    // The words before the talk: the prompt of the user, and the marks on the
+    // pre-written prompts. The lines of the table are built from the program,
+    // which answers for what stands in it.
+    byId('fSystemPrompt').value = cfg.chat_system_prompt || '';
+    buildPromptLines(cfg.chat_system_prompts_on || []);
     byId('fTimeline').checked = cfg.chat_timeline !== false;
     byId('fUserline').checked = cfg.chat_userline !== false;
+    byId('fSendAnim').checked = cfg.chat_send_anim !== false;
     // The note is what the program found when it asked its own jail whether it
     // keeps what it promises.
     byId('fSandbox').textContent = (cur && cur.sandbox_note)
@@ -10630,6 +12473,7 @@ function readProgram() {
   cfg.chat_tools_in_thinking = byId('fToolsInThink').checked;
   cfg.chat_highlight = byId('fHighlight').checked;
   cfg.chat_bold_markdown = byId('fBoldMarkdown').checked;
+  cfg.chat_colour_text = byId('fColourText').checked;
   cfg.chat_seamless = byId('fSeamless').checked;
   cfg.chat_display = byId('fDisplay').value === 'corporate' ? 'corporate' : 'plain';
   cfg.chat_silent_retries = holdSeconds('fSilentRetries', 2, 0, 10);
@@ -10652,8 +12496,11 @@ function readProgram() {
   cfg.chat_compact_reserve = isNaN(reserve) ? (cfg.chat_compact_reserve || 10240) : reserve;
   cfg.chat_compact_prompt = byId('fCompactPrompt').value;
   cfg.chat_compact_prompt_short = byId('fCompactPromptShort').value;
+  cfg.chat_system_prompt = byId('fSystemPrompt').value;
+  cfg.chat_system_prompts_on = checkedPromptIds();
   cfg.chat_timeline = byId('fTimeline').checked;
   cfg.chat_userline = byId('fUserline').checked;
+  cfg.chat_send_anim = byId('fSendAnim').checked;
   return cfg;
 }
 
@@ -11080,6 +12927,21 @@ byId('logBody').addEventListener('scroll', function () {
   }
 });
 
+// The bar that searches the settings of the tab in front. The words are read a
+// moment after the last key, so a long word does not make and unmake the list on
+// every letter.
+var findTimer = 0;
+byId('sheetFindText').addEventListener('input', function () {
+  clearTimeout(findTimer);
+  findTimer = setTimeout(findApply, 90);
+});
+byId('sheetFindClear').addEventListener('click', function () {
+  clearTimeout(findTimer);
+  byId('sheetFindText').value = '';
+  findApply();
+  byId('sheetFindText').focus();
+});
+
 byId('tabProgram').addEventListener('click', function () {
   showSetTab('program'); if (!progDirty) { loadProgram(); }
 });
@@ -11122,6 +12984,16 @@ byId('tabMcp').addEventListener('click', function () { showSetTab('mcp'); });
 byId('mcKind').addEventListener('change', mcpKindRows);
 // The way a summarisation is started moves which of its two numbers stands.
 byId('fCompactBy').addEventListener('change', compactByRows);
+// The pre-written prompts: the button of a line shows the whole of that prompt,
+// and the window of reading closes on its own button or on the glass behind it.
+byId('fPromptLines').addEventListener('click', function (e) {
+  var one = e.target && e.target.dataset ? e.target.dataset.promptView : '';
+  if (one) { openPromptView(one); }
+});
+byId('promptClose').addEventListener('click', closePromptView);
+byId('promptOverlay').addEventListener('click', function (e) {
+  if (e.target === byId('promptOverlay')) { closePromptView(); }
+});
 byId('mcpSave').addEventListener('click', mcpSave);
 byId('mcpClear').addEventListener('click', function () {
   byId('mcpSaveNote').textContent = 'Write the next one below.';
@@ -11149,6 +13021,7 @@ byId('fOpenRepo').addEventListener('change', function (e) {
 });
 byId('fThemeLight').addEventListener('click', function () { chooseTheme('light'); });
 byId('fThemeDark').addEventListener('click', function () { chooseTheme('dark'); });
+byId('fThemeSilver').addEventListener('click', function () { chooseTheme('silver'); });
 byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('corporate'); });
 
 ['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mCachePrompt', 'mNoShift',
