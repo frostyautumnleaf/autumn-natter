@@ -72,7 +72,8 @@ async function main() {
   let shell = process.env.AN_SHELL_BIN || '';
   if (!shell) {
     try {
-      shell = execSync('find "' + process.env.HOME + '/.cache/puppeteer" '
+      shell = execSync('find "' + (process.env.PUPPETEER_CACHE_DIR
+        || process.env.HOME + '/.cache/puppeteer') + '" '
         + '-name chrome-headless-shell -type f | head -1').toString().trim();
     } catch (e) { shell = ''; }
   }

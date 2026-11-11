@@ -90,7 +90,11 @@ function readRuns() {
       row: !!first && String(first.className).split(' ')[0] === 'tshot',
       src: img ? String(img.getAttribute('src') || '') : '',
       alt: img ? String(img.getAttribute('alt') || '') : '',
-      title: eye ? String(eye.getAttribute('title') || '') : '',
+      // The words of a tooltip stand in `data-tip` now, and only in a `title`
+      // on a page that has not taken them; `aria-label` keeps them for a screen
+      // reader. Read them in the order the page itself reads them.
+      title: eye
+        ? String(eye.getAttribute('data-tip') || eye.getAttribute('title') || '') : '',
       aria: eye ? String(eye.getAttribute('aria-label') || '') : '',
       d: eye && eye.querySelector('svg path')
         ? String(eye.querySelector('svg path').getAttribute('d') || '') : '',
@@ -117,7 +121,8 @@ async function main() {
   let shell = process.env.AN_SHELL_BIN || '';
   if (!shell) {
     try {
-      shell = execSync('find "' + process.env.HOME + '/.cache/puppeteer" '
+      shell = execSync('find "' + (process.env.PUPPETEER_CACHE_DIR
+        || process.env.HOME + '/.cache/puppeteer') + '" '
         + '-name chrome-headless-shell -type f | head -1').toString().trim();
     } catch (e) { shell = ''; }
   }
@@ -180,7 +185,7 @@ async function main() {
 
   // One: the block of the run that opened a picture holds the picture.
   const seenRun = runs.filter(function (one) {
-    return one.head.indexOf('Looking at an image: notes/cat.png') === 0;
+    return one.head.indexOf('Looking at images: notes/cat.png') === 0;
   })[0];
   if (!seenRun) {
     faults.push('no block of the run that looked at an image: '
@@ -221,7 +226,7 @@ async function main() {
 
   // Four: a run that read no picture, and a command, keep the block they had.
   const blind = runs.filter(function (one) {
-    return one.head.indexOf('Looking at an image: notes/notes.txt') === 0;
+    return one.head.indexOf('Looking at images: notes/notes.txt') === 0;
   })[0];
   if (!blind) {
     faults.push('the run that read no picture is gone from the chat');
