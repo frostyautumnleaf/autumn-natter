@@ -598,6 +598,14 @@ pub struct Message {
     // came to its end.
     #[serde(default)]
     pub work_head: String,
+    // True when the model had already closed the one block of the answer with its
+    // own tool before these words were written. The words of a message that
+    // carries the mark stand outside the block of the work, as the answer the user
+    // came for; the words of a message without it stand inside the block, in a sub
+    // -block of their own. A chat written before the mark existed carries it
+    // nowhere, so its words keep standing outside, as they did.
+    #[serde(default)]
+    pub work_closed: bool,
     // True of a tool call the room gave out under, before the model had written
     // the whole of it. Such a call never ran, and its words are not whole, so
     // they go back to the model as the words of a turn and never as a call: a
