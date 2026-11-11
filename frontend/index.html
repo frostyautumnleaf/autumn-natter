@@ -8597,7 +8597,10 @@ function drawThread(s) {
       if (q >= 0) { placeEnd(turns[q], plan[q]); }
     }
   }
-  if (stick) { el.thread.scrollTop = el.thread.scrollHeight; }
+  if (stick) {
+    el.thread.scrollTop = el.thread.scrollHeight;
+    stepHeadShown();
+  }
 }
 
 // Send the blocks of code of a part of the chat back to their first line, when
@@ -8977,11 +8980,22 @@ function stepsBlock(plan, chosen) {
   // the block grows upward, and the step the user is reading is never covered.
   // A step with fewer lines needs no moving - nothing of the block is out of
   // sight then, and pulling the chat up under the answer would only shake it.
+  //
+  // A step longer than the chat itself has no room above to take. Holding its
+  // bottom edge leaves the head of the block, and the first lines of the step
+  // with it, above the chat, where no scroll can bring them back: the chat stops
+  // at its own head. The growth is therefore given back above only while the head
+  // of the block stands in view. Past that the chat stands at the head of the
+  // block instead, and the rest of the long step is read by scrolling down.
   function holdBottom(before) {
     var room = el.thread;
     if (!room) { return; }
     var delta = Math.round(box.getBoundingClientRect().height - before);
-    if (delta > 0) { room.scrollTop += delta; }
+    if (delta <= 0) { return; }
+    room.scrollTop += delta;
+    var edge = Math.round(room.getBoundingClientRect().top) + 12;
+    var head = Math.round(box.getBoundingClientRect().top);
+    if (head < edge) { room.scrollTop = Math.max(0, room.scrollTop + head - edge); }
   }
 
   // The step the block stands at, and the row of buttons that goes with it. The
@@ -9069,6 +9083,29 @@ function fitStepRows() {
 }
 
 window.addEventListener('resize', fitStepRows);
+
+// The head of the block of the steps is never left above the chat. A block of the
+// steps that is longer than the chat cannot be followed to its end and read from
+// its head at the same time, and the head wins once, when the block comes into the
+// chat: it names the list, counts the steps and carries the step the block stands
+// at, while the end of it is only the last lines of that one step. The rest of a
+// long step is read by scrolling down. Only the block nearest the end of the chat
+// is looked at, only while the chat follows its end, and only the first time the
+// block stands there - a block once looked at is left to the reader, who may have
+// gone down into its long step, and the chat that follows its end says so.
+function stepHeadShown() {
+  var room = el.thread;
+  if (!room) { return; }
+  var blocks = room.querySelectorAll('.steps');
+  if (!blocks.length) { return; }
+  var box = blocks[blocks.length - 1];
+  if (box.dataset.headShown) { return; }
+  box.dataset.headShown = '1';
+  var edge = Math.round(room.getBoundingClientRect().top) + 12;
+  var head = Math.round(box.getBoundingClientRect().top);
+  if (head >= edge) { return; }
+  room.scrollTop = Math.max(0, room.scrollTop + head - edge);
+}
 
 // The answers of a chat, in the order they stand: where one begins, where it
 // ends, whether the model is still writing it, what it offered to be taken away,
