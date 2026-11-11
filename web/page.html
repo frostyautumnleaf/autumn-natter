@@ -12583,14 +12583,19 @@ function copyModel() {
   });
 }
 
-// The Paste button. The clipboard is asked first, then the box, then the words this
-// tab copied last: the first of them that holds a shape of the settings goes into
-// the fields.
+// The Paste button. The clipboard is asked first, then the box, then - when
+// neither of them holds a word - the words this tab copied last: the first of
+// them that holds a shape of the settings goes into the fields. The memory of
+// this tab is never an answer to words that are not settings, for the user put
+// those words in the box on purpose, and a third thing behind their back would
+// move the fields of a paste that was meant to be refused.
 function pasteModel() {
   clipRead().then(function (words) {
+    var box = String(byId('mCarryBox').value || '');
+    var nothing = !String(words || '').trim() && !box.trim();
     var made = settingsFromWords(words)
-      || settingsFromWords(byId('mCarryBox').value)
-      || settingsFromWords(mdlCopied);
+      || settingsFromWords(box)
+      || (nothing ? settingsFromWords(mdlCopied) : null);
     if (!made) {
       carryNote('There was nothing to paste. Copy the settings of a model first, or put the words into the box below.', true);
       return;
