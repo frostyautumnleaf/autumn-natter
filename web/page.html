@@ -2784,9 +2784,18 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     <div class="sheet-body">
       <div class="pane" id="paneProgram">
         <div class="sec">Folders</div>
-        <div class="fld wide"><span class="lbl">Data directory</span>
-          <span class="sub">Where Autumn Natter stores the settings, the chats and the repository data.</span>
+        <div class="fld wide"><span class="lbl">Data directory in use</span>
+          <span class="sub">Where Autumn Natter stores the settings, the chats and the repository data, for this run of the program.</span>
           <div class="ctl"><span class="ro" id="fData"></span></div></div>
+        <div class="fld"><span class="lbl">Other data directory</span>
+          <span class="sub">Another place for the settings, the talks, the logs and the records. Leave it empty for the directory in use above. The folder must stand already, the program reads from it when it starts again, and nothing of the old place is moved for you.</span>
+          <div class="ctl"><input class="txt" id="fDataDir" type="text" placeholder="the usual place"></div></div>
+        <div class="fld wide"><span class="lbl">Context folder in use</span>
+          <span class="sub">Where the talks the model worked its way through are read from and written to, for this run of the program.</span>
+          <div class="ctl"><span class="ro" id="fContextsInUse"></span></div></div>
+        <div class="fld"><span class="lbl">Context folder</span>
+          <span class="sub">Where the talks the model worked its way through stand, which it reads back instead of reading the chat again. Leave it empty for the contexts folder inside the data directory. The talks of the old place are read no more.</span>
+          <div class="ctl"><input class="txt" id="fContexts" type="text" placeholder="the usual place"></div></div>
         <div class="fld"><span class="lbl">llama.cpp folder</span>
           <span class="sub">The folder that contains llama-server. The program starts that file for every answer.</span>
           <div class="ctl"><input class="txt" id="fLlama" type="text" placeholder="the folder of llama.cpp"></div></div>
@@ -12050,9 +12059,12 @@ function loadProgram() {
     var cfg = res[0]; var repos = res[1] || [];
     progCfg = cfg;
     byId('fData').textContent = (cur && cur.data_dir) || '';
+    byId('fContextsInUse').textContent = (cur && cur.contexts_dir) || '';
     byId('fLlama').value = cfg.llama_dir || '';
     byId('fModels').value = cfg.models_dir || '';
     byId('fRepos').value = cfg.repositories_dir || '';
+    byId('fDataDir').value = cfg.data_dir || '';
+    byId('fContexts').value = cfg.contexts_dir || '';
     byId('fPort').value = cfg.remote_port || '';
     byId('fUpnp').checked = !!cfg.upnp_enabled;
     // The switch of the skin stands at the skin in use, which the state brought.
@@ -12659,6 +12671,8 @@ function readProgram() {
   cfg.llama_dir = byId('fLlama').value;
   cfg.models_dir = byId('fModels').value;
   cfg.repositories_dir = byId('fRepos').value;
+  cfg.data_dir = byId('fDataDir').value;
+  cfg.contexts_dir = byId('fContexts').value;
   var port = parseInt(byId('fPort').value, 10);
   cfg.remote_port = isNaN(port) ? (cfg.remote_port || 8723) : port;
   cfg.upnp_enabled = byId('fUpnp').checked;

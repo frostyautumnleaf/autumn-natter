@@ -1333,6 +1333,9 @@ pub struct Snap {
     // The skin the pages are drawn in: `light`, `dark` or `corporate`.
     pub theme: String,
     pub data_dir: String,
+    // The folder the talks the model worked its way through stand in, which the
+    // settings window reads out beside the field that chooses another place.
+    pub contexts_dir: String,
     // What the sandbox can do on this machine, for the settings window.
     pub sandbox_note: String,
     // Chatting. Whether a thinking panel is folded up while it is written.
@@ -3479,6 +3482,7 @@ impl State {
             dark_mode: self.cfg.dark_mode,
             theme: config::theme_word(&self.cfg.theme, self.cfg.dark_mode),
             data_dir: config::paths().data.display().to_string(),
+            contexts_dir: config::contexts_dir(&self.cfg).display().to_string(),
             sandbox_note: self.sandbox_note.clone(),
             chat_collapse_thinking: self.cfg.chat_collapse_thinking,
             chat_grow_thinking: self.cfg.chat_grow_thinking,
@@ -5267,6 +5271,7 @@ impl Snap {
             dark_mode: false,
             theme: String::new(),
             data_dir: String::new(),
+            contexts_dir: String::new(),
             sandbox_note: String::new(),
             chat_collapse_thinking: true,
             chat_grow_thinking: true,
@@ -5549,14 +5554,15 @@ fn fnv1a(words: &str) -> u64 {
 }
 
 // Ask the server to write the talk of one slot out into its file, and put that
-// file into its short shape directly after. The talk of a chat costs as much
-// room as the model set aside for it, so it is never left standing at full
+// file into its short shape directly after. The talks stand in the folder `dir`,
+// which is where the talks of this program stand. The talk of a chat costs as
+// much room as the model set aside for it, so it is never left standing at full
 // size: see `src/contexts.rs`. A talk that could not be written, or that could
 // not be shortened, is a talk read through again, as it always was.
-fn write_talk(base_url: &str, slot: usize, name: &str, shorten: bool) {
+fn write_talk(base_url: &str, slot: usize, name: &str, shorten: bool, dir: &Path) {
     if let Ok(stood) = llama::slot_state(base_url, "save", slot, name) {
         if stood > 0 && shorten {
-            contexts::pack(&config::paths().contexts, name);
+            contexts::pack(dir, name);
         }
     }
 }
@@ -5567,18 +5573,18 @@ fn write_talk(base_url: &str, slot: usize, name: &str, shorten: bool) {
 // from an older run of the program, or from a shortening that could not be
 // finished -- is read as it stands and shortened afterwards, which is how a
 // folder of talks left by an older run shortens itself as the chats come round.
-fn read_talk(base_url: &str, slot: usize, name: &str, shorten: bool) {
-    let dir = config::paths().contexts;
+// The talks are read out of the folder `dir`.
+fn read_talk(base_url: &str, slot: usize, name: &str, shorten: bool, dir: &Path) {
     // The talk is laid out either way: a chat whose file stands in the short
     // shape is read out of that shape even when the switch is off now, and only
     // a raw file that stood is shortened again, and then only when asked for.
-    let found = contexts::lay_out(&dir, name);
+    let found = contexts::lay_out(dir, name);
     let _ = llama::slot_state(base_url, "restore", slot, name);
     match found {
-        contexts::Laid::FromShort => contexts::take_away(&dir, name),
+        contexts::Laid::FromShort => contexts::take_away(dir, name),
         contexts::Laid::RawStood => {
             if shorten {
-                contexts::pack(&dir, name);
+                contexts::pack(dir, name);
             }
         }
         contexts::Laid::Nothing => {}
@@ -5663,17 +5669,22 @@ fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> O
     // written out here. This is the moment the keeping earns its keep: the slot
     // of that chat is taken, and what the model made of its talk stands
     // nowhere else.
-    // Whether the talks this program writes are written in the short shape.
-    // The switch is read once here, so that a talk written and a talk read at
-    // the same moment stand in the one shape.
-    let shorten = state
+    // Whether the talks this program writes are written in the short shape, and
+    // where they stand. Both are read once here, so that a talk written and a talk
+    // read at the same moment stand in the one shape and in the one folder.
+    let (shorten, contexts) = state
         .lock()
-        .map(|guard| guard.cfg.chat_context_compression)
-        .unwrap_or(false);
+        .map(|guard| {
+            (
+                guard.cfg.chat_context_compression,
+                config::contexts_dir(&guard.cfg),
+            )
+        })
+        .unwrap_or_else(|_| (false, config::paths().contexts));
     if let Some(other) = holds.get(&slot) {
         if other != &chat_id {
             let name = context_name(other, model_id);
-            write_talk(base_url, slot, &name, shorten);
+            write_talk(base_url, slot, &name, shorten, &contexts);
         }
     }
     // The talk of this chat, out of its file and into the slot. A file that is
@@ -5682,7 +5693,7 @@ fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> O
     // as it always was. Nothing is said either way, for the words that come
     // back are the same words however the talk got there.
     let name = context_name(&chat_id, model_id);
-    read_talk(base_url, slot, &name, shorten);
+    read_talk(base_url, slot, &name, shorten, &contexts);
     if let Ok(mut guard) = state.lock() {
         guard.context_holds.insert(slot, chat_id.clone());
         guard.context_slot.insert(chat_id, slot);
@@ -5701,13 +5712,18 @@ fn save_all_contexts(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
         Ok(guard) => guard.context_holds.clone(),
         Err(_) => return,
     };
-    let shorten = state
+    let (shorten, contexts) = state
         .lock()
-        .map(|guard| guard.cfg.chat_context_compression)
-        .unwrap_or(false);
+        .map(|guard| {
+            (
+                guard.cfg.chat_context_compression,
+                config::contexts_dir(&guard.cfg),
+            )
+        })
+        .unwrap_or_else(|_| (false, config::paths().contexts));
     for (slot, chat_id) in holds {
         let name = context_name(&chat_id, model_id);
-        write_talk(base_url, slot, &name, shorten);
+        write_talk(base_url, slot, &name, shorten, &contexts);
     }
 }
 
@@ -5747,11 +5763,16 @@ fn save_chat_context(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
     // A talk that cannot be written is a talk read through again, as it always
     // was: the words of the chat stand in its file of chats whatever happens
     // here.
-    let shorten = state
+    let (shorten, contexts) = state
         .lock()
-        .map(|guard| guard.cfg.chat_context_compression)
-        .unwrap_or(false);
-    write_talk(base_url, slot, &name, shorten);
+        .map(|guard| {
+            (
+                guard.cfg.chat_context_compression,
+                config::contexts_dir(&guard.cfg),
+            )
+        })
+        .unwrap_or_else(|_| (false, config::paths().contexts));
+    write_talk(base_url, slot, &name, shorten, &contexts);
     Some(name)
 }
 
@@ -9571,7 +9592,10 @@ fn ensure_server(
         // when the user has the keeping on. The server is told the folder and
         // nothing else: it makes the names of the files inside it by itself,
         // and never looks outside it. See `context_claim`.
-        let keeping = state.cfg.chat_context_files.then(|| config::paths().contexts);
+        let keeping = state
+            .cfg
+            .chat_context_files
+            .then(|| config::contexts_dir(&state.cfg));
         (binary, state.gpus.clone(), wants, keeping)
     };
     // The model loads once and stays loaded for every chat that asks for the

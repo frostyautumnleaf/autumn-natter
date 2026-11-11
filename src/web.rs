@@ -454,6 +454,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         },
         // The folder of the program data. The window of settings reads it out.
         "data_dir": snap.data_dir,
+        // The folder the talks the model worked its way through stand in.
+        "contexts_dir": snap.contexts_dir,
     })
 }
 
