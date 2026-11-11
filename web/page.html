@@ -3082,6 +3082,9 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld wide"><span class="lbl">Extra arguments</span>
           <span class="sub">Arguments given to llama-server as they stand. They take priority over the fields above.</span>
           <div class="ctl"><textarea id="mExtra" placeholder="extra arguments"></textarea></div></div>
+        <div class="fld"><span class="lbl">Default arguments</span>
+          <span class="sub">Send the arguments this program builds from the fields above. Off sends only the model, its name, the address and the port. Use Off for a server of another build that knows none of these arguments. Put the words that server wants into the field above, for they go out last and win. With Off, nothing else of this tab is asked for, and the talks are not kept.</span>
+          <div class="ctl"><input id="mDefaultArgs" type="checkbox"></div></div>
 
         <div class="sec">Command line</div>
         <div class="fld wide" style="border-bottom:0"><span class="lbl">The command the next answer will run</span>
@@ -11901,6 +11904,9 @@ function fillModelForm(given) {
   byId('mVramText').textContent = vramShareOf(s.vram_budget) + '%';
   byId('mTemplate').value = s.chat_template || '';
   byId('mExtra').value = s.extra_args || '';
+  // A setting of a file written before this switch existed reads as the switch
+  // of a new set of settings, which is on.
+  byId('mDefaultArgs').checked = s.send_default_args !== false;
   refreshPreview();
 }
 
@@ -11960,6 +11966,7 @@ function readModel() {
   s.tensor_parallel = byId('mTensor').checked;
   s.chat_template = byId('mTemplate').value;
   s.extra_args = byId('mExtra').value;
+  s.send_default_args = byId('mDefaultArgs').checked;
   s.vram_budget = vramShareOf(byId('mVram').value);
   var arr = [];
   var boxes = byId('mCards').querySelectorAll('input[data-i]');
@@ -12924,7 +12931,7 @@ byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('cor
   'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',
   'mVision', 'mImgMin', 'mImgMax', 'mMmprojCpu', 'mBudget', 'mReasonMsg', 'mTensor',
   'mVram',
-  'mTemplate', 'mExtra'].forEach(function (id) {
+  'mTemplate', 'mExtra', 'mDefaultArgs'].forEach(function (id) {
   var node = byId(id);
   node.addEventListener('input', function () {
     if (id === 'mVram') { byId('mVramText').textContent = vramShareOf(node.value) + '%'; }

@@ -940,6 +940,7 @@ const MODEL = {
     image_min_tokens: 0, image_max_tokens: 0, no_context_shift: false,
     mmproj_cpu: false,
     reasoning_budget: -1, reasoning_message: '', chat_template: '', extra_args: '',
+    send_default_args: true,
     vram_budget: 0, gpu_enabled: [true, false]
   },
   gpus: [
