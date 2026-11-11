@@ -44,7 +44,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       batch_size: 2048, ubatch_size: 512, vision: false, image_min_tokens: 0,
       image_max_tokens: 0, mmproj_cpu: false, reasoning_budget: -1,
       reasoning_message: '', tensor_parallel: false, chat_template: '',
-      extra_args: '', vram_budget: 90, gpu_enabled: [false]
+      extra_args: '', send_default_args: true, vram_budget: 90, gpu_enabled: [false]
     };
     var gpus = [{ name: 'A card', memory_text: '12 GiB', memory_mb: 12288, is_offload: true }];
     var presets = [];      // the presets the program holds, as the file holds them

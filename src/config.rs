@@ -170,6 +170,14 @@ pub struct ModelSettings {
     // Index inside the model load mode list in llama.rs.
     pub load_index: usize,
     pub extra_args: String,
+    // Send the arguments this program builds from the fields above. With the
+    // switch off, only the words that connect the program to a server go out:
+    // the model, its name, the address and the port. A server of another build
+    // that knows none of the arguments of this program is then run with a
+    // command line of the user's own, put into the field of the extra
+    // arguments. The extra arguments are still sent last, so they win over the
+    // four words of the connection, the model above all.
+    pub send_default_args: bool,
     // How much of the cards the model may work in, as a share of what the
     // cards hold together: 90 means nine tenths of the cards, and the tenth
     // stands over. The fit of the model into the cards is asked for of
@@ -215,6 +223,8 @@ impl Default for ModelSettings {
             // mmap keeps the model in the file cache.
             load_index: 1,
             extra_args: String::new(),
+            // The arguments of this program go out unless the user says otherwise.
+            send_default_args: true,
             vram_budget: 90.0,
             gpu_enabled: Vec::new(),
         }

@@ -318,8 +318,12 @@ impl Server {
         // the keeping of every talk would go missing with it. A folder that
         // cannot be made is told to the user; the server starts none the
         // less, only without the keeping.
+        //
+        // The switch of the default arguments holds for these words as well, so
+        // a server that is given a command line of the user's own is not given
+        // an argument it may not know. With the switch off no talk is kept.
         let keeping = match keep_talks {
-            Some(dir) => match fs::create_dir_all(dir) {
+            Some(dir) if settings.send_default_args => match fs::create_dir_all(dir) {
                 Ok(()) => slot_save_flags(dir),
                 Err(problem) => {
                     notes.push(format!(
@@ -329,7 +333,9 @@ impl Server {
                     Vec::new()
                 }
             },
-            None => Vec::new(),
+            // No folder at all, or the switch of the default arguments off:
+            // nothing is named to the server, and nothing is kept.
+            _ => Vec::new(),
         };
         // Every start asks for the chat template of the model. Three things of
         // a chat are read out of that template and nothing else: the tools the
@@ -403,7 +409,13 @@ impl Server {
                     // the tools of a chat, a thinking mode, or the keeping of
                     // the thinking. One retry without the template tells the
                     // user less and still works.
-                    if attempt == 1 && template && problem.exited {
+                    //
+                    // With the switch of the default arguments off, the program
+                    // never asked for the template, so a start that left is not
+                    // the fault of it. The words of the user would go out again
+                    // as they stand, and the second attempt would say the same
+                    // thing twice.
+                    if attempt == 1 && template && problem.exited && settings.send_default_args {
                         notes.push(
                             "This model has no usable chat template, so no tool and no thinking mode is offered"
                                 .to_string(),
@@ -537,6 +549,11 @@ pub fn graphs_of_a_spread_model(gpus: &[Gpu]) -> bool {
 // are sent with the ask instead of with the command line: the tools of the
 // chat, the thinking mode, and the keeping of the thinking of the earlier
 // turns. `thinking_kwargs` is the other half of that.
+//
+// With `send_default_args` off, only the four words of the connection go out:
+// the model, its name, the address and the port. Nothing else of this program
+// is named to the server then, and the command line is those four words and
+// the extra arguments of the user.
 pub fn build_args(
     _binary: &Path,
     model: &ModelInfo,
@@ -556,6 +573,27 @@ pub fn build_args(
         "127.0.0.1".into(),
         "--port".into(),
         port.to_string(),
+    ];
+
+    // The switch of the default arguments. A server of another build, a fork
+    // that knows none of the arguments llama.cpp answers to today, throws out
+    // the command line at the first word it does not know and is gone before
+    // the program can speak to it. With the switch off, the whole of the
+    // command line but the four words of the connection is then what the user
+    // wrote in the field of the extra arguments, and that field is sent last:
+    // another model, another port or another address named there is the last
+    // word, as it is for every argument of the tab when the switch stands on.
+    if !settings.send_default_args {
+        notes.push(String::from(
+            "The default arguments are off, so the server is given only the model, its name, the address and the port. Nothing of the Model tab is asked for, and the talks are not kept.",
+        ));
+        for part in util::split_args(&settings.extra_args) {
+            args.push(part);
+        }
+        return args;
+    }
+
+    args.extend(vec![
         "--no-webui".into(),
         "--props".into(),
         "--slots".into(),
@@ -586,7 +624,7 @@ pub fn build_args(
         // own.
         "-fa".into(),
         "on".into(),
-    ];
+    ]);
 
     // Devices. llama.cpp has no tensor parallel switch, so the device list
     // does that work: every enabled device, or only the first one.
@@ -1391,6 +1429,91 @@ mod tests {
                 String::from("/data/of/the/program/contexts")
             ]
         );
+    }
+
+    // The switch of the default arguments, off, leaves the four words of the
+    // connection and the words of the user, and nothing else. A server of
+    // another build, which throws out a command line at the first word it does
+    // not know, is then given a line it can read to the end. The words of the
+    // user go last, so a model, an address or a port named there is the last
+    // word, as it is for every argument of the tab when the switch stands on.
+    #[test]
+    fn the_switch_of_the_default_arguments_lets_the_user_have_the_line() {
+        let settings = ModelSettings {
+            send_default_args: false,
+            extra_args: String::from("--device none -ngl 0 --jinja"),
+            ..Default::default()
+        };
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        let want: Vec<String> = [
+            "--model", "/models/one.gguf", "--alias", "one", "--host", "127.0.0.1", "--port",
+            "8080", "--device", "none", "-ngl", "0", "--jinja",
+        ]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(args, want);
+        // The user is told what the switch took away: nothing of the Model tab
+        // is asked for, and no talk is kept.
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("default arguments are off"));
+        assert!(notes[0].contains("talks are not kept"));
+    }
+
+    // With the switch on, which is where a new set of settings stands, the
+    // words of the connection go out with the arguments of this program, as
+    // they always did. A settings file written before the switch existed reads
+    // as the switch on, so no model loses the arguments it was started with.
+    #[test]
+    fn the_default_arguments_go_out_when_the_switch_stands_on() {
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings::default(),
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        for word in [
+            "--model",
+            "--alias",
+            "--host",
+            "--port",
+            "--no-webui",
+            "--props",
+            "--slots",
+            "-v",
+            "-c",
+            "-ctk",
+            "--temp",
+            "--jinja",
+        ] {
+            assert!(args.iter().any(|a| a == word), "{} goes out", word);
+        }
+        assert!(notes.is_empty());
+        assert!(ModelSettings::default().send_default_args);
+    }
+
+    // A settings file of the day before the switch has no word for it, and is
+    // read as the switch on. A file that says off is read as off.
+    #[test]
+    fn a_settings_file_without_the_switch_is_read_as_the_switch_on() {
+        let held: ModelSettings = serde_json::from_str("{\"ctx_size\":4096}").unwrap();
+        assert!(held.send_default_args);
+        let off: ModelSettings =
+            serde_json::from_str("{\"ctx_size\":4096,\"send_default_args\":false}").unwrap();
+        assert!(!off.send_default_args);
     }
 
     // The Sampling section sends its values to the server on every start, and
