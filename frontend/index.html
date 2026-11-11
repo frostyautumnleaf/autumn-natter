@@ -8246,6 +8246,25 @@ function drawPlanAsks(s) {
   // The mark of send wakes at once on what the user had ticked before this block
   // was made, and sleeps for good once the answers went.
   planReady(box, one.id, items.length);
+  planAskShown(box);
+}
+
+// The questions are what the model is waited for, so the talk is brought to a
+// questionnaire that comes new into it. The head of the block is stood at the top
+// of the chat, and the scroll the chat cannot make is held back by the browser
+// itself: a short sheet ends with its button of send in view, and a long one
+// begins where it is read from and is gone down into by scrolling. A sheet that
+// stands whole in view is left alone, and so is one that stands already - the
+// state is read again and again, and a sheet that jumped on every read could not
+// be answered by the hand that was busy ticking boxes.
+function planAskShown(box) {
+  var room = el.thread;
+  if (!room || !box || !box.isConnected) { return; }
+  var held = box.getBoundingClientRect();
+  var seen = room.getBoundingClientRect();
+  var edge = Math.round(seen.top) + 12;
+  if (Math.round(held.top) >= edge && Math.round(held.bottom) <= Math.round(seen.bottom)) { return; }
+  room.scrollTop = Math.max(0, room.scrollTop + Math.round(held.top) - edge);
 }
 
 // The mark of send wakes when the user has answered something, and sleeps while

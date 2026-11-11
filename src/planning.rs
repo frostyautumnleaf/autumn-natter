@@ -360,7 +360,11 @@ pub fn system_prompt(plan: &str) -> String {
          ask them in the plan to confirm, to choose or to fill anything in. A plan \
          that holds questions for the user is a plan that cannot be carried out, \
          for nobody will ever read them.\n\n\
-         When a thing can be settled only by the user, ask with `{}`. Ask any \
+         When a thing can be settled only by the user, ask with `{}`. It is the way \
+         to ask in this mode: not with `ask_user`, whose card over the chat box is \
+         gone when its few seconds are spent and brings back one answer at a time, \
+         and not with a question written in the words of an answer, which is read \
+         after the turn is over and often not answered at all. Ask any \
          number of questions in one call, each with the answers the user may choose \
          from; set many to true when several of them may be chosen, and give no \
          list when the user is to write the answer. The questions stand in the talk \
@@ -688,7 +692,7 @@ pub fn ask_definition() -> Value {
         "type": "function",
         "function": {
             "name": ASK_NAME,
-            "description": "Put a questionnaire to the user, and wait for the answers. Use it for the few things that only the user can settle, and never for the rest. Ask any number of questions in one call. Each question carries the words of it and the answers the user may choose from; set many to true when more than one of them may be chosen, and leave the list empty when the user is to write the answer instead. The questionnaire stands in the talk itself, the user chooses what they like of it and sends the whole of it when they are ready, and there is no clock on it. Nothing of the plan is sent to the user, so every question you need an answer to must be asked with this tool: never write a question, an open point for the user, or a list of things to confirm into the plan file.",
+            "description": "Put a questionnaire to the user, and wait for the answers. Use it for the few things that only the user can settle, and never for the rest. Ask any number of questions in one call. Each question carries the words of it and the answers the user may choose from; set many to true when more than one of them may be chosen, and leave the list empty when the user is to write the answer instead. The questionnaire stands in the talk itself, the user chooses what they like of it and sends the whole of it when they are ready, and there is no clock on it. This is the way to ask the user anything while planning mode is on: use it instead of `ask_user`, whose card over the chat box is gone when its few seconds are spent and brings back one answer at a time, and instead of a question written in the words of an answer, which is read after the turn is over and often not answered at all. Nothing of the plan is sent to the user, so every question you need an answer to must be asked with this tool: never write a question, an open point for the user, or a list of things to confirm into the plan file.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1363,6 +1367,24 @@ mod tests {
         assert!(made.ok, "{}", made.output);
         assert!(made.output.starts_with("Nothing was found"), "{}", made.output);
         let _ = fs::remove_file(&place);
+    }
+
+    // The questions of the plan go to one tool. The prompt and the words of the
+    // tool both say that the questionnaire is the way to ask in planning mode, and
+    // not the card over the chat box, which is gone when its few seconds are spent,
+    // nor a question written in the words of an answer.
+    #[test]
+    fn the_prompt_sends_the_questions_to_the_questionnaire() {
+        let said = system_prompt("plan-7.md");
+        assert!(said.contains(ASK_NAME), "{said}");
+        assert!(said.contains("ask_user"), "{said}");
+        assert!(said.contains("It is the way to ask in this mode: not with `ask_user`"), "{said}");
+        let words = ask_definition()["function"]["description"]
+            .as_str()
+            .expect("words")
+            .to_string();
+        assert!(words.contains("instead of `ask_user`"), "{words}");
+        assert!(words.contains("no clock on it"), "{words}");
     }
 
     // The prompt tells the model that the user never sees the plan, names the
