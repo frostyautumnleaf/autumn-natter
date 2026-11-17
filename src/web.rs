@@ -614,7 +614,7 @@ pub fn model_settings_value(engine: &crate::engine::Engine, id: &str) -> Value {
             .collect::<Vec<_>>(),
         "kinds": llama::KV_TYPES.to_vec(),
         "loads": llama::LOAD_MODES.to_vec(),
-        "specs": llama::SPEC_TYPES.to_vec(),
+        "specs": llama::spec_names(),
         // The shapes of the settings that the user has named. They come with the
         // settings of the model, for the tab that shows the one shows the other,
         // and a preset is nothing but settings with a name stood before them.

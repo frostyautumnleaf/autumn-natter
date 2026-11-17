@@ -20,20 +20,59 @@ pub const KV_TYPES: &[&str] = &[
     "f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1",
 ];
 
-// Speculative decoding methods llama.cpp accepts for --spec-type.
-pub const SPEC_TYPES: &[&str] = &[
-    "none",
-    "draft-simple",
-    "draft-eagle3",
-    "draft-mtp",
-    "draft-dflash",
-    "draft-dspark",
-    "ngram-simple",
-    "ngram-map-k",
-    "ngram-map-k4v",
-    "ngram-mod",
-    "ngram-cache",
+// Speculative decoding methods llama.cpp accepts for --spec-type, with the words
+// each choice of the sheet hands to the server. The two stand together here
+// because one choice is a pair: ngram-mod and MTP at once, which the server
+// takes as a comma-separated list and runs both ways of guessing.
+//
+// The place in this list is the number a set of settings keeps, so a new choice
+// goes at the end: the choices before it keep the places the settings files of
+// the users name.
+pub const SPEC_TYPES: &[(&str, &str)] = &[
+    ("none", "none"),
+    ("draft-simple", "draft-simple"),
+    ("draft-eagle3", "draft-eagle3"),
+    ("draft-mtp", "draft-mtp"),
+    ("draft-dflash", "draft-dflash"),
+    ("draft-dspark", "draft-dspark"),
+    ("ngram-simple", "ngram-simple"),
+    ("ngram-map-k", "ngram-map-k"),
+    ("ngram-map-k4v", "ngram-map-k4v"),
+    ("ngram-mod", "ngram-mod"),
+    ("ngram-cache", "ngram-cache"),
+    // The pair. The ngram-mod guesses come out of the talk itself and cost
+    // nothing of the model, and the MTP head guesses what it can while the
+    // n-grams stand empty handed.
+    ("ngram-mod + MTP", "ngram-mod,draft-mtp"),
 ];
+
+// The names of the choices, for the sheet.
+pub fn spec_names() -> Vec<&'static str> {
+    SPEC_TYPES.iter().map(|(name, _value)| *name).collect()
+}
+
+// The words one choice hands to `--spec-type`. A place outside the list is read
+// as the whole of it being off, which is what a settings file that names no
+// choice means.
+pub fn spec_value(index: usize) -> &'static str {
+    SPEC_TYPES
+        .get(index)
+        .map(|(_name, value)| *value)
+        .unwrap_or("none")
+}
+
+// True when the choice asks for the ngram-mod guesses, on its own or beside
+// another way of guessing. The three numbers of ngram-mod go to the server only
+// then.
+pub fn spec_has_ngram_mod(index: usize) -> bool {
+    spec_value(index).contains("ngram-mod")
+}
+
+// True when the choice asks for the MTP head of the model. The head is then the
+// file the drafts come from.
+pub fn spec_has_mtp(index: usize) -> bool {
+    spec_value(index).contains("draft-mtp")
+}
 
 // Model load modes shown in the user interface. The value handed to llama.cpp
 // is the last one, because directio is called dio there.
@@ -252,6 +291,51 @@ pub fn find_mmproj(model: &Path) -> Option<PathBuf> {
         // on either side taken away.
         let pbase = shard_base(&pstem);
         if pbase.starts_with(&base) || base.starts_with(&pbase) || name.starts_with(&stem) {
+            return Some(path);
+        }
+        if fallback.is_none() {
+            fallback = Some(path);
+        }
+    }
+    fallback
+}
+
+// Find the MTP head that belongs to a model, the way the vision projector is
+// found: where the files of the model stand, which is a folder of its own when
+// the model has one, and not in the folder of models the user pointed at.
+//
+// A head answers to `mtp` in its name. It is never the file of the model itself,
+// for a model whose own name carries the word is not a head of itself, and the
+// server would be asked to head a model with the model.
+pub fn find_mtp(model: &Path) -> Option<PathBuf> {
+    let dir = model.parent()?;
+    let stem = model.file_stem()?.to_string_lossy().to_lowercase();
+    let base = shard_base(&stem);
+    let entries = fs::read_dir(dir).ok()?;
+    let mut fallback: Option<PathBuf> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if !name.ends_with(".gguf") || !name.contains("mtp") {
+            continue;
+        }
+        if path == model {
+            continue;
+        }
+        let hstem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .unwrap_or_else(|| name.clone());
+        // A head that was split too is read from its first part.
+        if let Some((_hbase, number, _total)) = shard_of(&hstem) {
+            if number != 1 {
+                continue;
+            }
+        }
+        // Prefer the head named for the model it heads, with the word for the
+        // head anywhere between the two ends of the name.
+        let hbase = shard_base(&hstem);
+        if hbase.starts_with(&base) || base.starts_with(&hbase) {
             return Some(path);
         }
         if fallback.is_none() {
@@ -787,15 +871,48 @@ pub fn build_args(
     // of the Model tab is a setting of the server and stays here.
 
     // Speculative decoding.
-    let spec = SPEC_TYPES[clamp(settings.spec_index, SPEC_TYPES.len())];
+    let spec = spec_value(settings.spec_index);
     if spec != "none" {
         args.push("--spec-type".into());
         args.push(spec.to_string());
         args.push("--spec-draft-n-max".into());
         args.push(settings.draft_tokens.max(1).to_string());
-        if !settings.draft_model.trim().is_empty() {
+        // The three numbers ngram-mod is given, and only for a choice that asks
+        // for ngram-mod. 0 keeps the number the server stands on, so a set of
+        // settings written before these fields existed asks for nothing and
+        // guesses as it did.
+        if spec_has_ngram_mod(settings.spec_index) {
+            if settings.ngram_match > 0 {
+                args.push("--spec-ngram-mod-n-match".into());
+                args.push(settings.ngram_match.to_string());
+            }
+            if settings.ngram_max > 0 {
+                args.push("--spec-ngram-mod-n-max".into());
+                args.push(settings.ngram_max.to_string());
+            }
+            if settings.ngram_min > 0 {
+                args.push("--spec-ngram-mod-n-min".into());
+                args.push(settings.ngram_min.to_string());
+            }
+        }
+        // The file the guesses come from. For MTP it is the head of the model
+        // itself: when the user names no file, the head is looked for beside the
+        // model, as the projector of a model that can look at pictures is.
+        let mut draft = settings.draft_model.trim().to_string();
+        if draft.is_empty() && spec_has_mtp(settings.spec_index) {
+            if let Some(head) = find_mtp(&model.path) {
+                notes.push(format!(
+                    "The MTP head of the model is read from {}.",
+                    head.file_name()
+                        .map(|one| one.to_string_lossy().to_string())
+                        .unwrap_or_else(|| head.display().to_string())
+                ));
+                draft = head.display().to_string();
+            }
+        }
+        if !draft.is_empty() {
             args.push("--spec-draft-model".into());
-            args.push(settings.draft_model.clone());
+            args.push(draft);
         }
     }
 
@@ -2552,5 +2669,225 @@ mod tests {
     fn find_flag(args: &[String], flag: &str) -> String {
         let pos = args.iter().position(|a| a == flag).expect("the flag is there");
         args[pos + 1].clone()
+    }
+
+    // The place of one choice in the list of them. The settings keep the place,
+    // so a check that named the places would drift with the list.
+    fn place_of(name: &str) -> usize {
+        spec_names()
+            .iter()
+            .position(|one| *one == name)
+            .unwrap_or_else(|| panic!("{} is no choice of the sheet", name))
+    }
+
+    // The two ways of guessing go to the server as one list, for the server runs
+    // every way named in it. The pair stands at the end of the list, so the
+    // choices before it keep the places the settings files of the users name.
+    #[test]
+    fn the_two_ways_of_guessing_go_to_the_server_together() {
+        assert_eq!(SPEC_TYPES.len(), 12);
+        let pair = place_of("ngram-mod + MTP");
+        assert_eq!(pair, SPEC_TYPES.len() - 1);
+        assert_eq!(spec_value(place_of("ngram-mod")), "ngram-mod");
+        assert_eq!(spec_value(place_of("draft-mtp")), "draft-mtp");
+        assert_eq!(spec_value(pair), "ngram-mod,draft-mtp");
+        // A place the settings name that is no place at all is read as no
+        // guessing, and not as the pair.
+        assert_eq!(spec_value(99), "none");
+        assert!(spec_has_ngram_mod(pair) && spec_has_mtp(pair));
+        assert!(spec_has_ngram_mod(place_of("ngram-mod")));
+        assert!(!spec_has_mtp(place_of("ngram-mod")));
+        assert!(!spec_has_ngram_mod(place_of("draft-mtp")));
+        assert!(spec_has_mtp(place_of("draft-mtp")));
+
+        let settings = ModelSettings {
+            spec_index: pair,
+            draft_tokens: 6,
+            ..Default::default()
+        };
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--spec-type"), "ngram-mod,draft-mtp");
+        assert_eq!(find_flag(&args, "--spec-draft-n-max"), "6");
+    }
+
+    // The three numbers ngram-mod is given reach the server with a choice that
+    // asks for ngram-mod, and with that choice only. 0 in a field keeps the
+    // number the server stands on.
+    #[test]
+    fn the_numbers_of_ngram_mod_reach_the_server_it_is_asked_for() {
+        let asked = ModelSettings {
+            spec_index: place_of("ngram-mod"),
+            ngram_match: 24,
+            ngram_max: 64,
+            ngram_min: 48,
+            ..Default::default()
+        };
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &asked,
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--spec-ngram-mod-n-match"), "24");
+        assert_eq!(find_flag(&args, "--spec-ngram-mod-n-max"), "64");
+        assert_eq!(find_flag(&args, "--spec-ngram-mod-n-min"), "48");
+        // The numbers of a way of guessing the server was not asked for stay
+        // away, and so does every one of them with 0 in the field.
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings {
+                spec_index: place_of("draft-mtp"),
+                ngram_match: 24,
+                ngram_max: 64,
+                ngram_min: 48,
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a.starts_with("--spec-ngram-mod")));
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings {
+                spec_index: place_of("ngram-mod"),
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a.starts_with("--spec-ngram-mod")));
+        // The numbers of the settings that were written before these fields
+        // existed are the numbers of the server, which is 0 in each field.
+        assert_eq!(ModelSettings::default().ngram_match, 0);
+        assert_eq!(ModelSettings::default().ngram_max, 0);
+        assert_eq!(ModelSettings::default().ngram_min, 0);
+    }
+
+    // The head of a model is looked for where the files of the model stand, and
+    // is never the file of the model itself.
+    #[test]
+    fn the_mtp_head_of_a_model_is_found_beside_it() {
+        let root = std::env::temp_dir().join("an-llama-mtp-check");
+        let _ = fs::remove_dir_all(&root);
+        let inner = root.join("Qwen3.5-9B");
+        fs::create_dir_all(&inner).expect("the folder of the model is made");
+        let target = inner.join("Qwen3.5-9B-Q4_K_M.gguf");
+        fs::write(&target, b"x").expect("the model stands");
+        let head = inner.join("Qwen3.5-9B-MTP-Q4_K_M.gguf");
+        fs::write(&head, b"x").expect("the head stands");
+        fs::write(inner.join("Qwen3.5-9B-mmproj-f16.gguf"), b"x").expect("the projector stands");
+        assert_eq!(
+            find_mtp(&target).expect("the head stands with the model"),
+            head
+        );
+        // A model whose own name carries the word for the head is not a head of
+        // itself: it is not offered back as its own head.
+        let named = inner.join("Gemma-4-12B-MTP-QAT.gguf");
+        fs::write(&named, b"x").expect("another model stands");
+        assert_ne!(find_mtp(&named).unwrap(), named);
+        // A model with no head beside it has none.
+        let alone = root.join("Alone.gguf");
+        fs::write(&alone, b"x").expect("a model alone stands");
+        assert!(find_mtp(&alone).is_none(), "no head stands in the folder");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // With a choice that asks for the head of the model, and no file named by
+    // the user, the head found beside the model goes to the server, and is told
+    // in the notes. A file of the user stands over it, and a choice that asks
+    // for no head is given nothing.
+    #[test]
+    fn the_head_of_the_model_goes_to_the_server_when_mtp_is_asked_for() {
+        let root = std::env::temp_dir().join("an-llama-mtp-args");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("the folder of the model is made");
+        let target = root.join("Qwen3.5-9B-Q4_K_M.gguf");
+        fs::write(&target, b"x").expect("the model stands");
+        let head = root.join("Qwen3.5-9B-MTP.gguf");
+        fs::write(&head, b"x").expect("the head stands");
+        let with_head = ModelInfo {
+            path: target.clone(),
+            name: String::from("Qwen3.5-9B-Q4_K_M"),
+            kind: "GGUF",
+        };
+        let pair = place_of("ngram-mod + MTP");
+
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &with_head,
+            &ModelSettings {
+                spec_index: pair,
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert_eq!(
+            find_flag(&args, "--spec-draft-model"),
+            head.display().to_string()
+        );
+        assert!(
+            notes.iter().any(|one| one.contains("MTP head")),
+            "{:?}",
+            notes
+        );
+        // The file the user named stands over the head that was found.
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &with_head,
+            &ModelSettings {
+                spec_index: pair,
+                draft_model: String::from("/models/other.gguf"),
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--spec-draft-model"), "/models/other.gguf");
+        assert!(!notes.iter().any(|one| one.contains("MTP head")));
+        // A way of guessing that needs no file is given none, though a head
+        // stands in the folder.
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &with_head,
+            &ModelSettings {
+                spec_index: place_of("ngram-mod"),
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--spec-draft-model"));
+        let _ = fs::remove_dir_all(&root);
     }
 }

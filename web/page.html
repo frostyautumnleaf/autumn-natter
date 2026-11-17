@@ -3046,14 +3046,23 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 
         <div class="sec">Speculative decoding</div>
         <div class="fld"><span class="lbl">Speculation type</span>
-          <span class="sub">The model may guess a few words ahead and then check them.</span>
+          <span class="sub">The model may guess a few words ahead and then check them. "ngram-mod + MTP" runs both at once: the guesses come from the context by n-gram and from the MTP head of the model.</span>
           <div class="ctl"><select id="mSpec"></select></div></div>
         <div class="fld wide"><span class="lbl">Draft model</span>
-          <span class="sub">The file of the small model that guesses words ahead. Leave it empty to guess from the chat.</span>
+          <span class="sub">The file of the small model that guesses words ahead. Leave it empty to guess from the chat. With MTP asked for, and nothing here, the head is read from the MTP file that stands beside the model file.</span>
           <div class="ctl"><input class="txt" id="mDraft" type="text" placeholder="no draft model"></div></div>
         <div class="fld"><span class="lbl">Draft tokens</span>
           <span class="sub">How many words the model tries ahead before it checks them.</span>
           <div class="ctl"><input id="mDraftTokens" type="number" min="1" max="32"><span class="unit">words</span></div></div>
+        <div class="fld"><span class="lbl">Ngram look-up length</span>
+          <span class="sub">For ngram-mod: how long a run of words to look for in the context before guessing from it. 0 keeps the value the server stands on (24).</span>
+          <div class="ctl"><input id="mNgramMatch" type="number" min="0" max="1024" step="1"><span class="unit">0 for the server value</span></div></div>
+        <div class="fld"><span class="lbl">Ngram most words</span>
+          <span class="sub">For ngram-mod: the most words it may guess at once. 0 keeps the value the server stands on (64).</span>
+          <div class="ctl"><input id="mNgramMax" type="number" min="0" max="1024" step="1"><span class="unit">0 for the server value</span></div></div>
+        <div class="fld"><span class="lbl">Ngram least words</span>
+          <span class="sub">For ngram-mod: the least words it must have to guess at all. 0 keeps the value the server stands on (48).</span>
+          <div class="ctl"><input id="mNgramMin" type="number" min="0" max="1024" step="1"><span class="unit">0 for the server value</span></div></div>
 
         <div class="sec">Working</div>
         <div class="fld"><span class="lbl">Parallel chats</span>
@@ -12290,6 +12299,9 @@ function fillModelForm(given) {
     { repeat_penalty: 1, presence_penalty: 0, max_tokens: -1, seed: -1 });
   byId('mDraft').value = s.draft_model || '';
   byId('mDraftTokens').value = s.draft_tokens;
+  byId('mNgramMatch').value = s.ngram_match || 0;
+  byId('mNgramMax').value = s.ngram_max || 0;
+  byId('mNgramMin').value = s.ngram_min || 0;
   byId('mParallel').value = s.parallel;
   byId('mBatch').value = s.batch_size;
   byId('mUbatch').value = s.ubatch_size;
@@ -12370,6 +12382,9 @@ function readModel() {
   s.seed = intOf('mSeed', s.seed);
   s.draft_model = byId('mDraft').value;
   s.draft_tokens = intOf('mDraftTokens', s.draft_tokens);
+  s.ngram_match = intOf('mNgramMatch', s.ngram_match || 0);
+  s.ngram_max = intOf('mNgramMax', s.ngram_max || 0);
+  s.ngram_min = intOf('mNgramMin', s.ngram_min || 0);
   s.parallel = intOf('mParallel', s.parallel);
   s.batch_size = intOf('mBatch', s.batch_size);
   s.ubatch_size = intOf('mUbatch', s.ubatch_size);
@@ -13351,7 +13366,8 @@ byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('cor
   'mTemp',
   'mTopP', 'mTopK',
   'mMinP', 'mRepeatPen', 'mPresencePen',
-  'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens', 'mParallel', 'mBatch', 'mUbatch',
+  'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens',
+  'mNgramMatch', 'mNgramMax', 'mNgramMin', 'mParallel', 'mBatch', 'mUbatch',
   'mVision', 'mImgMin', 'mImgMax', 'mMmprojCpu', 'mBudget', 'mReasonMsg', 'mTensor',
   'mVram',
   'mTemplate', 'mExtra', 'mDefaultArgs'].forEach(function (id) {

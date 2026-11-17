@@ -126,6 +126,14 @@ pub struct ModelSettings {
     pub spec_index: usize,
     pub draft_model: String,
     pub draft_tokens: u32,
+    // The three numbers ngram-mod is given, for the two choices of the sheet
+    // that ask for it. 0 keeps the number llama.cpp stands on, so a set of
+    // settings written before these fields existed guesses as it did: 24 for the
+    // length of the look-up, 64 for the most words guessed at once and 48 for
+    // the least.
+    pub ngram_match: i64,
+    pub ngram_max: i64,
+    pub ngram_min: i64,
     pub parallel: u32,
     pub batch_size: u32,
     pub ubatch_size: u32,
@@ -199,6 +207,9 @@ impl Default for ModelSettings {
             spec_index: 0,
             draft_model: String::new(),
             draft_tokens: 4,
+            ngram_match: 0,
+            ngram_max: 0,
+            ngram_min: 0,
             parallel: 1,
             batch_size: 512,
             ubatch_size: 128,

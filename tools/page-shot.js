@@ -1106,7 +1106,7 @@ const MODEL = {
   id: 'm1', name: 'Qwen3.5-0.8B-UD-Q6_K', kind: 'GGUF',
   settings: {
     ctx_size: 8192, kv_index: 1, load_index: 1, spec_index: 0, draft_model: '',
-    draft_tokens: 4, parallel: 1, batch_size: 512, ubatch_size: 128, vision: false,
+    draft_tokens: 4, ngram_match: 0, ngram_max: 0, ngram_min: 0, parallel: 1, batch_size: 512, ubatch_size: 128, vision: false,
     tensor_parallel: false,
     temperature: 0.7, top_p: 0.95, top_k: 20, min_p: 0, repeat_penalty: 1,
     presence_penalty: 0, max_tokens: -1, seed: -1,
@@ -1125,7 +1125,11 @@ const MODEL = {
   ],
   kinds: ['f16', 'bf16', 'q8_0'],
   loads: ['none', 'mmap', 'mlock', 'mmap+mlock', 'directio'],
-  specs: ['none', 'ngram', 'ngram-mod', 'lookahead']
+  // The choices of `--spec-type` the sheet shows, as `llama::spec_names` gives
+  // them. The last is the pair: ngram-mod and MTP at once.
+  specs: ['none', 'draft-simple', 'draft-eagle3', 'draft-mtp', 'draft-dflash',
+    'draft-dspark', 'ngram-simple', 'ngram-map-k', 'ngram-map-k4v', 'ngram-mod',
+    'ngram-cache', 'ngram-mod + MTP']
 };
 
 // The logs of llama.cpp, for the Logs tab of the sheet of settings. The current
