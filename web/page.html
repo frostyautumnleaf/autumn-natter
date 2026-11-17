@@ -3983,6 +3983,8 @@ var TOOL_LINES = [
    'The model may have a call that failed run again with one parameter changed, instead of writing the whole call out again. The call is taken from this chat, the change is made inside the one parameter the model names, and the tool answers for the run in a block of its own. A call that never ran, because a line of this badge was off or a limit was spent, is not run again.'],
   ['infographics', 'Create infographics',
    'The model may make an infographic video: a script of scenes and blocks, a check of the layout, and the frames written into a file. The work stands in the folder infographics of the chat, and the video is made there too. The last step takes a while, and the line of the state tells how far it has come.'],
+  ['tasks', 'Tasks suite',
+   'The model may keep a list of tasks for the working directory of the chat: create a task, view every task, view one task with its content, complete a task, and cancel or delete a task only when you ask for it. Each task has a UUID index, and every tool of the suite names the task by that index. The list belongs to the working directory and not to the chat, so two chats of one repository share it, and it is kept in the tasks database of the program: nothing is written into the working directory. While this line is on, the model is told to view the tasks before it ends an answer, so that no task is left open without a word about it.'],
   ['summarise', 'Manually summarise',
    'The model may put the talk of this chat into a handoff summary, when it asks for it or when you ask it to. The program writes the summary where the talk was cut, and the words it stands for go back to the model no more: the work goes on in the room that is made. Nothing you have read is taken away, and the files the model wrote stand where they were written. The line stands only while the handoff summary is chosen in the Chatting settings.',
    'compaction']
@@ -5097,6 +5099,42 @@ var TOOL_SHAPES = {
     mark: 'M4.2 2.6h7.6v10.8H4.2zM6.4 5.8h3.2M6.4 8h3.2M6.4 10.2h2',
     head: 'Writing the short: ', done: 'Wrote the short: ', word: 'parts', end: 'result',
     empty: 'the short of the work', begun: 'the short being written'
+  },
+  // The six tools of the tasks suite. The list of tasks belongs to the working
+  // directory and not to the chat, so the head of a block names the task the call
+  // works on: the name of the task being made, or the index of the task being
+  // pointed at. The index is a UUID, and the head of the block is cut to the
+  // width of the chat, so the marks of it that stand there are enough.
+  create_task: {
+    mark: 'M2.8 3.2h6.8v9.6H2.8zM8 8h3.6M9.8 6.2v3.6M11.8 3.2h1.4v9.6h-1.4',
+    head: 'Making a task: ', done: 'Made a task: ', word: 'parts', end: 'result',
+    empty: 'no task', begun: 'the task being written'
+  },
+  view_tasks: {
+    mark: 'M2.6 3.6h10.8M2.6 8h10.8M2.6 12.4h6.4',
+    head: 'Reading ', done: 'Read ', named: 'the list of tasks',
+    word: 'parts', end: 'result',
+    empty: 'the list of tasks', begun: 'the list of tasks'
+  },
+  view_task: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.5 7.1h4.2M6.5 9.1h4.2M6.5 11.1h2.4',
+    head: 'Reading a task: ', done: 'Read a task: ', word: 'index', end: 'result',
+    empty: 'no task index', begun: 'the index being written'
+  },
+  complete_task: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM5.8 8.2 7.4 9.8 10.6 6.4',
+    head: 'Completing a task: ', done: 'Completed a task: ', word: 'index', end: 'result',
+    empty: 'no task index', begun: 'the index being written'
+  },
+  cancel_task: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.2 6.2l3.6 3.6M9.8 6.2l-3.6 3.6',
+    head: 'Cancelling a task: ', done: 'Cancelled a task: ', word: 'index', end: 'result',
+    empty: 'no task index', begun: 'the index being written'
+  },
+  delete_task: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM5.6 6.4h5.2M6.6 8v3.2M9.4 8v3.2',
+    head: 'Deleting a task: ', done: 'Deleted a task: ', word: 'index', end: 'result',
+    empty: 'no task index', begun: 'the index being written'
   },
   // The talk of the chat put into a handoff summary. The head says what the call
   // worked on; the body carries the reason the model gave and the receipt of the

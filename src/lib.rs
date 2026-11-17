@@ -49,6 +49,7 @@ pub mod store;
 pub mod steps;
 pub mod suggest;
 pub mod summarise;
+pub mod tasks;
 pub mod tools;
 pub mod upnp;
 pub mod util;

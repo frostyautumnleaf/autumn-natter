@@ -37,6 +37,7 @@ use crate::store::{self, Chat, Message, Repo};
 use crate::steps;
 use crate::suggest;
 use crate::summarise;
+use crate::tasks;
 use crate::tools;
 use crate::viewimage;
 
@@ -490,6 +491,18 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             tools::live_arguments(raw),
             String::new(),
             infographic::shown(name, raw),
+        ),
+        // A tool of the tasks suite is named by the task it works on: the name
+        // of the task being made, or the index of the task being pointed at. The
+        // read of the whole list is pointed at nothing, so it names the list.
+        name if tasks::is_tool(name) => (
+            tools::live_arguments(raw),
+            String::new(),
+            if name == tasks::VIEW_ALL_NAME {
+                String::from("the list of tasks")
+            } else {
+                named(tasks::partial_words(name, raw), "a task")
+            },
         ),
         // The short of the work the model writes for the corporate display is
         // named by the heading of the area of work it stands under.
@@ -3105,6 +3118,17 @@ impl State {
             out.push(json!({
                 "role": "system",
                 "content": planning::system_prompt(&chat.meta.plan_file),
+            }));
+        }
+        // The words of the tasks suite, beside the words of the program. The six
+        // tools are offered only while the line of the badge stands on, and the
+        // rule the suite exists for - that the list of tasks is read before an
+        // answer ends - is worth nothing unless the model is told of it. The
+        // words go away with the line.
+        if chat.meta.tools.tasks {
+            out.push(json!({
+                "role": "system",
+                "content": tasks::system_prompt(),
             }));
         }
         let vision_on = self.pictures_can_go();
@@ -9217,6 +9241,7 @@ fn group_of(name: &str) -> Option<&'static str> {
         rerun::NAME => Some("rerun"),
         summarise::NAME => Some("summarise"),
         name if infographic::is_tool(name) => Some("infographics"),
+        name if tasks::is_tool(name) => Some("tasks"),
         _ => None,
     }
 }
@@ -9250,6 +9275,7 @@ fn tool_group_word(part: &str) -> String {
         "ask" => String::from("Asking the user"),
         "suggest" => String::from("The offer of a next step"),
         "infographics" => String::from("Create infographics"),
+        "tasks" => String::from("Tasks suite"),
         // The words of the line, in the shape the sentence about a tool that
         // was not let through reads well in.
         "summarise" => String::from("Manual summaries"),
@@ -9383,6 +9409,12 @@ fn offered(
         // the badge: a script without a renderer draws nothing.
         if switches.infographics {
             list.extend(infographic::definitions());
+        }
+        // The six tools of the tasks suite stand or fall as one line of the
+        // badge: a list of tasks with no way of reading it is a list nobody
+        // works through.
+        if switches.tasks {
+            list.extend(tasks::definitions());
         }
         // The handoff summary the model may ask for stands behind the badge like
         // every other tool of the program, and behind the line of its own. It
@@ -9551,6 +9583,12 @@ fn run_program_tool(
         infographic::SCENE_NAME => "Writing a scene",
         infographic::CHECK_NAME => "Checking the layout",
         infographic::RENDER_NAME => "Drawing the frames",
+        tasks::CREATE_NAME => "Making a task",
+        tasks::VIEW_ALL_NAME => "Reading the list of tasks",
+        tasks::VIEW_ONE_NAME => "Reading a task",
+        tasks::COMPLETE_NAME => "Completing a task",
+        tasks::CANCEL_NAME => "Cancelling a task",
+        tasks::DELETE_NAME => "Deleting a task",
         _ => "A tool of the program",
     };
     let message_id = {
@@ -9940,6 +9978,18 @@ fn run_program_tool(
         let ok = !made.starts_with("the ") || made.contains("stands");
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool(&message_id, &made, ok);
+        return;
+    }
+    // The tasks of the work directory. The six tools of the suite work on the
+    // list that belongs to the directory the chat works in, and not to the chat:
+    // two chats of one repository read one list, and a task outlives the chat
+    // that made it. Nothing is written into the work directory - the rows stand
+    // in `tasks.db` under the data folder of the program. See `crate::tasks`.
+    if tasks::is_tool(&call.name) {
+        let work = tasks::key_of(workdir);
+        let made = tasks::run(&call.name, &work, &call.arguments);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool(&message_id, &made.output, made.ok);
         return;
     }
     // A file the user is offered. Nothing is copied and nothing is fetched: the
@@ -11935,6 +11985,12 @@ mod tests {
             infographic::RENDER_NAME,
             corporate::NAME,
             rerun::NAME,
+            tasks::CREATE_NAME,
+            tasks::VIEW_ALL_NAME,
+            tasks::VIEW_ONE_NAME,
+            tasks::COMPLETE_NAME,
+            tasks::CANCEL_NAME,
+            tasks::DELETE_NAME,
         ];
         for one in names.iter() {
             let call = ToolCall {
@@ -16041,5 +16097,129 @@ mod tests {
         let guard = state.lock().unwrap();
         assert!(!guard.open_queue().expect("the list stands").held);
         assert!(guard.queue_ready());
+    }
+
+    // The tasks suite: the six tools stand behind the line of the badge, off at
+    // first; a task made by a call belongs to the work directory and stands in
+    // the database of the program, with nothing written into the directory; and
+    // the prompt of the suite rides in the ask only while the line stands on.
+    #[test]
+    fn the_tasks_suite_stands_behind_its_line_and_belongs_to_the_work_directory() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        // The six tools are offered only while the line of the drop-down stands
+        // on, and they stand or fall together.
+        let names = |on: bool| {
+            let mut switches = store::ToolSwitches::default();
+            switches.tasks = on;
+            offered(
+                false,
+                true,
+                false,
+                tools::Access::default(),
+                &[],
+                &switches,
+                true,
+            )
+            .map(|list| {
+                list.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+        };
+        assert!(
+            !names(false).contains(&tasks::CREATE_NAME.to_string()),
+            "the suite is off in a new chat"
+        );
+        let held = names(true);
+        for one in [
+            tasks::CREATE_NAME,
+            tasks::VIEW_ALL_NAME,
+            tasks::VIEW_ONE_NAME,
+            tasks::COMPLETE_NAME,
+            tasks::CANCEL_NAME,
+            tasks::DELETE_NAME,
+        ] {
+            assert!(held.contains(&one.to_string()), "{} is not offered", one);
+        }
+        // The call of a tool of the suite. The task is read again through the same
+        // key the engine works out of the work directory, which is the way another
+        // chat of the same directory reaches the same list.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+        }
+        let workdir = {
+            let state = engine.state.lock().unwrap();
+            state
+                .workdir_for(state.chat().expect("a blank chat stands open"))
+        };
+        let idle = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let call = ToolCall {
+            id: String::from("call-create-task"),
+            name: String::from(tasks::CREATE_NAME),
+            arguments: String::from(
+                "{\"name\":\"Lay out the reader\",\n                 \"summary\":\"Read the grammar and write the table.\",\n                 \"content\":\"Write the table of rules, then run the six tests.\"}",
+            ),
+        };
+        run_program_tool(&call, "", 0, &engine.state, &workdir, &idle);
+        let snap = engine.snapshot();
+        let run = snap
+            .messages
+            .iter()
+            .rev()
+            .find(|one| one.tool_name == tasks::CREATE_NAME)
+            .expect("the chat holds the run");
+        assert!(!run.failed, "{}", run.tool);
+        assert!(run.tool.contains("Task made"), "{}", run.tool);
+        // The head of the block names the task, and not the whole of the answer.
+        assert!(run.body.contains("Lay out the reader"), "{}", run.body);
+        let made = tasks::run(
+            tasks::VIEW_ALL_NAME,
+            &tasks::key_of(&workdir),
+            "{}",
+        );
+        assert!(made.ok, "{}", made.output);
+        assert!(made.output.contains("Lay out the reader"), "{}", made.output);
+        assert!(
+            !made.output.contains("Write the table of rules"),
+            "the list carries the contents of a task: {}",
+            made.output
+        );
+        // Nothing of the list stands in the work directory, and nothing of it
+        // stands in the chat: the rows are kept in the database of the program.
+        let empty = std::fs::read_dir(&workdir)
+            .map(|mut one| one.next().is_none())
+            .unwrap_or(true);
+        assert!(empty, "the work directory holds a file of the program");
+        let db = config::paths().data.join(crate::db::TASKS_DB);
+        assert!(db.exists(), "the database of the tasks was not made");
+        std::mem::drop(snap);
+        // The prompt of the suite rides in the ask while the line stands on, and
+        // goes away with the line.
+        let said = || -> String {
+            let state = engine.state.lock().unwrap();
+            state.build_history().to_string()
+        };
+        assert!(
+            !said().contains("TASKS SUITE"),
+            "the suite says nothing while its line is off"
+        );
+        engine.set_tool_switch("tasks", true);
+        let told = said();
+        assert!(told.contains("TASKS SUITE"), "the prompt of the suite went missing");
+        assert!(
+            told.contains(tasks::VIEW_ALL_NAME),
+            "the prompt does not name the read of the list"
+        );
+        engine.set_tool_switch("tasks", false);
+        assert!(
+            !said().contains("TASKS SUITE"),
+            "the prompt outlived its line"
+        );
     }
 }

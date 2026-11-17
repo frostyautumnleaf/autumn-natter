@@ -568,6 +568,14 @@ function scene(name, dark, theme) {
                 tools_in_thinking: true, collapse_tools: true,
                 highlight: true, chapters: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
+    // The lines of the drop-down of the badge of the tools, as a chat has them
+    // from the beginning: every line switched on but the two that cost a long
+    // run. AN_TASKS=1 puts the line of the tasks suite on as well.
+    tool_switches: {
+      commands: true, files: true, picture: true, hand_out: true, display: true,
+      ask: true, suggest: true, steps: true, rerun: true, infographics: false,
+      summarise: true, tasks: process.env.AN_TASKS === '1'
+    },
     generating: false, busy: false, code: false, search: false, sandbox: false,
     sandbox_available: true,
     sandbox_note: 'bubblewrap works. A command sees only the working directory of '
@@ -678,6 +686,58 @@ function scene(name, dark, theme) {
         said(27, 'Assistant',
           'The steps of the work stand under this answer. Press one of them and '
           + 'the block shows that step.')
+      ]);
+    }
+    // AN_TASKS=1 switches on the line of the tasks suite, and ends the talk with
+    // a run of each of its six tools, so the head of every kind of block of the
+    // suite can be looked at together. The line of the drop-down stands off in a
+    // chat from the beginning, as it does in the program.
+    if (process.env.AN_TASKS === '1') {
+      start.messages = start.messages.concat([
+        said(30, 'Tool', 'Lay out the reader', {
+          tool_name: 'create_task',
+          tool: 'Task made.\nindex: 3f9a1c22-6b4e-4d0f-9a71-2c5e8b41df60\n' 
+            + 'status: open\nname: Lay out the reader\nsummary: Read the grammar '
+            + 'and write the table of rules.\n\n1 task or tasks of this work '
+            + 'directory stand open.'
+        }),
+        said(31, 'Tool', 'the list of tasks', {
+          tool_name: 'view_tasks',
+          tool: '2 tasks stand for this work directory: 1 open, 1 completed, 0 cancelled.\n\n'
+            + '3f9a1c22-6b4e-4d0f-9a71-2c5e8b41df60  [open] Lay out the reader\n'
+            + '    Read the grammar and write the table of rules.\n'
+            + 'a27d5e10-90c4-4f3b-8d2a-71bc0e5f9d13  [completed] Read the fault\n'
+            + '    Say which line of the reader gives the fault.\n\n'
+            + 'Each index above is the number of the task. The contents of a task '
+            + 'are not listed here: call view_task with its index for those.'
+        }),
+        said(32, 'Tool', '3f9a1c22-6b4e-4d0f-9a71-2c5e8b41df60', {
+          tool_name: 'view_task',
+          tool: 'index: 3f9a1c22-6b4e-4d0f-9a71-2c5e8b41df60\nstatus: open\n'
+            + 'name: Lay out the reader\nsummary: Read the grammar and write the '
+            + 'table of rules.\ncontent:\nTake the grammar of the plan, then write '
+            + 'the table of rules it stands on. Run the six tests of the reader '
+            + 'when the table is written, and keep the fault of any test that fails.'
+        }),
+        said(33, 'Tool', '3f9a1c22-6b4e-4d0f-9a71-2c5e8b41df60', {
+          tool_name: 'complete_task',
+          tool: 'Task 3f9a1c22-6b4e-4d0f-9a71-2c5e8b41df60 is completed: Lay out '
+            + 'the reader.\n\n0 task or tasks of this work directory stand open.'
+        }),
+        said(34, 'Tool', 'a27d5e10-90c4-4f3b-8d2a-71bc0e5f9d13', {
+          tool_name: 'cancel_task',
+          tool: 'Task a27d5e10-90c4-4f3b-8d2a-71bc0e5f9d13 is cancelled: Read the '
+            + 'fault.'
+        }),
+        said(35, 'Tool', 'No task stands with the index bbbb', {
+          tool_name: 'delete_task', failed: true,
+          tool: 'No task stands with the index bbbb. Use view_tasks to see the '
+            + 'indexes.'
+        }),
+        said(36, 'Assistant',
+          'Both tasks of this work directory are dealt with, and the list was read '
+          + 'before this answer.\n\nThe reader is laid out and the six tests pass. '
+          + 'The task about the fault was cancelled, as you asked.')
       ]);
     }
     // The chapters the model marked, tied to the message each begins after.

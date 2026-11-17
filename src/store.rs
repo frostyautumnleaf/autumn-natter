@@ -308,6 +308,12 @@ pub struct ToolSwitches {
     // page and the tool is treated as off, whatever stands here.
     #[serde(default = "switch_on")]
     pub summarise: bool,
+    // The model may keep a list of tasks for the work directory it works in:
+    // six tools under the line "Tasks suite" of the drop-down. Off at first, for
+    // the list is something a model has to be told to use, and most chats do not
+    // want it. See `crate::tasks`.
+    #[serde(default)]
+    pub tasks: bool,
 }
 
 // The switch of a tool that nothing has touched yet.
@@ -329,6 +335,7 @@ impl Default for ToolSwitches {
             rerun: true,
             infographics: false,
             summarise: true,
+            tasks: false,
         }
     }
 }
@@ -348,6 +355,7 @@ impl ToolSwitches {
             "steps" => self.steps = on,
             "rerun" => self.rerun = on,
             "infographics" => self.infographics = on,
+            "tasks" => self.tasks = on,
             "summarise" => self.summarise = on,
             _ => return false,
         }
@@ -369,6 +377,7 @@ impl ToolSwitches {
             ("rerun", self.rerun),
             ("infographics", self.infographics),
             ("summarise", self.summarise),
+            ("tasks", self.tasks),
         ]
     }
 
@@ -402,6 +411,7 @@ impl ToolSwitches {
             "suggest" => self.suggest,
             "infographics" => self.infographics,
             "summarise" => self.summarise,
+            "tasks" => self.tasks,
             _ => true,
         }
     }

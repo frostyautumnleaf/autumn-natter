@@ -57,6 +57,11 @@ use crate::proglog;
 pub const CHATS_DB: &str = "chats.db";
 pub const CONTEXTS_DB: &str = "contexts.db";
 pub const MCP_DB: &str = "mcp.db";
+// The tasks the model makes for a work directory. They are kept here and not in
+// the work directory itself, because a model works there: a file of the
+// program's own in a directory a command runs in would be read, changed and
+// committed like any other file.
+pub const TASKS_DB: &str = "tasks.db";
 
 // How long one wait for another writer of the same file lasts, in
 // milliseconds. A write of this program takes a few milliseconds, so a wait of
@@ -76,6 +81,9 @@ pub enum Kind {
     Contexts,
     // The files of the servers of the program itself.
     Mcp,
+    // The tasks of the work directories: the repository of a chat, or the
+    // working directory of a loose chat.
+    Tasks,
 }
 
 // The tables of one kind. `IF NOT EXISTS` throughout, so opening a file of the
@@ -136,6 +144,21 @@ CREATE TABLE IF NOT EXISTS mcp_files (
     data      BLOB NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS mcp_file_place ON mcp_files (server_id, name);
+"
+        }
+        Kind::Tasks => {
+            "
+CREATE TABLE IF NOT EXISTS tasks (
+    id      TEXT PRIMARY KEY,
+    work    TEXT NOT NULL DEFAULT '',
+    name    TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    status  TEXT NOT NULL DEFAULT 'open',
+    created INTEGER NOT NULL DEFAULT 0,
+    updated INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS tasks_of_work ON tasks (work, created ASC);
 "
         }
     }
