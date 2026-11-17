@@ -126,13 +126,16 @@ Arguments:
                       computers on the local network.
   -p, --port PORT     Port for the remote page. The settings file holds the
                       port when this is not given.
-      --data-dir DIR  Keep the program data in another folder.
+      --data-dir DIR  Keep the program data in another folder, over the
+                      folder chosen in the settings.
   -h, --help          Show this text.
   -V, --version       Show the version.
 
 The settings live in the autumn_natter folder of the program data of the
-operating system. Set the folders for llama-server and for the models in the
-settings window.
+operating system, or in another folder chosen in the settings window -
+which --data-dir overrides. The settings window also sets the folders for
+llama-server, for the models, for the repositories, and for the talks the
+model worked its way through.
 ",
         env!("CARGO_PKG_VERSION")
     );

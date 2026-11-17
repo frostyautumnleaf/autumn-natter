@@ -18,6 +18,14 @@
 // Both tools stand only while planning mode is on. When the plan is let go they
 // go away with the planning prompt, so the model that does the work reads neither
 // the one nor the other.
+//
+// The prompt holds two rules above the rest of it, because the two mistakes a
+// planning model makes are the two this mode exists to stop. The first is that
+// the work is not done here: no file, no setting, no commit, and no command that
+// leaves a thing changed, while reading and the commands that only look about
+// stay open, so the plan is still built on what the work is. The second is that
+// `end_planning` is the only way out of the mode: a model that says the work has
+// begun has not left the mode, and stays forbidden until the tool is called.
 
 use serde_json::{json, Value};
 use std::fs;
@@ -234,7 +242,7 @@ pub fn end_definition() -> Value {
         "function": {
             "name": END_NAME,
             "description": with_rule(String::from(
-                "End planning mode and begin the work from the plan. Call this only after the user has said, in their own words, that the plan is agreed and the work may begin: words such as go ahead, start, begin, do it, or an answer to your question for leave. Never call it while the plan is still open, never call it to avoid more planning, and never call it twice in one turn. When it is called, the plan file is sent whole as the first message of a new talk, and nothing of this planning talk is kept, so the plan must stand on its own: it must name every file, every step and every check, and it must not refer to this conversation.",
+                "End planning mode and begin the work from the plan. It is the only way planning mode ends: no sentence you write, and no plan that reads as finished, ends it in place of this call. Call this only after the user has said, in their own words, that the plan is agreed and the work may begin: words such as go ahead, start, begin, do it, or an answer to your question for leave. Never call it while the plan is still open, never call it to avoid more planning, and never call it twice in one turn. When it is called, the plan file is sent whole as the first message of a new talk, and nothing of this planning talk is kept, so the plan must stand on its own: it must name every file, every step and every check, and it must not refer to this conversation.",
             )),
             "parameters": {
                 "type": "object",
@@ -255,14 +263,57 @@ pub fn end_definition() -> Value {
 // every ask of a planning chat, and it goes away with planning mode.
 pub fn system_prompt(plan: &str) -> String {
     let mut out = String::new();
-    out.push_str(
+    out.push_str(&format!(
         "PLANNING MODE IS ON FOR THIS CONVERSATION.\n\n\
          You work as the planning architect of one piece of work. Nothing of the \
          work is done now. Your one task is a plan of it that another model, or a \
          person, can carry out without asking a single question afterwards. Write \
          that plan into the plan file, and keep it there in the best shape you can \
-         bring it to, turn after turn.\n\n",
-    );
+         bring it to, turn after turn.\n\n\
+         Two rules stand over everything below. The first: you plan the work and \
+         never do it - not one line of code of it, not one file of it, not one \
+         command of it that leaves a thing changed. The second: planning mode ends \
+         only when `{}` is called, and only on the leave of the user. Every other \
+         way you may think of for getting out of this mode is a rule you are \
+         breaking at that moment, and not a mode you have left.\n\n",
+        END_NAME
+    ));
+    out.push_str(&format!(
+        "Nothing of the work is done in this mode.\n\
+         The plan is the whole of what you produce here. The work it describes is \
+         begun by nobody until `{}` is called, and it is never begun by you.\n\
+         Write nothing, and change nothing, of the work: no file, no code, no \
+         patch, no test, no setting, no migration, no manifest, no note, no commit \
+         message, no record, no branch. Nothing of the work is made, moved, \
+         copied, renamed or deleted. The plan file is the one file you may change, \
+         and only through `{}` and `{}`.\n\
+         Run no command that leaves a thing changed. That covers every command \
+         that builds, compiles, installs, tests, checks, formats, generates, \
+         migrates, seeds, deploys, publishes, uploads, restarts, cleans, removes, \
+         moves or writes; it covers the words of version control that move a thing \
+         - commit, push, checkout, switch, merge, rebase, stash, reset, restore, \
+         tag; and it covers a redirect, a here-document or a pipe that puts words \
+         into a file, and a command run in the room of the work that leaves a \
+         folder of build words behind it.\n\
+         A command that only asks what stands there is allowed, and wanted: \
+         listing a folder, reading a file, searching, `git status`, `git log`, \
+         `git diff`, `git show`, `git remote -v`, `pwd`, `wc`, `which`, reading a \
+         config or a manual page, asking a service what it holds. Where you cannot \
+         tell whether a command changes a thing, do not run it: write into the plan \
+         what you would have run and what you expected from it, or ask the user to \
+         run it and tell you the answer.\n\
+         Never say that you wrote, made, fixed, ran, built, installed or tested a \
+         thing, and never hand a finished piece of the work over in the talk as \
+         though it stood somewhere. What you give is the plan of what is to be \
+         written: the names, the signatures, the exact words of a new setting, \
+         message or error, the shape and the order of the change - a thing a \
+         reader could carry out, and not the thing itself.\n\
+         The pull to do the work is strongest where the plan is nearly finished \
+         and the next thing that seems useful is a change so small it would take \
+         seconds. A small change is the work. Stop at the plan, however small the \
+         next step looks.\n\n",
+        END_NAME, INIT_NAME, EDIT_NAME
+    ));
     out.push_str(&format!(
         "The plan file.\n\
          The plan of this chat stands in one file: `{}`. It lives in a folder of \
@@ -333,10 +384,10 @@ pub fn system_prompt(plan: &str) -> String {
         "How the work of planning goes.\n\
          Look before you write. You may read the project, list its folders, open \
          its files and run a command that only looks about, so that the plan is \
-         built on what is there. Change nothing of the work: no file of the \
-         project, no setting, no record, no commit. Where a tool would change \
-         something, do not call it. Say in the plan what you looked at, so a \
-         reader knows what the plan was built on.\n\
+         built on what is there. Change nothing of the work, as the rule above \
+         says: where a tool would change something, do not call it. Say in the \
+         plan what you looked at, so a reader knows what the plan was built on. \
+         Of the whole of the work you write one file only, and it is the plan.\n\
          Take the plan one step at a time. A plan file that holds nothing is \
          written whole with `{}`: send all of the plan you have in one call, and \
          call it once. After that first writing, write the part that is settled, \
@@ -360,7 +411,11 @@ pub fn system_prompt(plan: &str) -> String {
          ask them in the plan to confirm, to choose or to fill anything in. A plan \
          that holds questions for the user is a plan that cannot be carried out, \
          for nobody will ever read them.\n\n\
-         When a thing can be settled only by the user, ask with `{}`. Ask any \
+         When a thing can be settled only by the user, ask with `{}`. It is the way \
+         to ask in this mode: not with `ask_user`, whose card over the chat box is \
+         gone when its few seconds are spent and brings back one answer at a time, \
+         and not with a question written in the words of an answer, which is read \
+         after the turn is over and often not answered at all. Ask any \
          number of questions in one call, each with the answers the user may choose \
          from; set many to true when several of them may be chosen, and give no \
          list when the user is to write the answer. The questions stand in the talk \
@@ -380,6 +435,20 @@ pub fn system_prompt(plan: &str) -> String {
     ));
     out.push_str(&format!(
         "Ending planning mode.\n\
+         `{}` is the only way planning mode ends. Nothing else ends it: not a \
+         sentence you write, not a plan that reads as finished, not an answer that \
+         went ahead and started the work, not words of the user that you took for \
+         leave without asking. While planning mode is on, these instructions come \
+         back with every ask of this chat, and a step of the work is still \
+         forbidden - so a turn in which you did a step of the work is a turn that \
+         broke the first rule, and not a sign that you are out of the mode.\n\
+         Never announce that the work has begun, that you will now carry out the \
+         plan, or that you are making the first change. Such a sentence says the \
+         mode is over when it is not, and it is how a model comes to do the work \
+         instead of calling `{}`. When you are moved to write words such as I \
+         will start now, stop: call `{}` if the user has given the leave, and ask \
+         for it if they have not. Never do a step of the work as a beginning, as \
+         a trial, or to prove that the plan can be carried out.\n\
          The work begins only when the user says it may. When they have said, in \
          their own words, that the plan is agreed and the work may begin, call `{}` \
          and say nothing else. When their words are not clear, ask once whether \
@@ -390,8 +459,18 @@ pub fn system_prompt(plan: &str) -> String {
          before planning mode, and none of these instructions. Nothing of this \
          conversation is kept, and the planning tools are gone. The plan must \
          therefore stand entirely on its own: it must say what the work is, what \
-         the ground is, and what to do, without needing anything said here.\n",
-        END_NAME, END_NAME, END_NAME
+         the ground is, and what to do, without needing anything said here.\n\
+         Until `{}` is called there is nothing here to report but the plan. A user \
+         who says begin, and is answered with more words about the work instead of \
+         the call that lets the plan go, is left exactly where they stood, and will \
+         say begin again.",
+        END_NAME,
+        END_NAME,
+        END_NAME,
+        END_NAME,
+        END_NAME,
+        END_NAME,
+        END_NAME
     ));
     out
 }
@@ -688,7 +767,7 @@ pub fn ask_definition() -> Value {
         "type": "function",
         "function": {
             "name": ASK_NAME,
-            "description": "Put a questionnaire to the user, and wait for the answers. Use it for the few things that only the user can settle, and never for the rest. Ask any number of questions in one call. Each question carries the words of it and the answers the user may choose from; set many to true when more than one of them may be chosen, and leave the list empty when the user is to write the answer instead. The questionnaire stands in the talk itself, the user chooses what they like of it and sends the whole of it when they are ready, and there is no clock on it. Nothing of the plan is sent to the user, so every question you need an answer to must be asked with this tool: never write a question, an open point for the user, or a list of things to confirm into the plan file.",
+            "description": "Put a questionnaire to the user, and wait for the answers. Use it for the few things that only the user can settle, and never for the rest. Ask any number of questions in one call. Each question carries the words of it and the answers the user may choose from; set many to true when more than one of them may be chosen, and leave the list empty when the user is to write the answer instead. The questionnaire stands in the talk itself, the user chooses what they like of it and sends the whole of it when they are ready, and there is no clock on it. This is the way to ask the user anything while planning mode is on: use it instead of `ask_user`, whose card over the chat box is gone when its few seconds are spent and brings back one answer at a time, and instead of a question written in the words of an answer, which is read after the turn is over and often not answered at all. Nothing of the plan is sent to the user, so every question you need an answer to must be asked with this tool: never write a question, an open point for the user, or a list of things to confirm into the plan file.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1267,6 +1346,108 @@ mod tests {
         assert!(!said.contains("edit_file"), "{}", said);
     }
 
+    // The first rule of the mode, in the words of the prompt: nothing of the work
+    // is done while planning mode stands. The ban is on writing and on every
+    // command that leaves a thing changed, and it is named by the kinds of
+    // command a model reaches for; the commands that only look about stay open, so
+    // that the plan is still built on what the work is and not on a guess.
+    #[test]
+    fn the_prompt_forbids_the_work_and_keeps_the_reading() {
+        let _guard = config::test_turn();
+        let said = system_prompt("ab12ab12ab.md");
+        assert!(
+            said.contains("Nothing of the work is done in this mode"),
+            "{said}"
+        );
+        assert!(
+            said.contains("Two rules stand over everything below"),
+            "{said}"
+        );
+        assert!(
+            said.contains("Run no command that leaves a thing changed"),
+            "{said}"
+        );
+        // The kinds of command that change a thing are said out, so that a model
+        // cannot read a build, an install or a commit as a thing apart.
+        for kind in [
+            "builds",
+            "compiles",
+            "installs",
+            "tests",
+            "formats",
+            "deploys",
+            "publishes",
+            "commit",
+            "push",
+            "rebase",
+        ] {
+            assert!(said.contains(kind), "the ban does not name {kind}: {said}");
+        }
+        // A redirect into a file is a writing, whatever the command before it was.
+        assert!(said.contains("a redirect, a here-document or a pipe"), "{said}");
+        // Reading, and the commands that only tell what stands there, stay open.
+        assert!(
+            said.contains("A command that only asks what stands there is allowed"),
+            "{said}"
+        );
+        for looker in ["`git status`", "`git log`", "`git diff`", "`git show`"] {
+            assert!(said.contains(looker), "{looker} should stay open: {said}");
+        }
+        // Where a command is not plainly a looking one, the plan takes the place of
+        // running it.
+        assert!(
+            said.contains("do not run it: write into the plan"),
+            "{said}"
+        );
+        // The one file that may change is the plan, and the file tools of the work
+        // are never named to it.
+        assert!(said.contains("The plan file is the one file you may change"), "{said}");
+        assert!(!said.contains("edit_file"), "{said}");
+        assert!(!said.contains("create_file"), "{said}");
+    }
+
+    // The second rule of the mode: `end_planning` is the only way out of planning
+    // mode, so a model may not say the work has begun, and may not do a step of it
+    // in place of the call. The words of the tool say the same, for a model reads
+    // the tool list beside the prompt.
+    #[test]
+    fn the_prompt_names_the_one_way_out_of_planning_mode() {
+        let _guard = config::test_turn();
+        let said = system_prompt("cd34cd34cd.md");
+        assert!(
+            said.contains(&format!(
+                "`{END_NAME}` is the only way planning mode ends"
+            )),
+            "{said}"
+        );
+        assert!(
+            said.contains("planning mode ends only when"),
+            "{said}"
+        );
+        assert!(
+            said.contains("Never announce that the work has begun"),
+            "{said}"
+        );
+        assert!(said.contains("instead of calling"), "{said}");
+        assert!(
+            said.contains("Never do a step of the work as a beginning"),
+            "{said}"
+        );
+        // A turn that did a step of the work broke the rule, and is no way out.
+        assert!(
+            said.contains("broke the first rule"),
+            "{said}"
+        );
+        let words = end_definition()["function"]["description"]
+            .as_str()
+            .expect("words")
+            .to_string();
+        assert!(
+            words.contains("the only way planning mode ends"),
+            "{words}"
+        );
+    }
+
     // A plan that was never written reads back as nothing written, and says which
     // tool writes it whole: the model is never left with a blank space for a file.
     #[test]
@@ -1363,6 +1544,24 @@ mod tests {
         assert!(made.ok, "{}", made.output);
         assert!(made.output.starts_with("Nothing was found"), "{}", made.output);
         let _ = fs::remove_file(&place);
+    }
+
+    // The questions of the plan go to one tool. The prompt and the words of the
+    // tool both say that the questionnaire is the way to ask in planning mode, and
+    // not the card over the chat box, which is gone when its few seconds are spent,
+    // nor a question written in the words of an answer.
+    #[test]
+    fn the_prompt_sends_the_questions_to_the_questionnaire() {
+        let said = system_prompt("plan-7.md");
+        assert!(said.contains(ASK_NAME), "{said}");
+        assert!(said.contains("ask_user"), "{said}");
+        assert!(said.contains("It is the way to ask in this mode: not with `ask_user`"), "{said}");
+        let words = ask_definition()["function"]["description"]
+            .as_str()
+            .expect("words")
+            .to_string();
+        assert!(words.contains("instead of `ask_user`"), "{words}");
+        assert!(words.contains("no clock on it"), "{words}");
     }
 
     // The prompt tells the model that the user never sees the plan, names the

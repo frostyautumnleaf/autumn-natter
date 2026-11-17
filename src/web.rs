@@ -113,6 +113,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // the head the one block of the answer stood at.
                 "work": &m.work,
                 "work_head": &m.work_head,
+                // True when the model had closed the block of the work before
+                // these words: they stand outside the block.
+                "work_closed": m.work_closed,
                 "tool": m.tool,
                 // Which tool this run was: the page puts the mark and the words
                 // of that tool on the head of the block.
@@ -265,6 +268,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // the head the one block stands at.
         "live_work": snap.live_work,
         "live_work_head": snap.live_work_head,
+        // True when the model closed the block of the work with its own tool: the
+        // words of the answer that come after that mark stand outside the block.
+        "live_work_closed": snap.live_work_closed,
         // The question the model has put to the user and is waiting on, when it
         // has put one. The popup of the ask stands above the chat box, and the
         // user answers it there: by choosing one of the answers the model
@@ -448,6 +454,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         },
         // The folder of the program data. The window of settings reads it out.
         "data_dir": snap.data_dir,
+        // The folder the talks the model worked its way through stand in.
+        "contexts_dir": snap.contexts_dir,
     })
 }
 

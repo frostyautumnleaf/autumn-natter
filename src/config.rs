@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::proglog;
+
 // Name of the data directory. Do not change it without a move step.
 pub const APP_DIR_NAME: &str = "autumn_natter";
 
@@ -247,6 +249,25 @@ pub struct Config {
     pub models_dir: String,
     // Directory that holds the repositories. Empty means the default place.
     pub repositories_dir: String,
+    // Another place for the settings, the talks, the logs and the records of this
+    // program. Empty means the usual place: the `autumn_natter` folder of the
+    // program data of the operating system, or the folder `--data-dir` named.
+    //
+    // The words cannot stand in the settings file alone, for the program must
+    // know where to look before it can read a setting. The place is therefore kept
+    // in a mark file that always stands in the usual place: see `mark_file`. The
+    // folder must stand already - a word that names no folder is no place - and
+    // nothing is moved: the program reads from the new place when it starts again,
+    // and until then from the place it is reading from.
+    #[serde(default)]
+    pub data_dir: String,
+    // Another place for the talks the model has worked its way through: the read
+    // talk of each chat, which llama-server writes and reads back. Empty means the
+    // `contexts` folder inside the data folder. The folder is made when it is
+    // asked for. Nothing is moved here either: a talk that stands in the old place
+    // is read no more, and the chat is then read through again from its first word.
+    #[serde(default)]
+    pub contexts_dir: String,
     // The skin the pages are drawn in: `light`, `dark`, `silver` or `corporate`.
     // An empty word marks a settings file written before there were three skins,
     // and the switch below answers for it.
@@ -741,6 +762,11 @@ impl Default for Config {
             llama_dir: default_llama_dir(),
             models_dir: paths().models.display().to_string(),
             repositories_dir: String::new(),
+            // Both folders answer for themselves when the settings say nothing:
+            // the usual place for the files of the program, and the `contexts`
+            // folder inside it for the talks of the model.
+            data_dir: String::new(),
+            contexts_dir: String::new(),
             theme: String::new(),
             skins_v2: true,
             dark_mode: false,
@@ -841,14 +867,111 @@ fn base_config_dir() -> PathBuf {
 
 use std::sync::OnceLock;
 
-// Set by --data-dir. The first call wins.
+// Set by --data-dir. The first call wins, and it wins over the mark file below:
+// a command line is said to the program that stands in front of it.
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+// The place named by the mark file, read once for a run. A folder is not moved
+// from under a program that is standing: the talks of a chat, the log of a server
+// and the settings must all stand in the one place for the whole of a run, so the
+// folder the settings name is read from when the program starts again.
+static DATA_MARK: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+// The file that names another place for the files of the program.
+const MARK_FILE_NAME: &str = "data-dir.txt";
+
+// The settings of the program, inside the data folder.
+const SETTINGS_FILE_NAME: &str = "settings.json";
+
+// The usual place for the files of this program.
+fn default_data_dir() -> PathBuf {
+    base_config_dir().join(APP_DIR_NAME)
+}
+
+// Where the mark file stands. It always stands in the usual place, whatever the
+// settings say and wherever `--data-dir` sent the files, for it is what the
+// program reads to know where else to look - and a place that named a place in
+// turn would be a hunt with no end.
+pub fn mark_file() -> PathBuf {
+    default_data_dir().join(MARK_FILE_NAME)
+}
+
+// The place named by a mark file, and nothing for a mark that names no folder
+// that stands. An empty file, words of another program's own, a folder on a disk
+// that is not there today: all of them are answered by the usual place, which is
+// where a program that cannot find its files must go.
+pub fn read_mark(place: &Path) -> Option<PathBuf> {
+    let said = fs::read_to_string(place).ok()?;
+    let said = said.trim();
+    if said.is_empty() {
+        return None;
+    }
+    let dir = PathBuf::from(said);
+    dir.is_dir().then_some(dir)
+}
+
+// Stand the mark for the folder the settings name, or take the mark away when
+// they name none. The folder must stand already, so a spelling mistake costs
+// nothing: the words of the old mark are then kept where they stood, which is the
+// place the program is reading from. When a mark is stood for a folder that holds
+// no settings of its own, the settings in hand are copied there, so a program
+// that starts again at the new place starts with the settings it had - the talks,
+// the logs and the records are moved by the user, and not here.
+pub fn point_data_dir(cfg: &Config) -> std::io::Result<()> {
+    point_data_dir_at(&mark_file(), &paths().settings_file, cfg)
+}
+
+// The same, with the place of the mark file and the settings file in hand given:
+// the tests stand a mark in a folder of their own rather than in the program data
+// of this machine.
+pub fn point_data_dir_at(
+    place: &Path,
+    settings: &Path,
+    cfg: &Config,
+) -> std::io::Result<()> {
+    let said = cfg.data_dir.trim();
+    if said.is_empty() {
+        return match fs::remove_file(place) {
+            Ok(()) => Ok(()),
+            Err(why) if why.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(why) => Err(why),
+        };
+    }
+    let dir = PathBuf::from(said);
+    if !dir.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("{} is not a folder", dir.display()),
+        ));
+    }
+    if read_mark(place).as_deref() != Some(dir.as_path()) {
+        if let Some(parent) = place.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(place, format!("{}\n", dir.display()))?;
+        let there = dir.join(SETTINGS_FILE_NAME);
+        if settings != there && !there.is_file() && settings.is_file() {
+            let _ = fs::copy(settings, &there);
+        }
+    }
+    Ok(())
+}
+
+// The place named by the mark file of the usual place, read once for a run.
+fn marked_data_dir() -> Option<PathBuf> {
+    DATA_MARK.get_or_init(|| read_mark(&mark_file())).clone()
+}
+
+// The place the files of this program stand in: the folder of `--data-dir`, the
+// folder of the mark file, or the usual place, in that order.
 fn data_root() -> PathBuf {
-    DATA_DIR
-        .get()
-        .cloned()
-        .unwrap_or_else(|| base_config_dir().join(APP_DIR_NAME))
+    if let Some(dir) = DATA_DIR.get() {
+        return dir.clone();
+    }
+    if let Some(dir) = marked_data_dir() {
+        return dir;
+    }
+    default_data_dir()
 }
 
 // Read the paths of this program.
@@ -862,7 +985,7 @@ pub fn paths() -> Paths {
         contexts: data.join("contexts"),
         repositories: data.join("repositories"),
         models: data.join("models"),
-        settings_file: data.join("settings.json"),
+        settings_file: data.join(SETTINGS_FILE_NAME),
         data,
     }
 }
@@ -904,6 +1027,18 @@ pub fn load() -> Config {
         Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
         Err(_) => Config::default(),
     };
+    // A settings file written before the folder of the data could be chosen holds
+    // no word of one. The mark file that sent this run to its folder is that word,
+    // so it is stood in the settings: the field of the sheet then shows where the
+    // files really stand, and a writing of the settings stands the mark again in
+    // the same place instead of taking it away.
+    if cfg.data_dir.trim().is_empty() {
+        if let Some(dir) = marked_data_dir() {
+            if dir != default_data_dir() {
+                cfg.data_dir = dir.display().to_string();
+            }
+        }
+    }
     // A settings file written before there were three skins holds no word of one.
     // The switch of the two that such a file holds answers for it, so a chat that
     // stood on the dark skin does not wake up pale.
@@ -942,7 +1077,20 @@ pub fn save(cfg: &Config) -> std::io::Result<()> {
     // file behind.
     let tmp = p.data.join("settings.json.new");
     fs::write(&tmp, text)?;
-    fs::rename(&tmp, &p.settings_file)
+    fs::rename(&tmp, &p.settings_file)?;
+    // The mark for another data folder is kept in step with the settings, so the
+    // place the program looks in when it starts again is the place the user asked
+    // for. A fault here says that the folder written in the settings is no folder:
+    // the settings are written either way, and the program keeps reading from the
+    // place it was reading from. It is said in the log of the program, for the
+    // sheet of the settings has no word of its own to say it with.
+    if let Err(why) = point_data_dir(cfg) {
+        proglog::note(
+            proglog::FOLDERS,
+            &format!("the data folder of the settings is not stood: {}", why),
+        );
+    }
+    Ok(())
 }
 
 // Directory that holds the repositories. Create it when it does not exist.
@@ -952,6 +1100,29 @@ pub fn repositories_dir(cfg: &Config) -> PathBuf {
     } else {
         PathBuf::from(&cfg.repositories_dir)
     };
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+// Where the talks of the model would stand, from the words of the settings: the
+// folder that was written, or the `contexts` folder inside the data folder. This
+// makes nothing; `contexts_dir` below both reads and makes.
+pub fn contexts_place(cfg: &Config) -> PathBuf {
+    if cfg.contexts_dir.trim().is_empty() {
+        paths().contexts
+    } else {
+        PathBuf::from(cfg.contexts_dir.trim())
+    }
+}
+
+// The folder the talks the model has worked its way through stand in: the read
+// talk of every chat that has the keeping of them switched on, which llama-server
+// writes and reads back by name. Create it when it does not exist, as
+// `repositories_dir` does. The talks are the bulk of what a chat costs on a disk,
+// which is why they may be put somewhere of their own, away from the rest of the
+// files of the program.
+pub fn contexts_dir(cfg: &Config) -> PathBuf {
+    let dir = contexts_place(cfg);
     let _ = fs::create_dir_all(&dir);
     dir
 }
@@ -1100,6 +1271,109 @@ mod tests {
         assert!(!cfg.chat_context_compression);
         assert_eq!(cfg.chat_max_tool_steps, -1);
         assert_eq!(cfg.chat_max_answer_steps, -1);
+    }
+
+    // The two folders a user may point elsewhere. The settings answer with the
+    // place the program chose when they say nothing, and with the folder that was
+    // written when they name one; words of spaces are nothing to say.
+    #[test]
+    fn the_two_folders_of_the_settings_are_read_or_made() {
+        let plain = Config::default();
+        assert!(plain.data_dir.is_empty(), "a new set of settings names no folder");
+        assert!(plain.contexts_dir.is_empty());
+        assert_eq!(contexts_place(&plain), paths().contexts);
+        // The folder named is the folder used, and it is made when it is asked
+        // for, so a folder written in the sheet of the settings is a folder the
+        // program can write into.
+        let _ = fs::remove_dir_all("uidata/folder-tests");
+        let named = PathBuf::from("uidata/folder-tests/contexts");
+        let moved = Config {
+            contexts_dir: named.display().to_string(),
+            ..Config::default()
+        };
+        assert_eq!(contexts_place(&moved), named);
+        assert_eq!(contexts_dir(&moved), named);
+        assert!(named.is_dir(), "the folder was made with the ask");
+        let spaces = Config {
+            contexts_dir: "   ".to_string(),
+            ..Config::default()
+        };
+        assert_eq!(contexts_place(&spaces), paths().contexts);
+        let _ = fs::remove_dir_all("uidata/folder-tests");
+    }
+
+    // The mark file that names another folder for the files of the program: it is
+    // stood for a folder that stands and not for words that name nothing, the
+    // settings in hand are copied to a folder that holds none, and empty words
+    // take the mark away again - which is the way back to the usual place.
+    #[test]
+    fn a_mark_names_another_folder_for_the_files_of_the_program() {
+        let root = PathBuf::from("uidata/mark-tests");
+        let usual = root.join("usual");
+        let other = root.join("other");
+        let mark = usual.join(MARK_FILE_NAME);
+        let settings = usual.join(SETTINGS_FILE_NAME);
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&usual).expect("the usual place is made");
+        fs::write(&settings, "{}").expect("the settings are written");
+        // Words that name no folder are no place. The mark is not stood, nothing
+        // is made of the words, and the program keeps reading from where it read.
+        let nonsense = Config {
+            data_dir: other.display().to_string(),
+            ..Config::default()
+        };
+        assert!(point_data_dir_at(&mark, &settings, &nonsense).is_err());
+        assert!(!mark.exists(), "no mark stands for a folder that is not there");
+        assert!(!other.exists(), "the program makes no folder out of the settings");
+        // A folder that stands is a place: the mark names it, and the settings in
+        // hand are copied there, so that a program starting again at the new place
+        // starts with the settings it had rather than with a new set of them.
+        fs::create_dir_all(&other).expect("the other folder is made");
+        point_data_dir_at(&mark, &settings, &nonsense).expect("the mark is stood");
+        assert_eq!(read_mark(&mark).as_deref(), Some(other.as_path()));
+        assert!(other.join(SETTINGS_FILE_NAME).is_file(), "the settings came along");
+        // Empty words take the mark away, and taking a mark away that is not there
+        // is nothing to do rather than a fault.
+        let back = Config {
+            data_dir: "  ".to_string(),
+            ..Config::default()
+        };
+        point_data_dir_at(&mark, &settings, &back).expect("the mark is taken away");
+        assert!(!mark.exists());
+        assert!(point_data_dir_at(&mark, &settings, &back).is_ok());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // A mark file that names nothing the program can read is answered by the usual
+    // place: a folder on a disk that is not there today, and a file of another
+    // program's own, leave the program working rather than lost.
+    #[test]
+    fn a_mark_that_names_no_folder_is_no_place() {
+        let root = PathBuf::from("uidata/mark-read-tests");
+        let mark = root.join(MARK_FILE_NAME);
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("the folder is made");
+        assert_eq!(read_mark(&mark), None, "no mark stands at all");
+        fs::write(&mark, "  \n").expect("an empty mark is written");
+        assert_eq!(read_mark(&mark), None);
+        fs::write(&mark, "a folder that is not here\n").expect("a mark of words");
+        assert_eq!(read_mark(&mark), None);
+        fs::write(&mark, format!("{}\n", root.display())).expect("a mark of this folder");
+        assert_eq!(read_mark(&mark).as_deref(), Some(root.as_path()));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // A settings file written before the two folders could be chosen still reads,
+    // with both of them empty: the usual places answer, as they did before.
+    #[test]
+    fn an_old_settings_file_names_neither_folder() {
+        let old = "{\"llama_dir\":\"\",\"models_dir\":\"\",\"repositories_dir\":\"\",\
+                   \"dark_mode\":false,\"remote_port\":8723,\"upnp_enabled\":false,\
+                   \"model_id\":\"\",\"model_settings\":{}}";
+        let read: Config = serde_json::from_str(old).expect("an old settings file reads");
+        assert!(read.data_dir.is_empty());
+        assert!(read.contexts_dir.is_empty());
+        assert_eq!(contexts_place(&read), paths().contexts);
     }
 
     // A number of steps is kept and read back, and a number below -1 is read as

@@ -45,6 +45,9 @@ pub const SUMMARY: &str = "summary";
 pub const CUT: &str = "cut";
 // The talks on disk: a chat that could not be written out, and the reason.
 pub const STORE: &str = "store";
+// The folders of the program: a data folder named in the settings that is no
+// folder, and so is not stood for the next start of the program.
+pub const FOLDERS: &str = "folders";
 
 // Begin the log of this run of the program and give back its place. None comes
 // back when the folder cannot be made, and the program then works as it did with no

@@ -38,6 +38,11 @@ use crate::viewimage;
 // The name the model uses to write the short of its work.
 pub const NAME: &str = "work_log";
 
+// The name the model uses to say that the work is over and its last words come
+// next. The block of the answer is closed at that mark, and the words after it
+// stand outside it.
+pub const FINISH_NAME: &str = "finish_answer";
+
 // What one call of the tool writes: the heading of the area of work, and the
 // short lines to put under it.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -94,6 +99,17 @@ pub struct WorkBlock {
     // of that heading, and not as one long flat list.
     #[serde(default)]
     pub sub: Vec<WorkBlock>,
+    // True when the block stands for one line of the short the model wrote. Such
+    // a block holds the calls the model made while that line stood last, so the
+    // words of the short and the work they stand for are read together. A line
+    // with no calls of its own is drawn as a plain line, with nothing to open.
+    #[serde(default)]
+    pub line: bool,
+    // True when the block stands for several calls of one tool made one after
+    // another with nothing of another kind between. The calls stand inside it,
+    // and its head is said in the plural.
+    #[serde(default)]
+    pub group: bool,
 }
 
 // The words of the tool the model has. It cannot be switched off, and it is
@@ -125,11 +141,53 @@ pub fn definition() -> Value {
     })
 }
 
+// The tool that says the work of the answer is over. It stands beside the tool
+// of the short, holds no switch of the user, and is drawn nowhere. What it does
+// is to close the one block of the answer: the words the model writes after it
+// are the words the user came for, and they stand outside the block whole.
+pub fn finish_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": FINISH_NAME,
+            "description": String::from(
+                "Close the work block of this answer and give your last words to the user. Call it once, at the moment you have done everything you meant to do and will call no more tools. The block the user watches stands for your work; this tool ends it, and everything you write afterwards is read as the answer, outside the block, in the plain words of the chat. Do not call it before the work is really over, and do not call a tool after it.",
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            }
+        }
+    })
+}
+
+// True when a name is the tool that closes the block of the answer.
+pub fn is_finish(name: &str) -> bool {
+    name == FINISH_NAME
+}
+
 // The head of the one block while the model is thinking.
 pub const THINKING: &str = "Thinking";
 
+// The head of the one block when the model thought and did nothing else. A
+// block that stood at "Thinking" does not end at "Done", for the thinking is
+// the whole of what the answer did.
+pub fn thought_head(ms: u64) -> String {
+    let secs = ((ms as f64) / 1000.0).round() as i64;
+    let secs = if secs < 1 { 1 } else { secs };
+    if secs == 1 {
+        String::from("Thought for 1 second")
+    } else {
+        format!("Thought for {secs} seconds")
+    }
+}
+
 // The head of the one block when nothing of the work is going on.
 pub const WORKING: &str = "Working";
+
+// The head of the one block of an answer that came to its end with nothing of
+// the work in it.
+pub const DONE: &str = "Done";
 
 // The words of what a call is, while it runs. The corporate head uses these,
 // and so does the short block of the call.
@@ -171,6 +229,46 @@ fn done_word(name: &str) -> &'static str {
     }
 }
 
+// The same words in the plural, for several calls of one tool made one after
+// another stand in a block of their own whose head says what the answer did, and
+// not what one call did.
+fn done_plural(name: &str) -> &'static str {
+    match name {
+        tools::TOOL_NAME => "Ran commands",
+        editfile::EDIT_NAME => "Edited files",
+        editfile::CREATE_NAME => "Created files",
+        search::NAME => "Searched the web",
+        display::NAME => "Read the screen",
+        suggest::NAME => "Offered next steps",
+        steps::NAME => "Wrote the steps",
+        rerun::NAME => "Ran failed calls",
+        download::NAME => "Offered files",
+        viewimage::NAME => "Looked at pictures",
+        summarise::NAME => "Summarised the talk",
+        NAME => "Wrote the short",
+        _ => "Worked",
+    }
+}
+
+// The plural words of a run that is still going on.
+fn doing_plural(name: &str) -> &'static str {
+    match name {
+        tools::TOOL_NAME => "Running commands",
+        editfile::EDIT_NAME => "Editing files",
+        editfile::CREATE_NAME => "Creating files",
+        search::NAME => "Searching the web",
+        display::NAME => "Reading the screen",
+        suggest::NAME => "Offering next steps",
+        steps::NAME => "Writing the steps",
+        rerun::NAME => "Running failed calls",
+        download::NAME => "Offering files",
+        viewimage::NAME => "Looking at pictures",
+        summarise::NAME => "Summarising the talk",
+        NAME => "Writing the short",
+        _ => "Working",
+    }
+}
+
 // The heading of the area of work the model named in a call that is still being
 // written. Nothing stands in the head until the first word of the heading comes
 // in. See `crate::tools::partial_text`, which reads a part of a call as far as it
@@ -180,7 +278,8 @@ pub fn partial_words(raw: &str) -> String {
 }
 
 // True when a name is one of the tools of the program, rather than one a
-// server of tools added.
+// server of tools added. The tool that closes the block of the answer stands
+// with them, for it is never shown as a block.
 fn known(name: &str) -> bool {
     matches!(
         name,
@@ -196,6 +295,7 @@ fn known(name: &str) -> bool {
             | viewimage::NAME
             | summarise::NAME
             | NAME
+            | FINISH_NAME
     )
 }
 
@@ -278,6 +378,8 @@ pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {
         file: file_of(name, args),
         output: String::new(),
         sub: Vec::new(),
+        line: false,
+        group: false,
     }
 }
 
@@ -376,12 +478,37 @@ pub fn settle(block: &mut WorkBlock) {
 
 // A call began under the short of the work. A heading the model wrote last
 // takes the call inside it, so the work of that heading stands with it; with no
-// heading open the call stands on its own.
+// heading open the call stands on its own. Inside the heading the call goes
+// under the line the model wrote last, so the words of the short and the work
+// they stand for are read together: another line the model writes takes the
+// calls that come after it.
 pub fn begin(blocks: &mut Vec<WorkBlock>, name: &str, id: &str, args: &Value) {
     let made = block_for(name, id, args);
     match blocks.last_mut() {
-        Some(one) if one.tool == NAME => one.sub.push(made),
+        Some(one) if one.tool == NAME => under(one, made),
         _ => blocks.push(made),
+    }
+}
+
+// The place one call stands inside a heading of the short: under the line the
+// model wrote last, or under the heading itself when the heading holds no line
+// of its own.
+fn under(head: &mut WorkBlock, made: WorkBlock) {
+    match head.sub.last_mut() {
+        Some(one) if one.line => one.sub.push(made),
+        _ => head.sub.push(made),
+    }
+}
+
+// The line of the short the model wrote, made into a block of its own. A line
+// with no call under it is drawn as a plain line; the calls that fall under it
+// are what makes it open.
+fn line_block(text: String) -> WorkBlock {
+    WorkBlock {
+        head: text,
+        tool: String::from(NAME),
+        line: true,
+        ..Default::default()
     }
 }
 
@@ -399,6 +526,18 @@ pub fn find_mut<'a>(blocks: &'a mut [WorkBlock], id: &str) -> Option<&'a mut Wor
     None
 }
 
+// The head of the one block of an answer that came to its end. A block that
+// stood at "Thinking" does not end at "Done": when the answer did nothing but
+// think, the thinking is the whole of what it did, and is said with the time it
+// took.
+pub fn head_of_answer(blocks: &[WorkBlock], thought_ms: u64) -> String {
+    let said = head_after(blocks);
+    if said == DONE && thought_ms > 0 {
+        return thought_head(thought_ms);
+    }
+    said
+}
+
 // The head of the one block when an answer is over: what the answer did, in the
 // words of things that have happened. A search that came back is said as a
 // search that was made, and a command that came back as a command that ran.
@@ -409,7 +548,7 @@ pub fn head_after(blocks: &[WorkBlock]) -> String {
     let mut failed = false;
     gather(blocks, &mut words, &mut failed);
     if words.is_empty() {
-        return String::from("Done");
+        return String::from(DONE);
     }
     // The three last say what the answer ended with. A head that carried every
     // kind of work would be longer than the answer.
@@ -434,7 +573,7 @@ fn gather(blocks: &[WorkBlock], words: &mut Vec<String>, failed: &mut bool) {
             gather(&one.sub, words, failed);
             continue;
         }
-        if one.tool != NAME {
+        if one.tool != NAME && one.tool != FINISH_NAME {
             let word = if known(&one.tool) {
                 String::from(done_word(&one.tool))
             } else {
@@ -446,6 +585,89 @@ fn gather(blocks: &[WorkBlock], words: &mut Vec<String>, failed: &mut bool) {
             *failed = one.failed;
         }
         gather(&one.sub, words, failed);
+    }
+}
+
+// The blocks as the user is given them. Calls of one tool made one after
+// another, with nothing of another kind between, stand together in one block of
+// their own: ten files made one after another read as "Created files (10)" with
+// the ten under it, and not as ten blocks of the short. The calls stand in the
+// same order, each with its own head, its file and what came back. Headings and
+// lines of the short are not calls, so a run of calls broken by one of them is
+// two runs and two blocks.
+pub fn grouped(blocks: &[WorkBlock]) -> Vec<WorkBlock> {
+    let mut out: Vec<WorkBlock> = Vec::new();
+    let mut at = 0;
+    while at < blocks.len() {
+        let one = &blocks[at];
+        // What stands inside a heading, or under a line of one, is put together
+        // the same way.
+        if one.tool == NAME {
+            let mut held = one.clone();
+            held.sub = grouped(&one.sub);
+            out.push(held);
+            at += 1;
+            continue;
+        }
+        if !run_of(one) {
+            out.push(one.clone());
+            at += 1;
+            continue;
+        }
+        let mut run: Vec<WorkBlock> = vec![one.clone()];
+        let mut next = at + 1;
+        while next < blocks.len() && run_of(&blocks[next]) && blocks[next].tool == one.tool {
+            run.push(blocks[next].clone());
+            next += 1;
+        }
+        if run.len() == 1 {
+            out.push(one.clone());
+        } else {
+            out.push(group_of(&run));
+        }
+        at = next;
+    }
+    out
+}
+
+// True for the block of a call that may stand in a run of its kind: a call of
+// one tool, and not a heading or a line of the short, and not a block that
+// already stands for a run.
+fn run_of(one: &WorkBlock) -> bool {
+    !one.tool.is_empty()
+        && one.tool != NAME
+        && one.tool != FINISH_NAME
+        && !one.line
+        && !one.group
+}
+
+// The one block that stands for a run of calls of one tool. Its head is said in
+// the plural, with the number of calls in it, and it is done only when every
+// call of the run came back. A fault in any of them is a fault of the run.
+fn group_of(run: &[WorkBlock]) -> WorkBlock {
+    let mut done = true;
+    let mut failed = false;
+    for one in run.iter() {
+        if !one.done {
+            done = false;
+        }
+        if one.failed {
+            failed = true;
+        }
+    }
+    let word = if done {
+        done_plural(&run[0].tool)
+    } else {
+        doing_plural(&run[0].tool)
+    };
+    WorkBlock {
+        head: format!("{} ({})", word, run.len()),
+        tool: run[0].tool.clone(),
+        done,
+        failed,
+        group: true,
+        sub: run.to_vec(),
+        ..Default::default()
     }
 }
 
@@ -470,12 +692,14 @@ pub fn note(blocks: &mut Vec<WorkBlock>, entry: &Entry) -> bool {
         // Without a heading the lines have nowhere of their own, so they stand
         // under the heading the model opened last, or under a block of their own
         // when the model opened none.
-        let place = blocks.last_mut().filter(|one| one.tool == NAME);
+        let place = blocks
+            .last_mut()
+            .filter(|one| one.tool == NAME && !one.line);
         match place {
-            Some(one) => one.lines.append(&mut lines),
+            Some(one) => one.sub.extend(lines.into_iter().map(line_block)),
             None => blocks.push(WorkBlock {
                 head: String::from(WORKING),
-                lines,
+                sub: lines.into_iter().map(line_block).collect(),
                 tool: String::from(NAME),
                 ..Default::default()
             }),
@@ -488,12 +712,12 @@ pub fn note(blocks: &mut Vec<WorkBlock>, entry: &Entry) -> bool {
     // were made under it.
     let place = blocks
         .last_mut()
-        .filter(|one| one.tool == NAME && one.head == topic);
+        .filter(|one| one.tool == NAME && !one.line && one.head == topic);
     match place {
-        Some(one) => one.lines.append(&mut lines),
+        Some(one) => one.sub.extend(lines.into_iter().map(line_block)),
         None => blocks.push(WorkBlock {
             head: String::from(topic),
-            lines,
+            sub: lines.into_iter().map(line_block).collect(),
             tool: String::from(NAME),
             ..Default::default()
         }),
@@ -509,11 +733,18 @@ pub fn system_prompt() -> String {
     String::from(
         "The chat stands in the corporate display. The user does not see your thoughts, and does not see the blocks of the calls you make: those are hidden whole. One block stands for each of your answers. Its head says what you are at, and the writing inside it is the short of your work.\n\
          You write that short yourself with work_log. The user reads it while you work, so keep it moving: write to it before a call that takes time, and again when that call comes back. Two calls in a row are two writings, and not one writing after both. A block nothing has been written into for a minute reads as a program that has stopped. A short answer that asks for nothing needs no writing, and one small thing needs no writing of its own.\n\
-         Give the heading of the area you are working in, and one to three very short lines under it. Call it again with the same heading to add lines to that heading, and with another heading to open another one; the calls you make go under the heading you opened last. A heading is the area or the task, never a tool name and never a file name.\n\
+         Give the heading of the area you are working in, and one to three very short lines under it. Call it again with the same heading to add lines to that heading, and with another heading to open another one. A heading is the area or the task, never a tool name and never a file name.\n\
+         The calls you make stand under the last line you wrote, so the user reads the words of the work and the work itself together. When you take the next step of that work, write a new line first and make the calls after it: the new line then holds the calls that follow. A line that stands for a step of the work is a step of the work, and not a saying about it.\n\
          When a call comes back, say in one line what it gave you, or what went wrong, so the user learns of a fault as you read it.\n\
-         Do not put the answer into those lines. The user reads the answer in the chat, and the short only says what you did to get it.",
+         Do not put the answer into those lines. The user reads the answer in the chat, and the short only says what you did to get it.\n\
+         When the work is over, close the block with finish_answer. Call it once, at the moment you have done everything you meant to do and will call no more tools. The block ends there, and everything you write after it is read as the answer the user came for, outside the block and in the plain words of the chat. Do not call it while work is left, and call no tool after it.",
     )
 }
+
+// The words the model gets back for the call that closes the block of its
+// answer. They are kept short, and they say what comes next.
+pub const FINISH_WORDS: &str =
+    "The block is closed. What you write now is the answer the user reads.";
 
 // The words the model gets back for a call of the tool. They are kept short,
 // for the model does not need to be told what it just wrote.
@@ -554,7 +785,9 @@ mod tests {
             }
         ));
         assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0].lines.len(), 2);
+        assert_eq!(blocks[0].sub.len(), 2, "the two writings stand under one heading");
+        assert!(blocks[0].sub[0].line, "a line of the short is a block of its own");
+        assert_eq!(blocks[0].sub[1].head, "Weighing the caveats.");
         assert_eq!(blocks[1].head, "Checking the version");
     }
 
@@ -570,12 +803,17 @@ mod tests {
         );
         begin(&mut blocks, tools::TOOL_NAME, "c1", &json!({"command": "ls"}));
         assert_eq!(blocks.len(), 1, "the call stands inside the heading");
+        // The line the model wrote stands as the first block of the heading, and
+        // the call stands under it.
         assert_eq!(blocks[0].sub.len(), 1);
-        assert_eq!(blocks[0].sub[0].head, "Running command ls");
-        // The call is found again by its number, inside the heading.
+        assert!(blocks[0].sub[0].line);
+        assert_eq!(blocks[0].sub[0].head, "Two methods to compare.");
+        assert_eq!(blocks[0].sub[0].sub[0].head, "Running command ls");
+        // The call is found again by its number, inside the heading and under the
+        // line of it.
         let found = find_mut(&mut blocks, "c1").expect("the call of the paper");
         settle(found);
-        assert_eq!(blocks[0].sub[0].head, "Ran a command ls");
+        assert_eq!(blocks[0].sub[0].sub[0].head, "Ran a command ls");
         // A second heading takes the calls after it, and leaves the first one
         // as it stands.
         note(
@@ -587,8 +825,9 @@ mod tests {
         );
         begin(&mut blocks, search::NAME, "c2", &json!({"query": "attention"}));
         assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0].sub.len(), 1, "the first heading keeps its work");
+        assert_eq!(blocks[0].sub[0].sub.len(), 1, "the first heading keeps its work");
         assert_eq!(blocks[1].sub.len(), 1);
+        assert_eq!(blocks[1].sub[0].sub[0].head, "Searching the web attention");
         // The head of the block names every kind of work the answer did, in the
         // order the kinds were done. The user reads one line and knows the answer
         // both ran a command and searched.
@@ -621,8 +860,8 @@ mod tests {
             },
         );
         assert_eq!(blocks.len(), 3, "a heading begun again opens again");
-        assert_eq!(blocks[2].lines.len(), 1);
-        assert_eq!(blocks[0].lines.len(), 1);
+        assert_eq!(blocks[2].sub.len(), 1);
+        assert_eq!(blocks[0].sub.len(), 1);
     }
 
     #[test]
@@ -641,5 +880,131 @@ mod tests {
         let block = block_for("notion_search", "c2", &json!({}));
         assert_eq!(block.head, "notion search");
         assert_eq!(head_of("notion_search", &json!({})), "notion search");
+    }
+
+    // Several calls of one tool made one after another, with nothing of another
+    // kind between, stand in one block whose head is said in the plural. A call of
+    // another tool between them makes two runs and two blocks, and one call of a
+    // kind is no run at all.
+    #[test]
+    fn calls_of_one_tool_one_after_another_stand_in_one_block() {
+        let mut blocks = Vec::new();
+        for at in 0..3 {
+            let id = format!("c{at}");
+            let path = format!("f{at}.ts");
+            begin(&mut blocks, editfile::CREATE_NAME, &id, &json!({"path": path}));
+            let found = find_mut(&mut blocks, &id).expect("the file the model made");
+            came_back(found, &format!("Created '{path}'."), true, 10, 0);
+        }
+        begin(&mut blocks, tools::TOOL_NAME, "run", &json!({"command": "ls"}));
+        let found = find_mut(&mut blocks, "run").expect("the run");
+        settle(found);
+        begin(&mut blocks, editfile::CREATE_NAME, "last", &json!({"path": "z.ts"}));
+        let made = grouped(&blocks);
+        assert_eq!(made.len(), 3, "the run of three, the run between, and the one after");
+        assert!(made[0].group);
+        assert_eq!(made[0].head, "Created files (3)");
+        assert_eq!(made[0].sub.len(), 3);
+        assert_eq!(made[0].sub[0].head, "Created a file f0.ts");
+        assert_eq!(made[0].sub[0].file, "f0.ts", "a call keeps its own file");
+        assert!(made[0].done, "every call of the run came back");
+        assert!(!made[1].group, "one run of a kind is no run of its kind");
+        assert_eq!(made[1].head, "Ran a command ls");
+        assert!(!made[2].group, "one call of a kind is no run");
+        // The head of the answer says the kinds of the work once each, as it did
+        // before the calls were put together.
+        assert_eq!(head_after(&made), "Created a file, Ran a command");
+    }
+
+    // A group is done only when every call of it came back, so a run that is
+    // still going on is said in the plural of the words that are going on.
+    #[test]
+    fn a_run_that_is_still_going_on_is_said_in_the_words_of_a_thing_doing() {
+        let mut blocks = Vec::new();
+        begin(&mut blocks, editfile::EDIT_NAME, "e1", &json!({"path": "a.ts"}));
+        let found = find_mut(&mut blocks, "e1").expect("the first edit");
+        came_back(found, "Edited 'a.ts'.", true, 3, 1);
+        begin(&mut blocks, editfile::EDIT_NAME, "e2", &json!({"path": "b.ts"}));
+        let made = grouped(&blocks);
+        assert_eq!(made.len(), 1);
+        assert!(made[0].group);
+        assert_eq!(made[0].head, "Editing files (2)");
+        assert!(!made[0].done, "one call of the run is still going on");
+    }
+
+    // The calls fall under the line the model wrote last. Another line the model
+    // writes takes the calls that come after it, so the words of the short and the
+    // work they stand for are read together.
+    #[test]
+    fn a_call_stands_under_the_line_the_model_wrote_last() {
+        let mut blocks = Vec::new();
+        note(
+            &mut blocks,
+            &Entry {
+                topic: String::from("Build Phase 1"),
+                lines: vec![String::from("Creating the schemas.")],
+            },
+        );
+        begin(&mut blocks, editfile::CREATE_NAME, "c1", &json!({"path": "schema.prisma"}));
+        note(
+            &mut blocks,
+            &Entry {
+                topic: String::from("Build Phase 1"),
+                lines: vec![String::from("Building the APIs.")],
+            },
+        );
+        begin(&mut blocks, editfile::CREATE_NAME, "c2", &json!({"path": "auth.ts"}));
+        begin(&mut blocks, editfile::CREATE_NAME, "c3", &json!({"path": "cart.ts"}));
+        assert_eq!(blocks.len(), 1, "the heading of the same name is kept");
+        assert_eq!(blocks[0].sub.len(), 2, "two lines of the short stand in the heading");
+        assert_eq!(blocks[0].sub[0].sub.len(), 1, "the first line holds the call under it");
+        assert_eq!(blocks[0].sub[1].sub.len(), 2, "the second line holds the two after it");
+        // Put together, the two calls of the second line stand in one block under
+        // that line, and the first line keeps its one call as it stood.
+        let made = grouped(&blocks);
+        assert_eq!(made[0].sub[0].sub.len(), 1);
+        assert_eq!(made[0].sub[1].sub.len(), 1);
+        assert_eq!(made[0].sub[1].sub[0].head, "Creating files (2)");
+    }
+
+    // The head of an answer that thought and did nothing else says how long the
+    // thinking took, and not that the answer is done. The short the model wrote is
+    // no work of a call, so an answer that wrote only the short still says what it
+    // thought.
+    #[test]
+    fn an_answer_of_thinking_only_says_how_long_it_thought() {
+        assert_eq!(thought_head(0), "Thought for 1 second");
+        assert_eq!(thought_head(1400), "Thought for 1 second");
+        assert_eq!(thought_head(12_400), "Thought for 12 seconds");
+        let mut blocks = Vec::new();
+        assert_eq!(head_of_answer(&blocks, 0), DONE);
+        assert_eq!(head_of_answer(&blocks, 4200), "Thought for 4 seconds");
+        note(
+            &mut blocks,
+            &Entry {
+                topic: String::from("Weighing it"),
+                lines: vec![String::from("Two ways.")],
+            },
+        );
+        assert_eq!(head_of_answer(&blocks, 4200), "Thought for 4 seconds");
+    }
+
+    // The tool that closes the block of the answer is no work of a call: it is
+    // named nowhere in the head, and it stands in no run.
+    #[test]
+    fn the_tool_that_closes_the_block_names_no_work() {
+        let mut blocks = Vec::new();
+        begin(&mut blocks, tools::TOOL_NAME, "c1", &json!({"command": "ls"}));
+        let found = find_mut(&mut blocks, "c1").expect("the run");
+        settle(found);
+        blocks.push(WorkBlock {
+            head: String::from("the end of the work"),
+            tool: String::from(FINISH_NAME),
+            done: true,
+            ..Default::default()
+        });
+        assert_eq!(head_after(&blocks), "Ran a command");
+        let made = grouped(&blocks);
+        assert_eq!(made.len(), 2, "the closing mark is no call of a run");
     }
 }

@@ -439,6 +439,12 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             String::new(),
             named(corporate::partial_words(raw), "the short of the work"),
         ),
+        // The call that closes the block of the answer is named for what it does.
+        corporate::FINISH_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the end of the work"),
+        ),
         // A tool of a server of the user's own is named by the tool itself,
         // and the parts the model is writing are the words of the block.
         name if mcp::is_tool(name) => (
@@ -1327,6 +1333,9 @@ pub struct Snap {
     // The skin the pages are drawn in: `light`, `dark` or `corporate`.
     pub theme: String,
     pub data_dir: String,
+    // The folder the talks the model worked its way through stand in, which the
+    // settings window reads out beside the field that chooses another place.
+    pub contexts_dir: String,
     // What the sandbox can do on this machine, for the settings window.
     pub sandbox_note: String,
     // Chatting. Whether a thinking panel is folded up while it is written.
@@ -1445,6 +1454,10 @@ pub struct Snap {
     pub live_work: Vec<corporate::WorkBlock>,
     // The head the one block of the corporate display stands at right now.
     pub live_work_head: String,
+    // True once the model said with its own tool that the work of this answer is
+    // over. The one block of the answer is closed at that mark, and the words the
+    // model writes after it stand outside it, as the answer the user came for.
+    pub live_work_closed: bool,
     // The question the model has put to the user and is waiting on, when it has
     // put one. The popup of the ask stands above the chat box.
     pub ask: Option<Asking>,
@@ -1507,6 +1520,9 @@ pub struct State {
     // The head the one block of the corporate display stands at right now: what
     // the model is at, in the words of the thing that is going on.
     pub live_work_head: String,
+    // True when the model closed the one block of the answer with its own tool.
+    // The words of the answer that come after that mark stand outside the block.
+    pub live_work_closed: bool,
     // The whole of a plan the model let go, waiting to become the first message of
     // the work. It stands only between the call that let the plan go and the turn
     // that begins the work, which follows it at once.
@@ -1956,19 +1972,25 @@ impl State {
                     one.work_head.clear();
                 }
             }
-            held
+            // Calls of one tool made one after another stand together in a block
+            // of their own, so ten files made in a row read as one block of the
+            // short with ten under it.
+            corporate::grouped(&held)
         } else {
             Vec::new()
         };
         // The head of the block is said in the words of a thing that happened, so
         // a search that stood at the head while the answer came in is a search
-        // that was made. With no work at all the block still stands, and says
-        // "Done": the short of an answer never goes away after it.
+        // that was made. With no work at all the block still stands: when the
+        // answer did nothing but think, the head says how long it thought.
         let head = if role == "Assistant" && self.corporate_on() {
-            corporate::head_after(&work)
+            corporate::head_of_answer(&work, reasoning_ms)
         } else {
             String::new()
         };
+        // The words of this message stand inside the one block of the answer,
+        // unless the model had already closed it with its own tool.
+        let closed = self.live_work_closed;
         if let Some(chat) = self.chat_mut() {
             chat.messages.push(Message {
                 id: store::new_id(),
@@ -1979,6 +2001,7 @@ impl State {
                 mono,
                 work,
                 work_head: head,
+                work_closed: closed,
                 when: store::now_secs(),
                 ..Default::default()
             });
@@ -2022,7 +2045,7 @@ impl State {
             last.work.extend(more);
         }
         if joined {
-            last.work_head = corporate::head_after(&last.work);
+            last.work_head = corporate::head_of_answer(&last.work, last.reasoning_ms);
         }
         true
     }
@@ -2287,7 +2310,13 @@ impl State {
     // A call began: the one block says what the model is at, and a block of the
     // call stands in the short of the work.
     fn corporate_begin(&mut self, call: &ToolCall, id: &str) {
-        if !self.corporate_on() || call.name == corporate::NAME {
+        // The tool of the short writes words, not a run: the heading it names
+        // stands in the short, and no block of a call stands for it. The tool
+        // that closes the block of the answer is drawn nowhere either.
+        if !self.corporate_on()
+            || call.name == corporate::NAME
+            || call.name == corporate::FINISH_NAME
+        {
             return;
         }
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
@@ -3453,6 +3482,7 @@ impl State {
             dark_mode: self.cfg.dark_mode,
             theme: config::theme_word(&self.cfg.theme, self.cfg.dark_mode),
             data_dir: config::paths().data.display().to_string(),
+            contexts_dir: config::contexts_dir(&self.cfg).display().to_string(),
             sandbox_note: self.sandbox_note.clone(),
             chat_collapse_thinking: self.cfg.chat_collapse_thinking,
             chat_grow_thinking: self.cfg.chat_grow_thinking,
@@ -3520,8 +3550,11 @@ impl State {
             prompt_rate: self.prompt_rate,
             answer_rate: self.answer_rate,
             live_tools: self.live_tools.clone(),
-            live_work: self.live_work.clone(),
+            // What the user is shown: calls of one tool made one after another
+            // stand together in a block of their own.
+            live_work: corporate::grouped(&self.live_work),
             live_work_head: self.live_work_head.clone(),
+            live_work_closed: self.live_work_closed,
             ask: self.asking.clone(),
             running: self.running.as_ref().map(|one| RunningTool {
                 id: one.id.clone(),
@@ -3656,6 +3689,7 @@ impl Engine {
             live_tools: Vec::new(),
             live_work: Vec::new(),
             live_work_head: String::new(),
+            live_work_closed: false,
             plan_pending: None,
             asking: None,
             running: None,
@@ -5237,6 +5271,7 @@ impl Snap {
             dark_mode: false,
             theme: String::new(),
             data_dir: String::new(),
+            contexts_dir: String::new(),
             sandbox_note: String::new(),
             chat_collapse_thinking: true,
             chat_grow_thinking: true,
@@ -5288,6 +5323,7 @@ impl Snap {
             live_tools: Vec::new(),
             live_work: Vec::new(),
             live_work_head: String::new(),
+            live_work_closed: false,
             planning: false,
             planned: false,
             ask: None,
@@ -5518,14 +5554,15 @@ fn fnv1a(words: &str) -> u64 {
 }
 
 // Ask the server to write the talk of one slot out into its file, and put that
-// file into its short shape directly after. The talk of a chat costs as much
-// room as the model set aside for it, so it is never left standing at full
+// file into its short shape directly after. The talks stand in the folder `dir`,
+// which is where the talks of this program stand. The talk of a chat costs as
+// much room as the model set aside for it, so it is never left standing at full
 // size: see `src/contexts.rs`. A talk that could not be written, or that could
 // not be shortened, is a talk read through again, as it always was.
-fn write_talk(base_url: &str, slot: usize, name: &str, shorten: bool) {
+fn write_talk(base_url: &str, slot: usize, name: &str, shorten: bool, dir: &Path) {
     if let Ok(stood) = llama::slot_state(base_url, "save", slot, name) {
         if stood > 0 && shorten {
-            contexts::pack(&config::paths().contexts, name);
+            contexts::pack(dir, name);
         }
     }
 }
@@ -5536,18 +5573,18 @@ fn write_talk(base_url: &str, slot: usize, name: &str, shorten: bool) {
 // from an older run of the program, or from a shortening that could not be
 // finished -- is read as it stands and shortened afterwards, which is how a
 // folder of talks left by an older run shortens itself as the chats come round.
-fn read_talk(base_url: &str, slot: usize, name: &str, shorten: bool) {
-    let dir = config::paths().contexts;
+// The talks are read out of the folder `dir`.
+fn read_talk(base_url: &str, slot: usize, name: &str, shorten: bool, dir: &Path) {
     // The talk is laid out either way: a chat whose file stands in the short
     // shape is read out of that shape even when the switch is off now, and only
     // a raw file that stood is shortened again, and then only when asked for.
-    let found = contexts::lay_out(&dir, name);
+    let found = contexts::lay_out(dir, name);
     let _ = llama::slot_state(base_url, "restore", slot, name);
     match found {
-        contexts::Laid::FromShort => contexts::take_away(&dir, name),
+        contexts::Laid::FromShort => contexts::take_away(dir, name),
         contexts::Laid::RawStood => {
             if shorten {
-                contexts::pack(&dir, name);
+                contexts::pack(dir, name);
             }
         }
         contexts::Laid::Nothing => {}
@@ -5632,17 +5669,22 @@ fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> O
     // written out here. This is the moment the keeping earns its keep: the slot
     // of that chat is taken, and what the model made of its talk stands
     // nowhere else.
-    // Whether the talks this program writes are written in the short shape.
-    // The switch is read once here, so that a talk written and a talk read at
-    // the same moment stand in the one shape.
-    let shorten = state
+    // Whether the talks this program writes are written in the short shape, and
+    // where they stand. Both are read once here, so that a talk written and a talk
+    // read at the same moment stand in the one shape and in the one folder.
+    let (shorten, contexts) = state
         .lock()
-        .map(|guard| guard.cfg.chat_context_compression)
-        .unwrap_or(false);
+        .map(|guard| {
+            (
+                guard.cfg.chat_context_compression,
+                config::contexts_dir(&guard.cfg),
+            )
+        })
+        .unwrap_or_else(|_| (false, config::paths().contexts));
     if let Some(other) = holds.get(&slot) {
         if other != &chat_id {
             let name = context_name(other, model_id);
-            write_talk(base_url, slot, &name, shorten);
+            write_talk(base_url, slot, &name, shorten, &contexts);
         }
     }
     // The talk of this chat, out of its file and into the slot. A file that is
@@ -5651,7 +5693,7 @@ fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> O
     // as it always was. Nothing is said either way, for the words that come
     // back are the same words however the talk got there.
     let name = context_name(&chat_id, model_id);
-    read_talk(base_url, slot, &name, shorten);
+    read_talk(base_url, slot, &name, shorten, &contexts);
     if let Ok(mut guard) = state.lock() {
         guard.context_holds.insert(slot, chat_id.clone());
         guard.context_slot.insert(chat_id, slot);
@@ -5670,13 +5712,18 @@ fn save_all_contexts(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
         Ok(guard) => guard.context_holds.clone(),
         Err(_) => return,
     };
-    let shorten = state
+    let (shorten, contexts) = state
         .lock()
-        .map(|guard| guard.cfg.chat_context_compression)
-        .unwrap_or(false);
+        .map(|guard| {
+            (
+                guard.cfg.chat_context_compression,
+                config::contexts_dir(&guard.cfg),
+            )
+        })
+        .unwrap_or_else(|_| (false, config::paths().contexts));
     for (slot, chat_id) in holds {
         let name = context_name(&chat_id, model_id);
-        write_talk(base_url, slot, &name, shorten);
+        write_talk(base_url, slot, &name, shorten, &contexts);
     }
 }
 
@@ -5716,11 +5763,16 @@ fn save_chat_context(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
     // A talk that cannot be written is a talk read through again, as it always
     // was: the words of the chat stand in its file of chats whatever happens
     // here.
-    let shorten = state
+    let (shorten, contexts) = state
         .lock()
-        .map(|guard| guard.cfg.chat_context_compression)
-        .unwrap_or(false);
-    write_talk(base_url, slot, &name, shorten);
+        .map(|guard| {
+            (
+                guard.cfg.chat_context_compression,
+                config::contexts_dir(&guard.cfg),
+            )
+        })
+        .unwrap_or_else(|_| (false, config::paths().contexts));
+    write_talk(base_url, slot, &name, shorten, &contexts);
     Some(name)
 }
 
@@ -6416,6 +6468,7 @@ fn run_handoff(
         guard.live_tools = Vec::new();
         guard.live_work = Vec::new();
         guard.live_work_head = String::new();
+        guard.live_work_closed = false;
         guard.progress = 0;
         guard.progress_on = false;
         let id = guard.begin_summary();
@@ -7325,6 +7378,7 @@ fn run_turn(
         state.live_tools = Vec::new();
         state.live_work = Vec::new();
         state.live_work_head = String::new();
+        state.live_work_closed = false;
         // A question the model had put to the user before this answer began is
         // gone with the answer that asked it: the popup that stood over the chat
         // box was asked by a run that is no more.
@@ -8514,6 +8568,19 @@ fn run_turn(
         // True when the model let the plan go in this step of the answer.
         let mut letting = false;
         for call in step_runs.iter() {
+            // The model says the work of the answer is over, and that its last
+            // words come next. Nothing of the machine runs for such a call: the
+            // one block of the answer is closed, and the words the model writes
+            // after it stand outside it.
+            if call.name == corporate::FINISH_NAME {
+                let Ok(mut guard) = state.lock() else {
+                    continue;
+                };
+                guard.live_work_closed = true;
+                let id = guard.begin_tool(call, corporate::FINISH_WORDS, "", 0);
+                guard.finish_tool(&id, corporate::FINISH_WORDS, true);
+                continue;
+            }
             // The short of the work goes into the one block the corporate
             // display shows. Nothing of the machine runs for such a call: the
             // words are read out of it, put under the heading the model gave,
@@ -8825,6 +8892,7 @@ fn offered_with_planning(
     // It holds no switch of the user, for the mode is nothing without it.
     if corporate_on {
         list.push(corporate::definition());
+        list.push(corporate::finish_definition());
     }
     if list.is_empty() {
         return None;
@@ -9524,7 +9592,10 @@ fn ensure_server(
         // when the user has the keeping on. The server is told the folder and
         // nothing else: it makes the names of the files inside it by itself,
         // and never looks outside it. See `context_claim`.
-        let keeping = state.cfg.chat_context_files.then(|| config::paths().contexts);
+        let keeping = state
+            .cfg
+            .chat_context_files
+            .then(|| config::contexts_dir(&state.cfg));
         (binary, state.gpus.clone(), wants, keeping)
     };
     // The model loads once and stays loaded for every chat that asks for the
