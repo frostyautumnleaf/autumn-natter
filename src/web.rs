@@ -305,6 +305,21 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "timeout": one.timeout,
             "left": one.left,
         })),
+        // The messages waiting their turn in this chat. The list is kept by the
+        // program and belongs to the chat, so a page that is shut and opened
+        // again finds the rows as they were left, and the messages go out when
+        // the answer each of them waited for is over with no page watching it.
+        // The next message to go out stands at the front of `items`; the rows are
+        // written newest first, which is the other way about.
+        "queue": snap.queue.as_ref().map(|one| json!({
+            "chat": one.chat,
+            "held": one.held,
+            "items": one.items.iter().map(|row| json!({
+                "id": row.id,
+                "text": row.text,
+                "files": row.files,
+            })).collect::<Vec<Value>>(),
+        })),
         // The thinking that comes with a live answer, how long it lasted and
         // whether it has stopped. The page writes the last two on the head of
         // the panel.
@@ -895,6 +910,61 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             }
             engine.prompt(text, files);
             done()
+        }
+        // The waiting list. A message written while the model is writing waits in
+        // the program and not in the page: the list belongs to the chat, and the
+        // worker sends the messages when the answer each of them waited for is
+        // over, whether or not a page is left open to watch it. The rows are read
+        // back in the state, so a page opened again finds the list as it was left.
+        "/api/queue_add" | "queue_add" => {
+            let text = text_field(&value, "text");
+            let files = crate::attach::parse_incoming(
+                value.get("attachments").cloned().unwrap_or(serde_json::Value::Null),
+            );
+            match engine.queue_add(text, files) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            }
+        }
+        "/api/queue_remove" | "queue_remove" => {
+            let Some(id) = value.get("id").and_then(|one| one.as_u64()) else {
+                return refused("No message was named");
+            };
+            if engine.queue_remove(id) {
+                done()
+            } else {
+                refused("That message is not in the list any more")
+            }
+        }
+        "/api/queue_edit" | "queue_edit" => {
+            let Some(id) = value.get("id").and_then(|one| one.as_u64()) else {
+                return refused("No message was named");
+            };
+            let text = text_field(&value, "text");
+            if text.trim().is_empty() {
+                return refused("Nothing was written");
+            }
+            if engine.queue_edit(id, text) {
+                done()
+            } else {
+                refused("That message is not in the list any more")
+            }
+        }
+        // The place asked for is counted in the order the messages go out in,
+        // where 0 is the next to go. The rows of the list are written the other
+        // way about, and the page turns that around before asking.
+        "/api/queue_move" | "queue_move" => {
+            let Some(id) = value.get("id").and_then(|one| one.as_u64()) else {
+                return refused("No message was named");
+            };
+            let Some(at) = value.get("index").and_then(|one| one.as_u64()) else {
+                return refused("No place was named");
+            };
+            if engine.queue_move(id, at as usize) {
+                done()
+            } else {
+                refused("That message is not in the list any more")
+            }
         }
         "/api/cancel" | "cancel" => {
             engine.cancel();

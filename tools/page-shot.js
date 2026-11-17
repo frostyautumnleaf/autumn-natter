@@ -27,6 +27,9 @@
 //   AN_CUT=1 node page-shot.js rich p.png         # a tool call the user stopped
 //   AN_RUNMARKS=1 node page-shot.js rich p.png    # a command at work with time to
 //     run out: the clock, the mark that adds five minutes, and the stop mark
+//   AN_QUEUE=1 node page-shot.js rich p.png       # the list of the messages
+//     waiting to go, as the program keeps it. AN_QUEUEHELD=1 marks the list as
+//     stopped. Stand with AN_CLICK='#queuehead' to see the rows
 //   AN_GIFTS=1 node page-shot.js rich p.png       # the talk ends with the blocks
 //     of the files the download tool offered, with their buttons
 //   AN_SUGGEST=1 node page-shot.js rich p.png     # the talk ends with the button
@@ -766,6 +769,22 @@ function scene(name, dark, theme) {
         attachments: []
       }]);
       start.running = { id: 471, timeout: 600, left: 287 };
+    }
+    // AN_QUEUE=1 puts messages in the waiting list of the chat, as the program
+    // keeps them - the next to go out first - with an answer still being written
+    // over them. AN_QUEUEHELD=1 marks the list as stopped, which is how it looks
+    // when a message of it could not be sent.
+    if (process.env.AN_QUEUE === '1') {
+      start.generating = true;
+      start.queue = {
+        chat: 'c1',
+        held: process.env.AN_QUEUEHELD === '1',
+        items: [
+          { id: 1, text: 'The oldest message, which goes out first.', files: [] },
+          { id: 2, text: 'A second message, with a file hung on it.', files: ['notes-for-the-chat.md'] },
+          { id: 3, text: 'The newest of them, which stands at the top of the list.', files: [] }
+        ]
+      };
     }
     // The width of the chat, as the Chatting section of the settings gives it.
     if (process.env.AN_CHATWIDTH) { start.chatting.width = parseInt(process.env.AN_CHATWIDTH, 10) || 780; }

@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -61,6 +61,60 @@ const LEAST_ANSWER_STEPS: usize = 2;
 struct SentMessage {
     text: String,
     files: Vec<attach::Incoming>,
+}
+
+// One message of the waiting list: the words, the files hung on them, and the
+// number the page knows the row by. The numbers of one chat run from 1 up and
+// are never given out twice, so a page that holds a list of its own still points
+// at the right row after a message went out of the list.
+#[derive(Clone, Debug)]
+struct QueueItem {
+    id: u64,
+    text: String,
+    files: Vec<attach::Incoming>,
+}
+
+// The waiting list of one chat. The list belongs to the chat and to the program,
+// and not to the page that wrote it: a page that goes away leaves the list where
+// it is, and the worker sends the messages as it does after any other answer.
+// Each chat has a list of its own, for only the chat that stands open can be
+// answered, and a message written for one chat is not meant for another.
+#[derive(Clone, Debug, Default)]
+struct WaitingList {
+    chat: String,
+    // The next message to go out stands at the front.
+    items: Vec<QueueItem>,
+    seq: u64,
+    // When the last message of this list went out. Two of them must not go out
+    // on top of one another: the chat has to say it is writing again first.
+    sent_at: Option<std::time::Instant>,
+    // True when a message of this list could not be sent and the rest of the
+    // list is held back with it. A list that cannot be sent is not asked again
+    // every moment: it waits for the user to touch it, or to send a word.
+    held: bool,
+}
+
+// One row of the waiting list, as a page is given it. The whole of the files is
+// not needed for a row: the page shows the name of one file, or how many there
+// are, and the program keeps the data of them for the message itself.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct QueuedRow {
+    pub id: u64,
+    pub text: String,
+    pub files: Vec<String>,
+}
+
+// The waiting list of the chat that stands open, as a page is given it. Nothing
+// for a chat with no list, so a page that was drawn with rows takes them away
+// when the last one went out.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct WaitingSnap {
+    pub chat: String,
+    // The next message to go out stands at the front, as it does in the program.
+    pub items: Vec<QueuedRow>,
+    // True when the list is held back because a message of it could not be sent.
+    // The reason stands in the status line of the window.
+    pub held: bool,
 }
 
 // What the worker is to do with the chat. A turn either answers a message of the
@@ -121,6 +175,10 @@ enum Job {
     // The user asked for an answer they stopped to be gone on with. The id is
     // the answer at the end of the talk, and the ask is the talk as it stands.
     Resume(String),
+    // The waiting list of the chat that stands open has a message to send, and
+    // the chat is idle. The worker sends it as it sends a message of the user,
+    // which is what lets a list keep going with no page watching it.
+    QueueStep,
     // The user added, changed or asked to look again at one server of their
     // own, so the tools it has to offer are read again.
     McpLook(String),
@@ -1466,6 +1524,10 @@ pub struct Snap {
     // The head of the block of the call wears the marks of a running call while
     // this stands.
     pub running: Option<RunningTool>,
+    // The messages waiting their turn in the chat that stands open. The list
+    // over the chat box is drawn from here, so a page that is opened again finds
+    // the list as the program kept it, and a page that is closed leaves it be.
+    pub queue: Option<WaitingSnap>,
     // Goes up when a message changes, so the window redraws them.
     pub rev: u64,
     // Goes up when a list changes, so the window rebuilds it.
@@ -1535,6 +1597,11 @@ pub struct State {
     // The call of a tool that is running right now, and the clock it runs
     // against. Nothing stands here between two calls.
     pub running: Option<Running>,
+    // The waiting lists, one to a chat. A message written while the model is
+    // writing stands here until the answer it waited for is over, and the worker
+    // sends it then - which it does as well when no page is left to look at the
+    // chat, for the list belongs to the program and not to the window.
+    queues: Vec<WaitingList>,
     // The moments the thinking of the live answer began and last stopped. The
     // two together are the length of it.
     thought_start: Option<Instant>,
@@ -1649,6 +1716,148 @@ impl State {
     fn touch_structure(&mut self) {
         self.structure_rev += 1;
         self.rev += 1;
+    }
+
+    // The waiting list of the chat that stands open, or nothing when no chat is
+    // open. A list of another chat is not looked at here: only the chat that
+    // stands open can be answered, so only its list may go on.
+    fn open_queue(&self) -> Option<&WaitingList> {
+        let chat = self.current.as_deref()?;
+        self.queues.iter().find(|one| one.chat == chat)
+    }
+
+    // The waiting list of the chat that stands open, made when it is first
+    // wanted.
+    fn open_queue_mut(&mut self) -> Option<&mut WaitingList> {
+        let id = self.current.clone()?;
+        if let Some(at) = self.queues.iter().position(|one| one.chat == id) {
+            return self.queues.get_mut(at);
+        }
+        self.queues.push(WaitingList {
+            chat: id,
+            ..WaitingList::default()
+        });
+        self.queues.last_mut()
+    }
+
+    // The waiting list as a page is given it. Nothing when no chat stands open,
+    // or when its list is empty, so a page takes the rows away with the last of
+    // them instead of drawing a list of nothing.
+    fn queue_snap(&self) -> Option<WaitingSnap> {
+        let one = self.open_queue()?;
+        if one.items.is_empty() {
+            return None;
+        }
+        Some(WaitingSnap {
+            chat: one.chat.clone(),
+            held: one.held,
+            items: one
+                .items
+                .iter()
+                .map(|item| QueuedRow {
+                    id: item.id,
+                    text: item.text.clone(),
+                    files: item
+                        .files
+                        .iter()
+                        .map(|file| file.name.clone())
+                        .collect(),
+                })
+                .collect(),
+        })
+    }
+
+    // True when the worker has a message to send out of the waiting list: the
+    // chat that stands open has a list, is idle, and has spent the rest a
+    // message needs after the one before it. The rest is what lets the chat say
+    // that it is writing again before the next message asks for an answer.
+    fn queue_ready(&self) -> bool {
+        let Some(list) = self.open_queue() else {
+            return false;
+        };
+        if list.held || list.items.is_empty() || self.generating || self.busy {
+            return false;
+        }
+        match list.sent_at {
+            None => true,
+            Some(at) => at.elapsed() >= QUEUE_REST,
+        }
+    }
+
+    // The message the worker would send next out of the waiting list of the chat
+    // that stands open, without taking it out. Nothing comes back when the chat
+    // is at work, or held back, or the rest of a moment is not spent yet, so the
+    // caller may ask again later.
+    fn queue_peek(&self) -> Option<SentMessage> {
+        if !self.queue_ready() {
+            return None;
+        }
+        let first = self.open_queue()?.items.first()?;
+        Some(SentMessage {
+            text: first.text.clone(),
+            files: first.files.clone(),
+        })
+    }
+
+    // Take the message the worker is sending out of the waiting list of the chat
+    // that stands open. A list that has come to an end is taken away, so a chat
+    // looked at again does not find an empty list standing for it.
+    fn queue_pop(&mut self) {
+        let Some(at) = self
+            .queues
+            .iter()
+            .position(|one| Some(one.chat.as_str()) == self.current.as_deref())
+        else {
+            return;
+        };
+        let list = &mut self.queues[at];
+        if list.items.is_empty() {
+            return;
+        }
+        list.items.remove(0);
+        list.sent_at = Some(std::time::Instant::now());
+        // The rest a message needs is counted from now, and the list starts
+        // again on its own once it is spent.
+        list.held = false;
+        if list.items.is_empty() {
+            self.queues.remove(at);
+        }
+        self.touch();
+    }
+
+    // Hold the waiting list of the chat that stands back, because a message of it
+    // could not be sent. The reason was said by the sender of the message; the
+    // list is asked again once the user touches it.
+    fn queue_hold(&mut self) {
+        if let Some(list) = self.open_queue_mut() {
+            list.held = true;
+            self.touch();
+        }
+    }
+
+    // Let every waiting list go on again. What held a list back was a thing about
+    // the chat - no model chosen, a handoff summary owed - and a user who chooses
+    // a model, sends a message of their own, or starts a summary again has dealt
+    // with it. The list is not asked again of its own accord, for a list that
+    // cannot be sent would be refused again every moment.
+    fn queue_restart(&mut self) {
+        let mut any = false;
+        for one in self.queues.iter_mut() {
+            if one.held {
+                one.held = false;
+                any = true;
+            }
+        }
+        if any {
+            self.touch();
+        }
+    }
+
+    // Take the waiting list of a chat away. The messages of a chat that is gone
+    // have no answer to wait for, and words kept for a chat that is not there
+    // would be kept for nothing.
+    fn queue_drop(&mut self, chat: &str) {
+        self.queues.retain(|one| one.chat != chat);
     }
 
     // Say that the server knows nothing of any talk any more. The talks of the
@@ -3562,6 +3771,7 @@ impl State {
                 timeout: one.watch.limit().map(|given| given.as_secs() as u32),
                 left: one.watch.left().map(|left| left.as_secs() as u32),
             }),
+            queue: self.queue_snap(),
             rev: self.rev,
             structure_rev: self.structure_rev,
         }
@@ -3694,6 +3904,7 @@ impl Engine {
             plan_pending: None,
             asking: None,
             running: None,
+            queues: Vec::new(),
             thought_start: None,
             thought_end: None,
             // The meter of the context moves at most twice a second, so the
@@ -3789,13 +4000,41 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        let Some(sent) = Self::prepare_message(&mut state, text, files) else {
+            return;
+        };
+        // A message that got through says that what stood in the way of the chat
+        // is dealt with, so a waiting list that was held back goes on again behind
+        // it.
+        state.queue_restart();
+        drop(state);
+        self.cancel.store(false, Ordering::SeqCst);
+        let _ = self.jobs.send(Job::Prompt(sent));
+    }
+
+    // Ready a message of the chat box for the worker, and say upon the status
+    // line what stands in its way. The commands of the chat box are taken off
+    // the front of the words, a chat that owes a handoff summary is answered
+    // where it stands, and a chat with no model or no server of llama.cpp is not
+    // asked for an answer at all. The message that comes back is what the worker
+    // is given, and nothing comes back when the words are not to go out.
+    //
+    // The worker takes this same road for a message of the waiting list, which
+    // is what lets a list of them keep going after the page that wrote it is
+    // gone: a queued message is sent as the user sent it, and no part of the
+    // rules of sending belongs to the page.
+    fn prepare_message(
+        state: &mut State,
+        text: String,
+        files: Vec<attach::Incoming>,
+    ) -> Option<SentMessage> {
         if text.trim().is_empty() && files.is_empty() {
             state.set_status("Nothing was written");
-            return;
+            return None;
         }
         if state.generating {
             state.set_status("An answer is still being generated");
-            return;
+            return None;
         }
         // A message sent from the first screen opens a chat of this place. The
         // window grows the chat box into a chat at the same time.
@@ -3816,10 +4055,10 @@ impl Engine {
                     );
                 } else {
                     state.set_status("Start a new chat first");
-                    return;
+                    return None;
                 }
                 if rest.trim().is_empty() && files.is_empty() {
-                    return;
+                    return None;
                 }
                 rest
             }
@@ -3836,21 +4075,116 @@ impl Engine {
             state.set_status(
                 "The handoff summary of this chat was never written. Start it again from the summarisation timeline",
             );
-            return;
+            return None;
         }
         if state.model().is_none() {
             state.set_status("Choose a model in the top bar first");
-            return;
+            return None;
         }
         if state.server_binary().is_none() {
             state.set_status("llama-server was not found. Set its folder in the settings");
-            return;
+            return None;
         }
-        drop(state);
-        self.cancel.store(false, Ordering::SeqCst);
-        let _ = self
-            .jobs
-            .send(Job::Prompt(SentMessage { text, files }));
+        Some(SentMessage { text, files })
+    }
+
+    // Put a message at the end of the waiting list of the chat that stands open.
+    // The list belongs to the chat and to the program: the message goes out when
+    // the answer the chat is writing is over, and it goes out then whether or not
+    // a page is left looking at the chat.
+    pub fn queue_add(&self, text: String, files: Vec<attach::Incoming>) -> Result<(), String> {
+        if text.trim().is_empty() && files.is_empty() {
+            return Err(String::from("Nothing was written"));
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return Err(String::from("The program is busy"));
+        };
+        let Some(list) = state.open_queue_mut() else {
+            return Err(String::from("Start a chat first"));
+        };
+        list.seq += 1;
+        let id = list.seq;
+        list.items.push(QueueItem { id, text, files });
+        // A word written into the list now says that what stood in the way of the
+        // messages is dealt with, so a list that was held back goes on again.
+        list.held = false;
+        state.touch();
+        Ok(())
+    }
+
+    // Take one message out of the waiting list of the chat that stands open, by
+    // the number its row carries. False when no row carries that number, which is
+    // what a page that is a moment behind the program hears.
+    pub fn queue_remove(&self, id: u64) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        let taken = {
+            let Some(list) = state.open_queue_mut() else {
+                return false;
+            };
+            let Some(at) = list.items.iter().position(|one| one.id == id) else {
+                return false;
+            };
+            list.items.remove(at);
+            // Touching the list says that what stood in the way of the messages
+            // is dealt with, so a list that was held back goes on again.
+            list.held = false;
+            Some((list.chat.clone(), list.items.is_empty()))
+        };
+        let Some((chat, empty)) = taken else {
+            return false;
+        };
+        // A list that has come to an end is taken away, so a chat looked at again
+        // does not find an empty list standing for it.
+        if empty {
+            state.queue_drop(&chat);
+        }
+        state.touch();
+        true
+    }
+
+    // Write the words of one message of the waiting list again, in the row itself.
+    // The files of the message are left as they hang.
+    pub fn queue_edit(&self, id: u64, text: String) -> bool {
+        let words = text.trim().to_string();
+        if words.is_empty() {
+            return false;
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        let Some(list) = state.open_queue_mut() else {
+            return false;
+        };
+        let Some(one) = list.items.iter_mut().find(|one| one.id == id) else {
+            return false;
+        };
+        one.text = words;
+        list.held = false;
+        state.touch();
+        true
+    }
+
+    // Put one message of the waiting list at another place in it. The place is
+    // counted in the order the messages go out in, where 0 is the next to go - the
+    // other way about from the rows, which are written newest first.
+    pub fn queue_move(&self, id: u64, index: usize) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        let Some(list) = state.open_queue_mut() else {
+            return false;
+        };
+        let Some(from) = list.items.iter().position(|one| one.id == id) else {
+            return false;
+        };
+        let one = list.items.remove(from);
+        let at = index.min(list.items.len());
+        list.items.insert(at, one);
+        list.held = false;
+        state.touch();
+        true
     }
 
     // Start the handoff summary of the open chat again. A summary the server
@@ -3877,6 +4211,9 @@ impl Engine {
             state.set_status("Choose a model in the top bar first");
             return;
         }
+        // The summary was what stood between the chat and its waiting messages,
+        // so they are asked again once it is begun.
+        state.queue_restart();
         drop(state);
         self.cancel.store(false, Ordering::SeqCst);
         let _ = self.jobs.send(Job::Handoff);
@@ -4632,6 +4969,9 @@ impl Engine {
             return;
         };
         state.store.delete_chat(&chat.meta.repo_id, &id);
+        // The waiting list of the chat goes with it: the messages of a chat that
+        // is gone have no answer left to wait for.
+        state.queue_drop(&id);
         state.chats.retain(|c| c.meta.id != id);
         if state.current.as_deref() == Some(id.as_str()) {
             state.open_home();
@@ -5033,6 +5373,9 @@ impl Engine {
         state.refresh_thinking();
         state.normalize_thinking();
         state.persist();
+        // A model of their own is often what a waiting list was held back for, so
+        // the lists are let go again here as well.
+        state.queue_restart();
         state.touch_structure();
         let _ = self.jobs.send(Job::ModelChanged);
     }
@@ -5339,8 +5682,95 @@ impl Snap {
             planned: false,
             ask: None,
             running: None,
+            queue: None,
             rev: 0,
             structure_rev: 0,
+        }
+    }
+}
+
+// The work of one send of the chat box: the answer, the handoff summary of it
+// when the talk has come that far, and the plan of the chat when the model let
+// its plan go. A message out of the waiting list comes this same way, so a list
+// of them is sent by the road a message sent from the box goes by.
+fn run_send(
+    state: &Arc<Mutex<State>>,
+    server: &mut Option<Server>,
+    cancel: &Arc<AtomicBool>,
+    sent: SentMessage,
+) {
+    let mut turn = Turn::Sent(sent);
+    // How many times the model has been asked to go on with its work after a
+    // handoff summary of this one send.
+    let mut goings_on = 0usize;
+    loop {
+        let ended = run_turn(state, server, cancel, turn);
+        // The answer is in the chat and the room it took is known, so this is the
+        // moment a handoff summary is asked for, if the talk has come that far. It
+        // is asked for whatever the answer came to, for a chat left past the limit
+        // is only stopped again on the next message.
+        let made_room = maybe_compact(state, server, cancel, Weigh::Talk);
+        // A summary the program asked for is written so that the work goes on,
+        // and so it does: the model is put back to its talk with the first prompt
+        // of the user and the summary in front of it, and none of the words the
+        // summary stands for. An answer the user stopped, or one the stream broke,
+        // is not gone on with.
+        if !made_room || ended != Ended::Done || goings_on >= CONTINUE_ROOF || cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        goings_on += 1;
+        turn = Turn::Continue;
+    }
+    // The model let its plan go. The planning is put away whole, and the plan
+    // itself goes out as the first message of a fresh talk, with the prompts and
+    // the tools the chat had before planning mode and with none of the two tools
+    // of planning. The turn above ended on the call that let the plan go, so
+    // nothing is asked again of the talk that planned.
+    let mut released = take_plan_release(state);
+    while let Some(plan) = released {
+        let _ = run_turn(
+            state,
+            server,
+            cancel,
+            Turn::Sent(SentMessage {
+                text: plan,
+                files: Vec::new(),
+            }),
+        );
+        // A work that planned again behind this one is rare, and is answered the
+        // same way as the first.
+        released = take_plan_release(state);
+    }
+}
+
+// The next message of the waiting list of the chat that stands open, ready to be
+// sent, or nothing when there is nothing to send. The message is sent by the same
+// road a message from the chat box goes by, so the commands of the chat box and
+// the rules of the room and of the handoff summary hold for it as well.
+//
+// A message the sender refuses - because no model stands chosen, or the chat owes
+// a handoff summary - is left in the list, and the rest of the list is held back
+// with it. The reason for it stands on the status line from the attempt, and the
+// program does not ask again every moment: touching the list starts it again.
+fn queue_step(state: &Arc<Mutex<State>>) -> Option<SentMessage> {
+    let next = state.lock().ok()?.queue_peek();
+    let queued = next?;
+    let ready = match state.lock() {
+        Ok(mut guard) => Engine::prepare_message(&mut guard, queued.text, queued.files),
+        Err(_) => return None,
+    };
+    match ready {
+        Some(sent) => {
+            if let Ok(mut guard) = state.lock() {
+                guard.queue_pop();
+            }
+            Some(sent)
+        }
+        None => {
+            if let Ok(mut guard) = state.lock() {
+                guard.queue_hold();
+            }
+            None
         }
     }
 }
@@ -5351,12 +5781,31 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
     // is in flight.
     let mut server: Option<Server> = None;
     loop {
-        let job = match jobs.recv() {
-            Ok(job) => job,
-            // The engine went away, so take the model with it.
-            Err(_) => {
-                stop_server(&state, &mut server);
-                return;
+        // A waiting list is looked at on a clock, and only while a list of the
+        // open chat stands and the chat is idle. The messages of such a list go
+        // out by themselves, with no page left to watch the chat; a worker with
+        // no list to send waits for a job and costs nothing at all.
+        let waiting = state
+            .lock()
+            .map(|guard| guard.queue_ready())
+            .unwrap_or(false);
+        let job = if waiting {
+            match jobs.recv_timeout(QUEUE_POLL) {
+                Ok(job) => job,
+                Err(RecvTimeoutError::Timeout) => Job::QueueStep,
+                // The engine went away, so take the model with it.
+                Err(_) => {
+                    stop_server(&state, &mut server);
+                    return;
+                }
+            }
+        } else {
+            match jobs.recv() {
+                Ok(job) => job,
+                Err(_) => {
+                    stop_server(&state, &mut server);
+                    return;
+                }
             }
         };
         match job {
@@ -5381,56 +5830,13 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                     state.set_status(&text);
                 }
             }
-            Job::Prompt(sent) => {
-                let mut turn = Turn::Sent(sent);
-                // How many times the model has been asked to go on with its work
-                // after a handoff summary of this one send.
-                let mut goings_on = 0usize;
-                loop {
-                    let ended = run_turn(&state, &mut server, &cancel, turn);
-                    // The answer is in the chat and the room it took is known, so
-                    // this is the moment a handoff summary is asked for, if the
-                    // talk has come that far. It is asked for whatever the answer
-                    // came to, for a chat left past the limit is only stopped
-                    // again on the next message.
-                    let made_room =
-                        maybe_compact(&state, &mut server, &cancel, Weigh::Talk);
-                    // A summary the program asked for is written so that the work
-                    // goes on, and so it does: the model is put back to its talk
-                    // with the first prompt of the user and the summary in front
-                    // of it, and none of the words the summary stands for. An
-                    // answer the user stopped, or one the stream broke, is not
-                    // gone on with.
-                    if !made_room
-                        || ended != Ended::Done
-                        || goings_on >= CONTINUE_ROOF
-                        || cancel.load(Ordering::Relaxed)
-                    {
-                        break;
-                    }
-                    goings_on += 1;
-                    turn = Turn::Continue;
-                }
-                // The model let its plan go. The planning is put away whole, and
-                // the plan itself goes out as the first message of a fresh talk,
-                // with the prompts and the tools the chat had before planning mode
-                // and with none of the two tools of planning. The turn above ended
-                // on the call that let the plan go, so nothing is asked again of
-                // the talk that planned.
-                let mut released = take_plan_release(&state);
-                while let Some(plan) = released {
-                    let _ = run_turn(
-                        &state,
-                        &mut server,
-                        &cancel,
-                        Turn::Sent(SentMessage {
-                            text: plan,
-                            files: Vec::new(),
-                        }),
-                    );
-                    // A work that planned again behind this one is rare, and is
-                    // answered the same way as the first.
-                    released = take_plan_release(&state);
+            Job::Prompt(sent) => run_send(&state, &mut server, &cancel, sent),
+            // The chat that stands open is idle and a message of the waiting list
+            // has its turn. The message goes out as the user sent it, which is
+            // what lets a list keep going after the page that wrote it is gone.
+            Job::QueueStep => {
+                if let Some(sent) = queue_step(&state) {
+                    run_send(&state, &mut server, &cancel, sent);
                 }
             }
             Job::Retry => {
@@ -6947,6 +7353,17 @@ fn make_room(
 // model asked again and again on its own would spend the room on summaries of
 // itself.
 const CONTINUE_ROOF: usize = 1;
+
+// The rest a chat takes between two messages of the waiting list. The words of
+// a sent message have to come back in the state before the next one asks for an
+// answer, and a message sent on top of the one before it reads as one message of
+// both.
+const QUEUE_REST: Duration = Duration::from_millis(1500);
+
+// How often the worker looks at the waiting list while it stands. The wait is a
+// poll and not a fixed one, for a list of nothing costs the program nothing at
+// all: the worker only wakes on a clock while a list of the open chat stands.
+const QUEUE_POLL: Duration = Duration::from_millis(600);
 
 // What one answer of the model leaves in the chat.
 #[derive(Debug, PartialEq, Eq)]
@@ -15512,5 +15929,117 @@ mod tests {
         );
         let guard = state.lock().unwrap();
         assert!(guard.context_slot.is_empty() && guard.context_holds.is_empty());
+    }
+
+    // A message written while the model is writing waits in the program, in a
+    // list that belongs to the chat it was written for. The rows may be written
+    // again, moved and taken out, and the list goes with the chat.
+    #[test]
+    fn the_waiting_list_is_kept_by_the_program_for_its_chat() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+        }
+        assert!(engine.snapshot().queue.is_none(), "a new chat has no list");
+        // Two messages. The one to go out first stands at the front of the list.
+        engine
+            .queue_add(String::from("the first"), Vec::new())
+            .expect("the first message stands");
+        engine
+            .queue_add(String::from("the second"), Vec::new())
+            .expect("the second message stands");
+        let held = engine.snapshot();
+        let list = held.queue.expect("the chat has a waiting list");
+        assert_eq!(list.items.len(), 2);
+        assert_eq!(list.items[0].text, "the first", "the next to go out stands first");
+        assert_eq!(list.items[1].text, "the second");
+        assert!(!list.held);
+        assert_eq!(list.chat, held.chat_id, "the list belongs to the open chat");
+        // A row may be written again, and put at another place in the list.
+        let second = list.items[1].id;
+        assert!(engine.queue_edit(second, String::from("  the second, written again  ")));
+        assert!(engine.queue_move(second, 0));
+        let again = engine.snapshot().queue.expect("the list stands");
+        assert_eq!(again.items[0].id, second);
+        assert_eq!(again.items[0].text, "the second, written again");
+        // A row that is not there is not changed, and says so; and a message of
+        // nothing at all is refused, as it is for the chat box.
+        assert!(!engine.queue_edit(9_999, String::from("nothing")));
+        assert!(!engine.queue_remove(9_999));
+        assert!(!engine.queue_move(9_999, 0));
+        assert!(engine.queue_add(String::from("   "), Vec::new()).is_err());
+        // Taking the last one out takes the list with it.
+        assert!(engine.queue_remove(second));
+        let last = engine.snapshot().queue.expect("one message is left");
+        assert_eq!(last.items.len(), 1);
+        assert_eq!(last.items[0].text, "the first");
+        assert!(engine.queue_remove(last.items[0].id));
+        assert!(engine.snapshot().queue.is_none(), "an empty list is not kept");
+        // The list of a chat goes with that chat, for its messages have no answer
+        // left to wait for.
+        engine
+            .queue_add(String::from("a message of this chat"), Vec::new())
+            .expect("the message stands");
+        let chat = engine.snapshot().chat_id;
+        engine.remove_chat(chat);
+        assert!(engine.snapshot().queue.is_none(), "the chat took its list with it");
+    }
+
+    // A waiting list is only gone on with while the chat is idle, and a message
+    // that cannot be sent holds the rest of the list back rather than be asked
+    // again every moment.
+    #[test]
+    fn a_waiting_list_waits_for_the_chat_to_be_idle() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        {
+            let mut guard = state.lock().unwrap();
+            guard.start_chat();
+            guard.generating = true;
+        }
+        engine
+            .queue_add(String::from("queued"), Vec::new())
+            .expect("the message stands");
+        // The chat is writing, so nothing is taken from the list, and nothing is
+        // sent.
+        {
+            let guard = state.lock().unwrap();
+            assert!(!guard.queue_ready(), "a writing chat is not idle");
+            assert!(guard.queue_peek().is_none());
+        }
+        assert!(queue_step(&state).is_none(), "nothing goes out while the chat writes");
+        // The answer is over. The message is next, but no model stands chosen, so
+        // the sender refuses it and the list is held back with it.
+        state.lock().unwrap().generating = false;
+        {
+            let guard = state.lock().unwrap();
+            assert!(guard.queue_ready(), "an idle chat may go on with the list");
+            assert_eq!(
+                guard.queue_peek().expect("a message waits its turn").text,
+                "queued"
+            );
+        }
+        assert!(queue_step(&state).is_none(), "no model stands chosen");
+        {
+            let guard = state.lock().unwrap();
+            assert!(!guard.queue_ready(), "a held list is not asked again");
+            let list = guard.open_queue().expect("the message is not lost");
+            assert!(list.held);
+            assert_eq!(list.items.len(), 1);
+            assert_eq!(list.items[0].text, "queued");
+        }
+        // Touching the list - here, writing another message into it - starts it
+        // again.
+        engine
+            .queue_add(String::from("behind it"), Vec::new())
+            .expect("the second message stands");
+        let guard = state.lock().unwrap();
+        assert!(!guard.open_queue().expect("the list stands").held);
+        assert!(guard.queue_ready());
     }
 }

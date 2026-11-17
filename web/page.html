@@ -1358,6 +1358,9 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   border-radius: 999px; background: var(--surface); border: 1px solid var(--line);
   padding: 1px 6px; color: var(--faint); font-size: 10px; letter-spacing: .04em;
 }
+/* A list the program is holding back counts in the colour of a fault, so a chat
+   that is not going on with its messages says so without a word of its own. */
+.queue.held .qcount { color: var(--ink-fail); border-color: var(--ink-fail); }
 .queue-list {
   display: flex; flex-direction: column; gap: 4px;
   max-height: 244px; overflow-y: auto; scrollbar-width: thin;
@@ -3420,9 +3423,9 @@ var CHAT_LEAST = 780;
 
 function draw(s) {
   cur = s;
-  // A message that was put by while the model was writing goes out when the
-  // answer it waited for is over.
-  flushQueue(s);
+  // The messages that were put by while the model was writing are kept by the
+  // program, and go out when the answer each waited for is over.
+  syncQueue(s);
   // The box says what it does with the words written in it now: the mark of
   // send, and the words of the box itself, follow whether the model is writing.
   sendLook();
@@ -10774,11 +10777,17 @@ function sendLook() {
 // oldest stands at the bottom and the newest at the top. The user opens and
 // shuts the list, writes a message again, takes one out, and drags the rows
 // past one another.
+// The waiting list, as the program keeps it: the messages of the chat that
+// stands open, the next to go out first. The rows over the box are written the
+// other way about, newest at the top. Nothing stands here that the program does
+// not know, so a page that is shut and opened again finds the same rows, and the
+// messages go out when the answer each of them waited for is over even with no
+// page left to watch the chat.
 var queue = [];
+// True when the program holds the list back, because a message of it could not
+// be sent. The reason stands on the status line.
+var queueHeld = false;
 var queueOpen = false;
-var queueSeq = 0;
-var queueSentAt = 0;
-var queueChat = null;
 var queueDrag = -1;
 
 function chatIdOf(s) { return (s && s.chat && s.chat.id) || ''; }
@@ -10812,12 +10821,11 @@ function send() {
   heldFiles = [];
   drawParts();
   grow();
-  // The model is still writing, so the message waits its turn in the list.
+  // The model is still writing, so the message waits its turn in the list. The
+  // list is kept by the program, and the program sends it when the answer is
+  // over - which it does as well after this page is closed.
   if (cur && cur.generating) {
-    queueSeq += 1;
-    queue.push({ id: queueSeq, text: text, files: files });
-    if (queueChat === null) { queueChat = chatIdOf(cur); }
-    drawQueue();
+    post('/api/queue_add', messageBody(text, files));
     return;
   }
   // The words are carried into the chat as the ask goes out. A message that
@@ -10835,10 +10843,7 @@ function sendWords(text, where) {
   var words = String(text || '').trim();
   if (!words) { return; }
   if (cur && cur.generating) {
-    queueSeq += 1;
-    queue.push({ id: queueSeq, text: words, files: [] });
-    if (queueChat === null) { queueChat = chatIdOf(cur); }
-    drawQueue();
+    post('/api/queue_add', messageBody(words, []));
     return;
   }
   startFly(words, where);
@@ -11105,26 +11110,28 @@ function landFly() {
   f.turn.classList.add('landed');
 }
 
-// Send the oldest message of the list when the chat has come to the end of an
-// answer. The list belongs to one chat: another chat under the list takes the
-// list away, for a message written for one chat is not meant for another. A
-// message that has gone out needs a moment before the chat says it is writing
-// again, and without that moment the next message would go out beside it.
-function flushQueue(s) {
-  var id = chatIdOf(s);
-  if (queueChat !== null && queueChat !== id) {
-    queue.length = 0;
-    queueChat = null;
-    drawQueue();
-    return;
+// Take the waiting list of the chat that stands open out of the state. The list
+// belongs to the chat, and to the program rather than to this page: a chat with
+// nothing waiting answers with nothing at all, so the rows go with the last of
+// them. Nothing is sent from here - the program sends the messages when the chat
+// is idle, and restes a moment between two of them - which is what lets a list
+// keep going after the page that wrote it is gone.
+function syncQueue(s) {
+  var items = [];
+  var held = false;
+  if (s && s.queue && s.queue.items) {
+    held = !!s.queue.held;
+    for (var at = 0; at < s.queue.items.length; at++) {
+      var one = s.queue.items[at];
+      var names = [];
+      var files = one.files || [];
+      for (var n = 0; n < files.length; n++) { names.push({ name: files[n] }); }
+      items.push({ id: one.id, text: one.text || '', files: names });
+    }
   }
-  if (queue.length === 0 || s.generating || s.busy) { return; }
-  if (queueChat === null) { queueChat = id; }
-  if (Date.now() - queueSentAt < 1500) { return; }
-  var one = queue.shift();
-  queueSentAt = Date.now();
+  queue = items;
+  queueHeld = held;
   drawQueue();
-  post('/api/send', messageBody(one.text, one.files));
 }
 
 // The head of the list and, while it is open, the rows under it. The rows are
@@ -11135,11 +11142,16 @@ function drawQueue() {
   var n = queue.length;
   el.queue.classList.toggle('hidden', n === 0);
   el.queue.classList.toggle('open', queueOpen);
+  // A list the program is holding back says so on the head, for the chat is not
+  // going on with it and the user is left to wonder.
+  el.queue.classList.toggle('held', queueHeld);
   if (el.queuecount) { el.queuecount.textContent = String(n); }
   if (el.queuehead) {
-    el.queuehead.title = queueOpen
-      ? 'Shut the list of the messages waiting to go'
-      : 'Open the list of the messages waiting to go';
+    el.queuehead.title = queueHeld
+      ? 'The list is stopped: a message of it could not be sent. The reason stands on the status line, and changing the list starts it again.'
+      : (queueOpen
+        ? 'Shut the list of the messages waiting to go'
+        : 'Open the list of the messages waiting to go');
   }
   if (!el.queuelist) { return; }
   el.queuelist.classList.toggle('hidden', !queueOpen);
@@ -11195,8 +11207,9 @@ function moveQueueRow(from, to, before) {
   var at = to > from ? to - 1 : to;
   at = Math.max(0, Math.min(vis.length, at + (before ? 0 : 1)));
   vis.splice(at, 0, one);
-  queue = vis.reverse();
-  drawQueue();
+  // The rows are seen the other way about from the order the messages go out in,
+  // so the place asked for is counted from the other end of the list.
+  post('/api/queue_move', { id: one.id, index: vis.length - 1 - at });
 }
 
 // Write the words of a message again, in the row itself.
@@ -11215,7 +11228,10 @@ function editQueueRow(row, one) {
     done = true;
     if (keep) {
       var words = box.value.trim();
-      if (words) { one.text = words; }
+      if (words && words !== one.text) {
+        post('/api/queue_edit', { id: one.id, text: words });
+        return;
+      }
     }
     drawQueue();
   };
@@ -11266,9 +11282,9 @@ function queueRow(one, at) {
   out.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>';
   out.addEventListener('click', function (ev) {
     ev.stopPropagation();
-    var at = queue.indexOf(one);
-    if (at >= 0) { queue.splice(at, 1); }
-    drawQueue();
+    // The list is the program's, so the message is taken out of it there. The
+    // state comes back a moment later with the rows as they now are.
+    post('/api/queue_remove', { id: one.id });
   });
   marks.appendChild(again);
   marks.appendChild(out);
