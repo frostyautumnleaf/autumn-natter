@@ -214,6 +214,37 @@ textarea, input { font: inherit; color: inherit; }
 .svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor;
   stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
+/* ------------------------------------------------- the marks under a hand */
+/* Every mark of the program wakes when a hand comes to it, and settles when the
+   hand goes away. Coming, a mark lifts, turns a little and grows past the size it
+   comes to rest at, which is what gives the move its bounce; going, it sinks a
+   little below the line and comes back up, so a mark is never simply switched
+   off. The motion is of the mark and never of the thing it stands in, so no words
+   of the page shift under a hand and no row changes its width. The two classes
+   are put on and taken off by hand - see markFind and markRest - for CSS gives no
+   animation to a property at the moment the rule that asked for it stops applying,
+   and going away from a mark has an animation of its own. The mark of the program
+   in the bar and over the first screen is woken as well as the marks of the
+   buttons, for it is an icon of the program like any other. */
+.svg, img.mark { transform-origin: 50% 55%; }
+@keyframes mark-in {
+  0% { transform: none; }
+  30% { transform: translateY(-2.4px) scale(1.22) rotate(-9deg); }
+  55% { transform: translateY(0.4px) scale(0.94) rotate(5deg); }
+  78% { transform: translateY(-0.7px) scale(1.09) rotate(-2deg); }
+  100% { transform: translateY(-0.8px) scale(1.07) rotate(0deg); }
+}
+@keyframes mark-out {
+  0% { transform: translateY(-0.8px) scale(1.07); }
+  40% { transform: translateY(1.3px) scale(0.9); }
+  100% { transform: none; }
+}
+.mark-in { animation: mark-in 420ms cubic-bezier(.2, .9, .3, 1.2) both; }
+.mark-out { animation: mark-out 320ms cubic-bezier(.4, 0, .2, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .mark-in, .mark-out { animation: none; }
+}
+
 /* ------------------------------------------------------------------ bar */
 /* One bar, three groups. The left group holds the program and what it runs on,
    the middle holds the chat in use, the right holds the meter and the marks
@@ -11664,6 +11695,76 @@ wireMenuBadge(el.think, el.thinkmenu, openThinkMenu);
 wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
 // A click anywhere else in the page puts the menus away.
 document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); });
+
+// ------------------------------------------- the marks under a hand
+//
+// A mark wakes under the hand and settles when the hand goes: the classes
+// mark-in and mark-out of the style carry the motion, and these few lines decide
+// which mark a hand is over. The mark is the mark of the control the hand is over
+// - a badge, a button of the side bar, the head of a block of tools, a mark of one
+// of the lines beside the chat - or, when the hand stands over a mark itself, that
+// mark; the mark of the program in the bar answers as well. A stretch of plain
+// words wakes nothing, so a mark is never moved for a hover the user cannot see,
+// and a control with marks of its own wakes the first of them.
+//
+// The classes are moved here rather than left to :hover, for going away from a
+// mark has an animation of its own, and CSS starts no animation at the moment the
+// rule that asked for it stops applying.
+var markUnder = null;
+
+// The mark a hand is over, or nothing at all when it is over none. A thing the
+// hand may press counts as a control, which is what a pointer standing for a
+// cursor says - the heads of blocks of tools and of thoughts are such, and are no
+// buttons.
+function markFind(node) {
+  var control = 'button, a[href], label, summary, [role="button"], [role="menuitem"]';
+  for (var at = node && node.nodeType === 1 ? node : null; at && at !== document.body;
+       at = at.parentElement) {
+    if (at.classList.contains('svg') || (at.matches && at.matches('img.mark'))) { return at; }
+    var hand = (at.matches && at.matches(control)) || getComputedStyle(at).cursor === 'pointer';
+    if (hand) {
+      for (var n = 0; n < at.children.length; n++) {
+        var child = at.children[n];
+        if (child.classList.contains('svg') || child.matches('img.mark')) { return child; }
+      }
+      // A thing the hand may press with no mark of its own - the words of a
+      // badge, a field of choices - leaves the look going up further, for the
+      // mark of the control the user means stands one level higher more often
+      // than not.
+    }
+  }
+  return null;
+}
+
+// The hand has gone from the mark: it settles, and the class that set it settling
+// is taken away when the settling is over, so the page is left as it was written.
+function markRest() {
+  var one = markUnder;
+  markUnder = null;
+  if (!one || !one.classList.contains('mark-in')) { return; }
+  one.classList.remove('mark-in');
+  one.classList.add('mark-out');
+}
+
+document.addEventListener('pointerover', function (event) {
+  var one = markFind(event.target);
+  if (one === markUnder) { return; }
+  markRest();
+  if (!one) { return; }
+  markUnder = one;
+  one.classList.remove('mark-out');
+  one.classList.add('mark-in');
+});
+// A hand that leaves the window altogether says nothing further, so the mark it
+// stood over is let go here rather than left standing woken.
+document.addEventListener('pointerout', function (event) {
+  if (markUnder && !event.relatedTarget) { markRest(); }
+});
+window.addEventListener('blur', markRest);
+document.addEventListener('animationend', function (event) {
+  var at = event.target;
+  if (at && at.classList && at.classList.contains('mark-out')) { at.classList.remove('mark-out'); }
+});
 
 // The quick switch of the skin: it steps through the four of them, and the mark
 // under it says which one the page stands in.
