@@ -5333,7 +5333,9 @@ function runMarks(m) {
   clock.className = 'clock' + (left >= 0 && left <= 30 ? ' short' : '');
   clock.textContent = clockWords(left);
   box.appendChild(clock);
-  var more = runMark('M8 3.6v8.8M3.6 8h8.8', '+5 min',
+  // The mark carries the plus of its own, so the words must not carry one as
+  // well: the head of a running call read "+ +5 MIN".
+  var more = runMark('M8 3.6v8.8M3.6 8h8.8', '5 min',
     'Give this call five minutes more to come back within.');
   var stop = runMark('M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2', 'stop',
     'Stop this call now. Everything it has given by then still goes back to the model.');

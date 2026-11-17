@@ -26,7 +26,7 @@
 // database holds it.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::params;
 
@@ -34,6 +34,7 @@ use crate::config::{self, Config};
 use crate::contexts;
 use crate::db;
 use crate::proglog;
+use crate::planning;
 use crate::store::{self, Brought};
 
 // The mark that says the words of this folder have come into the databases. It
@@ -43,7 +44,12 @@ pub const MARKER: &str = "databases.txt";
 
 // The shape the files of the program are in now. A later change of the shape
 // raises this word, and the hunt runs again over whatever the older shape left.
-const VERSION: &str = "databases-v1\n";
+// The shape the files of the program are in now. A later change of the shape
+// raises this word, and the hunt runs again over whatever the older shape left.
+// `databases-v2` brought the planning words of the chats into `chats.db`, so a
+// machine whose hunt was made under `databases-v1` walks the planning folder once
+// more and nothing else, because every other step finds its folder gone.
+const VERSION: &str = "databases-v2\n";
 
 // The folder the old files are laid in when they have been read. The program
 // never reads it.
@@ -141,15 +147,76 @@ pub fn hunt(cfg: &Config, store: &store::Store) -> Report {
     // inside a repository.
     store.migrate_chats_out();
     store.migrate_records_out();
+    let chats = match store.database() {
+        Ok(kept) => kept,
+        Err(problem) => {
+            proglog::note(
+                proglog::STORE,
+                &format!("the database of the chats did not open: {}", problem),
+            );
+            return told;
+        }
+    };
     // The talks, the talks of the repositories and the records of them are the
     // business of the store, which owns the database they come into.
     let came: Brought = store.bring_older_shape(&before);
     told.chats = came.chats;
     told.repos = came.repos;
     told.unreadable = came.unreadable;
+    bring_plans(&mut told, &chats, &planning::folder(), &before);
     bring_mcp(&mut told, &places.data, &before);
     bring_contexts(&mut told, &config::contexts_dir(cfg), &before);
     told
+}
+
+// The planning words of the chats. They stood one file to a chat, in the folder
+// of the plans, under the name `<chat id>.md`; they now stand in the database of
+// the chats, beside the talk they were written for. The name kept with a chat is
+// still the name of the older keeping, because it is the key the row is read by,
+// so a chat that planned something before the hunt reads its plan as it did.
+fn bring_plans(told: &mut Report, database: &db::Db, dir: &Path, before: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let root = Path::new("planning");
+    let now = store::now_secs();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().map(|one| one.to_string_lossy().to_string()) else {
+            continue;
+        };
+        // The name of the file of a plan is the id of the chat, with the ending
+        // of a plan file on it. A name of another shape is not one of ours and is
+        // left where it stands.
+        let Some(chat) = planning::chat_of(&name) else {
+            continue;
+        };
+        let Ok(words) = fs::read_to_string(&path) else {
+            told.unreadable += 1;
+            continue;
+        };
+        // A plan that stands in the table is the newer of the two, and is kept.
+        let made = database
+            .write(|conn| {
+                let changed = conn
+                    .execute(
+                        "INSERT INTO plans (chat_id, text, updated) VALUES (?1, ?2, ?3)
+                         ON CONFLICT(chat_id) DO UPDATE SET text = excluded.text, updated = excluded.updated
+                         WHERE excluded.updated >= plans.updated",
+                        params![chat, words, now],
+                    )
+                    .map_err(db::fault)?;
+                Ok(changed > 0)
+            })
+            .unwrap_or(false);
+        if retire(&path, before, &root.join(&name)).is_ok() && made {
+            told.plans += 1;
+        }
+    }
+    let _ = fs::remove_dir(dir);
 }
 
 // The files of the servers of the program itself. Two files stand in the folder
@@ -305,6 +372,7 @@ fn carry(from: &Path, into: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod checks {
     use super::*;
+    use std::path::PathBuf;
 
     fn room(what: &str) -> PathBuf {
         static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);

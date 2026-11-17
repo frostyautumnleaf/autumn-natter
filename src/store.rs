@@ -1178,6 +1178,10 @@ impl Store {
                 &format!("the chat {} is not taken away: {}", id, problem),
             );
         }
+        // The plan of the chat goes with it. A plan is read by nothing once the
+        // talk it was written for is gone, and a row of plans that no chat names
+        // is words kept for nothing.
+        crate::planning::drop_plan(id);
     }
 
     // Read one chat of any place by its id: the loose chats first, then the

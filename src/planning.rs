@@ -8,9 +8,16 @@
 // second tool, the talk of the planning is put away, and the plan itself becomes
 // the first message of the work.
 //
-// The plan file stands in a folder of the data directory of the program, and not
-// in the room of the chat. A plan is therefore never mixed with the work it
-// plans, and a command of the terminal tool cannot write over it by accident.
+// The plan stands in `chats.db`, in the table of the plans, beside the talk it
+// was written for - and not in the room of the chat. A plan is therefore never
+// mixed with the work it plans, and a command of the terminal tool cannot write
+// over it by accident. Before the databases it stood in a folder of the data
+// directory under the name `<chat id>.md`; those files are read into the table by
+// the hunt in `src/migrate.rs`, and the folder goes with them.
+//
+// The name kept with a chat is still the name of the older keeping, because it is
+// the key the row of the plan is looked up by: `plan_file` says `<chat id>.md`,
+// and the row of the plans says the same id.
 // The tool the model has for the plan carries no place at all: it reaches the one
 // file of the one chat, and nothing else. It cannot be switched off by the user,
 // for a planning chat without it has nowhere to put its work.
@@ -27,11 +34,13 @@
 // `end_planning` is the only way out of the mode: a model that says the work has
 // begun has not left the mode, and stays forbidden until the tool is called.
 
+use std::sync::Arc;
+
+use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
-use std::fs;
-use std::path::{Path, PathBuf};
 
 use crate::config;
+use crate::db;
 use crate::tools::{self, with_rule};
 
 // The name the model uses to change the plan, the name it uses to write the
@@ -49,10 +58,16 @@ pub const COMMAND_WORD: &str = "/plan";
 // The words of the command, for the list of them the chat box puts up.
 pub const COMMAND_WORDS: &str = "Plan the work before any of it is done. The model writes a plan of the whole piece of work, in the smallest detail, to a plan file of its own, and changes it as you answer. When the plan is good, say so, and the model begins the work from the plan.";
 
-// The folder the plans stand in: a folder of the data directory of the program,
-// beside the talks and the records of the attachments.
-pub fn folder() -> PathBuf {
+// The folder the plans stood in, before they stood in the database. The hunt
+// reads it once. See `src/migrate.rs`.
+pub fn folder() -> std::path::PathBuf {
     config::paths().data.join("planning")
+}
+
+// The database the plans stand in: the same file as the talks, because a plan
+// belongs to a chat and is read and put away with it.
+fn database() -> Result<Arc<db::Db>, String> {
+    db::open(&config::paths().data.join(db::CHATS_DB), db::Kind::Chats)
 }
 
 // The name of the plan file of one chat. The id of a chat is ten hexadecimal
@@ -82,13 +97,77 @@ pub fn chat_of(name: &str) -> Option<String> {
     Some(name.strip_suffix(".md")?.to_string())
 }
 
-// The whole way to a plan, from the name kept with the chat. Nothing comes back
-// for a name that is not one of these.
-pub fn path_of(name: &str) -> Option<PathBuf> {
-    if !looks_like_name(name) {
-        return None;
+// The whole of the plan of a chat, out of the table of the plans. Nothing comes
+// back for a name this module could not have written, or for a chat whose plan
+// does not stand.
+fn read(name: &str) -> Option<String> {
+    let chat = chat_of(name)?;
+    let database = database().ok()?;
+    database
+        .read(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT text FROM plans WHERE chat_id = ?1",
+                    params![chat],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(db::fault)?)
+        })
+        .ok()
+        .flatten()
+}
+
+// Write the whole plan of a chat. The row of the plan is put down whole, so a
+// write that cannot be finished leaves the plan that stood to be read again.
+fn write(name: &str, words: &str) -> Result<(), String> {
+    let chat = chat_of(name).ok_or_else(String::new)?;
+    let when = crate::store::now_secs();
+    let database = database()?;
+    database.write(|conn| {
+        conn.execute(
+            "INSERT INTO plans (chat_id, text, updated) VALUES (?1, ?2, ?3)
+             ON CONFLICT(chat_id) DO UPDATE SET text = excluded.text, updated = excluded.updated",
+            params![chat, words, when],
+        )
+        .map_err(db::fault)?;
+        Ok(())
+    })
+}
+
+// True when a chat has a row of the plan at all. A chat that goes into planning
+// mode twice keeps the plan it wrote, and a plan that was never written is a
+// thing apart from a plan of no words.
+fn stands(name: &str) -> bool {
+    let Some(chat) = chat_of(name) else { return false };
+    let Ok(database) = database() else { return false };
+    database
+        .read(|conn| {
+            Ok(conn
+                .prepare("SELECT 1 FROM plans WHERE chat_id = ?1")
+                .map_err(db::fault)?
+                .exists(params![chat])
+                .map_err(db::fault)?)
+        })
+        .unwrap_or(false)
+}
+
+// Take the plan of a chat out of the table. A chat that is taken away takes its
+// plan with it, so the words of a chat that is gone do not stand in the database
+// for nothing.
+pub fn drop_plan(chat: &str) {
+    let Ok(database) = database() else { return };
+    let gone = database.write(|conn| {
+        conn.execute("DELETE FROM plans WHERE chat_id = ?1", params![chat])
+            .map_err(db::fault)?;
+        Ok(())
+    });
+    if let Err(problem) = gone {
+        crate::proglog::note(
+            crate::proglog::STORE,
+            &format!("the plan of a chat is not taken away: {}", problem),
+        );
     }
-    Some(folder().join(name))
 }
 
 // Make the plan file of a chat, and give back the name kept with the chat. A
@@ -96,15 +175,12 @@ pub fn path_of(name: &str) -> Option<PathBuf> {
 // planning mode twice does not lose what it wrote.
 pub fn create(chat: &str) -> String {
     let name = file_name(chat);
-    if let Some(place) = path_of(&name) {
-        if !place.is_file() {
-            let _ = fs::create_dir_all(folder());
-            // The file is made empty. Words of the program's own in a new plan
-            // were words the model then had to hunt out of the plan, and words
-            // the user read in the window for a plan that was never written.
-            // An empty plan is read as not written yet, which is what it is.
-            let _ = fs::write(&place, "");
-        }
+    if !stands(&name) {
+        // The row is made empty. Words of the program's own in a new plan were
+        // words the model then had to hunt out of the plan, and words the user
+        // read in the window for a plan that was never written. An empty plan is
+        // read as not written yet, which is what it is.
+        let _ = write(&name, "");
     }
     name
 }
@@ -112,8 +188,7 @@ pub fn create(chat: &str) -> String {
 // The whole of a plan, for the popup of the heading and for the first message of
 // the work. Nothing comes back when the plan is gone.
 pub fn words(name: &str) -> Option<String> {
-    let place = path_of(name)?;
-    fs::read_to_string(place).ok()
+    read(name)
 }
 
 // The words of a plan that is not there: said plainly, so a model is never given
@@ -159,11 +234,11 @@ pub fn init_definition() -> Value {
 // takes a written plan away.
 pub fn write_init(name: &str, raw: &str) -> tools::Report {
     let failed = |output: String| tools::Report { ok: false, output };
-    let Some(place) = path_of(name) else {
+    if chat_of(name).is_none() {
         return failed(String::from(
             "This chat has no plan file, so there is nothing to write.",
         ));
-    };
+    }
     let Ok(call) = serde_json::from_str::<Value>(raw) else {
         return failed(String::from(
             "The call was not whole words of JSON, so nothing was written.",
@@ -184,8 +259,8 @@ pub fn write_init(name: &str, raw: &str) -> tools::Report {
             "Nothing was written. The plan is longer than the length this program keeps a plan to.",
         ));
     }
-    let before = fs::read_to_string(&place).unwrap_or_default();
-    if let Err(why) = write_plan(&place, words) {
+    let before = read(name).unwrap_or_default();
+    if let Err(why) = write(name, words) {
         return failed(format!("The plan could not be written: {}", why));
     }
     let mut said = format!(
@@ -536,17 +611,17 @@ pub fn list() -> Vec<Value> {
 // all. A call that names no change, or too many of them, is refused with a word
 // about what the tool takes.
 pub fn edit_plan(name: &str, raw: &str) -> tools::Report {
-    let Some(place) = path_of(name) else {
+    if chat_of(name).is_none() {
         return tools::Report {
             ok: false,
             output: String::from("This chat has no plan file, so there is nothing to change."),
         };
-    };
+    }
     let changes = match changes_of(raw) {
         Ok(made) => made,
         Err(why) => return tools::Report { ok: false, output: why },
     };
-    let before: String = fs::read_to_string(&place).unwrap_or_default();
+    let before: String = read(name).unwrap_or_default();
     // The changes go one after another, each against the plan as the change
     // before it left it. A plan is written in parts, and a model that gives a
     // part and a change in one call means the one to follow the other.
@@ -609,7 +684,7 @@ pub fn edit_plan(name: &str, raw: &str) -> tools::Report {
             ),
         };
     }
-    if let Err(why) = write_plan(&place, &after) {
+    if let Err(why) = write(name, &after) {
         return tools::Report {
             ok: false,
             output: format!("The plan could not be written: {}", why),
@@ -629,17 +704,6 @@ pub fn edit_plan(name: &str, raw: &str) -> tools::Report {
         said.push_str(&head);
     }
     tools::Report { ok: true, output: said }
-}
-
-// Write the plan again. The plan is a file of words, so the words are what is
-// written; nothing of the shape of a file is kept.
-fn write_plan(place: &Path, words: &str) -> Result<(), String> {
-    if let Some(roof) = place.parent() {
-        if !roof.is_dir() {
-            fs::create_dir_all(roof).map_err(|why| why.to_string())?;
-        }
-    }
-    fs::write(place, words).map_err(|why| why.to_string())
 }
 
 // One change of the plan.
@@ -975,12 +1039,12 @@ fn numbered(held: &[(usize, &str)], groups: &[usize]) -> String {
 #[allow(clippy::needless_late_init)]
 pub fn read_plan(name: &str, raw: &str) -> tools::Report {
     let failed = |output: String| tools::Report { ok: false, output };
-    let Some(place) = path_of(name) else {
+    if chat_of(name).is_none() {
         return failed(String::from(
             "This chat has no plan file, so there is nothing to read back.",
         ));
-    };
-    let Ok(words) = fs::read_to_string(&place) else {
+    }
+    let Some(words) = read(name) else {
         return failed(String::from(
             "The plan file could not be read, so nothing was answered.",
         ));
@@ -1142,29 +1206,42 @@ pub fn read_plan(name: &str, raw: &str) -> tools::Report {
 mod tests {
     use super::*;
 
-    // The plan file stands in a folder of the data directory, and only a name
-    // this module wrote opens a way to it.
+    // A plan is a row of the table of the plans, so a check that needs a plan of
+    // its own words lays one down through the same door the tools write through,
+    // and takes the row away again when the check is done.
+    fn lay_down(chat: &str, text: &str) -> String {
+        let name = file_name(chat);
+        write(&name, text).expect("the plan is laid down");
+        name
+    }
+
+    // The plan of a chat stands in the database of the talks, and only a name
+    // this module wrote is a name it knows. A chat that goes into planning mode
+    // twice keeps the plan it wrote.
     #[test]
-    fn a_plan_of_a_chat_is_one_file_of_the_planning_folder() {
+    fn a_plan_of_a_chat_is_one_row_of_the_table() {
         let _guard = config::test_turn();
         let name = create("ab12cd34ef");
         assert_eq!(name, "ab12cd34ef.md");
-        let place = path_of(&name).expect("the way to the plan");
-        assert!(place.starts_with(folder()));
-        assert!(place.is_file(), "the plan file is made with planning mode");
+        assert_eq!(chat_of(&name).as_deref(), Some("ab12cd34ef"));
+        assert!(stands(&name), "planning mode makes the row of the plan");
         let held = words(&name).expect("the plan reads back");
         // A new plan holds nothing. Words of the program in a new plan were
         // words the model had to hunt out of the plan again, and words the user
         // read in the window of a plan that was never written.
         assert!(held.trim().is_empty(), "{}", held);
         // A second look leaves the plan as it stands.
-        let _ = fs::write(&place, "the plan as the model wrote it");
+        lay_down("ab12cd34ef", "the plan as the model wrote it");
         create("ab12cd34ef");
         assert_eq!(words(&name).unwrap(), "the plan as the model wrote it");
-        let _ = fs::remove_file(&place);
-        assert!(path_of("").is_none());
-        assert!(path_of("../escape.md").is_none());
-        assert!(path_of("notes.md").is_none());
+        drop_plan("ab12cd34ef");
+        assert!(!stands(&name), "the row goes with the chat");
+        assert!(words(&name).is_none());
+        // A name this module could not have written reaches no row at all.
+        assert!(chat_of("").is_none());
+        assert!(chat_of("../escape.md").is_none());
+        assert!(chat_of("notes.md").is_none());
+        assert!(!stands("notes.md"));
     }
 
     // The tool changes the plan by matching words, and an empty place adds a part
@@ -1192,8 +1269,7 @@ mod tests {
         assert!(added.ok, "{}", added.output);
         let held = words(&name).unwrap();
         assert!(held.ends_with("## Step one\n"), "{}", held);
-        let place = path_of(&name).unwrap();
-        let _ = fs::remove_file(&place);
+        drop_plan("1234567890");
     }
 
     // The first writing of a plan is one call of whole words. What stands in the
@@ -1203,7 +1279,6 @@ mod tests {
     fn the_first_writing_of_a_plan_is_one_call() {
         let _guard = config::test_turn();
         let name = create("8800880088");
-        let place = path_of(&name).unwrap();
         assert!(words(&name).unwrap().trim().is_empty(), "a new plan holds nothing");
         let begun = write_init(&name, r##"{"plan":"# The way in\n\nStep one.\n"}"##);
         assert!(begun.ok, "{}", begun.output);
@@ -1211,10 +1286,7 @@ mod tests {
         assert!(begun.output.contains("# The way in"), "{}", begun.output);
         // Nothing stood before, so nothing is said about what was lost.
         assert!(!begun.output.contains("gone"), "{}", begun.output);
-        assert_eq!(
-            fs::read_to_string(&place).unwrap(),
-            "# The way in\n\nStep one.\n"
-        );
+        assert_eq!(words(&name).unwrap(), "# The way in\n\nStep one.\n");
         // The plan may be gone through again in parts, for the tool that matches
         // words has words to match now.
         let part = edit_plan(
@@ -1226,12 +1298,12 @@ mod tests {
         let again = write_init(&name, r##"{"plan":"# Another way in\n"}"##);
         assert!(again.ok, "{}", again.output);
         assert!(again.output.contains("gone"), "{}", again.output);
-        assert_eq!(fs::read_to_string(&place).unwrap(), "# Another way in\n");
+        assert_eq!(words(&name).unwrap(), "# Another way in\n");
         // A call of no words, or of spaces only, writes nothing at all.
         let empty = write_init(&name, r#"{"plan":"   \n\n  "}"#);
         assert!(!empty.ok);
         assert!(empty.output.contains("no plan"), "{}", empty.output);
-        assert_eq!(fs::read_to_string(&place).unwrap(), "# Another way in\n");
+        assert_eq!(words(&name).unwrap(), "# Another way in\n");
         let missing = write_init(&name, r#"{"other":"words of a plan"}"#);
         assert!(!missing.ok);
         assert!(missing.output.contains("`plan`"), "{}", missing.output);
@@ -1241,7 +1313,7 @@ mod tests {
         // A name that is not one of this module's own reaches no file at all.
         let stranger = write_init("notes.md", r#"{"plan":"out of the folder"}"#);
         assert!(!stranger.ok);
-        let _ = fs::remove_file(&place);
+        drop_plan("8800880088");
     }
 
     // A change asked for of a plan that holds nothing says which tool writes the
@@ -1260,33 +1332,28 @@ mod tests {
         let part = edit_plan(&name, r##"{"edits":[{"old_string":"","new_string":"# Step one\n"}]}"##);
         assert!(part.ok, "{}", part.output);
         assert_eq!(words(&name).unwrap(), "# Step one\n");
-        let _ = fs::remove_file(path_of(&name).unwrap());
+        drop_plan("7700770077");
     }
 
     // A change that matches no place, or more than one, writes nothing at all.
     #[test]
     fn a_change_that_could_be_two_places_writes_nothing() {
         let _guard = config::test_turn();
-        let name = create("aabbccddeeff");
-        let place = path_of(&name).unwrap();
-        fs::write(&place, "step and step again").unwrap();
+        let name = lay_down("aabbccddeeff", "step and step again");
         let none = edit_plan(&name, r#"{"edits":[{"old_string":"nowhere","new_string":"x"}]}"#);
         assert!(!none.ok);
         assert!(none.output.contains("not in the plan"), "{}", none.output);
         let twice = edit_plan(&name, r#"{"edits":[{"old_string":"step","new_string":"part"}]}"#);
         assert!(!twice.ok);
         assert!(twice.output.contains("2 places"), "{}", twice.output);
-        assert_eq!(fs::read_to_string(&place).unwrap(), "step and step again");
+        assert_eq!(words(&name).unwrap(), "step and step again");
         let all = edit_plan(
             &name,
             r#"{"edits":[{"old_string":"step","new_string":"part","replace_all":true}]}"#,
         );
         assert!(all.ok, "{}", all.output);
-        assert_eq!(
-            fs::read_to_string(&place).unwrap(),
-            "part and part again"
-        );
-        let _ = fs::remove_file(&place);
+        assert_eq!(words(&name).unwrap(), "part and part again");
+        drop_plan("aabbccddeeff");
     }
 
     // The word of the user, and the words left when the command is taken away.
@@ -1471,7 +1538,7 @@ mod tests {
         let asked = read_plan(&name, r#"{"pattern":"step"}"#);
         assert!(asked.ok, "{}", asked.output);
         assert!(asked.output.contains("holds nothing"), "{}", asked.output);
-        let _ = fs::remove_file(path_of(&name).unwrap());
+        drop_plan("6600660066");
     }
 
     // The plan is read back with the lines about each place that was found, and
@@ -1481,9 +1548,7 @@ mod tests {
     #[test]
     fn the_plan_is_read_back_about_a_place() {
         let _guard = config::test_turn();
-        let name = create("7001001");
-        let place = path_of(&name).unwrap();
-        fs::write(&place, "alpha step one\nbeta\ngamma step one\n").expect("the plan");
+        let name = lay_down("7001001", "alpha step one\nbeta\ngamma step one\n");
         let made = read_plan(&name, r#"{"pattern":"step one","after":1}"#);
         assert!(made.ok, "{}", made.output);
         assert!(made.output.contains("2 places"), "{}", made.output);
@@ -1509,7 +1574,7 @@ mod tests {
         // The letters of the words are looked past when it is asked for.
         let loose = read_plan(&name, r#"{"pattern":"ALPHA STEP ONE","ignore_case":true}"#);
         assert!(loose.output.contains("1 place"), "{}", loose.output);
-        let _ = fs::remove_file(&place);
+        drop_plan("7001001");
     }
 
     // The start of the plan, a range of its lines, and the whole of it are read
@@ -1517,9 +1582,7 @@ mod tests {
     #[test]
     fn a_part_of_the_plan_is_read_back() {
         let _guard = config::test_turn();
-        let name = create("7001002");
-        let place = path_of(&name).unwrap();
-        fs::write(&place, "one\ntwo\nthree\nfour\n").expect("the plan");
+        let name = lay_down("7001002", "one\ntwo\nthree\nfour\n");
         let head = read_plan(&name, r#"{"head":2}"#);
         assert!(head.ok, "{}", head.output);
         assert!(head.output.contains("1: one\n2: two\n"), "{}", head.output);
@@ -1539,7 +1602,7 @@ mod tests {
             "{}",
             whole.output
         );
-        let _ = fs::remove_file(&place);
+        drop_plan("7001002");
     }
 
     // A search that found nothing says so plainly, for a model that was answered
@@ -1547,13 +1610,11 @@ mod tests {
     #[test]
     fn a_search_of_the_plan_that_found_nothing_says_so() {
         let _guard = config::test_turn();
-        let name = create("7001003");
-        let place = path_of(&name).unwrap();
-        fs::write(&place, "alpha\n").expect("the plan");
+        let name = lay_down("7001003", "alpha\n");
         let made = read_plan(&name, r#"{"pattern":"zebra step nine"}"#);
         assert!(made.ok, "{}", made.output);
         assert!(made.output.starts_with("Nothing was found"), "{}", made.output);
-        let _ = fs::remove_file(&place);
+        drop_plan("7001003");
     }
 
     // The questions of the plan go to one tool. The prompt and the words of the

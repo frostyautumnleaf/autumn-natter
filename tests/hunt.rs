@@ -13,6 +13,7 @@ use autumn_natter_core::config::{self, Config};
 use autumn_natter_core::contexts;
 use autumn_natter_core::db;
 use autumn_natter_core::migrate;
+use autumn_natter_core::planning;
 use autumn_natter_core::store::{Chat, ChatMeta, Store};
 use std::fs;
 use std::path::PathBuf;
@@ -95,6 +96,18 @@ fn a_machine_of_the_older_shape_reads_back_from_the_databases() {
     // A file of the folder of chats that does not read as a chat.
     fs::write(places.chats.join("broken.json"), "not a chat").expect("a broken file stands");
 
+    // The plan of the loose chat, in the shape a run before the databases kept
+    // it: one file to a chat, in the folder of the plans, under the name of the
+    // chat with `.md` on it. A name that is not the name of a chat is not one of
+    // ours and stays where it stands.
+    fs::create_dir_all(planning::folder()).expect("the folder of the plans is made");
+    fs::write(
+        planning::folder().join("aaaabbbb01.md"),
+        "# The plan of the older shape\n\nStep one.\n",
+    )
+    .expect("the plan stands");
+    fs::write(planning::folder().join("notes.md"), "not a plan").expect("a note stands");
+
     // The hunt, as the engine makes it at the start of a run.
     let store = Store::new(config::repositories_dir(&Config::default()));
     let told = migrate::run(&Config::default(), &store);
@@ -102,6 +115,7 @@ fn a_machine_of_the_older_shape_reads_back_from_the_databases() {
     assert_eq!(told.repos, 1, "the record came across");
     assert_eq!(told.contexts, 1, "the talk came across");
     assert_eq!(told.mcp_files, 1, "the words of the server came across");
+    assert_eq!(told.plans, 1, "the plan of the chat came across");
     assert_eq!(told.unreadable, 1, "the file that did not read is told of");
 
     // Everything is read back out of the databases.
@@ -123,6 +137,20 @@ fn a_machine_of_the_older_shape_reads_back_from_the_databases() {
     assert_eq!(repos_list.len(), 1, "the repository stands");
     assert_eq!(repos_list[0].name, "Ledger");
     assert!(repos_list[0].pinned, "the pin came across");
+    // The plan reads back out of the table of the plans, under the name the chat
+    // carries, which is the name of the file it stood in before.
+    let name = planning::file_name("aaaabbbb01");
+    assert_eq!(name, "aaaabbbb01.md");
+    let held = planning::words(&name).expect("the plan of the chat is read back");
+    assert!(held.contains("# The plan of the older shape"), "{}", held);
+    assert!(
+        !planning::folder().join("aaaabbbb01.md").exists(),
+        "the file of the plan is laid in pre-database/ with the rest"
+    );
+    assert!(
+        planning::words(&planning::file_name("aaaabbbb02")).is_none(),
+        "a chat that never planned has no row of the plans"
+    );
     assert_eq!(
         contexts::held_list(&contexts_dir).len(),
         1,

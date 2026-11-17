@@ -25,6 +25,8 @@
 //   AN_NOTIMELINE=1 node page-shot.js rich p.png  # the line turned off
 //   AN_BROKEN=1 node page-shot.js rich p.png      # the newest one never written
 //   AN_CUT=1 node page-shot.js rich p.png         # a tool call the user stopped
+//   AN_RUNMARKS=1 node page-shot.js rich p.png    # a command at work with time to
+//     run out: the clock, the mark that adds five minutes, and the stop mark
 //   AN_GIFTS=1 node page-shot.js rich p.png       # the talk ends with the blocks
 //     of the files the download tool offered, with their buttons
 //   AN_SUGGEST=1 node page-shot.js rich p.png     # the talk ends with the button
@@ -751,6 +753,20 @@ function scene(name, dark, theme) {
       }
     }
     if (process.env.AN_NOCHAPTERS === '1') { start.chatting.chapters = false; }
+    // AN_RUNMARKS=1 puts a command at work with time to run out, so the marks of
+    // the head of its block - the clock, the mark that adds five minutes, and the
+    // mark that stops the call - stand in the picture.
+    if (process.env.AN_RUNMARKS === '1') {
+      start.generating = true;
+      start.messages = start.messages.concat([{
+        id: 471, role: 'Tool', body: 'cargo test --release',
+        reasoning: '', reasoning_ms: 0, tool: 'running ...', mono: true, failed: false,
+        tool_name: 'run_command', tool_args: 'cargo test --release', when: '11:04',
+        when_full: '2026-10-21, 11:04', context_before: 3204, context_after: 0,
+        attachments: []
+      }]);
+      start.running = { id: 471, timeout: 600, left: 287 };
+    }
     // The width of the chat, as the Chatting section of the settings gives it.
     if (process.env.AN_CHATWIDTH) { start.chatting.width = parseInt(process.env.AN_CHATWIDTH, 10) || 780; }
     if (process.env.AN_NOTHINKGROW === '1') {
