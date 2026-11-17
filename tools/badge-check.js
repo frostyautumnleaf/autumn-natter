@@ -19,7 +19,7 @@ const USE_FETCH = process.env.AN_FETCH === '1';
 function stateOf(tools, all) {
   const held = {};
   ['commands', 'files', 'picture', 'hand_out', 'display', 'ask', 'suggest', 'steps',
-   'rerun', 'infographics'].forEach(function (part) {
+   'rerun', 'infographics', 'tasks'].forEach(function (part) {
     held[part] = tools;
   });
   return {
@@ -163,10 +163,11 @@ async function main() {
   // while a summary is chosen, so it is not looked for here. The steps of an
   // answer and the running of a failed call again are kinds of their own, added
   // after the menu was first drawn, and they stand between the offers of the
-  // next road and the making of an infographic.
+  // next road and the making of an infographic. The six tools of the tasks of a
+  // work directory are a group of their own, and stand last.
   const named = ['Terminal commands', 'File management', 'View images', 'Offer files',
     'Show files', 'Ask questions', 'Suggest next steps', 'Show steps', 'Rerun failed calls',
-    'Create infographics'];
+    'Create infographics', 'Tasks suite'];
   if (lines.join('|') !== named.join('|')) {
     throw new Error('the menu of the tools is not named for what it lets through: ' + lines);
   }

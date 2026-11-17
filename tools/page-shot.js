@@ -17,6 +17,8 @@
 //   AN_PICK='.think .thead' AN_HOVER='.turn' node page-shot.js rich p.png
 //   AN_CLICK='#think' node page-shot.js chat p.png
 //   AN_CHAPTERS=12 node page-shot.js rich p.png   # that many marks on the line
+//   AN_USERMSGS=40 node page-shot.js rich p.png  # that many messages of the user
+//     in the talk, so the line of the dashes can be looked at when it is full
 //   AN_NOCHAPTERS=1 node page-shot.js rich p.png  # the Chatting switch turned off
 //   AN_NOCOLOUR=1 node page-shot.js markdown p.png
 //     the switch of the colours the model asks for, turned off: the words between
@@ -816,6 +818,21 @@ function scene(name, dark, theme) {
       }
     }
     if (process.env.AN_NOCHAPTERS === '1') { start.chatting.chapters = false; }
+    // AN_USERMSGS=N puts that many messages of the user in the talk, so the line
+    // of the dashes can be looked at when a chat holds more of them than the
+    // screen is tall for. They go on the end of the talk, and the answers between
+    // them are the short kind, for the line cares only about the questions.
+    if (process.env.AN_USERMSGS !== undefined) {
+      var howMany = Number(process.env.AN_USERMSGS) || 0;
+      var next = 500;
+      for (var u = 0; u < howMany; u++) {
+        start.messages.push(said(next++, 'You',
+          'Message ' + (u + 1) + ' of the many the user wrote in this chat, '
+          + 'with a little more in it than a word.'));
+        start.messages.push(said(next++, 'Assistant',
+          'Done. That was answer ' + (u + 1) + '.'));
+      }
+    }
     // AN_RUNMARKS=1 puts a command at work with time to run out, so the marks of
     // the head of its block - the clock, the mark that adds five minutes, and the
     // mark that stops the call - stand in the picture.

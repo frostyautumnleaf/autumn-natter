@@ -15,8 +15,9 @@
 //     little of what it says, and counts what hung on it -- pictures told from
 //     the other files;
 //   * the setting switched off takes the line away;
-//   * a chat with more messages than the window is tall for draws the dashes
-//     closer together, and the last of them still stands inside the stage.
+//   * a chat with more messages than the room beside the chat is tall for
+//     becomes a window onto a longer line, keeps the distance between its
+//     dashes, and shows the end of the line where the newest dash stands.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -102,33 +103,48 @@ async function main() {
       note('the second card does not count the attachments: ' + (made.cards[1] || '').slice(0, 90));
     }
 
-    // The setting off, and a chat long enough to need the dashes drawn closer.
-    const rest = await page.evaluate(() => {
+    // The setting off, and a chat with more messages than the room is tall for:
+    // the line becomes a window onto a longer line, and the newest dash stands
+    // inside it. How the window slides is looked at by rail-face-check.js.
+    await page.evaluate(() => {
       const box = document.getElementById('userline');
-      const stage = document.getElementById('stage');
       // The setting is the one the page reads, which is the mark the sheet
       // moves -- not a mark carried in the state of one draw.
       chatting.userline = false;
       drawUserLine({ messages: window.__talk(4) });
-      const off = box.classList.contains('hidden') || getComputedStyle(box).display === 'none';
+      window.__off = box.classList.contains('hidden') || getComputedStyle(box).display === 'none';
       chatting.userline = true;
       drawUserLine({ messages: window.__talk(60) });
+    });
+    await sleep(220);
+    const rest = await page.evaluate(() => {
+      const box = document.getElementById('userline');
+      const off = window.__off;
       const many = box.querySelectorAll('.unode').length;
-      const gap = parseFloat(getComputedStyle(box).getPropertyValue('--ugap'));
+      const track = box.querySelector('.railtrack');
+      const gap = track.children.length > 1
+        ? Math.round((track.children[1].getBoundingClientRect().top
+            - track.children[0].getBoundingClientRect().top) * 10) / 10
+        : 0;
       const here = box.getBoundingClientRect();
-      const room = stage.getBoundingClientRect();
+      const room = document.getElementById('stage').getBoundingClientRect();
+      const last = track.lastElementChild.getBoundingClientRect();
       // Clicking a dash of a chat whose words are not on the page does nothing,
       // and must not fault.
       box.querySelector('.unode').click();
       return {
         off: off, many: many, gap: gap,
+        more: box.classList.contains('railmore'),
+        newest: last.bottom <= here.bottom + 1 && last.top >= here.top - 1,
         fits: here.top >= room.top - 2 && here.bottom <= room.bottom + 2,
         height: Math.round(here.height),
       };
     });
     if (!rest.off) { note('the line stands with the setting off'); }
     if (rest.many !== 60) { note('60 messages drew ' + rest.many + ' dashes'); }
-    if (!(rest.gap < 21)) { note('the dashes were not drawn closer: gap ' + rest.gap); }
+    if (!rest.more) { note('a line with no room was not made a window'); }
+    if (!(rest.gap > 20)) { note('the distance between the dashes changed: ' + rest.gap); }
+    if (!rest.newest) { note('the newest dash does not stand inside the window'); }
     if (!rest.fits) { note('the line hangs out of the stage when the chat is long: ' + rest.height); }
 
     if (faults.length) { note('the face faulted: ' + faults.slice(0, 2).join(' | ')); }

@@ -348,7 +348,37 @@ body.home .stage { display: none; }
   .chapters { display: none; }
 }
 
-/* ------------------------------------------------------------ chapter line */
+/* --------------------------------------------------------- line windows */
+/* Each of the three lines beside the chat is a window onto a longer line when
+   the chat has more nodes than the screen is tall for. The nodes stand in a
+   track that slides up and down inside the window, and a mark at either end of
+   the window does the sliding - the marks stand outside the window, in the room
+   the window keeps at its ends. The rows the window does not show are hidden
+   rather than clipped, for the card of a row hangs out to the side of the line
+   and would else be cut in half by the edge of the window. */
+.railtrack {
+  position: absolute; left: 0; right: 0; top: 0;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 21px; transition: transform 170ms ease-out;
+}
+.railtrack .out { visibility: hidden; }
+.railmark {
+  position: absolute; left: 50%; width: 17px; height: 17px; padding: 0;
+  display: none; align-items: center; justify-content: center;
+  transform: translateX(-50%); border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--line-strong); color: var(--dim);
+  transition: color 140ms, background 140ms;
+}
+.railmark .svg { width: 12px; height: 12px; }
+.railmark:hover, .railmark:focus-visible {
+  background: var(--hover); color: var(--accent); outline: none;
+}
+.railmore .railmark { display: flex; visibility: hidden; }
+.railmore.railup .railmark.up, .railmore.raildown .railmark.down { visibility: visible; }
+.railmark.up { top: -22px; }
+.railmark.down { bottom: -22px; }
+
+
 /* The chapters the model marked stand on a line at the left of the chat. The
    nodes are always the same distance apart, whatever the chat holds between
    them. Without a chapter there is no node, and no line either. A chat with
@@ -357,8 +387,7 @@ body.home .stage { display: none; }
 .chapters {
   position: absolute; left: calc(var(--rail, 116px) / 2); top: 50%;
   transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center;
-  gap: var(--cgap, 21px); z-index: 14;
+  width: 11px; z-index: 14;
 }
 .chapters::before {
   content: ""; position: absolute; left: 50%; top: -13px; bottom: -13px; width: 2px;
@@ -404,8 +433,7 @@ body.home .stage { display: none; }
 .timeline {
   position: absolute; right: var(--railro, 64px); top: 50%;
   transform: translate(50%, -50%);
-  display: flex; flex-direction: column; align-items: center;
-  gap: var(--tgap, 21px); z-index: 14;
+  width: 11px; z-index: 14;
 }
 .timeline::before {
   content: ""; position: absolute; left: 50%; top: -13px; bottom: -13px; width: 2px;
@@ -461,8 +489,7 @@ body.home .stage { display: none; }
 .userline {
   position: absolute; right: var(--railuo, 28px); top: 50%;
   transform: translate(50%, -50%);
-  display: flex; flex-direction: column; align-items: center;
-  gap: var(--ugap, 21px); z-index: 14;
+  width: 13px; z-index: 14;
 }
 /* In a window too narrow for a margin of its own the line goes away, and the
    chat takes the room of it back. This stands after the rule that lays the line
@@ -9639,31 +9666,171 @@ function chapterWords(from, until) {
   return said;
 }
 
-// The distance two nodes keep between them, the length the line hangs past the
-// first node and the last, and the width of a node.
-var CHAPTER_GAP = 21;
-var CHAPTER_ENDS = 26;
-var CHAPTER_NODE = 11;
+// ------------------------------------------------- the lines beside the chat
+//
+// The chapters, the summarisations and the messages of the user each stand on a
+// line of their own. A chat can hold more nodes than the screen is tall for. As
+// long as the line fits, the nodes keep the distance between them and the whole
+// of the line is shown. When it does not, the line becomes a window onto a
+// longer line: the window is as tall as the chat room allows, a track of nodes
+// slides up and down inside it, and a mark at either end of the window does the
+// sliding. The line follows the newest node by itself. A scroll of the user's
+// own is left alone for RAIL_LOOK - they are looking at the older part of the
+// talk, and nothing should drag their eyes away - and when that is spent the
+// line comes back to the newest node on its own.
+//
+// Nothing clips the track: the rows the window does not show are hidden instead,
+// and with them the cards that hang out to the side of them. A chat of five
+// hundred messages therefore never paints five hundred cards at once, and a card
+// the user is looking at is never cut off at the edge of the window.
 
-// The nodes stand the same distance apart, and that distance is the same for
-// two nodes as for forty. A chat with more chapters than the window is tall for
-// cannot show them all at the usual distance, so the distance is made less until
-// the last node stands in the window too -- a node the user cannot reach is of
-// no use to them.
-function fitChapters(box, stage, count) {
-  var gap = CHAPTER_GAP;
-  var room = stage ? stage.clientHeight : 0;
-  if (count > 1 && room > 0) {
-    // What is left over after the nodes themselves and the two ends of the
-    // line, shared between the gaps. A node is never given smaller than one
-    // pixel of room, and a chat with more marks than even that cannot hold is
-    // left hanging over the end, as nothing fairer is left to do.
-    var fits = Math.floor((room - 16 - CHAPTER_ENDS - count * CHAPTER_NODE) / (count - 1));
-    if (fits < gap) { gap = fits > 1 ? fits : 1; }
-  }
-  box.style.setProperty('--cgap', gap + 'px');
+var RAIL_EDGE = 26;    // the room a line keeps at the top and bottom of the chat
+var RAIL_LOOK = 5000;  // how long a part of the line the user chose is kept
+
+// The window of one line, and the track of nodes that slides inside it. The two
+// marks are made with the window, and stay around while the chat lives: only
+// what is inside the track is made again.
+function railTrack(box) {
+  var track = box.__track;
+  if (track) { return track; }
+  track = make('div', 'railtrack');
+  box.appendChild(track);
+  box.__track = track;
+  box.__off = 0; box.__max = 0; box.__room = 0; box.__look = 0; box.__timer = 0;
+  box.appendChild(railMark(box, -1, 'up', 'Look at the older part of this line'));
+  box.appendChild(railMark(box, 1, 'down', 'Look at the newer part of this line'));
+  // A wheel over the line scrolls the line, and not the chat behind it. A line
+  // with nothing to show leaves the wheel alone, which is most of the time.
+  box.addEventListener('wheel', function (event) {
+    if (!box.__max) { return; }
+    event.preventDefault();
+    railShow(box, (box.__off || 0) + (event.deltaY || 0), true);
+  }, { passive: false });
+  return track;
 }
 
+// One of the two marks at the ends of the window. It stands outside the window,
+// at the end it belongs to, and it is only there when there is more of the line
+// that way.
+function railMark(box, way, place, words) {
+  var hit = make('button', 'railmark ' + place);
+  hit.type = 'button';
+  hit.title = words;
+  hit.setAttribute('aria-label', words);
+  hit.appendChild(mark(way < 0 ? 'M4 10.2 8 6.2 12 10.2' : 'M4 5.8 8 9.8 12 5.8'));
+  hit.addEventListener('click', function () { railTurn(box, way); });
+  return hit;
+}
+
+// A mark was pressed: move the window by a little less than a screenful, so two
+// parts of the line always have something in common and the place is not lost.
+function railTurn(box, way) {
+  var step = Math.max((box.__stride || 32) * 3, (box.__room || 240) * 0.7);
+  railShow(box, (box.__off || 0) + way * step, true);
+}
+
+// How tall the window is, and how far the track can still slide. Looked at again
+// at every draw, for the room changes with the window and with the other lines
+// coming and going beside the chat.
+function railFit(box, stage, stride, high) {
+  var track = railTrack(box);
+  var many = track.children.length;
+  var whole = many ? (many - 1) * stride + high : 0;
+  var room = Math.max(72, (stage ? stage.clientHeight : 0) - RAIL_EDGE * 2);
+  var shown = whole > room ? room : whole;
+  if (shown === room) {
+    // The window is brought down to the last row of nodes that fits whole
+    // inside it. A node cut in half along the edge of the window reads as a
+    // fault of the drawing, and the ends of the line are where the eye is.
+    var rows = Math.floor((shown + stride) / stride);
+    if (rows < 2) { rows = 2; }
+    shown = (rows - 1) * stride + high;
+  }
+  box.__stride = stride;
+  box.__high = high;
+  box.__room = shown;
+  box.__max = whole > shown ? whole - shown : 0;
+  box.style.height = (shown > 0 ? shown : 0) + 'px';
+  box.classList.toggle('railmore', box.__max > 0);
+  railShow(box, box.__off, false);
+}
+
+// Slide the window to `to` along the line, and say what that means for the
+// marks and the rows. `byHand` is true when the user did it, which sets the
+// clock that holds the line where they put it.
+function railShow(box, to, byHand) {
+  var max = box.__max || 0;
+  var off = to > 0 ? (to < max ? to : max) : 0;
+  box.__off = off;
+  if (box.__track) {
+    box.__track.style.transform = off ? 'translateY(' + (-off) + 'px)' : '';
+  }
+  box.classList.toggle('railup', off > 0);
+  box.classList.toggle('raildown', off < max);
+  railSee(box);
+  if (byHand) { railHold(box); }
+}
+
+// Hide the rows the window does not show. The card of a row hangs out to the
+// side of the line and is not clipped by the window, so a row left out of sight
+// would still put its words over the chat.
+function railSee(box) {
+  var track = box.__track;
+  if (!track) { return; }
+  var off = box.__off || 0;
+  var room = box.__room || 0;
+  var stride = box.__stride || 1;
+  var high = box.__high || stride;
+  var rows = track.children;
+  for (var n = 0; n < rows.length; n++) {
+    // A row is shown when the whole of its node stands inside the window. One
+    // that is only half in is hidden, for its card would else hang over the
+    // edge of the window.
+    var top = n * stride - off;
+    var gone = (top < -0.5) || (top + high > room + 0.5);
+    if (gone !== rows[n].classList.contains('out')) {
+      rows[n].classList.toggle('out', gone);
+    }
+  }
+}
+
+// The user is looking at another part of the line. Hold it there for RAIL_LOOK,
+// and come back to the newest node when that is spent.
+function railHold(box) {
+  box.__look = Date.now();
+  if (box.__timer) { clearTimeout(box.__timer); }
+  box.__timer = setTimeout(function () {
+    box.__timer = 0;
+    railFollow(box);
+  }, RAIL_LOOK);
+}
+
+// The window shows the end of the line, where the newest node stands, which is
+// what it does of itself whenever a node comes in. Nothing is done while a
+// clock of the user's own is still running: they are looking at another part of
+// the line, and the clock will bring them back when it is spent.
+function railFollow(box) {
+  if (!box.__max || box.__timer) { return; }
+  railShow(box, box.__max, false);
+}
+
+// The room a line has changes with the window of the program, and with the
+// other lines beside the chat coming and going: every line is looked at again.
+function railResize() {
+  var three = [el.chapters, el.timeline, el.userline];
+  for (var n = 0; n < three.length; n++) {
+    var box = three[n];
+    if (box && box.__track && box.__stride) {
+      railFit(box, el.stage, box.__stride, box.__high);
+      if (Date.now() - (box.__look || 0) > RAIL_LOOK) { railFollow(box); }
+    }
+  }
+}
+
+// The distance two nodes keep between them, and the height of one node. Together
+// they give the distance from the top of one node to the top of the next.
+var CHAPTER_GAP = 21;
+var CHAPTER_NODE = 11;
 // The line beside the chat, made again when the chapters changed.
 function drawChapters(s) {
   var box = el.chapters;
@@ -9671,14 +9838,17 @@ function drawChapters(s) {
   var chapters = (chatting.chapters && s.chapters) ? s.chapters : [];
   var stage = el.stage || document.body;
   stage.classList.toggle('withchapters', chapters.length > 0);
-  // The room the nodes have changes with the window, so the distance between
-  // them is looked at again at every draw, and not only when a chapter came in.
-  fitChapters(box, stage, chapters.length);
-  var mark = chapterSignature(chapters);
-  if (mark === chapterMark) { return; }
-  chapterMark = mark;
-  box.innerHTML = '';
+  var track = railTrack(box);
+  // The window is looked at again at every draw, for the room changes with the
+  // window of the program; the nodes themselves are made only when a chapter
+  // came in or went away.
+  if (chapterSignature(chapters) === chapterMark) {
+    railFit(box, stage, CHAPTER_NODE + CHAPTER_GAP, CHAPTER_NODE);
+    return;
+  }
+  chapterMark = chapterSignature(chapters);
   box.classList.toggle('hidden', chapters.length === 0);
+  track.innerHTML = '';
   var places = chapterRanges(chapters);
   for (var n = 0; n < chapters.length; n++) {
     var node = make('button', 'chapter');
@@ -9697,8 +9867,10 @@ function drawChapters(s) {
     node.addEventListener('click', function (chapter) {
       return function () { gotoChapter(chapter); };
     }(chapters[n]));
-    box.appendChild(node);
+    track.appendChild(node);
   }
+  railFit(box, stage, CHAPTER_NODE + CHAPTER_GAP, CHAPTER_NODE);
+  railFollow(box);
 }
 
 // Take the chat to the place one chapter begins. The words above that place are
@@ -9752,7 +9924,8 @@ function gotoChapter(chapter) {
 // clicks the dash and the chat goes there, instead of scrolling a long talk over
 // looking for it. A dash the user hovers over says which message it is, when it
 // was sent, a little of what it says, and what hung on it.
-var USER_GAP = 21;      // the distance two dashes keep, while they fit
+var USER_GAP = 21;      // the distance two dashes keep
+var USER_NODE = 3;      // the height of one dash
 var userLineMark = '';  // what the line was made of last
 
 // The messages of the user, in the order they stand in the talk. The sayings of
@@ -9773,20 +9946,6 @@ function userLineSignature(list) {
   var parts = [];
   for (var n = 0; n < list.length; n++) { parts.push(list[n].id); }
   return parts.join('|');
-}
-
-// The distance two dashes keep. As with the chapters and the summarisations, two
-// dashes and forty keep the same distance, until a chat has more messages than
-// the window is tall for: then the distance is made less, so the last dash can
-// still be reached.
-function fitUserLine(box, stage, count) {
-  var gap = USER_GAP;
-  var room = stage ? stage.clientHeight : 0;
-  if (count > 1 && room > 0) {
-    var fits = Math.floor((room - 16 - CHAPTER_ENDS - count * 3) / (count - 1));
-    if (fits < gap) { gap = fits > 1 ? fits : 1; }
-  }
-  box.style.setProperty('--ugap', gap + 'px');
 }
 
 // The words of a message, for the card of a dash: the marks of the writing go,
@@ -9821,21 +9980,18 @@ function drawUserLine(s) {
   var list = chatting.userline === false ? [] : userMessages(s);
   var stage = el.stage || document.body;
   stage.classList.toggle('withuserline', list.length > 0);
-  // The room the dashes have changes with the window, so the distance between
-  // them is looked at again at every draw, and not only when a message came in.
-  fitUserLine(box, stage, list.length);
-  // The place of the line is looked at again whether the dashes were made or
-  // not, for the column of the chat changes width with the window.
-  placeUserLine();
-  // The room the lines make is put on in the same breath as the drawing, so the
-  // place is looked at once more when the browser has laid the words out.
-  if (typeof requestAnimationFrame === 'function') { requestAnimationFrame(placeUserLine); }
-  watchUserLine();
-  var mark = userLineSignature(list);
-  if (mark === userLineMark) { return; }
-  userLineMark = mark;
-  box.innerHTML = '';
+  var track = railTrack(box);
+  // The window the dashes have changes with the window of the program, so it is
+  // looked at again at every draw, and not only when a message came in.
+  if (userLineSignature(list) === userLineMark) {
+    railFit(box, stage, USER_NODE + USER_GAP, USER_NODE);
+    railResizePlace();
+    return;
+  }
+  userLineMark = userLineSignature(list);
   box.classList.toggle('hidden', list.length === 0);
+  track.innerHTML = '';
+  railResizePlace();
   for (var n = 0; n < list.length; n++) {
     var one = list[n];
     var node = make('button', 'unode');
@@ -9863,8 +10019,19 @@ function drawUserLine(s) {
     node.addEventListener('click', function (id) {
       return function () { gotoUserMessage(id); };
     }(one.id));
-    box.appendChild(node);
+    track.appendChild(node);
   }
+  railFit(box, stage, USER_NODE + USER_GAP, USER_NODE);
+  railFollow(box);
+}
+
+// The place of the line of the user's messages is looked at again after the
+// dashes were made, for the column of the chat is laid out after them: the
+// dashes stand a little way right of the words, as a border of them.
+function railResizePlace() {
+  placeUserLine();
+  if (typeof requestAnimationFrame === 'function') { requestAnimationFrame(placeUserLine); }
+  watchUserLine();
 }
 
 // The line hugs the chat rather than the window. The column of the chat is
@@ -9898,7 +10065,10 @@ var userLineWatch = null;
 
 function watchUserLine() {
   if (userLineWatch || !window.ResizeObserver || !el.col || !el.stage) { return; }
-  userLineWatch = new ResizeObserver(function () { placeUserLine(); });
+  userLineWatch = new ResizeObserver(function () {
+    placeUserLine();
+    railResize();
+  });
   userLineWatch.observe(el.col);
   userLineWatch.observe(el.stage);
 }
@@ -9948,20 +10118,6 @@ function handoffOf(id) {
   return null;
 }
 
-// The distance two nodes keep between them. As with the chapters, two nodes and
-// forty keep the same distance, until a chat has more summarisations than the
-// window is tall for: then the distance is made less, so the last node can still
-// be reached.
-function fitTimeline(box, stage, count) {
-  var gap = CHAPTER_GAP;
-  var room = stage ? stage.clientHeight : 0;
-  if (count > 1 && room > 0) {
-    var fits = Math.floor((room - 16 - CHAPTER_ENDS - count * CHAPTER_NODE) / (count - 1));
-    if (fits < gap) { gap = fits > 1 ? fits : 1; }
-  }
-  box.style.setProperty('--tgap', gap + 'px');
-}
-
 // The line at the right of the chat, made again when a summarisation came in.
 function drawTimeline(s) {
   var box = el.timeline;
@@ -9970,12 +10126,17 @@ function drawTimeline(s) {
   var list = (comp.timeline === false || !s.handoffs) ? [] : s.handoffs;
   var stage = el.stage || document.body;
   stage.classList.toggle('withtimeline', list.length > 0);
-  fitTimeline(box, stage, list.length);
-  var mark = timelineSignature(list);
-  if (mark === timelineMark) { return; }
-  timelineMark = mark;
-  box.innerHTML = '';
+  var track = railTrack(box);
+  // The window is looked at again at every draw, for the room changes with the
+  // window of the program; the nodes are made only when a summarisation came in
+  // or one of them changed.
+  if (timelineSignature(list) === timelineMark) {
+    railFit(box, stage, CHAPTER_NODE + CHAPTER_GAP, CHAPTER_NODE);
+    return;
+  }
+  timelineMark = timelineSignature(list);
   box.classList.toggle('hidden', list.length === 0);
+  track.innerHTML = '';
   for (var n = 0; n < list.length; n++) {
     var one = list[n];
     var node = make('button', 'tnode');
@@ -10007,8 +10168,10 @@ function drawTimeline(s) {
     node.addEventListener('click', function (cut) {
       return function () { gotoSummary(cut); };
     }(one));
-    box.appendChild(node);
+    track.appendChild(node);
   }
+  railFit(box, stage, CHAPTER_NODE + CHAPTER_GAP, CHAPTER_NODE);
+  railFollow(box);
 }
 
 // The whole of a handoff summary, over the chat. The words of a summary are never

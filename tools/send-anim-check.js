@@ -19,7 +19,7 @@
 //   * with the setting off no copy is made at all, and a message of another
 //     chat is never taken for the one the copy is looking for;
 //   * a message that is put by for later while the model is writing makes no
-//     copy at all;
+//     copy at all; it goes to the program, and its row stands over the box;
 //   * the copy is as wide as its own words, and as wide as the bubble it lands
 //     on, so the message does not shrink when the copy goes away;
 //   * the copy goes up the chat and into the corner the messages of the user
@@ -237,23 +237,46 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('after:', JSON.stringify(after));
 
   // 7: a message that is put by for later while the model is writing is not
-  // carried anywhere: it stands in the list over the box.
+  // carried anywhere and makes no copy: it goes to the program, which keeps the
+  // list, and the row of it stands over the box. The list is kept by the program
+  // and not by the page, so the row is looked for after the state that carries
+  // it comes back.
   const queued = await page.evaluate(() => {
     cur = { chatting: { send_anim: true }, generating: true, chat: { id: 'chat-two',
       title: 'Another chat', home: false }, messages: [
         { id: 'z1', role: 'You', body: 'Quite another thing', when: '10:00',
           when_full: 'today at 10:00', tool: '', mono: false, failed: false,
           reasoning: '', reasoning_ms: 0 } ] };
-    queue.length = 0;
+    syncQueue({ queue: { items: [] } });
+    var posts = [];
+    var realPost = window.post;
+    window.post = function (path, body) { posts.push({ path: path, body: body }); };
     el.draft.value = 'Words put by for later';
     grow();
     send();
+    window.post = realPost;
+    syncQueue({ queue: { items: [{ id: 'q1', text: 'Words put by for later', files: [] }] } });
+    queueOpen = true;
+    drawQueue();
+    var row = document.querySelector('#queuelist .qrow');
     return { cards: document.querySelectorAll('.flycard').length,
-      fly: !!window.fly, inList: queue.length, emptied: el.draft.value === '' };
+      fly: !!window.fly, posts: posts, inList: queue.length,
+      rows: document.querySelectorAll('#queuelist .qrow').length,
+      words: row ? row.textContent.replace(/\s+/g, ' ').trim() : '',
+      emptied: el.draft.value === '' };
   });
+  const putBy = (queued.posts || []).filter((p) => p.path === '/api/queue_add');
   if (queued.cards) { note('a message put by for later made a copy over the page'); }
   if (queued.fly) { note('a message put by for later set a copy on its way'); }
-  if (queued.inList !== 1) { note('the message put by did not stand in the list'); }
+  if (putBy.length !== 1 || !putBy[0].body || putBy[0].body.text !== 'Words put by for later') {
+    note('the message put by did not go to the program: ' + JSON.stringify(queued.posts));
+  }
+  if (queued.inList !== 1 || queued.rows !== 1) {
+    note('the message put by did not stand in the list: ' + JSON.stringify(queued));
+  }
+  if (queued.words.indexOf('Words put by for later') < 0) {
+    note('the row of the list does not show the words put by: ' + queued.words);
+  }
   if (!queued.emptied) { note('the box kept its words though the message was put by'); }
   console.log('queued:', JSON.stringify(queued));
 
