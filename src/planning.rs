@@ -72,6 +72,16 @@ fn looks_like_name(name: &str) -> bool {
         && stem.chars().all(|one| one.is_ascii_hexdigit())
 }
 
+// The id of the chat a plan file belongs to, from the name of the file. Nothing
+// comes back for a name this module could not have written. The move of the plans
+// into the database reads the old folder with it. See `src/migrate.rs`.
+pub fn chat_of(name: &str) -> Option<String> {
+    if !looks_like_name(name) {
+        return None;
+    }
+    Some(name.strip_suffix(".md")?.to_string())
+}
+
 // The whole way to a plan, from the name kept with the chat. Nothing comes back
 // for a name that is not one of these.
 pub fn path_of(name: &str) -> Option<PathBuf> {

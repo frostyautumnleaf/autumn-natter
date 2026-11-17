@@ -17,15 +17,19 @@
 // repositories, and write over its own. The records stand under the data
 // directory, at `repo_records/<repository id>.json`.
 
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config;
+use crate::db;
+use crate::migrate;
+use crate::proglog;
 
 // Seconds since 1970-01-01, in the local time zone of the machine.
 pub fn now_secs() -> i64 {
@@ -777,38 +781,126 @@ impl Chat {
 }
 
 
-// Reads and writes the data on disk.
+// Reads and writes the words of the program: the talks, the talks of every
+// repository, and the record of every repository. These stand in one SQLite
+// file, `chats.db`, and not in a folder of JSON files. See `src/db.rs`.
+//
+// The three kinds stand together because the side bar reads all three at once:
+// one query gives the groups of the list, where a walk over three folders gave
+// one read per file. They stand apart from the other databases because they
+// change together and nothing else changes with them.
 pub struct Store {
+    // The folder the directories of the repositories stand in. A repository is
+    // still a folder of the machine, because it is where a model works; only
+    // its record and its talks live in the database.
     repos_dir: PathBuf,
-    // The folder that holds the chats of the repositories. It stands away from
-    // them, so a command working inside a repository cannot reach a talk.
-    chats_root: PathBuf,
-    // The folder that holds the record of every repository. It stands away from
-    // them for the same reason the talks do: the record of a repository is not
-    // the business of the model that works inside it.
-    records_root: PathBuf,
+    // The database of the talks and the records. It is opened the first time it
+    // is asked for and kept open after it, because a folder of the program that
+    // cannot be written must stop a chat from being saved and must not stop the
+    // program from starting: the reason for the fault then comes back to the
+    // user of the click that asked for the write, as it did when every chat
+    // stood in a file of its own.
+    db: Mutex<Option<Arc<db::Db>>>,
+    // Where the file of the database stands.
+    db_path: PathBuf,
+    // The folders the words of the older shape stood in. They are kept because
+    // the hunt reads them once, and because the talks of a repository must come
+    // out of the directory of that repository before anything else is done with
+    // them. See `src/migrate.rs`.
+    older: Older,
+}
+
+// The folders the words of the program stood in before they stood in a database:
+// the loose chats, the talks of the repositories, and the records of them. They
+// stand away from the repositories, so a command working inside a repository
+// cannot reach a talk or the record of the repository it works in.
+#[derive(Clone, Debug)]
+pub struct Older {
+    // The loose chats: `chats/<chat id>.json`.
+    pub chats: PathBuf,
+    // The chats of the repositories: `repo_chats/<repository id>/<chat id>.json`.
+    pub repo_chats: PathBuf,
+    // The record of every repository: `repo_records/<repository id>.json`.
+    pub repo_records: PathBuf,
+}
+
+impl Older {
+    // The folders of the places of this program.
+    fn of_places(places: &config::Paths) -> Older {
+        Older {
+            chats: places.chats.clone(),
+            repo_chats: places.repo_chats.clone(),
+            repo_records: places.repo_records.clone(),
+        }
+    }
 }
 
 impl Store {
     pub fn new(repos_dir: PathBuf) -> Store {
         let places = config::paths();
-        Store::with_rooms(repos_dir, places.repo_chats, places.repo_records)
+        let older = Older::of_places(&places);
+        Store::in_room(repos_dir, places.data.join(db::CHATS_DB), older)
     }
 
-    // A store that keeps the talks of its repositories, and their records, in
-    // folders of its own. Only the tests and `new` need this: the two folders
-    // come from the places of the program.
-    fn with_rooms(repos_dir: PathBuf, chats_root: PathBuf, records_root: PathBuf) -> Store {
+    // The shape of a store from its three places: the folder of the
+    // repositories, the database of the talks and the records, and the folders
+    // the older shape stood in. `new` takes all three from the places of the
+    // program; a test takes them from a room of its own, so a check of the store
+    // never comes at the files of the machine.
+    fn in_room(repos_dir: PathBuf, db_path: PathBuf, older: Older) -> Store {
         let _ = fs::create_dir_all(&repos_dir);
-        Store { repos_dir, chats_root, records_root }
+        Store {
+            repos_dir,
+            db: Mutex::new(None),
+            db_path,
+            older,
+        }
+    }
+
+    // A store whose database and older folders stand in a room of its own.
+    #[cfg(test)]
+    fn with_rooms(repos_dir: PathBuf, db_dir: &Path, older: Older) -> Store {
+        Store::in_room(repos_dir, db_dir.join(db::CHATS_DB), older)
+    }
+
+    // The database the talks and the records stand in. The planning words of a
+    // chat are kept in the same file, so the code that writes them takes it. The
+    // reason a file that will not open is kept for the user of the step that
+    // asked for it: a chat is not saved, and is told of, rather than the program
+    // being stopped where it stood.
+    pub fn database(&self) -> Result<Arc<db::Db>, String> {
+        let mut held = self.db.lock().unwrap_or_else(|gone| gone.into_inner());
+        if let Some(kept) = held.as_ref() {
+            return Ok(kept.clone());
+        }
+        let opened = db::open(&self.db_path, db::Kind::Chats)?;
+        *held = Some(opened.clone());
+        Ok(opened)
+    }
+
+    // The database, for a step that answers with the empty answer it can answer
+    // with when the file will not open. The reason is said in the log of the
+    // program, because a reader of the side bar is shown nothing and no line
+    // would be said to them about it.
+    fn database_or_silence(&self) -> Option<Arc<db::Db>> {
+        match self.database() {
+            Ok(kept) => Some(kept),
+            Err(problem) => {
+                proglog::note(proglog::STORE, &problem);
+                None
+            }
+        }
     }
 
     // Move the chats of every repository out of the directory of that
     // repository, into the folder of the talks under the data directory. This
     // runs once, when the program starts, and again when the user points the
-    // program at another folder of repositories. See the head of this file.
+    // program at another folder of repositories. It is the first step of the
+    // way into the database: the talks must be out of the reach of a command
+    // before they are read into a file a command cannot read. See the head of
+    // this file.
     pub fn migrate_chats_out(&self) {
-        migrate_repo_chats(&self.repos_dir, &self.chats_root);
+        migrate_repo_chats(&self.repos_dir, &self.older.repo_chats);
     }
 
     // Move the record of every repository out of the directory of that
@@ -818,23 +910,7 @@ impl Store {
     // starts, and again when the user points the program at another folder of
     // repositories.
     pub fn migrate_records_out(&self) {
-        migrate_repo_records(&self.repos_dir, &self.records_root);
-    }
-
-    // Where the record of one repository stands. A repository with no usable id
-    // has no record of its own.
-    fn record_of(&self, repo: &Repo) -> Option<PathBuf> {
-        repo_record_path(&self.records_root, &repo.id)
-    }
-
-    // Directory that holds the chats of a repository, or of the loose chats.
-    // The chats of a repository stand outside it, for the folder of a repository
-    // is the room a terminal command works in. See the head of this file.
-    fn chats_dir(&self, repo_id: &str) -> Option<PathBuf> {
-        if repo_id.is_empty() {
-            return Some(config::paths().chats);
-        }
-        repo_chats_dir(&self.chats_root, repo_id)
+        migrate_repo_records(&self.repos_dir, &self.older.repo_records);
     }
 
     // Find a repository directory by its id.
@@ -848,65 +924,77 @@ impl Store {
             if !path.is_dir() {
                 continue;
             }
-            let name = path.file_name()?.to_string_lossy().to_string();
-            // The directory of a repository is "name_id" or "repository-id".
-            let found = if let Some(tail) = name.strip_prefix("repository-") {
-                tail == id
-            } else {
-                id_from_dir_name(&name).as_deref() == Some(id)
-            };
-            if found {
+            if repo_id_of(&path).as_deref() == Some(id) {
                 return Some(path);
             }
         }
         None
     }
 
-    // All repositories, most recently used first.
+    // Every repository the machine holds, newest use first. The directories are
+    // read from the folder of the repositories, and their records from the
+    // database. A directory with no record of its own is still shown, so the
+    // user sees what is on disk: a folder of their own, put into the folder of
+    // the repositories, is a repository as much as one this program made.
     pub fn scan_repos(&self) -> Vec<Repo> {
-        let mut out: Vec<Repo> = Vec::new();
-        let entries = match fs::read_dir(&self.repos_dir) {
-            Ok(e) => e,
-            Err(_) => return out,
+        let Ok(entries) = fs::read_dir(&self.repos_dir) else {
+            return Vec::new();
         };
+        let held = self.rows_of_repos();
+        let mut out: Vec<Repo> = Vec::new();
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_dir() {
                 continue;
             }
-            let name = match path.file_name() {
-                Some(n) => n.to_string_lossy().to_string(),
-                None => continue,
+            let name = entry.file_name().to_string_lossy().to_string();
+            let Some(id) = id_from_dir_name(&name).or_else(|| repo_id_of(&path)) else {
+                continue;
             };
-            // The record of a repository stands in the folder of the records,
-            // named for the id the name of the folder carries.
-            let id = name
-                .strip_prefix("repository-")
-                .map(|t| t.to_string())
-                .or_else(|| id_from_dir_name(&name));
-            let mut repo = match id
-                .as_deref()
-                .and_then(|i| repo_record_path(&self.records_root, i))
-                .and_then(|p| fs::read_to_string(p).ok())
-            {
-                Some(text) => serde_json::from_str::<Repo>(&text).unwrap_or_default(),
-                None => Repo::default(),
-            };
-            // A directory without a usable record is still shown, so the user
-            // sees what is on disk.
+            let mut repo = held.get(&id).cloned().unwrap_or_default();
             if repo.id.is_empty() {
-                match id {
-                    Some(id) => {
-                        repo.id = id;
-                        repo.name = human_name(&name);
-                    }
-                    None => continue,
-                }
+                repo.id = id;
+                repo.name = human_name(&name);
             }
             repo.path = path;
             out.push(repo);
         }
         out.sort_by_key(|r| std::cmp::Reverse(r.last_used));
+        out
+    }
+
+    // The records of the database, by the id of the repository.
+    fn rows_of_repos(&self) -> HashMap<String, Repo> {
+        let mut out = HashMap::new();
+        let Some(database) = self.database_or_silence() else {
+            return out;
+        };
+        let read = database.read(|conn| {
+            let mut said = conn.prepare(
+                "SELECT id, name, created, last_used, pinned FROM repos ORDER BY last_used DESC",
+            )
+            .map_err(db::fault)?;
+            let rows = said
+                .query_map([], |row| {
+                    Ok(Repo {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        created: row.get(2)?,
+                        last_used: row.get(3)?,
+                        pinned: db::mark_of(row.get(4)?),
+                        path: PathBuf::new(),
+                    })
+                })
+                .map_err(db::fault)?;
+            for row in rows {
+                let repo = row.map_err(db::fault)?;
+                out.insert(repo.id.clone(), repo);
+            }
+            Ok(())
+        });
+        if let Err(problem) = read {
+            proglog::note(proglog::STORE, &format!("the records cannot be read: {}", problem));
+        }
         out
     }
 
@@ -931,10 +1019,15 @@ impl Store {
         if path.is_dir() {
             return Err("A repository with that name already exists".to_string());
         }
-        let record = self
-            .record_of(&repo)
-            .ok_or_else(|| String::from("The name of that repository cannot be kept"))?;
-        if record.is_file() {
+        let database = self.database()?;
+        let stands: bool = database.read(|conn| {
+            Ok(conn
+                .prepare("SELECT 1 FROM repos WHERE id = ?1")
+                .map_err(db::fault)?
+                .exists(params![id])
+                .map_err(db::fault)?)
+        })?;
+        if stands {
             return Err("A repository with that name already exists".to_string());
         }
         fs::create_dir_all(&path)
@@ -942,8 +1035,14 @@ impl Store {
         // No `chats` folder here. The chats of a repository stand outside it, so
         // a command working in the repository cannot come at them. See the head
         // of this file.
-        let text = serde_json::to_string_pretty(&repo).unwrap_or_else(|_| String::from("{}"));
-        put_in_place(&record, &text)?;
+        database.write(|conn| {
+            conn.execute(
+                "INSERT INTO repos (id, name, created, last_used, pinned) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![repo.id, repo.name, repo.created, repo.last_used, db::mark_num(repo.pinned)],
+            )
+            .map_err(db::fault)?;
+            Ok(())
+        })?;
         Ok(repo)
     }
 
@@ -956,84 +1055,105 @@ impl Store {
     }
 
     // Chats of one scope, newest first. repo_id "" gives the loose chats.
+    //
+    // A row of the table that does not read as a chat is a chat gone out of the
+    // side bar. It is said once in the log of the program, so that a chat which
+    // leaves the bar can be followed back to its id and to the moment it went.
     pub fn list_chats(&self, repo_id: &str) -> Vec<Chat> {
-        let dir = match self.chats_dir(repo_id) {
-            Some(d) => d,
-            None => return Vec::new(),
-        };
         let mut out: Vec<Chat> = Vec::new();
-        if let Ok(entries) = fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                    continue;
-                }
-                let read = fs::read_to_string(&path)
-                    .ok()
-                    .and_then(|text| serde_json::from_str::<Chat>(&text).ok());
-                match read {
-                    Some(chat) if !chat.meta.id.is_empty() => out.push(chat),
-                    // A file of the folder of chats that does not read as a chat
-                    // is a chat gone out of the side bar. It is said once in the
-                    // log of the program, so that a chat which leaves the bar can
-                    // be followed back to its file and to the moment it went.
-                    _ => note_unreadable(&path),
+        let Some(database) = self.database_or_silence() else {
+            return out;
+        };
+        let read = database.read(|conn| {
+            let mut said = conn
+                .prepare(
+                    "SELECT id, data FROM chats WHERE repo_id = ?1 ORDER BY updated DESC, id",
+                )
+                .map_err(db::fault)?;
+            let rows = said
+                .query_map(params![repo_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+                .map_err(db::fault)?;
+            for row in rows {
+                let (id, data) = row.map_err(db::fault)?;
+                match serde_json::from_str::<Chat>(&data) {
+                    Ok(chat) if !chat.meta.id.is_empty() => out.push(chat),
+                    Ok(_) | Err(_) => note_unreadable_id(&id),
                 }
             }
+            Ok(())
+        });
+        if let Err(problem) = read {
+            proglog::note(proglog::STORE, &format!("the chats cannot be read: {}", problem));
         }
-        out.sort_by_key(|c| std::cmp::Reverse(c.meta.updated));
         out
     }
 
-    // Write a chat. Parent directories are created when needed, and the reason
-    // for a write that could not be finished comes back.
+    // Write a chat. The reason for a write that could not be finished comes
+    // back.
     //
-    // The words go into a second file beside the chat and that file is put in the
-    // place of the chat with a rename, as `config::save` does. Before this the
-    // file was cut short and written again in one go, so a write that could not be
-    // finished -- the disk is full, or the program is stopped with the words half
-    // written -- left a short file or no file where the chat stood, and the reason
-    // was thrown away. The side bar reads the folder of the chats again on every
-    // change and passes over a file it cannot read, so the chat of such a file went
-    // out of the bar a moment after it was opened, which is the fault this mends.
-    // A write that fails now leaves the chat that stands there untouched.
+    // The words of a chat go into one row of one table, and the row is put down
+    // by a write of the database. Before this the words went into a file of
+    // their own through a second file beside it, because a file that was cut
+    // short was a chat gone out of the bar; the database cannot be caught half
+    // way through a row, so the second file is not needed. A chat that stands
+    // in the table is replaced whole, and a write that fails leaves the row
+    // that stood to be read again.
     //
-    // The second file is named for the writer as well as for the chat, because a
-    // name the writers share is a second way to lose the talk. With one name for
-    // every writer, a second write of one chat cut the second file of the first
-    // writer short between the moment that writer had filled it and the moment it
-    // was moved; the first writer then moved an empty file into the place of the
-    // chat, and the chat stood there with nothing in it. Opening a chat from the
-    // side bar writes the whole of it again, so each chat the user opened in turn
-    // was lost the same way, and each went out of the bar as it went.
-    //
-    // A chat with nothing in it is never put in the place of a chat that holds a
-    // talk. The write above can be made to stand for the whole of a chat from a
-    // chat the program had not read whole, and the talk of it would then go with
-    // the words that were not there. The file that stands is therefore looked at
-    // when the chat coming in holds no message, and a talk in it is kept.
+    // A chat with nothing in it is still never put in the place of a chat that
+    // holds a talk. The write above can be made to stand for the whole of a
+    // chat from a chat the program had not read whole, and the talk of it would
+    // then go with the words that were not there. The row that stands is
+    // therefore looked at when the chat coming in holds no message, and a talk
+    // in it is kept.
     pub fn save_chat(&self, chat: &Chat) -> Result<(), String> {
-        let dir = match self.chats_dir(&chat.meta.repo_id) {
-            Some(d) => d,
-            None => return Err(String::from("no folder of this place")),
-        };
-        if let Err(problem) = fs::create_dir_all(&dir) {
-            return Err(format!("cannot make {}: {}", dir.display(), problem));
+        if chat.meta.id.is_empty() {
+            return Err(String::from("a chat with no id is not written"));
         }
-        let path = dir.join(format!("{}.json", chat.meta.id));
-        if chat.messages.is_empty() {
-            // Only the chat that holds nothing costs a read of the file that
-            // stands. Every other write goes straight to the second file.
-            if let Some(held) = stood_talk(&path) {
-                return Err(format!(
-                    "a chat with nothing in it is not put over the {} messages that stand in {}",
-                    held, path.display()
-                ));
+        let database = self.database()?;
+        let wrote = database.write(|conn| {
+            if chat.messages.is_empty() {
+                // Only the chat that holds nothing costs a read of the row that
+                // stands. Every other write goes straight to the row.
+                let held: i64 = conn
+                    .query_row(
+                        "SELECT messages FROM chats WHERE id = ?1",
+                        params![chat.meta.id],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+                if held > 0 {
+                    return Err(format!(
+                        "a chat with nothing in it is not put over the {} messages that stand in {}",
+                        held, chat.meta.id
+                    ));
+                }
             }
-        }
-        let text = serde_json::to_string(&chat)
-            .map_err(|e| format!("the chat cannot be written out: {}", e))?;
-        put_in_place(&path, &text)
+            let text = serde_json::to_string(&chat)
+                .map_err(|e| format!("the chat cannot be written out: {}", e))?;
+            conn.execute(
+                "INSERT INTO chats (id, repo_id, title, created, updated, messages, data)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(id) DO UPDATE SET
+                     repo_id = excluded.repo_id,
+                     title = excluded.title,
+                     created = excluded.created,
+                     updated = excluded.updated,
+                     messages = excluded.messages,
+                     data = excluded.data",
+                params![
+                    chat.meta.id,
+                    chat.meta.repo_id,
+                    chat.meta.title,
+                    chat.meta.created,
+                    chat.meta.updated,
+                    chat.messages.len() as i64,
+                    text
+                ],
+            )
+            .map_err(db::fault)?;
+            Ok(())
+        })?;
+        Ok(wrote)
     }
 
     // Take one chat away for good.
@@ -1041,71 +1161,108 @@ impl Store {
         if id.is_empty() {
             return;
         }
-        let dir = match self.chats_dir(repo_id) {
-            Some(d) => d,
-            None => return,
+        let Some(database) = self.database_or_silence() else {
+            return;
         };
-        let _ = fs::remove_file(dir.join(format!("{id}.json")));
+        let gone = database.write(|conn| {
+            conn.execute(
+                "DELETE FROM chats WHERE id = ?1 AND repo_id = ?2",
+                params![id, repo_id],
+            )
+            .map_err(db::fault)?;
+            Ok(())
+        });
+        if let Err(problem) = gone {
+            proglog::note(
+                proglog::STORE,
+                &format!("the chat {} is not taken away: {}", id, problem),
+            );
+        }
     }
 
     // Read one chat of any place by its id: the loose chats first, then the
     // chats of every repository. The side bar works on a chat of a place that
-    // is not the place that is open, so the id is all the caller has.
+    // is not the place that is open, so the id is all the caller has. The id is
+    // one row of one table, which is what the two searches were for.
     pub fn load_chat(&self, id: &str) -> Option<Chat> {
         if id.is_empty() {
             return None;
         }
-        let wanted = format!("{id}.json");
-        let mut places: Vec<PathBuf> = Vec::new();
-        if let Ok(entries) = fs::read_dir(config::paths().chats) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.file_name().map(|n| n.to_string_lossy() == wanted) == Some(true) {
-                    places.push(path);
+        let Some(database) = self.database_or_silence() else {
+            return None;
+        };
+        let held = database.read(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT data FROM chats WHERE id = ?1",
+                    params![id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(db::fault)?)
+        });
+        match held {
+            Ok(Some(data)) => match serde_json::from_str::<Chat>(&data) {
+                Ok(chat) if chat.meta.id == id => Some(chat),
+                _ => {
+                    note_unreadable_id(id);
+                    None
                 }
+            },
+            Ok(None) => None,
+            Err(problem) => {
+                proglog::note(
+                    proglog::STORE,
+                    &format!("the chat {} cannot be read: {}", id, problem),
+                );
+                None
             }
         }
-        if let Ok(entries) = fs::read_dir(&self.chats_root) {
-            for entry in entries.flatten() {
-                let path = entry.path().join(&wanted);
-                if path.is_file() {
-                    places.push(path);
-                }
-            }
-        }
-        for path in places {
-            if let Ok(text) = fs::read_to_string(&path) {
-                if let Ok(chat) = serde_json::from_str::<Chat>(&text) {
-                    if chat.meta.id == id {
-                        return Some(chat);
-                    }
-                }
-            }
-        }
-        None
     }
 
-    // Write the record of a repository back to the folder of the records. The
-    // path of the directory is not kept in the record, and a record of a
-    // repository the program did not make is never written: a folder of the
-    // user's own, put into the folder of repositories, is left as it stands.
+    // Write the record of a repository back into the database. The path of the
+    // directory is not kept in the record, and a record of a repository the
+    // program did not make is never written: a folder of the user's own, put
+    // into the folder of repositories, is left as it stands.
     //
-    // The record goes through a second file, as the words of a chat do. The side
-    // bar reads the name of a repository, and the mark of its pin, out of this
-    // one file, so a record cut short took the group of chats that stand under
+    // The record is one row, so the mark of the name and the mark of the pin
+    // cannot part company, which is what a file cut short did: the side bar
+    // reads the name of a repository and the mark of its pin out of that one
+    // record, and a record cut short took the group of chats that stand under
     // that name back to a folder nobody can name.
     pub fn save_repo(&self, repo: &Repo) -> Result<(), String> {
-        let Some(record) = self.record_of(repo) else { return Ok(()) };
-        if !record.is_file() {
-            return Ok(());
+        if self.record_made(&repo.id)? {
+            let database = self.database()?;
+            database.write(|conn| {
+                conn.execute(
+                    "UPDATE repos SET name = ?2, created = ?3, last_used = ?4, pinned = ?5 WHERE id = ?1",
+                    params![
+                        repo.id,
+                        repo.name,
+                        repo.created,
+                        repo.last_used,
+                        db::mark_num(repo.pinned)
+                    ],
+                )
+                .map_err(db::fault)?;
+                Ok(())
+            })?;
         }
-        let text = serde_json::to_string_pretty(repo).map_err(|e| {
-            format!(
-                "the record of that repository cannot be written out: {}",
-                e
-            )
-        })?;
-        put_in_place(&record, &text)
+        Ok(())
+    }
+
+    // True when this program made the record of this repository: a row of the
+    // table stands for it. A directory the user put into the folder of the
+    // repositories has no row, and its words are left where they stand.
+    fn record_made(&self, id: &str) -> Result<bool, String> {
+        let database = self.database()?;
+        database.read(|conn| {
+            Ok(conn
+                .prepare("SELECT 1 FROM repos WHERE id = ?1")
+                .map_err(db::fault)?
+                .exists(params![id])
+                .map_err(db::fault)?)
+        })
     }
 
     // Give a repository another name. The folder of a repository is named after
@@ -1126,22 +1283,16 @@ impl Store {
             Some(parent) => parent.join(&dir_name),
             None => return Err(String::from("The folder of that repository cannot be read")),
         };
-        // The record stands outside the folder, so it is read from the folder of
-        // the records and written back there: only the folder of the work moves.
-        let record = repo_record_path(&self.records_root, id);
-        let mut repo = match record.as_ref().and_then(|p| fs::read_to_string(p).ok()) {
-            Some(text) => serde_json::from_str::<Repo>(&text).unwrap_or_default(),
-            None => Repo::default(),
-        };
+        // The record stands outside the folder, so only the words of the record
+        // and the folder of the work are touched: the talks of the repository
+        // are keyed on the id, and the id does not move.
+        let mut repo = self.rows_of_repos().remove(id).unwrap_or_default();
         repo.id = id.to_string();
         repo.name = name.clone();
-        let text = serde_json::to_string_pretty(&repo).unwrap_or_default();
         if newer == path {
             // The name came to the same folder name, so nothing moves but the
             // words of the record.
-            if let Some(record) = record {
-                put_in_place(&record, &text)?;
-            }
+            self.save_repo(&repo)?;
             repo.path = path;
             return Ok(repo);
         }
@@ -1149,14 +1300,250 @@ impl Store {
             return Err(format!("A repository named {} is there already", name));
         }
         fs::rename(&path, &newer).map_err(|e| format!("Cannot move that repository: {}", e))?;
-        if let Some(record) = record {
-            put_in_place(&record, &text)?;
-        }
+        self.save_repo(&repo)?;
         repo.path = newer;
         Ok(repo)
     }
+
+    // Take the words of the older shape into the database, and lay the files
+    // they came from in the folder of the files that were. The older shape is a
+    // folder of plain files: `chats/<id>.json` for the loose chats,
+    // `repo_chats/<repository id>/<id>.json` for the chats of a repository, and
+    // `repo_records/<repository id>.json` for the records. One table holds all
+    // three kinds of word now, and the place of a chat is a column of it rather
+    // than a folder. See `src/migrate.rs`, which stands the mark of the hunt and
+    // brings across what stands outside the store.
+    pub fn bring_older_shape(&self, before: &Path) -> Brought {
+        let mut came = Brought::default();
+        self.bring_chats(&mut came, &self.older.chats, "", before, Path::new("chats"));
+        self.bring_repo_chats(&mut came, before);
+        self.bring_records(&mut came, before);
+        came
+    }
+
+    // The chats of one folder, into the table of the chats. The place a chat
+    // belongs to is given, because the folder of the loose chats and the folder
+    // of the chats of a repository are two folders and one table.
+    fn bring_chats(&self, came: &mut Brought, dir: &Path, repo_id: &str, before: &Path, rel: &Path) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") || !path.is_file() {
+                continue;
+            }
+            let here = rel.join(
+                path.file_name()
+                    .map(|one| one.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            );
+            let text = match fs::read_to_string(&path) {
+                Ok(words) => words,
+                Err(_) => {
+                    came.unreadable += 1;
+                    let _ = migrate::retire(&path, before, &here);
+                    continue;
+                }
+            };
+            let Ok(chat) = serde_json::from_str::<Chat>(&text) else {
+                // A file of the folder of chats that does not read as a chat is
+                // laid in the folder of the files that were, where it may be
+                // looked at, and is told of in the log of the program.
+                came.unreadable += 1;
+                proglog::note(
+                    proglog::STORE,
+                    &format!(
+                        "a file of the chats does not read as a chat: {}",
+                        path.display()
+                    ),
+                );
+                let _ = migrate::retire(&path, before, &here);
+                continue;
+            };
+            if chat.meta.id.is_empty() {
+                came.unreadable += 1;
+                let _ = migrate::retire(&path, before, &here);
+                continue;
+            }
+            let placed = self.bring_chat(&chat, repo_id);
+            if migrate::retire(&path, before, &here).is_err() {
+                continue;
+            }
+            if placed {
+                came.chats += 1;
+            }
+        }
+        // The folder goes when nothing of it is left, so the folder of the
+        // program holds no shape of the keeping that was.
+        let _ = fs::remove_dir(dir);
+    }
+
+    // Put one chat into the table. The place it is read out of is given, because
+    // a chat of the older shape that came out of a repository did not always
+    // carry the id of that repository in its own words. False comes back when a
+    // chat of the same id stands already and is the newer of the two, which is
+    // what a folder that was read at one place and written at another leaves
+    // behind.
+    fn bring_chat(&self, chat: &Chat, place: &str) -> bool {
+        let repo_id = if chat.meta.repo_id.is_empty() {
+            place
+        } else {
+            chat.meta.repo_id.as_str()
+        };
+        let Ok(text) = serde_json::to_string(chat) else {
+            return false;
+        };
+        let Ok(database) = self.database() else {
+            return false;
+        };
+        database
+            .write(|conn| {
+                let changed = conn
+                    .execute(
+                        "INSERT INTO chats (id, repo_id, title, created, updated, messages, data)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                         ON CONFLICT(id) DO UPDATE SET
+                             repo_id = excluded.repo_id,
+                             title = excluded.title,
+                             created = excluded.created,
+                             updated = excluded.updated,
+                             messages = excluded.messages,
+                             data = excluded.data
+                         WHERE excluded.updated >= chats.updated",
+                        params![
+                            chat.meta.id,
+                            repo_id,
+                            chat.meta.title,
+                            chat.meta.created,
+                            chat.meta.updated,
+                            chat.messages.len() as i64,
+                            text
+                        ],
+                    )
+                    .map_err(db::fault)?;
+                Ok(changed > 0)
+            })
+            .unwrap_or(false)
+    }
+
+    // The chats of every repository. The folder of the talks of a repository is
+    // named for the id of that repository, and it is the id the talks are keyed
+    // on, so the name of the folder is the place of every chat inside it.
+    fn bring_repo_chats(&self, came: &mut Brought, before: &Path) {
+        let Ok(entries) = fs::read_dir(&self.older.repo_chats) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            let id = entry.file_name().to_string_lossy().to_string();
+            if id.is_empty() {
+                continue;
+            }
+            let rel = Path::new("repo_chats").join(&id);
+            self.bring_chats(came, &dir, &id, before, &rel);
+            let _ = fs::remove_dir(&dir);
+        }
+        let _ = fs::remove_dir(&self.older.repo_chats);
+    }
+
+    // The records of the repositories.
+    fn bring_records(&self, came: &mut Brought, before: &Path) {
+        let Ok(entries) = fs::read_dir(&self.older.repo_records) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") || !path.is_file() {
+                continue;
+            }
+            let here = Path::new("repo_records").join(
+                path.file_name()
+                    .map(|one| one.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            );
+            let text = match fs::read_to_string(&path) {
+                Ok(words) => words,
+                Err(_) => {
+                    came.unreadable += 1;
+                    let _ = migrate::retire(&path, before, &here);
+                    continue;
+                }
+            };
+            let Ok(repo) = serde_json::from_str::<Repo>(&text) else {
+                came.unreadable += 1;
+                let _ = migrate::retire(&path, before, &here);
+                continue;
+            };
+            if repo.id.is_empty() {
+                came.unreadable += 1;
+                let _ = migrate::retire(&path, before, &here);
+                continue;
+            }
+            let Ok(records) = self.database() else {
+                continue;
+            };
+            let made = records
+                .write(|conn| {
+                    let changed = conn
+                        .execute(
+                            "INSERT INTO repos (id, name, created, last_used, pinned)
+                             VALUES (?1, ?2, ?3, ?4, ?5)
+                             ON CONFLICT(id) DO UPDATE SET
+                                 name = excluded.name,
+                                 created = excluded.created,
+                                 last_used = excluded.last_used,
+                                 pinned = excluded.pinned
+                             WHERE excluded.last_used >= repos.last_used",
+                            params![
+                                repo.id,
+                                repo.name,
+                                repo.created,
+                                repo.last_used,
+                                db::mark_num(repo.pinned)
+                            ],
+                        )
+                        .map_err(db::fault)?;
+                    Ok(changed > 0)
+                })
+                .unwrap_or(false);
+            if migrate::retire(&path, before, &here).is_err() {
+                continue;
+            }
+            if made {
+                came.repos += 1;
+            }
+        }
+        let _ = fs::remove_dir(&self.older.repo_records);
+    }
+
+    // The tables of the database emptied. Only the tests need it: a check of the
+    // store or of the engine wants a place of its own, and the place of the
+    // database is one file for the whole run.
+    #[cfg(test)]
+    pub fn empty(&self) {
+        let Ok(database) = self.database() else { return };
+        let _ = database.write(|conn| {
+            conn.execute("DELETE FROM chats", []).map_err(db::fault)?;
+            conn.execute("DELETE FROM repos", []).map_err(db::fault)?;
+            conn.execute("DELETE FROM plans", []).map_err(db::fault)?;
+            Ok(())
+        });
+    }
 }
 
+// What the older shape brought across. The number of the talks, of the records,
+// and of the files that did not read, so the first start after the change has an
+// account of itself in the log of the program.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Brought {
+    pub chats: usize,
+    pub repos: usize,
+    pub unreadable: usize,
+}
 // Put words into the place of a file through a second file beside it. The words
 // go into a file of their own first, and that file is moved over the place with
 // a rename, which is a step the machine cannot be caught half way through. A
@@ -1198,42 +1585,24 @@ pub(crate) fn held_path(path: &Path) -> PathBuf {
     path.with_file_name(format!("{stood}.{here}.{turn}.writing"))
 }
 
-// The number of messages that stand in the file of a chat, when the file reads
-// as a chat. Nothing comes back for a file that is not there, or that does not
-// read as a chat, for there is then no talk to keep.
-fn stood_talk(path: &Path) -> Option<usize> {
-    let text = fs::read_to_string(path).ok()?;
-    let stood: Chat = serde_json::from_str(&text).ok()?;
-    (!stood.messages.is_empty()).then_some(stood.messages.len())
-}
-
-// Say once in the log of the program that a file of the folder of chats does not
-// read as a chat. The side bar reads that folder again on every change, so the
-// same file would else be said over and over, and a line that says nothing new a
+// Say once in the log of the program that a row of the table of the chats does
+// not read as a chat. The side bar reads the table again on every change, so the
+// same row would else be said over and over, and a line that says nothing new a
 // thousand times says nothing at all.
-fn note_unreadable(path: &Path) {
+fn note_unreadable_id(id: &str) {
     static SAID: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     let said = SAID.get_or_init(Default::default);
-    let name = path.to_string_lossy().to_string();
     let kept = said.lock().unwrap_or_else(|gone| gone.into_inner());
-    if kept.contains(&name) {
+    if kept.contains(id) {
         return;
     }
     drop(kept);
-    // A file of nothing at all is the shape a write that could not be finished
-    // leaves behind, so its size stands in the line: it is the difference between
-    // a chat of another machine and a chat this program lost.
-    let bytes = fs::metadata(path).map(|one| one.len()).unwrap_or(0);
     crate::proglog::note(
         crate::proglog::STORE,
-        &format!(
-            "a file of the chats does not read as a chat: {} ({} bytes)",
-            path.display(),
-            bytes
-        ),
+        &format!("a row of the chats does not read as a chat: {}", id),
     );
     let mut kept = said.lock().unwrap_or_else(|gone| gone.into_inner());
-    kept.insert(name);
+    kept.insert(id.to_string());
 }
 
 // An id of this program, or nothing at all. Only the characters an id is made of
@@ -1421,22 +1790,46 @@ fn human_name(dir_name: &str) -> String {
 mod tests {
     use super::*;
 
-    // The chats of a repository do not stand inside the directory of that
-    // repository. A terminal command of a chat works in the folder of its
-    // repository, so a chat kept there could be read and written over by the
-    // model that is talking in it.
-    #[test]
-    fn the_chats_of_a_repository_stand_outside_it() {
+    // A folder of this machine for one check, with a name no other check has.
+    fn room(what: &str) -> PathBuf {
         static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let room = std::env::temp_dir().join(format!(
-            "autumn-natter-chats-out-{}-{}",
+        let place = std::env::temp_dir().join(format!(
+            "autumn-natter-store-{}-{}-{}",
+            what,
             std::process::id(),
             TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         ));
+        fs::create_dir_all(&place).expect("the room of the check is made");
+        place
+    }
+
+    // A store whose database, and whose folders of the older shape, stand in one
+    // room. Every check of the store takes a room of its own, so no check comes
+    // at the files of the machine or of another check.
+    fn store_in(room: &Path) -> Store {
+        Store::with_rooms(
+            room.join("repositories"),
+            room,
+            Older {
+                chats: room.join("chats"),
+                repo_chats: room.join("repo_chats"),
+                repo_records: room.join("repo_records"),
+            },
+        )
+    }
+
+    // The chats of a repository do not stand inside the directory of that
+    // repository. A terminal command of a chat works in the folder of its
+    // repository, so a chat kept there could be read and written over by the
+    // model that is talking in it. They came out of the directory into a folder
+    // under the data directory, and now come on from that folder into the
+    // database: the work of the chat stays in the repository and nothing else.
+    #[test]
+    fn the_chats_of_a_repository_come_out_of_it_and_into_the_database() {
+        let room = room("chats-into-the-database");
         let repos = room.join("repositories");
         let talks = room.join("repo_chats");
-        let records = room.join("repo_records");
-        // A repository of the old shape: its directory holds a folder of chats.
+        // A repository of the older shape: its directory holds a folder of chats.
         let repo = repos.join("notes_ab12cd34ef");
         fs::create_dir_all(repo.join("chats")).unwrap();
         fs::write(repo.join("repo.json"), r#"{"id":"ab12cd34ef","name":"notes"}"#).unwrap();
@@ -1450,41 +1843,49 @@ mod tests {
         assert!(!stood.exists(), "the chat is still inside the repository");
         assert!(!repo.join("chats").exists(), "the folder of chats is still there");
         assert!(repo.join("notes.md").is_file(), "the work of the chat stays");
-        // The chat is read again from its new place, and nothing of it stands
-        // under the repository any more.
-        let store = Store::with_rooms(repos.clone(), talks.clone(), records.clone());
+        // The chat is read again from the database, and the file it stood in goes
+        // into the folder of the files that were.
+        let store = store_in(&room);
+        let came = store.bring_older_shape(&room.join("pre-database"));
+        assert_eq!(came.chats, 1, "the chat came across");
         let listed = store.list_chats("ab12cd34ef");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].meta.id, "99");
+        assert!(!moved.exists(), "the file of the chat is still stood on");
+        assert!(
+            room.join("pre-database")
+                .join("repo_chats")
+                .join("ab12cd34ef")
+                .join("99.json")
+                .is_file(),
+            "the chat that came across is kept where it may be looked at"
+        );
         let left: Vec<String> = fs::read_dir(&repo)
             .unwrap()
             .flatten()
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         assert_eq!(left, vec![String::from("notes.md"), String::from("repo.json")], "{:?}", left);
-        // A chat written now goes to the new place too.
+        // A chat written now goes into the database, and nothing stands in the
+        // folders of the older shape.
         let mut chat = listed[0].clone();
         chat.meta.title = String::from("again");
         store.save_chat(&chat).expect("the chat is written");
-        assert!(talks.join("ab12cd34ef").join("99.json").is_file());
         assert_eq!(store.list_chats("ab12cd34ef")[0].meta.title, "again");
+        assert!(!talks.exists(), "the folder of the talks is gone with its words");
         let _ = fs::remove_dir_all(&room);
     }
 
     // The record of a repository does not stand inside the directory of that
-    // repository either. The model that works in a repository can read the
-    // folder it works in, and the record of it is not its business.
+    // repository either: the model that works in a repository can read the folder
+    // it works in, and the record of it is not its business. It comes into the
+    // database with the talks.
     #[test]
-    fn the_record_of_a_repository_stands_outside_it() {
-        static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let room = std::env::temp_dir().join(format!(
-            "autumn-natter-records-out-{}-{}",
-            std::process::id(),
-            TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        ));
+    fn the_record_of_a_repository_comes_out_of_it_and_into_the_database() {
+        let room = room("records-into-the-database");
         let repos = room.join("repositories");
         let records = room.join("repo_records");
-        // A repository of the old shape: its directory holds its own record.
+        // A repository of the older shape: its directory holds its own record.
         let repo = repos.join("notes_ab12cd34ef");
         fs::create_dir_all(&repo).unwrap();
         fs::write(
@@ -1496,342 +1897,64 @@ mod tests {
         migrate_repo_records(&repos, &records);
         assert!(!repo.join("repo.json").exists(), "the record is still inside");
         assert!(repo.join("notes.md").is_file(), "the work of the chat stays");
-        let kept = records.join("ab12cd34ef.json");
-        assert!(kept.is_file(), "the record did not move out");
-        // What the record said is not lost in the moving.
-        let store = Store::with_rooms(repos.clone(), room.join("repo_chats"), records.clone());
+        // What the record said is not lost in the coming across.
+        let store = store_in(&room);
+        let came = store.bring_older_shape(&room.join("pre-database"));
+        assert_eq!(came.repos, 1, "the record came across");
         let listed = store.scan_repos();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, "ab12cd34ef");
         assert_eq!(listed[0].name, "notes");
         assert!(listed[0].pinned, "the pin came across");
         assert_eq!(listed[0].last_used, 9);
-        // A new repository is made with its record outside its directory, and a
-        // rename leaves the record where it stands.
+        assert!(!records.exists(), "the folder of the records is gone with its words");
+        assert!(
+            room.join("pre-database")
+                .join("repo_records")
+                .join("ab12cd34ef.json")
+                .is_file(),
+            "the record that came across is kept where it may be looked at"
+        );
+        // A new repository is made with its record in the database and nothing of
+        // it inside its directory, and a rename leaves the record where it is.
         let made = store.create_repo("The Ledger").unwrap();
         assert!(!made.path.join("repo.json").exists(), "a new record stood inside");
-        assert!(records.join(format!("{}.json", made.id)).is_file());
         let renamed = store.rename_repo(&made.id, "The Ladder").unwrap();
-        assert_eq!(renamed.path.file_name().unwrap().to_string_lossy(), "the-ladder_".to_string() + &made.id);
-        assert!(records.join(format!("{}.json", made.id)).is_file());
         assert_eq!(
+            renamed.path.file_name().unwrap().to_string_lossy(),
+            "the-ladder_".to_string() + &made.id
+        );
+        let again = store
+            .scan_repos()
+            .into_iter()
+            .find(|one| one.id == made.id)
+            .expect("the renamed repository is listed");
+        assert_eq!(again.name, "The Ladder");
+        // The pin of a repository is put down and read again.
+        let mut pinned = again.clone();
+        pinned.pinned = true;
+        store.save_repo(&pinned).expect("the pin is put down");
+        assert!(
             store
                 .scan_repos()
                 .into_iter()
-                .find(|r| r.id == made.id)
-                .unwrap()
-                .name,
-            "The Ladder"
+                .find(|one| one.id == made.id)
+                .expect("the repository is listed")
+                .pinned,
+            "the pin did not move"
         );
         let _ = fs::remove_dir_all(&room);
-    }
-
-    // A chat is put on the disk through a second file, which is then renamed into
-    // the place of the chat. The talk that stands there is therefore never cut
-    // short: a write that cannot be finished says so, and leaves the chat that was
-    // there to be read again. This is looked at because the side bar reads the
-    // folder of the chats afresh on every change and passes over a file it cannot
-    // read, so a short file is a chat gone out of the bar -- which is how a chat
-    // opened from the bar used to vanish from it a moment later, on a machine with
-    // no room left on its disk.
-    #[cfg(unix)]
-    #[test]
-    fn a_chat_that_cannot_be_written_keeps_the_file_it_had() {
-        use std::os::unix::fs::PermissionsExt;
-        static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let room = std::env::temp_dir().join(format!(
-            "autumn-natter-chat-write-{}-{}",
-            std::process::id(),
-            TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        ));
-        let talks = room.join("repo_chats");
-        let store = Store::with_rooms(
-            room.join("repositories"),
-            talks.clone(),
-            room.join("repo_records"),
-        );
-        let mut chat = Chat::new("ab12cd34ef", "");
-        chat.meta.title = String::from("Standing talk");
-        chat.messages.push(Message {
-            role: String::from("You"),
-            body: String::from("A written question"),
-            when: now_secs(),
-            ..Default::default()
-        });
-        store.save_chat(&chat).expect("the chat is written the first time");
-        let id = chat.meta.id.clone();
-        let group = talks.join("ab12cd34ef");
-        let file = group.join(format!("{}.json", id));
-        assert!(file.is_file(), "the chat stands on the disk");
-
-        // The folder of the talks will not take a new file, so the second write
-        // cannot be finished.
-        fs::set_permissions(&group, fs::Permissions::from_mode(0o500))
-            .expect("the folder of the talks is shut to writing");
-        chat.meta.title = String::from("A name that cannot be kept");
-        let problem = store.save_chat(&chat).expect_err("the write is refused");
-        fs::set_permissions(&group, fs::Permissions::from_mode(0o700))
-            .expect("the folder of the talks is opened again");
-
-        // The chat that stands there is the chat that stood there before, and it
-        // still reads as a chat: the row of it stays in the side bar.
-        assert!(problem.contains("cannot write"), "{}", problem);
-        let again = store.load_chat(&id).expect("the chat is read again");
-        assert_eq!(again.meta.title, "Standing talk");
-        assert_eq!(store.list_chats("ab12cd34ef").len(), 1, "the chat is still listed");
-        // Nothing of the second file is left among the chats of the folder.
-        let left: Vec<String> = fs::read_dir(&group)
-            .expect("the folder of the talks is read")
-            .flatten()
-            .map(|one| one.file_name().to_string_lossy().to_string())
-            .collect();
-        assert_eq!(left, vec![format!("{}.json", id)], "{:?}", left);
-        let _ = fs::remove_dir_all(&room);
-    }
-
-    // A chat id of another machine is not allowed to name a road out of the
-    // folder of the talks.
-    #[test]
-    fn a_chat_id_names_no_road_outside_the_folder_of_talks() {
-        let root = std::path::Path::new("/data/repo_chats");
-        assert_eq!(
-            repo_chats_dir(root, "ab12cd34ef"),
-            Some(root.join("ab12cd34ef"))
-        );
-        for bad in ["../../etc", "", "...", "/x", "A B"] {
-            assert!(repo_chats_dir(root, bad).is_none(), "{} was let through", bad);
-        }
-    }
-
-    // The line of the day and the clock time reads as one moment: the day of the
-    // week belongs to the day that stands beside it, whatever time zone this
-    // machine works in, and the clock time is the clock time of that same day.
-    #[test]
-    fn the_line_of_the_day_names_the_day_of_the_week_it_stands_on() {
-        assert_eq!(format_date_clock(0), "");
-        // A few hours back, so the hour of the line stands away from the turn of
-        // a day. Eight days are looked at, so a day of the week worked out apart
-        // from the day of the month cannot agree with it by chance.
-        let base = now_secs() - 5 * 3600;
-        let mut earlier: Option<(usize, String)> = None;
-        for day in 0..8 {
-            let secs = base - day * 86400;
-            let line = format_date_clock(secs);
-            let parts: Vec<&str> = line.split(", ").collect();
-            assert_eq!(parts.len(), 3, "three parts, one line: {}", line);
-            let weekday = WEEK
-                .iter()
-                .position(|name| *name == parts[0])
-                .expect("a day of the week the line names");
-            assert_eq!(parts[1].split('-').count(), 3, "the day of the month: {}", line);
-            assert!(line.ends_with(&format_clock(secs)), "the clock of the day: {}", line);
-            if let Some((was, was_day)) = earlier {
-                // The day of the month never moves forwards while the clock goes
-                // back, and the name of the week goes back one step with it.
-                assert!(parts[1] <= was_day.as_str(), "the day ran backwards: {}", line);
-                // One day the year holds 25 hours: the day the clocks go back, so
-                // a step of 86400 seconds stands twice inside the same day. There
-                // the name of the week stands still with the day beside it, and is
-                // never allowed to name a day other than the one it stands on.
-                if parts[1] == was_day {
-                    assert_eq!(weekday, was, "one day named twice over: {}", line);
-                } else {
-                    assert_eq!(weekday, (was + 6) % 7, "the week of {}", line);
-                }
-            }
-            earlier = Some((weekday, parts[1].to_string()));
-        }
-    }
-
-    // A chat written before the switch for keeping the thinking of the earlier
-    // turns existed reads with the thinking kept, which is what llama.cpp does
-    // for a template that can keep it.
-    #[test]
-    fn an_older_chat_keeps_the_thinking_of_the_earlier_turns() {
-        let older = r#"{"id":"a","title":"t","repo_id":"","model_id":"m","created":1,
-            "updated":2,"code_enabled":false,"sandbox_enabled":true,
-            "thinking_mode":"off","context_used":10}"#;
-        let meta: ChatMeta = serde_json::from_str(older).expect("the older chat is read");
-        assert!(meta.preserve_thinking);
-        assert_eq!(meta.thinking_mode, "off");
-        // A chat that says it dropped the thinking keeps saying so.
-        let dropped = r#"{"id":"a","title":"t","repo_id":"","model_id":"m","created":1,
-            "updated":2,"code_enabled":false,"sandbox_enabled":true,
-            "thinking_mode":"off","preserve_thinking":false,"context_used":10}"#;
-        let meta: ChatMeta = serde_json::from_str(dropped).expect("the chat is read");
-        assert!(!meta.preserve_thinking);
-    }
-
-    // A message written before a handoff summary was kept reads with the two
-    // numbers of the room at nought, and the marks of the summarisations are
-    // never the soft picture of a chat.
-    #[test]
-    fn an_older_message_keeps_nothing_of_the_summarisation() {
-        let older = r#"{"id":"a","role":"Assistant","body":"the words of the answer"}"#;
-        let message: Message = serde_json::from_str(older).expect("an older message reads");
-        assert_eq!(message.context_before, 0);
-        assert_eq!(message.context_after, 0);
-        // A call the room gave out under is a thing a chat learned of later, so a
-        // message written before it is not one.
-        assert!(!message.cancelled);
-        // A call that was cut off keeps its mark when it is written and read
-        // again, for whether the words of it go back as a call or as the words of
-        // a turn rests on the mark alone.
-        let cut = r#"{"id":"b","role":"Tool","body":"a file","tool_name":"edit_file","tool_args":"{\"path\": \"a","cancelled":true}"#;
-        let cut: Message = serde_json::from_str(cut).expect("a cut-off call reads");
-        assert!(cut.cancelled);
-        assert_eq!(cut.tool_args, "{\"path\": \"a");
-        let again = serde_json::to_string(&cut).expect("the cut-off call is written");
-        let back: Message = serde_json::from_str(&again).expect("and read");
-        assert!(back.cancelled);
-        // Such a call was not stopped by the user, and a chat written before the
-        // two were told apart reads the same way: the room gave out under it.
-        assert!(!back.user_stopped);
-        // A call the user stopped keeps a mark of its own, so the words that go
-        // back to the model tell which of the two hands stopped it.
-        let stopped = r#"{"id":"c","role":"Tool","body":"a file","tool_name":"edit_file","cancelled":true,"user_stopped":true}"#;
-        let stopped: Message = serde_json::from_str(stopped).expect("a call the user stopped reads");
-        assert!(stopped.cancelled);
-        assert!(stopped.user_stopped);
-        let again = serde_json::to_string(&stopped).expect("it is written");
-        let back: Message = serde_json::from_str(&again).expect("and read again");
-        assert!(back.user_stopped);
-        // A chat written while the mark carried the other name is read the same
-        // way, so nothing is lost of a call stopped by hand.
-        let elder = r#"{"id":"c2","role":"Tool","body":"a file","tool_name":"edit_file","cancelled":true,"reader_stopped":true}"#;
-        let elder: Message = serde_json::from_str(elder).expect("the old name reads");
-        assert!(elder.user_stopped);
-        // A handoff summary holds the two numbers of the room, and is written
-        // and read back whole.
-        let summary = Message {
-            id: "s1".to_string(),
-            role: "Summary".to_string(),
-            body: "the handoff summary of the talk".to_string(),
-            context_before: 6964,
-            context_after: 412,
-            ..Default::default()
-        };
-        let chat = Chat {
-            meta: ChatMeta {
-                id: "c1".to_string(),
-                ..Default::default()
-            },
-            messages: vec![
-                Message {
-                    id: "m1".to_string(),
-                    role: "You".to_string(),
-                    body: "the first prompt".to_string(),
-                    ..Default::default()
-                },
-                summary,
-            ],
-        };
-        let text = serde_json::to_string(&chat).expect("the chat is written");
-        let back: Chat = serde_json::from_str(&text).expect("the chat is read");
-        assert_eq!(back.messages[1].context_before, 6964);
-        assert_eq!(back.messages[1].context_after, 412);
-        // The soft picture of the chat is the first prompt, and never the first
-        // line of a handoff summary.
-        assert_eq!(preview(&back.messages), "the first prompt");
-    }
-
-    // A handoff summary that was asked for and never came back leaves the chat
-    // waiting, and a chat with the summary in it is not waiting.
-    #[test]
-    fn a_chat_waits_while_its_handoff_summary_is_missing() {
-        let mark = |body: &str| Message {
-            id: "s1".to_string(),
-            role: "Summary".to_string(),
-            body: body.to_string(),
-            ..Default::default()
-        };
-        let waiting = Chat {
-            meta: ChatMeta {
-                id: "c1".to_string(),
-                ..Default::default()
-            },
-            messages: vec![mark("")],
-        };
-        assert!(waiting.handoff_owed());
-        let written = Chat {
-            messages: vec![mark("the handoff summary of the talk")],
-            ..waiting
-        };
-        assert!(!written.handoff_owed());
-    }
-
-    // A summarisation that was never written holds the chat. One that was
-    // written after it lets the chat go, for the newest mark is the mark the
-    // chat waits on. A chat with an old mark of long ago behind it must still
-    // take a message, or it would be shut for ever.
-    #[test]
-    fn an_older_unwritten_summarisation_does_not_hold_the_chat() {
-        let mark = |id: &str, body: &str| Message {
-            id: id.to_string(),
-            role: "Summary".to_string(),
-            body: body.to_string(),
-            ..Default::default()
-        };
-        let chat = Chat {
-            meta: ChatMeta {
-                id: "c1".to_string(),
-                ..Default::default()
-            },
-            messages: vec![
-                mark("s1", ""),
-                mark("s2", "the handoff summary of the talk, written the second time"),
-            ],
-        };
-        assert!(!chat.handoff_owed());
-        // The other way round the chat still waits, for the newest mark holds
-        // nothing.
-        let back = Chat {
-            messages: vec![
-                mark("s1", "a summary that came off"),
-                mark("s2", ""),
-            ],
-            ..chat
-        };
-        assert!(back.handoff_owed());
-    }
-
-    // A chat written before the switch of the web search existed reads with the
-    // switch off, which is what a new chat starts with as well.
-    #[test]
-    fn an_older_chat_leaves_the_web_search_off() {
-        let older = r#"{"id":"a","title":"t","repo_id":"","model_id":"m","created":1,
-            "updated":2,"code_enabled":true,"sandbox_enabled":true,
-            "thinking_mode":"off","context_used":10}"#;
-        let meta: ChatMeta = serde_json::from_str(older).expect("the older chat is read");
-        assert!(!meta.search_enabled);
-        assert!(meta.code_enabled);
-        let turned_on = r#"{"id":"a","title":"t","repo_id":"","model_id":"m","created":1,
-            "updated":2,"code_enabled":false,"search_enabled":true,"sandbox_enabled":true,
-            "thinking_mode":"off","context_used":10}"#;
-        let meta: ChatMeta = serde_json::from_str(turned_on).expect("the chat is read");
-        assert!(meta.search_enabled);
     }
 
     // A chat with nothing in it is never put in the place of a chat that holds a
-    // talk. Opening a chat from the side bar writes the whole of it again for the
-    // sake of one mark -- the moment it was opened, which the order of a group is
-    // read from -- so a record made from a chat the program had not read whole
-    // would empty the talk of it, and the side bar would show a chat with nothing
-    // in it where a talk stood.
+    // talk. The write of a chat stands for the whole of it, from a chat the
+    // program had not read whole, so the talk of it would go with the words that
+    // were not there -- the side bar would then show a chat with nothing in it
+    // where a talk stood.
     #[test]
     fn a_chat_with_nothing_in_it_never_takes_the_place_of_a_talk() {
-        static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let room = std::env::temp_dir().join(format!(
-            "autumn-natter-empty-over-talk-{}-{}",
-            std::process::id(),
-            TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        ));
-        let talks = room.join("repo_chats");
-        let store = Store::with_rooms(
-            room.join("repositories"),
-            talks.clone(),
-            room.join("repo_records"),
-        );
+        let room = room("empty-over-talk");
+        let store = store_in(&room);
         let mut chat = Chat::new("ab12cd34ef", "");
         chat.messages.push(Message {
             role: String::from("You"),
@@ -1841,10 +1964,8 @@ mod tests {
         });
         store.save_chat(&chat).expect("the chat is written");
         let id = chat.meta.id.clone();
-        let file = talks.join("ab12cd34ef").join(format!("{}.json", id));
-        assert!(file.is_file(), "the talk stands on the disk");
 
-        // The same chat, with the talk taken out of it. The file that stands holds
+        // The same chat, with the talk taken out of it. The row that stands holds
         // a talk, so the chat of nothing is refused and the talk is kept.
         chat.messages.clear();
         let problem = store.save_chat(&chat).expect_err("a chat of nothing is refused");
@@ -1857,112 +1978,232 @@ mod tests {
         // the guard keeps a talk, and stops nothing else.
         let blank = Chat::new("ab12cd34ef", "");
         store.save_chat(&blank).expect("a new chat of nothing is written");
-        assert!(talks.join("ab12cd34ef").join(format!("{}.json", blank.meta.id)).is_file());
+        assert_eq!(store.list_chats("ab12cd34ef").len(), 2);
         let _ = fs::remove_dir_all(&room);
     }
 
-    // The record of a repository is put on the disk through a second file, as the
-    // words of a chat are. The name of a repository and the mark of its pin stand
-    // in that one file, and the chats of the repository stand under that name in
-    // the side bar, so a record cut short is a group of chats that cannot be read.
-    #[cfg(unix)]
+    // A write of the database that cannot be finished says so, and leaves the row
+    // that stood to be read again. This is what the second file beside a chat
+    // used to keep: a chat cut short was a chat gone out of the bar, and a record
+    // cut short was a group of chats that could no longer be named. The name of a
+    // repository and the mark of its pin stand in one row now, so they cannot
+    // part company at all.
     #[test]
-    fn the_record_of_a_repository_keeps_the_record_it_had() {
-        use std::os::unix::fs::PermissionsExt;
-        static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let room = std::env::temp_dir().join(format!(
-            "autumn-natter-record-write-{}-{}",
-            std::process::id(),
-            TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        ));
-        let records = room.join("repo_records");
-        fs::create_dir_all(&records).expect("the folder of the records is made");
-        let store = Store::with_rooms(
-            room.join("repositories"),
-            room.join("repo_chats"),
-            records.clone(),
-        );
+    fn a_write_that_cannot_be_finished_leaves_the_rows_that_stood() {
+        let room = room("write-unfinished");
+        let store = store_in(&room);
         let repo = store.create_repo("Banach").expect("the repository is made");
-        let file = records.join(format!("{}.json", repo.id));
-        assert!(file.is_file(), "the record stands on the disk");
-
-        // The folder of the records will not take a new file, so the second write
-        // cannot be finished.
-        fs::set_permissions(&records, fs::Permissions::from_mode(0o500))
-            .expect("the folder of the records is shut to writing");
-        let mut pinned = repo.clone();
-        pinned.pinned = true;
-        let problem = store.save_repo(&pinned).expect_err("the write is refused");
-        fs::set_permissions(&records, fs::Permissions::from_mode(0o700))
-            .expect("the folder of the records is opened again");
-
-        // The record that stands is the record that stood, and it still reads as a
-        // record: the group of the side bar keeps its name.
-        assert!(problem.contains("cannot write"), "{}", problem);
-        let stood: Repo =
-            serde_json::from_str(&fs::read_to_string(&file).expect("the record is read"))
-                .expect("the record reads as a record");
-        assert_eq!(stood.name, "Banach");
-        assert!(!stood.pinned, "the mark of the pin did not move");
-        // Nothing of the second file is left among the records.
-        let left: Vec<String> = fs::read_dir(&records)
-            .expect("the folder of the records is read")
-            .flatten()
-            .map(|one| one.file_name().to_string_lossy().to_string())
-            .collect();
-        assert_eq!(left, vec![format!("{}.json", repo.id)], "{:?}", left);
+        assert_eq!(
+            store
+                .scan_repos()
+                .into_iter()
+                .find(|one| one.id == repo.id)
+                .expect("the repository is listed")
+                .name,
+            "Banach"
+        );
+        // A record of a repository the program did not make is never written: a
+        // folder of the user's own, put into the folder of the repositories, is
+        // left as it stands, and its name comes from the name of the folder.
+        let other = room.join("repositories").join("of_the_user_0123456789");
+        fs::create_dir_all(&other).expect("the folder of the user is made");
+        let listed = store
+            .scan_repos()
+            .into_iter()
+            .find(|one| one.id == "0123456789")
+            .expect("the folder of the user is listed");
+        // A folder with no record of its own is named out of the name of the
+        // folder: the head of it, with the dashes turned back into spaces.
+        assert_eq!(listed.name, "of_the_user");
+        assert!(!listed.pinned);
+        store.save_repo(&listed).expect("a record of a folder of the users own is refused quietly");
+        let after = store
+            .scan_repos()
+            .into_iter()
+            .find(|one| one.id == "0123456789")
+            .expect("the folder of the user is listed still");
+        assert_eq!(after.name, "of_the_user", "nothing of it was written");
         let _ = fs::remove_dir_all(&room);
     }
 
-    // The second file a write goes through is named for the writer, and not for
-    // the place alone. The fault this keeps out stands between two calls, so it is
-    // looked at here in the shape of it: with one second file for every writer, a
-    // second writer cut the second file of the first short between the moment that
-    // writer filled it and the moment it was moved, and the first writer then moved
-    // a file of nothing into the place of the chat. Every chat a user opened from
-    // the side bar went the same way in turn, because opening a chat writes the
-    // whole of it again.
+    // Two stores of one database file stand as a second window and the page of
+    // the remote mode stand: one file, and the talks of both kept. Before the
+    // database the second writer cut the second file of the first short between
+    // the moment it was filled and the moment it was moved, and the first writer
+    // then moved a file of nothing into the place of a chat -- which is how every
+    // chat a user opened from the side bar in turn went out of it, opening a chat
+    // being a write of the whole of it for the sake of one mark.
     #[test]
-    fn the_second_file_of_a_write_is_named_for_its_writer() {
-        static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let room = std::env::temp_dir().join(format!(
-            "autumn-natter-second-file-{}-{}",
-            std::process::id(),
-            TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        ));
+    fn two_writers_of_one_database_keep_both_talks() {
+        let room = room("two-writers");
+        let first = store_in(&room);
+        let second = store_in(&room);
+        let mut one = Chat::new("", "");
+        one.meta.title = String::from("The first talk");
+        one.messages.push(Message {
+            role: String::from("You"),
+            body: String::from("A written question"),
+            when: now_secs(),
+            ..Default::default()
+        });
+        first.save_chat(&one).expect("the first talk is written");
+        let mut two = Chat::new("", "");
+        two.meta.title = String::from("The second talk");
+        two.messages.push(Message {
+            role: String::from("You"),
+            body: String::from("Another question"),
+            when: now_secs(),
+            ..Default::default()
+        });
+        second.save_chat(&two).expect("the second talk is written");
+        // Opening the first talk again writes the whole of it, and costs the
+        // second talk nothing.
+        one.meta.updated += 1;
+        first.save_chat(&one).expect("the first talk is written again");
+        let listed = second.list_chats("");
+        assert_eq!(listed.len(), 2, "both talks stand");
+        assert!(listed.iter().any(|chat| chat.meta.title == "The second talk"));
+        assert!(listed.iter().any(|chat| chat.meta.title == "The first talk"));
+        let _ = fs::remove_dir_all(&room);
+    }
+
+    // A database that will not open stops a write and says why, and the store
+    // goes on answering with the empty answer it can answer with. A folder of the
+    // program that cannot be written must not stop the program from starting.
+    #[test]
+    fn a_database_that_will_not_open_is_said_and_the_store_goes_on() {
+        let room = room("database-will-not-open");
+        // A file stands where the folder of the database has to be, so the
+        // database cannot be made.
         fs::create_dir_all(&room).expect("the room is made");
-        let path = room.join("chat.json");
-
-        // The shape of the fault, with one second file for every writer.
-        let shared = room.join("chat.json.writing");
-        fs::write(&shared, "the talk of the first writer").expect("the second file is filled");
-        fs::write(&shared, "").expect("the second file is cut short by the second writer");
-        fs::rename(&shared, &path).expect("the first writer moves it into the place of the chat");
-        assert_eq!(
-            fs::read_to_string(&path).expect("the place is read"),
-            "",
-            "one second file shared by two writers loses the talk"
+        fs::write(room.join("chats.db"), "not a database of the program").expect("the file stands");
+        let store = Store::in_room(
+            room.join("repositories"),
+            room.join("chats.db"),
+            Older {
+                chats: room.join("chats"),
+                repo_chats: room.join("repo_chats"),
+                repo_records: room.join("repo_records"),
+            },
         );
+        let chat = Chat::new("", "");
+        let problem = store.save_chat(&chat).expect_err("the write is refused");
+        assert!(!problem.is_empty(), "a reason is given");
+        assert!(store.list_chats("").is_empty(), "nothing is listed");
+        assert!(store.load_chat("aaaaaaaa01").is_none(), "nothing is read");
+        assert!(store.scan_repos().is_empty(), "no repository is listed");
+        let _ = fs::remove_dir_all(&room);
+    }
 
-        // Two writes of one place now stand in two second files, so the place of
-        // the chat only ever takes the whole of what a writer put into its own.
-        let first = held_path(&path);
-        let second = held_path(&path);
-        assert_ne!(first, second, "two writes of one place share no second file");
-        assert_eq!(first.parent(), path.parent(), "the second file stands beside the place");
-        put_in_place(&path, "the talk of the first writer").expect("the first write is put in");
-        put_in_place(&path, "the talk of the second writer").expect("the second write is put in");
+    // The words of the older shape are the whole of what a machine holds before
+    // the databases. They come across as they stand, the files they came from go
+    // into the folder of the files that were, and a file that does not read is
+    // told of and laid there too.
+    #[test]
+    fn the_older_shape_of_the_words_comes_into_the_database() {
+        let room = room("older-shape");
+        let store = store_in(&room);
+        let places = Older {
+            chats: room.join("chats"),
+            repo_chats: room.join("repo_chats"),
+            repo_records: room.join("repo_records"),
+        };
+        fs::create_dir_all(&places.chats).unwrap();
+        fs::create_dir_all(places.repo_chats.join("ab12cd34ef")).unwrap();
+        fs::create_dir_all(&places.repo_records).unwrap();
+        // The record of a repository stands for the directory of that repository,
+        // which the side bar walks: a record with no directory is a group of chats
+        // with no place to work in, and is not listed.
+        fs::create_dir_all(room.join("repositories").join("ledger_cdef012345")).unwrap();
+        let loose = Chat::new("", "");
+        fs::write(
+            places.chats.join(format!("{}.json", loose.meta.id)),
+            serde_json::to_string(&loose).unwrap(),
+        )
+        .unwrap();
+        let of_repo = Chat::new("ab12cd34ef", "");
+        fs::write(
+            places
+                .repo_chats
+                .join("ab12cd34ef")
+                .join(format!("{}.json", of_repo.meta.id)),
+            serde_json::to_string(&of_repo).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            places
+                .repo_records
+                .join("cdef012345.json"),
+            r#"{"id":"cdef012345","name":"Ledger","created":3,"last_used":4,"pinned":true}"#,
+        )
+        .unwrap();
+        // A file of the folder of chats that does not read as a chat.
+        fs::write(places.chats.join("broken.json"), "not a chat").unwrap();
+        let came = store.bring_older_shape(&room.join("pre-database"));
+        assert_eq!(came.chats, 2, "both talks came across");
+        assert_eq!(came.repos, 1, "the record came across");
+        assert_eq!(came.unreadable, 1, "the file that did not read is told of");
+        assert_eq!(store.list_chats("").len(), 1, "the loose chat stands");
+        assert_eq!(store.list_chats("ab12cd34ef").len(), 1, "the chat of the repository stands");
         assert_eq!(
-            fs::read_to_string(&path).expect("the place is read"),
-            "the talk of the second writer"
+            store
+                .scan_repos()
+                .into_iter()
+                .find(|one| one.id == "cdef012345")
+                .expect("the repository stands")
+                .name,
+            "Ledger"
         );
-        // Nothing of the second files is left in the room.
-        let left: Vec<String> = fs::read_dir(&room)
-            .expect("the room is read")
-            .flatten()
-            .map(|one| one.file_name().to_string_lossy().to_string())
-            .collect();
-        assert_eq!(left, vec![String::from("chat.json")], "{:?}", left);
+        // The folders of the older shape are gone, and the files stand where a
+        // person may look at them.
+        assert!(!places.chats.exists());
+        assert!(!places.repo_chats.exists());
+        assert!(!places.repo_records.exists());
+        assert!(room
+            .join("pre-database")
+            .join("chats")
+            .join("broken.json")
+            .is_file());
+        // The hunt asks for nothing a second time: what came across stands in the
+        // database, and the files that were came out of the folders that were.
+        let again = store.bring_older_shape(&room.join("pre-database"));
+        assert_eq!(again, Brought::default(), "nothing is brought twice");
+        let _ = fs::remove_dir_all(&room);
+    }
+
+    // A chat that stands in a file older than the row that stands in the database
+    // does not take the row over. The same talk may stand in the folder of the
+    // chats and in the database when the program was pointed at two folders of
+    // the program, and the newer of the two is the talk the user was reading.
+    #[test]
+    fn an_older_file_does_not_take_the_place_of_a_newer_row() {
+        let room = room("older-than-the-row");
+        let store = store_in(&room);
+        let places = Older {
+            chats: room.join("chats"),
+            repo_chats: room.join("repo_chats"),
+            repo_records: room.join("repo_records"),
+        };
+        fs::create_dir_all(&places.chats).unwrap();
+        let mut stood = Chat::new("", "");
+        stood.meta.title = String::from("The newer talk");
+        stood.meta.updated = 20;
+        store.save_chat(&stood).expect("the talk stands in the database");
+        let mut older = stood.clone();
+        older.meta.title = String::from("The older talk");
+        older.meta.updated = 10;
+        fs::write(
+            places.chats.join(format!("{}.json", older.meta.id)),
+            serde_json::to_string(&older).unwrap(),
+        )
+        .unwrap();
+        let came = store.bring_older_shape(&room.join("pre-database"));
+        assert_eq!(came.chats, 0, "nothing came across");
+        assert_eq!(
+            store.list_chats("")[0].meta.title,
+            "The newer talk",
+            "the newer talk is kept"
+        );
         let _ = fs::remove_dir_all(&room);
     }
 

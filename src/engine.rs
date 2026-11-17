@@ -27,6 +27,7 @@ use crate::infographic;
 use crate::llama::{self, ModelInfo, Server, ToolCall};
 use crate::markdown;
 use crate::mcp;
+use crate::migrate;
 use crate::proglog;
 use crate::corporate;
 use crate::planning;
@@ -3737,6 +3738,12 @@ impl Engine {
         state.store.migrate_chats_out();
         state.store.migrate_records_out();
         state.migrate_attachments();
+        // The words of the older shape - the folders of chats, of talks of the
+        // repositories, of their records, and of the short shapes of the talks
+        // the model worked through - come into the databases here. The hunt is
+        // made once for a folder of the program, and its mark is read on every
+        // start after the first. See `src/migrate.rs`.
+        migrate::run(&state.cfg, &state.store);
         state.reload_chats();
         // The first screen holds no chat at all, even when this place has
         // chats. The window shows the chat box on its own, the first message
@@ -5072,9 +5079,13 @@ impl Engine {
         let _ = config::save(&state.cfg);
         state.store = store::Store::new(config::repositories_dir(&state.cfg));
         // The user may have pointed the program at a folder of repositories
-        // that still holds its talks, and its records, inside them.
+        // that still holds its talks, and its records, inside them. The hunt is
+        // made again here whatever the mark of the folder of the program says,
+        // because that mark speaks for one folder of repositories and the user
+        // has just named another.
         state.store.migrate_chats_out();
         state.store.migrate_records_out();
+        migrate::hunt(&state.cfg, &state.store);
         state.refresh_lists();
         state.reload_chats();
         state.set_status("Settings saved");
@@ -9744,18 +9755,19 @@ mod tests {
 
     // The program keeps its paths in one place for the whole run, so the tests
     // share one data folder. They take turns through the lock of the config,
-    // and each one empties the chats folder first.
+    // and each one empties the tables of the database of the chats first.
 
     fn setup() {
         config::set_data_dir(PathBuf::from("uidata/engine-tests"));
         let _ = config::ensure_dirs();
-        let chats = config::paths().chats;
-        let _ = std::fs::create_dir_all(&chats);
-        if let Ok(entries) = std::fs::read_dir(&chats) {
-            for entry in entries.flatten() {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
+        let store = store::Store::new(config::repositories_dir(&Config::default()));
+        store.empty();
+        let work = config::paths().data.join("work");
+        let _ = std::fs::create_dir_all(&work);
+        // The mark of the hunt is stood, so a check of the engine never reads the
+        // folders of the older shape and never brings a chat of the machine into
+        // the place a check works in.
+        migrate::mark_ran(&config::paths().data);
     }
 
     // A line of the drop-down of the badge of the tools takes its kind of tool out
@@ -10126,6 +10138,7 @@ mod tests {
     // asks for anything at all sits on the server that is already up.
     #[test]
     fn only_another_model_moves_the_server() {
+        let _guard = config::test_turn();
         let running = ServerWants {
             model_id: String::from("one"),
         };
@@ -10231,11 +10244,12 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        let chats = config::paths().chats;
+        // The chats of the place are the rows of the database, not a folder of
+        // files: a chat stands in one row of `chats.db`. See `src/db.rs`.
         let stored = || {
-            std::fs::read_dir(&chats)
-                .map(|entries| entries.count())
-                .unwrap_or(0)
+            store::Store::new(config::repositories_dir(&Config::default()))
+                .list_chats("")
+                .len()
         };
 
         // A run starts on the first screen, with no chat and nothing on disk.
@@ -10434,10 +10448,14 @@ mod tests {
             .clone();
         assert_eq!(moved.len(), 1);
         assert_eq!(moved[0].meta.repo_id, repo_id);
-        assert!(
-            !config::paths().chats.join("aaaacccc01.json").exists(),
-            "the file of the place it came from is gone"
-        );
+        // The chat stands in one place at a time, and the database holds the
+        // place it stands in: the row of it says which.
+        let place_of = || {
+            store::Store::new(config::repositories_dir(&Config::default()))
+                .load_chat("aaaacccc01")
+                .map(|chat| chat.meta.repo_id)
+        };
+        assert_eq!(place_of().as_deref(), Some(repo_id.as_str()), "the place of the chat did not move");
         engine.move_chat(String::from("aaaacccc01"), String::new());
         assert!(in_loose("aaaacccc01"));
 
@@ -10450,10 +10468,11 @@ mod tests {
         assert!(!in_loose("aaaacccc01"));
         assert!(engine.lists().archived.is_empty());
         assert_eq!(
-            std::fs::read_dir(config::paths().chats)
-                .map(|entries| entries.count())
-                .unwrap_or(0),
-            0
+            store::Store::new(config::repositories_dir(&Config::default()))
+                .list_chats("")
+                .len(),
+            0,
+            "the chat is gone from the database as well as from the list"
         );
     }
 
@@ -10849,6 +10868,7 @@ mod tests {
     // none of the four colours, and nothing of them is touched.
     #[test]
     fn the_colour_marks_are_taken_out_of_their_words() {
+        let _guard = config::test_turn();
         // Words with no marks in them come back as they went in.
         assert_eq!(strip_colour_tags("nothing coloured here"), "nothing coloured here");
         // The four colours, each with its words kept.
@@ -11037,6 +11057,7 @@ mod tests {
     // carry.
     #[test]
     fn only_a_main_heading_of_the_answer_opens_a_chapter() {
+        let _guard = config::test_turn();
         assert_eq!(heading_names("# One\nText\n## Two\n"), vec!["One", "Two"]);
         // A third mark is a heading of a part, not of a chapter of the chat.
         assert!(heading_names("### Three").is_empty());
@@ -11101,6 +11122,7 @@ mod tests {
     // not a sentence, and a failure is already told by its own note.
     #[test]
     fn a_turn_writes_no_line_about_itself() {
+        let _guard = config::test_turn();
         // Words stand for themselves, also the words of a stopped run.
         assert_eq!(
             kept_of("Here is the plan", "", false, false, false),
@@ -11133,6 +11155,7 @@ mod tests {
     // is a silence that has already been asked over as often as it may be.
     #[test]
     fn a_silence_is_asked_over() {
+        let _guard = config::test_turn();
         // The silence of a model that simply stopped, and has tries left.
         assert!(worth_a_silence("stop", 0, 2));
         assert!(worth_a_silence("stop", 1, 2));
@@ -11294,6 +11317,7 @@ mod tests {
     // given, and no running block wore a mark at all.
     #[test]
     fn the_state_carries_the_call_that_is_running_with_its_time() {
+        let _guard = config::test_turn();
         let engine = Engine::start(Config::default());
         let clean = engine.snapshot();
         assert!(crate::web::state(&clean, None)["running"].is_null());
@@ -13346,6 +13370,7 @@ mod tests {
     // server wrote, and only what goes to the model is broken.
     #[test]
     fn the_talk_that_goes_out_carries_no_media_mark() {
+        let _guard = config::test_turn();
         let mark = "<__media_Qv1A2b3C4d5E6f7G8h9I0jK__>";
         let engine = engine_with(vec![
             Message {
@@ -14904,7 +14929,6 @@ mod tests {
     // A chat stands open with the messages the user is looking at, so the marks
     // under a message have a talk to work on.
     fn engine_with(messages: Vec<Message>) -> Engine {
-        let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
         let mut state = engine.state.lock().unwrap();
@@ -14920,6 +14944,7 @@ mod tests {
     // answered a talk that no longer reads that way.
     #[test]
     fn a_message_of_the_user_takes_its_answer_along() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.remove_message(String::from("c"));
         let state = engine.state.lock().unwrap();
@@ -14933,6 +14958,7 @@ mod tests {
     // answer goes with it, which is the second question and its answer.
     #[test]
     fn a_message_of_the_model_leaves_the_question_behind() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.remove_message(String::from("b"));
         let state = engine.state.lock().unwrap();
@@ -14945,6 +14971,7 @@ mod tests {
     // filled is, and the window goes to the first screen.
     #[test]
     fn a_chat_left_with_nothing_of_the_talk_goes_too() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages()[..2].to_vec());
         engine.remove_message(String::from("a"));
         let state = engine.state.lock().unwrap();
@@ -14960,6 +14987,7 @@ mod tests {
     // on their way back to the same chat, and the box belongs to it.
     #[test]
     fn a_message_sent_back_cuts_the_talk_at_itself() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.rewrite_message(String::from("c"));
         let state = engine.state.lock().unwrap();
@@ -14977,6 +15005,7 @@ mod tests {
     // the user's back, and the talk does not move.
     #[test]
     fn only_a_message_of_yours_goes_back_into_the_chat_box() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.rewrite_message(String::from("b"));
         let state = engine.state.lock().unwrap();
@@ -15046,21 +15075,28 @@ mod tests {
     // message that comes back makes the file again.
     #[test]
     fn a_chat_left_with_nothing_keeps_its_place_and_loses_its_file() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages()[..2].to_vec());
-        let file = {
+        let place = store::Store::new(config::repositories_dir(&Config::default()));
+        let stood = {
             let mut state = engine.state.lock().unwrap();
             state.persist();
             let id = state.chat().expect("the chat stands open").meta.id.clone();
-            config::paths().chats.join(format!("{id}.json"))
+            place.load_chat(&id)
         };
-        assert!(file.exists(), "the chat was never written out");
+        assert!(stood.is_some(), "the chat was never written out");
 
         engine.rewrite_message(String::from("a"));
 
         let state = engine.state.lock().unwrap();
         let chat = state.chat().expect("the chat is still open in the window");
         assert!(chat.messages.is_empty(), "a message of the talk stayed");
-        assert!(!file.exists(), "the file of a chat with no talk is still there");
+        assert!(
+            place
+                .load_chat(&stood.expect("the chat stood").meta.id)
+                .is_none(),
+            "the row of a chat with no talk is still there"
+        );
         assert!(!state.snap().home, "the window left the chat it is writing again");
     }
 
@@ -15068,6 +15104,7 @@ mod tests {
     // and nothing moves.
     #[test]
     fn nothing_goes_back_of_a_message_that_is_not_there() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.rewrite_message(String::from("zzzz"));
         let state = engine.state.lock().unwrap();
@@ -15081,6 +15118,7 @@ mod tests {
     // left where they were: the user is writing the words, not the work.
     #[test]
     fn the_words_of_an_answer_are_written_over_where_they_stand() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.edit_answer(String::from("d"), String::from("the answer as the user wrote it"));
         let state = engine.state.lock().unwrap();
@@ -15098,6 +15136,7 @@ mod tests {
     // model is next told is the words without them.
     #[test]
     fn the_words_of_an_answer_are_trimmed_as_they_go_in() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.edit_answer(String::from("b"), String::from("  the answer  \n"));
         let state = engine.state.lock().unwrap();
@@ -15109,6 +15148,7 @@ mod tests {
     // user go back into the chat box instead, which is another ask.
     #[test]
     fn only_an_answer_of_the_model_is_written_over() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.edit_answer(String::from("a"), String::from("words that do not belong here"));
         let state = engine.state.lock().unwrap();
@@ -15121,6 +15161,7 @@ mod tests {
     // of the model that says nothing, and the user would lose the words they had.
     #[test]
     fn an_answer_needs_some_words() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.edit_answer(String::from("b"), String::from("   \n  "));
         let state = engine.state.lock().unwrap();
@@ -15134,6 +15175,7 @@ mod tests {
     // when the stream ends.
     #[test]
     fn nothing_is_moved_while_an_answer_is_generated() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         {
             let mut state = engine.state.lock().unwrap();
@@ -15156,6 +15198,7 @@ mod tests {
     // is the model, which no test has.
     #[test]
     fn only_an_answer_the_user_stopped_may_be_gone_on_with() {
+        let _guard = config::test_turn();
         let engine = engine_with(four_messages());
         engine.continue_message(String::from("b"));
         // The lock is let go of before the next call, for the calls above take it

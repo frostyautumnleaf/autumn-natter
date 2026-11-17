@@ -1004,13 +1004,13 @@ pub fn test_turn() -> std::sync::MutexGuard<'static, ()> {
     TURN.lock().expect("the lock of the tests")
 }
 
-// Create the data directory and the folders inside it.
+// Create the data directory and the folders inside it. The folders of the talks
+// and of the records are not made here: those words stand in `chats.db` now, and
+// the folders were the whole of the keeping before. `src/migrate.rs` takes what
+// stands in them into the database and retires the folders.
 pub fn ensure_dirs() -> std::io::Result<()> {
     let p = paths();
     fs::create_dir_all(&p.data)?;
-    fs::create_dir_all(&p.chats)?;
-    fs::create_dir_all(&p.repo_chats)?;
-    fs::create_dir_all(&p.repo_records)?;
     fs::create_dir_all(&p.logs)?;
     fs::create_dir_all(&p.contexts)?;
     fs::create_dir_all(&p.models)?;

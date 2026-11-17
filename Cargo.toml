@@ -57,6 +57,12 @@ pulldown-cmark = "0.13"
 # those bytes; the Rust back end keeps the build free of C, as the rest of the
 # program is. See `src/contexts.rs`.
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
+# The words of the program stand in SQLite files, not in a folder of JSON files.
+# `bundled` carries the C of SQLite with it, so the program needs nothing of the
+# machine and works the same on Ubuntu, Arch and Windows. Only the parts the
+# program uses are switched on, so the binary stays as light as the rest of it.
+# See `src/db.rs`.
+rusqlite = { version = "0.37", default-features = false, features = ["bundled"] }
 # The infographic suite: a frame is a document of SVG, and these turn the words
 # into a picture, a picture into bytes, and bytes into a film. resvg is pure
 # Rust, so no C library is added to the build.

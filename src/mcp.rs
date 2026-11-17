@@ -43,9 +43,15 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rusqlite::params;
+
 use crate::config;
+use crate::db;
+use crate::proglog;
+use crate::store;
 use crate::tools;
 use crate::util;
 
@@ -1082,9 +1088,56 @@ pub fn looked_words(count: usize) -> String {
 
 // ------------------------------------------------------------------ internal
 
-// The folder the servers of the program itself stand in.
+// The folder the servers of the program itself are written out into. It is a
+// place of passage: the words of a server are kept in `mcp.db`, and the files
+// are laid out here on every start of the server, because the interpreter of the
+// machine reads a file and nothing else. The same shape holds for the talks of
+// the model, which stand in a database and are laid out for llama-server.
 pub fn dir() -> PathBuf {
     config::paths().data.join("mcp")
+}
+
+// The database the files of the servers of the program itself stand in.
+pub fn database() -> Result<Arc<db::Db>, String> {
+    db::open(
+        &config::paths().data.join(db::MCP_DB),
+        db::Kind::Mcp,
+    )
+}
+
+// Keep the files of one server in the database. Every file of the server is put
+// down under the name it stands in, so the words of a server that is gone may be
+// read back by a person who needs them. A fault is said in the log of the
+// program and costs nothing: the server is started from the words the sheet
+// holds, and the database is the keeping of them, not the road they take.
+fn keep_files(id: &str, files: &[(String, Vec<u8>)]) {
+    let now = store::now_secs();
+    let database = match database() {
+        Ok(kept) => kept,
+        Err(problem) => {
+            proglog::note(
+                proglog::STORE,
+                &format!("the database of the servers did not open: {}", problem),
+            );
+            return;
+        }
+    };
+    let kept = database.write(|conn| {
+        for (name, words) in files {
+            conn.execute(
+                "INSERT INTO mcp_files (server_id, name, updated, data) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(server_id, name) DO UPDATE SET updated = excluded.updated, data = excluded.data",
+                params![id, name, now, words],
+            )
+            .map_err(db::fault)?;
+        }
+        Ok(())
+    });
+    if let Err(problem) = kept {
+        proglog::note(
+            proglog::STORE,
+            &format!("the words of a server were not kept: {}", problem),
+        );
+    }
 }
 
 // The folder of one server of the program itself.
@@ -1092,12 +1145,26 @@ pub fn folder(id: &str) -> PathBuf {
     dir().join(id)
 }
 
-// Take the folder of a server away. The sheet does this when the user takes
-// the server away, so the words of a server that is gone do not stand on the
-// machine for ever.
+// Take the folder of a server away, and the words of it out of the database. The
+// sheet does this when the user takes the server away, so the words of a server
+// that is gone do not stand on the machine for ever.
 pub fn remove_folder(id: &str) {
-    let place = folder(&safe_id(id));
+    let safe = safe_id(id);
+    let place = folder(&safe);
     let _ = std::fs::remove_dir_all(place);
+    if let Ok(database) = database() {
+        let gone = database.write(|conn| {
+            conn.execute("DELETE FROM mcp_files WHERE server_id = ?1", params![safe])
+                .map_err(db::fault)?;
+            Ok(())
+        });
+        if let Err(problem) = gone {
+            proglog::note(
+                proglog::STORE,
+                &format!("the words of a server are not taken away: {}", problem),
+            );
+        }
+    }
 }
 
 // Only the characters an id of this program is made of are let into a path, so
@@ -1147,10 +1214,12 @@ fn start_line(server: &Server, kind: &str) -> Result<(String, Vec<String>, Optio
     }
 }
 
-// Write the words of a server of the program itself next to the runner of this
-// program, and give back the line that starts them. Two files stand in the
-// folder of the server: the words of the user, and the runner. They are
-// written again on every start, so what runs is always what stands in the sheet.
+// Write the words of a server of the program itself into the folder of the
+// server, and keep them in the database, and give back the line that starts
+// them. Two files stand in the folder of the server: the words of the user, and
+// the runner. They are written again on every start, so what runs is always what
+// stands in the sheet. The database holds the same words, so the keeping of a
+// server is a database and not a folder beside the work of a model.
 fn write_internal(server: &Server) -> Result<(String, Vec<String>, PathBuf), String> {
     let place = folder(&safe_id(&server.id));
     std::fs::create_dir_all(&place).map_err(|problem| {
@@ -1168,6 +1237,10 @@ fn write_internal(server: &Server) -> Result<(String, Vec<String>, PathBuf), Str
         let file = place.join("server.py");
         std::fs::write(&file, server.code.as_bytes())
             .map_err(|problem| format!("The server could not be written: {}", problem))?;
+        keep_files(
+            &safe_id(&server.id),
+            &[(String::from("server.py"), server.code.as_bytes().to_vec())],
+        );
         return Ok((
             program,
             vec![file.display().to_string()],
@@ -1180,6 +1253,13 @@ fn write_internal(server: &Server) -> Result<(String, Vec<String>, PathBuf), Str
     let runner = place.join("natter_runner.py");
     std::fs::write(&runner, RUNNER.as_bytes())
         .map_err(|problem| format!("The runner of the server could not be written: {}", problem))?;
+    keep_files(
+        &safe_id(&server.id),
+        &[
+            (String::from("natter_code.py"), server.code.as_bytes().to_vec()),
+            (String::from("natter_runner.py"), RUNNER.as_bytes().to_vec()),
+        ],
+    );
     Ok((
         program,
         vec![runner.display().to_string(), code.display().to_string()],
