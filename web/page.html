@@ -258,11 +258,9 @@ textarea, input { font: inherit; color: inherit; }
 
 .brand { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; padding-right: 2px; }
 .brand .mark { width: 21px; height: 21px; display: block; }
-/* The program mark is drawn in the warm colours of the program. A screen in the
-   silver skin or the corporate skin may hold no colour of its own, so the mark is
-   put through the ladder of grey with everything else. The other two skins show the
-   mark as it is drawn. */
-body.silver img.mark, body.corporate img.mark { filter: grayscale(1) contrast(1.08); }
+/* The program mark keeps the colours it is drawn with in every skin, including the
+   two grey skins. Those skins grey the parts of the interface, not the mark of the
+   program, so the top bar and the first screen show the leaf in its own colours. */
 .brand .word { font-size: 14.5px; font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
 .rule { width: 1px; height: 24px; background: var(--line); flex: 0 0 auto; }
 
