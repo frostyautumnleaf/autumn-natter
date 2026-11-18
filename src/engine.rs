@@ -1469,9 +1469,12 @@ pub struct Snap {
     pub chat_chapters: bool,
     // The line of the user's own messages, at the right of the chat.
     pub chat_userline: bool,
-    // What falls behind the words of a chat: "none", or "leaves". The page draws
-    // it; the engine only carries the word out of the settings.
+    // What falls behind the words of a chat: "none", "leaves" or "rain". The
+    // page draws it; the engine only carries the word out of the settings.
     pub chat_background: String,
+    // Whether the rain splashes where it meets the chat composer box and the
+    // blocks of the chat.
+    pub chat_rain_splash: bool,
     // Whether a message the user sent is carried into the chat with a little
     // movement. The movement is only on the screen, so the engine only tells
     // the page that the switch stands.
@@ -4368,6 +4371,7 @@ impl State {
             chat_chapters: self.cfg.chat_chapters,
             chat_userline: self.cfg.chat_userline,
             chat_background: self.cfg.chat_background.clone(),
+            chat_rain_splash: self.cfg.chat_rain_splash,
             chat_send_anim: self.cfg.chat_send_anim,
             chat_context_files: self.cfg.chat_context_files,
             chat_context_compression: self.cfg.chat_context_compression,
@@ -6306,6 +6310,10 @@ impl Engine {
         // the program knows, in the order of the table.
         cfg.chat_system_prompt = config::sanitize_system_prompt(&cfg.chat_system_prompt);
         cfg.chat_system_prompts_on = config::sanitize_prompt_ids(&cfg.chat_system_prompts_on);
+        // What falls behind the words is kept to a word the page can draw: the
+        // page draws nothing at all for a word it does not know, and the sheet of
+        // the settings would then say a thing the chat does not do.
+        cfg.chat_background = config::sanitize_background(&cfg.chat_background);
         // The skin of the pages is kept to one of the four words, and the switch of
         // the two that stood before them keeps its old meaning: it is on for the dark
         // skin alone.
@@ -6550,6 +6558,7 @@ impl Snap {
             chat_chapters: true,
             chat_userline: true,
             chat_background: String::from(config::BACKGROUND_NONE),
+            chat_rain_splash: true,
             chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,

@@ -458,6 +458,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             // What falls behind the words of the chat. The page draws it, and
             // stops again when the drawing is turned off.
             "background": &snap.chat_background,
+            // Whether the rain splashes where it meets the chat composer box and
+            // the blocks of the chat. Only the page draws it.
+            "rain_splash": snap.chat_rain_splash,
             // Whether a message you sent is carried into the chat with a
             // little movement. The movement is all on the screen, so the
             // engine only says that the switch stands.

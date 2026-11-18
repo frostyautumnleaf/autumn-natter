@@ -46,6 +46,11 @@ pub const BACKGROUND_NONE: &str = "none";
 // program, and only while a model is answering. The effect is drawn by the page;
 // the engine only carries the word.
 pub const BACKGROUND_LEAVES: &str = "leaves";
+// Pixelated rain falls behind the chat whenever the setting stands, whether a
+// model is answering or not. Where the rain meets the chat composer box or a
+// block of the chat, it gives a pixelated splash, unless the splash switch
+// below is turned off. The effect is drawn by the page.
+pub const BACKGROUND_RAIN: &str = "rain";
 
 // The summarisation is set going by a share of the room of the talk.
 pub const COMPACT_BY_PERCENT: &str = "percent";
@@ -403,6 +408,12 @@ pub struct Config {
     // hand.
     #[serde(default = "default_background")]
     pub chat_background: String,
+    // Whether the pixelated rain splashes where it meets the chat composer box
+    // and the blocks of the chat. It stands under the rain: with no rain falling
+    // there is nothing to splash. The splashes are placed anew each time, so the
+    // same spot is never splashed twice over.
+    #[serde(default = "on_by_default")]
+    pub chat_rain_splash: bool,
     // Carry a message you sent into the chat with a little movement: the words
     // leave the box, go over the chat and unfold into the message itself. The
     // movement is only on the screen. Nothing about the sending waits for it,
@@ -543,6 +554,7 @@ pub fn sanitize_compaction(value: &str) -> String {
 pub fn sanitize_background(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         BACKGROUND_LEAVES => String::from(BACKGROUND_LEAVES),
+        BACKGROUND_RAIN => String::from(BACKGROUND_RAIN),
         _ => String::from(BACKGROUND_NONE),
     }
 }
@@ -830,6 +842,7 @@ impl Default for Config {
             chat_chapters: true,
             chat_userline: true,
             chat_background: String::from(BACKGROUND_NONE),
+            chat_rain_splash: true,
             chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,
@@ -1306,6 +1319,7 @@ mod tests {
         assert!(cfg.chat_chapters);
         assert!(cfg.chat_userline);
         assert_eq!(cfg.chat_background, BACKGROUND_NONE);
+        assert!(cfg.chat_rain_splash);
         assert!(cfg.chat_send_anim);
         assert!(cfg.chat_context_files);
         // The compressed shape is asked for, not given: a config that says
@@ -1748,8 +1762,11 @@ mod tests {
     fn a_background_the_page_cannot_draw_is_no_background() {
         assert_eq!(sanitize_background(BACKGROUND_LEAVES), BACKGROUND_LEAVES);
         assert_eq!(sanitize_background("  Leaves  "), BACKGROUND_LEAVES);
+        assert_eq!(sanitize_background(BACKGROUND_RAIN), BACKGROUND_RAIN);
+        assert_eq!(sanitize_background(" RAIN "), BACKGROUND_RAIN);
         assert_eq!(sanitize_background("SNOW"), BACKGROUND_NONE);
         assert_eq!(sanitize_background(""), BACKGROUND_NONE);
         assert_eq!(Config::default().chat_background, BACKGROUND_NONE);
+        assert!(Config::default().chat_rain_splash);
     }
 }

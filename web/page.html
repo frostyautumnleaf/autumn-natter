@@ -369,6 +369,14 @@ body.home .stage { display: none; }
   position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
   pointer-events: none;
 }
+/* Where the rain breaks on the chat composer box and on the blocks of the chat.
+   The splash stands over the whole of the chat, for the chat composer box and the
+   blocks are solid: a splash drawn behind them would never be seen. Only the
+   squares of water are ever on it, and it catches no hand. */
+.splash {
+  position: absolute; inset: 0; z-index: 6; width: 100%; height: 100%;
+  pointer-events: none;
+}
 .thread {
   position: absolute; inset: 0; z-index: 1; overflow-y: auto; overscroll-behavior: contain;
   padding: 22px 0 26px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
@@ -2611,6 +2619,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 </div>
 
 <div class="main" id="main">
+  <!-- Where the rain breaks on the chat composer box and on the blocks of
+       the chat. It stands over the whole of the chat, catches no hand, and
+       holds nothing but the squares of water of the moment. -->
+  <canvas class="splash" id="splash" aria-hidden="true"></canvas>
 <header class="bar">
   <button class="mark-btn side-btn" id="sidebtn" title="Show or hide the side bar" aria-label="Show or hide the side bar">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.7" y="2.9" width="12.6" height="10.2" rx="2.1"/><path d="M6.1 2.9v10.2"/></svg>
@@ -3093,11 +3105,15 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <span class="sub">A vertical line hard against the right edge of the chat, with one short dash for every message you sent. A dash says which message it is and when you sent it, and shows part of it and what hung on it; clicking one scrolls there. Turn this off to hide the line.</span>
           <div class="ctl"><input id="fUserline" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Background of the chat</span>
-          <span class="sub">What falls behind the words of the chat. Nothing falls by default. Autumn leaves are the leaf of the mark of the program, in a colour just off the ground of the chat - a shade darker on a pale skin, a shade lighter on a dark one - turning as they come down. They fall only while a model is answering, and stop when it stops.</span>
+          <span class="sub">What falls behind the words of the chat. Nothing falls by default. Autumn leaves are the leaf of the mark of the program, in a colour just off the ground of the chat - a shade darker on a pale skin, a shade lighter on a dark one - turning as they come down. They fall only while a model is answering, and stop when it stops. Rain falls in squares of colour, one tone off the ground of the chat, and goes on whether a model is answering or not.</span>
           <div class="ctl"><div class="seg" id="fBackground" role="group" aria-label="What falls behind the words of the chat">
               <button class="on" id="fBackgroundNone" type="button">Nothing</button>
+              <button id="fBackgroundRain" type="button">Rain</button>
               <button id="fBackgroundLeaves" type="button">Autumn leaves</button>
             </div></div></div>
+        <div class="fld hidden" id="fRainSplashRow"><span class="lbl">Rain splashes</span>
+          <span class="sub">Where the rain meets the chat composer box, or a block of the chat, it breaks into a splash of squares - over the top edge of the block it hits, in a place drawn anew each time, so no two splashes are alike. The splash is only ever on the screen: nothing is heard, and nothing of a block moves with it. Turn this off to have the rain fall past the blocks untouched.</span>
+          <div class="ctl"><input id="fRainSplash" type="checkbox"></div></div>
 
         <div class="sec">Custom system prompt</div>
         <div class="fld wide"><span class="lbl">System prompt</span>
@@ -3508,7 +3524,8 @@ var cur = null;        // the last state
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
   highlight: true, bold: true, colour: true, seamless: false, chapters: true, userline: true,
-  send_anim: true, paste: 6000, width: 780, background: 'none' };
+  send_anim: true, paste: 6000, width: 780, background: 'none',
+  rainSplash: true };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -3699,6 +3716,10 @@ function readChatting(s) {
   // setting stands: the canvas works out the rest for itself.
   chatting.background = String(chat.background || 'none');
   fallWant(chatting.background);
+  // Whether the rain splashes where it meets the chat composer box and the blocks
+  // of the chat. The going is asked after again here, so a change of the setting
+  // is followed without the page being opened afresh.
+  rainSplashSetting(chat.rain_splash !== false);
 }
 
 // ------------------------------------------------------------ the background
@@ -3999,10 +4020,13 @@ function fallGoOn() {
 
 // The setting said which way the background of the chat stands.
 function fallWant(word) {
-  var asked = (word === 'leaves') ? 'leaves' : 'none';
+  var asked = (word === 'leaves') ? 'leaves' : ((word === 'rain') ? 'rain' : 'none');
   if (asked === fall.want) { return; }
   fall.want = asked;
   fallGoOn();
+  // The rain keeps its own going: it does not wait for an answer the way the
+  // leaves do, so it is asked after separately.
+  rainGoOn();
 }
 
 // An answer came in, or stopped coming in. The leaves fall only while one is being
@@ -4019,6 +4043,351 @@ function fallBusy(on) {
 function fallSkin() {
   fallTones();
   fallGoOn();
+}
+
+// ------------------------------------------------------------------------ rain
+//
+// Pixelated rain behind the words of the chat.
+//
+// The Chatting setting stands at "rain". Rain differs from the leaves in that it
+// does not wait for an answer: it falls while a chat stands open, and stops when
+// the setting is turned off.
+//
+// Everything of it is drawn in squares. A drop is a short run of squares down one
+// column, and it never straddles two of them, so the rain reads as a picture made
+// of squares rather than as a blur of lines.
+//
+// The drops come down on the canvas that stands under the thread, behind every
+// message. Where a drop meets the chat composer box, or the top edge of a block of
+// the chat, it breaks into a splash - and the splash stands on a second canvas
+// over the chat, for the composer box and the blocks are solid: a splash drawn
+// behind them would never be seen. The splash is placed anew every time, and the
+// water of it is thrown to one side or the other at random, so no two splashes are
+// alike. It is only ever drawn: nothing is heard, and nothing of a block moves
+// with it.
+
+var RAIN_CELL = 3;        // CSS pixels to one square of the rain
+var RAIN_LEAST = 50;      // the least drops that may fall at once
+var RAIN_MOST = 220;      // and the most
+var RAIN_SLOW = 380;      // squares to the second, for the drops furthest off
+var RAIN_FAST = 820;      // and for those nearest
+var RAIN_LIFE = 0.36;     // seconds a splash is seen for
+var RAIN_MOST_SPURS = 80; // the splashes the page keeps at one time
+
+var rain = {
+  drops: [], splashes: [], raf: 0, last: 0, grown: 0,
+  w: 0, h: 0, offX: 0, offY: 0, sw: 0, sh: 0, dpr: 1,
+  ctx: null, canvas: null, sctx: null, scanvas: null,
+  tones: null, surfaces: [], since: 0
+};
+
+// The colours of the rain, out of the skin in use: a cool shade off the ground of
+// the chat, and a shade of grey where the skin is one of the two of grey. Three
+// of them stand, for the drops that read as the nearer ones are deeper in colour
+// than those that read as further off.
+function rainTones() {
+  var look = getComputedStyle(document.body);
+  var ground = fallNumbers(look.getPropertyValue('--bg')) || [250, 242, 230];
+  var grey = document.body.classList.contains('silver')
+    || document.body.classList.contains('corporate');
+  var dark = (ground[0] * 299 + ground[1] * 587 + ground[2] * 114) / 1000 < 128;
+  var away = dark ? (grey ? [255, 255, 255] : [206, 222, 246])
+    : (grey ? [0, 0, 0] : [86, 110, 142]);
+  var steps = [0.10, 0.16, 0.24];
+  var seen = [0.34, 0.5, 0.68];
+  var tones = [];
+  for (var i = 0; i < steps.length; i++) {
+    tones.push({ colour: fallCss(fallMix(ground, away, steps[i])), seen: seen[i] });
+  }
+  rain.tones = tones;
+}
+
+// The two canvases the rain is drawn on, and the places they stand in: the place
+// the chat stands in, where the drops come down, and the place the whole of the
+// chat stands in, where the splashes are drawn. The distance between the two is
+// kept, for a drop is measured against the chat and a splash against the whole of
+// it. Both canvases are kept at the size of the machine's own pixels, so a square
+// of the rain is as sharp as the screen can make it.
+function rainSize() {
+  var stage = document.getElementById('stage');
+  var main = document.getElementById('main');
+  var canvas = rain.canvas || document.getElementById('fall');
+  var splash = rain.scanvas || document.getElementById('splash');
+  if (!stage || !main || !canvas || !splash) { return false; }
+  var s = stage.getBoundingClientRect();
+  var m = main.getBoundingClientRect();
+  var wide = Math.max(0, Math.round(s.width));
+  var tall = Math.max(0, Math.round(s.height));
+  var sw = Math.max(0, Math.round(m.width));
+  var sh = Math.max(0, Math.round(m.height));
+  var offX = Math.round(s.left - m.left);
+  var offY = Math.round(s.top - m.top);
+  var dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  if (rain.ctx && rain.sctx && wide === rain.w && tall === rain.h && sw === rain.sw
+      && sh === rain.sh && offX === rain.offX && offY === rain.offY && dpr === rain.dpr) {
+    return true;
+  }
+  rain.w = wide; rain.h = tall; rain.sw = sw; rain.sh = sh;
+  rain.offX = offX; rain.offY = offY; rain.dpr = dpr;
+  rain.canvas = canvas; rain.scanvas = splash;
+  canvas.width = Math.max(1, Math.round(wide * dpr));
+  canvas.height = Math.max(1, Math.round(tall * dpr));
+  splash.width = Math.max(1, Math.round(sw * dpr));
+  splash.height = Math.max(1, Math.round(sh * dpr));
+  rain.ctx = canvas.getContext('2d');
+  rain.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  rain.sctx = splash.getContext('2d');
+  rain.sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  rain.surfaces = [];
+  return true;
+}
+
+// Whether the rain may be drawn at all: the setting asks for it, a chat stands
+// open, and the machine has not been told to make few moves.
+function rainAsked() {
+  if (fall.want !== 'rain' || reduce) { return false; }
+  var stage = document.getElementById('stage');
+  if (!stage || stage.offsetParent === null) { return false; }
+  return rainSize();
+}
+
+// How many drops the place they fall over is worth. A big window is given more of
+// them, and a small one fewer, so the rain is of the same weight everywhere.
+function rainWanted() {
+  var room = Math.round((rain.sw * rain.sh) / (RAIN_CELL * RAIN_CELL * 46));
+  return Math.max(RAIN_LEAST, Math.min(RAIN_MOST, room));
+}
+
+// A drop. The depth it is drawn at - and so its pace, its length and how much of
+// the ground shows through it - is drawn from one of the three tones, so a screen
+// of rain has three distances in it. A drop that has not appeared yet (`above`)
+// comes in over the top of the chat; the first of them are put down over the whole
+// of it, so the rain is thick from the first moment.
+function rainSeed(above) {
+  var tone = Math.floor(Math.random() * 3);
+  var pace = 0.75 + Math.random() * 0.5;
+  return {
+    // The drop is measured against the chat, but it is spread over the whole of
+    // it, so the rain falls over the chat composer box as well as over the talk.
+    x: Math.random() * (rain.sw + 60) - 30 - rain.offX,
+    y: above ? -Math.random() * 120 : Math.random() * rain.h,
+    len: 2 + Math.floor(Math.random() * 3) + tone,
+    speed: (RAIN_SLOW + ((RAIN_FAST - RAIN_SLOW) * tone / 2)) * pace,
+    tone: tone,
+    seen: above ? 0 : 1
+  };
+}
+
+// The edges the rain splashes on: the chat composer box, and the blocks of the
+// talk that stand in the part of it the window shows. The edges are given against
+// the place the chat stands in, which is where the drops fall, and they are read
+// again a little while at a time, for the talk moves when the window is made
+// bigger, when the bar at the left is drawn away, and when the words grow.
+function rainSurfaces() {
+  var out = [];
+  var stage = document.getElementById('stage');
+  if (!stage) { return out; }
+  var s = stage.getBoundingClientRect();
+  var box = document.getElementById('box');
+  if (box) {
+    var r = box.getBoundingClientRect();
+    if (r.width > 8) { out.push({ x: r.left - s.left, w: r.width, y: r.top - s.top }); }
+  }
+  // A block is worth a splash at its top edge only while the window shows it:
+  // there is no sense in a splash at an edge the user cannot see.
+  var found = document.querySelectorAll('#thread .tool, #thread .think');
+  for (var i = 0; i < found.length && out.length < 24; i++) {
+    var one = found[i].getBoundingClientRect();
+    if (one.width < 8 || one.bottom < s.top + 4 || one.top > s.bottom - 4) { continue; }
+    out.push({ x: one.left - s.left, w: one.width, y: one.top - s.top });
+  }
+  return out;
+}
+
+// The edge a drop met between the last frame and this one, or nothing at all when
+// it fell past none. Where more than one edge was met, the highest is the one the
+// drop came to first.
+function rainHit(x, before, after) {
+  var found = 0;
+  for (var i = 0; i < rain.surfaces.length; i++) {
+    var one = rain.surfaces[i];
+    if (x < one.x || x > one.x + one.w) { continue; }
+    if (one.y >= before && one.y <= after && (!found || one.y < found)) { found = one.y; }
+  }
+  return found;
+}
+
+// A splash where a drop met an edge. How much water there is, which side of the
+// edge it is thrown to, how hard, and how long it is seen, are drawn anew each
+// time, so no two splashes stand alike and no edge is splashed twice in the same
+// place.
+function rainSpur(x, y) {
+  var bits = [];
+  var most = 2 + Math.floor(Math.random() * 4);
+  for (var i = 0; i < most; i++) {
+    var side = (i % 2) ? 1 : -1;
+    bits.push({
+      px: side * (0.5 + Math.random() * 1.5),
+      py: -Math.random(),
+      vx: side * (26 + Math.random() * 54),
+      vy: -(52 + Math.random() * 84),
+      g: 300 + Math.random() * 240,
+      wide: Math.random() < 0.3,
+      seen: 0.5 + Math.random() * 0.5
+    });
+  }
+  rain.splashes.push({
+    x: x + (Math.random() - 0.5), y: y,
+    left: RAIN_LIFE * (0.72 + Math.random() * 0.5), life: RAIN_LIFE,
+    tone: Math.floor(Math.random() * (rain.tones || [0, 0, 0]).length),
+    wet: 1 + Math.floor(Math.random() * 3), bits: bits
+  });
+  if (rain.splashes.length > RAIN_MOST_SPURS) {
+    rain.splashes.splice(0, rain.splashes.length - RAIN_MOST_SPURS);
+  }
+}
+
+// One drop: a run of squares down one column, thinning as it goes up, so the head
+// of the drop is the sharper end.
+function rainDraw(one) {
+  var tone = rain.tones[one.tone];
+  var ctx = rain.ctx;
+  var x = Math.floor(one.x / RAIN_CELL) * RAIN_CELL;
+  ctx.fillStyle = tone.colour;
+  for (var k = 0; k < one.len; k++) {
+    var y = one.y - k * RAIN_CELL;
+    if (y < -RAIN_CELL || y > rain.h + RAIN_CELL) { continue; }
+    ctx.globalAlpha = tone.seen * one.seen * (1 - (k / one.len) * 0.75);
+    ctx.fillRect(x, Math.round(y / RAIN_CELL) * RAIN_CELL, RAIN_CELL, RAIN_CELL);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// One splash: the wet mark on the edge the water met, and the bits of it thrown up
+// off that edge and fallen back again. The mark and the bits are drawn in squares
+// as the drops are, and the whole of it is gone in a third of a second.
+function rainDrawSpur(one, dt) {
+  var ctx = rain.sctx;
+  var tone = rain.tones[one.tone % rain.tones.length];
+  var share = Math.max(0, one.left / one.life);
+  var x = one.x + rain.offX;
+  var y = one.y + rain.offY;
+  ctx.fillStyle = tone.colour;
+  ctx.globalAlpha = 0.55 * share;
+  ctx.fillRect(Math.round((x - one.wet * RAIN_CELL) / RAIN_CELL) * RAIN_CELL,
+               Math.round(y / RAIN_CELL) * RAIN_CELL,
+               (one.wet + 1) * RAIN_CELL, RAIN_CELL);
+  for (var i = 0; i < one.bits.length; i++) {
+    var bit = one.bits[i];
+    bit.vy += bit.g * dt;
+    bit.px += bit.vx * dt * 0.02;
+    bit.py += bit.vy * dt * 0.02;
+    // Water that has come back to the edge is spent, and is not drawn again.
+    if (bit.py > 2.2) { continue; }
+    ctx.globalAlpha = share * bit.seen;
+    var size = bit.wide ? RAIN_CELL * 2 : RAIN_CELL;
+    ctx.fillRect(Math.round((x + bit.px * RAIN_CELL) / RAIN_CELL) * RAIN_CELL,
+                 Math.round((y + bit.py * RAIN_CELL) / RAIN_CELL) * RAIN_CELL, size, size);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Draw one frame of the rain. The drops come down, those that met an edge are
+// turned into splashes, and the splashes are gone through. With the setting turned
+// off nothing takes the place of a drop that went, and both canvases are cleared
+// once and left alone.
+function rainStep(now) {
+  rain.raf = 0;
+  // The time since the last frame, kept between a quarter of a sixtieth and a
+  // twentieth of a second, as the leaves keep it: a page that is not being painted
+  // is then still answered with a step.
+  var gone = rain.last ? (now - rain.last) / 1000 : 1 / 60;
+  var dt = Math.max(1 / 240, Math.min(0.05, gone));
+  rain.last = now;
+  var asked = rainAsked();
+  if (!rain.ctx || !rain.sctx) { rain.drops.length = 0; rain.splashes.length = 0; return; }
+  if (!rain.tones) { rainTones(); }
+  rain.since += dt;
+  if (!rain.surfaces.length || rain.since > 0.2) {
+    rain.surfaces = chatting.rainSplash ? rainSurfaces() : [];
+    rain.since = 0;
+  }
+  if (asked) {
+    var want = rainWanted();
+    while (rain.drops.length < want) { rain.drops.push(rainSeed(rain.grown > 4)); }
+    rain.grown += 1;
+  } else {
+    rain.grown = 0;
+  }
+  // A drop that has no edge to meet is let go of a little below the chat, and one
+  // that has the chat composer box below the chat is kept as far as that.
+  var tail = rain.h + 24;
+  for (var e = 0; e < rain.surfaces.length; e++) {
+    if (rain.surfaces[e].y + 24 > tail) { tail = rain.surfaces[e].y + 24; }
+  }
+  rain.ctx.clearRect(0, 0, rain.w, rain.h);
+  rain.sctx.clearRect(0, 0, rain.sw, rain.sh);
+  var kept = [];
+  for (var i = 0; i < rain.drops.length; i++) {
+    var one = rain.drops[i];
+    one.seen = asked ? Math.min(1, one.seen + dt / 0.2) : Math.max(0, one.seen - dt / 0.25);
+    if (!asked && one.seen <= 0) { continue; }
+    var before = one.y;
+    one.y += one.speed * dt;
+    var met = rainHit(one.x, before, one.y);
+    if (met) {
+      if (chatting.rainSplash) { rainSpur(one.x, met); }
+      continue;
+    }
+    if (one.y - one.len * RAIN_CELL > tail) { continue; }
+    rainDraw(one);
+    kept.push(one);
+  }
+  rain.drops = kept;
+  var left = [];
+  for (var s = 0; s < rain.splashes.length; s++) {
+    var spur = rain.splashes[s];
+    spur.left -= dt;
+    if (spur.left <= 0) { continue; }
+    rainDrawSpur(spur, dt);
+    left.push(spur);
+  }
+  rain.splashes = left;
+  if (asked || kept.length || left.length) {
+    rain.raf = requestAnimationFrame(rainStep);
+  } else {
+    rain.last = 0;
+    rain.ctx.clearRect(0, 0, rain.w, rain.h);
+    rain.sctx.clearRect(0, 0, rain.sw, rain.sh);
+  }
+}
+
+// Let the going on or off, as the setting now says. Nothing is started twice. This
+// is asked after again with every look at the state, so a chat that came back, a
+// window that was made bigger, or a turn of the setting is followed at once.
+function rainGoOn() {
+  if (rain.raf) { return; }
+  if (rainAsked() || rain.drops.length || rain.splashes.length) {
+    rain.last = 0;
+    rain.raf = requestAnimationFrame(rainStep);
+  }
+}
+
+// The splash switch moved. With it off the rain falls past the chat composer box
+// and the blocks of the chat untouched, and what splashes stand are let go out.
+function rainSplashSetting(on) {
+  var asked = !!on;
+  if (asked === chatting.rainSplash) { return; }
+  chatting.rainSplash = asked;
+  rain.surfaces = [];
+  rainGoOn();
+}
+
+// The skin changed, so the colour of the rain has to be read again. The drops that
+// stand keep going: they are drawn out of the new colours from the next frame.
+function rainSkin() {
+  rainTones();
+  rainGoOn();
 }
 
 // The numbers of the meter are written with a comma in the place of a
@@ -12973,7 +13342,7 @@ function showTheme(word) {
   // skin is given new leaves. The state is read again and again while the program
   // runs, so this is only asked for when the skin really moved.
   if (window.fallSkin
-    && (was !== themeWord || !(window.fall && window.fall.tones))) { fallSkin(); }
+    && (was !== themeWord || !(window.fall && window.fall.tones))) { fallSkin(); rainSkin(); }
 }
 
 // The four marks of the sheet, so the switch stands at the skin in use.
@@ -12993,19 +13362,32 @@ function chooseTheme(word) {
   post('/api/theme', { theme: themeWord });
 }
 
-// Which of the two marks of the sheet stands at the background of the chat.
+// Which of the three marks of the sheet stands at the background of the chat.
 function showBackgroundButtons(word) {
-  var leaves = String(word || 'none') === 'leaves';
+  var asked = String(word || 'none');
   var none = byId('fBackgroundNone');
+  var wet = byId('fBackgroundRain');
   var marks = byId('fBackgroundLeaves');
-  if (none) { none.classList.toggle('on', !leaves); }
-  if (marks) { marks.classList.toggle('on', leaves); }
+  if (none) { none.classList.toggle('on', asked === 'none'); }
+  if (wet) { wet.classList.toggle('on', asked === 'rain'); }
+  if (marks) { marks.classList.toggle('on', asked === 'leaves'); }
+  rainSplashRows();
+}
+
+// The splashes of the rain stand under the rain itself, so the line of them is
+// shown only while the rain stands chosen.
+function rainSplashRows() {
+  var row = byId('fRainSplashRow');
+  if (row) { row.classList.toggle('hidden', backgroundWord() !== 'rain'); }
 }
 
 // The word the background of the chat stands at in the sheet.
 function backgroundWord() {
+  var wet = byId('fBackgroundRain');
   var marks = byId('fBackgroundLeaves');
-  return (marks && marks.classList.contains('on')) ? 'leaves' : 'none';
+  if (wet && wet.classList.contains('on')) { return 'rain'; }
+  if (marks && marks.classList.contains('on')) { return 'leaves'; }
+  return 'none';
 }
 
 // One of the two marks. The tab is marked as holding words never written, as every
@@ -13158,6 +13540,7 @@ function loadProgram() {
     byId('fTimeline').checked = cfg.chat_timeline !== false;
     byId('fUserline').checked = cfg.chat_userline !== false;
     showBackgroundButtons(cfg.chat_background);
+    byId('fRainSplash').checked = cfg.chat_rain_splash !== false;
     byId('fSendAnim').checked = cfg.chat_send_anim !== false;
     // The note is what the program found when it asked its own jail whether it
     // keeps what it promises.
@@ -13774,6 +14157,7 @@ function readProgram() {
   cfg.chat_timeline = byId('fTimeline').checked;
   cfg.chat_userline = byId('fUserline').checked;
   cfg.chat_background = backgroundWord();
+  cfg.chat_rain_splash = byId('fRainSplash').checked;
   cfg.chat_send_anim = byId('fSendAnim').checked;
   return cfg;
 }
@@ -14300,7 +14684,11 @@ byId('fThemeDark').addEventListener('click', function () { chooseTheme('dark'); 
 byId('fThemeSilver').addEventListener('click', function () { chooseTheme('silver'); });
 byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('corporate'); });
 byId('fBackgroundNone').addEventListener('click', function () { chooseBackground('none'); });
+byId('fBackgroundRain').addEventListener('click', function () { chooseBackground('rain'); });
 byId('fBackgroundLeaves').addEventListener('click', function () { chooseBackground('leaves'); });
+byId('fRainSplash').addEventListener('change', function () {
+  showBackgroundButtons(backgroundWord());
+});
 
 ['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mCachePrompt', 'mNoShift',
   'mTemp',
