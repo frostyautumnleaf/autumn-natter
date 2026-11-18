@@ -1426,8 +1426,12 @@ pub struct Snap {
     pub thinking_preserve_available: bool,
     pub status: String,
     pub dark_mode: bool,
-    // The skin the pages are drawn in: `light`, `dark` or `corporate`.
+    // The skin the pages are drawn in: `light`, `dark`, `silver`, `corporate` or
+    // `neon`.
     pub theme: String,
+    // True when that skin is drawn in its pixel-art form: the colours of the skin
+    // above, the interface out of squares.
+    pub theme_pixel: bool,
     pub data_dir: String,
     // The folder the talks the model worked its way through stand in, which the
     // settings window reads out beside the field that chooses another place.
@@ -4353,6 +4357,7 @@ impl State {
             status: self.status.clone(),
             dark_mode: self.cfg.dark_mode,
             theme: config::theme_word(&self.cfg.theme, self.cfg.dark_mode),
+            theme_pixel: self.cfg.theme_pixel,
             data_dir: config::paths().data.display().to_string(),
             contexts_dir: config::contexts_dir(&self.cfg).display().to_string(),
             sandbox_note: self.sandbox_note.clone(),
@@ -6346,13 +6351,13 @@ impl Engine {
         }
     }
 
-    // The skin of the pages: `light`, `dark`, `silver` or `corporate`. The browser
-    // page has this switch too. Nothing of a server moves with a skin, so the pages
-    // put the new skin on before this answers. The switch of the two skins that stood
-    // before the others keeps its old meaning and is on for the dark skin alone: the
-    // two skins of the grey ladder stand on dark grounds too, but a program written
-    // for two knows no other dark skin than the one it has, and the pale skin is an
-    // honest fall back.
+    // The skin of the pages: `light`, `dark`, `silver`, `corporate` or `neon`. The
+    // browser page has this switch too. Nothing of a server moves with a skin, so the
+    // pages put the new skin on before this answers. The switch of the two skins that
+    // stood before the others keeps its old meaning and is on for the dark skin
+    // alone: the two skins of the grey ladder and the neon one stand on dark grounds
+    // too, but a program written for two knows no other dark skin than the one it
+    // has, and the pale skin is an honest fall back.
     pub fn set_theme(&self, word: &str) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -6363,6 +6368,22 @@ impl Engine {
         }
         state.cfg.theme = made.clone();
         state.cfg.dark_mode = made == config::THEME_DARK;
+        let _ = config::save(&state.cfg);
+        state.touch_structure();
+    }
+
+    // Whether the skin of the pages is drawn in its pixel-art form. The form is a
+    // second word beside the skin, so a user may keep the colours they stand on and
+    // have the whole of the interface drawn out of squares instead. Nothing of a
+    // server moves with it.
+    pub fn set_theme_pixel(&self, on: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.cfg.theme_pixel == on {
+            return;
+        }
+        state.cfg.theme_pixel = on;
         let _ = config::save(&state.cfg);
         state.touch_structure();
     }
@@ -6540,6 +6561,7 @@ impl Snap {
             status: String::new(),
             dark_mode: false,
             theme: String::new(),
+            theme_pixel: false,
             data_dir: String::new(),
             contexts_dir: String::new(),
             sandbox_note: String::new(),
@@ -15656,10 +15678,15 @@ mod tests {
         engine.set_theme("silver");
         assert_eq!(engine.snapshot().theme, "silver");
         assert!(!engine.snapshot().dark_mode);
+        // The neon skin is the fifth: a dark ground of its own, and colours of its
+        // own, so the old switch stays off as it does for the two grey skins.
+        engine.set_theme("neon");
+        assert_eq!(engine.snapshot().theme, "neon");
+        assert!(!engine.snapshot().dark_mode);
         engine.set_theme("dark");
         assert_eq!(engine.snapshot().theme, "dark");
         assert!(engine.snapshot().dark_mode);
-        // A word that is none of the four is the pale skin.
+        // A word that is none of the five is the pale skin.
         engine.set_theme("nothing_of_a_skin");
         assert_eq!(engine.snapshot().theme, "light");
         assert!(!engine.snapshot().dark_mode);
@@ -15671,6 +15698,27 @@ mod tests {
         };
         let engine = Engine::start(before);
         assert_eq!(engine.snapshot().theme, "dark");
+    }
+
+    // The pixel-art form of a skin is a word of its own: a user may stand on any of
+    // the five colours and have them drawn out of squares. It is saved with the skin,
+    // and the two words never move one another.
+    #[test]
+    fn the_pixel_art_form_of_a_skin_is_kept_beside_it() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        assert!(!engine.snapshot().theme_pixel, "the pages are drawn as usual");
+        engine.set_theme_pixel(true);
+        assert!(engine.snapshot().theme_pixel);
+        assert_eq!(engine.snapshot().theme, "light", "the skin is untouched");
+        // The form stands with whichever skin is put on, and the skin stands with it.
+        engine.set_theme("neon");
+        assert!(engine.snapshot().theme_pixel, "the form is kept across a skin");
+        assert_eq!(engine.snapshot().theme, "neon");
+        engine.set_theme_pixel(false);
+        assert!(!engine.snapshot().theme_pixel);
+        assert_eq!(engine.snapshot().theme, "neon");
     }
 
     // A preset is one shape of the settings of a model, kept under a name the

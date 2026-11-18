@@ -427,10 +427,12 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox_fetch": snap.sandbox_access.fetch,
         "status": snap.status,
         "dark": snap.dark_mode,
-        // The skin of the pages: `light`, `dark`, `silver` or `corporate`. The word of the skin
-        // travels beside the switch of the two that stood before the third, so a page
-        // written for the two of them still reads a skin.
+        // The skin of the pages: `light`, `dark`, `silver`, `corporate` or `neon`. The
+        // word of the skin travels beside the switch of the two that stood before the
+        // third, so a page written for the two of them still reads a skin.
         "theme": snap.theme,
+        // Whether that skin is drawn in its pixel-art form.
+        "theme_pixel": snap.theme_pixel,
         // Chatting. How the page shows a thinking panel, a tool panel and a
         // block of code.
         "chatting": {
@@ -1268,6 +1270,12 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
         }
         "/api/theme" | "theme" => {
             engine.set_theme(&text_field(&value, "theme"));
+            // The pixel-art form travels in the same call, so a page that changes
+            // the skin and the form together writes both in one go. A call that says
+            // nothing of the form leaves it as it stands.
+            if let Some(pixel) = value.get("pixel").and_then(Value::as_bool) {
+                engine.set_theme_pixel(pixel);
+            }
             done()
         }
         // The sheet of settings. The window of the program makes these calls

@@ -292,11 +292,17 @@ pub struct Config {
     // is read no more, and the chat is then read through again from its first word.
     #[serde(default)]
     pub contexts_dir: String,
-    // The skin the pages are drawn in: `light`, `dark`, `silver` or `corporate`.
-    // An empty word marks a settings file written before there were three skins,
-    // and the switch below answers for it.
+    // The skin the pages are drawn in: `light`, `dark`, `silver`, `corporate` or
+    // `neon`. An empty word marks a settings file written before there were three
+    // skins, and the switch below answers for it.
     #[serde(default)]
     pub theme: String,
+    // True when the skin is drawn in its pixel-art form: the colours of the skin
+    // above, with the whole of the interface rebuilt out of squares - no rounded
+    // corner, no blur and no gradient. It belongs to the skin rather than to a
+    // chat, so every skin has a standard and a pixel-art form.
+    #[serde(default)]
+    pub theme_pixel: bool,
     // True when this file was written by a program that knows the four skins. A
     // file without the word holds `corporate` for the ladder of grey, which now
     // answers to `silver`: the near-black skin took the older name. The mark is
@@ -618,17 +624,30 @@ pub fn sanitize_compact_reserve(value: i64) -> u32 {
 // to.
 pub const GREATEST_PRESET_NAME: usize = 60;
 
-// The four skins the pages can be drawn in. `light` is the pale ground the
+// The five skins the pages can be drawn in. `light` is the pale ground the
 // program is cut for, `dark` the same colours on a ground near black, `silver`
-// grey and white and the shades between them alone, and `corporate` a ground
-// near black drawn in the same neutral ladder: the colours of the program are
-// put away there as they are in the silver skin, and only the ground is darker.
+// grey and white and the shades between them alone, `corporate` a ground near
+// black drawn in the same neutral ladder - the colours of the program are put
+// away in those two as they are not elsewhere - and `neon` a night of blue-black
+// with the hairlines lit. Every one of them has a second form drawn out of
+// squares, stood on by `Config::theme_pixel`.
 pub const THEME_LIGHT: &str = "light";
 pub const THEME_DARK: &str = "dark";
 pub const THEME_SILVER: &str = "silver";
 pub const THEME_CORPORATE: &str = "corporate";
+pub const THEME_NEON: &str = "neon";
 
-// The word of a skin. A word that is none of the four answers as the pale skin,
+// The words of the five skins, in the order the sheet and the mark of the browser
+// page step through them.
+pub const THEMES: [&str; 5] = [
+    THEME_LIGHT,
+    THEME_DARK,
+    THEME_SILVER,
+    THEME_CORPORATE,
+    THEME_NEON,
+];
+
+// The word of a skin. A word that is none of the five answers as the pale skin,
 // which is the one a new set of settings stands on. An empty word is the mark of
 // a settings file written before there were four skins, and the switch of the two
 // that such a file holds answers for it.
@@ -637,6 +656,7 @@ pub fn theme_word(value: &str, dark: bool) -> String {
         THEME_DARK => THEME_DARK,
         THEME_SILVER => THEME_SILVER,
         THEME_CORPORATE => THEME_CORPORATE,
+        THEME_NEON => THEME_NEON,
         "" if dark => THEME_DARK,
         _ => THEME_LIGHT,
     }
@@ -820,6 +840,7 @@ impl Default for Config {
             data_dir: String::new(),
             contexts_dir: String::new(),
             theme: String::new(),
+            theme_pixel: false,
             skins_v2: true,
             dark_mode: false,
             remote_port: DEFAULT_REMOTE_PORT,
@@ -1246,11 +1267,42 @@ mod tests {
         assert_eq!(theme_word(THEME_DARK, false), "dark");
         assert_eq!(theme_word(THEME_CORPORATE, true), "corporate");
         assert_eq!(theme_word(THEME_SILVER, false), "silver");
+        assert_eq!(theme_word(THEME_NEON, false), "neon");
         assert_eq!(theme_word("", true), "dark");
         assert_eq!(theme_word("", false), "light");
         assert_eq!(theme_word("shiny_and_blue", true), "light");
         let fresh = Config::default();
         assert_eq!(theme_word(&fresh.theme, fresh.dark_mode), THEME_LIGHT);
+        // The list the pages step through holds every skin the program knows, once
+        // each, and every one of them is a word the sheet can put on the page.
+        assert_eq!(THEMES.len(), 5);
+        for word in THEMES {
+            assert_eq!(theme_word(word, false), word, "{} is a skin", word);
+        }
+    }
+
+    // The pixel-art form belongs to the skin and not to a chat, so it is one word
+    // of the settings: it is kept through a save and a read, a file written before
+    // it stands for the standard form, and no other setting moves with it.
+    #[test]
+    fn the_pixel_art_form_of_a_skin_is_kept_with_the_skin() {
+        let mut cfg = Config::default();
+        assert!(!cfg.theme_pixel, "a new set of settings is drawn as usual");
+        cfg.theme = THEME_NEON.to_string();
+        cfg.theme_pixel = true;
+        let text = serde_json::to_string(&cfg).unwrap_or_default();
+        let back: Config = serde_json::from_str(&text).unwrap_or_default();
+        assert_eq!(back.theme, THEME_NEON);
+        assert!(back.theme_pixel, "the form is read back as it was written");
+        // A file of the program written before the pixel-art form existed holds no
+        // word of it, and is read as the standard form.
+        let mut written = serde_json::to_value(&cfg).unwrap_or(serde_json::Value::Null);
+        if let Some(map) = written.as_object_mut() {
+            map.remove("theme_pixel");
+        }
+        let older: Config = serde_json::from_value(written).unwrap_or_default();
+        assert_eq!(older.theme, THEME_NEON, "the skin of the file is read");
+        assert!(!older.theme_pixel);
     }
 
     // The word `corporate` meant the ladder of grey before the near-black skin

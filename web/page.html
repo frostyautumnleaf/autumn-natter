@@ -2289,6 +2289,9 @@ pre.code.line {
 /* The button beside a field of the sheet stands on one line: a button that
    wrapped would make its field taller than its own words. */
 .fld .ctl .btn { flex: 0 0 auto; white-space: nowrap; }
+/* A bar of choices breaks into two lines rather than stand over the edge of the
+   sheet: the five skins are wider than one column of the fields. */
+.sheet .fld .ctl .seg { flex-wrap: wrap; max-width: 100%; }
 .sheet-foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center;
   padding: 12px 16px; border-top: 1px solid var(--line); background: var(--surface-2); }
 .foot-note { font-size: 11.5px; color: var(--faint); margin-right: auto; max-width: 60ch; }
@@ -2578,6 +2581,166 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 .ask-hint.bad { color: var(--ink-fail); }
 /* The box that was accepted with the wrong words in it, and the hint that says so. */
 .ask-card input.wrong { border-color: var(--ink-fail); outline-color: var(--ink-fail); }
+/* ------------------------------------------------------------------ neon skin */
+/* The fifth skin: a night of blue-black with the hairlines lit. The steps of the
+   ground come down from the dark skin, the lines carry a charge of blue, and the
+   accents are the three of a sign - cyan for the accent, violet where the program
+   puts weight on a word, magenta for the leaf and a fault for red. The words sit
+   a step under the light, so a long chat is still read as words. */
+body.neon {
+  --accent: #22c8ff; --warm: #0fa8dd; --strong: #a06bff; --leaf: #ff3d8f; --deep: #ff3f63;
+  --accent-soft: rgba(34, 200, 255, .14);
+  --accent-line: rgba(34, 200, 255, .46);
+
+  --bg: #05060f; --fade-top: rgba(5,6,15,1); --fade-out: rgba(5,6,15,0);
+  --surface: #0d1024; --surface-2: #141833; --surface-3: #1a1f40;
+  --line: #262c58; --line-soft: #1c2144; --line-strong: #3a4380;
+  --text: #e9f4ff; --text-2: #c3d5ee; --dim: #8ea2c6; --faint: #6c7ea4;
+  --hover: #161b3a; --tint: #101a3a; --on-accent: #03121c;
+
+  --bubble: #121635; --bubble-line: #2c3468;
+  --plate: rgba(120, 190, 255, .10); --plate-line: rgba(150, 210, 255, .22);
+  --plate-mark: rgba(150, 210, 255, .12);
+  --plate-shadow: 0 1px 3px rgba(0, 0, 0, .5);
+  --code-bg: #090c1c; --code-line: #232a55;
+  --think-bg: #0b0f24; --tool-bg: #0a0d20;
+  --scrim: rgba(3, 4, 12, .74);
+  --ring: 0 0 0 3px rgba(34, 200, 255, .2);
+  --bad-hover: rgba(255, 63, 99, .16);
+  --shadow-1: 0 0 10px rgba(34, 200, 255, .10);
+  --shadow-2: 0 0 16px rgba(34, 200, 255, .13), 0 12px 34px rgba(0, 0, 0, .6);
+}
+/* A word in an accent colour is the lit end of the sign. A fault keeps a red of
+   its own, and the leaf a magenta, so the marks of the chat stay three marks. */
+body.neon { --ink: #4fd9ff; --ink-leaf: #ff5fa3; --ink-fail: #ff6d84; }
+/* The two counts of a change of a file, in the two colours of the sign. */
+body.neon { --hunk-add: #46e6a8; --hunk-cut: #ff5f7d; }
+body.neon { color-scheme: dark; }
+/* The blocks of this skin carry their own light, which is what a sign does: the
+   hairline is read twice, once as the line and once as a wash of it. The chosen
+   thing in a menu or a bar of choices glows, so the eye finds it without reading. */
+body.neon .think, body.neon .tool, body.neon .bubble {
+  box-shadow: inset 0 0 0 1px rgba(34, 200, 255, .07), 0 0 12px rgba(34, 200, 255, .05);
+}
+body.neon .srow.on, body.neon .seg button.on, body.neon .shead:hover {
+  box-shadow: 0 0 10px rgba(34, 200, 255, .2);
+}
+/* ------------------------------------------------------------ the pixel-art form */
+/* Every skin has a second form, drawn out of squares. The colours are the colours
+   of the skin that stands - no token of colour above is touched - and what changes
+   is the shape of the interface: no rounded corner, no blur, and every shadow a
+   flat block offset by whole squares. Pictures, marks and icons are drawn with
+   their edges unsmoothed, so a diagonal is a stair of squares, and the words are
+   set in a fixed-width face, which is the face a pixel-art screen is written in. */
+body.pixel {
+  --r-s: 0px; --r-m: 0px; --r-l: 0px;
+  /* The block of dark a shadow is made of, and the step of the ground the checker
+     of the window is laid in. Both are read out of the skin that stands. */
+  --pix-shadow: rgba(0, 0, 0, .18);
+  --pix-check: rgba(0, 0, 0, .055);
+  --pix-edge: var(--line-strong);
+  --shadow-1: 2px 2px 0 var(--pix-shadow);
+  --shadow-2: 4px 4px 0 var(--pix-shadow);
+  --plate-shadow: 2px 2px 0 var(--pix-shadow);
+  --ring: 0 0 0 2px var(--accent);
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", "DejaVu Sans Mono",
+    Menlo, Consolas, monospace;
+  /* A fixed-width face is wider than the face the page is cut for, so the whole of
+     it steps down one unit and keeps the same measures. */
+  font-size: 13.5px;
+  background-image:
+    linear-gradient(45deg, var(--pix-check) 25%, transparent 25%, transparent 75%, var(--pix-check) 75%),
+    linear-gradient(45deg, var(--pix-check) 25%, transparent 25%, transparent 75%, var(--pix-check) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 4px 4px;
+}
+/* The three dark skins, and the neon one, keep the checker of the ground light and
+   the block of a shadow darker, as the same rule says for their colours. */
+body.pixel.dark, body.pixel.silver, body.pixel.corporate, body.pixel.neon {
+  --pix-shadow: rgba(0, 0, 0, .58);
+  --pix-check: rgba(255, 255, 255, .04);
+}
+/* Every corner is square. The rule has to be blanket and has to be strong: the
+   style sheet gives a corner to a great many parts by hand, and none of them is
+   meant to survive this form. */
+body.pixel, body.pixel * { border-radius: 0 !important; }
+/* The edges of a mark are not smoothed, so a curve of a mark is a stair of squares
+   rather than a soft line. */
+body.pixel svg { shape-rendering: crispEdges; }
+body.pixel img, body.pixel canvas { image-rendering: pixelated; }
+/* A hairline of two squares about everything the user may press, choose or write
+   in. It is drawn inside the box, so that nothing of the layout moves with it. */
+body.pixel .btn, body.pixel select, body.pixel input[type="text"], body.pixel input[type="number"],
+body.pixel input[type="password"], body.pixel textarea, body.pixel .txt,
+body.pixel .seg, body.pixel .wcard, body.pixel .ask-card, body.pixel .side-menu,
+body.pixel .side-menu .sub, body.pixel .menu, body.pixel .sheet {
+  box-shadow: inset 0 0 0 1px var(--pix-edge), var(--shadow-1);
+}
+/* A button of the program presses down a whole square, and comes back up again,
+   as a button of a machine does. */
+body.pixel .btn, body.pixel .seg button, body.pixel .side-new, body.pixel .side-arch,
+body.pixel .ask-foot button { transition: transform 90ms steps(2, end), background var(--t-move),
+  color var(--t-move), border-color var(--t-move); }
+body.pixel .btn:active, body.pixel .ask-foot button:active { transform: translate(2px, 2px);
+  box-shadow: inset 0 0 0 1px var(--pix-edge); }
+/* The bar of choices: a block of the ground under the chosen word, with no pill
+   and no soft edge. */
+body.pixel .seg { padding: 2px; gap: 2px; background: var(--surface-2); }
+body.pixel .seg button { padding: 6px 12px; }
+body.pixel .seg button.on {
+  background: var(--accent); color: var(--on-accent); font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .34), 2px 2px 0 var(--pix-shadow);
+}
+/* The box of a switch: a square of the ground, filled by the accent, with a square
+   of the word colour in the middle when it stands on. */
+body.pixel input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; width: 16px; height: 16px; min-width: 16px;
+  background: var(--surface); cursor: pointer; position: relative;
+  box-shadow: inset 0 0 0 2px var(--pix-edge);
+}
+body.pixel input[type="checkbox"]:checked { background: var(--accent); }
+body.pixel input[type="checkbox"]:checked::after {
+  content: ''; position: absolute; inset: 4px; background: var(--on-accent);
+}
+/* The bar of a number: a square track and a square handle, neither of them rounded. */
+body.pixel input[type="range"] { appearance: none; -webkit-appearance: none; height: 14px;
+  background: transparent; }
+body.pixel input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px; background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--pix-edge);
+}
+body.pixel input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 12px; height: 14px; margin-top: -4px;
+  background: var(--accent); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .4), 2px 2px 0 var(--pix-shadow);
+}
+body.pixel input[type="range"]::-moz-range-track {
+  height: 6px; background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--pix-edge);
+}
+body.pixel input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 14px; border: 0; background: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .4);
+}
+/* The rail of a scroll is a square channel, and the handle a block of the hairline
+   colour that leaves a square of ground at each end. */
+body.pixel .thread::-webkit-scrollbar { width: 12px; }
+body.pixel .thread::-webkit-scrollbar-thumb {
+  background: var(--line-strong); box-shadow: inset 0 0 0 2px var(--bg);
+}
+body.pixel .thread::-webkit-scrollbar-track { background: var(--surface-2); }
+/* Where a thing has the keyboard, a square ring of the accent stands a square away
+   from it. */
+body.pixel :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The bar of the room the model keeps in mind is filled in blocks of four, so the
+   share it holds is counted rather than guessed at. */
+body.pixel .meter { height: 6px; background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--pix-edge); }
+body.pixel .meter i, body.pixel .meter-box.near .meter i {
+  background-color: var(--accent);
+  background-image: repeating-linear-gradient(90deg,
+    rgba(0, 0, 0, .3) 0 4px, transparent 4px 8px);
+}
+body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
 </style>
 </head>
 <body>
@@ -2988,13 +3151,20 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
           <div class="ctl"><input id="fUpnp" type="checkbox"></div></div>
 
         <div class="sec">Appearance</div>
-        <div class="fld"><span class="lbl">Skin</span>
-          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a ground near black, Silver grey and white and the shades between them alone, and Corporate that same ladder of grey on a ground near black. The skin changes at once.</span>
+        <div class="fld wide"><span class="lbl">Skin</span>
+          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a ground near black, Silver grey and white and the shades between them alone, Corporate that same ladder of grey on a ground near black, and Neon a night of blue-black with the hairlines lit. The skin changes at once.</span>
           <div class="ctl"><div class="seg" id="fTheme" role="group" aria-label="Which skin to draw the page in">
               <button class="on" id="fThemeLight" type="button">Light</button>
               <button id="fThemeDark" type="button">Dark</button>
               <button id="fThemeSilver" type="button">Silver</button>
               <button id="fThemeCorporate" type="button">Corporate</button>
+              <button id="fThemeNeon" type="button">Neon</button>
+            </div></div></div>
+        <div class="fld wide"><span class="lbl">Pixel-art look</span>
+          <span class="sub">Draw the skin that stands out of squares: no rounded corner, no blur, and every shadow a flat block, with the words in a fixed-width face. The colours are the colours of the skin, so each of the five has a standard look and a pixel-art one. The look changes at once.</span>
+          <div class="ctl"><div class="seg" id="fThemeArt" role="group" aria-label="Whether to draw the skin out of squares">
+              <button class="on" id="fThemeStandard" type="button">Standard</button>
+              <button id="fThemePixel" type="button">Pixel art</button>
             </div></div></div>
 
         <div class="sec">Chatting</div>
@@ -3604,8 +3774,10 @@ function draw(s) {
   // state and not with the block that happens to be on the screen.
   takeRunClock(s);
   showTheme(s.theme || (s.dark ? 'dark' : 'light'));
+  showPixelArt(!!s.theme_pixel);
+  el.themebtn.setAttribute('data-tip', 'The colours the page is drawn in, now ' + themeWord
+    + (pixelArt ? ' in the pixel-art form' : '') + '. Click for the next skin.');
   readChatting(s);
-  el.themebtn.title = 'The colours the page is drawn in, now ' + themeWord + '. Click for the next skin.';
   drawHome(s);
   // The shape of the lists is carried in `structure_rev`. A chat that came,
   // went, was named, pinned, moved, put away or opened moves it, and the bar is
@@ -3818,8 +3990,12 @@ function fallTones() {
   var ground = fallNumbers(look.getPropertyValue('--bg')) || [250, 242, 230];
   var grey = document.body.classList.contains('silver')
     || document.body.classList.contains('corporate');
+  // The neon skin is dark and carries colour, so it is not one of the two of grey,
+  // but its light is cool: a leaf of the same warm shade as the dark skin wears
+  // would read as a fault of the ground.
+  var lit = document.body.classList.contains('neon');
   var dark = (ground[0] * 299 + ground[1] * 587 + ground[2] * 114) / 1000 < 128;
-  var away = dark ? (grey ? [255, 255, 255] : [255, 238, 214])
+  var away = dark ? (grey ? [255, 255, 255] : (lit ? [214, 234, 255] : [255, 238, 214]))
     : (grey ? [0, 0, 0] : [38, 24, 12]);
   var tones = [];
   var steps = [0.10, 0.145, 0.20];
@@ -4090,8 +4266,10 @@ function rainTones() {
   var ground = fallNumbers(look.getPropertyValue('--bg')) || [250, 242, 230];
   var grey = document.body.classList.contains('silver')
     || document.body.classList.contains('corporate');
+  // The rain of the neon skin is lit cool, as the leaves of it are.
+  var lit = document.body.classList.contains('neon');
   var dark = (ground[0] * 299 + ground[1] * 587 + ground[2] * 114) / 1000 < 128;
-  var away = dark ? (grey ? [255, 255, 255] : [206, 222, 246])
+  var away = dark ? (grey ? [255, 255, 255] : (lit ? [208, 232, 255] : [206, 222, 246]))
     : (grey ? [0, 0, 0] : [86, 110, 142]);
   var steps = [0.10, 0.16, 0.24];
   var seen = [0.34, 0.5, 0.68];
@@ -7924,9 +8102,9 @@ function welcomeMock(kind) {
       + '<rect x="24" y="92" width="104" height="5" rx="2" fill="currentColor" opacity=".3"/></svg>';
     return box;
   }
-  // The four skins: the ground of the page and the words upon it.
-  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', silver: '#2b2b2b', corporate: '#0d0d0d' };
-  var inks = { light: '#232323', dark: '#e8e8e8', silver: '#dcdcdc', corporate: '#e6e6e6' };
+  // The five skins: the ground of the page and the words upon it.
+  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', silver: '#2b2b2b', corporate: '#0d0d0d', neon: '#0a0c1c' };
+  var inks = { light: '#232323', dark: '#e8e8e8', silver: '#dcdcdc', corporate: '#e6e6e6', neon: '#cfe4ff' };
   var box2 = document.createElement('div');
   box2.innerHTML = '<span class="wswatch" style="background:' + grounds[kind] + '">'
     + '<svg viewBox="0 0 62 40" width="62" height="40" xmlns="http://www.w3.org/2000/svg">'
@@ -7973,7 +8151,10 @@ function welcomeTick(where, name, said) {
   var mark = document.createElement('input');
   mark.type = 'checkbox';
   mark.checked = !!welcomeChosen[where];
-  mark.addEventListener('change', function () { welcomeChosen[where] = mark.checked; });
+  mark.addEventListener('change', function () {
+    welcomeChosen[where] = mark.checked;
+    if (where === 'theme_pixel') { showPixelArt(mark.checked); }
+  });
   var word = make('span');
   word.textContent = name + ' -- ' + said;
   row.appendChild(mark);
@@ -8015,13 +8196,18 @@ function drawWelcome() {
   long.appendChild(longOpts);
   screen.appendChild(long);
 
-  var skins = welcomePart('The skin of the pages', 'Pale, dark, the grey and white of the silver skin, or the near black of the corporate one.');
+  var skins = welcomePart('The skin of the pages', 'Pale, dark, the grey and white of the silver skin, the near black of the corporate one, or the lit blue-black of the neon one.');
   var skinCards = make('div', 'wcards');
   skinCards.appendChild(welcomeCard('theme', 'light', 'light', 'Light', ''));
   skinCards.appendChild(welcomeCard('theme', 'dark', 'dark', 'Dark', ''));
   skinCards.appendChild(welcomeCard('theme', 'silver', 'silver', 'Silver', ''));
   skinCards.appendChild(welcomeCard('theme', 'corporate', 'corporate', 'Corporate', ''));
+  skinCards.appendChild(welcomeCard('theme', 'neon', 'neon', 'Neon', ''));
   skins.appendChild(skinCards);
+  var artOpts = make('div', 'wopts');
+  artOpts.appendChild(welcomeTick('theme_pixel', 'Pixel-art look',
+    'the skin you chose, drawn out of squares instead of smooth edges.'));
+  skins.appendChild(artOpts);
   screen.appendChild(skins);
 
   var go = make('button', 'wgo');
@@ -8036,7 +8222,8 @@ function showWelcome() {
   if (!welcomeChosen) {
     welcomeChosen = {
       display: 'plain', seamless: false, grow_thinking: true,
-      tools_in_thinking: true, chapters: true, summary: true, theme: themeWord || 'light'
+      tools_in_thinking: true, chapters: true, summary: true, theme: themeWord || 'light',
+      theme_pixel: false
     };
   }
   var made = make('div', 'welcome');
@@ -8066,6 +8253,7 @@ function postWelcome(cfg) {
   cfg.chat_chapters = !!welcomeChosen.chapters;
   cfg.chat_compaction = welcomeChosen.summary ? 'handoff' : 'off';
   cfg.theme = welcomeChosen.theme;
+  cfg.theme_pixel = !!welcomeChosen.theme_pixel;
   cfg.welcomed = true;
   ask('config', { config: cfg }).then(function () {
     hideWelcome();
@@ -13312,23 +13500,28 @@ function showSetTab(tab) {
 
 // ------------------------------------------------------------------ skins
 //
-// The four skins of the page. The pale skin is the ground the page is cut for and
-// puts no mark on the body; the dark skin and the corporate skin each put one, and
-// every colour of the page comes from the variables stood under that mark. The word
-// of the skin comes with the state, so the window and the browser page follow the
-// one setting, and change at once.
+// The five skins of the page. The pale skin is the ground the page is cut for and
+// puts no mark on the body; each of the other four puts one, and every colour of the
+// page comes from the variables stood under that mark. The word of the skin comes
+// with the state, so the window and the browser page follow the one setting, and
+// change at once. Every skin has a second form drawn out of squares, which is a
+// word of its own beside the skin and changes the same way.
 
 var themeWord = 'light';   // the skin the page stands in
 
-// The four skins, in the order the sheet and the mark of the browser page step
+// The five skins, in the order the sheet and the mark of the browser page step
 // through them.
-var SKINS = ['light', 'dark', 'silver', 'corporate'];
+var SKINS = ['light', 'dark', 'silver', 'corporate', 'neon'];
 
-// The word of a skin out of any words: one of the four stands, and anything else
+// The word of a skin out of any words: one of the five stands, and anything else
 // is the pale skin, which is the one a new set of settings stands on.
 function themeOf(word) {
   return SKINS.indexOf(word) >= 0 ? word : 'light';
 }
+
+// Whether the skin that stands is drawn in its pixel-art form. The form is a word
+// of its own beside the skin, so every skin has a standard and a pixel-art look.
+var pixelArt = false;
 
 // Put a skin on the page. The mark of the old two-way switch is kept in step, for a
 // part of the page may still ask which of the two it was on.
@@ -13338,14 +13531,16 @@ function showTheme(word) {
   document.body.classList.toggle('dark', themeWord === 'dark');
   document.body.classList.toggle('silver', themeWord === 'silver');
   document.body.classList.toggle('corporate', themeWord === 'corporate');
+  document.body.classList.toggle('neon', themeWord === 'neon');
   // The colour of what falls behind the words is read out of the skin, so a new
   // skin is given new leaves. The state is read again and again while the program
   // runs, so this is only asked for when the skin really moved.
+  if (was !== themeWord) { showThemeButtons(); }
   if (window.fallSkin
     && (was !== themeWord || !(window.fall && window.fall.tones))) { fallSkin(); rainSkin(); }
 }
 
-// The four marks of the sheet, so the switch stands at the skin in use.
+// The five marks of the sheet, so the switch stands at the skin in use.
 function showThemeButtons() {
   SKINS.forEach(function (one) {
     var node = byId('fTheme' + one.charAt(0).toUpperCase() + one.slice(1));
@@ -13353,13 +13548,38 @@ function showThemeButtons() {
   });
 }
 
-// One of the four buttons of the sheet. The skin goes on at once, and is written to
-// the program beside: nothing of a server moves with a skin.
+// One of the five buttons of the sheet. The skin goes on at once, and is written to
+// the program beside: nothing of a server moves with a skin. The pixel-art form
+// travels with it, so a skin and a form chosen together are written in one go.
 function chooseTheme(word) {
   showTheme(word);
   showThemeButtons();
   if (progCfg) { progCfg.theme = themeWord; progCfg.dark_mode = themeWord === 'dark'; }
-  post('/api/theme', { theme: themeWord });
+  post('/api/theme', { theme: themeWord, pixel: pixelArt });
+}
+
+// Put the pixel-art form of the skin on the page, or take it off. The colours of
+// the skin are not touched: the form is a shape laid over them.
+function showPixelArt(on) {
+  pixelArt = !!on;
+  document.body.classList.toggle('pixel', pixelArt);
+  showArtButtons();
+}
+
+// The two marks of the sheet, so the switch stands at the form in use.
+function showArtButtons() {
+  var regular = byId('fThemeStandard');
+  var pixel = byId('fThemePixel');
+  if (regular) { regular.classList.toggle('on', !pixelArt); }
+  if (pixel) { pixel.classList.toggle('on', pixelArt); }
+}
+
+// One of the two buttons of the form. It goes on at once, over the skin that
+// stands, and is written to the program beside.
+function chooseThemeArt(on) {
+  showPixelArt(on);
+  if (progCfg) { progCfg.theme_pixel = pixelArt; }
+  post('/api/theme', { theme: themeWord, pixel: pixelArt });
 }
 
 // Which of the three marks of the sheet stands at the background of the chat.
@@ -13499,8 +13719,10 @@ function loadProgram() {
     byId('fContexts').value = cfg.contexts_dir || '';
     byId('fPort').value = cfg.remote_port || '';
     byId('fUpnp').checked = !!cfg.upnp_enabled;
-    // The switch of the skin stands at the skin in use, which the state brought.
+    // The switch of the skin stands at the skin in use, which the state brought,
+    // and so does the switch of its form.
     showThemeButtons();
+    showArtButtons();
     byId('fFoldThink').checked = cfg.chat_collapse_thinking !== false;
     byId('fFoldTools').checked = cfg.chat_collapse_tools !== false;
     byId('fGrowThink').checked = cfg.chat_grow_thinking !== false;
@@ -14122,6 +14344,7 @@ function readProgram() {
   cfg.remote_port = isNaN(port) ? (cfg.remote_port || 8723) : port;
   cfg.upnp_enabled = byId('fUpnp').checked;
   cfg.theme = themeWord;
+  cfg.theme_pixel = pixelArt;
   cfg.dark_mode = themeWord === 'dark';
   cfg.chat_collapse_thinking = byId('fFoldThink').checked;
   cfg.chat_collapse_tools = byId('fFoldTools').checked;
@@ -14683,6 +14906,9 @@ byId('fThemeLight').addEventListener('click', function () { chooseTheme('light')
 byId('fThemeDark').addEventListener('click', function () { chooseTheme('dark'); });
 byId('fThemeSilver').addEventListener('click', function () { chooseTheme('silver'); });
 byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('corporate'); });
+byId('fThemeNeon').addEventListener('click', function () { chooseTheme('neon'); });
+byId('fThemeStandard').addEventListener('click', function () { chooseThemeArt(false); });
+byId('fThemePixel').addEventListener('click', function () { chooseThemeArt(true); });
 byId('fBackgroundNone').addEventListener('click', function () { chooseBackground('none'); });
 byId('fBackgroundRain').addEventListener('click', function () { chooseBackground('rain'); });
 byId('fBackgroundLeaves').addEventListener('click', function () { chooseBackground('leaves'); });
