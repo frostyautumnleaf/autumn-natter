@@ -39,6 +39,14 @@ pub const COMPACTION_OFF: &str = "off";
 // The handoff summary. This is what a new set of settings stands on.
 pub const COMPACTION_HANDOFF: &str = "handoff";
 
+// What falls in the background of a chat. Nothing falls unless the user asks for
+// it, so this is what a new set of settings stands on.
+pub const BACKGROUND_NONE: &str = "none";
+// Autumn leaves fall behind the chat, drawn from the leaf of the mark of the
+// program, and only while a model is answering. The effect is drawn by the page;
+// the engine only carries the word.
+pub const BACKGROUND_LEAVES: &str = "leaves";
+
 // The summarisation is set going by a share of the room of the talk.
 pub const COMPACT_BY_PERCENT: &str = "percent";
 // The summarisation is set going by the least room that must be left over.
@@ -389,6 +397,12 @@ pub struct Config {
     // asked without scrolling the whole of the talk over.
     #[serde(default = "on_by_default")]
     pub chat_userline: bool,
+    // What falls behind the words of a chat: "none", or "leaves" for autumn leaves
+    // drawn from the leaf of the mark of the program, which fall only while a model
+    // is answering. The leaves are drawn by the page, and they never catch the
+    // hand.
+    #[serde(default = "default_background")]
+    pub chat_background: String,
     // Carry a message you sent into the chat with a little movement: the words
     // leave the box, go over the chat and unfold into the message itself. The
     // movement is only on the screen. Nothing about the sending waits for it,
@@ -504,6 +518,11 @@ fn default_compaction() -> String {
     String::from(COMPACTION_HANDOFF)
 }
 
+// No background of its own.
+fn default_background() -> String {
+    String::from(BACKGROUND_NONE)
+}
+
 // Which way a new set of settings sets the summarisation going.
 fn default_compact_by() -> String {
     String::from(COMPACT_BY_PERCENT)
@@ -515,6 +534,16 @@ pub fn sanitize_compaction(value: &str) -> String {
     match value.trim() {
         COMPACTION_OFF => String::from(COMPACTION_OFF),
         _ => String::from(COMPACTION_HANDOFF),
+    }
+}
+
+// The background of a chat, from the word the window sent. Only the names the
+// page can draw are kept: a word from an older window, or one the page cannot
+// draw, leaves the chat on the ground it always had.
+pub fn sanitize_background(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        BACKGROUND_LEAVES => String::from(BACKGROUND_LEAVES),
+        _ => String::from(BACKGROUND_NONE),
     }
 }
 
@@ -800,6 +829,7 @@ impl Default for Config {
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_userline: true,
+            chat_background: String::from(BACKGROUND_NONE),
             chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,
@@ -1275,6 +1305,7 @@ mod tests {
         assert!(cfg.chat_colour_text);
         assert!(cfg.chat_chapters);
         assert!(cfg.chat_userline);
+        assert_eq!(cfg.chat_background, BACKGROUND_NONE);
         assert!(cfg.chat_send_anim);
         assert!(cfg.chat_context_files);
         // The compressed shape is asked for, not given: a config that says
@@ -1707,5 +1738,18 @@ mod tests {
             ..Config::default()
         };
         assert_eq!(compaction_mark(&none_left, 8192), None);
+    }
+
+    // The background of a chat is one of the names the page can draw. A word
+    // written another way is accepted, and a word the page cannot draw - from an
+    // older or a newer window, or from a hand in the settings file - leaves the
+    // chat on the ground it always had.
+    #[test]
+    fn a_background_the_page_cannot_draw_is_no_background() {
+        assert_eq!(sanitize_background(BACKGROUND_LEAVES), BACKGROUND_LEAVES);
+        assert_eq!(sanitize_background("  Leaves  "), BACKGROUND_LEAVES);
+        assert_eq!(sanitize_background("SNOW"), BACKGROUND_NONE);
+        assert_eq!(sanitize_background(""), BACKGROUND_NONE);
+        assert_eq!(Config::default().chat_background, BACKGROUND_NONE);
     }
 }

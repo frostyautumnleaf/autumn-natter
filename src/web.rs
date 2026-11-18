@@ -447,6 +447,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "chapters": snap.chat_chapters,
             // The line of the user's own messages at the right of the chat.
             "userline": snap.chat_userline,
+            // What falls behind the words of the chat. The page draws it, and
+            // stops again when the drawing is turned off.
+            "background": &snap.chat_background,
             // Whether a message you sent is carried into the chat with a
             // little movement. The movement is all on the screen, so the
             // engine only says that the switch stands.

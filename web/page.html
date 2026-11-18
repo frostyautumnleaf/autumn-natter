@@ -364,8 +364,15 @@ body.home .stage { display: none; }
 .stage { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 
 /* ------------------------------------------------------------ the thread */
+/* What falls behind the words of the chat. The canvas covers the whole of the
+   place the chat stands in and stands under the thread, so a leaf is never over a
+   word and never takes a click from one. */
+.fall {
+  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
+  pointer-events: none;
+}
 .thread {
-  position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain;
+  position: absolute; inset: 0; z-index: 1; overflow-y: auto; overscroll-behavior: contain;
   padding: 22px 0 26px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
 }
 /* The chat makes room at the left when a chat has chapters, so the line never
@@ -2611,6 +2618,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
   <!-- The chat in use. The other chats stand in the side bar at the left, and
      are not drawn beside it. -->
   <div class="stage" id="stage">
+    <!-- What falls behind the words of the chat. The canvas covers the whole of
+         the place the chat stands in, stands under every message, and is told by
+         the Chatting setting which way it falls. It never catches the hand. -->
+    <canvas class="fall" id="fall" aria-hidden="true"></canvas>
     <!-- The chapters the model marked. They stand out of the words, on a line
          at the left of the chat: one node for the start of one chapter. -->
     <div class="chapters hidden" id="chapters"></div>
@@ -3011,6 +3022,12 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
         <div class="fld"><span class="lbl">Message timeline</span>
           <span class="sub">A vertical line hard against the right edge of the chat, with one short dash for every message you sent. A dash says which message it is and when you sent it, and shows part of it and what hung on it; clicking one scrolls there. Turn this off to hide the line.</span>
           <div class="ctl"><input id="fUserline" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Background of the chat</span>
+          <span class="sub">What falls behind the words of the chat. Nothing falls by default. Autumn leaves are the leaf of the mark of the program, in a colour just off the ground of the chat - a shade darker on a pale skin, a shade lighter on a dark one - turning as they come down. They fall only while a model is answering, and stop when it stops.</span>
+          <div class="ctl"><div class="seg" id="fBackground" role="group" aria-label="What falls behind the words of the chat">
+              <button class="on" id="fBackgroundNone" type="button">Nothing</button>
+              <button id="fBackgroundLeaves" type="button">Autumn leaves</button>
+            </div></div></div>
 
         <div class="sec">Custom system prompt</div>
         <div class="fld wide"><span class="lbl">System prompt</span>
@@ -3421,7 +3438,7 @@ var cur = null;        // the last state
 // into a file of its own. It stands in the Chatting section of the settings.
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
   highlight: true, bold: true, colour: true, seamless: false, chapters: true, userline: true,
-  send_anim: true, paste: 6000, width: 780 };
+  send_anim: true, paste: 6000, width: 780, background: 'none' };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -3536,6 +3553,11 @@ function draw(s) {
   el.dot.className = 'pulse' + (busy ? ' busy' : '') + (s.generating ? ' stop' : '');
   el.status.textContent = s.status;
   el.status.className = 'status' + (s.generating ? ' hot' : '');
+  // The leaves of the background fall only while an answer is being written. The
+  // going is asked after again with every look at the state, so a chat that came
+  // back, or a window that was made bigger, is followed at once.
+  fallBusy(!!s.generating);
+  fallGoOn();
   drawRate(s);
   el.send.title = sendTitle(s);
   el.newchat.style.display = s.generating ? 'none' : '';
@@ -3601,6 +3623,330 @@ function readChatting(s) {
   chatting.paste = chat.paste_limit || 6000;
   chatting.width = Number(chat.width) || CHAT_LEAST;
   setChatWidth();
+  // What falls behind the words of the chat. The page only says which way the
+  // setting stands: the canvas works out the rest for itself.
+  chatting.background = String(chat.background || 'none');
+  fallWant(chatting.background);
+}
+
+// ------------------------------------------------------------ the background
+//
+// What falls behind the words of the chat.
+//
+// One thing falls at a time, and the Chatting setting says which: nothing, which
+// is what the program stands on, or autumn leaves. The leaves fall only while a
+// model is answering and stop again when it stops. They are drawn on a canvas that
+// covers the place the chat stands in, behind every message, so a falling leaf
+// never catches the hand and never holds a word of the chat back.
+//
+// A leaf is the leaf of the program's own mark: the body of five lobes, its midrib
+// and veins, and the stalk, taken out of `autumn-natter.svg` and drawn as the
+// canvas draws a path. Each one is turned and comes down at its own pace, and it is
+// coloured from the skin in use - a shade darker than the ground of a pale skin, a
+// shade lighter than the ground of a dark one - which is the only way a leaf of the
+// same colour as the ground can be seen against it.
+var fall = {
+  want: 'none', busy: false, raf: 0, last: 0, grown: 0, ctx: null, canvas: null,
+  w: 0, h: 0, dpr: 1, tones: null, paths: null, leaves: []
+};
+
+// The body of the leaf, its stalk, and the midrib with the veins of it, as they
+// stand in the mark of the program. The numbers are those of the mark's own square
+// of 128, and a leaf is drawn by putting that square where the leaf is and turning
+// it. The body is the shape of the mark whole, so a leaf of the chat is the mark of
+// the program, and nothing else.
+var LEAF_MARK = 128;
+var LEAF_BODY = 'M64 14 C72 16 84 24 92 34 C90 40 84 42 78 44 C88 48 104 50 112 58'
+  + ' C110 64 100 66 92 68 C100 74 96 84 98 90 C94 96 78 100 70 96 C67 94 65 91 64 88'
+  + ' C63 91 61 94 58 96 C50 100 34 96 30 90 C32 84 28 74 36 68 C28 66 18 64 16 58'
+  + ' C24 50 40 48 50 44 C44 42 38 40 36 34 C44 24 56 16 64 14 Z';
+var LEAF_STALK = { d: 'M64 86 C63 96 62 106 59 115', wide: 4.4 };
+var LEAF_VEINS = [
+  { d: 'M64 86 L64 21', wide: 2.4 },
+  { d: 'M64 74 L89 37', wide: 1.9 },
+  { d: 'M64 74 L39 37', wide: 1.9 },
+  { d: 'M64 79 L107 58', wide: 1.9 },
+  { d: 'M64 79 L21 58', wide: 1.9 },
+  { d: 'M64 84 L95 88', wide: 1.9 },
+  { d: 'M64 84 L33 88', wide: 1.9 }
+];
+
+// The sizes a leaf may be drawn at, in the squares of the mark. The same leaf at
+// three sizes stands for three distances from the eye, and the least is the
+// furthest off.
+var LEAF_SIZES = [26, 36, 46];
+
+// The least and the most leaves that may fall at once. The number is worked out of
+// the place they fall over, so a big window does not pay for a fuller sky than a
+// small one.
+var LEAF_LEAST = 5;
+var LEAF_MOST = 20;
+
+// The three numbers of a colour, out of the `#rrggbb` or the rgb(r, g, b) shape a
+// setting may hold it in. Nothing is answered for a shape that is neither, and the
+// colour below it is then kept.
+function fallNumbers(words) {
+  var text = String(words || '').trim();
+  if (text.charAt(0) === '#') {
+    var hex = text.slice(1);
+    if (hex.length === 3) { hex = hex.replace(/(.)/g, '$1$1'); }
+    if (hex.length !== 6 || /[^0-9a-fA-F]/.test(hex)) { return null; }
+    return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16),
+      parseInt(hex.slice(4, 6), 16)];
+  }
+  var told = text.match(/-?[\d.]+/g);
+  if (!told || told.length < 3) { return null; }
+  return [Math.round(Number(told[0])), Math.round(Number(told[1])), Math.round(Number(told[2]))];
+}
+
+// A colour, written as the canvas asks for it.
+function fallCss(one) {
+  return 'rgb(' + one[0] + ', ' + one[1] + ', ' + one[2] + ')';
+}
+
+// A colour between two of them, as a share of the way from the first to the second.
+function fallMix(from, to, share) {
+  var at = Math.max(0, Math.min(1, share));
+  var out = [0, 0, 0];
+  for (var i = 0; i < 3; i++) {
+    out[i] = Math.round(from[i] + (to[i] - from[i]) * at);
+  }
+  return out;
+}
+
+// The colours of the leaves, read out of the skin in use. The ground of the chat
+// says which way they have to go: darker where the ground is pale, lighter where it
+// is near black. A skin that carries no colour of its own - the two skins of grey -
+// is mixed with grey, so a leaf of such a skin stays the shade of grey the skin is
+// made of. Three of them stand, so a screen of falling leaves is not all of one
+// shade.
+function fallTones() {
+  var look = getComputedStyle(document.body);
+  var ground = fallNumbers(look.getPropertyValue('--bg')) || [250, 242, 230];
+  var grey = document.body.classList.contains('silver')
+    || document.body.classList.contains('corporate');
+  var dark = (ground[0] * 299 + ground[1] * 587 + ground[2] * 114) / 1000 < 128;
+  var away = dark ? (grey ? [255, 255, 255] : [255, 238, 214])
+    : (grey ? [0, 0, 0] : [38, 24, 12]);
+  var tones = [];
+  var steps = [0.10, 0.145, 0.20];
+  for (var i = 0; i < steps.length; i++) {
+    var body = fallMix(ground, away, steps[i]);
+    tones.push({
+      body: fallCss(body),
+      // The midrib and the veins have to stand off the body of the leaf as they
+      // stand off it in the mark: deeper than the body, and no thicker than it is.
+      vein: fallCss(fallMix(body, away, 0.4)),
+      stalk: fallCss(fallMix(body, away, 0.34))
+    });
+  }
+  fall.tones = tones;
+  // The paths are kept for as long as the skin stands, and are made again when the
+  // skin changes.
+  fall.paths = null;
+}
+
+// The paths of the mark, made once, in the square of 128 the mark is drawn in.
+function fallPaths() {
+  if (!fall.tones) { fallTones(); }
+  if (fall.paths) { return fall.paths; }
+  var made = { body: new Path2D(LEAF_BODY), stalk: new Path2D(LEAF_STALK.d), veins: [] };
+  for (var i = 0; i < LEAF_VEINS.length; i++) {
+    made.veins.push({ path: new Path2D(LEAF_VEINS[i].d), wide: LEAF_VEINS[i].wide });
+  }
+  fall.paths = made;
+  return made;
+}
+
+// The size of the place the leaves fall over, and of the canvas that stands for it.
+// The canvas is kept at the size of the machine's own pixels, so the edge of a leaf
+// is as fine as the screen can make it.
+function fallSize() {
+  var stage = document.getElementById('stage');
+  var canvas = fall.canvas || document.getElementById('fall');
+  if (!stage || !canvas) { return false; }
+  var wide = Math.max(0, Math.round(stage.clientWidth));
+  var tall = Math.max(0, Math.round(stage.clientHeight));
+  var dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  if (wide === fall.w && tall === fall.h && dpr === fall.dpr) { return true; }
+  fall.w = wide;
+  fall.h = tall;
+  fall.dpr = dpr;
+  fall.canvas = canvas;
+  canvas.width = Math.max(1, Math.round(wide * dpr));
+  canvas.height = Math.max(1, Math.round(tall * dpr));
+  fall.ctx = canvas.getContext('2d');
+  fall.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return true;
+}
+
+// How many leaves the place they fall over is worth.
+function fallWanted() {
+  var room = Math.round((fall.w * fall.h) / 58000);
+  return Math.max(LEAF_LEAST, Math.min(LEAF_MOST, room));
+}
+
+// A leaf. One that has not appeared yet (`above`) comes in over the top of the
+// screen; the first of them are put down over the whole screen, so the leaves are
+// thick from the first moment of an answer. The pace, the way it turns, how much it
+// swings and which way it faces are given from its size, so a leaf that stands for a
+// nearer one falls faster, as it does out of doors.
+function fallSeed(above) {
+  // The size of a leaf and the shade of it go together, so that the leaves which
+  // stand for the nearer ones are further off the ground in shade as well as in
+  // breadth. The depth of a screen of them is told by the shade, and not by a leaf
+  // drawn thin.
+  var off = Math.floor(Math.random() * LEAF_SIZES.length);
+  var size = LEAF_SIZES[off];
+  return {
+    x: Math.random() * (fall.w + 140) - 70,
+    y: above ? -40 - Math.random() * 110 : Math.random() * fall.h,
+    size: size,
+    tone: off,
+    // The same leaf of the mark, the other way up, is a leaf turned over: enough
+    // difference that a screen of them is never read as one shape repeated.
+    turned: Math.random() < 0.5,
+    lean: 0.86 + Math.random() * 0.3,
+    angle: Math.random() * Math.PI * 2,
+    spin: (Math.random() - 0.5) * 1.5,
+    down: 16 + size * 0.9 + Math.random() * 14,
+    swing: Math.random() * 6.28,
+    rate: 0.3 + Math.random() * 0.8,
+    wide: 10 + Math.random() * 24,
+    drift: 5 + Math.random() * 12,
+    seen: above ? 0 : 1
+  };
+}
+
+// Whether leaves may be drawn at all: the setting asks for them, an answer is being
+// written, a chat stands open, and the machine has not been told to make few moves.
+function fallAsked() {
+  if (fall.want !== 'leaves' || !fall.busy || reduce) { return false; }
+  var stage = document.getElementById('stage');
+  if (!stage || stage.offsetParent === null) { return false; }
+  return fallSize();
+}
+
+// One leaf: the body of the mark, its midrib and veins, and the stalk. The square
+// of 128 the mark is drawn in is put where the leaf is and turned, so the leaf comes
+// out the shape of the mark at any size and at any angle, and its edges are as the
+// canvas draws any line.
+function fallDraw(one, tone) {
+  var paths = fallPaths();
+  var at = one.size / LEAF_MARK;
+  var ctx = fall.ctx;
+  ctx.save();
+  // A leaf is drawn solid. What stands between a leaf and the ground it is the
+  // colour of is the shade of its tone, and nothing else: a leaf drawn thin is not
+  // a faint leaf, it is a leaf seen through. Only the coming in of a leaf and its
+  // going out are answered with a share of the ground, over a part of a second.
+  ctx.globalAlpha = one.seen;
+  ctx.translate(one.x + Math.sin(one.swing) * one.wide, one.y);
+  ctx.rotate(one.angle);
+  ctx.scale(at * (one.turned ? -1 : 1), at * one.lean);
+  ctx.translate(-64, -64);
+  ctx.fillStyle = tone.body;
+  ctx.fill(paths.body);
+  ctx.strokeStyle = tone.vein;
+  ctx.lineCap = 'round';
+  for (var i = 0; i < paths.veins.length; i++) {
+    ctx.lineWidth = paths.veins[i].wide;
+    ctx.stroke(paths.veins[i].path);
+  }
+  ctx.strokeStyle = tone.stalk;
+  ctx.lineWidth = LEAF_STALK.wide;
+  ctx.stroke(paths.stalk);
+  ctx.restore();
+}
+
+// Draw one frame. The leaves that stand are moved and drawn again; while an answer
+// is being written the screen is filled back up to the number of leaves it is worth,
+// and when it is not, nothing takes the place of a leaf that went.
+function fallStep(now) {
+  fall.raf = 0;
+  // The time since the last frame, kept between a quarter of a sixtieth and a
+  // twentieth of a second. A machine that hands out the same moment twice - a page
+  // that is not being painted, which headless browsers do - is then still answered
+  // with a step, and not with the leaves standing still and going out.
+  var gone = fall.last ? (now - fall.last) / 1000 : 1 / 60;
+  var dt = Math.max(1 / 240, Math.min(0.05, gone));
+  fall.last = now;
+  var asked = fallAsked();
+  if (!fallSize() || !fall.ctx) { fall.leaves.length = 0; return; }
+  // The colours of the leaves are read out of the skin in use. A page that never
+  // saw the skin move has none of them yet, so they are read here, before a leaf
+  // is drawn, and the first frame of an answer is coloured as its own skin.
+  if (!fall.tones) { fallTones(); }
+  if (asked) {
+    var want = fallWanted();
+    while (fall.leaves.length < want) { fall.leaves.push(fallSeed(fall.grown > 2)); }
+    fall.grown += 1;
+  } else {
+    fall.grown = 0;
+  }
+  fall.ctx.clearRect(0, 0, fall.w, fall.h);
+  var kept = [];
+  for (var i = 0; i < fall.leaves.length; i++) {
+    var one = fall.leaves[i];
+    // A leaf comes in over a third of a second and goes out in half one, so an
+    // answer that stopped is not answered with leaves vanishing out of mid-air.
+    one.seen = asked ? Math.min(1, one.seen + dt / 0.35)
+      : Math.max(0, one.seen - dt / 0.45);
+    // A leaf that has not come in yet is kept while an answer is being written, so
+    // it is never thrown away before it was ever seen.
+    if (!asked && one.seen <= 0) { continue; }
+    one.swing += dt * one.rate;
+    one.angle += dt * one.spin;
+    one.x += one.drift * dt;
+    one.y += one.down * dt;
+    if (one.y > fall.h + 60) { continue; }
+    fallDraw(one, fall.tones[one.tone]);
+    kept.push(one);
+  }
+  fall.leaves = kept;
+  if (asked || kept.length) {
+    fall.raf = requestAnimationFrame(fallStep);
+  } else {
+    // The last leaf has fallen past the bottom: the going stops itself, and the
+    // place the leaves fell over is cleared once and left alone.
+    fall.last = 0;
+    fall.ctx.clearRect(0, 0, fall.w, fall.h);
+  }
+}
+
+// Let the going on or off, as the setting and the state of the answer now say.
+// Nothing is started twice. This is asked after again with every look at the state,
+// so a chat that came back, or a window that was made bigger, is followed at once.
+function fallGoOn() {
+  if (fall.raf) { return; }
+  if (fallAsked() || fall.leaves.length) {
+    fall.last = 0;
+    fall.raf = requestAnimationFrame(fallStep);
+  }
+}
+
+// The setting said which way the background of the chat stands.
+function fallWant(word) {
+  var asked = (word === 'leaves') ? 'leaves' : 'none';
+  if (asked === fall.want) { return; }
+  fall.want = asked;
+  fallGoOn();
+}
+
+// An answer came in, or stopped coming in. The leaves fall only while one is being
+// written.
+function fallBusy(on) {
+  var asked = !!on;
+  if (asked === fall.busy) { return; }
+  fall.busy = asked;
+  fallGoOn();
+}
+
+// The skin changed, so the colour of the leaves has to be read again. The leaves
+// that stand keep going: they are drawn out of the new colours from the next frame.
+function fallSkin() {
+  fallTones();
+  fallGoOn();
 }
 
 // The numbers of the meter are written with a comma in the place of a
@@ -12415,10 +12761,16 @@ function themeOf(word) {
 // Put a skin on the page. The mark of the old two-way switch is kept in step, for a
 // part of the page may still ask which of the two it was on.
 function showTheme(word) {
+  var was = themeWord;
   themeWord = themeOf(word);
   document.body.classList.toggle('dark', themeWord === 'dark');
   document.body.classList.toggle('silver', themeWord === 'silver');
   document.body.classList.toggle('corporate', themeWord === 'corporate');
+  // The colour of what falls behind the words is read out of the skin, so a new
+  // skin is given new leaves. The state is read again and again while the program
+  // runs, so this is only asked for when the skin really moved.
+  if (window.fallSkin
+    && (was !== themeWord || !(window.fall && window.fall.tones))) { fallSkin(); }
 }
 
 // The four marks of the sheet, so the switch stands at the skin in use.
@@ -12436,6 +12788,29 @@ function chooseTheme(word) {
   showThemeButtons();
   if (progCfg) { progCfg.theme = themeWord; progCfg.dark_mode = themeWord === 'dark'; }
   post('/api/theme', { theme: themeWord });
+}
+
+// Which of the two marks of the sheet stands at the background of the chat.
+function showBackgroundButtons(word) {
+  var leaves = String(word || 'none') === 'leaves';
+  var none = byId('fBackgroundNone');
+  var marks = byId('fBackgroundLeaves');
+  if (none) { none.classList.toggle('on', !leaves); }
+  if (marks) { marks.classList.toggle('on', leaves); }
+}
+
+// The word the background of the chat stands at in the sheet.
+function backgroundWord() {
+  var marks = byId('fBackgroundLeaves');
+  return (marks && marks.classList.contains('on')) ? 'leaves' : 'none';
+}
+
+// One of the two marks. The tab is marked as holding words never written, as every
+// other field of it is: the leaves do not begin until the settings are written, so
+// what the user sees afterwards is what the program was told to keep.
+function chooseBackground(word) {
+  showBackgroundButtons(word);
+  progDirty = true;
 }
 
 // Which of the two numbers of a summarisation stands under the way it is
@@ -12579,6 +12954,7 @@ function loadProgram() {
     buildPromptLines(cfg.chat_system_prompts_on || []);
     byId('fTimeline').checked = cfg.chat_timeline !== false;
     byId('fUserline').checked = cfg.chat_userline !== false;
+    showBackgroundButtons(cfg.chat_background);
     byId('fSendAnim').checked = cfg.chat_send_anim !== false;
     // The note is what the program found when it asked its own jail whether it
     // keeps what it promises.
@@ -13194,6 +13570,7 @@ function readProgram() {
   cfg.chat_system_prompts_on = checkedPromptIds();
   cfg.chat_timeline = byId('fTimeline').checked;
   cfg.chat_userline = byId('fUserline').checked;
+  cfg.chat_background = backgroundWord();
   cfg.chat_send_anim = byId('fSendAnim').checked;
   return cfg;
 }
@@ -13719,6 +14096,8 @@ byId('fThemeLight').addEventListener('click', function () { chooseTheme('light')
 byId('fThemeDark').addEventListener('click', function () { chooseTheme('dark'); });
 byId('fThemeSilver').addEventListener('click', function () { chooseTheme('silver'); });
 byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('corporate'); });
+byId('fBackgroundNone').addEventListener('click', function () { chooseBackground('none'); });
+byId('fBackgroundLeaves').addEventListener('click', function () { chooseBackground('leaves'); });
 
 ['mCtx', 'mKv', 'mLoad', 'mCheckpoints', 'mCacheRam', 'mCachePrompt', 'mNoShift',
   'mTemp',

@@ -1445,6 +1445,9 @@ pub struct Snap {
     pub chat_chapters: bool,
     // The line of the user's own messages, at the right of the chat.
     pub chat_userline: bool,
+    // What falls behind the words of a chat: "none", or "leaves". The page draws
+    // it; the engine only carries the word out of the settings.
+    pub chat_background: String,
     // Whether a message the user sent is carried into the chat with a little
     // movement. The movement is only on the screen, so the engine only tells
     // the page that the switch stands.
@@ -3732,6 +3735,7 @@ impl State {
             chat_silent_retries: self.cfg.chat_silent_retries,
             chat_chapters: self.cfg.chat_chapters,
             chat_userline: self.cfg.chat_userline,
+            chat_background: self.cfg.chat_background.clone(),
             chat_send_anim: self.cfg.chat_send_anim,
             chat_context_files: self.cfg.chat_context_files,
             chat_context_compression: self.cfg.chat_context_compression,
@@ -5779,6 +5783,7 @@ impl Snap {
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_userline: true,
+            chat_background: String::from(config::BACKGROUND_NONE),
             chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,
