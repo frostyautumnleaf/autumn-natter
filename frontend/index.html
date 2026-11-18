@@ -2458,6 +2458,10 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 .srow.on { background: var(--accent-soft); border-color: var(--accent-line); }
 .srow .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; display: none; }
 .srow.on .dot { display: block; }
+/* A chat that is being answered wears a beating mark, whether the window looks
+   at it or not, for several chats are answered at the same time when the model
+   was started with room for that many answers. */
+.srow.work .dot { display: block; background: var(--strong); animation: beat 1.1s ease-in-out infinite; }
 .srow .stitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 13px; color: var(--text); }
 .srow:hover .stitle { color: var(--ink); }
@@ -3631,7 +3635,9 @@ function draw(s) {
   drawRate(s);
   el.status.className = 'status' + (s.generating ? ' hot' : '');
   el.send.title = sendTitle(s);
-  el.newchat.style.display = s.generating ? 'none' : '';
+  // A new chat is started, and another chat opened, while an answer is being
+  // written: the model answers as many chats at once as its setting allows, so
+  // nothing is hidden away for the length of one answer.
 
   // The round mark. It is dull while there is nothing to send, and it turns
   // into the stop mark while an answer comes in. The files hung on the
@@ -14546,6 +14552,16 @@ function sidePicture(path, cls) {
   return svg;
 }
 
+// Whether the chat named is being answered now. The state of the window names
+// the chats that are at work by their id, because more than one of them may be
+// answered at the same time, and the mark of the open chat alone would say
+// nothing of the rest.
+function workingNow(id) {
+  var at = (lastView && lastView.working) || [];
+  for (var n = 0; n < at.length; n++) { if (at[n] === id) { return true; } }
+  return false;
+}
+
 var PICS = {
   chev: 'M6 9.5l6 6 6-6',
   folderOpen: 'M3 7v12h18V9H11L9 7H3z',
@@ -14570,6 +14586,10 @@ function sideChatRow(c, where, at) {
   var open = (lastView && lastView.chat_id) ? lastView.chat_id : null;
   if (open ? c.id === open : !!c.active) { row.classList.add('on'); }
   if (c.pinned) { row.classList.add('pin'); }
+  if (workingNow(c.id)) {
+    row.classList.add('work');
+    row.title = 'This chat is being answered';
+  }
   if (side.fadeFrom >= 0 && at >= side.fadeFrom) { row.classList.add('fadein'); }
   row.appendChild(sideNode('span', 'dot'));
   row.appendChild(sideNode('span', 'stitle', c.title || 'A new chat'));
@@ -14680,7 +14700,10 @@ function sideShape() {
   var mores = Object.keys(side.more).sort().map(function (k) {
     return k + (side.more[k] ? '1' : '0');
   }).join(',');
-  return [listsGot, lastView ? lastView.chat_id : '', side.arch ? 'a' : '-', side.w,
+  // The chats that are at work are part of the shape, so the bar is made anew
+  // when an answer starts or ends in any of them.
+  var works = ((lastView && lastView.working) || []).slice().sort().join(',');
+  return [listsGot, lastView ? lastView.chat_id : '', works, side.arch ? 'a' : '-', side.w,
     side.open ? 'o' : '-', side.window, folds, mores].join('|');
 }
 

@@ -173,38 +173,46 @@ enum Ended {
 
 // Work for the worker thread.
 //
-// Only a change of the server itself is work here. The thinking mode, the
+// Every turn names the chat it belongs to, so two chats may be answered at the
+// same time and one chat is never answered twice over. Only a change of the
+// server itself asks for the model to be loaded again: the thinking mode, the
 // choice of keeping the thinking, the tools of the chat and the jail of the
-// sandbox send no word to the worker at all: each of them is said with the ask
-// it belongs to, so the model on a running server is never loaded again
-// because a badge of the chat box moved.
+// sandbox are said with the ask they belong to, so a badge of the chat box never
+// costs the loading of the model over again.
 enum Job {
-    // The user asked something, with the files of the message beside it.
-    Prompt(SentMessage),
-    // Another model is wanted, so the running server must go.
+    // The user asked something in one chat, with the files of the message beside
+    // it.
+    Prompt { chat: String, sent: SentMessage },
+    // Another model is wanted, so the running server must go. It goes when no
+    // chat is being answered on it, which is what lets a changed model stand for
+    // the next turn instead of cutting the turn that is on the way.
     ModelChanged,
-    // Settings changed, so a server must not stay with the old values.
+    // The settings a server is started with moved, so the run must not keep the
+    // old values. The same rule as for another model.
     SettingsChanged,
-    // The user asked for the handoff summary of the open chat to be written
-    // again, after one that never came back.
-    Handoff,
-    // The user asked for the answer of a message again. The talk was cut back
-    // to the message before the ask, so the worker has nothing to look at but the
+    // The user asked for the handoff summary of one chat to be written again,
+    // after one that never came back.
+    Handoff(String),
+    // The user asked for the answer of one chat again. The talk was cut back to
+    // the message before the ask, so the worker has nothing to look at but the
     // talk as it stands.
-    Retry,
-    // The user asked for an answer they stopped to be gone on with. The id is
-    // the answer at the end of the talk, and the ask is the talk as it stands.
-    Resume(String),
-    // The waiting list of the chat that stands open has a message to send, and
-    // the chat is idle. The worker sends it as it sends a message of the user,
-    // which is what lets a list keep going with no page watching it.
-    QueueStep,
-    // The user added, changed or asked to look again at one server of their
-    // own, so the tools it has to offer are read again.
+    Retry(String),
+    // The user asked for an answer they stopped to be gone on with. The id is the
+    // answer at the end of the talk of that chat.
+    Resume { chat: String, id: String },
+    // The user added, changed or asked to look again at one server of their own,
+    // so the tools it has to offer are read again.
     McpLook(String),
+    // A turn of this chat came to an end: the chat is free again and a place at
+    // the model stands open.
+    Done(String),
+    // Look again at what may be begun: the work that waited for a place at the
+    // model, and the waiting lists of the chats that stand idle.
+    Tick,
     // Leave the process, after the model is unloaded.
     Shutdown,
 }
+
 
 // What a server has to be for the chat in hand: the model it loaded, and
 // nothing else. A running server that stands for the same model answers the
@@ -1377,6 +1385,10 @@ pub struct Snap {
     // shown to the user.
     pub summarising: bool,
     pub busy: bool,
+    // The chats that are being answered, by their id. The side bar puts a mark on
+    // the row of these chats, so the user sees where the model is at work while
+    // another chat stands open.
+    pub working: Vec<String>,
     pub code_enabled: bool,
     // True when the open chat is working in planning mode: the model plans the
     // work and writes it to its plan file, and does none of the work itself.
@@ -1566,6 +1578,128 @@ pub struct Snap {
     pub structure_rev: u64,
 }
 
+// What one chat holds while it answers. Every field here belongs to a single
+// chat: the text arriving from the model, the context meter, the question the
+// model is waiting on, the tool call that is running, and whether this chat is
+// answering at all. Two chats may answer at the same time, so none of it may be
+// shared between them. The clocks are used only to measure thinking, progress and
+// speed, and are private to the engine.
+#[derive(Clone, Debug, Default)]
+pub struct ChatLive {
+    // True while this chat is being answered. Another chat may be answering at the
+    // same time, so this is held per chat and not for the program as a whole.
+    pub generating: bool,
+    // True while the program is writing this chat's handoff summary. Its words are
+    // never shown, so no live answer is drawn while it stands; the heading of the
+    // summarisation and the status line say that the program is at work.
+    pub summarising: bool,
+    // Text the model is writing right now.
+    pub live_text: String,
+    // The model's reasoning, streamed while an answer comes in.
+    pub live_reasoning: String,
+    // Whether the thinking that came with the live answer has stopped. The head of
+    // the panel says how long it took once it has.
+    pub live_thought_done: bool,
+    // How long the thinking of the live answer lasted, in milliseconds.
+    pub live_thought_ms: u64,
+    // How far the server is with the words it was sent, from 0 to 100, and whether
+    // the gauge above the chat box stands.
+    pub progress: u32,
+    pub progress_on: bool,
+    // How many pictures the message being worked through carries.
+    pub progress_images: usize,
+    // The two speeds of the work, as the page shows them: the words sent to the
+    // server, and the words the model is writing. Both are nought until the server
+    // says something of speed, or the clocks of the program have had their say.
+    pub prompt_rate: f64,
+    pub answer_rate: f64,
+    // The calls of a tool the model is writing right now, in the order it writes
+    // them. The user sees a command as it is written.
+    pub live_tools: Vec<LiveTool>,
+    // The short of the work of the answer that is coming in, for the corporate
+    // display. It is made of the blocks the model wrote with its own tool and of
+    // the blocks of the calls it made, and it is emptied when an answer begins.
+    pub live_work: Vec<corporate::WorkBlock>,
+    // The head the one block of the corporate display stands at right now: what the
+    // model is at, in the words of the thing that is going on.
+    pub live_work_head: String,
+    // True when the model closed the one block of the answer with its own tool. The
+    // words of the answer that come after that mark stand outside the block.
+    pub live_work_closed: bool,
+    // The whole of a plan the model let go, waiting to become the first message of
+    // the work. It stands only between the call that let the plan go and the turn
+    // that begins the work, which follows it at once.
+    pub plan_pending: Option<String>,
+    // The question the model has put to the user and is waiting on, when it has put
+    // one. The ask stands above the chat box until it is answered, given up, or
+    // stopped with the answer of the chat that asked it.
+    pub asking: Option<Asking>,
+    // The call of a tool that is running right now, and the clock it runs against.
+    // Nothing stands here between two calls.
+    pub running: Option<Running>,
+    // How many words of the context this chat's talk takes up.
+    pub ctx_used: u64,
+    // The first number of the talk that the server gives for a new ask is taken
+    // where it stands, and after that the meter only climbs. The number left over
+    // from the ask before may count words that were never kept in the chat - an
+    // answer the user stopped leaves the words the model had written out of the talk
+    // again - and a meter that only climbs would stand still for the whole of the
+    // answer that followed, for ever after.
+    pub ctx_fresh: bool,
+    // The moment the words of an answer began to come. The program measures the
+    // speed of the writing itself when the server says nothing of speed, and it
+    // cannot do that without a beginning to measure from.
+    rate_start: Option<Instant>,
+    // The moments the thinking of the live answer began and last stopped. The two
+    // together are the length of it.
+    thought_start: Option<Instant>,
+    thought_end: Option<Instant>,
+    // The moment last handed to a chat that was opened. Two chats opened inside
+    // one second are told apart by it, so the one opened last stands at the head
+    // of its group none the less.
+    pub last_opened: i64,
+    // The moment last handed to this chat's context meter. The meter is paced, so
+    // it does not write a new number on every piece of the answer.
+    ctx_at: Option<Instant>,
+}
+
+// One blank live state, shared by every read of a chat that never answered. It
+// says that nothing is answering, that no words are coming in, and that no clock
+// is running.
+fn blank_live() -> &'static ChatLive {
+    static BLANK: std::sync::OnceLock<ChatLive> = std::sync::OnceLock::new();
+    BLANK.get_or_init(ChatLive::default)
+}
+
+// One chat of the state, reached through the engine's lock. Fields come from the
+// chat's own `ChatLive`, so a thread that writes an answer writes it into the chat
+// it is answering and not into whichever chat the side bar happens to have open.
+// Methods that need the whole state - the settings, the model list, the store -
+// are reached through `state`.
+pub struct ChatScope<'a> {
+    // The whole of the state. It is there for what no single chat owns: the
+    // settings, the models, the store and the status line.
+    pub state: &'a mut State,
+    // The chat the fields of this scope belong to.
+    pub chat: String,
+}
+
+impl<'a> std::ops::Deref for ChatScope<'a> {
+    type Target = ChatLive;
+
+    fn deref(&self) -> &ChatLive {
+        self.state
+            .live_of(&self.chat)
+            .expect("the scope stands for a chat that has live state")
+    }
+}
+
+impl<'a> std::ops::DerefMut for ChatScope<'a> {
+    fn deref_mut(&mut self) -> &mut ChatLive {
+        self.state.live_mut(&self.chat)
+    }
+}
+
 // The state behind the engine.
 pub struct State {
     pub cfg: Config,
@@ -1580,89 +1714,15 @@ pub struct State {
     // open chat stands in.
     pub chats: Vec<Chat>,
     pub current: Option<String>,
-    // Text the model is writing right now.
-    pub live_text: String,
-    // The model's reasoning, streamed while an answer comes in.
-    pub live_reasoning: String,
-    // Whether the thinking that came with the live answer has stopped. The
-    // head of the panel says how long it took once it has.
-    pub live_thought_done: bool,
-    // How long the thinking of the live answer lasted, in milliseconds.
-    pub live_thought_ms: u64,
-    // How far the server is with the words it was sent, from 0 to 100, and
-    // whether the gauge above the chat box stands.
-    pub progress: u32,
-    pub progress_on: bool,
-    // How many pictures the message being worked through carries.
-    pub progress_images: usize,
-    // The two speeds of the work, as the page shows them: the words sent to the
-    // server, and the words the model is writing. Both are nought until the
-    // server says something of speed, or the clocks of the program have had
-    // their say.
-    pub prompt_rate: f64,
-    pub answer_rate: f64,
-    // The moment the words of an answer began to come. The program measures the
-    // speed of the writing itself when the server says nothing of speed, and it
-    // cannot do that without a beginning to measure from.
-    rate_start: Option<Instant>,
-    // The calls of a tool the model is writing right now, in the order the
-    // model writes them. The user sees a command as it is written.
-    pub live_tools: Vec<LiveTool>,
-    // The short of the work of the answer that is coming in, for the corporate
-    // display. It is made of the blocks the model wrote with its own tool and of
-    // the blocks of the calls it made, and it is emptied when an answer begins.
-    pub live_work: Vec<corporate::WorkBlock>,
-    // The head the one block of the corporate display stands at right now: what
-    // the model is at, in the words of the thing that is going on.
-    pub live_work_head: String,
-    // True when the model closed the one block of the answer with its own tool.
-    // The words of the answer that come after that mark stand outside the block.
-    pub live_work_closed: bool,
-    // The whole of a plan the model let go, waiting to become the first message of
-    // the work. It stands only between the call that let the plan go and the turn
-    // that begins the work, which follows it at once.
-    pub plan_pending: Option<String>,
-    // The question the model has put to the user and is waiting on, when it has
-    // put one. The ask stands above the chat box until it is answered, given up,
-    // or stopped with the answer.
-    pub asking: Option<Asking>,
-    // The call of a tool that is running right now, and the clock it runs
-    // against. Nothing stands here between two calls.
-    pub running: Option<Running>,
     // The waiting lists, one to a chat. A message written while the model is
     // writing stands here until the answer it waited for is over, and the worker
     // sends it then - which it does as well when no page is left to look at the
     // chat, for the list belongs to the program and not to the window.
     queues: Vec<WaitingList>,
-    // The moments the thinking of the live answer began and last stopped. The
-    // two together are the length of it.
-    thought_start: Option<Instant>,
-    thought_end: Option<Instant>,
-    // The moment the meter of the context last moved. The meter is paced, so it
-    // does not write a new number on every piece of the answer.
-    ctx_at: Option<Instant>,
-    pub generating: bool,
-    // True while the program is writing a handoff summary. The words of a
-    // summary are never shown, so the window draws no live answer while this
-    // stands; the heading of the summarisation and the status line say that the
-    // program is at work.
-    pub summarising: bool,
     // The model is loading, so the window shows a spinner.
     pub busy: bool,
     pub status: String,
     pub ctx_total: u64,
-    pub ctx_used: u64,
-    // The first number of the talk that the server gives for a new ask is taken
-    // where it stands, and after that the meter only climbs. The number left over
-    // from the ask before may count words that were never kept in the chat -- an
-    // answer the user stopped leaves the words the model had written out of the
-    // talk again -- and a meter that only climbs would stand still for the whole
-    // of the answer that followed, for ever after.
-    pub ctx_fresh: bool,
-    // The moment last handed to a chat that was opened. Two chats opened inside
-    // one second are told apart by it, so the one opened last stands at the head
-    // of its group none the less.
-    pub last_opened: i64,
     pub sandbox_available: bool,
     pub sandbox_note: String,
     // What the chat template of the current model can do with thinking.
@@ -1704,6 +1764,15 @@ pub struct State {
     // to the file of the chat that stands in it first, for the talk of that
     // chat stands nowhere else in the world once the slot is gone over.
     pub context_holds: std::collections::BTreeMap<usize, String>,
+    // What each chat holds while it answers, by the id of the chat: the text
+    // arriving from the model, the meter of the context, the question the model
+    // is waiting on, the call that is running, and whether the chat is being
+    // answered. A chat that is not answering has no entry of its own.
+    live: std::collections::BTreeMap<String, ChatLive>,
+    // The flag each chat that is being answered cancels itself with. A chat stops
+    // its own answer, and no other, so the flag stands beside the live state of
+    // the chat rather than in front of the whole program.
+    turn_cancel: std::collections::BTreeMap<String, std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 // Whether the talk that goes out ends on a saying of the model with words of its
@@ -1760,26 +1829,166 @@ impl State {
         self.rev += 1;
     }
 
-    // The waiting list of the chat that stands open, or nothing when no chat is
-    // open. A list of another chat is not looked at here: only the chat that
-    // stands open can be answered, so only its list may go on.
+    // The live state of one chat, when it has any. A chat that has never answered
+    // has nothing to show of itself.
+    pub fn live_of(&self, chat: &str) -> Option<&ChatLive> {
+        self.live.get(chat)
+    }
+
+    // The live state of one chat, or a blank one when the chat has never answered.
+    // A reader that names a chat with no answer of its own reads the blank:
+    // nothing answering, no words, no clock of its own.
+    fn live_ref(&self, chat: &str) -> &ChatLive {
+        match self.live_of(chat) {
+            Some(one) => one,
+            None => blank_live(),
+        }
+    }
+
+    // The live state of the chat the side bar has open, which is the chat the page
+    // and the window read. A chat that never answered reads as the blank.
+    pub fn live(&self) -> &ChatLive {
+        let chat = self.current.as_deref().unwrap_or("");
+        self.live_ref(chat)
+    }
+
+    // The live state of the chat the side bar has open, to be changed.
+    fn live_write(&mut self) -> &mut ChatLive {
+        let chat = self.open_id();
+        self.live_mut(&chat)
+    }
+
+    // The live state of one chat, made ready when the chat has none yet.
+    pub fn live_mut(&mut self, chat: &str) -> &mut ChatLive {
+        self.live.entry(chat.to_string()).or_default()
+    }
+
+    // Take the live state of a chat away, which is what a chat that is taken away
+    // leaves behind.
+    fn live_drop(&mut self, chat: &str) {
+        self.live.remove(chat);
+    }
+
+    // The live state of the chat the side bar has open, when one is open.
+    fn open_live(&self) -> Option<&ChatLive> {
+        self.live_of(self.current.as_deref().unwrap_or(""))
+    }
+
+    // Reach the state of one chat with the fields of that chat in front. The entry
+    // of the chat is made ready, so what follows always has something to work on.
+    pub fn for_chat(&mut self, chat: &str) -> ChatScope<'_> {
+        self.live_mut(chat);
+        ChatScope {
+            state: self,
+            chat: chat.to_string(),
+        }
+    }
+
+    // Whether the chat named is being answered now.
+    fn chat_generating(&self, chat: &str) -> bool {
+        self.live_of(chat)
+            .map(|one| one.generating)
+            .unwrap_or(false)
+    }
+
+    // Whether the chat the side bar has open is being answered now.
+    fn open_generating(&self) -> bool {
+        self.chat_generating(self.current.as_deref().unwrap_or(""))
+    }
+
+    // Whether any chat at all is being answered, or is having its room made by a
+    // handoff summary. A model is loaded for one model at a time, so this is what
+    // says whether the model of the machine is busy with somebody's answer.
+    fn any_generating(&self) -> bool {
+        self.live
+            .values()
+            .any(|one| one.generating || one.summarising)
+    }
+
+    // The chats that are being answered, by their id. The side bar puts a mark on
+    // the rows of these chats, so the user can see where the model is at work.
+    pub fn generating_chats(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .live
+            .iter()
+            .filter(|(_, one)| one.generating)
+            .map(|(id, _)| id.clone())
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    // The chat named, when the memory holds it.
+    fn chat_of(&self, chat: &str) -> Option<&Chat> {
+        self.chats.iter().find(|one| one.meta.id == chat)
+    }
+
+    // The chat named, when the memory holds it, to be changed.
+    fn chat_of_mut(&mut self, chat: &str) -> Option<&mut Chat> {
+        self.chats.iter_mut().find(|one| one.meta.id == chat)
+    }
+
+    // The chat a caller works on when it names none: the chat the side bar has
+    // open. The empty name stands for no chat, and every method that takes a chat
+    // by its name does nothing with it.
+    fn open_id(&self) -> String {
+        self.current.clone().unwrap_or_default()
+    }
+
+    // True when a chat of the repository named is being answered, or is having
+    // its room made by a handoff summary. The words of such an answer go into the
+    // folder of the repository, and a folder that is moved out from under them, or
+    // taken away, is a talk written into nothing.
+    fn repo_working(&self, repo: &str) -> bool {
+        let chats: Vec<String> = self
+            .chats
+            .iter()
+            .filter(|c| c.meta.repo_id == repo)
+            .map(|c| c.meta.id.clone())
+            .collect();
+        self.live
+            .iter()
+            .any(|(id, one)| (one.generating || one.summarising) && chats.iter().any(|c| c == id))
+    }
+
+    // The waiting list of the chat named, when it has one. A list belongs to its
+    // chat: a chat that answers in the background has a list of its own, and the
+    // messages of one chat never go out through the list of another.
+    fn queue_of(&self, chat: &str) -> Option<&WaitingList> {
+        self.queues.iter().find(|one| one.chat == chat)
+    }
+
+    // The waiting list of the chat that stands open, when it has one.
     fn open_queue(&self) -> Option<&WaitingList> {
         let chat = self.current.as_deref()?;
-        self.queues.iter().find(|one| one.chat == chat)
+        self.queue_of(chat)
+    }
+
+    // The waiting list of the chat named, made when it is first wanted. The list
+    // belongs to the chat, so a chat that answers in the background keeps its own
+    // list and the messages of the chat that stands open are not mixed with it.
+    fn queue_mut(&mut self, chat_id: &str) -> Option<&mut WaitingList> {
+        if chat_id.is_empty() {
+            return None;
+        }
+        if let Some(at) = self.queues.iter().position(|one| one.chat == chat_id) {
+            return self.queues.get_mut(at);
+        }
+        self.queues.push(WaitingList {
+            chat: chat_id.to_string(),
+            ..WaitingList::default()
+        });
+        self.queues.last_mut()
     }
 
     // The waiting list of the chat that stands open, made when it is first
     // wanted.
     fn open_queue_mut(&mut self) -> Option<&mut WaitingList> {
-        let id = self.current.clone()?;
-        if let Some(at) = self.queues.iter().position(|one| one.chat == id) {
-            return self.queues.get_mut(at);
+        let chat = self.open_id();
+        if chat.is_empty() {
+            return None;
         }
-        self.queues.push(WaitingList {
-            chat: id,
-            ..WaitingList::default()
-        });
-        self.queues.last_mut()
+        self.queue_mut(&chat)
     }
 
     // The waiting list of the chat that stands open, as a page is given it. Nothing
@@ -1787,8 +1996,8 @@ impl State {
     // away with the last of them instead of drawing a list of nothing. The
     // programmed messages ride along in their own list, for the page draws them in a
     // section of their own.
-    fn queue_snap(&self) -> Option<WaitingSnap> {
-        let one = self.open_queue()?;
+    fn queue_snap_in(&self, chat_id: &str) -> Option<WaitingSnap> {
+        let one = self.queue_of(chat_id)?;
         if one.items.is_empty() && one.planned.is_empty() {
             return None;
         }
@@ -1810,6 +2019,11 @@ impl State {
         })
     }
 
+    // The waiting list of the chat that stands open, as a page is given it.
+    fn queue_snap(&self) -> Option<WaitingSnap> {
+        self.queue_snap_in(self.open_id().as_str())
+    }
+
     // True when the worker has a message to send out of the waiting list: the
     // chat that stands open has a list, is idle, and has spent the rest a
     // message needs after the one before it. The rest is what lets the chat say
@@ -1818,11 +2032,11 @@ impl State {
     // A list of programmed messages that have not found their words is nothing to
     // send, and the worker is not kept awake for them: they are looked at again
     // when an answer of the chat comes to an end.
-    fn queue_ready(&self) -> bool {
-        let Some(list) = self.open_queue() else {
+    fn queue_ready_in(&self, chat_id: &str) -> bool {
+        let Some(list) = self.queue_of(chat_id) else {
             return false;
         };
-        if list.held || self.generating || self.busy {
+        if list.held || self.live_ref(chat_id).generating || self.busy {
             return false;
         }
         let next = !list.items.is_empty()
@@ -1836,17 +2050,23 @@ impl State {
         }
     }
 
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn queue_ready(&self) -> bool {
+        self.queue_ready_in(self.open_id().as_str())
+    }
+
     // The message the worker would send next out of the waiting list of the chat
-    // that stands open, with the number of its row, without taking it out. A
-    // programmed message that has found the words it waited for goes before every
-    // message that is only waiting its turn; the row at the front of the list goes
+    // named, with the number of its row, without taking it out. A programmed
+    // message that has found the words it waited for goes before every message
+    // that is only waiting its turn; the row at the front of the list goes
     // otherwise. Nothing comes back when the chat is at work, or held back, or the
     // rest of a moment is not spent yet, so the caller may ask again later.
-    fn queue_next(&self) -> Option<(u64, SentMessage)> {
-        if !self.queue_ready() {
+    fn queue_next_in(&self, chat_id: &str) -> Option<(u64, SentMessage)> {
+        if !self.queue_ready_in(chat_id) {
             return None;
         };
-        let list = self.open_queue()?;
+        let list = self.queue_of(chat_id)?;
         let one = list
             .planned
             .iter()
@@ -1861,16 +2081,22 @@ impl State {
         ))
     }
 
-    // Take one message out of the waiting list of the chat that stands open, by the
-    // number the worker sent it by: the programmed messages and the messages that
-    // were only waiting their turn are both looked through. A list that has come to
-    // an end is taken away, so a chat looked at again does not find an empty list
+    // The message the worker would send next out of the waiting list of the chat
+    // that stands open.
+    fn queue_next(&self) -> Option<(u64, SentMessage)> {
+        self.queue_next_in(self.open_id().as_str())
+    }
+
+    // Take one message out of the waiting list of the chat named, by the number
+    // the worker sent it by: the programmed messages and the messages that were
+    // only waiting their turn are both looked through. A list that has come to an
+    // end is taken away, so a chat looked at again does not find an empty list
     // standing for it.
-    fn queue_take(&mut self, id: u64) {
+    fn queue_take_in(&mut self, chat_id: &str, id: u64) {
         let Some(at) = self
             .queues
             .iter()
-            .position(|one| Some(one.chat.as_str()) == self.current.as_deref())
+            .position(|one| one.chat == chat_id)
         else {
             return;
         };
@@ -1892,14 +2118,39 @@ impl State {
         self.touch();
     }
 
-    // Hold the waiting list of the chat that stands back, because a message of it
-    // could not be sent. The reason was said by the sender of the message; the
-    // list is asked again once the user touches it.
-    fn queue_hold(&mut self) {
-        if let Some(list) = self.open_queue_mut() {
+    // Take one message out of the waiting list of the chat that stands open.
+    fn queue_take(&mut self, id: u64) {
+        let chat = self.open_id();
+        self.queue_take_in(&chat, id);
+    }
+
+    // Hold the waiting list of the chat named back, because a message of it could
+    // not be sent. The reason was said by the sender of the message; the list is
+    // asked again once the user touches it.
+    fn queue_hold_in(&mut self, chat_id: &str) {
+        if let Some(list) = self.queue_mut(chat_id) {
             list.held = true;
             self.touch();
         }
+    }
+
+    // Hold the waiting list of the chat that stands back.
+    fn queue_hold(&mut self) {
+        let chat = self.open_id();
+        self.queue_hold_in(&chat);
+    }
+
+    // The chats whose waiting list has a message the worker may send now, in the
+    // order the chats stand. A chat that is answering, or held back, or standing
+    // in the rest of a moment after the message before, is not named, so the
+    // worker never waits on a chat that has nothing to send.
+    fn ready_queues(&self) -> Vec<String> {
+        self.queues
+            .iter()
+            .filter(|one| !one.items.is_empty() || one.planned.iter().any(|item| item.ready))
+            .map(|one| one.chat.clone())
+            .filter(|chat| self.queue_ready_in(chat))
+            .collect()
     }
 
     // Let every waiting list go on again. What held a list back was a thing about
@@ -1928,11 +2179,11 @@ impl State {
     // it of its own accord - a mark at the end of the talk where the user was
     // waiting for the rest of the work. Only the user knows whether an answer ended
     // where it should have, so the offer stands under the newest answer either way.
-    fn goable_answer(&self) -> Option<String> {
-        if self.generating || self.busy {
+    fn goable_answer_in(&self, chat_id: &str) -> Option<String> {
+        if self.live_ref(chat_id).generating || self.busy {
             return None;
         }
-        let chat = self.chat()?;
+        let chat = self.chat_of(chat_id)?;
         let newest = newest_saying(chat)?;
         if newest.role != "Assistant" || newest.body.trim().is_empty() {
             return None;
@@ -1940,12 +2191,18 @@ impl State {
         Some(newest.id.clone())
     }
 
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn goable_answer(&self) -> Option<String> {
+        self.goable_answer_in(self.open_id().as_str())
+    }
+
     // Whether the message named is the answer the chat may be gone on with, and what
     // to say when it is not. The state of the model and of the summarisation are
     // asked about where those are known: this is the rule of the talk alone, so it
     // can be looked at without a model standing anywhere.
-    fn answer_to_go_on_with(&self, id: &str) -> Result<(), &'static str> {
-        let Some(chat) = self.chat() else {
+    fn answer_to_go_on_with_in(&self, chat_id: &str, id: &str) -> Result<(), &'static str> {
+        let Some(chat) = self.chat_of(chat_id) else {
             return Err("That message is not in this chat");
         };
         let Some(one) = chat.messages.iter().find(|one| one.id == id) else {
@@ -1967,6 +2224,12 @@ impl State {
         }
     }
 
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn answer_to_go_on_with(&self, id: &str) -> Result<(), &'static str> {
+        self.answer_to_go_on_with_in(self.open_id().as_str(), id)
+    }
+
     // Take the waiting list of a chat away. The messages of a chat that is gone
     // have no answer to wait for, and words kept for a chat that is not there
     // would be kept for nothing.
@@ -1981,8 +2244,8 @@ impl State {
     // Only the words of this asking count. A chat that has been asked twice looks
     // at what came after the last message of the user, so an answer of an older
     // asking never lets out a message written for the answer that has not come yet.
-    fn last_answer(&self) -> Option<String> {
-        let chat = self.chat()?;
+    fn last_answer_in(&self, chat_id: &str) -> Option<String> {
+        let chat = self.chat_of(chat_id)?;
         let from = chat
             .messages
             .iter()
@@ -1996,19 +2259,25 @@ impl State {
             .map(|one| one.body.clone())
     }
 
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn last_answer(&self) -> Option<String> {
+        self.last_answer_in(self.open_id().as_str())
+    }
+
     // Say that an answer of the chat that stands open came to an end. The
     // programmed messages of its waiting list are looked at against those words:
     // the ones whose words the answer holds are let out of the list, ahead of every
     // message that is only waiting its turn. The words are matched without regard
     // to the bigness of the letters, which is what a user writing a few words in
     // the middle of an answer expects.
-    fn answer_programmed(&mut self, body: &str) {
+    fn answer_programmed_in(&mut self, chat_id: &str, body: &str) {
         let answer = body.to_lowercase();
         if answer.trim().is_empty() {
             return;
         }
         let found = {
-            let Some(list) = self.open_queue_mut() else {
+            let Some(list) = self.queue_mut(chat_id) else {
                 return;
             };
             let mut found = false;
@@ -2027,6 +2296,13 @@ impl State {
         if found {
             self.touch();
         }
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn answer_programmed(&mut self, body: &str) {
+        let chat = self.open_id();
+        self.answer_programmed_in(&chat, body);
     }
 
     // Say that the server knows nothing of any talk any more. The talks of the
@@ -2056,6 +2332,15 @@ impl State {
     fn server_wants(&self) -> ServerWants {
         ServerWants {
             model_id: self.current_model_id(),
+        }
+    }
+
+    // What the chat named asks the server to be: the model of that chat. A turn
+    // that runs in the background asks for the server of its own chat, so a chat
+    // that wears another model is not answered on the model of the open chat.
+    fn server_wants_of(&self, chat: &str) -> ServerWants {
+        ServerWants {
+            model_id: self.current_model_id_of(chat),
         }
     }
 
@@ -2219,22 +2504,29 @@ impl State {
     // Open the chat that stands at this place in the list, and put it at the
     // head of its group in the side bar. The moment it was opened is kept with
     // the chat, which is what the order of a group is read from.
-    fn mark_opened(&mut self, place: usize) {
+    fn mark_opened_in(&mut self, chat_id: &str, place: usize) {
         // The moment of the open never stands below the last one handed out, so
         // two chats opened within one second keep the order the user opened
         // them in, and the chat that was opened last is the first in its group.
         let now = store::now_secs();
-        let stamp = if now > self.last_opened { now } else { self.last_opened + 1 };
-        self.last_opened = stamp;
+        let stamp = if now > self.live_mut(chat_id).last_opened { now } else { self.live_mut(chat_id).last_opened + 1 };
+        self.live_mut(chat_id).last_opened = stamp;
         self.chats[place].meta.opened = stamp;
         let snapshot = self.chats[place].clone();
-        self.ctx_used = snapshot.meta.context_used;
+        self.live_mut(chat_id).ctx_used = snapshot.meta.context_used;
         self.current = Some(snapshot.meta.id.clone());
         match self.store.save_chat(&snapshot) {
             Ok(()) => self.set_status("Ready"),
             Err(problem) => self.note_write_problem(&problem),
         }
         self.touch_structure();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn mark_opened(&mut self, place: usize) {
+        let chat = self.open_id();
+        self.mark_opened_in(&chat, place);
     }
 
     // Change the record of one chat, of this place or of another. The place in
@@ -2301,7 +2593,14 @@ impl State {
     // user started and left alone leaves no file behind and never shows in
     // the side bar.
     fn persist(&mut self) {
-        let Some(chat) = self.chat() else { return };
+        let chat = self.open_id();
+        self.persist_in(&chat);
+    }
+
+    // Write one chat to disk, by its id. An answer that is coming in in the
+    // background writes its own chat, which is not the one the side bar has open.
+    fn persist_in(&mut self, chat: &str) {
+        let Some(chat) = self.chat_of(chat) else { return };
         if chat.messages.is_empty() {
             return;
         }
@@ -2326,18 +2625,34 @@ impl State {
         reasoning_ms: u64,
         mono: bool,
     ) {
+        let chat = self.open_id();
+        self.push_message_in(&chat, role, body, reasoning, reasoning_ms, mono);
+    }
+
+    // Add one message of a normal kind to the chat named. The short of the work
+    // and the close of the one block of the corporate display come from that
+    // chat's own live state.
+    fn push_message_in(
+        &mut self,
+        chat: &str,
+        role: &str,
+        body: &str,
+        reasoning: &str,
+        reasoning_ms: u64,
+        mono: bool,
+    ) {
         // The corporate display keeps the short of the work with the answer it
         // belongs to, so the one block can be drawn again when the chat is read
         // after, and not only while the answer comes in.
-        let work = if role == "Assistant" && self.corporate_on() {
-            let mut held = std::mem::take(&mut self.live_work);
+        let work = if role == "Assistant" && self.corporate_on_in(chat) {
+            let mut held = std::mem::take(&mut self.live_mut(chat).live_work);
             // An answer that worked with a tool stands in more than one message:
             // the words of a turn, the runs of the calls, and the words after
             // them. The short belongs to the whole of the answer, so what an
             // earlier message of it holds comes over to this one. The one block
             // therefore stands with the last message of the answer, and not with
             // the first message the work was written beside.
-            if let Some(chat) = self.chat_mut() {
+            if let Some(chat) = self.chat_of_mut(chat) {
                 for one in chat.messages.iter_mut().rev() {
                     if one.role == "You" {
                         break;
@@ -2362,15 +2677,18 @@ impl State {
         // a search that stood at the head while the answer came in is a search
         // that was made. With no work at all the block still stands: when the
         // answer did nothing but think, the head says how long it thought.
-        let head = if role == "Assistant" && self.corporate_on() {
+        let head = if role == "Assistant" && self.corporate_on_in(chat) {
             corporate::head_of_answer(&work, reasoning_ms)
         } else {
             String::new()
         };
         // The words of this message stand inside the one block of the answer,
         // unless the model had already closed it with its own tool.
-        let closed = self.live_work_closed;
-        if let Some(chat) = self.chat_mut() {
+        let closed = self
+            .live_of(chat)
+            .map(|one| one.live_work_closed)
+            .unwrap_or(false);
+        if let Some(chat) = self.chat_of_mut(chat) {
             chat.messages.push(Message {
                 id: store::new_id(),
                 role: role.to_string(),
@@ -2385,7 +2703,7 @@ impl State {
                 ..Default::default()
             });
         }
-        self.persist();
+        self.persist_in(chat);
         self.touch();
     }
 
@@ -2399,7 +2717,7 @@ impl State {
         // was gone on from, so the one block of the corporate display holds the
         // whole of the work and not only the last part of it.
         let more = if self.corporate_on() {
-            std::mem::take(&mut self.live_work)
+            std::mem::take(&mut self.live_write().live_work)
         } else {
             Vec::new()
         };
@@ -2431,8 +2749,8 @@ impl State {
 
     // Add one note. A failed note is drawn in the warning colour. Notes are for
     // the window and are never sent to the model.
-    fn push_note(&mut self, text: &str, failed: bool) {
-        if let Some(chat) = self.chat_mut() {
+    fn push_note_in(&mut self, chat_id: &str, text: &str, failed: bool) {
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             chat.messages.push(Message {
                 id: store::new_id(),
                 role: "Note".to_string(),
@@ -2442,37 +2760,58 @@ impl State {
                 ..Default::default()
             });
         }
-        self.persist();
+        self.persist_in(chat_id);
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn push_note(&mut self, text: &str, failed: bool) {
+        let chat = self.open_id();
+        self.push_note_in(&chat, text, failed);
     }
 
     // The answer the user stopped is the one answer the page may go on with.
     // The mark therefore goes on the newest saying of the model, and off every
     // older one: two answers under a mark of going on read as a fault, and an
     // answer the user has written past is not the one they meant.
-    fn mark_last_answer_stopped(&mut self) {
-        let Some(chat) = self.chat_mut() else { return };
+    fn mark_last_answer_stopped_in(&mut self, chat_id: &str) {
+        let Some(chat) = self.chat_of_mut(chat_id) else { return };
         clear_stopped_marks(chat);
         if let Some(last) = chat.messages.last_mut() {
             if last.role == "Assistant" {
                 last.stopped = true;
             }
         }
-        self.persist();
+        self.persist_in(chat_id);
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn mark_last_answer_stopped(&mut self) {
+        let chat = self.open_id();
+        self.mark_last_answer_stopped_in(&chat);
     }
 
     // The mark of an answer that never came to its end is taken off as careful as
     // it is put on: an answer that came to its end, and a new turn of the chat,
     // both leave nothing to go on with.
-    fn clear_stopped_marks(&mut self) {
-        let Some(chat) = self.chat_mut() else { return };
+    fn clear_stopped_marks_in(&mut self, chat_id: &str) {
+        let Some(chat) = self.chat_of_mut(chat_id) else { return };
         if !chat.messages.iter().any(|one| one.stopped) {
             return;
         }
         clear_stopped_marks(chat);
-        self.persist();
+        self.persist_in(chat_id);
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn clear_stopped_marks(&mut self) {
+        let chat = self.open_id();
+        self.clear_stopped_marks_in(&chat);
     }
 
     // Put the mark of a summarisation in the chat, before the handoff summary
@@ -2485,8 +2824,8 @@ impl State {
     // second heading with a new number would say the chat was summarised twice
     // when it was not: the retried mark keeps its number and its place, and only
     // its words and its hour are put again.
-    fn begin_summary(&mut self) -> String {
-        if let Some(chat) = self.chat_mut() {
+    fn begin_summary_in(&mut self, chat_id: &str) -> String {
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             if let Some(mark) = chat
                 .messages
                 .iter_mut()
@@ -2499,13 +2838,13 @@ impl State {
                 mark.context_before = 0;
                 mark.context_after = 0;
                 let again = mark.id.clone();
-                self.persist();
+                self.persist_in(chat_id);
                 self.touch();
                 return again;
             }
         }
         let id = store::new_id();
-        if let Some(chat) = self.chat_mut() {
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             chat.messages.push(Message {
                 id: id.clone(),
                 role: "Summary".to_string(),
@@ -2514,9 +2853,16 @@ impl State {
                 ..Default::default()
             });
         }
-        self.persist();
+        self.persist_in(chat_id);
         self.touch();
         id
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn begin_summary(&mut self) -> String {
+        let chat = self.open_id();
+        self.begin_summary_in(&chat)
     }
 
     // Write the handoff summary into its mark. The words the model gave are
@@ -2533,7 +2879,7 @@ impl State {
     // here, and nothing that came after the mark is taken into the summary: a
     // message the user sent while the words were being written stands after it,
     // where they sent it.
-    fn finish_summary(&mut self, id: &str, summary: &str, before: u64, after: u64, why: &str) {
+    fn finish_summary_in(&mut self, chat_id: &str, id: &str, summary: &str, before: u64, after: u64, why: &str) {
         let Some(open) = self.current.clone() else {
             return;
         };
@@ -2552,8 +2898,15 @@ impl State {
                 mark.tool = why.to_string();
             }
         }
-        self.persist();
+        self.persist_in(chat_id);
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn finish_summary(&mut self, id: &str, summary: &str, before: u64, after: u64, why: &str) {
+        let chat = self.open_id();
+        self.finish_summary_in(&chat, id, summary, before, after, why);
     }
 
     // Move one message of the chat to the place above the newest handoff summary
@@ -2617,29 +2970,42 @@ impl State {
     // True when a handoff summary of the open chat was asked for and never came
     // back. The chat stands at that point until the user starts the summary
     // again, for the talk past the room of the model cannot be sent as it is.
+    fn handoff_owed_in(&self, chat_id: &str) -> bool {
+        self.chat_of(chat_id).map(|chat| chat.handoff_owed()).unwrap_or(false)
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
     fn handoff_owed(&self) -> bool {
-        self.chat().map(|chat| chat.handoff_owed()).unwrap_or(false)
+        self.handoff_owed_in(self.open_id().as_str())
     }
 
     // The summarisations of the open chat, oldest first.
-    fn handoffs(&self) -> Vec<Handoff> {
-        self.chat()
-            .map(|chat| handoff_marks(chat, self.generating))
+    fn handoffs_in(&self, chat_id: &str) -> Vec<Handoff> {
+        self.chat_of(chat_id)
+            .map(|chat| handoff_marks(chat, self.live_ref(chat_id).generating))
             .unwrap_or_default()
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn handoffs(&self) -> Vec<Handoff> {
+        self.handoffs_in(self.open_id().as_str())
     }
 
     // Put a tool run in the chat before it starts. The id is given back so the
     // output can be written into the same message. The thinking of a turn with
     // no words of its own stands here too, so it is not lost.
-    fn begin_tool(
+    fn begin_tool_in(
         &mut self,
+        chat_id: &str,
         call: &ToolCall,
         shown: &str,
         thinking: &str,
         thinking_ms: u64,
     ) -> String {
         let id = store::new_id();
-        if let Some(chat) = self.chat_mut() {
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             chat.messages.push(Message {
                 id: id.clone(),
                 role: "Tool".to_string(),
@@ -2655,18 +3021,36 @@ impl State {
                 ..Default::default()
             });
         }
-        self.corporate_begin(call, &id);
-        self.persist();
+        self.corporate_begin_in(chat_id, call, &id);
+        self.persist_in(chat_id);
         self.touch();
         id
+    }
+
+    // The same for the chat that stands open.
+    fn begin_tool(
+        &mut self,
+        call: &ToolCall,
+        shown: &str,
+        thinking: &str,
+        thinking_ms: u64,
+    ) -> String {
+        let chat = self.open_id();
+        self.begin_tool_in(&chat, call, shown, thinking, thinking_ms)
     }
 
     // The corporate display keeps the short of the work beside the answer: a
     // block for every call the model made, and the heads the model wrote for its
     // own. These two hold it while an answer comes in, and the message of the
     // answer keeps it after.
-    fn corporate_on(&self) -> bool {
+    fn corporate_on_in(&self, _chat_id: &str) -> bool {
         config::display_is_corporate(&self.cfg.chat_display)
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn corporate_on(&self) -> bool {
+        self.corporate_on_in(self.open_id().as_str())
     }
 
     // True when the settings make the room of a talk by a handoff summary. With
@@ -2688,11 +3072,11 @@ impl State {
 
     // A call began: the one block says what the model is at, and a block of the
     // call stands in the short of the work.
-    fn corporate_begin(&mut self, call: &ToolCall, id: &str) {
+    fn corporate_begin_in(&mut self, chat_id: &str, call: &ToolCall, id: &str) {
         // The tool of the short writes words, not a run: the heading it names
         // stands in the short, and no block of a call stands for it. The tool
         // that closes the block of the answer is drawn nowhere either.
-        if !self.corporate_on()
+        if !self.corporate_on_in(chat_id)
             || call.name == corporate::NAME
             || call.name == corporate::FINISH_NAME
         {
@@ -2700,24 +3084,31 @@ impl State {
         }
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
         let head = corporate::head_of(&call.name, &args);
-        self.live_work_head = head.clone();
-        match corporate::find_mut(&mut self.live_work, id) {
+        self.live_mut(chat_id).live_work_head = head.clone();
+        match corporate::find_mut(&mut self.live_mut(chat_id).live_work, id) {
             Some(place) => place.head = head,
             // The call stands under the heading the model opened last, when it
             // opened one, and on its own else.
-            None => corporate::begin(&mut self.live_work, &call.name, id, &args),
+            None => corporate::begin(&mut self.live_mut(chat_id).live_work, &call.name, id, &args),
         }
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn corporate_begin(&mut self, call: &ToolCall, id: &str) {
+        let chat = self.open_id();
+        self.corporate_begin_in(&chat, call, id);
     }
 
     // A call came back: the head of its block is said in the words of a thing
     // that happened, what a call that changed a file did to it stands with it,
     // and the words that came back stand inside it, for the block of the call is
     // hidden while the corporate display stands.
-    fn corporate_finish(&mut self, id: &str, output: &str, ok: bool) {
-        if !self.corporate_on() {
+    fn corporate_finish_in(&mut self, chat_id: &str, id: &str, output: &str, ok: bool) {
+        if !self.corporate_on_in(chat_id) {
             return;
         }
-        let Some(place) = corporate::find_mut(&mut self.live_work, id) else {
+        let Some(place) = corporate::find_mut(&mut self.live_mut(chat_id).live_work, id) else {
             return;
         };
         let (adds, cuts) = plus_minus(output);
@@ -2725,19 +3116,33 @@ impl State {
         // The head of the one block is said again in the words of a thing that
         // happened, so a search that came back is not still standing at the head
         // as a search on its way.
-        self.live_work_head = corporate::head_after(&self.live_work);
+        self.live_mut(chat_id).live_work_head = corporate::head_after(&self.live_mut(chat_id).live_work);
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn corporate_finish(&mut self, id: &str, output: &str, ok: bool) {
+        let chat = self.open_id();
+        self.corporate_finish_in(&chat, id, output, ok);
     }
 
     // Write the output of a tool run into its message.
+    fn finish_tool_in(&mut self, chat_id: &str, id: &str, output: &str, ok: bool) {
+        self.finish_tool_with_in(chat_id, id, output, ok, Vec::new());
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
     fn finish_tool(&mut self, id: &str, output: &str, ok: bool) {
-        self.finish_tool_with(id, output, ok, Vec::new());
+        let chat = self.open_id();
+        self.finish_tool_in(&chat, id, output, ok);
     }
 
     // Put a question to the user and begin the wait. The words of the question,
     // the answers the model offered, and the wait that stands with them all come
     // from the ask itself and the settings; the popup above the chat box is made
     // of what the state carries.
-    fn begin_asking(&mut self, asked: &askuser::Question) -> (String, u32) {
+    fn begin_asking_in(&mut self, chat_id: &str, asked: &askuser::Question) -> (String, u32) {
         let one = Asking {
             id: store::new_id(),
             question: asked.text.clone(),
@@ -2755,15 +3160,22 @@ impl State {
         };
         let id = one.id.clone();
         let seconds = one.seconds;
-        self.asking = Some(one);
+        self.live_mut(chat_id).asking = Some(one);
         self.touch();
         (id, seconds)
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn begin_asking(&mut self, asked: &askuser::Question) -> (String, u32) {
+        let chat = self.open_id();
+        self.begin_asking_in(&chat, asked)
     }
 
     // A questionnaire of planning mode. It carries any number of questions, is
     // waited for as long as it takes, and is answered when the user sends the
     // whole of it by hand.
-    fn begin_asking_plan(&mut self, items: Vec<AskItem>) -> String {
+    fn begin_asking_plan_in(&mut self, chat_id: &str, items: Vec<AskItem>) -> String {
         let first = items.first().map(|one| one.prompt.clone()).unwrap_or_default();
         let one = Asking {
             id: store::new_id(),
@@ -2778,16 +3190,23 @@ impl State {
             answer: None,
         };
         let id = one.id.clone();
-        self.asking = Some(one);
+        self.live_mut(chat_id).asking = Some(one);
         self.touch();
         id
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn begin_asking_plan(&mut self, items: Vec<AskItem>) -> String {
+        let chat = self.open_id();
+        self.begin_asking_plan_in(&chat, items)
     }
 
     // The answers of the user to a questionnaire, put in the words the model is
     // given back. Each answer stands under the question it belongs to, so the
     // model cannot mistake which question was answered which way.
-    fn answer_plan(&mut self, id: &str, answers: Vec<Vec<String>>) -> bool {
-        let Some(one) = self.asking.as_mut() else {
+    fn answer_plan_in(&mut self, chat_id: &str, id: &str, answers: Vec<Vec<String>>) -> bool {
+        let Some(one) = self.live_mut(chat_id).asking.as_mut() else {
             return false;
         };
         if !one.plan || one.id != id || one.answer.is_some() {
@@ -2811,11 +3230,18 @@ impl State {
         true
     }
 
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn answer_plan(&mut self, id: &str, answers: Vec<Vec<String>>) -> bool {
+        let chat = self.open_id();
+        self.answer_plan_in(&chat, id, answers)
+    }
+
     // The answer of the user, when the question the page was drawing is the one
     // that stands. A question that was answered already, or that the run has
     // given over, is answered no more.
-    fn answer_asking(&mut self, id: &str, answer: &str) -> bool {
-        let Some(one) = self.asking.as_mut() else {
+    fn answer_asking_in(&mut self, chat_id: &str, id: &str, answer: &str) -> bool {
+        let Some(one) = self.live_mut(chat_id).asking.as_mut() else {
             return false;
         };
         if one.id != id || one.answer.is_some() {
@@ -2826,27 +3252,48 @@ impl State {
         true
     }
 
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn answer_asking(&mut self, id: &str, answer: &str) -> bool {
+        let chat = self.open_id();
+        self.answer_asking_in(&chat, id, answer)
+    }
+
     // What the user answered the question of this id, when they have. The run of
     // the tool asks this until the wait comes to an end.
-    fn asking_answer_of(&self, id: &str) -> Option<String> {
-        self.asking
+    fn asking_answer_of_in(&self, chat_id: &str, id: &str) -> Option<String> {
+        self.live_ref(chat_id).asking
             .iter()
             .find(|one| one.id == id)
             .and_then(|one| one.answer.clone())
     }
 
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn asking_answer_of(&self, id: &str) -> Option<String> {
+        self.asking_answer_of_in(self.open_id().as_str(), id)
+    }
+
     // Take the ask away, for the question came to its end and the popup over the
     // chat box has nothing left to say. A question of another run is left alone.
-    fn clear_asking(&mut self, id: &str) {
+    fn clear_asking_in(&mut self, chat_id: &str, id: &str) {
         if self
+            .live_mut(chat_id)
             .asking
             .as_ref()
             .map(|one| one.id == id)
             .unwrap_or(false)
         {
-            self.asking = None;
+            self.live_mut(chat_id).asking = None;
             self.touch();
         }
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn clear_asking(&mut self, id: &str) {
+        let chat = self.open_id();
+        self.clear_asking_in(&chat, id);
     }
 
     // The same, with the files a run of the download tool offered to the user.
@@ -2854,35 +3301,49 @@ impl State {
     // when the chat is opened another day; the blocks themselves stand at the end
     // of the answer, and only once the model has stopped writing. See
     // `gifts_till` for the offer of a turn.
-    fn finish_gifts(&mut self, id: &str, output: &str, ok: bool, gifts: Vec<download::Gift>) {
+    fn finish_gifts_in(&mut self, chat_id: &str, id: &str, output: &str, ok: bool, gifts: Vec<download::Gift>) {
         let text = self.with_stopped_head(output);
-        if let Some(chat) = self.chat_mut() {
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
                 message.tool = text.clone();
                 message.failed = !ok;
                 message.downloads = gifts;
             }
         }
-        self.running = None;
-        self.persist();
+        self.live_mut(chat_id).running = None;
+        self.persist_in(chat_id);
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn finish_gifts(&mut self, id: &str, output: &str, ok: bool, gifts: Vec<download::Gift>) {
+        let chat = self.open_id();
+        self.finish_gifts_in(&chat, id, output, ok, gifts);
     }
 
     // The same, with the files one run of the display tool put in the window. The
     // show rides on the message of the run, so the button of the block opens the
     // same files again when the chat is opened another day.
-    fn finish_displayed(&mut self, id: &str, output: &str, ok: bool, displayed: Vec<display::Shown>) {
+    fn finish_displayed_in(&mut self, chat_id: &str, id: &str, output: &str, ok: bool, displayed: Vec<display::Shown>) {
         let text = self.with_stopped_head(output);
-        if let Some(chat) = self.chat_mut() {
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
                 message.tool = text.clone();
                 message.failed = !ok;
                 message.displayed = displayed;
             }
         }
-        self.running = None;
-        self.persist();
+        self.live_mut(chat_id).running = None;
+        self.persist_in(chat_id);
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn finish_displayed(&mut self, id: &str, output: &str, ok: bool, displayed: Vec<display::Shown>) {
+        let chat = self.open_id();
+        self.finish_displayed_in(&chat, id, output, ok, displayed);
     }
 
     // The same, with the next steps one run of the suggestion tool offered. The
@@ -2890,8 +3351,8 @@ impl State {
     // the chat is opened another day. Only the newest offer stands: every other
     // message of the chat is stripped of what it offered, for the roads an older
     // answer named are no longer the roads the talk is at.
-    fn finish_suggestions(
-        &mut self,
+    fn finish_suggestions_in(
+        &mut self, chat_id: &str,
         id: &str,
         output: &str,
         ok: bool,
@@ -2899,7 +3360,7 @@ impl State {
     ) {
         let text = self.with_stopped_head(output);
         let standing = !asks.is_empty();
-        if let Some(chat) = self.chat_mut() {
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             for message in chat.messages.iter_mut() {
                 if message.id == id {
                     message.tool = text.clone();
@@ -2910,9 +3371,16 @@ impl State {
                 }
             }
         }
-        self.running = None;
-        self.persist();
+        self.live_mut(chat_id).running = None;
+        self.persist_in(chat_id);
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn finish_suggestions(&mut self, id: &str, output: &str, ok: bool, asks: Vec<crate::suggest::Suggestion>) {
+        let chat = self.open_id();
+        self.finish_suggestions_in(&chat, id, output, ok, asks);
     }
 
     // The same, with the steps of the work one run of the steps tool showed. The
@@ -2920,8 +3388,8 @@ impl State {
     // opened another day. The newest call of the answer wins: an earlier call of
     // the same answer is cleared, so a model that corrects its own list does not
     // leave two blocks under the answer.
-    fn finish_steps(
-        &mut self,
+    fn finish_steps_in(
+        &mut self, chat_id: &str,
         id: &str,
         output: &str,
         ok: bool,
@@ -2929,7 +3397,7 @@ impl State {
     ) {
         let text = self.with_stopped_head(output);
         let standing = plan.is_some();
-        if let Some(chat) = self.chat_mut() {
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             let mut reached = false;
             for message in chat.messages.iter_mut() {
                 if message.id == id {
@@ -2942,9 +3410,16 @@ impl State {
                 }
             }
         }
-        self.running = None;
-        self.persist();
+        self.live_mut(chat_id).running = None;
+        self.persist_in(chat_id);
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn finish_steps(&mut self, id: &str, output: &str, ok: bool, plan: Option<crate::steps::Plan>) {
+        let chat = self.open_id();
+        self.finish_steps_in(&chat, id, output, ok, plan);
     }
 
     // The same, with the records of the pictures the run opened hanging on the
@@ -2952,36 +3427,50 @@ impl State {
     // of it out of the words the user is given, so the picture stands where the
     // pictures of a chat stand: in the folder of the records, named by the
     // message that opened it.
-    fn finish_tool_with(
-        &mut self,
+    fn finish_tool_with_in(
+        &mut self, chat_id: &str,
         id: &str,
         output: &str,
         ok: bool,
         pictures: Vec<Attachment>,
     ) {
         let text = self.with_stopped_head(output);
-        if let Some(chat) = self.chat_mut() {
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
                 message.tool = text.clone();
                 message.failed = !ok;
                 message.attachments = pictures;
             }
         }
-        self.running = None;
-        self.corporate_finish(id, output, ok);
-        self.persist();
+        self.live_mut(chat_id).running = None;
+        self.corporate_finish_in(chat_id, id, output, ok);
+        self.persist_in(chat_id);
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn finish_tool_with(&mut self, id: &str, output: &str, ok: bool, pictures: Vec<Attachment>) {
+        let chat = self.open_id();
+        self.finish_tool_with_in(&chat, id, output, ok, pictures);
     }
 
     // Put a call that is running under a clock, and remember which block of the
     // chat it stands in. The marks of a running call -- the one that cuts the
     // call short and the one that gives it more time -- speak to this clock.
-    fn begin_running(&mut self, id: &str, watch: &crate::util::Watch) {
-        self.running = Some(Running {
+    fn begin_running_in(&mut self, chat_id: &str, id: &str, watch: &crate::util::Watch) {
+        self.live_mut(chat_id).running = Some(Running {
             id: id.to_string(),
             watch: watch.clone(),
         });
         self.touch();
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn begin_running(&mut self, id: &str, watch: &crate::util::Watch) {
+        let chat = self.open_id();
+        self.begin_running_in(&chat, id, watch);
     }
 
     // The words that stand above the output of a call that was stopped before it
@@ -2989,8 +3478,8 @@ impl State {
     // front of a call that came back of its own accord. What the call had given
     // by then is kept below these words, for a model that reads the block has to
     // know what the call managed to do before it was stopped.
-    fn stopped_head(&self, gave_something: bool) -> Option<String> {
-        let one = self.running.as_ref()?;
+    fn stopped_head_in(&self, chat_id: &str, gave_something: bool) -> Option<String> {
+        let one = self.live_ref(chat_id).running.as_ref()?;
         let why: String = if one.watch.stopped() {
             String::from("The user stopped this call before it came back.")
         } else if one.watch.expired() {
@@ -3019,6 +3508,12 @@ impl State {
                 "It had given nothing by then."
             }
         ))
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn stopped_head(&self, gave_something: bool) -> Option<String> {
+        self.stopped_head_in(self.open_id().as_str(), gave_something)
     }
 
     // The output of a call, with the words of a stopped call in front of it when
@@ -3122,9 +3617,9 @@ impl State {
     // Turn the open chat into the message list the API expects. The day and the
     // clock time of this machine stand at the head of the list, in a message of
     // the role `system`, once for the talk.
-    fn build_history(&self) -> Value {
+    fn build_history_in(&self, chat_id: &str) -> Value {
         let mut out: Vec<Value> = Vec::new();
-        let Some(chat) = self.chat() else {
+        let Some(chat) = self.chat_of(chat_id) else {
             return json!([]);
         };
         if let Some(line) = date_message(&self.cfg, began_of(chat)) {
@@ -3156,7 +3651,7 @@ impl State {
         // The mode hides the thoughts and the call blocks, so the model has to
         // know that the short it writes is the only account of its work the user
         // reads. The words go away with the mode.
-        if self.corporate_on() {
+        if self.corporate_on_in(chat_id) {
             out.push(json!({
                 "role": "system",
                 "content": corporate::system_prompt(),
@@ -3363,6 +3858,12 @@ impl State {
         history
     }
 
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    fn build_history(&self) -> Value {
+        self.build_history_in(self.open_id().as_str())
+    }
+
     // Read the chats of the current scope from disk.
     fn reload_chats(&mut self) {
         self.chats = self.store.list_chats(&self.scope_repo);
@@ -3403,7 +3904,26 @@ impl State {
             self.current = None;
         }
         if self.current.is_none() {
-            self.ctx_used = 0;
+            self.live_write().ctx_used = 0;
+        }
+        // A chat that is being answered in the background is kept in the memory
+        // even when it is not a chat of the place that was just read again. The
+        // turn writes its messages into the chat it was begun in, and a chat that
+        // has gone out of the memory leaves the turn with nothing to write into:
+        // the words of the answer would be lost between the server and the talk.
+        let working: Vec<String> = self
+            .live
+            .iter()
+            .filter(|(_, one)| one.generating || one.summarising)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in working {
+            if self.chats.iter().any(|c| c.meta.id == id) {
+                continue;
+            }
+            if let Some(chat) = self.store.load_chat(&id) {
+                self.chats.push(chat);
+            }
         }
         self.touch_structure();
     }
@@ -3434,7 +3954,7 @@ impl State {
         chat.meta.opened = store::now_secs();
         self.chats.insert(0, chat);
         self.current = Some(self.chats[0].meta.id.clone());
-        self.ctx_used = 0;
+        self.live_write().ctx_used = 0;
         self.set_status("A new chat. Write in it below");
         self.touch_structure();
     }
@@ -3445,7 +3965,7 @@ impl State {
     // side bar goes back to.
     fn open_home(&mut self) {
         self.current = None;
-        self.ctx_used = 0;
+        self.live_write().ctx_used = 0;
         self.touch_structure();
     }
 
@@ -3497,6 +4017,25 @@ impl State {
             }
         }
         self.cfg.model_id.clone()
+    }
+
+    // The model of the chat named: what the chat wears when it wears one, and the
+    // model of the place else. A turn asks for the model of its own chat, so two
+    // chats of one model are answered by one server, and a chat that wore another
+    // model is not answered by it.
+    fn current_model_id_of(&self, chat: &str) -> String {
+        if let Some(one) = self.chat_of(chat) {
+            if !one.meta.model_id.is_empty() {
+                return one.meta.model_id.clone();
+            }
+        }
+        self.cfg.model_id.clone()
+    }
+
+    // The model of the chat named, when it stands in the list of the folder.
+    fn model_of(&self, chat: &str) -> Option<ModelInfo> {
+        let id = self.current_model_id_of(chat);
+        self.models.iter().find(|m| m.id() == id).cloned()
     }
 
     // What a server is started with, written as one line. A server comes from
@@ -3585,6 +4124,15 @@ impl State {
             .unwrap_or(self.new_sandbox_access)
     }
 
+    // What a command of the chat named may reach. A turn that runs in the
+    // background reads the marks of its own chat and not of whichever chat the
+    // side bar has open.
+    fn access_of_chat(&self, chat: &str) -> tools::Access {
+        self.chat_of(chat)
+            .map(|one| access_of(&one.meta))
+            .unwrap_or(self.new_sandbox_access)
+    }
+
     // Directory a tool run starts in. A repository chat works inside its
     // repository, and a loose chat gets its own folder.
     fn workdir_for(&self, chat: &Chat) -> PathBuf {
@@ -3605,6 +4153,12 @@ impl State {
     // for it works in the same room.
     fn attach_place_for(&self, chat: &Chat) -> PathBuf {
         attach::shelf(&self.workdir_for(chat))
+    }
+
+    // The folder of the records of the chat named, for a picture a tool opened.
+    fn attach_place_for_chat(&self, chat: &str) -> Option<PathBuf> {
+        let one = self.chat_of(chat)?;
+        Some(self.attach_place_for(one))
     }
 
     // The folder of the records of the open chat, for a picture a tool opened.
@@ -3678,19 +4232,26 @@ impl State {
     // chat stands empty, with the planning prompt and the planning tools gone with
     // it, and the plan itself comes back to stand as the first message of the
     // work. Nothing comes back when no plan was let go.
-    pub fn release_plan(&mut self) -> Option<String> {
-        let plan = self.plan_pending.take()?;
-        if let Some(chat) = self.chat_mut() {
+    pub fn release_plan_in(&mut self, chat_id: &str) -> Option<String> {
+        let plan = self.live_mut(chat_id).plan_pending.take()?;
+        if let Some(chat) = self.chat_of_mut(chat_id) {
             chat.messages.clear();
         }
-        self.live_text.clear();
-        self.live_reasoning.clear();
-        self.live_tools.clear();
-        self.live_work.clear();
-        self.live_work_head.clear();
-        self.ctx_used = 0;
+        self.live_mut(chat_id).live_text.clear();
+        self.live_mut(chat_id).live_reasoning.clear();
+        self.live_mut(chat_id).live_tools.clear();
+        self.live_mut(chat_id).live_work.clear();
+        self.live_mut(chat_id).live_work_head.clear();
+        self.live_mut(chat_id).ctx_used = 0;
         self.stop_planning();
         Some(plan)
+    }
+
+    // The same work for the chat the side bar has open, which is what the
+    // window and the page ask for when they name no chat.
+    pub fn release_plan(&mut self) -> Option<String> {
+        let chat = self.open_id();
+        self.release_plan_in(&chat)
     }
 
     // The records of the attachments used to stand in one flat folder under
@@ -3760,11 +4321,12 @@ impl State {
             chat_title: chat
                 .map(|c| c.meta.title.clone())
                 .unwrap_or_else(|| String::from("No chat")),
-            context_used: self.ctx_used,
+            context_used: self.live().ctx_used,
             context_total,
             context_cut: config::compaction_mark(&self.cfg, context_total).unwrap_or(0),
-            generating: self.generating,
-            summarising: self.summarising,
+            generating: self.live().generating,
+            working: self.generating_chats(),
+            summarising: self.live().summarising,
             busy: self.busy,
             code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(self.new_code),
             tool_switches: chat
@@ -3848,25 +4410,25 @@ impl State {
             continue_id: self.goable_answer().unwrap_or_default(),
             chapters: chat.map(chapter_marks).unwrap_or_default(),
             handoffs: chat
-                .map(|one| handoff_marks(one, self.generating))
+                .map(|one| handoff_marks(one, self.live().generating))
                 .unwrap_or_default(),
-            live_text: self.live_text.clone(),
-            live_reasoning: self.live_reasoning.clone(),
-            live_thought_ms: self.live_thought_ms,
-            live_thought_done: self.live_thought_done,
-            progress: self.progress,
-            progress_on: self.progress_on,
-            progress_images: self.progress_images,
-            prompt_rate: self.prompt_rate,
-            answer_rate: self.answer_rate,
-            live_tools: self.live_tools.clone(),
+            live_text: self.live().live_text.clone(),
+            live_reasoning: self.live().live_reasoning.clone(),
+            live_thought_ms: self.live().live_thought_ms,
+            live_thought_done: self.live().live_thought_done,
+            progress: self.live().progress,
+            progress_on: self.live().progress_on,
+            progress_images: self.live().progress_images,
+            prompt_rate: self.live().prompt_rate,
+            answer_rate: self.live().answer_rate,
+            live_tools: self.live().live_tools.clone(),
             // What the user is shown: calls of one tool made one after another
             // stand together in a block of their own.
-            live_work: corporate::grouped(&self.live_work),
-            live_work_head: self.live_work_head.clone(),
-            live_work_closed: self.live_work_closed,
-            ask: self.asking.clone(),
-            running: self.running.as_ref().map(|one| RunningTool {
+            live_work: corporate::grouped(&self.live().live_work),
+            live_work_head: self.live().live_work_head.clone(),
+            live_work_closed: self.live().live_work_closed,
+            ask: self.live().asking.clone(),
+            running: self.live().running.as_ref().map(|one| RunningTool {
                 id: one.id.clone(),
                 timeout: one.watch.limit().map(|given| given.as_secs() as u32),
                 left: one.watch.left().map(|left| left.as_secs() as u32),
@@ -3876,6 +4438,56 @@ impl State {
             structure_rev: self.structure_rev,
         }
     }
+}
+
+// The flag one turn of one chat answers to when the user asks for it to stop. A
+// flag is made new for every turn, so a stop asked for after an answer came to its
+// end does not carry over to the answer after it, and two chats are never stopped
+// by the same word.
+fn begin_turn_cancel(state: &mut State, chat: &str) -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    state.turn_cancel.insert(chat.to_string(), flag.clone());
+    flag
+}
+
+// Take the flag of a chat away, which is what a chat that came to the end of its
+// turn leaves behind. A stop asked for now has nothing to stop, and the next turn
+// is given a flag of its own.
+fn end_turn_cancel(state: &mut State, chat: &str) {
+    state.turn_cancel.remove(chat);
+}
+
+// The running llama-server, shared by the turns that answer at the same time.
+// The child process belongs to whoever started it: a turn reads the address of
+// the run it was given and never stops the run itself, so an answer in one chat
+// cannot be cut short by an answer in another.
+type ServerSlot = Arc<std::sync::Mutex<Option<Server>>>;
+
+// The slot of a server that was never started.
+fn empty_server() -> ServerSlot {
+    Arc::new(std::sync::Mutex::new(None))
+}
+
+// The address of the run that stands in the slot, and the model it loaded.
+// Nothing comes back when no server runs.
+fn server_held(server: &ServerSlot) -> Option<(String, String)> {
+    let held = server.lock().ok()?;
+    let one = held.as_ref()?;
+    Some((one.url.clone(), one.model_id.clone()))
+}
+
+// The address of the run that stands in the slot, or nothing at all when none
+// runs. A turn that has no address has nothing to ask.
+fn server_url(server: &ServerSlot) -> String {
+    server_held(server).map(|(url, _)| url).unwrap_or_default()
+}
+
+// The slot of the chat named in the run that stands in the slot: the talk of the
+// chat is laid in the slot again when another chat stood there last. Nothing when
+// no server runs, or when no slot is free.
+fn claim_slot(state: &Arc<Mutex<State>>, server: &ServerSlot) -> Option<usize> {
+    let (url, model_id) = server_held(server)?;
+    context_claim(state, &url, &model_id)
 }
 
 // One of the three settings of the sandbox, named as the pages name it.
@@ -3956,7 +4568,6 @@ pub struct Engine {
     #[cfg(not(any(test, feature = "live-driver")))]
     state: Arc<Mutex<State>>,
     jobs: Sender<Job>,
-    cancel: Arc<AtomicBool>,
 }
 
 impl Engine {
@@ -3987,37 +4598,14 @@ impl Engine {
             scope_repo: String::new(),
             chats: Vec::new(),
             current: None,
-            live_text: String::new(),
-            live_reasoning: String::new(),
-            live_thought_done: false,
-            live_thought_ms: 0,
-            progress: 0,
-            progress_on: false,
-            progress_images: 0,
-            prompt_rate: 0.0,
-            answer_rate: 0.0,
-            rate_start: None,
-            live_tools: Vec::new(),
-            live_work: Vec::new(),
-            live_work_head: String::new(),
-            live_work_closed: false,
-            plan_pending: None,
-            asking: None,
-            running: None,
+            // No chat is answering yet, so no chat carries live state of its own.
+            // The state of a chat is made ready when its first turn begins.
+            live: std::collections::BTreeMap::new(),
+            turn_cancel: std::collections::BTreeMap::new(),
             queues: Vec::new(),
-            thought_start: None,
-            thought_end: None,
-            // The meter of the context moves at most twice a second, so the
-            // moment it last moved stands here.
-            ctx_at: None,
-            generating: false,
-            summarising: false,
             busy: false,
             status: String::from("Ready"),
             ctx_total: 0,
-            ctx_used: 0,
-            ctx_fresh: false,
-            last_opened: 0,
             sandbox_available,
             sandbox_note,
             thinking: markdown::ThinkingOptions::default(),
@@ -4060,20 +4648,17 @@ impl Engine {
         // chats. The window shows the chat box on its own, the first message
         // opens a new chat, and the previews hold the chats that exist.
         state.current = None;
-        state.ctx_used = 0;
         state.refresh_thinking();
         let state = Arc::new(Mutex::new(state));
 
         let (sender, receiver) = channel::<Job>();
-        let cancel = Arc::new(AtomicBool::new(false));
         let worker_state = state.clone();
-        let worker_cancel = cancel.clone();
-        std::thread::spawn(move || worker(worker_state, receiver, worker_cancel));
+        let worker_sender = sender.clone();
+        std::thread::spawn(move || worker(worker_state, receiver, worker_sender));
 
         Engine {
             state,
             jobs: sender,
-            cancel,
         }
     }
 
@@ -4107,9 +4692,11 @@ impl Engine {
         // is dealt with, so a waiting list that was held back goes on again behind
         // it.
         state.queue_restart();
+        // The turn belongs to the chat it was written in, and not to whichever
+        // chat the side bar will have open when the worker takes the message up.
+        let chat = state.open_id();
         drop(state);
-        self.cancel.store(false, Ordering::SeqCst);
-        let _ = self.jobs.send(Job::Prompt(sent));
+        let _ = self.jobs.send(Job::Prompt { chat, sent });
     }
 
     // Ready a message of the chat box for the worker, and say upon the status
@@ -4132,7 +4719,7 @@ impl Engine {
             state.set_status("Nothing was written");
             return None;
         }
-        if state.generating {
+        if state.live().generating {
             state.set_status("An answer is still being generated");
             return None;
         }
@@ -4373,7 +4960,7 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
+        if state.live().generating {
             state.set_status("An answer is still being generated");
             return;
         }
@@ -4392,27 +4979,52 @@ impl Engine {
         // The summary was what stood between the chat and its waiting messages,
         // so they are asked again once it is begun.
         state.queue_restart();
+        // The summary belongs to the chat it was asked for, whatever the side bar
+        // has open by the time the worker takes the work up.
+        let chat = state.open_id();
         drop(state);
-        self.cancel.store(false, Ordering::SeqCst);
-        let _ = self.jobs.send(Job::Handoff);
+        let _ = self.jobs.send(Job::Handoff(chat));
     }
 
-    // Stop reading the answer.
+    // Stop reading the answer of the chat that stands open. Two chats may be
+    // answered at the same time, and stopping one of them stops that one alone:
+    // the flag a turn answers to belongs to the chat and to the turn, so the
+    // answers of the other chats go on, and a stop asked for after an answer came
+    // to its end does not stop the answer after it.
     pub fn cancel(&self) {
-        self.cancel.store(true, Ordering::SeqCst);
-        // A turn of the model extends into the calls of its tools, and a call
-        // that is running is part of the answer as much as the words of it are.
-        // The user who asks for the answer to stop is asking for the whole of the
-        // turn to stop, so the clock of the call is stopped too: the command that
-        // was started goes with the answer, and what it had printed by then still
-        // goes back to the model under the word that the user stopped it. The lock
-        // is only asked for once, and not waited for: the flag above is already
-        // set, and a call that is missed this way still ends by its own clock.
+        let chat = self.state.lock().ok().map(|g| g.open_id()).unwrap_or_default();
+        self.cancel_chat(&chat);
+    }
+
+    // Stop reading the answer of one chat, and the call of a tool that is running
+    // as part of it. The command that was started goes with the answer, and what it
+    // had printed by then still goes back to the model under the word that the user
+    // stopped it. The lock is only asked for once, and not waited for: the flag is
+    // set first, and a call that is missed this way still ends by its own clock.
+    pub fn cancel_chat(&self, chat: &str) {
+        let flag = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.turn_cancel.get(chat).cloned());
+        if let Some(flag) = flag.as_ref() {
+            flag.store(true, Ordering::SeqCst);
+        }
         if let Ok(mut state) = self.state.try_lock() {
-            if let Some(one) = state.running.as_ref() {
+            if let Some(one) = state.live_of(chat).and_then(|one| one.running.as_ref()) {
                 one.watch.stop_now();
-                state.set_status("The call is being stopped with the answer");
+                state.set_status(if flag.is_some() {
+                    "The call is being stopped with the answer"
+                } else {
+                    "The call is being stopped"
+                });
+                return;
             }
+            state.set_status(if flag.is_some() {
+                "The answer is being stopped"
+            } else {
+                "Nothing of this chat is being written"
+            });
         }
     }
 
@@ -4703,14 +5315,13 @@ impl Engine {
 
     // Choose the thinking mode of the open chat. A model with no thinking
     // mode does not change, and neither does a mode the model does not offer.
+    // An answer that is coming in is not held up by this: the word for the
+    // thinking rides on the ask, so the change stands for the next ask of the
+    // chat, which may be the next step of the answer that is on the way.
     pub fn set_thinking(&self, mode: &str) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
         if !state.thinking.modes().contains(&mode) {
             return;
         }
@@ -4722,7 +5333,7 @@ impl Engine {
         // The same choice opens the next chat too, whatever stands open now.
         state.new_thinking = mode.to_string();
         state.persist();
-        state.set_status(&format!("Thinking: {}", mode));
+        state.set_status(&format!("Thinking: {}. The change goes out with the next ask", mode));
         state.touch();
         // The mode rides on the next ask, so a server that runs is left alone:
         // the word for the thinking is no flag of the server, and the model
@@ -4731,17 +5342,13 @@ impl Engine {
 
     // Turn the keeping of the thinking of the earlier turns on or off, for the
     // chat in hand. A model whose template cannot keep its thinking does not
-    // change, and neither does a chat while an answer comes in. Keeping costs
-    // tokens, for the thoughts of the chat go back to the model with every
-    // turn.
+    // change. Keeping costs tokens, for the thoughts of the chat go back to the
+    // model with every turn. As with the mode, the choice goes out with the next
+    // ask, so an answer that is coming in is not held up by it.
     pub fn set_preserve(&self, on: bool) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
         if !state.thinking.has_preserve {
             state.set_status("This model has no setting for keeping the thinking");
             return;
@@ -4767,10 +5374,6 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
         if id == state.scope_repo {
             return;
         }
@@ -4792,10 +5395,6 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
         let name = name.trim().to_string();
         if name.is_empty() {
             state.set_status("A repository needs a name");
@@ -4951,10 +5550,6 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
         state.open_home();
         state.set_status("A new chat. Write in it below");
     }
@@ -4967,10 +5562,6 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
         // A chat of another place is read from disk, for the side bar lists
         // every place and the engine holds only the one that is open.
         if !state.chats.iter().any(|c| c.meta.id == id) {
@@ -5146,10 +5737,25 @@ impl Engine {
             state.set_status("That chat is not there");
             return;
         };
+        // A chat whose answer is on the way is not taken away: the words of that
+        // answer go into the chat, and a chat that is gone leaves them nowhere.
+        if state
+            .live_of(&id)
+            .map(|one| one.generating || one.summarising)
+            .unwrap_or(false)
+        {
+            state.set_status(
+                "This chat is being answered. Wait for the answer to finish before the chat is removed",
+            );
+            return;
+        }
         state.store.delete_chat(&chat.meta.repo_id, &id);
         // The waiting list of the chat goes with it: the messages of a chat that
         // is gone have no answer left to wait for.
         state.queue_drop(&id);
+        // What the chat showed of itself goes with it, so a chat made again under
+        // the same name does not open with the words of the one that was removed.
+        state.live_drop(&id);
         state.chats.retain(|c| c.meta.id != id);
         if state.current.as_deref() == Some(id.as_str()) {
             state.open_home();
@@ -5165,7 +5771,7 @@ impl Engine {
     // the program does not throw away what a user wrote behind their back.
     pub fn remove_message(&self, id: String) {
         let Ok(mut state) = self.state.lock() else { return };
-        if state.generating {
+        if state.live().generating {
             state.set_status("An answer is still being generated");
             return;
         }
@@ -5237,7 +5843,7 @@ impl Engine {
     // chat comes into the chat box beside the words.
     pub fn rewrite_message(&self, id: String) {
         let Ok(mut state) = self.state.lock() else { return };
-        if state.generating {
+        if state.live().generating {
             state.set_status("An answer is still being generated");
             return;
         }
@@ -5303,7 +5909,7 @@ impl Engine {
     // they were: the user is writing the words, not the work.
     pub fn edit_answer(&self, id: String, body: String) {
         let Ok(mut state) = self.state.lock() else { return };
-        if state.generating {
+        if state.live().generating {
             state.set_status("An answer is still being generated");
             return;
         }
@@ -5338,7 +5944,7 @@ impl Engine {
     // is the shape of a message the user has just sent.
     pub fn retry_message(&self, id: String) {
         let Ok(mut state) = self.state.lock() else { return };
-        if state.generating {
+        if state.live().generating {
             state.set_status("An answer is still being generated");
             return;
         }
@@ -5399,9 +6005,9 @@ impl Engine {
         }
         state.persist();
         state.touch();
+        let chat = state.open_id();
         drop(state);
-        self.cancel.store(false, Ordering::SeqCst);
-        let _ = self.jobs.send(Job::Retry);
+        let _ = self.jobs.send(Job::Retry(chat));
     }
 
     // Go on with an answer of the model: the newest saying of the model in the open
@@ -5415,7 +6021,7 @@ impl Engine {
     // answer and not two.
     pub fn continue_message(&self, id: String) {
         let Ok(mut state) = self.state.lock() else { return };
-        if state.generating {
+        if state.live().generating {
             state.set_status("An answer is still being generated");
             return;
         }
@@ -5457,9 +6063,9 @@ impl Engine {
         }
         state.persist();
         state.touch();
+        let chat = state.open_id();
         drop(state);
-        self.cancel.store(false, Ordering::SeqCst);
-        let _ = self.jobs.send(Job::Resume(id));
+        let _ = self.jobs.send(Job::Resume { chat, id });
     }
 
     // Give a repository another name. The folder of a repository is named after
@@ -5471,8 +6077,10 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
+        if state.repo_working(&id) {
+            state.set_status(
+                "A chat of this repository is being answered. Wait for the answer to finish before its folder is moved",
+            );
             return;
         }
         let made = state.store.rename_repo(&id, &name);
@@ -5552,12 +6160,10 @@ impl Engine {
                 mine.push(open);
             }
         }
-        if state.generating
-            && state
-                .current
-                .as_ref()
-                .map(|open| mine.contains(open))
-                .unwrap_or(false)
+        if state
+            .live
+            .iter()
+            .any(|(id, one)| (one.generating || one.summarising) && mine.contains(id))
         {
             let words = format!(
                 "The repository {} cannot be taken away while its answer is being written",
@@ -5636,15 +6242,14 @@ impl Engine {
         state.lists()
     }
 
-    // Pick another model. The worker stops the running server.
+    // Pick another model. The worker stops the running server - but only when no
+    // chat is being answered on it, so a model that was chosen while an answer is
+    // on the way takes hold on the next turn instead of cutting that answer short.
     pub fn select_model(&self, id: String) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
+        let answering = state.any_generating();
         state.cfg.model_id = id.clone();
         if let Some(chat) = state.chat_mut() {
             chat.meta.model_id = id.clone();
@@ -5663,18 +6268,20 @@ impl Engine {
         // the lists are let go again here as well.
         state.queue_restart();
         state.touch_structure();
+        if answering {
+            state.set_status("The changed model settings will take effect on a new turn");
+        }
         let _ = self.jobs.send(Job::ModelChanged);
     }
 
-    // Store new settings, and refresh what depends on them.
+    // Store new settings, and refresh what depends on them. A run that chats are
+    // being answered on keeps the values it was started with until they are done,
+    // which is what makes a setting changed mid-answer take hold on a new turn.
     pub fn save_settings(&self, cfg: Config) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if state.generating {
-            state.set_status("Wait for the answer to finish");
-            return;
-        }
+        let answering = state.any_generating();
         // What the running server was started with, before these settings take
         // any hold of it. The same line afterwards means the model may stay
         // loaded, however much of the setting was written over.
@@ -5717,7 +6324,11 @@ impl Engine {
         migrate::hunt(&state.cfg, &state.store);
         state.refresh_lists();
         state.reload_chats();
-        state.set_status("Settings saved");
+        state.set_status(if answering {
+            "The changed model settings will take effect on a new turn"
+        } else {
+            "Settings saved"
+        });
         // A model that is loaded is only sent away when the settings a server
         // is started with truly moved. The rest of the settings belong to the
         // program alone, and saving one of them while a model stands loaded
@@ -5762,10 +6373,11 @@ impl Engine {
     }
 
     // Save the settings of one model. A running server gets stopped, because it
-    // was started with the old values -- but only when the values it was
-    // started with are among those that moved. Settings of a model that is not
-    // the one loaded, and settings that came to no change at all, leave a
-    // loaded model where it stands.
+    // was started with the old values -- but only when the values it was started
+    // with are among those that moved, and only when no chat is being answered on
+    // it. Settings of a model that is not the one loaded, and settings that came to
+    // no change at all, leave a loaded model where it stands. A change made while
+    // an answer is on the way is kept all the same and takes hold on the next turn.
     pub fn save_model_settings(&self, id: String, settings: ModelSettings) {
         let Ok(mut state) = self.state.lock() else {
             return;
@@ -5773,8 +6385,12 @@ impl Engine {
         let before = state.server_stamp();
         state.cfg.model_settings.insert(id.clone(), settings);
         let moved = before != state.server_stamp();
+        let answering = state.any_generating();
         let _ = config::save(&state.cfg);
         state.touch_structure();
+        if answering {
+            state.set_status("The changed model settings will take effect on a new turn");
+        }
         drop(state);
         if moved {
             let _ = self.jobs.send(Job::SettingsChanged);
@@ -5851,7 +6467,7 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if let Some(one) = state.running.as_ref() {
+        if let Some(one) = state.live().running.as_ref() {
             one.watch.stop_now();
             state.set_status("The call is being stopped");
         }
@@ -5864,7 +6480,7 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        if let Some(one) = state.running.as_ref() {
+        if let Some(one) = state.live().running.as_ref() {
             one.watch.extend(TOOL_EXTEND);
             let left = one.watch.left().map(|left| left.as_secs()).unwrap_or(0);
             let text = format!("The call has {} seconds left", left);
@@ -5873,9 +6489,14 @@ impl Engine {
         }
     }
 
-    // Ask the worker to stop, so the model is unloaded.
+    // Ask the worker to stop, so the model is unloaded. Every chat that is being
+    // answered is told to stop first, so its turn gives up the run it holds.
     pub fn shutdown(&self) {
-        self.cancel.store(true, Ordering::SeqCst);
+        if let Ok(state) = self.state.lock() {
+            for flag in state.turn_cancel.values() {
+                flag.store(true, Ordering::SeqCst);
+            }
+        }
         let _ = self.jobs.send(Job::Shutdown);
     }
 }
@@ -5896,6 +6517,7 @@ impl Snap {
             context_cut: 0,
             sandbox_access: tools::Access::default(),
             generating: false,
+            working: Vec::new(),
             busy: false,
             code_enabled: false,
             tool_switches: store::ToolSwitches::default(),
@@ -5983,21 +6605,21 @@ impl Snap {
 // of them is sent by the road a message sent from the box goes by.
 fn run_send(
     state: &Arc<Mutex<State>>,
-    server: &mut Option<Server>,
+    server: &ServerSlot,
     cancel: &Arc<AtomicBool>,
     sent: SentMessage,
-) {
+    chat: &str) {
     let mut turn = Turn::Sent(sent);
     // How many times the model has been asked to go on with its work after a
     // handoff summary of this one send.
     let mut goings_on = 0usize;
     loop {
-        let ended = run_turn(state, server, cancel, turn);
+        let ended = run_turn(state, server, cancel, turn, chat);
         // The answer is in the chat and the room it took is known, so this is the
         // moment a handoff summary is asked for, if the talk has come that far. It
         // is asked for whatever the answer came to, for a chat left past the limit
         // is only stopped again on the next message.
-        let made_room = maybe_compact(state, server, cancel, Weigh::Talk);
+        let made_room = maybe_compact(state, server, cancel, Weigh::Talk, chat);
         // A summary the program asked for is written so that the work goes on,
         // and so it does: the model is put back to its talk with the first prompt
         // of the user and the summary in front of it, and none of the words the
@@ -6014,7 +6636,7 @@ fn run_send(
     // the tools the chat had before planning mode and with none of the two tools
     // of planning. The turn above ended on the call that let the plan go, so
     // nothing is asked again of the talk that planned.
-    let mut released = take_plan_release(state);
+    let mut released = take_plan_release(state, chat);
     while let Some(plan) = released {
         let _ = run_turn(
             state,
@@ -6024,16 +6646,17 @@ fn run_send(
                 text: plan,
                 files: Vec::new(),
             }),
+            chat,
         );
         // A work that planned again behind this one is rare, and is answered the
         // same way as the first.
-        released = take_plan_release(state);
+        released = take_plan_release(state, chat);
     }
     // The programmed messages of this chat are looked at against the answer that
     // has just come to an end. A message whose words the model has just written
     // goes out with the next turn of the chat, ahead of the messages that were only
     // put in the list.
-    note_answer(state);
+    note_answer(state, chat);
 }
 
 // The next message of the waiting list of the chat that stands open, ready to be
@@ -6045,7 +6668,7 @@ fn run_send(
 // a handoff summary - is left in the list, and the rest of the list is held back
 // with it. The reason for it stands on the status line from the attempt, and the
 // program does not ask again every moment: touching the list starts it again.
-fn queue_step(state: &Arc<Mutex<State>>) -> Option<SentMessage> {
+fn queue_step(state: &Arc<Mutex<State>>, chat: &str) -> Option<SentMessage> {
     let (id, next) = state.lock().ok()?.queue_next()?;
     let queued = next;
     let ready = match state.lock() {
@@ -6055,13 +6678,13 @@ fn queue_step(state: &Arc<Mutex<State>>) -> Option<SentMessage> {
     match ready {
         Some(sent) => {
             if let Ok(mut guard) = state.lock() {
-                guard.queue_take(id);
+                guard.queue_take_in(chat, id);
             }
             Some(sent)
         }
         None => {
             if let Ok(mut guard) = state.lock() {
-                guard.queue_hold();
+                guard.queue_hold_in(chat);
             }
             None
         }
@@ -6073,38 +6696,317 @@ fn queue_step(state: &Arc<Mutex<State>>) -> Option<SentMessage> {
 // nothing waiting, or with no answer to look at, is left alone: the asking of the
 // waiting list is not set going here, for the worker asks after it as soon as the
 // chat is idle.
-fn note_answer(state: &Arc<Mutex<State>>) {
+fn note_answer(state: &Arc<Mutex<State>>, chat: &str) {
     let answer = match state.lock() {
-        Ok(guard) => guard.last_answer(),
+        Ok(guard) => guard.last_answer_in(chat),
         Err(_) => return,
     };
     let Some(body) = answer else { return };
     if let Ok(mut guard) = state.lock() {
-        guard.answer_programmed(&body);
+        guard.answer_programmed_in(chat, &body);
     }
 }
 
-// The worker thread. It is the only code that talks to llama-server.
-fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>) {
-    // The worker owns the server, so no other thread may stop it while a call
-    // is in flight.
-    let mut server: Option<Server> = None;
+// What the turn of one chat is to be. The worker turns a job into one of these
+// and hands it to a thread of its own.
+enum Turn2 {
+    // Answer a message of the user, with the waiting-list rules that go with it.
+    Send(SentMessage),
+    // Answer the chat again from the talk as it stands.
+    Retry,
+    // Go on with the answer the user stopped.
+    Resume(String),
+    // Write the handoff summary the chat owes, and go on after it.
+    Handoff,
+}
+
+// The chat a job works in, when it works in one at all.
+fn job_chat(job: &Job) -> Option<String> {
+    match job {
+        Job::Prompt { chat, .. } => Some(chat.clone()),
+        Job::Handoff(chat) | Job::Retry(chat) => Some(chat.clone()),
+        Job::Resume { chat, .. } => Some(chat.clone()),
+        _ => None,
+    }
+}
+
+// How many answers at once the model of this chat was started with room for. The
+// setting stands in the Model tab; one answer at a time is the least, whatever
+// the settings say, and a chat with no model to its name gets one as well.
+fn slots_of(state: &Arc<Mutex<State>>, chat: &str) -> usize {
+    let Ok(guard) = state.lock() else { return 1 };
+    let most = guard
+        .model_of(chat)
+        .map(|model| guard.settings_for(&model).parallel)
+        .unwrap_or(1);
+    most.max(1) as usize
+}
+
+// Whether a turn of this chat may be begun now. Two things hold a turn back: the
+// chat is already answering, which is what keeps the messages of a waiting list
+// in order; and the chats that are answering fill the places the model has for
+// answers at once. A chat that asks for another model than the run carries waits
+// for those chats to come to their end, for the model of a run is loaded once and
+// for all, and a second model would push the run over. `worn` is the model the run
+// carries, or nothing at all when no run stands, which is the case while the first
+// chat of a run is still loading its model.
+fn room_for(
+    state: &Arc<Mutex<State>>,
+    worn: Option<&str>,
+    busy: &std::collections::BTreeSet<String>,
+    chat: &str,
+) -> bool {
+    if busy.len() >= slots_of(state, chat) {
+        return false;
+    }
+    if busy.is_empty() {
+        // Nobody is being answered, so this turn may load whatever it needs.
+        return true;
+    }
+    match worn {
+        Some(worn) => state
+            .lock()
+            .ok()
+            .and_then(|guard| guard.model_of(chat))
+            .map(|model| model.id())
+            == Some(String::from(worn)),
+        // No run stands yet: whoever comes first starts it, and the rest wait for
+        // the run to be there before they ask it for anything.
+        None => false,
+    }
+}
+
+// What a run that has been stopped, or a model that has been changed, leaves
+// behind: the size of the room is not known until the new run speaks, the modes of
+// the new model are read again, and a chat that wore a mode the new model cannot
+// read is put at "off".
+fn refresh_run(state: &Arc<Mutex<State>>) {
+    if let Ok(mut state) = state.lock() {
+        state.ctx_total = 0;
+        state.refresh_thinking();
+        state.normalize_thinking();
+        let name = state
+            .model()
+            .map(|m| m.name)
+            .unwrap_or_else(|| String::from("The model"));
+        let text = format!("{} loads with the next message", name);
+        state.set_status(&text);
+    }
+}
+
+// Ask one server of the user's own what it has to offer. The state lock is let go
+// of for the while, for a server that will not answer is waited for, and the
+// window must go on drawing while it is waited for.
+fn look_at_mcp(state: &Arc<Mutex<State>>, id: String) {
+    let wanted = match state.lock() {
+        Ok(guard) => guard
+            .cfg
+            .mcp_servers
+            .iter()
+            .find(|server| server.id == id)
+            .cloned(),
+        Err(_) => return,
+    };
+    let Some(server) = wanted else { return };
+    let found = mcp::list(&server);
+    let Ok(mut guard) = state.lock() else { return };
+    match found {
+        Ok(tools) => {
+            let count = tools.len();
+            guard.mcp_tools.insert(server.id.clone(), tools);
+            guard.mcp_fault.remove(&server.id);
+            guard.touch();
+            guard.set_status(&format!(
+                "{} answers: {}",
+                server.name,
+                mcp::looked_words(count)
+            ));
+        }
+        Err(problem) => {
+            guard.mcp_tools.insert(server.id.clone(), Vec::new());
+            guard.mcp_fault.insert(server.id.clone(), problem.clone());
+            guard.touch();
+            guard.set_status(&format!("{} does not answer: {}", server.name, problem));
+        }
+    }
+}
+
+// Answer one chat again from the talk as it stands, after one message of it was
+// taken out with everything that came after it. The rules of the room and of the
+// handoff summary are the same as for a message of the user.
+fn run_retry(
+    state: &Arc<Mutex<State>>,
+    server: &ServerSlot,
+    cancel: &Arc<AtomicBool>,
+    chat: &str,
+) {
+    let mut turn = Turn::Retry;
+    let mut goings_on = 0usize;
     loop {
-        // A waiting list is looked at on a clock, and only while a list of the
-        // open chat stands and the chat is idle. The messages of such a list go
-        // out by themselves, with no page left to watch the chat; a worker with
-        // no list to send waits for a job and costs nothing at all.
+        let ended = run_turn(state, server, cancel, turn, chat);
+        let made_room = maybe_compact(state, server, cancel, Weigh::Talk, chat);
+        if !made_room
+            || ended != Ended::Done
+            || goings_on >= CONTINUE_ROOF
+            || cancel.load(Ordering::Relaxed)
+        {
+            break;
+        }
+        goings_on += 1;
+        turn = Turn::Continue;
+    }
+    // The talk was cut back and answered again, so the answer that stands at the
+    // end of it is a new one: the programmed messages of the chat look at it, as
+    // they look at any other.
+    note_answer(state, chat);
+}
+
+// Send the work of one turn of one chat to a thread of its own, and say that the
+// chat is at work from now. The flag the user stops an answer with is made new for
+// the turn, so a stop asked for after an answer came to its end does not carry
+// over to the answer after it. When the turn is over the worker is told, which is
+// what frees the place the turn held at the model.
+fn spawn_turn(
+    state: &Arc<Mutex<State>>,
+    server: &ServerSlot,
+    sender: &Sender<Job>,
+    chat: String,
+    what: Turn2,
+) {
+    let cancel = {
+        let Ok(mut guard) = state.lock() else { return };
+        let flag = begin_turn_cancel(&mut guard, &chat);
+        // The chat is said to be at work before the thread of the turn has the
+        // state in hand, so a page that asks again a moment after sending finds
+        // the chat answering and not idle.
+        guard.live_mut(&chat).generating = true;
+        guard.busy = true;
+        flag
+    };
+    let st = state.clone();
+    let srv = server.clone();
+    let tx = sender.clone();
+    std::thread::spawn(move || {
+        match what {
+            Turn2::Send(sent) => run_send(&st, &srv, &cancel, sent, &chat),
+            Turn2::Retry => run_retry(&st, &srv, &cancel, &chat),
+            Turn2::Resume(id) => {
+                // The words the user stopped stand at the end of the talk, so the
+                // ask is the talk as it stands and the model writes on from them.
+                // No second ask follows: an answer without a command is an answer
+                // at its end, and the room of the talk is weighed afterwards as it
+                // is after every other answer.
+                run_turn(&st, &srv, &cancel, Turn::Resume(id), &chat);
+                let _ = maybe_compact(&st, &srv, &cancel, Weigh::Talk, &chat);
+                // The words that came after the stopping are the answer of the
+                // chat, so they are what a programmed message looks at.
+                note_answer(&st, &chat);
+            }
+            Turn2::Handoff => {
+                // The user asked for a summary that never came to be written
+                // again. When it comes, the model is put back to work, for that is
+                // what a handoff summary is written for, and the chat was left
+                // standing at the mark of it.
+                let made = run_handoff(&st, &srv, &cancel, &chat);
+                if made && !cancel.load(Ordering::Relaxed) {
+                    run_turn(&st, &srv, &cancel, Turn::Continue, &chat);
+                }
+            }
+        }
+        let _ = tx.send(Job::Done(chat));
+    });
+}
+
+// Begin every turn that may be begun now. Work that cannot be begun yet stays in
+// the list it came from and is asked again when a place at the model frees.
+fn dispatch(
+    state: &Arc<Mutex<State>>,
+    server: &ServerSlot,
+    sender: &Sender<Job>,
+    busy: &mut std::collections::BTreeSet<String>,
+    pending: &mut Vec<(Job, String)>,
+) {
+    let mut asked = true;
+    while asked {
+        asked = false;
+        // The model the run carries, read again for every pass: the first turn of
+        // a run loads its model in the middle of a pass, and the chats that come
+        // after it are judged against the model that stands by then.
+        let worn = server_held(server).map(|(_, model)| model);
+        let mut at = 0;
+        while at < pending.len() {
+            let chat = pending[at].1.clone();
+            if busy.contains(chat.as_str()) || !room_for(state, worn.as_deref(), busy, &chat) {
+                at += 1;
+                continue;
+            }
+            let (job, chat) = pending.remove(at);
+            let what = match job {
+                Job::Prompt { sent, .. } => Some(Turn2::Send(sent)),
+                Job::Retry(_) => Some(Turn2::Retry),
+                Job::Resume { id, .. } => Some(Turn2::Resume(id)),
+                Job::Handoff(_) => Some(Turn2::Handoff),
+                _ => None,
+            };
+            let Some(what) = what else { continue };
+            busy.insert(chat.clone());
+            spawn_turn(state, server, sender, chat, what);
+            asked = true;
+        }
+        // The waiting lists next. A chat takes a message out of its list only
+        // when a turn can be begun for it, so a message is never lost between the
+        // list and the chat, and the messages of one chat go out in the order the
+        // user wrote them.
+        let ready = state
+            .lock()
+            .map(|guard| guard.ready_queues())
+            .unwrap_or_default();
+        for chat in ready {
+            if busy.contains(chat.as_str()) || !room_for(state, worn.as_deref(), busy, &chat) {
+                continue;
+            }
+            let Some(sent) = queue_step(state, &chat) else { continue };
+            busy.insert(chat.clone());
+            spawn_turn(state, server, sender, chat, Turn2::Send(sent));
+        }
+    }
+}
+
+// The worker. It is the only code that talks to llama-server, and the only place
+// that decides which chats are answered at the same time.
+//
+// The worker answers nothing itself: every turn goes to a thread of its own, and
+// the worker keeps the list of the chats that are at work. One chat is answered by
+// one turn at a time, so the words of a waiting list go out in their order; two
+// chats are answered together as far as the model was started with room for that
+// many answers at once, which is the `parallel` setting of the Model tab. A chat
+// that wants another model than the run carries waits for the chats on the run to
+// come to their end.
+fn worker(
+    state: Arc<Mutex<State>>,
+    jobs: Receiver<Job>,
+    sender: Sender<Job>,
+) {
+    let server = empty_server();
+    let mut busy: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut pending: Vec<(Job, String)> = Vec::new();
+    let mut replace_run = false;
+    loop {
+        // A waiting list is looked at on a clock, so the messages of a list go out
+        // by themselves with no page left to watch the chat. The clock is set only
+        // while there is something to look at: a worker with no list to send and no
+        // work waiting for a place waits for a job and costs nothing at all.
         let waiting = state
             .lock()
-            .map(|guard| guard.queue_ready())
+            .map(|guard| !guard.ready_queues().is_empty())
             .unwrap_or(false);
-        let job = if waiting {
+        let job = if waiting || !pending.is_empty() {
             match jobs.recv_timeout(QUEUE_POLL) {
                 Ok(job) => job,
-                Err(RecvTimeoutError::Timeout) => Job::QueueStep,
+                Err(RecvTimeoutError::Timeout) => Job::Tick,
                 // The engine went away, so take the model with it.
                 Err(_) => {
-                    stop_server(&state, &mut server);
+                    idle_out(&state, &server, &jobs, &mut busy);
                     return;
                 }
             }
@@ -6112,129 +7014,86 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
             match jobs.recv() {
                 Ok(job) => job,
                 Err(_) => {
-                    stop_server(&state, &mut server);
+                    idle_out(&state, &server, &jobs, &mut busy);
                     return;
                 }
             }
         };
         match job {
             Job::Shutdown => {
-                stop_server(&state, &mut server);
+                idle_out(&state, &server, &jobs, &mut busy);
                 return;
             }
             Job::ModelChanged | Job::SettingsChanged => {
-                stop_server(&state, &mut server);
-                if let Ok(mut state) = state.lock() {
-                    state.ctx_total = 0;
-                    state.refresh_thinking();
-                    // The modes of the new model are known by now, so a mode
-                    // the chat wore that the model cannot read is put at "off"
-                    // before the next answer asks for the flags of the server.
-                    state.normalize_thinking();
-                    let name = state
-                        .model()
-                        .map(|m| m.name)
-                        .unwrap_or_else(|| String::from("The model"));
-                    let text = format!("{} loads with the next message", name);
-                    state.set_status(&text);
+                // A run that chats are being answered on is left where it stands:
+                // the new model, or the new settings, take effect on the next
+                // turn, which is what the user is told. The chats themselves are
+                // asked as well as the list of turns, for a turn that has just
+                // been handed over is still writing its words.
+                let answering = !busy.is_empty()
+                    || state
+                        .lock()
+                        .map(|guard| guard.any_generating())
+                        .unwrap_or(false);
+                if !answering {
+                    stop_server(&state, &server);
+                    refresh_run(&state);
+                } else {
+                    replace_run = true;
                 }
             }
-            Job::Prompt(sent) => run_send(&state, &mut server, &cancel, sent),
-            // The chat that stands open is idle and a message of the waiting list
-            // has its turn. The message goes out as the user sent it, which is
-            // what lets a list keep going after the page that wrote it is gone.
-            Job::QueueStep => {
-                if let Some(sent) = queue_step(&state) {
-                    run_send(&state, &mut server, &cancel, sent);
-                }
-            }
-            Job::Retry => {
-                // The talk was cut back to the message the user is going on
-                // from, so the ask is the talk as it stands. The rules of the
-                // room and of the handoff summary are the same as for a message
-                // of the user.
-                let mut turn = Turn::Retry;
-                let mut goings_on = 0usize;
-                loop {
-                    let ended = run_turn(&state, &mut server, &cancel, turn);
-                    let made_room = maybe_compact(&state, &mut server, &cancel, Weigh::Talk);
-                    if !made_room
-                        || ended != Ended::Done
-                        || goings_on >= CONTINUE_ROOF
-                        || cancel.load(Ordering::Relaxed)
-                    {
-                        break;
-                    }
-                    goings_on += 1;
-                    turn = Turn::Continue;
-                }
-                // The talk was cut back and answered again, so the answer that
-                // stands at the end of it is a new one: the programmed messages of
-                // the chat look at it, as they look at any other.
-                note_answer(&state);
-            }
-            Job::Resume(id) => {
-                // The words the user stopped stand at the end of the talk, so the
-                // ask is the talk as it stands and the model writes on from them.
-                // No second ask follows: an answer without a command is an answer
-                // at its end, and the room of the talk is weighed afterwards as it
-                // is after every other answer.
-                run_turn(&state, &mut server, &cancel, Turn::Resume(id));
-                let _ = maybe_compact(&state, &mut server, &cancel, Weigh::Talk);
-                // The words that came after the stopping are the answer of the
-                // chat, so they are what a programmed message looks at.
-                note_answer(&state);
-            }
-            Job::McpLook(id) => {
-                // One server of the user's own is asked what it has to offer.
-                // The state lock is let go of for the while, for a server that
-                // will not answer is waited for, and the window must go on
-                // drawing while it is waited for.
-                let wanted = match state.lock() {
-                    Ok(guard) => guard
-                        .cfg
-                        .mcp_servers
-                        .iter()
-                        .find(|server| server.id == id)
-                        .cloned(),
-                    Err(_) => break,
-                };
-                let Some(server) = wanted else { continue };
-                let found = mcp::list(&server);
-                let Ok(mut guard) = state.lock() else { break };
-                match found {
-                    Ok(tools) => {
-                        let count = tools.len();
-                        guard.mcp_tools.insert(server.id.clone(), tools);
-                        guard.mcp_fault.remove(&server.id);
-                        guard.touch();
-                        guard.set_status(&format!(
-                            "{} answers: {}",
-                            server.name,
-                            mcp::looked_words(count)
-                        ));
-                    }
-                    Err(problem) => {
-                        guard.mcp_tools.insert(server.id.clone(), Vec::new());
-                        guard.mcp_fault.insert(server.id.clone(), problem.clone());
-                        guard.touch();
-                        guard.set_status(&format!("{} does not answer: {}", server.name, problem));
+            Job::McpLook(id) => look_at_mcp(&state, id),
+            Job::Done(chat) => {
+                busy.remove(chat.as_str());
+                if let Ok(mut guard) = state.lock() {
+                    end_turn_cancel(&mut guard, &chat);
+                    let idle = !guard.any_generating();
+                    drop(guard);
+                    if idle && replace_run {
+                        stop_server(&state, &server);
+                        refresh_run(&state);
+                        replace_run = false;
                     }
                 }
             }
-            Job::Handoff => {
-                // The user asked for a summary that never came to be written
-                // again. When it comes, the model is put back to work, for that is
-                // what a handoff summary is written for, and the chat was left
-                // standing at the mark of it.
-                let made = run_handoff(&state, &mut server, &cancel);
-                if made && !cancel.load(Ordering::Relaxed) {
-                    run_turn(&state, &mut server, &cancel, Turn::Continue);
+            Job::Tick => {}
+            other => {
+                if let Some(chat) = job_chat(&other) {
+                    pending.push((other, chat));
                 }
             }
         }
+        dispatch(&state, &server, &sender, &mut busy, &mut pending);
     }
 }
+
+// The run is let go of: the turns that are on their way are let come to their end,
+// so the words of an answer are not lost between the server and the chat it was
+// writing into, and the talks are written out before the process stops.
+fn idle_out(
+    state: &Arc<Mutex<State>>,
+    server: &ServerSlot,
+    jobs: &Receiver<Job>,
+    busy: &mut std::collections::BTreeSet<String>,
+) {
+    // The wait is bounded: a turn is bounded by its own clocks, and a process that
+    // is leaving does not wait on a server that has stopped answering.
+    let mut tries = 0usize;
+    while !busy.is_empty() && tries < 600 {
+        tries += 1;
+        // Only the word that a turn is over matters here. The process is leaving,
+        // so any other job that comes in during the wait is dropped, as it was
+        // before.
+        if let Ok(Job::Done(chat)) = jobs.recv_timeout(QUEUE_POLL) {
+            busy.remove(chat.as_str());
+            if let Ok(mut guard) = state.lock() {
+                end_turn_cancel(&mut guard, &chat);
+            }
+        }
+    }
+    stop_server(state, server);
+}
+
 
 // The name of the file that the worked-through talk of one chat stands in,
 // inside the folder of the program. The server takes the name and looks for it
@@ -6525,15 +7384,23 @@ fn save_chat_context(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) 
 // or from the program being shut down. The bookkeeping of the slots goes with
 // the server, for the next server has slots of its own and would not
 // understand a talk of the one before.
-fn stop_server(state: &Arc<Mutex<State>>, server: &mut Option<Server>) {
-    if let Some(old) = server.as_ref() {
-        save_all_contexts(state, &old.url, &old.model_id);
+fn stop_server(state: &Arc<Mutex<State>>, server: &ServerSlot) {
+    let Ok(mut held) = server.lock() else { return };
+    stop_run(state, &mut held);
+}
+
+// Stop the run that stands in the place, whatever it came from. The talks the
+// run worked through are written out first, for a talk that was not written is a
+// talk read through again from its first word.
+fn stop_run(state: &Arc<Mutex<State>>, old: &mut Option<Server>) {
+    if let Some(one) = old.as_ref() {
+        save_all_contexts(state, &one.url, &one.model_id);
     }
     if let Ok(mut guard) = state.lock() {
         guard.context_lost();
     }
-    if let Some(mut old) = server.take() {
-        old.stop();
+    if let Some(mut one) = old.take() {
+        one.stop();
     }
 }
 
@@ -6800,6 +7667,7 @@ fn empty_summary_words(finish: &str) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ask_summary_for_handoff(
     state: &Arc<Mutex<State>>,
     base_url: &str,
@@ -6808,7 +7676,7 @@ fn ask_summary_for_handoff(
     tools: Option<&Value>,
     slot: Option<usize>,
     cancel: &Arc<AtomicBool>,
-) -> SummaryShot {
+    chat: &str) -> SummaryShot {
     let mut body = summary_ask(history, prompt, tools);
     // The thinking of the chat rides on this ask as it rides on an answer. The
     // server was never told the mode of the chat, so an ask without these words
@@ -6824,7 +7692,7 @@ fn ask_summary_for_handoff(
     if let Some(slot) = slot {
         body["id_slot"] = json!(slot);
     }
-    let mut shot = ask_summary(state, base_url, &body, cancel);
+    let mut shot = ask_summary(state, base_url, &body, cancel, chat);
     let mut tries = 0usize;
     while !shot.calls.is_empty()
         && tries < SUMMARY_CALL_TRIES
@@ -6853,7 +7721,7 @@ fn ask_summary_for_handoff(
         // What the model gives after a cancelled call is the summary. The words
         // of the ask that was cancelled stand with it above, so nothing is said
         // twice.
-        shot = ask_summary(state, base_url, &body, cancel);
+        shot = ask_summary(state, base_url, &body, cancel, chat);
     }
     shot
 }
@@ -6932,7 +7800,7 @@ struct SummaryWriting {
 impl Drop for SummaryWriting {
     fn drop(&mut self) {
         if let Ok(mut guard) = self.state.lock() {
-            guard.summarising = false;
+            guard.live_write().summarising = false;
             guard.touch();
         }
     }
@@ -6975,7 +7843,7 @@ fn ask_summary(
     base_url: &str,
     body: &Value,
     cancel: &Arc<AtomicBool>,
-) -> SummaryShot {
+    chat: &str) -> SummaryShot {
     {
         let Ok(mut guard) = state.lock() else {
             return SummaryShot {
@@ -6990,16 +7858,16 @@ fn ask_summary(
         // The gauge stands for this ask alone. The words under the number follow
         // the pictures the talk carries, for the server has none of them and the
         // count is read from the words that go out.
-        guard.progress = 0;
-        guard.progress_images = pending_images(&body["messages"]);
-        guard.progress_on = true;
-        guard.prompt_rate = 0.0;
-        guard.answer_rate = 0.0;
-        guard.rate_start = None;
-        guard.thought_start = None;
-        guard.thought_end = None;
-        guard.live_thought_ms = 0;
-        guard.live_thought_done = false;
+        guard.live_mut(chat).progress = 0;
+        guard.live_mut(chat).progress_images = pending_images(&body["messages"]);
+        guard.live_mut(chat).progress_on = true;
+        guard.live_mut(chat).prompt_rate = 0.0;
+        guard.live_mut(chat).answer_rate = 0.0;
+        guard.live_mut(chat).rate_start = None;
+        guard.live_mut(chat).thought_start = None;
+        guard.live_mut(chat).thought_end = None;
+        guard.live_mut(chat).live_thought_ms = 0;
+        guard.live_mut(chat).live_thought_done = false;
         // The meter is anchored on the words that go out with this ask, and not on
         // where the meter stood before. A summary asked for the second time with the
         // short prompt sends the same trimmed talk: the wall of words the first
@@ -7009,7 +7877,7 @@ fn ask_summary(
         // a word to write, and the ask was then blamed for filling the context when
         // the room was still there. The words a summary of before stands for are not
         // in the talk that goes out, so they are not in this number either.
-        guard.ctx_used = summary_start(body);
+        guard.live_mut(chat).ctx_used = summary_start(body);
     }
     // A summary is asked for with no hand of the summarisation limit over it: it
     // is the making of the room and not the spending of it, the ask carries the
@@ -7037,7 +7905,7 @@ fn ask_summary(
             // The first word is here, so the words that were sent are worked
             // through and the gauge above the chat box has nothing left to say.
             if let Ok(mut guard) = gauge_state.lock() {
-                if finish_progress(&mut guard) {
+                if finish_progress(&mut guard, chat) {
                     guard.touch();
                 }
             }
@@ -7047,8 +7915,8 @@ fn ask_summary(
         &mut |made: llama::Progress| {
             if let Ok(mut guard) = gauge_state.lock() {
                 let percent = (made.part() * 100.0).round() as u32;
-                if percent != guard.progress {
-                    guard.progress = percent;
+                if percent != guard.live_ref(chat).progress {
+                    guard.live_mut(chat).progress = percent;
                     // The whole of the words the ask carried are worked through,
                     // so the gauge has nothing left to say. The model is writing
                     // the summary now, and none of that writing is shown: the
@@ -7057,7 +7925,7 @@ fn ask_summary(
                     // cent read as a fault of the program, for it said that the
                     // words were still being worked through.
                     if percent >= 100 {
-                        finish_progress(&mut guard);
+                        finish_progress(&mut guard, chat);
                     }
                     guard.touch();
                 }
@@ -7065,7 +7933,7 @@ fn ask_summary(
         },
         &mut |made: llama::Context| {
             if let Ok(mut guard) = context_state.lock() {
-                if climb_context_paced(&mut guard, made.used(), Instant::now()) {
+                if climb_context_paced(&mut guard, made.used(), Instant::now(), chat) {
                     guard.touch();
                 }
                 // The end of the room is where a summary is stopped, and the
@@ -7170,50 +8038,50 @@ fn ask_summary(
 // word that the room was made and the work may be gone on with.
 fn run_handoff(
     state: &Arc<Mutex<State>>,
-    server: &mut Option<Server>,
+    server: &ServerSlot,
     cancel: &Arc<AtomicBool>,
-) -> bool {
+    chat: &str) -> bool {
     // Take the order. An answer and a summary cannot both be on the way, for
     // both write into the same chat.
     let (model, settings, prompt, short, before, history, id) = {
         let Ok(mut guard) = state.lock() else {
             return false;
         };
-        if guard.generating {
+        if guard.live_ref(chat).generating {
             return false;
         }
-        let Some(model) = guard.model().clone() else {
+        let Some(model) = guard.model_of(chat).clone() else {
             guard.set_status("Choose a model in the top bar first");
             return false;
         };
-        if guard.chat().is_none() {
+        if guard.chat_of(chat).is_none() {
             return false;
         }
         let prompt = config::sanitize_handoff_prompt(&guard.cfg.chat_compact_prompt);
         let short = config::sanitize_handoff_prompt_short(&guard.cfg.chat_compact_prompt_short);
-        let before = guard.ctx_used;
+        let before = guard.live_ref(chat).ctx_used;
         // The talk as it stands is what the summary is written of. `build_history`
         // already leaves out the words that the newest written summary stands
         // for, and it sends no word of a mark that was never written, so the
         // ask is made of the first prompt, the summary, and the words that
         // stand after the newest written mark: the whole of what there is to
         // summarise now, and no summary of a summary.
-        let history = guard.build_history();
-        guard.generating = true;
+        let history = guard.build_history_in(chat);
+        guard.live_mut(chat).generating = true;
         guard.busy = true;
         // The words of the summary are written out of sight of the user.
-        guard.summarising = true;
+        guard.live_mut(chat).summarising = true;
         // Both live buffers start empty, so the words of an older answer do not
         // stand under the mark of the summarisation.
-        guard.live_text = String::new();
-        guard.live_reasoning = String::new();
-        guard.live_tools = Vec::new();
-        guard.live_work = Vec::new();
-        guard.live_work_head = String::new();
-        guard.live_work_closed = false;
-        guard.progress = 0;
-        guard.progress_on = false;
-        let id = guard.begin_summary();
+        guard.live_mut(chat).live_text = String::new();
+        guard.live_mut(chat).live_reasoning = String::new();
+        guard.live_mut(chat).live_tools = Vec::new();
+        guard.live_mut(chat).live_work = Vec::new();
+        guard.live_mut(chat).live_work_head = String::new();
+        guard.live_mut(chat).live_work_closed = false;
+        guard.live_mut(chat).progress = 0;
+        guard.live_mut(chat).progress_on = false;
+        let id = guard.begin_summary_in(chat);
         guard.set_status("The handoff summary is being written");
         let wants = guard.settings_for(&model);
         (model, wants, prompt, short, before, history, id)
@@ -7237,12 +8105,12 @@ fn run_handoff(
 
     // A server that went away is started again, as in an answer. The lock of the
     // state is not held while the model is being loaded.
-    match ensure_server(state, server, &model, &settings, cancel) {
+    match ensure_server(state, server, &model, &settings, cancel, chat) {
         Ok(total) => {
             let Ok(mut guard) = state.lock() else {
                 return false;
             };
-            guard.busy = false;
+            guard.busy = guard.any_generating();
             guard.ctx_total = total;
         }
         Err(problem) => {
@@ -7253,11 +8121,11 @@ fn run_handoff(
             let Ok(mut guard) = state.lock() else {
                 return false;
             };
-            guard.busy = false;
-            guard.generating = false;
+            guard.busy = guard.any_generating();
+            guard.live_mut(chat).generating = false;
             // The mark keeps nothing of its own, and the reason stands beside it,
             // so the user can start the summary again.
-            guard.finish_summary(&id, "", before, 0, &problem);
+            guard.finish_summary_in(chat, &id, "", before, 0, &problem);
             guard.set_status(
                 "The handoff summary was not written. Start it again from the summarisation timeline",
             );
@@ -7265,13 +8133,11 @@ fn run_handoff(
         }
     }
 
-    let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
+    let base_url = server_url(server);
     // The slot of this chat, with the talk of it laid in the slot again when
     // another chat stood there last. The ask of the summary names the slot, for
     // the talk above the ask is the talk the server worked through in it.
-    let slot = server
-        .as_ref()
-        .and_then(|running| context_claim(state, &running.url, &running.model_id));
+    let slot = claim_slot(state, server);
     // The talk as it stands, with the ask for the summary after it as a message
     // of the user. The tools of the chat stand offered as they stand for an
     // answer, so that the front of this ask is the front of the talk word for
@@ -7280,7 +8146,7 @@ fn run_handoff(
     // cancelled and is asked again.
     let tools = summary_tools(state);
     let mut shot =
-        ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), slot, cancel);
+        ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), slot, cancel, chat);
     // A long talk can trip the server over one ask and not over the next, so a
     // fault that leaves no words at all is asked once more before the user is
     // told. A stop of the user's own is never asked again.
@@ -7293,7 +8159,7 @@ fn run_handoff(
             ),
         );
         tell(state, "The summary did not arrive. Asking once more");
-        shot = ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), slot, cancel);
+        shot = ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), slot, cancel, chat);
     }
     let mut summary = clean_summary(&shot.text);
     // The first ask was made again when the room ran full under it, which is the
@@ -7333,7 +8199,7 @@ fn run_handoff(
             ),
         );
         tell(state, empty_summary_words(&shot.finish));
-        let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), slot, cancel);
+        let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), slot, cancel, chat);
         let cleaned = clean_summary(&again.text);
         if !cleaned.trim().is_empty() {
             shot = again;
@@ -7361,7 +8227,7 @@ fn run_handoff(
             "The summary filled the context. Asking again for a shorter one",
         );
         if !asked_short {
-            let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), slot, cancel);
+            let again = ask_summary_for_handoff(state, &base_url, &history, &short, tools.as_ref(), slot, cancel, chat);
             let cleaned = clean_summary(&again.text);
             if !cleaned.trim().is_empty() {
                 shot = again;
@@ -7374,13 +8240,13 @@ fn run_handoff(
     let Ok(mut guard) = state.lock() else {
         return false;
     };
-    guard.generating = false;
-    guard.busy = false;
-    finish_progress(&mut guard);
+    guard.live_mut(chat).generating = false;
+    guard.busy = guard.any_generating();
+    finish_progress(&mut guard, chat);
     // The summary is never shown, so the live buffers are emptied rather than
     // read. What the model gave stands in the mark of the summarisation alone.
-    guard.live_text = String::new();
-    guard.live_reasoning = String::new();
+    guard.live_mut(chat).live_text = String::new();
+    guard.live_mut(chat).live_reasoning = String::new();
     // The room the summary itself takes, read from the words that stand in the
     // mark: the number the server gives of the words the model wrote holds the
     // thinking that is hidden with the rest of it, and it reads the summary
@@ -7411,7 +8277,7 @@ fn run_handoff(
     // above says what happened, and this says whether anything was won by it.
     let kept = shot.error.is_none() && !shot.stopped && !summary.trim().is_empty();
     if !kept {
-        guard.finish_summary(&id, "", before, 0, &why);
+        guard.finish_summary_in(chat, &id, "", before, 0, &why);
         // The meter keeps the room of the words the server was sent on the ask. The
         // chat keeps every word it had, and those words are the whole of what that
         // ask was sent, so the number the pieces of it spoke is the number of the
@@ -7420,9 +8286,9 @@ fn run_handoff(
         // measure of the words alone, the meter of a chat the server stood near the
         // end of the room with fell to the half of it, and read as a chat with room
         // to spare: see `meter_after`, and the fault of the meter that fell.
-        let made = meter_after(0, shot.sent, &guard.build_history());
-        guard.ctx_used = made;
-        if let Some(chat) = guard.chat_mut() {
+        let made = meter_after(0, shot.sent, &guard.build_history_in(chat));
+        guard.live_mut(chat).ctx_used = made;
+        if let Some(chat) = guard.chat_of_mut(chat) {
             chat.meta.context_used = made;
         }
         proglog::note(
@@ -7441,11 +8307,11 @@ fn run_handoff(
             ),
         );
         guard.set_status("The handoff summary was not written. Start it again from the summarisation timeline");
-        guard.persist();
+        guard.persist_in(chat);
         return false;
     }
     guard.summary_short(&id, asked_short);
-    guard.finish_summary(&id, &summary, before, after, &why);
+    guard.finish_summary_in(chat, &id, &summary, before, after, &why);
     // The room the talk takes now, read from the words that stand after the
     // summary: the first prompt, the summary, and the words that come after it.
     // The number the server gave with the ask is not the number of the talk that
@@ -7456,13 +8322,13 @@ fn run_handoff(
     // a summary that had just freed the room. The measure of the words is the
     // number the next ask is weighed against, and the first number the server
     // gives on the next ask takes the meter where it stands, as it always does.
-    let made = estimate_tokens(&guard.build_history());
-    guard.ctx_used = made;
-    if let Some(chat) = guard.chat_mut() {
+    let made = estimate_tokens(&guard.build_history_in(chat));
+    guard.live_mut(chat).ctx_used = made;
+    if let Some(chat) = guard.chat_of_mut(chat) {
         chat.meta.context_used = made;
         chat.meta.updated = store::now_secs();
     }
-    let count = guard.handoffs().len();
+    let count = guard.handoffs_in(chat).len();
     // What the summary won, in the same two numbers the card of the summarisation
     // shows the user. A summary that was kept although the room filled under it
     // says so here too, for `why` holds those words and the user reads them beside
@@ -7486,7 +8352,7 @@ fn run_handoff(
         "Summarised #{} of the chat. The conversation now takes {}",
         count, made
     ));
-    guard.persist();
+    guard.persist_in(chat);
     true
 }
 
@@ -7529,15 +8395,15 @@ enum Weigh {
 
 fn maybe_compact(
     state: &Arc<Mutex<State>>,
-    server: &mut Option<Server>,
+    server: &ServerSlot,
     cancel: &Arc<AtomicBool>,
     weigh: Weigh,
-) -> bool {
+    chat: &str) -> bool {
     let wanted = {
         let Ok(guard) = state.lock() else { return false };
-        if guard.generating || guard.busy || guard.chat().is_none() {
+        if guard.live_ref(chat).generating || guard.busy || guard.chat_of(chat).is_none() {
             false
-        } else if guard.handoff_owed() {
+        } else if guard.handoff_owed_in(chat) {
             // A summary is wanted and never came. The user is asked to start it
             // again: the program does not put a model to work behind their back.
             proglog::note(
@@ -7545,7 +8411,7 @@ fn maybe_compact(
                 "no summary is asked for: one stands owed from before and was never written, so the user is asked to start it again",
             );
             false
-        } else if guard.chat().map(ends_on_summary).unwrap_or(false) {
+        } else if guard.chat_of(chat).map(ends_on_summary).unwrap_or(false) {
             // The newest thing of the chat is a summarisation already, so there
             // is nothing new that is worth a summary of its own.
             proglog::note(
@@ -7555,7 +8421,7 @@ fn maybe_compact(
             false
         } else {
             let used = match weigh {
-                Weigh::Room => used_after(guard.ctx_used, &guard.build_history()),
+                Weigh::Room => used_after(guard.live_ref(chat).ctx_used, &guard.build_history_in(chat)),
                 // The talk as it stands, with the telling of a call that was cut
                 // left out. The number the server spoke is weighed with it, and
                 // the larger kept, whenever no such telling stands in the way:
@@ -7564,12 +8430,12 @@ fn maybe_compact(
                 // the server stands past the limit of was else told it had room
                 // to spare, send by send, until the room was gone.
                 Weigh::Talk => {
-                    let history = guard.build_history();
+                    let history = guard.build_history_in(chat);
                     let told = carrying_the_cut(&history);
                     if cut_telling_stands(&history) {
                         told
                     } else {
-                        told.max(guard.ctx_used)
+                        told.max(guard.live_ref(chat).ctx_used)
                     }
                 }
             };
@@ -7596,7 +8462,7 @@ fn maybe_compact(
         }
     };
     if wanted {
-        return run_handoff(state, server, cancel);
+        return run_handoff(state, server, cancel, chat);
     }
     false
 }
@@ -7608,7 +8474,7 @@ fn maybe_compact(
 // the receipt of a tool it asked for -- stand in the estimate and in no number
 // of the server yet. The rule of the limit itself stands in
 // `config::compaction_wanted`, as ever.
-fn room_past_the_limit(state: &Arc<Mutex<State>>, history: &Value) -> bool {
+fn room_past_the_limit(state: &Arc<Mutex<State>>, history: &Value, chat: &str) -> bool {
     let Ok(guard) = state.lock() else {
         return false;
     };
@@ -7618,7 +8484,7 @@ fn room_past_the_limit(state: &Arc<Mutex<State>>, history: &Value) -> bool {
     // limit, where the model is stopped before it has a word to give: the room is
     // made first, and where it will not come under the limit again the work is too
     // big for the room and the answer is ended under the word that says so.
-    let used = used_after(guard.ctx_used, history);
+    let used = used_after(guard.live_ref(chat).ctx_used, history);
     let past = config::compaction_wanted(&guard.cfg, used, guard.ctx_total);
     // The ask is weighed on the words that go out with it, which is a different
     // talk from the one that stands in the chat: the telling of a call that was
@@ -7650,26 +8516,26 @@ fn room_past_the_limit(state: &Arc<Mutex<State>>, history: &Value) -> bool {
 // gives back.
 fn make_room(
     state: &Arc<Mutex<State>>,
-    server: &mut Option<Server>,
+    server: &ServerSlot,
     cancel: &Arc<AtomicBool>,
-) -> bool {
+    chat: &str) -> bool {
     {
         let Ok(mut guard) = state.lock() else {
             return false;
         };
-        if guard.handoff_owed() {
+        if guard.handoff_owed_in(chat) {
             // A summary was asked for before and never came. The user is asked
             // to start it again, as ever, for the program does not put a model to
             // work behind their back.
             return false;
         }
         // The answer is laid aside while the summary takes the chat.
-        guard.generating = false;
-        guard.busy = false;
+        guard.live_mut(chat).generating = false;
+        guard.busy = guard.any_generating();
     }
-    let _ = maybe_compact(state, server, cancel, Weigh::Room);
+    let _ = maybe_compact(state, server, cancel, Weigh::Room, chat);
     let Ok(guard) = state.lock() else { return false };
-    !guard.handoff_owed() && !config::compaction_wanted(&guard.cfg, guard.ctx_used, guard.ctx_total)
+    !guard.handoff_owed_in(chat) && !config::compaction_wanted(&guard.cfg, guard.live_ref(chat).ctx_used, guard.ctx_total)
 }
 
 // The most the model is asked to go on with its work after a handoff summary of
@@ -7707,14 +8573,14 @@ enum Kept {
 // The model has a word to give back, so the words it was sent are worked
 // through and the gauge above the chat box has nothing left to say. True when
 // the gauge stood, so the caller says that the messages changed.
-fn finish_progress(state: &mut State) -> bool {
-    if !state.progress_on {
+fn finish_progress(state: &mut State, chat: &str) -> bool {
+    if !state.live_ref(chat).progress_on {
         return false;
     }
-    state.progress_on = false;
+    state.live_mut(chat).progress_on = false;
     // The number is put at the end on purpose: a gauge that goes away has
     // finished its work, and the user may still see it for a moment.
-    state.progress = 100;
+    state.live_mut(chat).progress = 100;
     true
 }
 
@@ -7726,26 +8592,26 @@ fn finish_progress(state: &mut State) -> bool {
 // the command had run. The words of the call are put into the state as well, so
 // the user sees the command grow. True when the window has something new to
 // draw.
-fn write_calls(state: &mut State, calls: &[ToolCall]) -> bool {
+fn write_calls(state: &mut State, calls: &[ToolCall], chat: &str) -> bool {
     let mut made = watched(calls);
     // The gauge leaves for a mark of a chapter too. Such a call gives the
     // user no block, but the model wrote it after the words it was sent.
-    let gauge = finish_progress(state);
+    let gauge = finish_progress(state, chat);
     // A call that stands where it stood is not being written any more, so the
     // word that says so is kept. A call whose words grew is being written again,
     // and says so too. Without this a call that was marked as written while the
     // model thought would stand under the block of its own words for the rest of
     // the answer.
     for (n, one) in made.iter_mut().enumerate() {
-        if let Some(before) = state.live_tools.get(n) {
+        if let Some(before) = state.live_ref(chat).live_tools.get(n) {
             if !one.words_moved(before) {
                 one.done = before.done;
             }
         }
     }
-    let grew = made != state.live_tools;
+    let grew = made != state.live_ref(chat).live_tools;
     if grew {
-        state.live_tools = made;
+        state.live_mut(chat).live_tools = made;
     }
     gauge || grew
 }
@@ -7772,9 +8638,9 @@ impl LiveTool {
 // was being written. A model that thinks, writes a call, and then thinks again
 // leaves the call finished long before the step of the answer comes to an end,
 // and the block stood on 'writing' the whole while, with no word of a result.
-fn end_writing_calls(state: &mut State) -> bool {
+fn end_writing_calls(state: &mut State, chat: &str) -> bool {
     let mut changed = false;
-    for one in state.live_tools.iter_mut() {
+    for one in state.live_mut(chat).live_tools.iter_mut() {
         if !one.done {
             one.done = true;
             changed = true;
@@ -7790,8 +8656,8 @@ fn end_writing_calls(state: &mut State) -> bool {
 // server gives at the end of the answer is kept for the end, and that number
 // may be smaller, for a stop takes words away. True when the number moved, so
 // the caller says that the messages changed.
-fn climb_context(state: &mut State, made: u64) -> bool {
-    let was = state.ctx_used;
+fn climb_context(state: &mut State, made: u64, chat: &str) -> bool {
+    let was = state.live_ref(chat).ctx_used;
     // The first number of a new ask is the measure of the talk as the server has
     // it now, so it is taken where it stands, smaller or larger. A number kept from
     // an answer that was stopped is not a measure of anything: the words it counted
@@ -7799,18 +8665,18 @@ fn climb_context(state: &mut State, made: u64) -> bool {
     // climbs, for the words of an answer that is still coming are not taken back.
     let moved = if made == 0 {
         false
-    } else if state.ctx_fresh {
-        state.ctx_fresh = false;
-        if made == state.ctx_used {
+    } else if state.live_ref(chat).ctx_fresh {
+        state.live_mut(chat).ctx_fresh = false;
+        if made == state.live_ref(chat).ctx_used {
             false
         } else {
-            state.ctx_used = made;
+            state.live_mut(chat).ctx_used = made;
             true
         }
-    } else if made <= state.ctx_used {
+    } else if made <= state.live_ref(chat).ctx_used {
         false
     } else {
-        state.ctx_used = made;
+        state.live_mut(chat).ctx_used = made;
         true
     };
     // Every move of the meter stands in the log of the program. The meter is paced
@@ -7825,7 +8691,7 @@ fn climb_context(state: &mut State, made: u64) -> bool {
                 "the meter moved from {} to {} while {}",
                 was,
                 made,
-                if state.summarising {
+                if state.live_ref(chat).summarising {
                     "a handoff summary was being written"
                 } else {
                     "an answer was coming in"
@@ -7852,17 +8718,17 @@ const LEAST_CONTEXT_STEP: Duration = Duration::from_millis(500);
 // tried without waiting for the half second. A number that is turned away is not
 // kept back either: the next piece that comes after the half second brings the
 // talk up to date at once.
-fn climb_context_paced(state: &mut State, made: u64, now: Instant) -> bool {
-    if !state.ctx_fresh {
-        if let Some(begun) = state.ctx_at {
+fn climb_context_paced(state: &mut State, made: u64, now: Instant, chat: &str) -> bool {
+    if !state.live_ref(chat).ctx_fresh {
+        if let Some(begun) = state.live_ref(chat).ctx_at {
             if now.duration_since(begun) < LEAST_CONTEXT_STEP {
                 return false;
             }
         }
     }
-    let moved = climb_context(state, made);
+    let moved = climb_context(state, made, chat);
     if moved {
-        state.ctx_at = Some(now);
+        state.live_mut(chat).ctx_at = Some(now);
     }
     moved
 }
@@ -7983,19 +8849,19 @@ fn worth_a_silence(finish: &str, spent: usize, most: usize) -> bool {
 // after the room has been made.
 // Put the planning of the open chat away and give back the plan that is to stand
 // as the first message of the work. Nothing comes back when no plan was let go.
-fn take_plan_release(state: &Arc<Mutex<State>>) -> Option<String> {
+fn take_plan_release(state: &Arc<Mutex<State>>, chat: &str) -> Option<String> {
     let Ok(mut guard) = state.lock() else {
         return None;
     };
-    guard.release_plan()
+    guard.release_plan_in(chat)
 }
 
 fn run_turn(
     state: &Arc<Mutex<State>>,
-    server: &mut Option<Server>,
+    server: &ServerSlot,
     cancel: &Arc<AtomicBool>,
     turn: Turn,
-) -> Ended {
+    chat: &str) -> Ended {
     let going_on = matches!(turn, Turn::Continue);
     // Whether this turn puts a message of the user into the chat. A turn that
     // goes on after a handoff summary adds nothing, and a turn that writes an
@@ -8027,7 +8893,7 @@ fn run_turn(
     let shelf = state
         .lock()
         .ok()
-        .and_then(|keeper| keeper.chat().map(|chat| keeper.attach_place_for(chat)));
+        .and_then(|keeper| keeper.chat_of(chat).map(|chat| keeper.attach_place_for(chat)));
     let kept: Vec<Attachment> = match &shelf {
         Some(place) => attach::save_at(place, &files),
         // No chat to carry them, so there is no room to keep them in.
@@ -8037,14 +8903,14 @@ fn run_turn(
     // Take the work order first, so two answers cannot mix.
     let (model, settings, workdir, sandbox_on, access) = {
         let Ok(mut state) = state.lock() else { return Ended::Halted };
-        if state.generating {
+        if state.live_ref(chat).generating {
             return Ended::Halted;
         }
-        let Some(model) = state.model() else {
+        let Some(model) = state.model_of(chat) else {
             state.set_status("Choose a model first");
             return Ended::Halted;
         };
-        if state.chat_mut().is_none() {
+        if state.chat_of_mut(chat).is_none() {
             state.set_status("Start a new chat first");
             return Ended::Halted;
         }
@@ -8056,7 +8922,7 @@ fn run_turn(
             .chat()
             .map(|c| c.meta.sandbox_enabled)
             .unwrap_or(false);
-        let access = state.access_of_open();
+        let access = state.access_of_chat(chat);
         let workdir = state
             .chat()
             .map(|c| state.workdir_for(&c.clone()))
@@ -8073,7 +8939,7 @@ fn run_turn(
             .chat()
             .map(|c| c.messages.is_empty())
             .unwrap_or(false);
-        if let Some(chat) = state.chat_mut() {
+        if let Some(chat) = state.chat_of_mut(chat) {
             if adding {
                 chat.messages.push(Message {
                     id: store::new_id(),
@@ -8100,45 +8966,45 @@ fn run_turn(
             // A message of the user begins a turn of its own, so the mark of an
             // answer that never came to its end is no longer wanted: the user has
             // written past it.
-            state.clear_stopped_marks();
+            state.clear_stopped_marks_in(chat, );
         }
         if lost > 0 {
             let text = format!(
                 "{} attachments were too large, or could not be stored, so they were not sent",
                 lost
             );
-            state.push_note(&text, true);
+            state.push_note_in(chat, &text, true);
         }
         // A picture the model cannot be shown is said out loud, so the user
         // does not wonder why the model looks blind at it.
         let pictures = kept.iter().filter(|a| a.image).count();
         if pictures > 0 && !state.pictures_can_go() {
-            state.push_note(
+            state.push_note_in(chat, 
                 "The images of this message cannot be shown to this model: turn vision on in the model settings, then send the message again",
                 true,
             );
         }
-        state.persist();
+        state.persist_in(chat);
         if fresh {
             state.touch_structure();
         }
-        state.generating = true;
+        state.live_mut(chat).generating = true;
         state.busy = true;
         // Both live buffers start empty, so a new turn never shows the
         // words of an older one, not even from another chat.
-        state.live_text = String::new();
-        state.live_reasoning = String::new();
-        state.live_tools = Vec::new();
-        state.live_work = Vec::new();
-        state.live_work_head = String::new();
-        state.live_work_closed = false;
+        state.live_mut(chat).live_text = String::new();
+        state.live_mut(chat).live_reasoning = String::new();
+        state.live_mut(chat).live_tools = Vec::new();
+        state.live_mut(chat).live_work = Vec::new();
+        state.live_mut(chat).live_work_head = String::new();
+        state.live_mut(chat).live_work_closed = false;
         // A question the model had put to the user before this answer began is
         // gone with the answer that asked it: the popup that stood over the chat
         // box was asked by a run that is no more.
-        state.asking = None;
+        state.live_mut(chat).asking = None;
         // The meter of the context is paced, and the pace begins anew with this
         // answer, so the first number of a new answer is stood on at once.
-        state.ctx_at = None;
+        state.live_mut(chat).ctx_at = None;
         state.set_status("The model is loading");
         let settings = state.settings_for(&model);
         (model, settings, workdir, sandbox_on, access)
@@ -8146,19 +9012,19 @@ fn run_turn(
 
     // Make sure a server runs for this model. This can take a long time, and
     // the state lock is not held while it happens.
-    let ready = ensure_server(state, server, &model, &settings, cancel);
+    let ready = ensure_server(state, server, &model, &settings, cancel, chat);
     match ready {
         Ok(total) => {
             let Ok(mut state) = state.lock() else { return Ended::Halted };
-            state.busy = false;
+            state.busy = state.any_generating();
             state.ctx_total = total;
             state.set_status("Thinking");
         }
         Err(problem) => {
             let Ok(mut state) = state.lock() else { return Ended::Halted };
-            state.busy = false;
-            state.generating = false;
-            state.push_note(&problem, true);
+            state.busy = state.any_generating();
+            state.live_mut(chat).generating = false;
+            state.push_note_in(chat, &problem, true);
             state.set_status("The model did not start");
             return Ended::Halted;
         }
@@ -8168,7 +9034,7 @@ fn run_turn(
     // server gives is taken where it stands, so a number left over from an answer
     // that was stopped cannot hold the meter still. See `climb_context`.
     if let Ok(mut guard) = state.lock() {
-        guard.ctx_fresh = true;
+        guard.live_mut(chat).ctx_fresh = true;
     }
 
     // The word the ask of a turn that only goes on carries with it, when the talk it
@@ -8186,14 +9052,12 @@ fn run_turn(
     // The count is kept so that the user is told instead of watched.
     let mut empty_asks = 0usize;
 
-    let base_url = server.as_ref().map(|s| s.url.clone()).unwrap_or_default();
+    let base_url = server_url(server);
     // The slot of this chat. The talk it stands on was worked through in that
     // slot, so every step of this answer is asked of the same slot and none of
     // the work is done twice. None when the keeping of the talks is switched
     // off, and the ask then goes out with no slot named, as it always did.
-    let slot = server
-        .as_ref()
-        .and_then(|running| context_claim(state, &running.url, &running.model_id));
+    let slot = claim_slot(state, server);
     // The two rooms of the Chatting settings, read once for this answer. None
     // means no ceiling, which is how both stand for a new set of settings: the
     // answer then ends when the model stops by itself, and a model may run as
@@ -8269,7 +9133,7 @@ fn run_turn(
         // next send.
         if carried_prompt.is_empty() {
             let Ok(guard) = state.lock() else { return Ended::Halted };
-            if let Some(word) = empty_turn_words(&guard.build_history()) {
+            if let Some(word) = empty_turn_words(&guard.build_history_in(chat)) {
                 carried_prompt = word;
                 empty_asks += 1;
             }
@@ -8280,7 +9144,7 @@ fn run_turn(
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 go_on_words(&guard, carried_prompt),
-                guard.chat().map(|c| c.meta.code_enabled).unwrap_or(false),
+                guard.chat_of(chat).map(|c| c.meta.code_enabled).unwrap_or(false),
                 guard
                     .chat()
                     .map(|c| c.meta.search_enabled)
@@ -8306,10 +9170,10 @@ fn run_turn(
         // written into the chat after the last number the server spoke: the talk
         // stands past the limit only from that moment, and the next ask would
         // else go out over it.
-        if room_past_the_limit(state, &history) {
+        if room_past_the_limit(state, &history, chat) {
             // The answer is laid aside while the summary takes the chat, as it
             // is when the writing is stopped under the weight of an answer.
-            let made = make_room(state, server, cancel);
+            let made = make_room(state, server, cancel, chat);
             let Ok(mut guard) = state.lock() else { return Ended::Halted };
             if !made {
                 // Either a summary is owed, which the user is asked of in the
@@ -8317,14 +9181,14 @@ fn run_turn(
                 // limit anyway is what leaves the chat under an empty turn, so
                 // the answer ends here and the reason stands where the user
                 // reads it.
-                guard.generating = false;
-                guard.busy = false;
-                if guard.handoff_owed() {
+                guard.live_mut(chat).generating = false;
+                guard.busy = guard.any_generating();
+                if guard.handoff_owed_in(chat) {
                     guard.set_status(
                         "The handoff summary was not written. Start it again from the summarisation timeline",
                     );
                 } else {
-                    guard.push_note(
+                    guard.push_note_in(chat, 
                         "The conversation is past the summarisation limit and no space could be made, so the answer ends here. Ask for the work in parts small enough for the context, or give the model a larger context",
                         false,
                     );
@@ -8332,7 +9196,7 @@ fn run_turn(
                         "The conversation is past the summarisation limit and no space could be made",
                     );
                 }
-                guard.persist();
+                guard.persist_in(chat);
                 break Ended::Halted;
             }
             // The talk the ask goes out with is another talk now: the words the
@@ -8344,7 +9208,7 @@ fn run_turn(
             // ends the talk and says in its own words that the work is to be gone on
             // with, so the word is dropped rather than paid for a second time out of
             // the room the summarisation was come to win.
-            let talk = guard.build_history();
+            let talk = guard.build_history_in(chat);
             if ends_on_summary_mark(&talk) {
                 carried = None;
             }
@@ -8357,7 +9221,7 @@ fn run_turn(
                 None => "",
             };
             history = go_on_words(&guard, carried_prompt);
-            guard.generating = true;
+            guard.live_mut(chat).generating = true;
             guard.set_status("Space was made. The model is going on with the answer");
         }
         // The tools of the servers of the user's own. A server whose tools
@@ -8446,28 +9310,28 @@ fn run_turn(
         // The thinking of this step is measured, so that the head of the panel
         // can say how long the model thought for.
         if let Ok(mut guard) = state.lock() {
-            guard.thought_start = None;
-            guard.thought_end = None;
-            guard.live_thought_ms = 0;
-            guard.live_thought_done = false;
+            guard.live_mut(chat).thought_start = None;
+            guard.live_mut(chat).thought_end = None;
+            guard.live_mut(chat).live_thought_ms = 0;
+            guard.live_mut(chat).live_thought_done = false;
             // The gauge stands for this step alone, and for every step of an
             // answer. The words under the number follow the pictures the
             // message carries; the server has none of them, so the count is
             // read from the words that go out.
-            guard.progress = 0;
-            guard.progress_images = pending_images(&history);
-            guard.progress_on = true;
+            guard.live_mut(chat).progress = 0;
+            guard.live_mut(chat).progress_images = pending_images(&history);
+            guard.live_mut(chat).progress_on = true;
             // Neither speed is known until the server says something of it, and
             // the clocks of the program have nothing to measure until a word of
             // the answer arrives.
-            guard.prompt_rate = 0.0;
-            guard.answer_rate = 0.0;
-            guard.rate_start = None;
+            guard.live_mut(chat).prompt_rate = 0.0;
+            guard.live_mut(chat).answer_rate = 0.0;
+            guard.live_mut(chat).rate_start = None;
             // The calls of the step before this one stand in the chat by now, so
             // the blocks of the words being written start anew. The short of the
             // work does not: it belongs to the whole of the answer, and the one
             // block of the corporate display keeps it until the answer is kept.
-            guard.live_tools = Vec::new();
+            guard.live_mut(chat).live_tools = Vec::new();
         }
         let progress_state = state.clone();
         let context_state = state.clone();
@@ -8480,10 +9344,10 @@ fn run_turn(
             &room_cut,
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
-                    guard.live_text.push_str(piece);
+                    guard.live_mut(chat).live_text.push_str(piece);
                     // The first word is here, so the words that were sent are
                     // worked through and the gauge has nothing left to say.
-                    if finish_progress(&mut guard) {
+                    if finish_progress(&mut guard, chat) {
                         guard.touch();
                     }
                     // A server that says nothing of speed leaves the clocks to
@@ -8492,27 +9356,27 @@ fn run_turn(
                     // made, and the clock is the one that ran from the first word
                     // to this one. The speed the server gives wins as soon as it
                     // comes, for it counts the tokens and not the letters.
-                    if guard.answer_rate == 0.0 {
-                        let began = guard.rate_start.unwrap_or_else(|| {
+                    if guard.live_ref(chat).answer_rate == 0.0 {
+                        let began = guard.live_ref(chat).rate_start.unwrap_or_else(|| {
                             let now = Instant::now();
-                            guard.rate_start = Some(now);
+                            guard.live_mut(chat).rate_start = Some(now);
                             now
                         });
                         let secs = began.elapsed().as_secs_f64();
                         if secs > 0.5 {
-                            guard.answer_rate =
-                                (guard.live_text.chars().count() as f64 / 4.0) / secs;
+                            let said = guard.live_ref(chat).live_text.chars().count() as f64;
+                            guard.live_mut(chat).answer_rate = (said / 4.0) / secs;
                         }
                     }
                     // Words have come, so the thinking of this moment is over.
                     // It may begin again before the answer ends.
-                    if guard.thought_start.is_some() {
-                        guard.live_thought_done = true;
+                    if guard.live_ref(chat).thought_start.is_some() {
+                        guard.live_mut(chat).live_thought_done = true;
                     }
                     // Words of the answer have come, so the model has moved on
                     // from any call it was writing. The block of that call says
                     // so now, instead of going on saying it is being written.
-                    if end_writing_calls(&mut guard) {
+                    if end_writing_calls(&mut guard, chat) {
                         guard.touch();
                     }
                     if text_update.elapsed() > Duration::from_millis(60) {
@@ -8524,28 +9388,28 @@ fn run_turn(
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
                     let now = Instant::now();
-                    if guard.thought_start.is_none() {
-                        guard.thought_start = Some(now);
+                    if guard.live_ref(chat).thought_start.is_none() {
+                        guard.live_mut(chat).thought_start = Some(now);
                     }
-                    guard.thought_end = Some(now);
-                    if let Some(begun) = guard.thought_start {
-                        guard.live_thought_ms = now.duration_since(begun).as_millis() as u64;
+                    guard.live_mut(chat).thought_end = Some(now);
+                    if let Some(begun) = guard.live_ref(chat).thought_start {
+                        guard.live_mut(chat).live_thought_ms = now.duration_since(begun).as_millis() as u64;
                     }
-                    guard.live_thought_done = false;
-                    if guard.corporate_on() && guard.running.is_none() {
-                        guard.live_work_head = String::from(corporate::THINKING);
+                    guard.live_mut(chat).live_thought_done = false;
+                    if guard.corporate_on_in(chat) && guard.live_ref(chat).running.is_none() {
+                        guard.live_mut(chat).live_work_head = String::from(corporate::THINKING);
                     }
-                    guard.live_reasoning.push_str(piece);
+                    guard.live_mut(chat).live_reasoning.push_str(piece);
                     // A thought is a word of the answer as well: the words that
                     // were sent are worked through by now.
-                    if finish_progress(&mut guard) {
+                    if finish_progress(&mut guard, chat) {
                         guard.touch();
                     }
                     // The model thinks again, so whatever call it was writing is
                     // written: nothing more comes of those words, and the block
                     // of it must stop saying it is being written while the
                     // thinking goes on over it.
-                    if end_writing_calls(&mut guard) {
+                    if end_writing_calls(&mut guard, chat) {
                         guard.touch();
                     }
                     if reason_update.elapsed() > Duration::from_millis(60) {
@@ -8560,8 +9424,8 @@ fn run_turn(
                 // gauge is written again only when the number it shows moved.
                 if let Ok(mut guard) = progress_state.lock() {
                     let percent = (made.part() * 100.0).round() as u32;
-                    if percent != guard.progress {
-                        guard.progress = percent;
+                    if percent != guard.live_ref(chat).progress {
+                        guard.live_mut(chat).progress = percent;
                         guard.touch();
                     }
                     // The speed of the prompt work comes from the same piece: the
@@ -8569,8 +9433,8 @@ fn run_turn(
                     // number of the speed stand and go together, so the speed is
                     // written whenever the gauge moved.
                     let speed = made.per_second();
-                    if speed > 0.0 && (speed - guard.prompt_rate).abs() >= 0.05 {
-                        guard.prompt_rate = speed;
+                    if speed > 0.0 && (speed - guard.live_ref(chat).prompt_rate).abs() >= 0.05 {
+                        guard.live_mut(chat).prompt_rate = speed;
                         guard.touch();
                     }
                 }
@@ -8581,7 +9445,7 @@ fn run_turn(
                 // only when it grew, so a piece that says nothing new costs the
                 // window nothing.
                 if let Ok(mut guard) = context_state.lock() {
-                    if climb_context_paced(&mut guard, made.used(), Instant::now()) {
+                    if climb_context_paced(&mut guard, made.used(), Instant::now(), chat) {
                         guard.touch();
                     }
                     // The same piece carries the two speeds of the work. The
@@ -8591,15 +9455,15 @@ fn run_turn(
                     // first token of a run has no speed of its own yet.
                     let mut told = false;
                     if made.decode_per_second > 0.0
-                        && (made.decode_per_second - guard.answer_rate).abs() >= 0.05
+                        && (made.decode_per_second - guard.live_ref(chat).answer_rate).abs() >= 0.05
                     {
-                        guard.answer_rate = made.decode_per_second;
+                        guard.live_mut(chat).answer_rate = made.decode_per_second;
                         told = true;
                     }
                     if made.prompt_per_second > 0.0
-                        && (made.prompt_per_second - guard.prompt_rate).abs() >= 0.05
+                        && (made.prompt_per_second - guard.live_ref(chat).prompt_rate).abs() >= 0.05
                     {
-                        guard.prompt_rate = made.prompt_per_second;
+                        guard.live_mut(chat).prompt_rate = made.prompt_per_second;
                         told = true;
                     }
                     if told {
@@ -8634,10 +9498,10 @@ fn run_turn(
                     // the list of the tools the template puts before the words: a
                     // talk the program reads as small can stand past the limit the
                     // moment it is sent, and the model then has nothing to say.
-                    let spoken = made.used().max(guard.ctx_used);
-                    let wrote = !guard.live_text.is_empty()
-                        || !guard.live_reasoning.is_empty()
-                        || !guard.live_tools.is_empty();
+                    let spoken = made.used().max(guard.live_ref(chat).ctx_used);
+                    let wrote = !guard.live_ref(chat).live_text.is_empty()
+                        || !guard.live_ref(chat).live_reasoning.is_empty()
+                        || !guard.live_ref(chat).live_tools.is_empty();
                     if wrote && config::compaction_wanted(&guard.cfg, spoken, guard.ctx_total) {
                         // The number the server spoke on this piece goes into the
                         // meter with the stop. The meter is paced, and a number
@@ -8650,7 +9514,7 @@ fn run_turn(
                         // is the moment the room is known, so the number is kept at
                         // that moment and not at the next piece that the pace lets
                         // through.
-                        if climb_context(&mut guard, spoken) {
+                        if climb_context(&mut guard, spoken, chat) {
                             guard.touch();
                         }
                         // The hand goes up once, and so does the line about it, for
@@ -8664,7 +9528,7 @@ fn run_turn(
                                     spoken,
                                     guard.ctx_total,
                                     config::compaction_room(&guard.cfg, guard.ctx_total),
-                                    if guard.live_tools.is_empty() {
+                                    if guard.live_ref(chat).live_tools.is_empty() {
                                         "words of its answer"
                                     } else {
                                         "the words of a tool call"
@@ -8683,7 +9547,7 @@ fn run_turn(
                 // a command before it has said anything does not leave it
                 // standing over the chat for the whole of the run.
                 if let Ok(mut guard) = tool_state.lock() {
-                    if write_calls(&mut guard, made) {
+                    if write_calls(&mut guard, made, chat) {
                         guard.touch();
                     }
                 }
@@ -8692,23 +9556,23 @@ fn run_turn(
 
         let Ok(mut guard) = state.lock() else { return Ended::Halted };
         // A step that ended without a word leaves no gauge standing behind.
-        guard.progress_on = false;
-        let live = std::mem::take(&mut guard.live_text);
-        let live_thinking = std::mem::take(&mut guard.live_reasoning);
+        guard.live_mut(chat).progress_on = false;
+        let live = std::mem::take(&mut guard.live_mut(chat).live_text);
+        let live_thinking = std::mem::take(&mut guard.live_mut(chat).live_reasoning);
         // The call is over, so the block of the words being written goes. The
         // run of the command stands in the chat in its place, and says what
         // became of it.
-        guard.live_tools.clear();
+        guard.live_mut(chat).live_tools.clear();
         // How long the model spent thinking in this step. The words of the
         // panel are made from this.
-        let thought_ms = match (guard.thought_start, guard.thought_end) {
+        let thought_ms = match (guard.live_ref(chat).thought_start, guard.live_ref(chat).thought_end) {
             (Some(begun), Some(end)) => end.duration_since(begun).as_millis() as u64,
             _ => 0,
         };
-        guard.thought_start = None;
-        guard.thought_end = None;
-        guard.live_thought_ms = 0;
-        guard.live_thought_done = false;
+        guard.live_mut(chat).thought_start = None;
+        guard.live_mut(chat).thought_end = None;
+        guard.live_mut(chat).live_thought_ms = 0;
+        guard.live_mut(chat).live_thought_done = false;
         // Both hold the answer. The longer one is the safer one.
         let answer_text = if answer.text.chars().count() >= live.chars().count() {
             answer.text.clone()
@@ -8752,7 +9616,7 @@ fn run_turn(
             // command.
             let mut thoughts = answer_thinking.clone();
             if !answer_text.trim().is_empty() {
-                guard.push_message("Assistant", &answer_text, &thoughts, thought_ms, false);
+                guard.push_message_in(chat, "Assistant", &answer_text, &thoughts, thought_ms, false);
                 thoughts = String::new();
             } else if !thoughts.trim().is_empty() {
                 // The turn gave no words of its own, so the thinking stands on its
@@ -8761,7 +9625,7 @@ fn run_turn(
                 // the summary is written of must not come to stand behind the heading
                 // of the summarisation: the user would see it go away and come back
                 // on the far side of it.
-                guard.push_message("Assistant", "", &thoughts, thought_ms, false);
+                guard.push_message_in(chat, "Assistant", "", &thoughts, thought_ms, false);
                 thoughts = String::new();
             }
             // The calls that were stopped are written down where the writing
@@ -8782,18 +9646,18 @@ fn run_turn(
             if !thoughts.trim().is_empty() {
                 // Nothing of the turn was shown to the user, so its thinking
                 // stands on its own rather than being lost.
-                guard.push_message("Assistant", "", &thoughts, thought_ms, false);
+                guard.push_message_in(chat, "Assistant", "", &thoughts, thought_ms, false);
             }
             // The meter keeps the number the server last spoke of. An answer that
             // never came to its end gives no usage numbers of its own.
-            let used_now = guard.ctx_used;
+            let used_now = guard.live_ref(chat).ctx_used;
             // The meter of the context keeps the number the room climbed to, for it
             // only moves up. The room of the asks that follow is read again below,
             // out of the talk as it stands after the summarisation and the telling
             // of the call: the number of the ask that was cut holds the whole of the
             // room, and a meter that kept the larger of the two would read the chat
             // as full again the moment the room was made.
-            if let Some(chat) = guard.chat_mut() {
+            if let Some(chat) = guard.chat_of_mut(chat) {
                 chat.meta.context_used = used_now;
                 chat.meta.updated = store::now_secs();
             }
@@ -8815,13 +9679,13 @@ fn run_turn(
             // room left unmade on this turn is the ask over the limit of the next.
             if cut.is_empty() && answer_text.trim().is_empty() && answer_thinking.trim().is_empty()
             {
-                guard.push_message("Assistant", "", &thoughts, thought_ms, false);
-                guard.persist();
+                guard.push_message_in(chat, "Assistant", "", &thoughts, thought_ms, false);
+                guard.persist_in(chat);
                 drop(guard);
-                let room = make_room(state, server, cancel);
+                let room = make_room(state, server, cancel, chat);
                 let Ok(mut guard) = state.lock() else { return Ended::Halted };
-                let used_now = guard.ctx_used;
-                if let Some(chat) = guard.chat_mut() {
+                let used_now = guard.live_ref(chat).ctx_used;
+                if let Some(chat) = guard.chat_of_mut(chat) {
                     chat.meta.context_used = used_now;
                     chat.meta.updated = store::now_secs();
                 }
@@ -8848,16 +9712,16 @@ fn run_turn(
                     // says in its own words what the work was and that it is to be
                     // gone on with, so no word of the program rides after it.
                     carried = None;
-                    guard.generating = true;
+                    guard.live_mut(chat).generating = true;
                     guard.set_status("Space was made. The model is going on with the answer");
                     continue;
                 }
-                guard.push_note(
+                guard.push_note_in(chat, 
                     if room { EMPTY_TURN_TWICE_WORDS } else { EMPTY_TURN_CUT_WORDS },
                     false,
                 );
-                guard.persist();
-                guard.generating = false;
+                guard.persist_in(chat);
+                guard.live_mut(chat).generating = false;
                 let text = if room {
                     EMPTY_TURN_TWICE_WORDS
                 } else {
@@ -8878,15 +9742,15 @@ fn run_turn(
                     "The conversation reached the summarisation limit while a tool call was being written, so the writing stopped and the call was cancelled. Space is being made, and the model continues the answer",
                 )
             };
-            guard.push_note(&told, false);
-            guard.persist();
+            guard.push_note_in(chat, &told, false);
+            guard.persist_in(chat);
             drop(guard);
             cuts += 1;
             // Make the room. The handoff summary is asked for here, in the middle
             // of an answer, for the answer can go no further without it and the
             // user is not to be made to start a summary by hand for a fault of
             // the room.
-            let room = make_room(state, server, cancel);
+            let room = make_room(state, server, cancel, chat);
             let Ok(mut guard) = state.lock() else { return Ended::Halted };
             // The room the next ask takes is read from the talk as it stands now,
             // and not kept from the ask that was cut. That ask ended at the limit,
@@ -8894,8 +9758,8 @@ fn run_turn(
             // larger of the two would read the chat as full again the moment the
             // room was made. The first number the server gives on the next ask
             // takes the meter where it stands, as it always does.
-            let made = estimate_tokens(&guard.build_history());
-            guard.ctx_used = made;
+            let made = estimate_tokens(&guard.build_history_in(chat));
+            guard.live_mut(chat).ctx_used = made;
             // The room that was made, and what the talk costs after it. The number
             // is the measure of the words that stand, as it always is at this point:
             // the ask that was cut ended at the limit, so the number of the server
@@ -8917,11 +9781,11 @@ fn run_turn(
             // The meter of the talk is written to the chat, for the user reads
             // it from there. The number the server gave at the cut is not kept,
             // for it holds the whole of the room.
-            let used_now = guard.ctx_used;
-            if let Some(chat) = guard.chat_mut() {
+            let used_now = guard.live_ref(chat).ctx_used;
+            if let Some(chat) = guard.chat_of_mut(chat) {
                 chat.meta.context_used = used_now;
             }
-            guard.persist();
+            guard.persist_in(chat);
             // Whether the room that was made is past the limit is weighed on the
             // words the next step of the answer really carries, and not on the
             // whole of the talk as it stands. The telling of the call that was
@@ -8947,7 +9811,7 @@ fn run_turn(
             // limit: the model is writing something no room will hold, and the
             // user has to hear so rather than watch the same room be made and
             // spent for ever.
-            let room_asked = carrying_the_cut(&guard.build_history());
+            let room_asked = carrying_the_cut(&guard.build_history_in(chat));
             let still_full = config::compaction_wanted(&guard.cfg, room_asked, guard.ctx_total);
             // The room the next ask carries, telling and all, weighed the way the
             // ask itself is weighed. A summarisation that will not bring this number
@@ -8957,7 +9821,7 @@ fn run_turn(
             // again, so the same room is made and spent with no end to it. The model
             // is writing something no room will hold, and the room the summaries take
             // is room the user paid for with nothing of the work in it.
-            let ask_now = estimate_tokens(&guard.build_history());
+            let ask_now = estimate_tokens(&guard.build_history_in(chat));
             let won_nothing = cuts > 1 && ask_now >= asked_room;
             if !room || (still_full && cuts > 1) || won_nothing {
                 // Either the summary never came, which the user is asked of in
@@ -8965,8 +9829,8 @@ fn run_turn(
                 // telling of the stopped call left out of it. Either way the answer
                 // ends here, rather than be stopped again at once on the first word
                 // of the next ask.
-                guard.generating = false;
-                let text = if guard.handoff_owed() {
+                guard.live_mut(chat).generating = false;
+                let text = if guard.handoff_owed_in(chat) {
                     "The handoff summary was not written. Start it again from the summarisation timeline"
                 } else if still_full {
                     "The context is still over the summarisation limit, so the answer ends here. Ask for the work in parts small enough for the context, or give the model a larger context"
@@ -8984,7 +9848,7 @@ fn run_turn(
                     proglog::CUT,
                     &format!(
                         "the answer ends at the cut. The rule that ended it: {}. The next ask would carry {}, the ask that was cut carried {}, the talk without the telling of the call measures {}, the limit stands at {} of {}",
-                        if guard.handoff_owed() {
+                        if guard.handoff_owed_in(chat) {
                             "the summary was never written"
                         } else if still_full {
                             "the room is still past the limit"
@@ -9016,7 +9880,7 @@ fn run_turn(
             // is spent on the summarisation of the chat box. The step that comes
             // now is asked afresh out of the talk as it stands, so the work is not
             // begun again.
-            guard.generating = true;
+            guard.live_mut(chat).generating = true;
             guard.set_status("Space was made. The model is continuing the answer");
             proglog::note(
                 proglog::CUT,
@@ -9030,7 +9894,7 @@ fn run_turn(
 
         if let Some(problem) = &answer.error {
             let text = problem.clone();
-            guard.push_note(&text, true);
+            guard.push_note_in(chat, &text, true);
         }
         // The calls this step made. The commands eat the room for commands; the
         // other tools work in the room of the chat in the program itself. A turn
@@ -9103,7 +9967,7 @@ fn run_turn(
                     None => false,
                 };
                 if !joined {
-                    guard.push_message(
+                    guard.push_message_in(chat, 
                         "Assistant",
                         &answer_text,
                         &answer_thinking,
@@ -9113,7 +9977,7 @@ fn run_turn(
                 }
             }
             Kept::Thinking => {
-                guard.push_message("Assistant", "", &answer_thinking, thought_ms, false)
+                guard.push_message_in(chat, "Assistant", "", &answer_thinking, thought_ms, false)
             }
             // The model used tokens but left nothing to read, and asked for no
             // command. This happens when the context ran full, and when the model
@@ -9127,9 +9991,9 @@ fn run_turn(
                 // the chat ends here and the user is to know why nothing was
                 // asked after it.
                 if turn_of_nothing && empty_asks >= EMPTY_TURN_ROOF {
-                    guard.push_note(EMPTY_TURN_END_WORDS, false);
-                    guard.persist();
-                    guard.generating = false;
+                    guard.push_note_in(chat, EMPTY_TURN_END_WORDS, false);
+                    guard.persist_in(chat);
+                    guard.live_mut(chat).generating = false;
                     guard.set_status(EMPTY_TURN_END_WORDS);
                     break Ended::Halted;
                 }
@@ -9143,7 +10007,7 @@ fn run_turn(
                 {
                     silences += 1;
                     if !answer_thinking.trim().is_empty() {
-                        guard.push_message("Assistant", "", &answer_thinking, thought_ms, false);
+                        guard.push_message_in(chat, "Assistant", "", &answer_thinking, thought_ms, false);
                     } else if use_tools && !no_room_left {
                         // The row of a turn of nothing stands with nothing in it, as
                         // the template of the model writes an empty turn. The line
@@ -9152,9 +10016,9 @@ fn run_turn(
                         // the talk has to end on the mark of the empty turn for the
                         // word of the program to go out behind it. See
                         // `empty_turn_words`.
-                        guard.push_message("Assistant", "", "", 0, false);
+                        guard.push_message_in(chat, "Assistant", "", "", 0, false);
                     }
-                    guard.persist();
+                    guard.persist_in(chat);
                     // The ask must not go out on the turn of nothing. A talk that
                     // ends on a saying of the model with nothing after it is a thing
                     // for the server to go on with rather than a thing to answer,
@@ -9162,7 +10026,7 @@ fn run_turn(
                     // user met, in which a model that stopped after one line
                     // outside its thinking was asked again and answered with
                     // nothing. The word of the program rides on this ask alone.
-                    carried = empty_turn_words(&guard.build_history());
+                    carried = empty_turn_words(&guard.build_history_in(chat));
                     if carried.is_some() {
                         empty_asks += 1;
                     }
@@ -9179,7 +10043,7 @@ fn run_turn(
                 } else {
                     String::from("(the model gave no answer)")
                 };
-                guard.push_message("Assistant", &note, &answer_thinking, thought_ms, false);
+                guard.push_message_in(chat, "Assistant", &note, &answer_thinking, thought_ms, false);
             }
             Kept::Nothing => {}
         }
@@ -9210,14 +10074,14 @@ fn run_turn(
         // stopped is not kept over them. See `meter_after`.
         let used = answer.prompt_tokens + answer.completion_tokens;
         let sent = answer.sent();
-        let told = guard.build_history();
-        let was_meter = guard.ctx_used;
+        let told = guard.build_history_in(chat);
+        let was_meter = guard.live_ref(chat).ctx_used;
         // An ask that said nothing of the talk at all, which is a way back to the
         // server that failed before the first piece came, leaves the meter where the
         // ask before it stood, with the measure of the words for a floor under it.
         // The talk did not change while the server never saw it, and the measure of
         // the words reads at the half of what the server counted of the same talk.
-        guard.ctx_used = if used == 0 && sent == 0 {
+        guard.live_mut(chat).ctx_used = if used == 0 && sent == 0 {
             used_after(was_meter, &told)
         } else {
             meter_after(used, sent, &told)
@@ -9247,23 +10111,23 @@ fn run_turn(
                         answer.prompt_tokens, answer.completion_tokens
                     )
                 },
-                guard.ctx_used,
+                guard.live_ref(chat).ctx_used,
                 was_meter
             ),
         );
-        let used_now = guard.ctx_used;
-        if let Some(chat) = guard.chat_mut() {
+        let used_now = guard.live_ref(chat).ctx_used;
+        if let Some(chat) = guard.chat_of_mut(chat) {
             chat.meta.context_used = used_now;
             chat.meta.updated = store::now_secs();
         }
-        guard.persist();
+        guard.persist_in(chat);
 
         // What is left to do after this step: the commands, and the room the
         // answer still holds.
         let finished = answer.stopped || answer.error.is_some();
         let nothing_left = step_runs.is_empty();
         if finished || !use_tools || nothing_left || no_room_left {
-            guard.generating = false;
+            guard.live_mut(chat).generating = false;
             // An answer the user stopped never came to an end of its own, so it
             // carries the mark of the stop, and the page puts the mark of going on
             // with it under that answer alone. A stop that came at a call keeps the
@@ -9271,9 +10135,9 @@ fn run_turn(
             // an answer that came to its end leaves nothing to go on with, and the
             // mark of an older one goes away.
             if answer.stopped && stopped_runs.is_empty() {
-                guard.mark_last_answer_stopped();
+                guard.mark_last_answer_stopped_in(chat, );
             } else if !answer.stopped {
-                guard.clear_stopped_marks();
+                guard.clear_stopped_marks_in(chat, );
             }
             let text = if answer.stopped {
                 "Stopped"
@@ -9298,8 +10162,8 @@ fn run_turn(
             let stopped = answer.stopped;
             drop(guard);
             if stopped {
-                if let Some(running) = server.as_ref() {
-                    save_chat_context(state, &running.url, &running.model_id);
+                if let Some((url, model_id)) = server_held(server) {
+                    save_chat_context(state, &url, &model_id);
                 }
             }
             // The worker is told what the answer came to. One that stopped on the
@@ -9329,9 +10193,9 @@ fn run_turn(
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
-                guard.live_work_closed = true;
-                let id = guard.begin_tool(call, corporate::FINISH_WORDS, "", 0);
-                guard.finish_tool(&id, corporate::FINISH_WORDS, true);
+                guard.live_mut(chat).live_work_closed = true;
+                let id = guard.begin_tool_in(chat, call, corporate::FINISH_WORDS, "", 0);
+                guard.finish_tool_in(chat, &id, corporate::FINISH_WORDS, true);
                 continue;
             }
             // The short of the work goes into the one block the corporate
@@ -9342,15 +10206,15 @@ fn run_turn(
                 let entry = serde_json::from_str::<corporate::Entry>(&call.arguments)
                     .unwrap_or_default();
                 let written = match state.lock() {
-                    Ok(mut guard) => corporate::note(&mut guard.live_work, &entry),
+                    Ok(mut guard) => corporate::note(&mut guard.live_mut(chat).live_work, &entry),
                     Err(_) => continue,
                 };
                 let note = corporate::receipt(written);
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
-                let id = guard.begin_tool(call, &note, "", 0);
-                guard.finish_tool(&id, &note, true);
+                let id = guard.begin_tool_in(chat, call, &note, "", 0);
+                guard.finish_tool_in(chat, &id, &note, true);
                 continue;
             }
             // The model asks for the room of the talk to be made now. The
@@ -9368,8 +10232,8 @@ fn run_turn(
                 let (before, empty) = {
                     let Ok(guard) = state.lock() else { continue };
                     (
-                        guard.ctx_used,
-                        guard.chat().map(ends_on_summary).unwrap_or(false),
+                        guard.live_ref(chat).ctx_used,
+                        guard.chat_of(chat).map(ends_on_summary).unwrap_or(false),
                     )
                 };
                 // The room is made once in one answer. A model that asks again
@@ -9378,30 +10242,30 @@ fn run_turn(
                 if empty || room_made {
                     let note = summarise::refused_words();
                     let Ok(mut guard) = state.lock() else { continue };
-                    let id = guard.begin_tool(call, SUMMARISE_SHOWN, &thinking, thought_ms);
-                    guard.finish_tool(&id, &note, true);
+                    let id = guard.begin_tool_in(chat, call, SUMMARISE_SHOWN, &thinking, thought_ms);
+                    guard.finish_tool_in(chat, &id, &note, true);
                     continue;
                 }
                 room_made = true;
                 // The answer is laid aside while the summary takes the chat, as
                 // it is at every other place where the room is made.
                 if let Ok(mut guard) = state.lock() {
-                    guard.generating = false;
-                    guard.busy = false;
+                    guard.live_mut(chat).generating = false;
+                    guard.busy = guard.any_generating();
                 }
-                let kept = run_handoff(state, server, cancel);
+                let kept = run_handoff(state, server, cancel, chat);
                 let Ok(mut guard) = state.lock() else { return Ended::Halted };
                 // The answer is taken up again: the call was one step of it, and
                 // the work stands on after the room that was made.
-                guard.generating = true;
-                let after = estimate_tokens(&guard.build_history());
+                guard.live_mut(chat).generating = true;
+                let after = estimate_tokens(&guard.build_history_in(chat));
                 let note = if kept {
-                    summarise::kept_words(guard.handoffs().len(), before, after)
+                    summarise::kept_words(guard.handoffs_in(chat).len(), before, after)
                 } else {
                     summarise::failed_words(before)
                 };
-                let id = guard.begin_tool(call, SUMMARISE_SHOWN, &thinking, thought_ms);
-                guard.finish_tool(&id, &note, kept);
+                let id = guard.begin_tool_in(chat, call, SUMMARISE_SHOWN, &thinking, thought_ms);
+                guard.finish_tool_in(chat, &id, &note, kept);
                 // The call was made before the room was made, so its block goes
                 // above the mark of the summarisation: the user reads the call
                 // where the model made it, and the summary stands for the ask of
@@ -9426,8 +10290,8 @@ fn run_turn(
                     "{} are switched off for this chat, so nothing ran",
                     tool_group_word(group_of(&call.name).unwrap_or("tools"))
                 );
-                let id = guard.begin_tool(call, &note, "", 0);
-                guard.finish_tool(&id, &note, false);
+                let id = guard.begin_tool_in(chat, call, &note, "", 0);
+                guard.finish_tool_in(chat, &id, &note, false);
                 continue;
             }
             // The room for commands is spent. The call is still answered, so
@@ -9438,8 +10302,8 @@ fn run_turn(
                     continue;
                 };
                 let note = "The command limit for this answer is reached, so the command did not run";
-                let id = guard.begin_tool(call, note, "", 0);
-                guard.finish_tool(&id, note, false);
+                let id = guard.begin_tool_in(chat, call, note, "", 0);
+                guard.finish_tool_in(chat, &id, note, false);
                 continue;
             }
             if terminal {
@@ -9449,9 +10313,9 @@ fn run_turn(
             // and no other one does.
             let thinking = std::mem::take(&mut thoughts);
             if terminal {
-                run_command(call, &thinking, thought_ms, state, &workdir, sandbox_on, access);
+                run_command(call, &thinking, thought_ms, state, &workdir, sandbox_on, access, chat);
             } else {
-                run_program_tool(call, &thinking, thought_ms, state, &workdir, cancel);
+                run_program_tool(call, &thinking, thought_ms, state, &workdir, cancel, chat);
             }
             if call.name == download::NAME {
                 offered = true;
@@ -9475,10 +10339,10 @@ fn run_turn(
             let Ok(mut guard) = state.lock() else {
                 return Ended::Halted;
             };
-            guard.generating = false;
-            guard.clear_stopped_marks();
+            guard.live_mut(chat).generating = false;
+            guard.clear_stopped_marks_in(chat, );
             guard.set_status("Ready");
-            guard.persist();
+            guard.persist_in(chat);
             break Ended::Done;
         }
         // The plan is let go. The talk of the planning stops at this call: the
@@ -9488,8 +10352,8 @@ fn run_turn(
             let Ok(mut guard) = state.lock() else {
                 return Ended::Halted;
             };
-            guard.generating = false;
-            guard.clear_stopped_marks();
+            guard.live_mut(chat).generating = false;
+            guard.clear_stopped_marks_in(chat, );
             guard.set_status("The plan is let go. The work begins from the plan");
             break Ended::Done;
         }
@@ -9497,7 +10361,7 @@ fn run_turn(
             // The turn asked for marks and for nothing a user could look at,
             // so the thoughts stand above the marks as a panel of their own.
             let Ok(mut guard) = state.lock() else { return Ended::Halted };
-            guard.push_message("Assistant", "", &thoughts, thought_ms, false);
+            guard.push_message_in(chat, "Assistant", "", &thoughts, thought_ms, false);
         }
         let Ok(mut guard) = state.lock() else { return Ended::Halted };
         guard.set_status("The model is reading the tool result");
@@ -9746,7 +10610,7 @@ fn wait_for_answer(
     id: &str,
     seconds: u32,
     cancel: &Arc<AtomicBool>,
-) -> Option<String> {
+    chat: &str) -> Option<String> {
     let began = Instant::now();
     loop {
         if cancel.load(Ordering::Relaxed) {
@@ -9755,7 +10619,7 @@ fn wait_for_answer(
         let held = state
             .lock()
             .ok()
-            .and_then(|guard| guard.asking_answer_of(id));
+            .and_then(|guard| guard.asking_answer_of_in(chat, id));
         if held.is_some() {
             return held;
         }
@@ -9770,6 +10634,7 @@ fn wait_for_answer(
             .ok()
             .and_then(|guard| {
                 guard
+                    .live()
                     .running
                     .as_ref()
                     .map(|one| one.watch.stopped())
@@ -9784,6 +10649,7 @@ fn wait_for_answer(
 
 // One run of the terminal tool. The block stands in the chat before the command
 // starts, and says what became of it when it is over.
+#[allow(clippy::too_many_arguments)]
 fn run_command(
     call: &ToolCall,
     thinking: &str,
@@ -9792,7 +10658,7 @@ fn run_command(
     workdir: &Path,
     sandbox_on: bool,
     access: tools::Access,
-) {
+    chat: &str) {
     let (command, purpose) = tools::parse_arguments(&call.arguments);
     // The reason the model gave is not asked for any more, but a model that
     // gives one of its own is still shown.
@@ -9805,8 +10671,8 @@ fn run_command(
     let watch = tool_watch(state);
     let message_id = {
         let Ok(mut guard) = state.lock() else { return };
-        let id = guard.begin_tool(call, &shown, thinking, thought_ms);
-        guard.begin_running(&id, &watch);
+        let id = guard.begin_tool_in(chat, call, &shown, thinking, thought_ms);
+        guard.begin_running_in(chat, &id, &watch);
         let text = format!("Running a command: {}", first_line(&command));
         guard.set_status(&text);
         id
@@ -9831,7 +10697,7 @@ fn run_command(
         );
     }
     let Ok(mut guard) = state.lock() else { return };
-    guard.finish_tool(&message_id, &output, outcome.ok);
+    guard.finish_tool_in(chat, &message_id, &output, outcome.ok);
 }
 
 // One call of a tool the program does itself. None of these starts a shell, so
@@ -9847,7 +10713,7 @@ fn run_program_tool(
     // The hand the user puts up to stop the answer. A question the user was
     // asked is given up with the answer, for the run that asked it is going away.
     cancel: &Arc<AtomicBool>,
-) {
+    chat: &str) {
     // The clock of the call, from the Chatting settings.
     let watch = tool_watch(state);
     // The words of the call, and the words of the state line, are settled first:
@@ -9887,8 +10753,8 @@ fn run_program_tool(
     };
     let message_id = {
         let Ok(mut guard) = state.lock() else { return };
-        let id = guard.begin_tool(call, &shown, thinking, thought_ms);
-        guard.begin_running(&id, &watch);
+        let id = guard.begin_tool_in(chat, call, &shown, thinking, thought_ms);
+        guard.begin_running_in(chat, &id, &watch);
         let text = format!("{}: {}", doing, first_line(&shown));
         guard.set_status(&text);
         id
@@ -9948,7 +10814,7 @@ fn run_program_tool(
             },
         };
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool(&message_id, &report.output, report.ok);
+        guard.finish_tool_in(chat, &message_id, &report.output, report.ok);
         return;
     }
     // A picture is read here and kept out of the words the user sees. The
@@ -9963,7 +10829,7 @@ fn run_program_tool(
             let Ok(guard) = state.lock() else { return };
             (
                 guard.pictures_can_go(),
-                guard.chat().map(|one| one.meta.sandbox_enabled).unwrap_or(false),
+                guard.chat_of(chat).map(|one| one.meta.sandbox_enabled).unwrap_or(false),
             )
         };
         let made = viewimage::open(workdir, &call.arguments, vision, jailed);
@@ -9981,13 +10847,13 @@ fn run_program_tool(
                 })
                 .collect();
             let Ok(guard) = state.lock() else { return };
-            match guard.attach_place() {
+            match guard.attach_place_for_chat(chat) {
                 Some(place) => attach::save_at(&place, &held),
                 None => Vec::new(),
             }
         };
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool_with(&message_id, &made.report.output, made.report.ok, records);
+        guard.finish_tool_with_in(chat, &message_id, &made.report.output, made.report.ok, records);
         return;
     }
     // A question the model puts to the user. The run waits: the ask stands above
@@ -10005,7 +10871,7 @@ fn run_program_tool(
             Ok(made) => made,
             Err(why) => {
                 let Ok(mut guard) = state.lock() else { return };
-                guard.finish_tool(&message_id, &why, false);
+                guard.finish_tool_in(chat, &message_id, &why, false);
                 return;
             }
         };
@@ -10013,9 +10879,9 @@ fn run_program_tool(
             let Ok(mut guard) = state.lock() else { return };
             let text = format!("Waiting for your answers: {} questions", items.len());
             guard.set_status(&text);
-            guard.begin_asking_plan(items)
+            guard.begin_asking_plan_in(chat, items)
         };
-        let answer = wait_for_answer(state, &asking, 0, cancel);
+        let answer = wait_for_answer(state, &asking, 0, cancel, chat);
         let (words, ok) = match answer {
             Some(said) => (said, true),
             // The user stopped the answer whole, so the questionnaire went with
@@ -10028,8 +10894,8 @@ fn run_program_tool(
             ),
         };
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool(&message_id, &words, ok);
-        guard.clear_asking(&asking);
+        guard.finish_tool_in(chat, &message_id, &words, ok);
+        guard.clear_asking_in(chat, &asking);
         return;
     }
     if call.name == askuser::NAME {
@@ -10041,9 +10907,9 @@ fn run_program_tool(
         }
         let (asking, seconds) = {
             let Ok(mut guard) = state.lock() else { return };
-            guard.begin_asking(&asked)
+            guard.begin_asking_in(chat, &asked)
         };
-        let answer = wait_for_answer(state, &asking, seconds, cancel);
+        let answer = wait_for_answer(state, &asking, seconds, cancel, chat);
         let (words, ok) = match answer {
             Some(said) => (askuser::answered_words(&said), true),
             // A question that was given up is no fault of the run: the model is
@@ -10052,8 +10918,8 @@ fn run_program_tool(
             None => (askuser::stopped_words(), false),
         };
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool(&message_id, &words, ok);
-        guard.clear_asking(&asking);
+        guard.finish_tool_in(chat, &message_id, &words, ok);
+        guard.clear_asking_in(chat, &asking);
         return;
     }
     // The whole plan in one call. The plan file of a chat that has nothing in it
@@ -10069,7 +10935,7 @@ fn run_program_tool(
         };
         let report = planning::write_init(&name, &call.arguments);
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool(&message_id, &report.output, report.ok);
+        guard.finish_tool_in(chat, &message_id, &report.output, report.ok);
         return;
     }
     // The plan file of this chat. The tool reaches that one file and no other, so
@@ -10085,7 +10951,7 @@ fn run_program_tool(
         };
         let report = planning::edit_plan(&name, &call.arguments);
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool(&message_id, &report.output, report.ok);
+        guard.finish_tool_in(chat, &message_id, &report.output, report.ok);
         return;
     }
     // The same plan file, read back. The model is shown the lines of the plan as
@@ -10100,7 +10966,7 @@ fn run_program_tool(
         };
         let report = planning::read_plan(&name, &call.arguments);
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool(&message_id, &report.output, report.ok);
+        guard.finish_tool_in(chat, &message_id, &report.output, report.ok);
         return;
     }
     // The plan is let go. The talk of the planning is put away behind this call,
@@ -10112,15 +10978,15 @@ fn run_program_tool(
         let Ok(mut guard) = state.lock() else { return };
         let held = guard.plan_words().unwrap_or_default();
         if held.trim().is_empty() {
-            guard.finish_tool(
+            guard.finish_tool_in(chat, 
                 &message_id,
                 "The plan file holds nothing, so the plan could not be let go.",
                 false,
             );
             return;
         }
-        guard.plan_pending = Some(held);
-        guard.finish_tool(
+        guard.live_mut(chat).plan_pending = Some(held);
+        guard.finish_tool_in(chat, 
             &message_id,
             "The plan is let go. This talk ends here, and the plan becomes the first message of the work.",
             true,
@@ -10141,7 +11007,7 @@ fn run_program_tool(
         };
         let made = display::show(workdir, &call.arguments, jailed);
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_displayed(&message_id, &made.report.output, made.report.ok, made.shown);
+        guard.finish_displayed_in(chat, &message_id, &made.report.output, made.report.ok, made.shown);
         return;
     }
     // The next steps the user may take with a press. Nothing is waited for: the
@@ -10152,7 +11018,7 @@ fn run_program_tool(
     if call.name == suggest::NAME {
         let made = suggest::offer(&call.arguments);
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_suggestions(&message_id, &made.report.output, made.report.ok, made.asks);
+        guard.finish_suggestions_in(chat, &message_id, &made.report.output, made.report.ok, made.asks);
         return;
     }
     // The steps of the work, shown one at a time in a block of their own. Nothing
@@ -10161,7 +11027,7 @@ fn run_program_tool(
     if call.name == steps::NAME {
         let made = steps::show(&call.arguments);
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_steps(&message_id, &made.report.output, made.report.ok, made.plan);
+        guard.finish_steps_in(chat, &message_id, &made.report.output, made.report.ok, made.plan);
         return;
     }
     // An infographic. The five tools of the suite work on one file of words in
@@ -10178,7 +11044,7 @@ fn run_program_tool(
         let made = infographic::run(&call.name, &call.arguments, workdir, &cancel_render, told);
         let ok = !made.starts_with("the ") || made.contains("stands");
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool(&message_id, &made, ok);
+        guard.finish_tool_in(chat, &message_id, &made, ok);
         return;
     }
     // The tasks of the work directory. The six tools of the suite work on the
@@ -10190,7 +11056,7 @@ fn run_program_tool(
         let work = tasks::key_of(workdir);
         let made = tasks::run(&call.name, &work, &call.arguments);
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool(&message_id, &made.output, made.ok);
+        guard.finish_tool_in(chat, &message_id, &made.output, made.ok);
         return;
     }
     // A file the user is offered. Nothing is copied and nothing is fetched: the
@@ -10201,7 +11067,7 @@ fn run_program_tool(
     if call.name == download::NAME {
         let made = download::offer(workdir, &call.arguments);
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_gifts(&message_id, &made.report.output, made.report.ok, made.gifts);
+        guard.finish_gifts_in(chat, &message_id, &made.report.output, made.report.ok, made.gifts);
         return;
     }
     // The wall of the chat. While the jail stands the file tools work in the
@@ -10247,18 +11113,18 @@ fn run_program_tool(
         },
     };
     let Ok(mut guard) = state.lock() else { return };
-    guard.finish_tool(&message_id, &report.output, report.ok);
+    guard.finish_tool_in(chat, &message_id, &report.output, report.ok);
 }
 
 // Start llama-server when none runs yet, or when another model is wanted. The
 // answer is the context size a chat gets.
 fn ensure_server(
     state: &Arc<Mutex<State>>,
-    server: &mut Option<Server>,
+    server: &ServerSlot,
     model: &ModelInfo,
     settings: &ModelSettings,
     cancel: &Arc<AtomicBool>,
-) -> Result<u64, String> {
+    chat: &str) -> Result<u64, String> {
     let (binary, gpus, wants, keeping) = {
         let Ok(state) = state.lock() else {
             return Err("The program state is gone".to_string());
@@ -10266,7 +11132,7 @@ fn ensure_server(
         let binary = state
             .server_binary()
             .ok_or("llama-server was not found in the folder from the settings")?;
-        let wants = state.server_wants();
+        let wants = state.server_wants_of(chat);
         // The folder the talks the model works its way through are written into,
         // when the user has the keeping on. The server is told the folder and
         // nothing else: it makes the names of the files inside it by itself,
@@ -10277,23 +11143,31 @@ fn ensure_server(
             .then(|| config::contexts_dir(&state.cfg));
         (binary, state.gpus.clone(), wants, keeping)
     };
+    // The load of a model is the one part of a turn two chats may not share, so
+    // the slot is held for the whole of what follows: a second chat that asks for
+    // the same model waits for the run it needs instead of starting a second
+    // llama-server, and a chat that asks for another model is kept off the run by
+    // the worker until the chats on it are done.
+    let Ok(mut held) = server.lock() else {
+        return Err("The server is gone".to_string());
+    };
     // The model loads once and stays loaded for every chat that asks for the
     // same model: see `ServerWants::covers` for the whole rule. The thinking
     // mode, the keeping of the thinking, the tools and the jail move no server,
     // for they are said with the ask.
-    let reusable = server.as_mut().map(|s| s.alive()).unwrap_or(false)
-        && server
+    let reusable = held.as_mut().map(|s| s.alive()).unwrap_or(false)
+        && held
             .as_ref()
             .map(|s| ServerWants::covers(&State::server_wears(s), &wants))
             .unwrap_or(false);
     if reusable {
-        let total = server
+        let total = held
             .as_ref()
             .map(|s| s.ctx_total)
             .unwrap_or(settings.ctx_size as u64);
         return Ok(total);
     }
-    stop_server(state, server);
+    stop_run(state, &mut held);
     if cancel.load(Ordering::Relaxed) {
         return Err("Stopped before the model loaded".to_string());
     }
@@ -10301,7 +11175,8 @@ fn ensure_server(
         Ok(started) => {
             let total = started.ctx_total;
             let notes = started.notes.clone();
-            *server = Some(started);
+            *held = Some(started);
+            drop(held);
             if let Ok(mut state) = state.lock() {
                 for note in notes {
                     let text = note;
@@ -10311,7 +11186,7 @@ fn ensure_server(
             Ok(total)
         }
         Err(problem) => {
-            stop_server(state, server);
+            stop_run(state, &mut held);
             Err(problem)
         }
     }
@@ -11884,14 +12759,16 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        let (workdir, cancel) = {
+        let (workdir, cancel, chat) = {
             let mut state = engine.state.lock().unwrap();
             state.start_chat();
             let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
+            let chat = state.open_id();
             std::mem::drop(state);
             (
                 room,
                 std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                chat,
             )
         };
         let call = ToolCall {
@@ -11906,7 +12783,7 @@ mod tests {
         let worker = {
             let call = call.clone();
             std::thread::spawn(move || {
-                run_program_tool(&call, "", 0, &held, std::path::Path::new("."), &waiter)
+                run_program_tool(&call, "", 0, &held, std::path::Path::new("."), &waiter, &chat)
             })
         };
         // The ask stands while the run waits for a word. A weighty question is
@@ -11954,12 +12831,13 @@ mod tests {
             name: String::from(askuser::NAME),
             arguments: String::from("{\"question\":\"Shall I write the file?\"}"),
         };
+        let chat = engine.state.lock().unwrap().open_id();
         let held = engine.state.clone();
         let waiter = cancel.clone();
         let worker = {
             let call = call.clone();
             std::thread::spawn(move || {
-                run_program_tool(&call, "", 0, &held, std::path::Path::new("."), &waiter)
+                run_program_tool(&call, "", 0, &held, std::path::Path::new("."), &waiter, &chat)
             })
         };
         let asked = asked_of(&engine);
@@ -12026,6 +12904,7 @@ mod tests {
                 "{\"paths\":[\"page.html\",\"notes/table.csv\",\"../elsewhere.txt\"]}",
             ),
         };
+        let chat = engine.state.lock().unwrap().open_id();
         run_program_tool(
             &call,
             "",
@@ -12033,6 +12912,7 @@ mod tests {
             &engine.state,
             &workdir,
             &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            &chat,
         );
         let snap = engine.snapshot();
         let run = snap
@@ -12228,6 +13108,7 @@ mod tests {
             std::fs::create_dir_all(&room).unwrap();
             room
         };
+        let chat = engine.state.lock().unwrap().open_id();
         let run = |engine: &Engine, id: &str, arguments: &str| {
             run_program_tool(
                 &ToolCall {
@@ -12240,6 +13121,7 @@ mod tests {
                 &engine.state,
                 &workdir,
                 &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                &chat,
             );
         };
         run(
@@ -12339,6 +13221,7 @@ mod tests {
             std::fs::create_dir_all(&room).unwrap();
             room
         };
+        let chat = engine.state.lock().unwrap().open_id();
         let run = |engine: &Engine, id: &str, arguments: &str| {
             run_program_tool(
                 &ToolCall {
@@ -12351,6 +13234,7 @@ mod tests {
                 &engine.state,
                 &workdir,
                 &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                &chat,
             );
         };
         run(
@@ -13037,14 +13921,14 @@ mod tests {
                 name: String::from(tools::TOOL_NAME),
                 arguments: String::from("{\"command\":\"uname"),
             };
-            state.live_tools = watched(std::slice::from_ref(&call));
+            state.live_write().live_tools = watched(std::slice::from_ref(&call));
         }
         let snap = engine.snapshot();
         assert_eq!(snap.live_tools.len(), 1);
         assert_eq!(snap.live_tools[0].command, "uname");
         {
             let mut state = engine.state.lock().unwrap();
-            state.live_tools.clear();
+            state.live_write().live_tools.clear();
         }
         assert!(engine.snapshot().live_tools.is_empty());
     }
@@ -13061,6 +13945,8 @@ mod tests {
         let engine = Engine::start(Config::default());
         open_a_chat(&engine);
         let mut state = engine.state.lock().unwrap();
+        // The chat the functions under test are given to work in.
+        let chat = state.open_id();
         let half = ToolCall {
             id: String::from("c1"),
             name: String::from(tools::TOOL_NAME),
@@ -13072,24 +13958,24 @@ mod tests {
             arguments: String::from("{\"command\":\"uname -a -s\"}"),
         };
         // The words of the call are coming in.
-        write_calls(&mut state, std::slice::from_ref(&half));
-        assert_eq!(state.live_tools.len(), 1);
-        assert!(!state.live_tools[0].done);
+        write_calls(&mut state, std::slice::from_ref(&half), &chat);
+        assert_eq!(state.live().live_tools.len(), 1);
+        assert!(!state.live().live_tools[0].done);
         // The model thinks again, so the call is written.
-        assert!(end_writing_calls(&mut state));
-        assert!(state.live_tools[0].done);
+        assert!(end_writing_calls(&mut state, &chat));
+        assert!(state.live().live_tools[0].done);
         // A piece that brings nothing new does not start the writing again.
-        write_calls(&mut state, std::slice::from_ref(&half));
-        assert!(state.live_tools[0].done);
+        write_calls(&mut state, std::slice::from_ref(&half), &chat);
+        assert!(state.live().live_tools[0].done);
         // Words that grew are being written again.
-        write_calls(&mut state, std::slice::from_ref(&whole));
-        assert!(!state.live_tools[0].done);
+        write_calls(&mut state, std::slice::from_ref(&whole), &chat);
+        assert!(!state.live().live_tools[0].done);
         // Nothing stood written, so ending the writing is a change the window
         // has to hear about.
-        assert!(end_writing_calls(&mut state));
-        assert!(state.live_tools[0].done);
+        assert!(end_writing_calls(&mut state, &chat));
+        assert!(state.live().live_tools[0].done);
         // The same word again is nothing to tell.
-        assert!(!end_writing_calls(&mut state));
+        assert!(!end_writing_calls(&mut state, &chat));
     }
 
     // The gauge above the chat box stood while the server worked the words it
@@ -13108,26 +13994,27 @@ mod tests {
             name: String::from(tools::TOOL_NAME),
             arguments: String::from("{\"command\":\"uname"),
         };
+        let chat = engine.state.lock().unwrap().open_id();
         {
             let mut state = engine.state.lock().unwrap();
-            state.progress_on = true;
-            state.progress = 42;
+            state.live_write().progress_on = true;
+            state.live_write().progress = 42;
             // The command is only begun, and the gauge goes already.
-            assert!(write_calls(&mut state, std::slice::from_ref(&command)));
-            assert!(!state.progress_on, "the gauge stood on after the call began");
+            assert!(write_calls(&mut state, std::slice::from_ref(&command), &chat));
+            assert!(!state.live().progress_on, "the gauge stood on after the call began");
             // A gauge that goes away has finished its work.
-            assert_eq!(state.progress, 100);
-            assert_eq!(state.live_tools.len(), 1);
-            assert_eq!(state.live_tools[0].command, "uname");
+            assert_eq!(state.live().progress, 100);
+            assert_eq!(state.live().live_tools.len(), 1);
+            assert_eq!(state.live().live_tools[0].command, "uname");
         }
         assert!(!engine.snapshot().progress_on);
         // A piece that says nothing new of a call the state holds already says
         // nothing at all: the gauge went with the first word of it.
         {
             let mut state = engine.state.lock().unwrap();
-            state.live_tools.clear();
-            write_calls(&mut state, std::slice::from_ref(&command));
-            assert!(!write_calls(&mut state, std::slice::from_ref(&command)));
+            state.live_write().live_tools.clear();
+            write_calls(&mut state, std::slice::from_ref(&command), &chat);
+            assert!(!write_calls(&mut state, std::slice::from_ref(&command), &chat));
         }
     }
 
@@ -13142,20 +14029,22 @@ mod tests {
         open_a_chat(&engine);
         {
             let mut state = engine.state.lock().unwrap();
-            state.ctx_used = 0;
+            // The chat the functions under test are given to work in.
+            let chat = state.open_id();
+            state.live_write().ctx_used = 0;
             // Nothing is known of the talk yet, so the meter keeps what it
             // stands on.
-            assert!(!climb_context(&mut state, 0));
-            assert_eq!(state.ctx_used, 0);
+            assert!(!climb_context(&mut state, 0, &chat));
+            assert_eq!(state.live().ctx_used, 0);
             // The words of the talk so far. The meter climbs.
-            assert!(climb_context(&mut state, 431));
+            assert!(climb_context(&mut state, 431, &chat));
             // A piece that says the same, or less, moves nothing: the words of
             // an answer that is still coming are not taken back.
-            assert!(!climb_context(&mut state, 431));
-            assert!(!climb_context(&mut state, 400));
-            assert_eq!(state.ctx_used, 431);
-            assert!(climb_context(&mut state, 900));
-            assert_eq!(state.ctx_used, 900);
+            assert!(!climb_context(&mut state, 431, &chat));
+            assert!(!climb_context(&mut state, 400, &chat));
+            assert_eq!(state.live().ctx_used, 431);
+            assert!(climb_context(&mut state, 900, &chat));
+            assert_eq!(state.live().ctx_used, 900);
         }
         // The window draws the number of the meter from the snapshot, so the
         // number of the live answer reaches the top bar.
@@ -13175,22 +14064,24 @@ mod tests {
         open_a_chat(&engine);
         let begun = Instant::now();
         let mut state = engine.state.lock().unwrap();
-        state.ctx_used = 0;
-        state.ctx_at = None;
+        // The chat the functions under test are given to work in.
+        let chat = state.open_id();
+        state.live_write().ctx_used = 0;
+        state.live_write().ctx_at = None;
         // The first number of the answer is put in at once.
-        assert!(climb_context_paced(&mut state, 100, begun));
-        assert_eq!(state.ctx_used, 100);
+        assert!(climb_context_paced(&mut state, 100, begun, &chat));
+        assert_eq!(state.live().ctx_used, 100);
         // Within the half second the meter stands where it stood.
-        assert!(!climb_context_paced(&mut state, 120, begun + Duration::from_millis(120)));
-        assert!(!climb_context_paced(&mut state, 138, begun + Duration::from_millis(499)));
-        assert_eq!(state.ctx_used, 100);
+        assert!(!climb_context_paced(&mut state, 120, begun + Duration::from_millis(120), &chat));
+        assert!(!climb_context_paced(&mut state, 138, begun + Duration::from_millis(499), &chat));
+        assert_eq!(state.live().ctx_used, 100);
         // Past the half second the newest number is stood on, and the pieces
         // that were turned away are not asked for again.
-        assert!(climb_context_paced(&mut state, 140, begun + Duration::from_millis(501)));
-        assert_eq!(state.ctx_used, 140);
+        assert!(climb_context_paced(&mut state, 140, begun + Duration::from_millis(501), &chat));
+        assert_eq!(state.live().ctx_used, 140);
         // A number that goes back never moves the meter, pace or no pace.
-        assert!(!climb_context_paced(&mut state, 90, begun + Duration::from_secs(5)));
-        assert_eq!(state.ctx_used, 140);
+        assert!(!climb_context_paced(&mut state, 90, begun + Duration::from_secs(5), &chat));
+        assert_eq!(state.live().ctx_used, 140);
     }
 
     // ------------------------------------------------------------ compaction
@@ -13282,9 +14173,9 @@ mod tests {
         assert!(marks[1].snippet.is_empty());
         assert!(state.handoff_owed());
         // While the program is at a summary, the empty mark is not yet a fault.
-        state.generating = true;
+        state.live_write().generating = true;
         assert_eq!(state.handoffs()[1].state, "writing");
-        state.generating = false;
+        state.live_write().generating = false;
         // The mark that was never written is the newest thing of the chat, so
         // there is nothing new to write a summary of.
         let chat = state.chat().expect("a chat stands open");
@@ -13378,9 +14269,9 @@ mod tests {
         assert!(!watch.stopped(), "more time is not a stop");
         engine.cancel();
         let state = engine.state.lock().unwrap();
-        assert!(state.running.is_some(), "the call stands running still");
+        assert!(state.live().running.is_some(), "the call stands running still");
         assert!(
-            state.running.as_ref().map(|one| one.watch.stopped()).unwrap_or(false),
+            state.live().running.as_ref().map(|one| one.watch.stopped()).unwrap_or(false),
             "the mark of the answer left the running call going"
         );
     }
@@ -13515,9 +14406,9 @@ mod tests {
         let marks = state.handoffs();
         assert_eq!(marks.len(), 2);
         assert_eq!(marks[1].number, 2);
-        state.generating = true;
+        state.live_write().generating = true;
         assert_eq!(state.handoffs()[1].state, "writing");
-        state.generating = false;
+        state.live_write().generating = false;
         state.finish_summary(&again, "Done: the bar. Next: nothing.", 7000, 96, "");
         assert_eq!(state.handoffs().len(), 2);
         assert_eq!(state.handoffs()[1].number, 2);
@@ -14867,16 +15758,16 @@ mod tests {
         // whole of the room. The user stopped the answer. The words that number
         // counted are not in the chat, and are not kept; the room of the words the
         // server was sent is, and the meter does not fall away under it.
-        state.ctx_used = 900_000;
+        state.live_write().ctx_used = 900_000;
         let told = state.build_history();
         let sent = 213_797;
-        state.ctx_used = meter_after(0, sent, &told);
+        state.live_write().ctx_used = meter_after(0, sent, &told);
         assert_eq!(
-            state.ctx_used, sent,
+            state.live().ctx_used, sent,
             "the meter fell to the measure of the words, which was the fault"
         );
         assert!(
-            state.ctx_used < 900_000,
+            state.live().ctx_used < 900_000,
             "the words of an answer that never came were kept over the talk"
         );
     }
@@ -14890,27 +15781,29 @@ mod tests {
         let engine = Engine::start(Config::default());
         open_a_chat(&engine);
         let mut state = engine.state.lock().unwrap();
+        // The chat the functions under test are given to work in.
+        let chat = state.open_id();
         // A number left over from an answer the user stopped: the words it
         // counted went out of the talk with the answer.
-        state.ctx_used = 5000;
-        state.ctx_fresh = true;
+        state.live_write().ctx_used = 5000;
+        state.live_write().ctx_fresh = true;
         assert!(
-            climb_context(&mut state, 1200),
+            climb_context(&mut state, 1200, &chat),
             "the first number of the ask was refused, and the meter would stand still"
         );
-        assert_eq!(state.ctx_used, 1200);
+        assert_eq!(state.live().ctx_used, 1200);
         // The rest of the answer climbs as it always did: the words of an answer
         // that is still coming are not taken back.
-        assert!(!climb_context(&mut state, 900));
-        assert_eq!(state.ctx_used, 1200);
-        assert!(climb_context(&mut state, 1500));
-        assert_eq!(state.ctx_used, 1500);
+        assert!(!climb_context(&mut state, 900, &chat));
+        assert_eq!(state.live().ctx_used, 1200);
+        assert!(climb_context(&mut state, 1500, &chat));
+        assert_eq!(state.live().ctx_used, 1500);
         // A number of nothing says nothing of the talk, so it is taken by nobody,
         // and the ask is still fresh for the first number that does say something.
-        state.ctx_fresh = true;
-        assert!(!climb_context(&mut state, 0));
-        assert!(state.ctx_fresh, "a number of nothing spent the freshness");
-        assert_eq!(state.ctx_used, 1500);
+        state.live_write().ctx_fresh = true;
+        assert!(!climb_context(&mut state, 0, &chat));
+        assert!(state.live().ctx_fresh, "a number of nothing spent the freshness");
+        assert_eq!(state.live().ctx_used, 1500);
     }
 
     // The words of a call that was stopped are kept to the head of it: the head
@@ -15301,7 +16194,7 @@ mod tests {
         // take is counted in here: the line of the day, the words of the chapters,
         // the words of the colours and the words of the room ride with every ask.
         state.ctx_total = 2048;
-        state.ctx_used = 1600;
+        state.live_write().ctx_used = 1600;
         let cfg = Config {
             chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
             chat_compact_reserve: 1100,
@@ -15313,7 +16206,7 @@ mod tests {
         let mark = state.begin_summary();
         state.finish_summary(&mark, "Done: the parser. Next: the bar.", 1600, 250, "");
         let made = estimate_tokens(&state.build_history());
-        state.ctx_used = made;
+        state.live_write().ctx_used = made;
         // The words the summary stands for are left out of the talk, so the room
         // the talk takes is the room the first prompt and the summary take, and
         // the telling of the call is no part of it. The estimate of the talk is
@@ -15360,7 +16253,7 @@ mod tests {
         // the limit. The room the words of the program take is counted in, as it
         // is in the test above.
         state.ctx_total = 2048;
-        state.ctx_used = 1600;
+        state.live_write().ctx_used = 1600;
         let cfg = Config {
             chat_compact_by: config::COMPACT_BY_TOKENS.to_string(),
             chat_compact_reserve: 1100,
@@ -15372,7 +16265,7 @@ mod tests {
         let mark = state.begin_summary();
         state.finish_summary(&mark, "Done: the parser. Next: the bar.", 1600, 250, "");
         let made = estimate_tokens(&state.build_history());
-        state.ctx_used = made;
+        state.live_write().ctx_used = made;
         let whole = estimate_tokens(&state.build_history());
         assert!(
             !config::compaction_wanted(&state.cfg, whole, state.ctx_total),
@@ -15694,7 +16587,7 @@ mod tests {
         let engine = engine_with(four_messages());
         {
             let mut state = engine.state.lock().unwrap();
-            state.generating = true;
+            state.live_write().generating = true;
         }
         engine.rewrite_message(String::from("c"));
         engine.edit_answer(String::from("d"), String::from("words that do not belong here"));
@@ -15855,7 +16748,7 @@ mod tests {
             status
         );
         let state = engine.state.lock().unwrap();
-        assert!(!state.generating, "an answer began with no model to ask");
+        assert!(!state.live().generating, "an answer began with no model to ask");
     }
 
     // An answer that ended on its own end-of-sequence token, with no stop mark on
@@ -15913,7 +16806,7 @@ mod tests {
         {
             let mut state = engine.state.lock().unwrap();
             state.push_message("Assistant", "the rest of it", "", 0, false);
-            state.generating = true;
+            state.live_write().generating = true;
         }
         assert!(
             engine.snapshot().continue_id.is_empty(),
@@ -15921,7 +16814,7 @@ mod tests {
         );
         {
             let mut state = engine.state.lock().unwrap();
-            state.generating = false;
+            state.live_write().generating = false;
             state.busy = true;
         }
         assert!(
@@ -15930,7 +16823,7 @@ mod tests {
         );
         {
             let mut state = engine.state.lock().unwrap();
-            state.busy = false;
+            state.busy = state.any_generating();
         }
         assert_eq!(
             engine.snapshot().continue_id,
@@ -16325,10 +17218,12 @@ mod tests {
         setup();
         let engine = Engine::start(Config::default());
         let state = engine.state.clone();
+        let chat;
         {
             let mut guard = state.lock().unwrap();
             guard.start_chat();
-            guard.generating = true;
+            chat = guard.open_id();
+            guard.live_write().generating = true;
         }
         engine
             .queue_add(String::from("queued"), Vec::new())
@@ -16340,10 +17235,10 @@ mod tests {
             assert!(!guard.queue_ready(), "a writing chat is not idle");
             assert!(guard.queue_next().is_none());
         }
-        assert!(queue_step(&state).is_none(), "nothing goes out while the chat writes");
+        assert!(queue_step(&state, &chat).is_none(), "nothing goes out while the chat writes");
         // The answer is over. The message is next, but no model stands chosen, so
         // the sender refuses it and the list is held back with it.
-        state.lock().unwrap().generating = false;
+        state.lock().unwrap().live_write().generating = false;
         {
             let guard = state.lock().unwrap();
             assert!(guard.queue_ready(), "an idle chat may go on with the list");
@@ -16355,7 +17250,7 @@ mod tests {
                 "queued"
             );
         }
-        assert!(queue_step(&state).is_none(), "no model stands chosen");
+        assert!(queue_step(&state, &chat).is_none(), "no model stands chosen");
         {
             let guard = state.lock().unwrap();
             assert!(!guard.queue_ready(), "a held list is not asked again");
@@ -16527,6 +17422,7 @@ mod tests {
             state
                 .workdir_for(state.chat().expect("a blank chat stands open"))
         };
+        let chat = engine.state.lock().unwrap().open_id();
         let idle = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let call = ToolCall {
             id: String::from("call-create-task"),
@@ -16535,7 +17431,7 @@ mod tests {
                 "{\"name\":\"Lay out the reader\",\n                 \"summary\":\"Read the grammar and write the table.\",\n                 \"content\":\"Write the table of rules, then run the six tests.\"}",
             ),
         };
-        run_program_tool(&call, "", 0, &engine.state, &workdir, &idle);
+        run_program_tool(&call, "", 0, &engine.state, &workdir, &idle, &chat);
         let snap = engine.snapshot();
         let run = snap
             .messages
@@ -16648,8 +17544,8 @@ mod tests {
         // words of that answer would else go into a chat that is no more.
         {
             let mut state = engine.state.lock().unwrap();
-            state.generating = true;
             state.current = Some(String::from("aaaagggg01"));
+            state.live_mut("aaaagggg01").generating = true;
         }
         engine.remove_repository(doomed.clone());
         assert!(
@@ -16672,7 +17568,7 @@ mod tests {
         );
         {
             let mut state = engine.state.lock().unwrap();
-            state.generating = false;
+            state.live_mut("aaaagggg01").generating = false;
             state.current = None;
         }
 
@@ -16757,5 +17653,217 @@ mod tests {
             "the going is told: {}",
             engine.snapshot().status
         );
+    }
+
+    // A model that was started with room for several answers at once carries that
+    // many chats at the same time. Two things hold a turn back: every place of the
+    // model is taken, and the chat wants another model than the one the run
+    // carries, for a model is loaded once and a second one would push the run over.
+    #[test]
+    fn a_model_answers_as_many_chats_at_once_as_its_setting_allows() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let one = PathBuf::from("/models/one.gguf");
+        let two = PathBuf::from("/models/two.gguf");
+        let one_id = one.to_string_lossy().to_string();
+        let two_id = two.to_string_lossy().to_string();
+        let (first, second, third, other) = {
+            let mut state = engine.state.lock().unwrap();
+            state.models = vec![
+                ModelInfo {
+                    path: one.clone(),
+                    name: String::from("one"),
+                    kind: "GGUF",
+                },
+                ModelInfo {
+                    path: two.clone(),
+                    name: String::from("two"),
+                    kind: "GGUF",
+                },
+            ];
+            // The model of the three first chats answers two of them at once.
+            let mut settings = state.cfg.model(&one_id);
+            settings.parallel = 2;
+            state.cfg.model_settings.insert(one_id.clone(), settings);
+            state.cfg.model_id = one_id.clone();
+            state.start_chat();
+            let first = state.open_id();
+            state.start_chat();
+            let second = state.open_id();
+            state.start_chat();
+            let third = state.open_id();
+            state.start_chat();
+            let other = state.open_id();
+            // The chat of the other model is given its model outright: a chat
+            // takes the model of the chat that stands open, and that is the first
+            // model here.
+            state
+                .chat_of_mut(&other)
+                .expect("the chat of the other model stands")
+                .meta
+                .model_id = two_id.clone();
+            (first, second, third, other)
+        };
+        let none = std::collections::BTreeSet::new();
+        assert!(
+            room_for(&engine.state, None, &none, &first),
+            "a turn is begun while the model has a place free"
+        );
+        assert!(
+            room_for(&engine.state, None, &none, &other),
+            "a chat of another model loads its own model when nothing is answered"
+        );
+        let mut busy = std::collections::BTreeSet::new();
+        busy.insert(first.clone());
+        assert!(
+            room_for(&engine.state, Some(&one_id), &busy, &second),
+            "the second place of the model stands open"
+        );
+        assert!(
+            !room_for(&engine.state, Some(&one_id), &busy, &other),
+            "a chat of another model waits for the chats of the run"
+        );
+        assert!(
+            !room_for(&engine.state, None, &busy, &second),
+            "a chat waits while the model of the first chat is still loading"
+        );
+        busy.insert(second.clone());
+        assert!(
+            !room_for(&engine.state, Some(&one_id), &busy, &third),
+            "no place of the model is left"
+        );
+    }
+
+    // A chat is opened, and a new one made, while an answer is being written in
+    // another chat: the model answers several chats at once, so the program never
+    // tells the user to wait. The answer that is on its way keeps its own state,
+    // and the mark of it stays on its chat alone.
+    #[test]
+    fn a_chat_is_opened_and_a_new_one_made_while_an_answer_comes_in() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let busy_chat = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let id = state.open_id();
+            // The chat is at work, and no turn of another chat may take the mark
+            // of it away.
+            state.live_mut(&id).generating = true;
+            id
+        };
+        engine.new_chat();
+        let snap = engine.snapshot();
+        assert!(snap.home, "the first screen stands, an answer or no answer");
+        assert!(
+            !snap.generating,
+            "the first screen is not the chat that is at work"
+        );
+        assert_eq!(
+            snap.working,
+            vec![busy_chat.clone()],
+            "the chat at work is still named as at work"
+        );
+        engine.open_chat(busy_chat.clone());
+        let back = engine.snapshot();
+        assert_eq!(back.chat_id, busy_chat, "the chat of the answer is open again");
+        assert!(back.generating, "the answer of that chat is still going on");
+        assert!(
+            !back.status.contains("Wait"),
+            "the program does not tell the user to wait: {}",
+            back.status
+        );
+    }
+
+    // The settings of a model are kept while an answer is on its way, and the
+    // words the user is given say when they take hold. The settings are never
+    // thrown away because an answer was going on, and the words never tell the
+    // user to wait for it.
+    #[test]
+    fn changed_model_settings_are_kept_and_hold_on_a_new_turn() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let (id, chat) = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let chat = state.open_id();
+            let id = state.current_model_id();
+            state.live_mut(&chat).generating = true;
+            (id, chat)
+        };
+        let held = "The changed model settings will take effect on a new turn";
+        let (mut settings, _) = engine.model_settings(&id);
+        settings.parallel = 3;
+        engine.save_model_settings(id.clone(), settings);
+        let (kept, _) = engine.model_settings(&id);
+        assert_eq!(kept.parallel, 3, "the setting of the model was kept");
+        let said = engine.snapshot().status;
+        assert_eq!(said, held, "the words say when the change takes hold");
+        // The same change with the chat at rest needs no words of its own: the
+        // setting takes hold at once, and the line of state says nothing of a new
+        // turn.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.live_mut(&chat).generating = false;
+            state.set_status("ready");
+        }
+        let (mut again, _) = engine.model_settings(&id);
+        again.parallel = 4;
+        engine.save_model_settings(id.clone(), again);
+        let (kept, _) = engine.model_settings(&id);
+        assert_eq!(kept.parallel, 4, "the setting was kept with the chat at rest");
+        assert_ne!(
+            engine.snapshot().status,
+            held,
+            "nothing waits for a new turn when no answer is on its way"
+        );
+    }
+
+    // Stopping the answer of one chat stops that chat alone. Another chat that is
+    // answered at the same time, and the call of a tool it is running, go on as
+    // they were, for the stop belongs to the chat the user pressed it in.
+    #[test]
+    fn stopping_one_chat_leaves_the_answer_of_another_going_on() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let (first, second, first_watch, second_watch) = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let first = state.open_id();
+            state.start_chat();
+            let second = state.open_id();
+            let first_watch = crate::util::Watch::new(Duration::from_secs(600));
+            let second_watch = crate::util::Watch::new(Duration::from_secs(600));
+            state.begin_running_in(&first, "block-first", &first_watch);
+            state.begin_running_in(&second, "block-second", &second_watch);
+            (
+                first,
+                second,
+                first_watch,
+                second_watch,
+            )
+        };
+        engine.cancel_chat(&first);
+        assert!(first_watch.stopped(), "the call of the chat that was stopped");
+        assert!(
+            !second_watch.stopped(),
+            "the call of the other chat goes on as it was"
+        );
+        {
+            let state = engine.state.lock().unwrap();
+            let stopped = state
+                .live_of(&first)
+                .and_then(|one| one.running.as_ref())
+                .map(|one| one.watch.stopped());
+            let going = state
+                .live_of(&second)
+                .and_then(|one| one.running.as_ref())
+                .map(|one| one.watch.stopped());
+            assert_eq!(stopped, Some(true), "the stopped chat carries its own mark");
+            assert_eq!(going, Some(false), "the other chat stands in its call as it was");
+        }
     }
 }

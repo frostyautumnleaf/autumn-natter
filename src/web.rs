@@ -373,6 +373,11 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "cut": cut_ratio(snap),
         },
         "generating": snap.generating,
+        // The chats that are being answered, by their id. More than one chat may
+        // be answered at once when the model was started with room for that many
+        // answers, so the side bar wears a mark on every row that is at work and
+        // not on the open chat alone.
+        "working": snap.working,
         "busy": snap.busy,
         "code": snap.code_enabled,
         // The lines of the drop-down of the badge of the tools. The badge itself
