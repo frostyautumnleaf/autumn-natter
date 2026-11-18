@@ -1503,6 +1503,10 @@ pub struct Snap {
     // The line above the chat box while no chat is open.
     pub greeting: String,
     pub messages: Vec<Message>,
+    // The id of the answer the page may offer to go on with, empty when there is
+    // none. The page puts the continue mark on this message alone, so the offer and
+    // the rules that decide it are held in one place in the engine.
+    pub continue_id: String,
     // The chapters of the open chat, in the order the model marked them.
     pub chapters: Vec<Chapter>,
     // The summarisations of the open chat, oldest first, for the heading of the
@@ -1733,6 +1737,16 @@ fn ends_open(history: &Value) -> bool {
     }
 }
 
+// The newest saying of the talk: the last message that is something the user or
+// the model said. The marks of a chapter, of a note, of a summarisation and of a
+// tool run stand among the words and are no sayings of their own.
+fn newest_saying(chat: &Chat) -> Option<&Message> {
+    chat.messages
+        .iter()
+        .rev()
+        .find(|one| one.role == "You" || one.role == "Assistant")
+}
+
 // Take the mark of an answer that never came to its end off every message of
 // the talk. The mark stands on one answer at most, and that answer is the newest
 // one the user stopped.
@@ -1911,6 +1925,53 @@ impl State {
         }
         if any {
             self.touch();
+        }
+    }
+
+    // The answer the page may offer to go on with, as the id of its message: the
+    // newest saying of the model in the chat that stands open, with words at its end
+    // for the model to write on from, and the chat at rest.
+    //
+    // It matters nothing whether the user stopped that answer, or the model stopped
+    // it of its own accord - a mark at the end of the talk where the user was
+    // waiting for the rest of the work. Only the user knows whether an answer ended
+    // where it should have, so the offer stands under the newest answer either way.
+    fn goable_answer(&self) -> Option<String> {
+        if self.generating || self.busy {
+            return None;
+        }
+        let chat = self.chat()?;
+        let newest = newest_saying(chat)?;
+        if newest.role != "Assistant" || newest.body.trim().is_empty() {
+            return None;
+        }
+        Some(newest.id.clone())
+    }
+
+    // Whether the message named is the answer the chat may be gone on with, and what
+    // to say when it is not. The state of the model and of the summarisation are
+    // asked about where those are known: this is the rule of the talk alone, so it
+    // can be looked at without a model standing anywhere.
+    fn answer_to_go_on_with(&self, id: &str) -> Result<(), &'static str> {
+        let Some(chat) = self.chat() else {
+            return Err("That message is not in this chat");
+        };
+        let Some(one) = chat.messages.iter().find(|one| one.id == id) else {
+            return Err("That message is not in this chat");
+        };
+        if one.role != "Assistant" {
+            return Err("Only an answer of the model can be gone on with");
+        }
+        // Nothing to write on from. The words of such an answer are the words of the
+        // asking, and those are written again, not gone on with.
+        if one.body.trim().is_empty() {
+            return Err("That answer has no words to go on from. Write the message again to ask once more");
+        }
+        match newest_saying(chat) {
+            Some(newest) if newest.id == one.id => Ok(()),
+            _ => Err(
+                "Only the newest answer can be gone on with. To have an older answer written anew, write the answer again",
+            ),
         }
     }
 
@@ -3874,6 +3935,8 @@ impl State {
                         .collect()
                 })
                 .unwrap_or_default(),
+            // The answer the page may offer to go on with, if there is one.
+            continue_id: self.goable_answer().unwrap_or_default(),
             chapters: chat.map(chapter_marks).unwrap_or_default(),
             handoffs: chat
                 .map(|one| handoff_marks(one, self.generating))
@@ -5432,12 +5495,15 @@ impl Engine {
         let _ = self.jobs.send(Job::Retry);
     }
 
-    // Go on with an answer the user stopped. Only an answer of the model that
-    // carries the mark of the stop may be gone on with, and only when nothing is
-    // coming and no handoff summary is owed. The ask is the talk as it stands:
-    // the words of the stopped answer are the last message of the model, so the
-    // template puts them under the mark that opens an answer of a model and leaves
-    // that mark open, and the model writes on from the last word it had put down.
+    // Go on with an answer of the model: the newest saying of the model in the open
+    // chat. Whether the user stopped that answer or the model ended it early - on an
+    // end-of-sequence token, or on the token limit - makes no difference: only the
+    // user knows whether an answer stopped where it should have, and the talk as it
+    // stands is the ask either way. The words of the answer are the last message of
+    // the model, so the template puts them under the assistant marker and leaves
+    // that marker open, and the model writes on from the last word it put down.
+    // The new words join the answer they were gone on from, so the user reads one
+    // answer and not two.
     pub fn continue_message(&self, id: String) {
         let Ok(mut state) = self.state.lock() else { return };
         if state.generating {
@@ -5450,19 +5516,10 @@ impl Engine {
             );
             return;
         }
-        let (role, stopped) = {
-            let Some(chat) = state.chat() else {
-                state.set_status("That message is not in this chat");
-                return;
-            };
-            let Some(index) = chat.messages.iter().position(|one| one.id == id) else {
-                state.set_status("That message is not in this chat");
-                return;
-            };
-            (chat.messages[index].role.clone(), chat.messages[index].stopped)
-        };
-        if role != "Assistant" || !stopped {
-            state.set_status("Only an answer you stopped can be gone on with");
+        // The rules of the talk are checked in one place, so the offer the page is
+        // given and the ask that follows it cannot drift apart.
+        if let Err(problem) = state.answer_to_go_on_with(&id) {
+            state.set_status(problem);
             return;
         }
         // The words to go on from must still be at the end of the talk. The room
@@ -5976,6 +6033,7 @@ impl Snap {
             home: true,
             greeting: String::new(),
             messages: Vec::new(),
+            continue_id: String::new(),
             chapters: Vec::new(),
             handoffs: Vec::new(),
             chat_compaction: crate::config::COMPACTION_HANDOFF.to_string(),
@@ -15998,15 +16056,19 @@ mod tests {
         assert_eq!(state.status, "An answer is still being generated");
     }
 
-    // Only an answer the user stopped may be gone on with. An answer that came
-    // to its end of its own, and a message of the user, are both refused with the
-    // words that say so. The answer that carries the mark of the stop passes those
-    // guards, and the talk that ends on it is open: the only thing left in the way
-    // is the model, which no test has.
+    // The answer the continue mark applies to is the newest saying of the model in
+    // the open chat, whether the user stopped it or the model ended it early. An
+    // answer that stopped on an end-of-sequence token carries no stop mark, so a
+    // rule that asked for that mark could never offer to continue it - which is the
+    // fault this fixes. An older answer and a message of the user are refused, each
+    // with its own reason. The newest answer passes every guard the talk holds, so
+    // the only thing left in the way is the model, which no test has.
     #[test]
-    fn only_an_answer_the_user_stopped_may_be_gone_on_with() {
+    fn the_newest_answer_is_the_one_that_may_be_gone_on_with() {
         let _guard = config::test_turn();
         let engine = engine_with(four_messages());
+        // An older answer is refused: the ask is the talk as it stands, and the
+        // words of an older answer do not stand at its end.
         engine.continue_message(String::from("b"));
         // The lock is let go of before the next call, for the calls above take it
         // themselves.
@@ -16016,8 +16078,8 @@ mod tests {
                 .lock()
                 .unwrap()
                 .status
-                .contains("Only an answer you stopped"),
-            "an answer that was never stopped was taken"
+                .contains("Only the newest answer"),
+            "an answer older than the newest was taken"
         );
         engine.continue_message(String::from("c"));
         assert!(
@@ -16026,26 +16088,158 @@ mod tests {
                 .lock()
                 .unwrap()
                 .status
-                .contains("Only an answer you stopped"),
+                .contains("Only an answer of the model"),
             "a message of the user was taken"
         );
-        // The answer under the mark of the stop is known as one that may be gone on
-        // with, and its words stand at the end of the talk: the ask is refused for
-        // want of a model, and not for want of the mark.
+        engine.continue_message(String::from("not-a-message"));
+        assert!(
+            engine
+                .state
+                .lock()
+                .unwrap()
+                .status
+                .contains("not in this chat"),
+            "a message of another chat was taken"
+        );
+        // The newest answer passes the rules of the talk, so it is refused for want
+        // of a model and for nothing else.
         engine.continue_message(String::from("d"));
         let status = engine.state.lock().unwrap().status.clone();
         assert!(
             status.contains("Choose a model"),
-            "the answer with the mark of the stop was refused for the wrong reason: {}",
+            "the newest answer was refused for the wrong reason: {}",
             status
         );
         let state = engine.state.lock().unwrap();
         assert!(!state.generating, "an answer began with no model to ask");
     }
 
-    // The words to go on from must stand at the end of the talk. A talk that ends
-    // on a call, or on a message of the user, is not open, and nothing is asked
-    // of the model there.
+    // An answer that ended on its own end-of-sequence token, with no stop mark on
+    // it, is offered for continuing just the same, and its words stand at the end
+    // of the talk so the ask is open.
+    #[test]
+    fn an_answer_that_ended_on_its_own_token_may_be_gone_on_with() {
+        let _guard = config::test_turn();
+        let mut messages = four_messages();
+        // The stop mark is taken off: this answer stopped of its own accord.
+        messages.last_mut().expect("an answer stands").stopped = false;
+        let engine = engine_with(messages);
+        engine.continue_message(String::from("d"));
+        let status = engine.state.lock().unwrap().status.clone();
+        assert!(
+            status.contains("Choose a model"),
+            "an answer the model ended early was refused for the wrong reason: {}",
+            status
+        );
+    }
+
+    // The offer the page is given is the same answer the ask accepts: the snapshot
+    // names it, and nothing is offered while an answer is coming in, while the
+    // model is loading, when the newest saying is a message of the user, or when
+    // the newest answer has no words of its own.
+    #[test]
+    fn the_snapshot_names_the_answer_it_offers_to_go_on_with() {
+        let _guard = config::test_turn();
+        let engine = engine_with(four_messages());
+        assert_eq!(
+            engine.snapshot().continue_id,
+            "d",
+            "the newest answer is the one the page is told of"
+        );
+        // A chat that ends on a message of the user has no answer to go on with.
+        engine.continue_message(String::from("d"));
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.push_message("You", "and what came of it?", "", 0, false);
+        }
+        assert!(
+            engine.snapshot().continue_id.is_empty(),
+            "a talk ending on a question was offered"
+        );
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.push_message("Assistant", "", "the thought, and nothing said", 0, false);
+        }
+        assert!(
+            engine.snapshot().continue_id.is_empty(),
+            "an answer with no words was offered"
+        );
+        // While an answer is coming in the mark stands nowhere, for the answer has
+        // no end yet and the words of it are not the chat's.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.push_message("Assistant", "the rest of it", "", 0, false);
+            state.generating = true;
+        }
+        assert!(
+            engine.snapshot().continue_id.is_empty(),
+            "the mark stood while an answer was coming in"
+        );
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.generating = false;
+            state.busy = true;
+        }
+        assert!(
+            engine.snapshot().continue_id.is_empty(),
+            "the mark stood while the model was loading"
+        );
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.busy = false;
+        }
+        assert_eq!(
+            engine.snapshot().continue_id,
+            engine
+                .state
+                .lock()
+                .unwrap()
+                .chat()
+                .expect("the chat stands open")
+                .messages
+                .last()
+                .expect("an answer stands")
+                .id,
+            "the offer went back to the answer the chat ends on"
+        );
+    }
+
+    // A talk that ends on a call or on a question is not open, so there is nothing
+    // for a model to write on from. The marks of a chapter and of a summarisation
+    // are no sayings, so a talk that ends on one of them has the newest saying of
+    // the model before them for it to go on with.
+    #[test]
+    fn a_mark_of_a_chapter_leaves_the_answer_behind_it_goable() {
+        let _guard = config::test_turn();
+        let mut messages = four_messages();
+        messages.push(Message {
+            id: String::from("e"),
+            role: String::from("Chapter"),
+            body: String::from("a chapter the model marked"),
+            ..Default::default()
+        });
+        let engine = engine_with(messages);
+        assert_eq!(
+            engine.snapshot().continue_id,
+            "d",
+            "a chapter mark hid the answer it stands behind"
+        );
+        assert!(
+            newest_saying(
+                engine
+                    .state
+                    .lock()
+                    .unwrap()
+                    .chat()
+                    .expect("the chat stands open")
+            )
+            .map(|one| one.id == "d")
+                == Some(true),
+            "the newest saying was not the answer"
+        );
+    }
+
+    // The rules of the talk, looked at on their own.
     #[test]
     fn an_answer_is_gone_on_from_only_when_the_talk_ends_open() {
         let open = json!([

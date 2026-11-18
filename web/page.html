@@ -7917,8 +7917,9 @@ function actLine(m) {
 // the answer again cuts the talk back to this message and asks the model again
 // from there. Take it away removes the message and everything after it: a message
 // of the user takes the answer it provoked along, and a message of the model
-// leaves the question behind. Go on with it stands only under an answer the
-// user stopped while the model was still writing.
+// leaves the question behind. Go on with it stands under the newest answer of the
+// model while the chat is at rest, whether the user stopped that answer or the
+// model ended it early.
 function actsOf(m) {
   var acts = make('div', 'acts');
   if (m.role === 'You' || m.role === 'Assistant') {
@@ -7934,9 +7935,9 @@ function actsOf(m) {
       'Remove this message and everything after it. Files hung on those messages are removed with them.',
       function () { deleteMessage(m); }));
   }
-  if (m.role === 'Assistant' && m.stopped) {
+  if (m.can_continue) {
     acts.appendChild(actMark(ACT_CONTINUE,
-      'Go on with this answer, from the word the model had reached.',
+      'Go on with this answer, from the last word the model wrote.',
       function () { continueMessage(m); }));
   }
   return acts;
@@ -8585,9 +8586,9 @@ function roleStamp(m) {
     // the row that carries the end is made again when a list of steps comes in.
     m.steps && m.steps.steps ? 'steps' + m.steps.steps.length : '',
     m.cancelled ? 'cut' : '',
-    // The line under a message carries the mark of going on with it, so the row
-    // is made again when the state says an answer was stopped.
-    m.stopped ? 'stopped' : '',
+    // The line under a message carries the mark of going on with an answer, so
+    // the row is made again when the state starts or stops offering one.
+    m.can_continue ? 'goable' : '',
     // The one block of the corporate display stands with the answer, so the row
     // is made again when the short of the work comes in or grows.
     workStamp(m)].join('#');

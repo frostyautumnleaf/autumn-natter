@@ -127,9 +127,13 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // stopped rather than the running of it failed.
                 "cancelled": m.cancelled,
                 // An answer of the model that never came to an end of its own,
-                // because the user stopped it. The page puts the mark of going on
-                // with it under that answer alone.
+                // because the user stopped it.
                 "stopped": m.stopped,
+                // True on the one answer of the model that the page may offer to go
+                // on with: the newest saying of the model, while the chat is at
+                // rest. The answer may have been stopped by the user, or ended by
+                // the model itself on an end-of-sequence token or the token limit.
+                "can_continue": m.id == snap.continue_id,
                 // The files a run of the download tool offered to the user. The
                 // page draws a block for each of them at the end of the answer
                 // that made the offer, and only once the model has stopped.
