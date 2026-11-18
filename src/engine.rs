@@ -73,6 +73,14 @@ struct QueueItem {
     id: u64,
     text: String,
     files: Vec<attach::Incoming>,
+    // The words a programmed message waits for, as the user wrote them. Empty for
+    // a message that is only waiting its turn. A programmed message goes out when
+    // an answer of the chat holds these words, whatever the rest of the list is
+    // doing - and ahead of it, because the user said when it was to go.
+    matches: String,
+    // True when an answer of the chat held the words above. A message that has
+    // found its words keeps them: a later answer cannot take the finding back.
+    ready: bool,
 }
 
 // The waiting list of one chat. The list belongs to the chat and to the program,
@@ -85,6 +93,10 @@ struct WaitingList {
     chat: String,
     // The next message to go out stands at the front.
     items: Vec<QueueItem>,
+    // The programmed messages, in the order they were written. They stand apart
+    // from the messages above: they go out when an answer holds the words they
+    // wait for, and not when their turn comes round.
+    planned: Vec<QueueItem>,
     seq: u64,
     // When the last message of this list went out. Two of them must not go out
     // on top of one another: the chat has to say it is writing again first.
@@ -103,6 +115,11 @@ pub struct QueuedRow {
     pub id: u64,
     pub text: String,
     pub files: Vec<String>,
+    // The words this message waits for, empty for a message that is only waiting
+    // its turn. The words are given back as the user wrote them, so the row can
+    // say what it is waiting for.
+    #[serde(default)]
+    pub matches: String,
 }
 
 // The waiting list of the chat that stands open, as a page is given it. Nothing
@@ -113,6 +130,9 @@ pub struct WaitingSnap {
     pub chat: String,
     // The next message to go out stands at the front, as it does in the program.
     pub items: Vec<QueuedRow>,
+    // The programmed messages, which the page draws in a section of their own
+    // under the same head.
+    pub planned: Vec<QueuedRow>,
     // True when the list is held back because a message of it could not be sent.
     // The reason stands in the status line of the window.
     pub held: bool,
@@ -1756,30 +1776,31 @@ impl State {
         self.queues.last_mut()
     }
 
-    // The waiting list as a page is given it. Nothing when no chat stands open,
-    // or when its list is empty, so a page takes the rows away with the last of
-    // them instead of drawing a list of nothing.
+    // The waiting list of the chat that stands open, as a page is given it. Nothing
+    // when no chat stands open, or when its list is empty, so a page takes the rows
+    // away with the last of them instead of drawing a list of nothing. The
+    // programmed messages ride along in their own list, for the page draws them in a
+    // section of their own.
     fn queue_snap(&self) -> Option<WaitingSnap> {
         let one = self.open_queue()?;
-        if one.items.is_empty() {
+        if one.items.is_empty() && one.planned.is_empty() {
             return None;
         }
+        let row = |item: &QueueItem| QueuedRow {
+            id: item.id,
+            text: item.text.clone(),
+            files: item
+                .files
+                .iter()
+                .map(|file| file.name.clone())
+                .collect(),
+            matches: item.matches.clone(),
+        };
         Some(WaitingSnap {
             chat: one.chat.clone(),
             held: one.held,
-            items: one
-                .items
-                .iter()
-                .map(|item| QueuedRow {
-                    id: item.id,
-                    text: item.text.clone(),
-                    files: item
-                        .files
-                        .iter()
-                        .map(|file| file.name.clone())
-                        .collect(),
-                })
-                .collect(),
+            items: one.items.iter().map(row).collect(),
+            planned: one.planned.iter().map(row).collect(),
         })
     }
 
@@ -1787,11 +1808,20 @@ impl State {
     // chat that stands open has a list, is idle, and has spent the rest a
     // message needs after the one before it. The rest is what lets the chat say
     // that it is writing again before the next message asks for an answer.
+    //
+    // A list of programmed messages that have not found their words is nothing to
+    // send, and the worker is not kept awake for them: they are looked at again
+    // when an answer of the chat comes to an end.
     fn queue_ready(&self) -> bool {
         let Some(list) = self.open_queue() else {
             return false;
         };
-        if list.held || list.items.is_empty() || self.generating || self.busy {
+        if list.held || self.generating || self.busy {
+            return false;
+        }
+        let next = !list.items.is_empty()
+            || list.planned.iter().any(|one| one.ready);
+        if !next {
             return false;
         }
         match list.sent_at {
@@ -1801,24 +1831,36 @@ impl State {
     }
 
     // The message the worker would send next out of the waiting list of the chat
-    // that stands open, without taking it out. Nothing comes back when the chat
-    // is at work, or held back, or the rest of a moment is not spent yet, so the
-    // caller may ask again later.
-    fn queue_peek(&self) -> Option<SentMessage> {
+    // that stands open, with the number of its row, without taking it out. A
+    // programmed message that has found the words it waited for goes before every
+    // message that is only waiting its turn; the row at the front of the list goes
+    // otherwise. Nothing comes back when the chat is at work, or held back, or the
+    // rest of a moment is not spent yet, so the caller may ask again later.
+    fn queue_next(&self) -> Option<(u64, SentMessage)> {
         if !self.queue_ready() {
             return None;
-        }
-        let first = self.open_queue()?.items.first()?;
-        Some(SentMessage {
-            text: first.text.clone(),
-            files: first.files.clone(),
-        })
+        };
+        let list = self.open_queue()?;
+        let one = list
+            .planned
+            .iter()
+            .find(|one| one.ready)
+            .or_else(|| list.items.first())?;
+        Some((
+            one.id,
+            SentMessage {
+                text: one.text.clone(),
+                files: one.files.clone(),
+            },
+        ))
     }
 
-    // Take the message the worker is sending out of the waiting list of the chat
-    // that stands open. A list that has come to an end is taken away, so a chat
-    // looked at again does not find an empty list standing for it.
-    fn queue_pop(&mut self) {
+    // Take one message out of the waiting list of the chat that stands open, by the
+    // number the worker sent it by: the programmed messages and the messages that
+    // were only waiting their turn are both looked through. A list that has come to
+    // an end is taken away, so a chat looked at again does not find an empty list
+    // standing for it.
+    fn queue_take(&mut self, id: u64) {
         let Some(at) = self
             .queues
             .iter()
@@ -1827,15 +1869,18 @@ impl State {
             return;
         };
         let list = &mut self.queues[at];
-        if list.items.is_empty() {
+        if let Some(found) = list.planned.iter().position(|one| one.id == id) {
+            list.planned.remove(found);
+        } else if let Some(found) = list.items.iter().position(|one| one.id == id) {
+            list.items.remove(found);
+        } else {
             return;
         }
-        list.items.remove(0);
         list.sent_at = Some(std::time::Instant::now());
         // The rest a message needs is counted from now, and the list starts
         // again on its own once it is spent.
         list.held = false;
-        if list.items.is_empty() {
+        if list.items.is_empty() && list.planned.is_empty() {
             self.queues.remove(at);
         }
         self.touch();
@@ -1874,6 +1919,61 @@ impl State {
     // would be kept for nothing.
     fn queue_drop(&mut self, chat: &str) {
         self.queues.retain(|one| one.chat != chat);
+    }
+
+    // The words the model wrote last in the chat that stands open: the answer that
+    // ends the talk, which is what a programmed message is looked at against.
+    // Nothing when the chat has no answer of its own to end on.
+    //
+    // Only the words of this asking count. A chat that has been asked twice looks
+    // at what came after the last message of the user, so an answer of an older
+    // asking never lets out a message written for the answer that has not come yet.
+    fn last_answer(&self) -> Option<String> {
+        let chat = self.chat()?;
+        let from = chat
+            .messages
+            .iter()
+            .rposition(|one| one.role == "You")
+            .map(|at| at + 1)
+            .unwrap_or(0);
+        chat.messages[from..]
+            .iter()
+            .rev()
+            .find(|one| one.role == "Assistant" && !one.body.trim().is_empty())
+            .map(|one| one.body.clone())
+    }
+
+    // Say that an answer of the chat that stands open came to an end. The
+    // programmed messages of its waiting list are looked at against those words:
+    // the ones whose words the answer holds are let out of the list, ahead of every
+    // message that is only waiting its turn. The words are matched without regard
+    // to the bigness of the letters, which is what a user writing a few words in
+    // the middle of an answer expects.
+    fn answer_programmed(&mut self, body: &str) {
+        let answer = body.to_lowercase();
+        if answer.trim().is_empty() {
+            return;
+        }
+        let found = {
+            let Some(list) = self.open_queue_mut() else {
+                return;
+            };
+            let mut found = false;
+            for one in list.planned.iter_mut() {
+                let needle = one.matches.trim().to_lowercase();
+                if one.ready || needle.is_empty() {
+                    continue;
+                }
+                if answer.contains(needle.as_str()) {
+                    one.ready = true;
+                    found = true;
+                }
+            }
+            found
+        };
+        if found {
+            self.touch();
+        }
     }
 
     // Say that the server knows nothing of any talk any more. The talks of the
@@ -4064,6 +4164,18 @@ impl Engine {
             state.set_status("An answer is still being generated");
             return None;
         }
+        // A programmed message is a message of the waiting list and not of the chat:
+        // the words it waits for are written in the chat box, in a field of their
+        // own, and the page puts the message in the list instead of sending it. A
+        // message that came here with the word of the command in front of it was
+        // written out by hand, and nothing in the words can say what it was to wait
+        // for.
+        if planning::asked_as_program(&text) {
+            state.set_status(
+                "Choose /program in the chat box, write the words to look for in the field above the message, and it goes into the waiting list",
+            );
+            return None;
+        }
         // A message sent from the first screen opens a chat of this place. The
         // window grows the chat box into a chat at the same time.
         if state.current.is_none() {
@@ -4132,10 +4244,55 @@ impl Engine {
         };
         list.seq += 1;
         let id = list.seq;
-        list.items.push(QueueItem { id, text, files });
+        list.items.push(QueueItem {
+            id,
+            text,
+            files,
+            matches: String::new(),
+            ready: false,
+        });
         // A word written into the list now says that what stood in the way of the
         // messages is dealt with, so a list that was held back goes on again.
         list.held = false;
+        state.touch();
+        Ok(())
+    }
+
+    // Put a programmed message at the end of the waiting list of the chat that
+    // stands open. The words it waits for say when the message goes out: an answer
+    // of the chat that holds them lets the message out ahead of the messages that
+    // were only put in the list, and an answer that does not hold them leaves the
+    // message standing for the next one. The message is never sent from here, and
+    // never sent because the chat is idle - only because the words were found.
+    pub fn queue_plan(
+        &self,
+        text: String,
+        files: Vec<attach::Incoming>,
+        matches: String,
+    ) -> Result<(), String> {
+        if matches.trim().is_empty() {
+            return Err(String::from("Say what to look for in the answer"));
+        }
+        if text.trim().is_empty() && files.is_empty() {
+            return Err(String::from("Nothing was written"));
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return Err(String::from("The program is busy"));
+        };
+        let Some(list) = state.open_queue_mut() else {
+            return Err(String::from("Start a chat first"));
+        };
+        list.seq += 1;
+        let id = list.seq;
+        list.planned.push(QueueItem {
+            id,
+            text,
+            files,
+            // The spaces at either end are taken off, so the row says the words as
+            // they were meant and not as they happened to be written.
+            matches: matches.trim().to_string(),
+            ready: false,
+        });
         state.touch();
         Ok(())
     }
@@ -4151,14 +4308,22 @@ impl Engine {
             let Some(list) = state.open_queue_mut() else {
                 return false;
             };
-            let Some(at) = list.items.iter().position(|one| one.id == id) else {
+            // The programmed messages are taken out the same way as the messages
+            // that are only waiting their turn: a row is a row to the hand.
+            if let Some(at) = list.planned.iter().position(|one| one.id == id) {
+                list.planned.remove(at);
+            } else if let Some(at) = list.items.iter().position(|one| one.id == id) {
+                list.items.remove(at);
+            } else {
                 return false;
-            };
-            list.items.remove(at);
+            }
             // Touching the list says that what stood in the way of the messages
             // is dealt with, so a list that was held back goes on again.
             list.held = false;
-            Some((list.chat.clone(), list.items.is_empty()))
+            Some((
+                list.chat.clone(),
+                list.items.is_empty() && list.planned.is_empty(),
+            ))
         };
         let Some((chat, empty)) = taken else {
             return false;
@@ -4173,7 +4338,9 @@ impl Engine {
     }
 
     // Write the words of one message of the waiting list again, in the row itself.
-    // The files of the message are left as they hang.
+    // The files of the message are left as they hang, and so is the word a
+    // programmed message waits for: what the message waits for is written again by
+    // taking the message out and putting it in the list afresh.
     pub fn queue_edit(&self, id: u64, text: String) -> bool {
         let words = text.trim().to_string();
         if words.is_empty() {
@@ -4185,7 +4352,12 @@ impl Engine {
         let Some(list) = state.open_queue_mut() else {
             return false;
         };
-        let Some(one) = list.items.iter_mut().find(|one| one.id == id) else {
+        let Some(one) = list
+            .items
+            .iter_mut()
+            .chain(list.planned.iter_mut())
+            .find(|one| one.id == id)
+        else {
             return false;
         };
         one.text = words;
@@ -4197,6 +4369,9 @@ impl Engine {
     // Put one message of the waiting list at another place in it. The place is
     // counted in the order the messages go out in, where 0 is the next to go - the
     // other way about from the rows, which are written newest first.
+    //
+    // A programmed message has no place to be put: the answer it waits for says
+    // when it goes, and the words it waits for say the order it goes in.
     pub fn queue_move(&self, id: u64, index: usize) -> bool {
         let Ok(mut state) = self.state.lock() else {
             return false;
@@ -4204,6 +4379,9 @@ impl Engine {
         let Some(list) = state.open_queue_mut() else {
             return false;
         };
+        if list.planned.iter().any(|one| one.id == id) {
+            return false;
+        }
         let Some(from) = list.items.iter().position(|one| one.id == id) else {
             return false;
         };
@@ -5884,6 +6062,11 @@ fn run_send(
         // same way as the first.
         released = take_plan_release(state);
     }
+    // The programmed messages of this chat are looked at against the answer that
+    // has just come to an end. A message whose words the model has just written
+    // goes out with the next turn of the chat, ahead of the messages that were only
+    // put in the list.
+    note_answer(state);
 }
 
 // The next message of the waiting list of the chat that stands open, ready to be
@@ -5896,8 +6079,8 @@ fn run_send(
 // with it. The reason for it stands on the status line from the attempt, and the
 // program does not ask again every moment: touching the list starts it again.
 fn queue_step(state: &Arc<Mutex<State>>) -> Option<SentMessage> {
-    let next = state.lock().ok()?.queue_peek();
-    let queued = next?;
+    let (id, next) = state.lock().ok()?.queue_next()?;
+    let queued = next;
     let ready = match state.lock() {
         Ok(mut guard) => Engine::prepare_message(&mut guard, queued.text, queued.files),
         Err(_) => return None,
@@ -5905,7 +6088,7 @@ fn queue_step(state: &Arc<Mutex<State>>) -> Option<SentMessage> {
     match ready {
         Some(sent) => {
             if let Ok(mut guard) = state.lock() {
-                guard.queue_pop();
+                guard.queue_take(id);
             }
             Some(sent)
         }
@@ -5915,6 +6098,22 @@ fn queue_step(state: &Arc<Mutex<State>>) -> Option<SentMessage> {
             }
             None
         }
+    }
+}
+
+// Say that an answer came to an end, so the programmed messages of the chat that
+// stands open are looked at against the words the model wrote. A chat with
+// nothing waiting, or with no answer to look at, is left alone: the asking of the
+// waiting list is not set going here, for the worker asks after it as soon as the
+// chat is idle.
+fn note_answer(state: &Arc<Mutex<State>>) {
+    let answer = match state.lock() {
+        Ok(guard) => guard.last_answer(),
+        Err(_) => return,
+    };
+    let Some(body) = answer else { return };
+    if let Ok(mut guard) = state.lock() {
+        guard.answer_programmed(&body);
     }
 }
 
@@ -6002,6 +6201,10 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                     goings_on += 1;
                     turn = Turn::Continue;
                 }
+                // The talk was cut back and answered again, so the answer that
+                // stands at the end of it is a new one: the programmed messages of
+                // the chat look at it, as they look at any other.
+                note_answer(&state);
             }
             Job::Resume(id) => {
                 // The words the user stopped stand at the end of the talk, so the
@@ -6011,6 +6214,9 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
                 // is after every other answer.
                 run_turn(&state, &mut server, &cancel, Turn::Resume(id));
                 let _ = maybe_compact(&state, &mut server, &cancel, Weigh::Talk);
+                // The words that came after the stopping are the answer of the
+                // chat, so they are what a programmed message looks at.
+                note_answer(&state);
             }
             Job::McpLook(id) => {
                 // One server of the user's own is asked what it has to offer.
@@ -16194,7 +16400,7 @@ mod tests {
         {
             let guard = state.lock().unwrap();
             assert!(!guard.queue_ready(), "a writing chat is not idle");
-            assert!(guard.queue_peek().is_none());
+            assert!(guard.queue_next().is_none());
         }
         assert!(queue_step(&state).is_none(), "nothing goes out while the chat writes");
         // The answer is over. The message is next, but no model stands chosen, so
@@ -16204,7 +16410,10 @@ mod tests {
             let guard = state.lock().unwrap();
             assert!(guard.queue_ready(), "an idle chat may go on with the list");
             assert_eq!(
-                guard.queue_peek().expect("a message waits its turn").text,
+                guard
+                    .queue_next()
+                    .map(|(_, sent)| sent.text)
+                    .expect("a message waits its turn"),
                 "queued"
             );
         }
@@ -16225,6 +16434,100 @@ mod tests {
         let guard = state.lock().unwrap();
         assert!(!guard.open_queue().expect("the list stands").held);
         assert!(guard.queue_ready());
+    }
+
+    // A programmed message goes out when an answer of the chat holds the words it
+    // waits for, and it goes out ahead of the messages that were only put in the
+    // list. An answer that came to an end before the message was written is not
+    // looked at, for the message was written for the answer that has not come yet.
+    #[test]
+    fn a_programmed_message_goes_when_the_answer_holds_its_words() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        {
+            let mut guard = state.lock().unwrap();
+            guard.start_chat();
+        }
+        assert!(engine
+            .queue_plan(String::from("say it again"), Vec::new(), String::from("  "))
+            .is_err());
+        assert!(engine.snapshot().queue.is_none(), "a refused ask adds nothing");
+        engine
+            .queue_add(String::from("only waiting"), Vec::new())
+            .expect("a plain message stands");
+        engine
+            .queue_plan(
+                String::from("say it again"),
+                Vec::new(),
+                String::from("  All DONE  "),
+            )
+            .expect("a programmed message stands");
+        let list = engine.snapshot().queue.expect("the chat has a list");
+        assert_eq!(list.items.len(), 1);
+        assert_eq!(list.planned.len(), 1, "the programmed rows stand apart");
+        assert_eq!(
+            list.planned[0].matches,
+            "All DONE",
+            "the word is kept as written, with the spaces off either end"
+        );
+        // An answer of an older asking is no reason to let the message out. The
+        // words of this asking are the ones looked at, and there are none yet.
+        {
+            let guard = state.lock().unwrap();
+            assert!(guard.last_answer().is_none(), "the chat has answered nothing");
+            assert_eq!(
+                guard
+                    .queue_next()
+                    .map(|(_, sent)| sent.text)
+                    .expect("a message waits its turn"),
+                "only waiting"
+            );
+        }
+        // An answer that does not hold the words leaves the message standing.
+        {
+            let mut guard = state.lock().unwrap();
+            add_message(&mut guard, "You", "is it finished?");
+            add_message(&mut guard, "Assistant", "Not yet.");
+            assert_eq!(guard.last_answer().as_deref(), Some("Not yet."));
+            guard.answer_programmed("Not yet.");
+        }
+        let still = engine.snapshot().queue.expect("the list stands");
+        assert_eq!(still.planned.len(), 1);
+        // An answer that does hold them lets it out, ahead of the message that was
+        // only waiting. The bigness of the letters is left out of the matching.
+        let planned = still.planned[0].id;
+        {
+            let mut guard = state.lock().unwrap();
+            guard.answer_programmed("The work is ALL DONE now.");
+            let (id, sent) = guard.queue_next().expect("the programmed message is next");
+            assert_eq!(id, planned);
+            assert_eq!(sent.text, "say it again");
+        }
+        // A row of a programmed message is written again and taken out like any
+        // other row, but it has no place to be put: the words say when it goes.
+        assert!(engine.queue_edit(planned, String::from("say it once more")));
+        assert!(!engine.queue_move(planned, 0));
+        assert!(engine.queue_move(still.items[0].id, 0), "a plain row moves");
+        // The message that found its words goes out, and the plain message is left
+        // where it was.
+        state.lock().unwrap().queue_take(planned);
+        let after = engine.snapshot().queue.expect("the plain message is left");
+        assert!(after.planned.is_empty(), "the programmed row went out");
+        assert_eq!(after.items.len(), 1);
+        assert_eq!(after.items[0].text, "only waiting");
+        // A message whose words were never found goes with the chat, as the rest
+        // of the list does.
+        engine
+            .queue_plan(String::from("never"), Vec::new(), String::from("purple"))
+            .expect("a second programmed message stands");
+        let chat = engine.snapshot().chat_id;
+        engine.remove_chat(chat);
+        assert!(
+            engine.snapshot().queue.is_none(),
+            "the chat took its programmed messages with it"
+        );
     }
 
     // The tasks suite: the six tools stand behind the line of the badge, off at

@@ -560,6 +560,29 @@ pub fn system_prompt(plan: &str) -> String {
     out
 }
 
+// The commands of the chat box stand here, and this is where the next one is put.
+// The second of them does not change what the model is told: it puts a message in
+// the waiting list of the chat, to go out when an answer holds the words the user
+// named. Its words are kept with the words of the waiting list, in the engine.
+pub const PROGRAM_WORD: &str = "/program";
+pub const PROGRAM_WORDS: &str = "Write a message that goes out when an answer holds the words you name. The chat box changes shape: the words to look for go in a field of their own, and the message in the box. The message goes out ahead of the messages that were only queued, and only when an answer says those words.";
+
+// A message that was sent with the word of the programmed message before it. The
+// words it waits for are given in the chat box and not among the words of the
+// message, so a message that came this way was written out by hand and cannot be
+// answered from the words alone.
+pub fn asked_as_program(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    let Some(rest) = trimmed.strip_prefix(PROGRAM_WORD) else {
+        return false;
+    };
+    // `/programme` is no command: the word has to stand on its own.
+    match rest.chars().next() {
+        None => true,
+        Some(next) => next.is_whitespace(),
+    }
+}
+
 // The command a message begins with, and the words left when it is taken away.
 // Only the first word of a message is a command, and only when it begins with the
 // mark of one. A message that is only the command comes back with nothing after
@@ -600,10 +623,16 @@ impl Command {
 // The words of the command list, for the state: the word of the command and what
 // it is for.
 pub fn list() -> Vec<Value> {
-    vec![json!({
-        "name": Command::Plan.word(),
-        "words": Command::Plan.words(),
-    })]
+    vec![
+        json!({
+            "name": Command::Plan.word(),
+            "words": Command::Plan.words(),
+        }),
+        json!({
+            "name": PROGRAM_WORD,
+            "words": PROGRAM_WORDS,
+        }),
+    ]
 }
 
 // Change the plan file of a chat. The plan is read whole, every change is matched
@@ -1676,5 +1705,17 @@ mod tests {
                 .join(",")
         );
         assert!(questions_of(&too_many).is_err());
+    }
+
+    // The word of the programmed message stands on its own, as the word of the plan
+    // does: a longer word that begins the same way is no command, and neither is the
+    // word in the middle of a sentence.
+    #[test]
+    fn the_word_of_the_programmed_message_stands_on_its_own() {
+        assert!(asked_as_program("/program"));
+        assert!(asked_as_program("  /program say it again"));
+        assert!(!asked_as_program("/programme the work"));
+        assert!(!asked_as_program("/plan"));
+        assert!(!asked_as_program("read /program to me"));
     }
 }

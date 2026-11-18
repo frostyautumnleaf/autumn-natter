@@ -1429,6 +1429,25 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   display: flex; flex-direction: column; gap: 4px;
   max-height: 244px; overflow-y: auto; scrollbar-width: thin;
 }
+/* The list holds two kinds of message, and when both are in it each stands in a
+   section of its own under a word that says what the section is: the programmed
+   messages first, because an answer that holds their words sends them ahead of the
+   rest, and the messages that are only waiting their turn under them. */
+.qsec {
+  display: flex; align-items: center; gap: 6px; padding: 4px 2px 0 2px;
+  color: var(--faint); font-family: var(--ui); font-size: 9.5px;
+  letter-spacing: .14em; text-transform: uppercase;
+}
+/* A programmed row says what it waits for, and is marked apart from the rows that
+   are only waiting their turn. It has no mark to take hold of, because its place is
+   said by the words it waits for and not by the hand. */
+.qrow.planned {
+  border-left: 3px solid var(--accent); background: var(--accent-soft);
+}
+.qwait {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--accent); font-size: 11.5px;
+}
 /* A row is one message: the mark to take hold of, the first words of it, and
    the two marks of the hand at the side. */
 .qrow {
@@ -1549,6 +1568,13 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .commands li.on, .commands li:hover { background: var(--hover); }
 .commands .cmd { font-weight: 600; color: var(--accent); }
 .commands .cdesc { color: var(--dim); font-size: 11.5px; }
+/* The word that says what the keys of the list do. It stands under the rows and is
+   not a row: it is never moved to, and it is never picked. */
+.commands li.cmdhint {
+  color: var(--faint); font-size: 10.5px; letter-spacing: .04em; cursor: default;
+  border-top: 1px solid var(--line); margin-top: 3px; padding-top: 5px;
+}
+.commands li.cmdhint:hover { background: none; }
 /* The command of a message, as a block of its own in the chat box. It is not
    words of the message, so it stands on a ground and in a colour of its own. */
 .cmdchip {
@@ -1599,6 +1625,35 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
   overflow-y: auto; scrollbar-width: thin;
 }
 #draft::placeholder { color: var(--faint); }
+/* A programmed message. `/program` changes the chat box: the words an answer has
+   to hold are written in a field of their own over the message, the box wears the
+   dashed fence of planning mode, and the writing place is marked at its left. The
+   writing in a fenced box is not a message that goes out now: it is the message of
+   a rule, and the rule says when it goes. */
+.box.programming { border: 2px dashed var(--accent); }
+#draft.programming { border-left: 2px solid var(--accent-line); }
+.prog {
+  display: flex; flex-direction: column; gap: 5px; margin: 9px 11px 0 11px;
+  padding: 8px 10px; border: 1px solid var(--accent-line);
+  border-left: 3px solid var(--accent); border-radius: var(--r-s);
+  background: var(--accent-soft);
+}
+.prog-say {
+  color: var(--accent); font-family: var(--ui); font-size: 10.5px; font-weight: 650;
+  letter-spacing: .12em; text-transform: uppercase;
+}
+.prog-put { display: flex; }
+#progmatch {
+  flex: 1 1 auto; min-width: 0; padding: 6px 9px; background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: var(--r-s);
+  color: var(--ink); font-family: var(--ui); font-size: 13.5px; outline: none;
+}
+#progmatch:focus, #progmatch:focus-visible {
+  border-color: var(--accent); box-shadow: var(--ring);
+}
+/* The message cannot go while the words it waits for are unwritten. The block is
+   marked, and the hand stays where it was. */
+.prog.miss, #progmatch.miss { border-color: var(--ink-fail); }
 /* The files that hang on a message: held in the chat box before the message
    goes out, and shown under the words of the user after it. A block is a
    chip: the picture or a mark of the file, its whole name with the ending,
@@ -2764,6 +2819,19 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
            its own, so it is read as a command and not as the words of the
            message. A backspace with nothing else written takes it away. -->
       <span class="cmdchip hidden" id="cmdchip"><span class="cword"></span></span>
+      <!-- A programmed message. The word /program puts these two blocks over the
+           words of the message: the first says what the block under it is for, in
+           the words the user reads and nothing else, and the second is the field
+           the words are written in. The message in the box under them goes into the
+           waiting list, and goes out of it when an answer of this chat holds those
+           words - ahead of the messages that were only put in the list. -->
+      <div class="prog hidden" id="prog">
+        <div class="prog-say">Enter the text to match in the final response</div>
+        <div class="prog-put">
+          <input id="progmatch" type="text" spellcheck="false"
+            placeholder="Words an answer must hold for the message to go">
+        </div>
+      </div>
       <div class="parts hidden" id="parts"></div>
       <textarea id="draft" rows="1" spellcheck="false"
         placeholder="Write a message for the model"></textarea>
@@ -3414,7 +3482,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'viewer', 'lookname', 'lookkind', 'lookturn', 'lookprev', 'lookcount', 'looknext',
   'lookraw', 'lookclose', 'lookbody',
   'box', 'dock', 'gauge', 'gaugeNum', 'gaugeText', 'gaugeArc',
-  'planhead', 'planlabel', 'planopen', 'commands', 'cmdchip'];
+  'planhead', 'planlabel', 'planopen', 'commands', 'cmdchip', 'prog', 'progmatch'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
 
@@ -8834,6 +8902,8 @@ function drawCommands(word) {
   for (var n = 0; n < keep.length; n++) {
     var row = make('li', keep[n] === keep[0] ? 'on' : '');
     row.dataset.cmd = keep[n].name;
+    // The row is a choice, and the hand may take it with the keys of the list.
+    row.setAttribute('role', 'option');
     var head = make('span', 'cmd');
     head.textContent = keep[n].name;
     var note = make('span', 'cdesc');
@@ -8842,6 +8912,12 @@ function drawCommands(word) {
     row.appendChild(note);
     el.commands.appendChild(row);
   }
+  // The word that says how a row is picked without the mouse leaving the keys. The
+  // list has answered to Tab for as long as it has stood, and nobody tells the
+  // hand that writes in the box so.
+  var hint = make('li', 'cmdhint');
+  hint.textContent = 'Press Tab to choose the option that stands out, or Enter to write it into the message';
+  el.commands.appendChild(hint);
   el.commands.classList.remove('hidden');
 }
 
@@ -8868,6 +8944,50 @@ var pendingChat = null;
 function drawCommandChip() {
   el.cmdchip.classList.toggle('hidden', !pendingCommand);
   if (pendingCommand) { el.cmdchip.querySelector('.cword').textContent = pendingCommand; }
+  drawProgram();
+}
+
+// Whether the message being written is a programmed one: the command of the chat
+// box is the word for it, and the box then holds the words an answer has to hold
+// as well as the message itself.
+function programming() {
+  return pendingCommand === '/program';
+}
+
+// The chat box of a programmed message: the two blocks over the words, the fence
+// about the box, and the mark at the left of the writing place. The hand is put in
+// the field of the words to look for, because that is the first thing to write.
+function drawProgram() {
+  var on = programming();
+  if (el.prog) {
+    el.prog.classList.toggle('hidden', !on);
+    if (!on) { el.prog.classList.remove('miss'); }
+  }
+  if (el.box) { el.box.classList.toggle('programming', on); }
+  if (el.draft) { el.draft.classList.toggle('programming', on); }
+  if (el.progmatch) {
+    el.progmatch.classList.remove('miss');
+    if (on) { el.progmatch.focus(); }
+  }
+  sendLook();
+}
+
+// The words the answer has to hold, with the spaces off either end. Nothing comes
+// back when the field was left empty, and a message without them is not a rule at
+// all: the program would be left to guess when the message was to go.
+function programMatch() {
+  return el.progmatch ? String(el.progmatch.value || '').trim() : '';
+}
+
+// Say that the words to look for were left out, without moving the hand: the block
+// and the field are marked, and the field keeps the hand.
+function askProgramMatch() {
+  if (el.prog) { el.prog.classList.add('miss'); }
+  if (el.progmatch) {
+    el.progmatch.classList.add('miss');
+    el.progmatch.title = 'Write the words an answer must hold, or the message has nothing to wait for';
+    el.progmatch.focus();
+  }
 }
 
 // A command of the list belongs to the chat it was picked in. Another chat opens,
@@ -8904,7 +9024,7 @@ function pickCommand() {
 // the key from the chat box for that one stroke.
 function commandKeys(e) {
   if (!commandsOpen()) { return false; }
-  var rows = el.commands.querySelectorAll('li');
+  var rows = el.commands.querySelectorAll('li[data-cmd]');
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
     if (rows.length === 0) { return true; }
@@ -11474,11 +11594,13 @@ function sendLook() {
   var live = anythingToSend() || !!cur.generating;
   el.send.classList.toggle('live', live && !cur.generating);
   el.send.title = sendTitle(cur);
-  el.draft.placeholder = cur.generating
-    ? 'The model is writing - press Enter to put this message by for later'
-    : (cur.home || !(cur.messages && cur.messages.length))
-      ? 'Try planning mode by typing /plan before your request'
-      : 'Write a message for the model';
+  el.draft.placeholder = programming()
+    ? 'Write the message to send when an answer holds those words'
+    : cur.generating
+      ? 'The model is writing - press Enter to put this message by for later'
+      : (cur.home || !(cur.messages && cur.messages.length))
+        ? 'Try planning mode by typing /plan before your request'
+        : 'Write a message for the model';
 }
 
 // ---------------------------------------------------------- the waiting list
@@ -11496,6 +11618,11 @@ function sendLook() {
 // messages go out when the answer each of them waited for is over even with no
 // page left to watch the chat.
 var queue = [];
+// The programmed messages of the same list, in the order they were written. They
+// go out when an answer of the chat holds the words they were given, and until then
+// they stand in a section of their own over the messages that are only waiting
+// their turn.
+var queuePlanned = [];
 // True when the program holds the list back, because a message of it could not
 // be sent. The reason stands on the status line.
 var queueHeld = false;
@@ -11518,6 +11645,10 @@ function messageBody(text, files) {
 }
 
 function send() {
+  // A programmed message does not go out now. It goes into the waiting list with
+  // the words it waits for, whether the model is writing or not, because it is the
+  // words and not the chat being idle that say when it goes.
+  if (programming()) { sendProgrammed(); return; }
   var text = el.draft.value.trim();
   if (!text && heldFiles.length === 0 && !pendingCommand) { return; }
   // The command of the block goes in front of the words, as the first word of
@@ -11545,6 +11676,28 @@ function send() {
   // box until the answer it waited for is over.
   startFly(text, where);
   post('/api/send', messageBody(text, files));
+}
+
+// The programmed message goes into the waiting list of the chat, beside the words
+// it waits for. An answer of this chat that holds those words sends it, and it is
+// then sent ahead of the messages that were only put in the list - the user said
+// when it was to go, and that outranks a message that is merely waiting its turn.
+// The box goes back to the shape it had, so the next message is an ordinary one
+// unless the word is written again.
+function sendProgrammed() {
+  var waits = programMatch();
+  if (!waits) { askProgramMatch(); return; }
+  var words = el.draft.value.trim();
+  if (!words && heldFiles.length === 0) { return; }
+  var body = messageBody(words, heldFiles.slice());
+  body.match = waits;
+  post('/api/queue_plan', body);
+  el.draft.value = '';
+  heldFiles = [];
+  drawParts();
+  pendingCommand = '';
+  drawCommandChip();
+  grow();
 }
 
 // Words that did not stand in the box go out the same road as words that did:
@@ -11828,20 +11981,36 @@ function landFly() {
 // them. Nothing is sent from here - the program sends the messages when the chat
 // is idle, and restes a moment between two of them - which is what lets a list
 // keep going after the page that wrote it is gone.
+// The rows of one part of the list, in the shape the rows of the page are made
+// of. The whole of a file is not needed for a row, and the words a programmed
+// message waits for are carried along so that the row can say what it waits for.
+function queueRows(list) {
+  var out = [];
+  if (!list) { return out; }
+  for (var at = 0; at < list.length; at++) {
+    var one = list[at];
+    var names = [];
+    var files = one.files || [];
+    for (var n = 0; n < files.length; n++) { names.push({ name: files[n] }); }
+    out.push({
+      id: one.id, text: one.text || '', files: names,
+      waits: one.matches || '',
+    });
+  }
+  return out;
+}
+
 function syncQueue(s) {
   var items = [];
+  var planned = [];
   var held = false;
-  if (s && s.queue && s.queue.items) {
+  if (s && s.queue) {
     held = !!s.queue.held;
-    for (var at = 0; at < s.queue.items.length; at++) {
-      var one = s.queue.items[at];
-      var names = [];
-      var files = one.files || [];
-      for (var n = 0; n < files.length; n++) { names.push({ name: files[n] }); }
-      items.push({ id: one.id, text: one.text || '', files: names });
-    }
+    items = queueRows(s.queue.items);
+    planned = queueRows(s.queue.planned);
   }
   queue = items;
+  queuePlanned = planned;
   queueHeld = held;
   drawQueue();
 }
@@ -11851,7 +12020,7 @@ function syncQueue(s) {
 // way about from the order the messages go out in.
 function drawQueue() {
   if (!el.queue) { return; }
-  var n = queue.length;
+  var n = queue.length + queuePlanned.length;
   el.queue.classList.toggle('hidden', n === 0);
   el.queue.classList.toggle('open', queueOpen);
   // A list the program is holding back says so on the head, for the chat is not
@@ -11870,11 +12039,35 @@ function drawQueue() {
   queueRoom();
   if (!queueOpen) { return; }
   var vis = queue.slice().reverse();
+  var visPlanned = queuePlanned.slice().reverse();
   el.queuelist.textContent = '';
-  for (var at = 0; at < vis.length; at++) {
-    el.queuelist.appendChild(queueRow(vis[at], at));
+  // The two kinds are only named apart when both are in the list: a list of
+  // messages that are only waiting their turn is what it always was, and a word
+  // over it would say nothing.
+  var named = visPlanned.length > 0 && vis.length > 0;
+  if (visPlanned.length > 0) {
+    el.queuelist.appendChild(queueSection(named
+      ? 'When an answer says these words'
+      : 'Waiting for the words of an answer'));
+    for (var p = 0; p < visPlanned.length; p++) {
+      el.queuelist.appendChild(queueRow(visPlanned[p], -1, true));
+    }
+  }
+  if (vis.length > 0) {
+    if (named) { el.queuelist.appendChild(queueSection('In their turn')); }
+    for (var at = 0; at < vis.length; at++) {
+      el.queuelist.appendChild(queueRow(vis[at], at, false));
+    }
   }
   queueRoom();
+}
+
+// The word over a section of the list.
+function queueSection(words) {
+  var line = document.createElement('div');
+  line.className = 'qsec';
+  line.textContent = words;
+  return line;
 }
 
 // How much room the list takes over the box. The widget of the work in hand
@@ -11957,15 +12150,27 @@ function editQueueRow(row, one) {
 
 // One row: the mark to take hold of, the first words of the message, and the
 // two marks of the hand at the side, for writing it again and taking it out.
-function queueRow(one, at) {
+// One row. `at` is the place of the row among the messages that are only waiting
+// their turn, which is what dragging a row is counted in; -1 says the row is not of
+// that kind and is not to be taken hold of. `planned` is the programmed kind, whose
+// row says what it waits for and wears the mark of the fence.
+function queueRow(one, at, planned) {
   var row = document.createElement('div');
-  row.className = 'qrow';
-  row.draggable = true;
-  var grip = document.createElement('span');
-  grip.className = 'qgrip';
-  grip.title = 'Take hold of this mark and drag the message up or down the list';
-  grip.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 5.5h8M4 10.5h8"/></svg>';
-  row.appendChild(grip);
+  row.className = planned ? 'qrow planned' : 'qrow';
+  row.draggable = !planned;
+  if (planned) {
+    var waits = document.createElement('span');
+    waits.className = 'qwait';
+    waits.textContent = one.waits;
+    waits.title = 'The message goes out when an answer holds these words: ' + one.waits;
+    row.appendChild(waits);
+  } else {
+    var grip = document.createElement('span');
+    grip.className = 'qgrip';
+    grip.title = 'Take hold of this mark and drag the message up or down the list';
+    grip.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 5.5h8M4 10.5h8"/></svg>';
+    row.appendChild(grip);
+  }
   var words = document.createElement('span');
   words.className = 'qtext';
   var shown = queueWords(one);
@@ -11982,7 +12187,9 @@ function queueRow(one, at) {
   marks.className = 'qbtns';
   var again = document.createElement('button');
   again.className = 'qbtn';
-  again.title = 'Write this message again';
+  again.title = planned
+    ? 'Write the words of this programmed message again. The words it waits for are changed by taking the message out and writing it again.'
+    : 'Write this message again';
   again.innerHTML = '<svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 12.6h2.2l6-6-2.2-2.2-6 6v2.2zM10 3.6l2.2 2.2"/></svg>';
   again.addEventListener('click', function (ev) {
     ev.stopPropagation();
@@ -12001,6 +12208,9 @@ function queueRow(one, at) {
   marks.appendChild(again);
   marks.appendChild(out);
   row.appendChild(marks);
+  // A programmed row is not dragged: the words it waits for, and not the hand, say
+  // when it goes.
+  if (planned) { return row; }
   row.addEventListener('dragstart', function (ev) {
     queueDrag = at;
     row.classList.add('dragging');

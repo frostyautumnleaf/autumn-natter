@@ -929,6 +929,21 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
                 Err(problem) => refused(&problem),
             }
         }
+        // A programmed message: the words of the message, and the words it waits
+        // for. The message goes out when an answer of this chat holds them, ahead of
+        // the messages that were only put in the list. The words are matched without
+        // regard to the bigness of the letters.
+        "/api/queue_plan" | "queue_plan" => {
+            let text = text_field(&value, "text");
+            let waits_for = text_field(&value, "match");
+            let files = crate::attach::parse_incoming(
+                value.get("attachments").cloned().unwrap_or(serde_json::Value::Null),
+            );
+            match engine.queue_plan(text, files, waits_for) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            }
+        }
         "/api/queue_remove" | "queue_remove" => {
             let Some(id) = value.get("id").and_then(|one| one.as_u64()) else {
                 return refused("No message was named");
