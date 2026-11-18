@@ -27,7 +27,6 @@ use serde_json::{json, Value};
 use crate::display;
 use crate::download;
 use crate::editfile;
-use crate::rerun;
 use crate::search;
 use crate::steps;
 use crate::suggest;
@@ -200,7 +199,6 @@ fn doing_word(name: &str) -> &'static str {
         display::NAME => "Reading the screen",
         suggest::NAME => "Offering a next step",
         steps::NAME => "Writing the steps",
-        rerun::NAME => "Running a failed call",
         download::NAME => "Offering files",
         viewimage::NAME => "Looking at a picture",
         summarise::NAME => "Summarising the talk",
@@ -220,7 +218,6 @@ fn done_word(name: &str) -> &'static str {
         display::NAME => "Read the screen",
         suggest::NAME => "Offered a next step",
         steps::NAME => "Wrote the steps",
-        rerun::NAME => "Ran a failed call",
         download::NAME => "Offered files",
         viewimage::NAME => "Looked at a picture",
         summarise::NAME => "Summarised the talk",
@@ -241,7 +238,6 @@ fn done_plural(name: &str) -> &'static str {
         display::NAME => "Read the screen",
         suggest::NAME => "Offered next steps",
         steps::NAME => "Wrote the steps",
-        rerun::NAME => "Ran failed calls",
         download::NAME => "Offered files",
         viewimage::NAME => "Looked at pictures",
         summarise::NAME => "Summarised the talk",
@@ -260,7 +256,6 @@ fn doing_plural(name: &str) -> &'static str {
         display::NAME => "Reading the screen",
         suggest::NAME => "Offering next steps",
         steps::NAME => "Writing the steps",
-        rerun::NAME => "Running failed calls",
         download::NAME => "Offering files",
         viewimage::NAME => "Looking at pictures",
         summarise::NAME => "Summarising the talk",
@@ -290,7 +285,6 @@ fn known(name: &str) -> bool {
             | display::NAME
             | suggest::NAME
             | steps::NAME
-            | rerun::NAME
             | download::NAME
             | viewimage::NAME
             | summarise::NAME

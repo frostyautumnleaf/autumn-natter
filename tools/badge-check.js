@@ -19,7 +19,7 @@ const USE_FETCH = process.env.AN_FETCH === '1';
 function stateOf(tools, all) {
   const held = {};
   ['commands', 'files', 'picture', 'hand_out', 'display', 'ask', 'suggest', 'steps',
-   'rerun', 'infographics', 'tasks'].forEach(function (part) {
+   'infographics', 'tasks'].forEach(function (part) {
     held[part] = tools;
   });
   return {
@@ -166,7 +166,7 @@ async function main() {
   // next road and the making of an infographic. The six tools of the tasks of a
   // work directory are a group of their own, and stand last.
   const named = ['Terminal commands', 'File management', 'View images', 'Offer files',
-    'Show files', 'Ask questions', 'Suggest next steps', 'Show steps', 'Rerun failed calls',
+    'Show files', 'Ask questions', 'Suggest next steps', 'Show steps',
     'Create infographics', 'Tasks suite'];
   if (lines.join('|') !== named.join('|')) {
     throw new Error('the menu of the tools is not named for what it lets through: ' + lines);

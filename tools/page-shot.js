@@ -575,7 +575,7 @@ function scene(name, dark, theme) {
     // run. AN_TASKS=1 puts the line of the tasks suite on as well.
     tool_switches: {
       commands: true, files: true, picture: true, hand_out: true, display: true,
-      ask: true, suggest: true, steps: true, rerun: true, infographics: false,
+      ask: true, suggest: true, steps: true, infographics: false,
       summarise: true, tasks: process.env.AN_TASKS === '1'
     },
     generating: false, busy: false, code: false, search: false, sandbox: false,

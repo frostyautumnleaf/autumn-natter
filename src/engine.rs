@@ -31,7 +31,6 @@ use crate::migrate;
 use crate::proglog;
 use crate::corporate;
 use crate::planning;
-use crate::rerun;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
 use crate::steps;
@@ -451,13 +450,6 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             steps::live_body(raw),
             String::new(),
             steps::partial_words(raw),
-        ),
-        // A call to run another call again is named by the tool it names. The
-        // body holds the changes as they are written.
-        rerun::NAME => (
-            tools::live_arguments(raw),
-            String::new(),
-            rerun::partial_words(raw),
         ),
         // A look about the web is named by the words to look for, or by the
         // address that is being read.
@@ -2864,10 +2856,9 @@ impl State {
     // `gifts_till` for the offer of a turn.
     fn finish_gifts(&mut self, id: &str, output: &str, ok: bool, gifts: Vec<download::Gift>) {
         let text = self.with_stopped_head(output);
-        let hint = self.rerun_hint(id, ok);
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
-                message.tool = format!("{}{}", text, hint);
+                message.tool = text.clone();
                 message.failed = !ok;
                 message.downloads = gifts;
             }
@@ -2882,10 +2873,9 @@ impl State {
     // same files again when the chat is opened another day.
     fn finish_displayed(&mut self, id: &str, output: &str, ok: bool, displayed: Vec<display::Shown>) {
         let text = self.with_stopped_head(output);
-        let hint = self.rerun_hint(id, ok);
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
-                message.tool = format!("{}{}", text, hint);
+                message.tool = text.clone();
                 message.failed = !ok;
                 message.displayed = displayed;
             }
@@ -2908,12 +2898,11 @@ impl State {
         asks: Vec<crate::suggest::Suggestion>,
     ) {
         let text = self.with_stopped_head(output);
-        let hint = self.rerun_hint(id, ok);
         let standing = !asks.is_empty();
         if let Some(chat) = self.chat_mut() {
             for message in chat.messages.iter_mut() {
                 if message.id == id {
-                    message.tool = format!("{}{}", text, hint);
+                    message.tool = text.clone();
                     message.failed = !ok;
                     message.suggestions = asks.clone();
                 } else if standing && !message.suggestions.is_empty() {
@@ -2924,56 +2913,6 @@ impl State {
         self.running = None;
         self.persist();
         self.touch();
-    }
-
-    // The call a rerun is asked for, read off the chat: the tool it called, the
-    // parameters the model wrote, and the words the tool gave back. A call that
-    // never ran, because the room gave out under it or the user stopped the
-    // writing of it, is not given out: its parameters may be unfinished. Neither
-    // is a call of the rerunning tool, for that would run a rerun again.
-    fn failed_call(&self, id: &str, tool: &str) -> Option<(String, String, String)> {
-        let chat = self.chat()?;
-        let wanted = id.trim();
-        let kind = tool.trim();
-        for message in chat.messages.iter().rev() {
-            if message.role != "Tool" || !message.failed || message.cancelled || message.user_stopped {
-                continue;
-            }
-            if message.tool_name == rerun::NAME || message.tool_args.trim().is_empty() {
-                continue;
-            }
-            if !wanted.is_empty() {
-                if message.call_id == wanted || message.id == wanted {
-                    return Some((
-                        message.tool_name.clone(),
-                        message.tool_args.clone(),
-                        message.tool.clone(),
-                    ));
-                }
-                continue;
-            }
-            if !kind.is_empty() && message.tool_name != kind {
-                continue;
-            }
-            return Some((
-                message.tool_name.clone(),
-                message.tool_args.clone(),
-                message.tool.clone(),
-            ));
-        }
-        None
-    }
-
-    // The words a run gave back, and whether it failed, looked up by the id of
-    // the call. The tool that runs a call again reads the answer of the call it
-    // set going, for that answer stands in a block of its own above this one.
-    fn answer_of(&self, call_id: &str) -> Option<(String, bool)> {
-        let chat = self.chat()?;
-        chat.messages
-            .iter()
-            .rev()
-            .find(|one| one.call_id == call_id)
-            .map(|one| (one.tool.clone(), one.failed))
     }
 
     // The same, with the steps of the work one run of the steps tool showed. The
@@ -2989,13 +2928,12 @@ impl State {
         plan: Option<crate::steps::Plan>,
     ) {
         let text = self.with_stopped_head(output);
-        let hint = self.rerun_hint(id, ok);
         let standing = plan.is_some();
         if let Some(chat) = self.chat_mut() {
             let mut reached = false;
             for message in chat.messages.iter_mut() {
                 if message.id == id {
-                    message.tool = format!("{}{}", text, hint);
+                    message.tool = text.clone();
                     message.failed = !ok;
                     message.steps = plan.clone();
                     reached = true;
@@ -3022,10 +2960,9 @@ impl State {
         pictures: Vec<Attachment>,
     ) {
         let text = self.with_stopped_head(output);
-        let hint = self.rerun_hint(id, ok);
         if let Some(chat) = self.chat_mut() {
             if let Some(message) = chat.messages.iter_mut().find(|m| m.id == id) {
-                message.tool = format!("{}{}", text, hint);
+                message.tool = text.clone();
                 message.failed = !ok;
                 message.attachments = pictures;
             }
@@ -3092,34 +3029,6 @@ impl State {
             Some(head) if output.trim().is_empty() => head,
             Some(head) => format!("{}\n{}", head, output),
         }
-    }
-
-    // The line that tells the model it may run a failed call again with one
-    // parameter changed. It stands at the end of the receipt of a call that was
-    // put under a clock and came back failing. A call refused before it ran,
-    // because a line of the badge was off or a limit was spent, gets nothing:
-    // there is no parameter of such a call to mend.
-    fn rerun_hint(&self, id: &str, ok: bool) -> &'static str {
-        if ok {
-            return "";
-        }
-        match self.running.as_ref() {
-            Some(one) if one.id == id => {}
-            _ => return "",
-        }
-        let name = self
-            .chat()
-            .and_then(|chat| {
-                chat.messages
-                    .iter()
-                    .find(|one| one.id == id)
-                    .map(|one| one.tool_name.clone())
-            })
-            .unwrap_or_default();
-        if name.is_empty() || name == rerun::NAME {
-            return "";
-        }
-        rerun::HINT
     }
 
     // Write down a tool call that the room gave out under. The call stands in the
@@ -9630,7 +9539,6 @@ fn group_of(name: &str) -> Option<&'static str> {
         askuser::NAME => Some("ask"),
         suggest::NAME => Some("suggest"),
         steps::NAME => Some("steps"),
-        rerun::NAME => Some("rerun"),
         summarise::NAME => Some("summarise"),
         name if infographic::is_tool(name) => Some("infographics"),
         name if tasks::is_tool(name) => Some("tasks"),
@@ -9791,11 +9699,6 @@ fn offered(
         // other tool of the program, and behind the line of its own.
         if switches.steps {
             list.push(steps::definition());
-        }
-        // Running a failed call again stands behind the badge like every other
-        // tool of the program, and behind the line of its own.
-        if switches.rerun {
-            list.push(rerun::definition());
         }
         // The five tools of the infographic suite stand or fall as one line of
         // the badge: a script without a renderer draws nothing.
@@ -9964,7 +9867,6 @@ fn run_program_tool(
         askuser::NAME => "Asking the user",
         suggest::NAME => "Offering a next step",
         steps::NAME => "Writing the steps of the work",
-        rerun::NAME => "Running a failed call again",
         planning::INIT_NAME => "Writing the plan",
         planning::EDIT_NAME => "Changing the plan",
         planning::READ_NAME => "Reading the plan",
@@ -10260,99 +10162,6 @@ fn run_program_tool(
         let made = steps::show(&call.arguments);
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_steps(&message_id, &made.report.output, made.report.ok, made.plan);
-        return;
-    }
-    // A call of another tool, run again with changed parameters. The call that
-    // failed is read off the chat, the changes are made to the one parameter each
-    // one names, and the call then goes down the same road it went down the first
-    // time. The tool answers for itself in a block of its own, and this block
-    // says what was changed and what came back.
-    if call.name == rerun::NAME {
-        let asked = match rerun::asking(&call.arguments) {
-            Ok(one) => one,
-            Err(why) => {
-                let Ok(mut guard) = state.lock() else { return };
-                guard.finish_tool(&message_id, &why, false);
-                return;
-            }
-        };
-        let held = {
-            let Ok(guard) = state.lock() else { return };
-            guard.failed_call(&asked.call, &asked.tool)
-        };
-        let (name, before, _) = match held {
-            Some(one) => one,
-            None => {
-                let note = if asked.tool.is_empty() && asked.call.is_empty() {
-                    "No failed call of this chat was found to run again. Name the tool in tool, or the id of the call in call."
-                } else {
-                    "No failed call was found under that name in this chat. The call may have been run again already, or its id may be wrong."
-                };
-                let Ok(mut guard) = state.lock() else { return };
-                guard.finish_tool(&message_id, note, false);
-                return;
-            }
-        };
-        // The badge of the tools is the door over every tool of the program, and a
-        // rerun opens it no more than a fresh call does.
-        if !tool_allowed(state, &name) {
-            let note = format!(
-                "{} are switched off for this chat, so the call was not run again",
-                tool_group_word(group_of(&name).unwrap_or("tools"))
-            );
-            let Ok(mut guard) = state.lock() else { return };
-            guard.finish_tool(&message_id, &note, false);
-            return;
-        }
-        let made = match rerun::apply(&before, &asked.edits) {
-            Ok(one) => one,
-            Err(why) => {
-                let Ok(mut guard) = state.lock() else { return };
-                guard.finish_tool(&message_id, &why, false);
-                return;
-            }
-        };
-        let again = ToolCall {
-            id: store::new_id(),
-            name: name.clone(),
-            arguments: made,
-        };
-        let (sandbox_on, access) = {
-            let Ok(guard) = state.lock() else { return };
-            let on = guard
-                .chat()
-                .map(|one| one.meta.sandbox_enabled)
-                .unwrap_or(false);
-            (on, guard.access_of_open())
-        };
-        if name == tools::TOOL_NAME {
-            run_command(&again, "", 0, state, workdir, sandbox_on, access);
-        } else {
-            run_program_tool(&again, "", 0, state, workdir, cancel);
-        }
-        // The answer of the call that ran again stands in its own block above
-        // this one. The block of the rerun fails when that call failed, so the
-        // model is told once, in the same words, whether the work was done.
-        let (said, failed) = {
-            let Ok(guard) = state.lock() else { return };
-            guard.answer_of(&again.id).unwrap_or_else(|| {
-                (
-                    "The call ran again and gave nothing back.".to_string(),
-                    true,
-                )
-            })
-        };
-        let changed = asked.edits.len();
-        let words = format!(
-            "Ran {} again, with {} {} changed ({}). It answered: {}",
-            name,
-            changed,
-            if changed == 1 { "parameter" } else { "parameters" },
-            rerun::shown(&before, &asked.edits),
-            first_line(&said)
-        );
-        let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool(&message_id, &words, !failed);
         return;
     }
     // An infographic. The five tools of the suite work on one file of words in
@@ -12376,7 +12185,6 @@ mod tests {
             infographic::CHECK_NAME,
             infographic::RENDER_NAME,
             corporate::NAME,
-            rerun::NAME,
             tasks::CREATE_NAME,
             tasks::VIEW_ALL_NAME,
             tasks::VIEW_ONE_NAME,
@@ -12399,164 +12207,6 @@ mod tests {
                 made[0].target
             );
         }
-    }
-
-    // A call that failed is run again with one parameter changed. The model does
-    // not write the whole call out again: the tool reads the parameters of the
-    // call that failed off the chat, changes the one parameter each change names,
-    // and sends the call down the same road it went the first time. The tool
-    // answers in a block of its own, and the block of the rerun says what was
-    // changed and what came back.
-    #[test]
-    fn a_failed_call_is_run_again_with_one_parameter_changed() {
-        let _guard = config::test_turn();
-        setup();
-        let engine = Engine::start(Config::default());
-        let workdir = {
-            let mut state = engine.state.lock().unwrap();
-            state.start_chat();
-            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
-            std::fs::create_dir_all(&room).unwrap();
-            std::fs::write(room.join("notes.txt"), "the first line\n").unwrap();
-            room
-        };
-        let idle = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        // The first call asks for text the file does not hold, so it fails. Its
-        // receipt tells the model the call may be run again with a change.
-        let first = ToolCall {
-            id: String::from("call-first"),
-            name: String::from(editfile::EDIT_NAME),
-            arguments: String::from(
-                "{\"path\":\"notes.txt\",\"edits\":[{\"old_string\":\"the first lien\",\"new_string\":\"the third line\"}]}",
-            ),
-        };
-        run_program_tool(&first, "", 0, &engine.state, &workdir, &idle);
-        let snap = engine.snapshot();
-        let run = snap
-            .messages
-            .iter()
-            .rev()
-            .find(|one| one.tool_name == editfile::EDIT_NAME)
-            .expect("the chat holds the call");
-        assert!(run.failed, "{}", run.tool);
-        assert!(
-            run.tool.contains(rerun::NAME),
-            "the receipt names the way to run the call again: {}",
-            run.tool
-        );
-        std::mem::drop(snap);
-        // The rerun names only the parameter that was wrong. The name of the file
-        // and the new text of the change stand as they stood.
-        let again = ToolCall {
-            id: String::from("call-again"),
-            name: String::from(rerun::NAME),
-            arguments: String::from(
-                "{\"tool\":\"edit_file\",\"edits\":[{\"parameter\":\"edits.0.old_string\",\"new_string\":\"the first line\"}]}",
-            ),
-        };
-        run_program_tool(&again, "", 0, &engine.state, &workdir, &idle);
-        let made =
-            std::fs::read_to_string(workdir.join("notes.txt")).expect("the file stands in the room");
-        assert_eq!(made, "the third line\n", "the change went in as meant");
-        let snap = engine.snapshot();
-        let runs: Vec<&Message> = snap
-            .messages
-            .iter()
-            .filter(|one| one.tool_name == editfile::EDIT_NAME)
-            .collect();
-        assert_eq!(runs.len(), 2, "the rerun made a block of its own");
-        assert!(runs[0].failed, "the first call still stands as a failure");
-        assert!(!runs[1].failed, "{}", runs[1].tool);
-        let said = snap
-            .messages
-            .iter()
-            .find(|one| one.tool_name == rerun::NAME)
-            .expect("the chat holds the rerun");
-        assert!(!said.failed, "{}", said.tool);
-        assert!(said.tool.contains(editfile::EDIT_NAME), "{}", said.tool);
-        assert!(said.tool.contains("edits.0.old_string"), "{}", said.tool);
-        assert!(
-            !said.tool.contains(rerun::NAME),
-            "the receipt of a rerun does not ask for another: {}",
-            said.tool
-        );
-        // A tool that never failed in this chat has nothing to run again, and the
-        // model is told so instead of having a call made up for it.
-        std::mem::drop(snap);
-        let strange = ToolCall {
-            id: String::from("call-strange"),
-            name: String::from(rerun::NAME),
-            arguments: String::from(
-                "{\"tool\":\"web_search\",\"edits\":[{\"parameter\":\"query\",\"new_string\":\"cats\"}]}",
-            ),
-        };
-        run_program_tool(&strange, "", 0, &engine.state, &workdir, &idle);
-        let last = engine.snapshot();
-        let said = last
-            .messages
-            .iter()
-            .rev()
-            .find(|one| one.tool_name == rerun::NAME)
-            .expect("the chat holds the second call");
-        assert!(said.failed, "{}", said.tool);
-        assert!(said.tool.contains("No failed call"), "{}", said.tool);
-        let _ = std::fs::remove_dir_all(&workdir);
-    }
-
-    // A command that failed is run again too. The command does not go through a
-    // tool of the program but through the terminal, so the rerun has to put it
-    // down that road instead.
-    #[test]
-    fn a_failed_command_is_run_again_in_the_terminal() {
-        let _guard = config::test_turn();
-        setup();
-        let engine = Engine::start(Config::default());
-        let workdir = {
-            let mut state = engine.state.lock().unwrap();
-            state.start_chat();
-            let room = state.workdir_for(state.chat().expect("a blank chat stands open"));
-            std::fs::create_dir_all(&room).unwrap();
-            std::fs::write(room.join("notes.txt"), "hello\n").unwrap();
-            room
-        };
-        // The command runs loose here: the jail is on for a new chat, and this
-        // test is about the call going down the terminal road again, not about
-        // what the jail lets through.
-        engine.set_sandbox(false);
-        let idle = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let first = ToolCall {
-            id: String::from("call-read"),
-            name: String::from(tools::TOOL_NAME),
-            arguments: String::from("{\"command\":\"cat note.txt\"}"),
-        };
-        run_command(&first, "", 0, &engine.state, &workdir, false, tools::Access::default());
-        let snap = engine.snapshot();
-        let run = snap
-            .messages
-            .iter()
-            .rev()
-            .find(|one| one.tool_name == tools::TOOL_NAME)
-            .expect("the chat holds the command");
-        assert!(run.failed, "{}", run.tool);
-        std::mem::drop(snap);
-        let again = ToolCall {
-            id: String::from("call-read-again"),
-            name: String::from(rerun::NAME),
-            arguments: String::from(
-                "{\"tool\":\"run_terminal\",\"edits\":[{\"parameter\":\"command\",\"old_string\":\"note.txt\",\"new_string\":\"notes.txt\"}]}",
-            ),
-        };
-        run_program_tool(&again, "", 0, &engine.state, &workdir, &idle);
-        let snap = engine.snapshot();
-        let said = snap
-            .messages
-            .iter()
-            .rev()
-            .find(|one| one.tool_name == rerun::NAME)
-            .expect("the chat holds the rerun");
-        assert!(!said.failed, "{}", said.tool);
-        assert!(said.tool.contains("hello"), "the answer of the command comes back with the rerun: {}", said.tool);
-        let _ = std::fs::remove_dir_all(&workdir);
     }
 
     // The offer of the next steps hangs on the run that made it, and the state
@@ -16054,6 +15704,100 @@ mod tests {
         assert_eq!(left, vec!["a", "b", "c", "d"], "the talk moved while an answer was generated");
         assert_eq!(chat.messages[3].body, "the second answer", "an answer was written over while one was generated");
         assert_eq!(state.status, "An answer is still being generated");
+    }
+
+    // The tool that ran a failed call again is gone, and with it the line that told
+    // the model about it. Nothing named `rerun_tool` is offered in any combination
+    // of the badge, it belongs to no line of the badge's drop-down, and the receipt
+    // of a failed call says what came back and nothing else.
+    #[test]
+    fn a_failed_call_is_given_no_way_to_be_run_again() {
+        let _guard = config::test_turn();
+        let engine = engine_with(vec![
+            Message {
+                id: String::from("a"),
+                role: String::from("You"),
+                body: String::from("the question"),
+                ..Default::default()
+            },
+            Message {
+                id: String::from("b"),
+                role: String::from("Tool"),
+                tool_name: String::from(tools::TOOL_NAME),
+                tool: String::from("running ..."),
+                tool_args: String::from("{}"),
+                failed: true,
+                ..Default::default()
+            },
+        ]);
+        // The receipt keeps the words the tool gave back, with nothing added under
+        // them about running the call again with a parameter changed.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.finish_tool("b", "the command failed: no such file", false);
+        }
+        {
+            let state = engine.state.lock().unwrap();
+            let chat = state.chat().expect("the chat stands open");
+            let one = chat
+                .messages
+                .iter()
+                .find(|one| one.id == "b")
+                .expect("the run stands in the chat");
+            assert_eq!(
+                one.tool,
+                "the command failed: no such file",
+                "the receipt of a failed call carries more than what came back"
+            );
+            assert!(one.failed, "the run is still known as a failed one");
+        }
+        // No line of the badge offers it, whatever the switches say, and the badge
+        // holds no switch over it either.
+        let mut switches = store::ToolSwitches::default();
+        switches.tasks = true;
+        switches.infographics = true;
+        let names = offered(
+            false,
+            true,
+            false,
+            tools::Access::default(),
+            &[],
+            &switches,
+            true,
+        )
+        .map(|list| {
+            list.as_array()
+                .unwrap()
+                .iter()
+                .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+        assert!(
+            !names.iter().any(|one| one == "rerun_tool"),
+            "the tool that ran a failed call again is still offered: {}",
+            names.join(", ")
+        );
+        assert!(
+            names.iter().any(|one| one == tools::TOOL_NAME),
+            "the list of tools the chat is given is empty, so this test proves nothing"
+        );
+        assert!(
+            group_of("rerun_tool").is_none(),
+            "the badge still holds a switch over the tool that ran a failed call again"
+        );
+        // The switch of the tool is gone from the list of the drop-down as well, so
+        // a page has nothing left to send for it.
+        let parts: Vec<&str> = switches
+            .words()
+            .into_iter()
+            .map(|(part, _)| part)
+            .collect();
+        assert!(
+            !parts.iter().any(|one| *one == "rerun"),
+            "the drop-down of the badge still holds a line for it: {}",
+            parts.join(", ")
+        );
     }
 
     // The answer the continue mark applies to is the newest saying of the model in
