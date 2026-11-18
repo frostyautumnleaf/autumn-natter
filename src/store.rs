@@ -220,6 +220,11 @@ pub fn repo_dir_name(raw: &str, id: &str) -> String {
     }
 }
 
+// The corner of the folder of the repositories that a repository is moved into
+// when it is taken away. It is not a repository, and the listing of the folder
+// goes past it - see `scan_repos` and `retire_dir`.
+pub const REMOVED: &str = "removed";
+
 // Parse a directory name back to the id part.
 fn id_from_dir_name(name: &str) -> Option<String> {
     let tail = name.rsplit('_').next()?;
@@ -958,16 +963,21 @@ impl Store {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().to_string();
-            let Some(id) = id_from_dir_name(&name).or_else(|| repo_id_of(&path)) else {
+            // The corner of what was taken away is not a repository, whatever it
+            // is named, and the directories standing inside it are one level too
+            // deep to be seen from here.
+            if name == REMOVED {
                 continue;
-            };
-            let mut repo = held.get(&id).cloned().unwrap_or_default();
-            if repo.id.is_empty() {
-                repo.id = id;
-                repo.name = human_name(&name);
             }
-            repo.path = path;
-            out.push(repo);
+            if let Some(id) = id_from_dir_name(&name).or_else(|| repo_id_of(&path)) {
+                let mut repo = held.get(&id).cloned().unwrap_or_default();
+                if repo.id.is_empty() {
+                    repo.id = id;
+                    repo.name = human_name(&name);
+                }
+                repo.path = path;
+                out.push(repo);
+            }
         }
         out.sort_by_key(|r| std::cmp::Reverse(r.last_used));
         out
@@ -1192,6 +1202,59 @@ impl Store {
         // talk it was written for is gone, and a row of plans that no chat names
         // is words kept for nothing.
         crate::planning::drop_plan(id);
+    }
+
+    // Take the record of a repository out of the database. The chats of the
+    // repository are taken away one by one before this is asked, for a record of
+    // a repository gone while its chats stand leaves those chats under a place
+    // that reads back as nothing.
+    pub fn drop_repo(&self, id: &str) -> Result<(), String> {
+        if id.is_empty() {
+            return Err("There is no repository to take away".to_string());
+        }
+        let database = self.database()?;
+        database.write(|conn| {
+            conn.execute("DELETE FROM repos WHERE id = ?1", params![id])
+                .map_err(db::fault)?;
+            Ok(())
+        })
+    }
+
+    // Move the directory of a repository out of the folder of the repositories,
+    // into `removed/`, and say where it came to stand.
+    //
+    // The list of the side bar is the listing of that folder, so a repository is
+    // only gone from the list when its directory is gone from the folder. A
+    // directory of a repository is the user's own work, though, and nothing of
+    // this program is entitled to destroy it: it is moved aside instead, under a
+    // name that keeps the name of the directory and adds the second it went
+    // under, so it can be found again and moved back by hand. The id inside the
+    // name goes on naming it, should it ever come back, and the chats of the
+    // repository are gone from the program either way - which is what the naming
+    // of the repository in the confirmation is for.
+    pub fn retire_dir(&self, id: &str) -> Result<PathBuf, String> {
+        let Some(path) = self.repo_path(id) else {
+            return Err("That repository is not there".to_string());
+        };
+        let corner = self.repos_dir.join(REMOVED);
+        fs::create_dir_all(&corner)
+            .map_err(|why| format!("the corner of what is taken away cannot be made: {}", why))?;
+        let name = path
+            .file_name()
+            .map(|one| one.to_string_lossy().to_string())
+            .unwrap_or_else(|| "repository".to_string());
+        let hour = now_secs();
+        let mut stood = corner.join(format!("{}-{}", name, hour));
+        // A place taken by something that went away in the same second is
+        // answered by counting up, so nothing that stands is stepped on.
+        let mut again = 1;
+        while stood.exists() {
+            stood = corner.join(format!("{}-{}-{}", name, hour, again));
+            again += 1;
+        }
+        fs::rename(&path, &stood)
+            .map_err(|why| format!("the directory of the repository cannot be moved away: {}", why))?;
+        Ok(stood)
     }
 
     // Read one chat of any place by its id: the loose chats first, then the
@@ -2254,5 +2317,58 @@ mod tests {
         assert!(!switches.any_on_with(false), "with compaction off nothing stands behind the badge");
         switches.set("summarise", false);
         assert!(!switches.any_on_with(true), "no line stands on at all");
+    }
+
+    // A repository taken away is moved out of the folder of the repositories into
+    // the `removed/` corner. The side bar is the listing of that folder, so the
+    // group is gone from it, while the work of the user stands on with all of its
+    // files. Two repositories that went in the same second do not step on one
+    // another, and the corner is never taken for a repository.
+    #[test]
+    fn a_repository_moved_aside_is_not_listed() {
+        let room = room("moved-aside");
+        let store = store_in(&room);
+        let one = store.create_repo("The Orchard").expect("the first is made");
+        let two = store.create_repo("The Arbour").expect("the second is made");
+        fs::write(one.path.join("notes.md"), "the work of the user").expect("work is written");
+        assert!(store.rows_of_repos().contains_key(&one.id), "both stand");
+        let stood = store.retire_dir(&one.id).expect("the directory is moved aside");
+        assert!(!one.path.exists(), "the folder is gone from where it stood");
+        assert!(
+            stood.join("notes.md").exists(),
+            "the work of the user stands with the folder"
+        );
+        assert!(
+            stood
+                .parent()
+                .map(|place| place.ends_with(REMOVED))
+                .unwrap_or(false),
+            "the folder came to rest in the corner of what went"
+        );
+        let listed: Vec<String> = store.scan_repos().into_iter().map(|r| r.id).collect();
+        assert!(!listed.contains(&one.id), "the repository that went is not listed");
+        assert!(listed.contains(&two.id), "the other stands on");
+        // Nothing inside the corner is a repository, and a directory a level below
+        // the folder of the repositories is not seen from here at all.
+        let deep = room
+            .join("repositories")
+            .join(REMOVED)
+            .join("of_the_user_000000000f");
+        fs::create_dir_all(&deep).expect("a folder in the corner is made");
+        assert!(
+            store.scan_repos().into_iter().all(|r| r.id != "000000000f"),
+            "nothing in the corner is listed"
+        );
+        store.drop_repo(&one.id).expect("the record is taken away");
+        assert!(
+            !store.rows_of_repos().contains_key(&one.id),
+            "no record of the repository is left"
+        );
+        assert!(store.rows_of_repos().contains_key(&two.id), "the other record stands");
+        let named = store.drop_repo("");
+        assert!(named.is_err(), "nothing to take away is answered as a fault");
+        let gone = store.retire_dir("nothing-at-all");
+        assert!(gone.is_err(), "a repository that is not there is answered as a fault");
+        let _ = fs::remove_dir_all(&room);
     }
 }

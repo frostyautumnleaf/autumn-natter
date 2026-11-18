@@ -5363,6 +5363,120 @@ impl Engine {
         state.set_status(words);
     }
 
+    // Take a repository away: its record, its chats, the talks the model made of
+    // those chats, the plans of them, the tasks of its directory, and the
+    // directory itself out of the folder of the repositories.
+    //
+    // The name of the repository, written out in the window that asks, is what
+    // lets this happen: the side bar will not answer the ask until the name under
+    // it is the name of the repository. The directory is not destroyed - it is
+    // moved into the `removed/` corner of the folder of the repositories, where it
+    // stands until a hand moves it back - but the chats of the repository, the
+    // talks, the plans and the tasks are gone from the program and nothing of
+    // them comes back, which is a deal the naming is there to make sure the user
+    // meant.
+    //
+    // An answer being written in a chat of this repository stops the going: the
+    // words of that answer would else be put into a chat that is no more, and the
+    // server would be left holding the talk of a chat nobody can open.
+    pub fn remove_repository(&self, id: String) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        let Some(repo) = state.repositories.iter().find(|r| r.id == id).cloned() else {
+            state.set_status("That repository is not there");
+            return;
+        };
+        let talks = config::contexts_dir(&state.cfg);
+        let mut mine: Vec<String> = state
+            .chats
+            .iter()
+            .filter(|c| c.meta.repo_id == id)
+            .map(|c| c.meta.id.clone())
+            .collect();
+        // A chat of this repository that is open but not in the list above - the
+        // list of the side bar is read when a list changes - is still a chat of
+        // it, and still has to go with it.
+        if let Some(open) = state.current.clone() {
+            if !mine.contains(&open)
+                && state.store.load_chat(&open).map(|c| c.meta.repo_id) == Some(id.clone())
+            {
+                mine.push(open);
+            }
+        }
+        if state.generating
+            && state
+                .current
+                .as_ref()
+                .map(|open| mine.contains(open))
+                .unwrap_or(false)
+        {
+            let words = format!(
+                "The repository {} cannot be taken away while its answer is being written",
+                repo.name
+            );
+            state.set_status(&words);
+            return;
+        }
+        // The key of the tasks is made while the folder still stands, for it is
+        // the folder made absolute, and once the folder has moved there is nothing
+        // left to make absolute.
+        let work_key = crate::tasks::key_of(&repo.path);
+        // The folder goes first. A going that cannot move the folder has therefore
+        // taken nothing away, and the repository is left where the user can see it
+        // - which is a better answer than one whose chats vanished from under it.
+        let stood = match state.store.retire_dir(&id) {
+            Ok(place) => place,
+            Err(problem) => {
+                state.set_status(&problem);
+                return;
+            }
+        };
+        let mut contexts = 0usize;
+        let mut chats = 0usize;
+        for one in &mine {
+            contexts += contexts::drop_of_chat(&talks, &context_prefix(one));
+            state.queue_drop(one);
+            state.chats.retain(|c| c.meta.id != *one);
+            state.store.delete_chat(&id, one);
+            chats += 1;
+        }
+        // The tasks of the directory go with it: a list keyed by a directory that
+        // no longer stands is nothing to work from, and the next repository to
+        // stand in that path should not inherit them.
+        let tasks = crate::tasks::drop_work(&work_key);
+        if let Err(problem) = state.store.drop_repo(&id) {
+            state.note_record_problem(&problem);
+        }
+        if state.scope_repo == id {
+            state.scope_repo.clear();
+            state.current = None;
+        }
+        state.repositories = state.store.scan_repos();
+        state.reload_chats();
+        state.touch_structure();
+        let words = format!(
+            "The repository {} is taken away - {} of its chats, {} of its talks, {} of its tasks",
+            repo.name,
+            chats,
+            contexts,
+            tasks
+        );
+        state.set_status(&words);
+        proglog::note(
+            proglog::FOLDERS,
+            &format!(
+                "the repository {} ({}) was taken away: {} chats, {} talks, {} tasks; the directory stands in {}",
+                repo.name,
+                id,
+                chats,
+                contexts,
+                tasks,
+                stood.display(),
+            ),
+        );
+    }
+
     // Every repository with the chats that stand in it, the chats that belong
     // to no repository, and the chats the user put away. The side bar asks for
     // this when a list changed, and not on every look at the state, for the
@@ -5960,6 +6074,15 @@ fn worker(state: Arc<Mutex<State>>, jobs: Receiver<Job>, cancel: Arc<AtomicBool>
 // out by the server as a talk that does not fit, so the two are kept apart by
 // the name and never mixed.
 pub fn context_name(chat_id: &str, model_id: &str) -> String {
+    format!("{}-{:016x}.ctx", context_prefix(chat_id), fnv1a(model_id))
+}
+
+// The part of the name of a talk that says which chat it is: the id of the chat
+// with the marks a name may not carry taken out, or a hash of the whole id when
+// the id runs longer than a name should. The talks of one chat are told from the
+// talks of another by this part alone, so it is also what the talks of a chat are
+// found by when a chat, or the repository that held it, is taken away.
+pub fn context_prefix(chat_id: &str) -> String {
     let mut name = String::new();
     for mark in chat_id.chars() {
         if mark.is_ascii_alphanumeric() || mark == '.' || mark == '_' || mark == '-' {
@@ -5973,13 +6096,13 @@ pub fn context_name(chat_id: &str, model_id: &str) -> String {
     // between, and the four of the ending: well within the two hundred and
     // fifty-five the server reads. An id longer than that is not a chat id of
     // this program, but it is no reason either to let the talk of one chat fall
-    // into the file of another whose id runs the same way for two hundred marks,
+    // into the place of another whose id runs the same way for two hundred marks,
     // so a long id is not cut: the whole of it goes into a hash of its own,
     // which tells every chat apart and is short enough to stand.
     if name.len() > 200 {
         name = format!("{:016x}", fnv1a(chat_id));
     }
-    format!("{}-{:016x}.ctx", name, fnv1a(model_id))
+    name
 }
 
 // FNV-1a: the plainest hash there is, and the shortest to write out. It is here
@@ -16220,6 +16343,173 @@ mod tests {
         assert!(
             !said().contains("TASKS SUITE"),
             "the prompt outlived its line"
+        );
+    }
+
+    // A repository taken away takes its chats, the talks the model made of them,
+    // its plans and the tasks of its directory with it. Its folder is moved into
+    // the `removed/` corner of the folder of the repositories, so nothing of the
+    // user's own work is destroyed, while the side bar - which is the listing of
+    // that folder - has nothing left to show. An answer being written in a chat of
+    // the repository stops the going, and a repository stood open for work gives
+    // the place of work back. The chats, the talks and the tasks of every other
+    // repository stand untouched.
+    #[test]
+    fn a_repository_is_taken_away_with_its_chats() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        engine.create_repository(String::from("Doomed Orchard"));
+        let doomed = repo_named(&engine, "Doomed Orchard");
+        engine.create_repository(String::from("Standing Grove"));
+        let standing = repo_named(&engine, "Standing Grove");
+        write_chat_in(&doomed, "aaaagggg01", 100);
+        write_chat_in(&doomed, "aaaagggg02", 99);
+        write_chat_in(&standing, "aaaagggg03", 98);
+
+        // The talks of both chats of the doomed repository, and one talk of a chat
+        // that stands nowhere near it.
+        let talks = config::contexts_dir(&Config::default());
+        let raw = talks.join("the-talk-bytes");
+        std::fs::write(&raw, vec![7u8; 4096]).expect("the bytes of a talk are written");
+        let kept = contexts::database(&talks).expect("the database of the talks stands open");
+        let mine = context_name("aaaagggg01", "m1");
+        let other = context_name("aaaahhhh09", "m1");
+        contexts::keep(&kept, &mine, &raw, 4096).expect("the talk of the chat is kept");
+        contexts::keep(&kept, &other, &raw, 4096).expect("the talk of another chat is kept");
+        let _ = std::fs::remove_file(&raw);
+
+        // A task of the directory of the doomed repository, and one of another.
+        let store = store::Store::new(config::repositories_dir(&Config::default()));
+        let going = store.repo_path(&doomed).expect("the folder of the repository");
+        let staying = store.repo_path(&standing).expect("the folder of the other");
+        std::fs::write(going.join("the-work.md"), "the work of the user")
+            .expect("a file of the user's own is written in the folder");
+        let going_key = crate::tasks::key_of(&going);
+        let staying_key = crate::tasks::key_of(&staying);
+        crate::tasks::create(&going_key, "The last task", "Its summary.", "Its content.")
+            .expect("a task of the doomed directory");
+        crate::tasks::create(&staying_key, "A task elsewhere", "Its summary.", "Its content.")
+            .expect("a task of the other directory");
+        assert!(
+            crate::tasks::run(crate::tasks::VIEW_ALL_NAME, &going_key, "{}")
+                .output
+                .contains("The last task"),
+            "the task of the doomed directory stands"
+        );
+
+        // An answer being written in one of its chats holds the going off: the
+        // words of that answer would else go into a chat that is no more.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.generating = true;
+            state.current = Some(String::from("aaaagggg01"));
+        }
+        engine.remove_repository(doomed.clone());
+        assert!(
+            engine
+                .lists()
+                .repositories
+                .iter()
+                .any(|(repo, _)| repo.id == doomed),
+            "the going was held off, so the repository is still listed"
+        );
+        assert!(
+            engine.snapshot().status.contains("cannot be taken away"),
+            "the reason is said: {}",
+            engine.snapshot().status
+        );
+        assert_eq!(
+            store.load_chat("aaaagggg01").map(|chat| chat.meta.id),
+            Some(String::from("aaaagggg01")),
+            "nothing of the chat was touched"
+        );
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.generating = false;
+            state.current = None;
+        }
+
+        // The repository stood open for work, so the going has to give the place
+        // of work back as well as the chats.
+        engine.select_repository(doomed.clone());
+        assert!(engine.snapshot().in_repository, "the repository is open for work");
+        engine.remove_repository(doomed.clone());
+
+        let snap = engine.snapshot();
+        assert!(!snap.in_repository, "the place of work went back");
+        assert!(snap.chat_id.is_empty(), "and no chat is open");
+        let lists = engine.lists();
+        assert!(
+            lists.repositories.iter().all(|(repo, _)| repo.id != doomed),
+            "the repository is out of the bar"
+        );
+        let group = lists
+            .repositories
+            .iter()
+            .find(|(repo, _)| repo.id == standing)
+            .expect("the other repository stands");
+        assert_eq!(group.1.len(), 1, "and its chat stands with it");
+        assert!(store.load_chat("aaaagggg01").is_none(), "its first chat is gone");
+        assert!(store.load_chat("aaaagggg02").is_none(), "and its second");
+        assert!(
+            store.load_chat("aaaagggg03").is_some(),
+            "the chat of the other repository stands"
+        );
+        let names: Vec<String> = contexts::held_list(&talks)
+            .into_iter()
+            .map(|(name, _, _)| name)
+            .collect();
+        assert!(
+            !names.iter().any(|one| one.starts_with(&mine)),
+            "the talk of the chat that went is gone"
+        );
+        assert!(names.contains(&other), "the talk of another chat stands");
+        assert!(
+            crate::tasks::run(crate::tasks::VIEW_ALL_NAME, &going_key, "{}")
+                .output
+                .contains("No task stands"),
+            "the list of the doomed directory went with it"
+        );
+        assert!(
+            crate::tasks::run(crate::tasks::VIEW_ALL_NAME, &staying_key, "{}")
+                .output
+                .contains("A task elsewhere"),
+            "the list of the other directory stands"
+        );
+
+        // The folder of the user's own work is moved aside, never destroyed, and
+        // it stands in the corner of what went - which is never listed.
+        let repos = config::repositories_dir(&Config::default());
+        assert!(!going.exists(), "the folder is gone from where it stood");
+        assert!(repos.join(store::REMOVED).is_dir(), "the corner of what went");
+        let aside = format!("doomed-orchard_{}", doomed);
+        let moved: Vec<PathBuf> = std::fs::read_dir(repos.join(store::REMOVED))
+            .expect("the corner is read")
+            .flatten()
+            .map(|one| one.path())
+            .filter(|one| {
+                one.file_name()
+                    .map(|name| name.to_string_lossy().starts_with(&aside))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(moved.len(), 1, "the one folder of this repository was moved aside");
+        assert!(
+            moved[0].join("the-work.md").is_file(),
+            "the work of the user stands with the folder"
+        );
+        assert!(staying.is_dir(), "the folder of the other repository stands");
+        assert!(
+            engine.lists().repositories.iter().all(|(repo, _)| {
+                repo.id != store::REMOVED && !repo.path.ends_with(store::REMOVED)
+            }),
+            "the corner is never taken for a repository"
+        );
+        assert!(
+            engine.snapshot().status.contains("is taken away"),
+            "the going is told: {}",
+            engine.snapshot().status
         );
     }
 }

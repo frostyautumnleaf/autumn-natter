@@ -489,6 +489,67 @@ pub fn take_away(dir: &Path, name: &str) {
     let _ = fs::remove_file(raw_of(dir, name));
 }
 
+// Take the talks of one chat out of the database, and say how many went. The
+// talks of a chat stand under names that begin with the chat's own mark and are
+// told apart by the model that read them through, so the whole of a chat's talks
+// is the names that begin with that mark and carry the mark between after it. The
+// names are read and matched here rather than asked of the database with a LIKE,
+// for the mark of a chat may carry an under score, which a LIKE takes for one of
+// its own and would answer with other chats' talks besides.
+pub fn drop_of_chat(dir: &Path, mark: &str) -> usize {
+    if mark.is_empty() {
+        return 0;
+    }
+    let Ok(kept) = database(dir) else {
+        return 0;
+    };
+    let held: Vec<String> = kept
+        .read(|conn| {
+            let mut said = conn
+                .prepare("SELECT name FROM contexts")
+                .map_err(db::fault)?;
+            let rows = said
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(db::fault)?;
+            let mut out = Vec::new();
+            for row in rows.flatten() {
+                out.push(row);
+            }
+            Ok(out)
+        })
+        .unwrap_or_default();
+    let mine: Vec<String> = held
+        .into_iter()
+        .filter(|name| talk_of_mark(name, mark))
+        .collect();
+    if mine.is_empty() {
+        return 0;
+    }
+    let went = mine.len();
+    if let Err(problem) = kept.write(|conn| {
+        for name in &mine {
+            conn.execute("DELETE FROM contexts WHERE name = ?1", params![name])
+                .map_err(db::fault)?;
+            conn.execute("DELETE FROM context_parts WHERE name = ?1", params![name])
+                .map_err(db::fault)?;
+        }
+        Ok(())
+    }) {
+        proglog::note(
+            proglog::STORE,
+            &format!("the talks of {} are not taken away: {}", mark, problem),
+        );
+        return 0;
+    }
+    went
+}
+
+// Whether `name` is one of the talks of the chat whose mark is `mark`.
+fn talk_of_mark(name: &str, mark: &str) -> bool {
+    name.strip_prefix(mark)
+        .is_some_and(|rest| rest.starts_with('-'))
+}
+
 // Cut the bytes of a block into two planes: the bytes at the even places, then
 // the bytes at the odd ones. The answer is the whole of the block again, in a
 // different order, so the length is the length of what went in.
@@ -906,5 +967,54 @@ mod tests {
             merge(&planes, data.len(), &mut back);
             assert_eq!(back, data, "{} bytes", whole);
         }
+    }
+
+    // The talks of one chat go with it, and the talks of no other. The talks of a
+    // chat are the names that begin with the mark of the chat and carry a dash
+    // after it, so a chat whose id is the beginning of another chat's id keeps
+    // every one of its talks, and the pieces of the talks that went are taken out
+    // with the rows that named them.
+    #[test]
+    fn the_talks_of_one_chat_go_with_it() {
+        let dir = room("drop-of-chat");
+        let kept = database(&dir).expect("the database of the talks is made");
+        let stood = dir.join("the-talk");
+        fs::write(&stood, cache_bytes(4096, &mut 5)).expect("a talk is written");
+        let names = [
+            "ab12cd34ef-0000000000000001.ctx",
+            "ab12cd34ef-0000000000000002.ctx",
+            "ab12cd34-0000000000000001.ctx",
+            "ab12_cd34-0000000000000001.ctx",
+        ];
+        for one in names {
+            keep(&kept, one, &stood, 4096).expect("the talk is kept");
+        }
+        assert_eq!(held_list(&dir).len(), 4, "four talks stand");
+        assert_eq!(drop_of_chat(&dir, ""), 0, "no chat has no talks to give");
+        assert_eq!(drop_of_chat(&dir, "ab12cd34"), 1, "its own talks only");
+        assert_eq!(drop_of_chat(&dir, "ab12cd34ef"), 2, "both talks of that chat");
+        let left = held_list(&dir);
+        assert_eq!(left.len(), 1, "one talk is left");
+        assert_eq!(left[0].0, "ab12_cd34-0000000000000001.ctx");
+        assert_eq!(
+            pieces(&kept, "ab12cd34ef-0000000000000001.ctx"),
+            0,
+            "no piece of a talk that went is left behind"
+        );
+        assert_eq!(drop_of_chat(&dir, "nothing-at-all"), 0, "a chat with no talks");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // The pieces of a talk that stand in the database, counted.
+    fn pieces(kept: &db::Db, name: &str) -> i64 {
+        kept.read(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM context_parts WHERE name = ?1",
+                params![name],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(db::fault)
+        })
+        .unwrap_or(0)
     }
 }

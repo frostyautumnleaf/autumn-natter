@@ -1217,6 +1217,14 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.set_repository_pinned(text_field(&value, "id"), flag(&value, "on"));
             done()
         }
+        // A repository taken away whole: the name of it had to be written out in
+        // the window that asked, its chats and talks and tasks go with it, and its
+        // directory is moved into the corner of the folder of the repositories
+        // rather than destroyed. See `Engine::remove_repository`.
+        "/api/delete_repo" | "delete_repo" => {
+            engine.remove_repository(text_field(&value, "id"));
+            done()
+        }
         "/api/select_model" | "select_model" => {
             engine.select_model(text_field(&value, "id"));
             done()

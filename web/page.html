@@ -2498,6 +2498,14 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
 .ask-foot button:hover { background: var(--hover); }
 .ask-ok { border-color: var(--accent-line); background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .ask-ok.bad { border-color: none; background: var(--ink-fail); color: #fff; }
+.ask-ok:disabled { opacity: .42; cursor: default; }
+/* The line under the box of the ask: what has to be typed, or what went wrong. */
+.ask-hint { display: none; margin-top: 8px; font-size: 12px; line-height: 1.45; color: var(--dim); }
+.ask-hint.on { display: block; }
+.ask-hint b { color: var(--ink); font-weight: 600; }
+.ask-hint.bad { color: var(--ink-fail); }
+/* The box that was accepted with the wrong words in it, and the hint that says so. */
+.ask-card input.wrong { border-color: var(--ink-fail); outline-color: var(--ink-fail); }
 </style>
 </head>
 <body>
@@ -2530,6 +2538,7 @@ body.archmode .side-arch { border-color: var(--accent-line); background: var(--a
     <div class="ask-title" id="askTitle"></div>
     <div class="ask-body" id="askBody"></div>
     <input id="askInput" spellcheck="false" />
+    <div class="ask-hint" id="askHint"></div>
     <div class="ask-foot">
       <button class="ask-cancel" id="askCancel">Cancel</button>
       <button class="ask-ok" id="askOk">Yes</button>
@@ -14276,6 +14285,18 @@ function sideOpenMenu(kind, item, where, anchor) {
     menu.appendChild(sideItem('Work in this repository', function () {
       post('/api/select_repository', { id: item.id });
     }));
+    menu.appendChild(sideNode('div', 'sep'));
+    // A repository holds the user's own work, so taking it away is asked for by
+    // name and not by one click. The directory itself is moved aside, never
+    // destroyed; the chats, the saved context, the plans and the tasks of the
+    // repository are gone. See `Engine::remove_repository`.
+    menu.appendChild(sideItem('Delete repository', function () {
+      sideAskName('Delete this repository?',
+        'The chats of “' + (item.name || 'this repository') + '”, the context saved for them, their plans and its tasks are gone, and are not brought back. Its folder is moved into the removed folder of the repositories and nothing in it is deleted.',
+        item.name || '', 'Delete repository', function () {
+          post('/api/delete_repo', { id: item.id });
+        });
+    }, true));
   }
   menu.classList.add('on');
   var box = menu.getBoundingClientRect();
@@ -14327,22 +14348,24 @@ function sideCloseMenu() {
   sideMenuFor = null;
 }
 
-// The small window that asks. It answers with the words the user wrote, or
-// with nothing when the user goes away.
+// The small window that asks. It answers with the words the user typed, or with
+// nothing when the user cancels.
 function sideAskText(title, note, value, then, okLabel) {
   var ask = sEl('sideAsk');
+  var input = sEl('askInput');
   ask.classList.add('on', 'asking');
+  sideAskReset();
   sEl('askTitle').textContent = title;
   sEl('askBody').textContent = note;
   sEl('askOk').textContent = okLabel || 'Name it';
   sEl('askOk').classList.remove('bad');
-  var input = sEl('askInput');
   input.value = value || '';
   input.dataset.ask = 'text';
+  sideAskCheck = null;
   window.setTimeout(function () { input.focus(); input.select(); }, 30);
   sideAskGo = function (ok) {
     var text = input.value.trim();
-    ask.classList.remove('on', 'asking');
+    sideAskShut();
     if (!ok || !text) { return; }
     if (then) { then(text); }
   };
@@ -14351,21 +14374,99 @@ function sideAskText(title, note, value, then, okLabel) {
 function sideAskYes(title, note, okLabel, then) {
   var ask = sEl('sideAsk');
   ask.classList.add('on');
-  ask.classList.remove('asking');
+  sideAskReset();
   sEl('askTitle').textContent = title;
   sEl('askBody').textContent = note;
   sEl('askOk').textContent = okLabel || 'Yes';
   sEl('askOk').classList.add('bad');
   sEl('askInput').value = '';
   sEl('askInput').dataset.ask = 'yes';
+  sideAskCheck = null;
   sideAskGo = function (ok) {
-    ask.classList.remove('on');
+    sideAskShut();
     if (!ok) { return; }
     if (then) { then(); }
   };
 }
 
+// The window that asks the user to type a name out. Nothing is answered until the
+// box holds that name, so one stray click cannot do damage that cannot be
+// undone. Used when a repository is taken away.
+function sideAskName(title, note, name, okLabel, then) {
+  var ask = sEl('sideAsk');
+  var input = sEl('askInput');
+  var ok = sEl('askOk');
+  ask.classList.add('on', 'asking');
+  sideAskReset();
+  sEl('askTitle').textContent = title;
+  sEl('askBody').textContent = note;
+  ok.textContent = okLabel || 'Delete';
+  ok.classList.add('bad');
+  var hint = sEl('askHint');
+  hint.classList.add('on');
+  hint.appendChild(document.createTextNode('Type the name '));
+  var said = document.createElement('b');
+  said.textContent = name;
+  hint.appendChild(said);
+  hint.appendChild(document.createTextNode(' to confirm.'));
+  input.value = '';
+  input.dataset.ask = 'name';
+  var want = sideAskKey(name);
+  sideAskCheck = function () {
+    var matched = want.length > 0 && sideAskKey(input.value) === want;
+    ok.disabled = !matched;
+    return matched;
+  };
+  sideAskCheck();
+  window.setTimeout(function () { input.focus(); }, 30);
+  sideAskGo = function (ok) {
+    if (!ok) { sideAskShut(); return; }
+    if (sideAskCheck && !sideAskCheck()) {
+      // The window was accepted with the wrong words in it, from the Enter key.
+      // Say so, and stay open so the name can be typed again.
+      input.classList.add('wrong');
+      hint.classList.add('bad');
+      input.focus();
+      return;
+    }
+    var text = input.value;
+    sideAskShut();
+    if (then) { then(text); }
+  };
+}
+
+// The shape a typed name is compared in: the spaces at either end are taken off
+// and the letters are all made small, so the name only has to be spelled right.
+function sideAskKey(text) {
+  return String(text || '').trim().toLowerCase();
+}
+
+// Put the window back to its plain shape before the next ask is set up in it:
+// the hint line, the wrong-name marks, and a button that was disabled.
+function sideAskReset() {
+  var ask = sEl('sideAsk');
+  var input = sEl('askInput');
+  var ok = sEl('askOk');
+  var hint = sEl('askHint');
+  ask.classList.remove('ready');
+  ok.disabled = false;
+  ok.classList.remove('bad');
+  input.classList.remove('wrong');
+  hint.classList.remove('on', 'bad');
+  hint.textContent = '';
+}
+
+function sideAskShut() {
+  sEl('sideAsk').classList.remove('on', 'asking');
+  sideAskGo = null;
+  sideAskCheck = null;
+}
+
 var sideAskGo = null;
+
+// Set when the typed answer has to match something. It answers with whether the
+// window may be accepted as it stands.
+var sideAskCheck = null;
 
 function sideArch(on) {
   side.arch = !!on;
@@ -14434,7 +14535,7 @@ document.addEventListener('keydown', function (e) {
   var menu = sEl('sideMenu');
   if (menu && menu.classList.contains('on')) { sideCloseMenu(); e.preventDefault(); return; }
   var ask = sEl('sideAsk');
-  if (ask && ask.classList.contains('on')) { ask.classList.remove('on', 'asking'); e.preventDefault(); }
+  if (ask && ask.classList.contains('on')) { sideAskShut(); e.preventDefault(); }
 }, true);
 
 sEl('sideNew') && sEl('sideNew').addEventListener('click', function () { post('/api/new_chat'); });
@@ -14443,6 +14544,15 @@ sEl('askOk') && sEl('askOk').addEventListener('click', function () { if (sideAsk
 sEl('askCancel') && sEl('askCancel').addEventListener('click', function () { if (sideAskGo) { sideAskGo(false); } });
 sEl('askInput') && sEl('askInput').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') { e.preventDefault(); if (sideAskGo) { sideAskGo(true); } }
+});
+// What is typed is checked as it is typed, so the button of the ask comes alive
+// at the moment the answer is right, and the marks of a wrong answer go away
+// when the typing goes on.
+sEl('askInput') && sEl('askInput').addEventListener('input', function () {
+  this.classList.remove('wrong');
+  var hint = sEl('askHint');
+  if (hint) { hint.classList.remove('bad'); }
+  if (sideAskCheck) { sideAskCheck(); }
 });
 sEl('sidebtn') && sEl('sidebtn').addEventListener('click', function () { sideShow(!side.open); });
 

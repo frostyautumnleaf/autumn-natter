@@ -28,6 +28,7 @@ use serde_json::{json, Value};
 
 use crate::config;
 use crate::db;
+use crate::proglog;
 use crate::tools;
 
 // The six names the model calls the suite by.
@@ -265,6 +266,33 @@ fn remove(work: &str, id: &str) -> Result<Task, String> {
         Ok(())
     })?;
     Ok(found)
+}
+
+// Take the whole list of one work directory away, and say how many tasks went.
+// This is for a repository, or the room of a loose chat, that is taken away: the
+// tasks of a directory that is gone have nothing left to be done in, and a list
+// keyed by a path that no longer stands would be words kept for nothing. It is
+// not a call the model has: the suite answers to one task at a time.
+pub fn drop_work(work: &str) -> usize {
+    if work.is_empty() {
+        return 0;
+    }
+    let Ok(kept) = database() else {
+        return 0;
+    };
+    match kept.write(|conn| {
+        conn.execute("DELETE FROM tasks WHERE work = ?1", params![work])
+            .map_err(db::fault)
+    }) {
+        Ok(gone) => gone,
+        Err(problem) => {
+            proglog::note(
+                proglog::STORE,
+                &format!("the tasks of {} are not taken away: {}", work, problem),
+            );
+            0
+        }
+    }
 }
 
 // The words of one task in a list of them: the index, the state, the name, and
@@ -744,5 +772,27 @@ mod tests {
             Ok(())
         })
         .expect("the list is emptied for the checks");
+    }
+
+    // The whole list of a work directory goes when the directory goes. A list
+    // keyed by a path that no longer stands is nothing to work from, and the next
+    // repository to stand in that path must not inherit the tasks of the one that
+    // went. The list of another directory stands untouched.
+    #[test]
+    fn the_list_of_a_work_directory_goes_with_it() {
+        let _guard = config::test_turn();
+        setup();
+        let going = place("going");
+        let staying = place("staying");
+        create(&going, "One", "Its summary.", "Its content.").expect("a task is made");
+        create(&going, "Two", "Its summary.", "Its content.").expect("a second task");
+        create(&staying, "Three", "Its summary.", "Its content.").expect("a task elsewhere");
+        assert_eq!(drop_work(""), 0, "no directory has no list to give");
+        assert_eq!(drop_work(&going), 2, "both tasks of the directory went");
+        assert!(rows(&going).is_empty(), "nothing of that list is left");
+        assert_eq!(rows(&staying).len(), 1, "the list of another directory stands");
+        assert_eq!(drop_work(&going), 0, "a list that is gone gives nothing");
+        let _ = std::fs::remove_dir_all(&going);
+        let _ = std::fs::remove_dir_all(&staying);
     }
 }
