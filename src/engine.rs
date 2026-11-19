@@ -417,7 +417,7 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             String::new(),
             named(download::partial_words(raw), "a file"),
         ),
-        // A show of the contents of files is named by the first file of it.
+        // A display of the contents of files is named by its first file.
         display::NAME => (
             tools::live_arguments(raw),
             String::new(),
@@ -429,7 +429,7 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             String::new(),
             named(askuser::partial_words(raw), "a question"),
         ),
-        // The suggestions for the next steps is named by the first button of it.
+        // The suggestions for the next steps are named by their first button.
         suggest::NAME => (
             tools::live_arguments(raw),
             String::new(),
@@ -7417,8 +7417,8 @@ pub fn summary_ask(history: &Value, prompt: &str, tools: Option<&Value>) -> Valu
 
 // How many times the request for a summary is rebuilt when the model answers it with a call of
 // a tool instead of with the summary. Twice is the most: a model that asks a third time has
-// made its choice, and the text it wrote beside the calls are taken for the summary rather than
-// spending more of the space the summary was come to make.
+// made its choice, and the text it wrote beside the calls is taken as the summary rather than
+// spending more of the space the summary was meant to free.
 const SUMMARY_CALL_TRIES: usize = 2;
 
 // The result given back to a call of a tool that arrived the middle of the writing of a handoff
@@ -7711,8 +7711,9 @@ fn ask_summary(
     // end of the space is another matter, and the hand over a summary is put up there. A model
     // with a great deal to say can fill what is above to the last word of it, and the request
     // then returns with a wall of text and no end of itself: the summary of that wall is what
-    // the space was come to make, and the space has expired besides. So the writing of a
-    // summary is stopped at the edge of the space, the text it gave remain, and the request
+    // the space was meant to free, and the space has run out as well. So the writing of a
+    // summary is stopped at the edge of the space, the text it produced remains, and the
+    // request
     // is rebuilt for a short one -- which is what the second prompt of the settings is there
     // for.
     let hand = std::sync::atomic::AtomicBool::new(false);
@@ -9262,7 +9263,7 @@ fn run_turn(
                     if wrote && config::compaction_wanted(&guard.cfg, spoken, guard.ctx_total) {
                         // The number the server spoke on this piece goes into the meter with
                         // the stop. The meter is paced, and a number turned away by the pace
-                        // leaves the meter behind the space that was come to: the size of the
+                        // leaves the meter behind the space that was meant to be freed: the
                         // summarisation is weighed on the meter, and a cut that stopped the
                         // writing at nine hundred words of a space of a thousand was then
                         // weighed as though the conversation had never passed the limit, so the
@@ -9539,8 +9540,9 @@ fn run_turn(
             // a call that never ran, and every fresh send ended the same way. So the space is
             // weighed with the report left out, which is what a second summarisation is made
             // of, and which is what the model is asked with once the marker of the
-            // summarisation cuts the report off. The weighing goes by the same measure as the
-            // limit was come to, and it reports nothing of what the server will count when the
+            // summarisation cuts the report off. The weighing uses the same measure that
+            // decided when the limit was reached, and it reports nothing of what the server
+            // will count when the
             // request is sent: the meter is read again on the first number of the next ask, and
             // the pointer is put up again on the word that is past the limit. A summary that
             // was kept is space that was created, and the answer goes on after it whatever the
@@ -9591,7 +9593,7 @@ fn run_turn(
                         } else if still_full {
                             "the space is still past the limit"
                         } else if won_nothing {
-                            "the summarisation won no room"
+                            "the summarisation freed no space"
                         } else {
                             "no space was made"
                         },
@@ -10695,7 +10697,8 @@ fn run_program_tool(
         );
         return;
     }
-    // A show of the contents of files. Nothing is copied and nothing is kept in the text of the
+    // A display of the contents of files. Nothing is copied and nothing is kept in the text
+    // of the
     // conversation: the block of the show names the files, and the button of it opens the
     // window of the chat over them. The window reads each file again when the user opens it,
     // under the same rule of the space as the call.
@@ -14253,7 +14256,7 @@ mod tests {
     }
 
     // A model that reads a session full of tool calls again is minded to make one, and a call
-    // made instead of the summary spends the very space the summary was come to make. The
+    // made instead of the summary spends the very space the summary was meant to free. The
     // tools cannot simply be left out of the request -- the list of them is part of the start
     // of the text the server has worked through -- so the request reports in its own text that
     // nothing here is to be called, whatever the user set the handoff prompt to.

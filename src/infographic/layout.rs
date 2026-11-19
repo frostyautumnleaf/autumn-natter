@@ -1072,7 +1072,7 @@ fn measure(
             let name = block.path.trim();
             if name.is_empty() {
                 faults.push(String::from(
-                    "no file is named. Name a picture of the room of the chat in \"path\".",
+                    "no file is named. Name a picture in the working directory of the chat in \"path\".",
                 ));
             } else {
                 match read_picture(name, room) {
@@ -1893,7 +1893,7 @@ fn read_picture(name: &str, room: Option<&std::path::Path>) -> Result<Image, Str
     };
     if !place.is_file() {
         return Err(format!(
-            "the picture \"{name}\" is not a file of the room of the chat. Write it there first, or name the place it stands at."
+            "the picture \"{name}\" is not a file in the working directory of the chat. Write it there first, or name the path it is at."
         ));
     }
     let bytes =

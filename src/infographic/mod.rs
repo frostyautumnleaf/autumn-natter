@@ -110,7 +110,7 @@ pub fn definitions() -> Vec<Value> {
             "function": {
                 "name": PLAN_NAME,
                 "description": with_rule(format!(
-                    "Make or change the head of an infographic project and the list of its scenes. The head carries the name, the size of the picture, the frames of the second, the colours and the type. The scenes are given as a list of heads and lengths, and each one is filled later with the scene tool. A part you do not name is kept as it was. A list of scenes you give stands in place of the list that stood, but a scene head that names no blocks keeps the blocks that stood at its place, so coming back to the plan costs nothing. The sizes are: {canvases}. The colour sets are: {colours}. The project stands in the folder infographics/<name>/ of the room of this chat."
+                    "Make or change the head of an infographic project and the list of its scenes. The head carries the name, the size of the picture, the frames of the second, the colours and the type. The scenes are given as a list of heads and lengths, and each one is filled later with the scene tool. A part you do not name is kept as it was. The list of scenes you give replaces the list that was there, but a scene head that names no blocks keeps the blocks it already had, so returning to the plan costs nothing. The sizes are: {canvases}. The colour sets are: {colours}. The project is kept in the folder infographics/<name>/ of the working directory of this chat."
                 )),
                 "parameters": {
                     "type": "object",

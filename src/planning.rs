@@ -394,8 +394,8 @@ pub fn system_prompt(plan: &str) -> String {
          moves or writes; it covers the words of version control that move a thing \
          - commit, push, checkout, switch, merge, rebase, stash, reset, restore, \
          tag; and it covers a redirect, a here-document or a pipe that puts words \
-         into a file, and a command run in the room of the work that leaves a \
-         folder of build words behind it.\n\
+         into a file, and a command run in the working directory of the chat \
+         that leaves a folder of build output behind it.\n\
          A command that only reads what is there is allowed, and wanted: \
          listing a folder, reading a file, searching, `git status`, `git log`, \
          `git diff`, `git show`, `git remote -v`, `pwd`, `wc`, `which`, reading a \

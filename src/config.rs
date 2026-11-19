@@ -1094,10 +1094,10 @@ pub fn load() -> Config {
     cfg
 }
 
-// Turn the word of a theme over for a settings file written before the four themes was. True
-// returns when the file was turned, which is when it is worth writing again. A file that
-// already holds the marker of the four themes is skipped, so the word `corporate` chosen after
-// the change keeps its new meaning.
+// Rename the theme words of a settings file written before the four themes existed. True is
+// returned when the file was changed, which is when it is worth writing again. A file that
+// already holds the four-theme marker is skipped, so the word `corporate` chosen after the
+// change keeps its new meaning.
 fn turn_the_skin_words(cfg: &mut Config) -> bool {
     if cfg.skins_v2 {
         return false;

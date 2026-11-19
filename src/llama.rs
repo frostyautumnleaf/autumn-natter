@@ -2624,7 +2624,7 @@ mod tests {
         spec_names()
             .iter()
             .position(|one| *one == name)
-            .unwrap_or_else(|| panic!("{} is no choice of the sheet", name))
+            .unwrap_or_else(|| panic!("{} is not a choice in the settings panel", name))
     }
 
     // The two ways of guessing go to the server as one list, for the server runs every way

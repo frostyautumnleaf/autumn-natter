@@ -464,8 +464,9 @@ fn skip_marks(marks: &[char], mut at: usize, last: char) -> usize {
 }
 
 // True when a run of text reads as text of some language, rather than as the markers a code
-// left behind. The text of a page whose letters is kept behind a code the program cannot read
-// return as a run of forms that no writing is made of, and those are refused rather than sent.
+// left behind. The text of a page whose letters are hidden by an encoding the program cannot
+// read comes back as a run of shapes that no writing is made of, and those are refused rather
+// than sent.
 fn words_are_words(words: &str) -> bool {
     let mut letters = 0usize;
     let mut total = 0usize;

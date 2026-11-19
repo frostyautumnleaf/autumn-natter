@@ -143,7 +143,8 @@ fn holds(database: &db::Db, name: &str) -> bool {
         .unwrap_or(false)
 }
 
-// The contexts the folder holds, with the bytes that was and the bytes they came to. The Logs
+// The contexts the folder holds, with the size before compression and the size after. The
+// Logs
 // tab has no page of its own for the contexts, so this is what a check of the folder is read
 // against.
 pub fn held_list(dir: &Path) -> Vec<(String, u64, u64)> {
@@ -174,10 +175,10 @@ pub fn held_list(dir: &Path) -> Vec<(String, u64, u64)> {
         .unwrap_or_default()
 }
 
-// Put the compressed form that is at `from` into the database under `name`, and say how many
-// parts it came to. Every piece is put down before the row that shows the context is there, so
-// a write that cannot be finished leaves no half context behind: the parts of the context that
-// was before is laid aside in the same turn as the new ones arrive.
+// Put the compressed form that is at `from` into the database under `name`, and report how many
+// parts it takes. Every piece is written before the row that shows the context exists, so a
+// write that cannot be finished leaves no half context behind: the parts of the previous context
+// are removed in the same transaction as the new ones arrive.
 pub fn keep(
     database: &db::Db,
     name: &str,
@@ -306,7 +307,8 @@ fn reason<T: std::fmt::Display>(problem: T) -> String {
 // ------------------------------------------------------------------ compress
 
 // Compress the raw file of one context and put the compressed form into the database. The
-// answer is the bytes that was and the bytes it came to; nothing returns when there was nothing
+// answer is the size before compression and the size after; nothing returns when there was
+// nothing
 // to compress, when the compressed form would not be smaller, or when the work could not be
 // finished -- and in that last case the raw file is left where it was, which is the whole point
 // of writing beside it first. The compressed form is written into a second file and carried
@@ -589,7 +591,7 @@ fn read_block<R: Read>(from: &mut R, block: &mut [u8]) -> std::io::Result<usize>
     Ok(got)
 }
 
-// Write the compressed form of a context into `held`, and give back the bytes it came to. The
+// Write the compressed form of a context into `held`, and return the compressed size. The
 // header reports the whole length of the raw file, so a compressed form that was truncated is
 // found out when it is read back.
 fn write_short(raw: &Path, held: &Path) -> std::io::Result<u64> {
@@ -766,7 +768,7 @@ mod tests {
         let kept = held_list(&dir);
         assert_eq!(kept.len(), 1, "the context is in the database");
         assert_eq!(kept[0].0, name, "the context is under its own name");
-        assert_eq!(kept[0].1, stood, "the bytes that was are informed");
+        assert_eq!(kept[0].1, stood, "the size before compression is reported");
         assert_eq!(kept[0].2, made, "the compressed bytes are reported");
 
         assert_eq!(lay_out(&dir, name), Laid::FromShort);

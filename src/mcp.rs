@@ -1306,11 +1306,11 @@ HOW THIS FILE IS RUN
     looks at the whole of a file for the marks of such a server, and one of them
     anywhere makes it run this file as a server of that kind, with the runner of
     the program left out.
-  * The names tool and note already stand in the room of this file. Do not
-    import them, and do not write over them.
-  * Only the library that stands with Python may be imported. One import that
-    fails takes the whole server away, and the reason stands in the sheet of
-    settings.
+  * The names `tool` and `note` are already defined in this file. Do not import
+    them, and do not write over them.
+  * Only a library that comes with Python may be imported. One import that
+    fails stops the whole server, and the reason appears in the settings
+    panel.
   * Each look at this server starts a fresh process, and so does each call of
     one of its tools. The process is let go again when the answer came back, so
     nothing stands between two calls. Do not keep what a call found in a name of
