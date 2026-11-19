@@ -31,7 +31,9 @@
 //     run out: the clock, the marker that adds five minutes, and the stop marker
 //   AN_QUEUE=1 node page-shot.js rich p.png       # the list of the messages
 //     waiting to go, as the program keeps it. AN_QUEUEHELD=1 markers the list as
-//     stopped. Remain with AN_CLICK='#queuehead' to see the rows
+//     stopped. Use AN_CLICK='#queuehead' to see the rows open.
+//   AN_SIDE=1 node page-shot.js rich p.png        # the side bar, open
+//   AN_PIXEL=1 node page-shot.js rich p.png       # the pixel-art form of the theme
 //   AN_GIFTS=1 node page-shot.js rich p.png       # the conversation ends with the blocks
 //     of the files the download tool proposed, with their buttons
 //   AN_SUGGEST=1 node page-shot.js rich p.png     # the conversation ends with the button
@@ -48,9 +50,9 @@
 //     puts the pace of the log on manual, which is how the button of Refresh is
 //     checked remaining live; the other two paces leave it greyed
 //   AN_THEME=corporate node page-shot.js home-pale p.png
-//     draws the scene in one of the four themes: light, dark, silver or corporate. A
-//     name that ends in -dark, -silver or -corporate does the same, and -pale asks
-//     for the pale one
+//     draws the scene in one of the five themes: light, dark, silver, corporate or
+//     neon. A name that ends in -dark, -silver, -corporate or -neon does the same,
+//     and -pale asks for the pale one
 //   AN_LOGKIND=program node page-shot.js sheet-logs p.png
 //     reads the log of the program instead of the output of llama.cpp, which is
 //     how the switch at the header of the Logs tab is checked
@@ -579,6 +581,7 @@ function scene(name, dark, theme) {
     sandbox_note: 'bubblewrap works. A command sees only the working directory of '
       + 'the chat, and it has no network.',
     status: 'Ready', dark: !!dark, theme: theme || (dark ? 'dark' : 'light'),
+    theme_pixel: process.env.AN_PIXEL === '1',
     data_dir: '/home/user/.local/share/autumn-natter',
     contexts_dir: '/home/user/.local/share/autumn-natter/contexts'
   };
@@ -1312,8 +1315,9 @@ async function main() {
   if (name.endsWith('-dark')) { dark = true; theme = 'dark'; name = name.slice(0, -5); }
   else if (name.endsWith('-silver')) { theme = 'silver'; name = name.slice(0, -7); }
   else if (name.endsWith('-corporate')) { theme = 'corporate'; name = name.slice(0, -10); }
+  else if (name.endsWith('-neon')) { theme = 'neon'; name = name.slice(0, -5); }
   else if (name.endsWith('-pale')) { theme = 'light'; name = name.slice(0, -5); }
-  if (theme && ['light', 'dark', 'silver', 'corporate'].indexOf(theme) < 0) { theme = 'light'; }
+  if (theme && ['light', 'dark', 'silver', 'corporate', 'neon'].indexOf(theme) < 0) { theme = 'light'; }
   const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs' || name === 'sheet-mcp';
   const state = scene(isSheet ? 'chat' : name, dark, theme);
   CONFIG.theme = theme || 'light';
@@ -1703,6 +1707,16 @@ async function main() {
     });
     await new Promise(function (r) { setTimeout(r, 250); });
   }
+  // AN_SIDE=1 opens the side bar, which the program keeps closed until the user asks for it, so
+  // its parts and the corner where it meets the top bar can be seen.
+  if (process.env.AN_SIDE === '1') {
+    await view.evaluate(function () {
+      document.body.classList.add('sideopen');
+    });
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
+  // AN_PIXEL=1 draws the pixel-art form of the theme, which is a word of the state the program
+  // sends, as the settings panel sends it for the user.
   // AN_HOVER=selector puts the mouse over one item, so an appearance that only shows when the
   // user hovers over it can be seen. It comes before AN_CLICK, so a click may land on an item
   // that is in a card under the pointer. AN_PICK=selector draws an image of each item that
