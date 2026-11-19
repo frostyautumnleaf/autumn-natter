@@ -8939,7 +8939,8 @@ fn run_turn(
         // out of a handoff summary when the conversation remains past the limit. It cannot wait
         // for the request, as the hand over an answer does: a conversation that is sent past
         // the limit is cut off under its first piece, the model never comes to a word, and the
-        // answer ends under the text of a space that gave out. That is read as an error in the
+        // answer ends under the text about a context window that filled. That is read as an
+        // error in the
         // program, and it is the very error the summarisation was set aside to keep the
         // conversation out of. The result of a tool is the commonest path there, for it is
         // written into the chat after the last number the server spoke: the conversation
@@ -9246,10 +9247,10 @@ fn run_turn(
                     // The pointer is over the writing, and there is nothing to stop while the
                     // model has written no word of its own. A step that gave neither text nor
                     // thinking nor a call costs nothing to let come to its end, and putting the
-                    // pointer up over it is what ended a chat under the text of a space that
-                    // gave out: the space was freed, and the answer was stopped all the same,
-                    // because the step that had been stopped held no word of the model to carry
-                    // on. The space of such a step is created after the turn instead, on
+                    // pointer over it is what ended a chat under the text about a context window
+                    // that had filled: the space was freed, and the answer was stopped all the
+                    // same, because the step that had been stopped held no text of the model to
+                    // carry on. The space of such a step is created after the turn instead, on
                     // the number the server spoke of it, and the model is put back to work
                     // behind the summary, which is what a summary is written for. Note that the
                     // size of the context is weighed here on the numbers of the server, and
@@ -9418,8 +9419,8 @@ fn run_turn(
             // request that followed a space made here would end on the marker of the
             // summarisation, and a model with nothing to give answers that with the marker of
             // an empty turn again, which is the chat the user saw: no answer, and a space
-            // spent. The row of the turn of nothing is written as ever, and the word about the
-            // space that gave out is after it. The space is freed here, before the answer is
+            // spent. The row of the turn of nothing is written as ever, and the note about the
+            // context window that filled is after it. The space is freed here, before the answer is
             // ended and not after the send: the conversation of an overfull chat is weighed on
             // the number the server spoke and not on a guess beside it, for the guess of a
             // context of code and of results reads under the limit while the server remains
