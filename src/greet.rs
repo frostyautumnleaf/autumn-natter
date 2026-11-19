@@ -1,13 +1,13 @@
-// The one line the program shows above the chat box when no chat is open.
+// The one line the program shows above the chat composer when no chat is open.
 //
-// The line comes from the clock. The hour picks a band, and each band holds ten
-// lines. The minute picks one of the ten, so the line changes now and then but
-// never at random: the same clock time always gives the same line.
+// The line comes from the clock. The hour picks a band, and each band holds ten lines. The
+// minute picks one of the ten, so the line changes now and then but never at random: the same
+// clock time always gives the same line.
 
 // Early morning, from five to eight.
 const EARLY: [&str; 10] = [
     "What are we doing today?",
-    "The day is young. What shall we talk about?",
+    "The day is young. What shall we conversation about?",
     "Start the day with a good question.",
     "Ready when you are.",
     "Something on your mind before the day starts?",
@@ -41,7 +41,7 @@ const MIDDAY: [&str; 10] = [
     "What are we solving today?",
     "Pick a thread and pull it.",
     "Nothing written yet, and no rush.",
-    "Half the day gone. What is left to do?",
+    "Half the day removed. What is left to do?",
     "Put the question here.",
     "Shall we have a go at something?",
 ];
@@ -54,7 +54,7 @@ const AFTERNOON: [&str; 10] = [
     "What are we finishing today?",
     "Keep the ball rolling.",
     "Write it while the light holds.",
-    "One more thing to try?",
+    "One more item to try?",
     "Where were we?",
     "The day is not over yet.",
     "Let us make the rest of the day count.",
@@ -83,15 +83,15 @@ const NIGHT: [&str; 10] = [
     "Late, and worth it.",
     "Why are you still up? Tell me.",
     "One more thread before sleep?",
-    "The night is quiet. Your turn.",
+    "The night is idle. Your turn.",
     "Burning the midnight oil?",
     "Ask it now, sleep after.",
 ];
 
 const LINES: [[&str; 10]; 6] = [EARLY, MORNING, MIDDAY, AFTERNOON, EVENING, NIGHT];
 
-// Which band, and which line of that band, for one hour, minute and day. The
-// hour is the hour the window shows, so the line and the clock agree.
+// Which band, and which line of that band, for one hour, minute and day. The hour is the hour
+// the window shows, so the line and the clock agree.
 fn pick(hour: i64, minute: i64, day: i64) -> (usize, usize) {
     let band = if (5..8).contains(&hour) {
         0
@@ -111,8 +111,8 @@ fn pick(hour: i64, minute: i64, day: i64) -> (usize, usize) {
     (band, slot.rem_euclid(10) as usize)
 }
 
-// The hour in the clock the rest of the program uses. The chat times follow the
-// same rule, so the greeting and the clock of the window never disagree.
+// The hour in the clock the rest of the program uses. The chat times follow the same rule, so
+// the greeting and the clock of the window never disagree.
 fn hour_of_day(secs: i64) -> i64 {
     let clock = crate::store::format_clock(secs);
     match clock

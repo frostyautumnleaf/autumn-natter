@@ -1,8 +1,8 @@
-// The five skins, and the pixel-art form of them, drawn out for the eye: the chat
-// with its blocks, and the sheet of the settings open at the Program tab, in each
-// form of each skin.
+// The five themes, and the pixel-art form of them, drawn out for the eye icon: the chat
+// with its blocks, and the settings panel open at the Program tab, in each
+// form of each theme.
 //
-//   node skin-shot.js                 # every skin, both forms, both faces
+//   node skin-shot.js                  # every theme, both forms, both pages
 //   AN_PAGE=web/page.html node skin-shot.js
 const path = require('path');
 const puppeteer = require('puppeteer');
@@ -30,39 +30,39 @@ function stateOf(theme, pixel) {
     models: [{ id: 'm1', name: 'Qwen3.5-0.8B-Q6_K_XL', kind: 'GGUF' }],
     repository: { id: 'r1', name: 'autumn-natter' },
     repositories: [{ id: 'r1', name: 'autumn-natter' }, { id: 'r2', name: 'another-work' }],
-    chat: { id: 'c1', title: 'A chat in every skin', planning: false, planned: false },
+    chat: { id: 'c1', title: 'A chat in every theme', planning: false, planned: false },
     chats: [
-      { id: 'c1', title: 'A chat in every skin', repo: '', when: 'Today 09:04',
-        active: true, preview: 'Five skins, two forms.' },
+      { id: 'c1', title: 'A chat in every theme', repo: '', when: 'Today 09:04',
+        active: true, preview: 'Five themes, two forms.' },
       { id: 'c2', title: 'One being answered', repo: 'r1', when: 'Today 09:02',
         active: false, preview: 'The squares hold.', working: true },
     ],
     commands: [{ name: '/plan', words: 'Plan the work before any of it is done.' }],
     home: false, greeting: 'Still here, still ready.', overview: false,
     messages: [
-      said('1', 'You', 'Draw the whole of the interface out of squares.'),
-      said('2', 'Assistant', 'The colours are those of the skin; only the shape moves.', {
-        reasoning: 'The corner of every part is nought, a shadow is a flat block, and the '
-          + 'edges of a mark are not smoothed, so a diagonal is a stair of squares.',
+      said('1', 'You', 'Draw all of the interface out of squares.'),
+      said('2', 'Assistant', 'The colours are those of the theme; only the form moves.', {
+        reasoning: 'The corner of every part is zero, a shadow is a flat block, and the '
+          + 'edges of a marker are not smoothed, so a diagonal is a stair of squares.',
         reasoning_ms: 2100,
       }),
-      said('3', 'Tool', 'skin: pale, dark, silver, corporate, neon\nchecked: 5 skins, 2 forms', {
+      said('3', 'Tool', 'theme: pale, dark, silver, corporate, neon\nchecked: 5 themes, 2 forms', {
         tool: 'command', tool_name: 'command', mono: true,
       }),
       said('4', 'Assistant', 'The file is `web/page.html`, and the form is `pixel`.\n\n'
-        + '```c\nint square = 1;\n```\n\n- the corner is nought\n- the shadow is a block', {
+        + '```c\nint square = 1;\n```\n\n- the corner is zero\n- the shadow is a block', {
         reasoning: 'A fixed-width face is the face a pixel-art screen is written in.',
         reasoning_ms: 900,
       }),
       said('5', 'You', 'And the neon one?'),
       said('6', 'Assistant', 'A night of blue-black, with the hairlines lit.', {
-        reasoning: 'The accent is cyan, the leaf magenta, and a fault is a red of its own.',
+        reasoning: 'The accent is cyan, the leaf magenta, and an error is a red of its own.',
         reasoning_ms: 700,
       }),
     ],
     live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
     progress: { percent: 0, active: false, what: 'text' },
-    chapters: [{ id: 'ch1', title: 'The five skins', from: 0, to: 3, summary: 'Five skins, and the forms of them.' }],
+    chapters: [{ id: 'ch1', title: 'The five themes', from: 0, to: 3, summary: 'Five themes, and the forms of them.' }],
     live_tools: [],
     mcp: { servers: [] },
     thinking: { mode: 'off', available: true, modes: ['off'] },
@@ -125,6 +125,17 @@ async function start(state) {
   }
   await page.setViewport({ width: 1180, height: 820 });
   await page.goto('file://' + path.resolve(PAGE));
+  // The page face asks for the program mark at "/autumn-natter.svg", which the served page
+  // answers. Under file:// nothing answers an address from the root of the disk, so the mark is
+  // pointed at the file of the asset in this repository.
+  if (process.env.AN_PAGE) {
+    await page.evaluate(function () {
+      var marks = document.querySelectorAll('img.mark[src^="/"]');
+      for (var i = 0; i < marks.length; i++) {
+        marks[i].src = '../assets/icons/autumn-natter.svg';
+      }
+    });
+  }
   await sleep(400);
   return { browser: browser, page: page, errors: errors };
 }
@@ -144,8 +155,8 @@ async function main() {
       await sleep(500);
       const name = 'skinshot-' + tag + '-' + skin + (form ? '-pixel' : '');
       await run.page.screenshot({ path: path.join(__dirname, name + '.png') });
-      // The sheet of the settings, at the Program tab, where the marks of the five
-      // skins and of the two forms stand.
+      // The settings panel, at the Program tab, where the markers of the five themes and of the
+      // two forms remain.
       await run.page.evaluate(function () {
         if (typeof openSettings === 'function') { openSettings('program'); }
       });

@@ -49,8 +49,8 @@ fn engine_for(root: &Path, name: &str) -> Engine {
     Engine::start(cfg)
 }
 
-// Talk until the room is past the share set for the summarisation. True when a
-// summarisation was asked for.
+// Conversation until the space is past the share set for the summarisation. True when a
+// summarisation was requested.
 fn talk_until_cut(engine: &Engine) -> bool {
     for n in 1..14 {
         engine.prompt(format!("message {}", n), Vec::new());
@@ -74,13 +74,13 @@ fn a_summarisation_started_again_keeps_its_place_and_the_chat_goes_on() {
 
     let engine = engine_for(&root, "live-retry");
     engine.new_chat();
-    // The summary server is having a day, so the mark is left empty.
+    // The summary server is having a day, so the marker is left empty.
     std::fs::write(&bad, b"").expect("the mark of a bad summary");
     assert!(talk_until_cut(&engine), "the chat was never cut");
     sleep(Duration::from_millis(600));
     let s = engine.snapshot();
     println!(
-        "the bad one: marks={:?} status={}",
+        "the bad one: markers={:?} status={}",
         s.handoffs
             .iter()
             .map(|h| (h.number, h.state.to_string()))
@@ -107,9 +107,9 @@ fn a_summarisation_started_again_keeps_its_place_and_the_chat_goes_on() {
         .iter()
         .map(|h| (h.number, h.state.to_string()))
         .collect();
-    println!("after the retry: marks={:?} status={}", marks, s.status);
+    println!("after the retry: markers={:?} status={}", marks, s.status);
     assert_eq!(marks.len(), 1, "the retry made a second summarisation");
-    assert_eq!(marks[0].0, 1, "the number of the retried mark moved");
+    assert_eq!(marks[0].0, 1, "the number of the retried marker moved");
     assert_eq!(marks[0].1, "done", "the summary was never written");
 
     // The chat takes a message again.
@@ -122,7 +122,7 @@ fn a_summarisation_started_again_keeps_its_place_and_the_chat_goes_on() {
         .filter(|m| m.role == "You")
         .map(|m| m.body.clone())
         .collect();
-    println!("reader messages: {:?}", bodies);
+    println!("user messages: {:?}", bodies);
     assert!(
         bodies.iter().any(|b| b == "after the summary"),
         "the chat would not take a message after the summarisation: {}",

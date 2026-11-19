@@ -41,31 +41,31 @@ impl Capture {
     }
 }
 
-// The clock of one call that is running. The call is given a time to come back
-// within, and the program that started it reads the same clock: the user may
-// lengthen the time or cut the call short while it runs, and a command that is
-// stopped leaves behind everything it had printed by then.
+// The clock of one call that is running. The call is given a time to return within, and the
+// program that started it reads the same clock: the user may lengthen the time or cut the call
+// short while it runs, and a command that is stopped leaves behind everything it had printed by
+// then.
 #[derive(Clone, Debug)]
 pub struct Watch {
     began: Instant,
-    // Milliseconds the call may take, counted from the moment it began. The
-    // greatest number stands for no limit at all, which is what a call is
-    // given when the user turned the feature off.
+    // Milliseconds the call may take, counted from the moment it began. The greatest number
+    // means no limit at all, which is what a call is given when the user turned the feature
+    // off.
     limit: Arc<AtomicU64>,
-    // The user asked for the call to end now.
+    // The user requested the call to end now.
     stop: Arc<AtomicBool>,
 }
 
-// The number that stands for a call with no end of time.
+// The number that means a call with no end of time.
 const NO_LIMIT: u64 = u64::MAX / 2;
 
 impl Watch {
-    // A call that must come back within the time given.
+    // A call that must return within the time given.
     pub fn new(limit: Duration) -> Watch {
         Watch::held(limit.as_millis() as u64)
     }
 
-    // The same, from milliseconds. The greatest number stands for no limit.
+    // The same, from milliseconds. The greatest number means no limit.
     fn held(millis: u64) -> Watch {
         Watch {
             began: Instant::now(),
@@ -74,7 +74,7 @@ impl Watch {
         }
     }
 
-    // A call that is given no time at all: it runs until it comes back.
+    // A call that is given no time at all: it runs until it returns.
     pub fn unbounded() -> Watch {
         Watch::held(NO_LIMIT)
     }
@@ -93,17 +93,16 @@ impl Watch {
         self.began.elapsed()
     }
 
-    // The time the call has left, or nothing when it was given no limit. A call
-    // that is over its time has nothing left, and never less.
+    // The time the call has left, or nothing when it was given no limit. A call that is over
+    // its time has nothing left, and never less.
     pub fn left(&self) -> Option<Duration> {
         let given = self.limit()?;
         let gone = self.began.elapsed();
         Some(given.checked_sub(gone).unwrap_or(Duration::ZERO))
     }
 
-    // Give the call more time. Each press of the mark adds to the time that is
-    // left, so a call that was near its end has the whole of the new time in
-    // front of it.
+    // Give the call more time. Each press of the marker adds to the time that is left, so a
+    // call that was near its end has all of the new time in front of it.
     pub fn extend(&self, by: Duration) {
         // A call with no limit has nothing to add to.
         if self.limit().is_none() {
@@ -116,38 +115,37 @@ impl Watch {
         );
     }
 
-    // The user asked for the call to end. The clock is not moved: the call ends
-    // because the flag stands, and the words that come back say who stopped it.
+    // The user requested the call to end. The clock is not moved: the call ends because the
+    // flag remains, and the text that return reports who stopped it.
     pub fn stop_now(&self) {
         self.stop.store(true, Ordering::Relaxed);
     }
 
-    // True when the user asked for the call to end.
+    // True when the user requested the call to end.
     pub fn stopped(&self) -> bool {
         self.stop.load(Ordering::Relaxed)
     }
 
-    // True when there is nothing left to wait for: the time is gone, or the
-    // user asked for the call to end.
+    // True when there is nothing left to wait for: the time is removed, or the user requested
+    // the call to end.
     pub fn expired(&self) -> bool {
         self.stopped() || self.left().is_some_and(|left| left.is_zero())
     }
 }
 
-// Wait for a thing of the program to come back within the clock of the call. The
-// thing is worked on a thread of its own, and the wait is bounded by the clock: so
-// long as the time stands, or the user has not asked for the call to end, nothing
-// is waited for further and nothing at all is given back.
+// Wait for an item of the program to return within the clock of the call. The item is worked on
+// a thread of its own, and the wait is bounded by the clock: so long as the time remains, or
+// the user has not requested the call to end, nothing is waited for further and nothing at all
+// is given back.
 //
-// This stands for the tools that are not a command, and above all for a server of
-// the user's own: such a thing reaches out over a pipe or over the network and can
-// stand waiting for an answer that never comes. The clock of the call was read by
-// nothing in that road, so a call that never came back held the chat with a block
-// that said "running" for hours, and neither the mark that cuts the call short nor
-// the mark that stops the answer could do anything, for nothing looked at the flag
-// they set. A thing that never comes back is no reason for a chat to stand still
-// for ever. The work may still be going on its thread when this gives up; the words
-// the call gives back say that what the tool does after this is not known.
+// This means the tools that are not a command, and above all for a server of the user's own:
+// such an item reaches out over a pipe or over the network and can remain waiting for an answer
+// that never comes. The clock of the call was read by nothing in that path, so a call that
+// never returned held the chat with a block that stated "running" for hours, and neither the
+// marker that cuts the call short nor the marker that stops the answer could do anything, for
+// nothing checked the flag they set. An item that never returns is no reason for a chat to stay
+// still for ever. The work may still be going on its thread when this gives up; the text the
+// call returns say that what the tool does after this is not known.
 pub fn within<T: Send + 'static, W: FnOnce() -> T + Send + 'static>(watch: &Watch, work: W) -> Option<T> {
     let (told, hearing) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -160,8 +158,7 @@ pub fn within<T: Send + 'static, W: FnOnce() -> T + Send + 'static>(watch: &Watc
             .unwrap_or(RUN_STEP);
         match hearing.recv_timeout(step) {
             Ok(made) => return Some(made),
-            // The thread that was to bring the thing is gone, so nothing of it is
-            // to be had.
+            // The thread that was to bring the item is removed, so nothing of it is to be had.
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
@@ -171,8 +168,8 @@ pub fn within<T: Send + 'static, W: FnOnce() -> T + Send + 'static>(watch: &Watc
     }
 }
 
-// Run a program and read what it prints. The call never waits longer than the
-// timeout. A program that cannot be started gives a failed Capture.
+// Run a program and read what it prints. The call never waits longer than the timeout. A
+// program that cannot be started gives a failed Capture.
 pub fn capture<A: AsRef<std::ffi::OsStr>>(program: &str, args: &[A], timeout: Duration) -> Capture {
     capture_in(program, args, None, timeout)
 }
@@ -187,32 +184,28 @@ pub fn capture_in<A: AsRef<std::ffi::OsStr>>(
     capture_watch_in(program, args, cwd, &Watch::new(timeout))
 }
 
-// The longest one step of the wait for a run that is going. The clock is read
-// again at the end of every step, so a call that was given more time is left
-// alone and one the user cut short is stopped soon after the mark is pressed.
-// A run that comes back of its own accord is known at once, for its end is
-// brought to the wait by a thread of its own.
+// The longest one step of the wait for a run that is going. The clock is read again at the end
+// of every step, so a call that was given more time is skipped and one the user truncated is
+// stopped soon after the marker is pressed. A run that returns of its own accord is known at
+// once, for its end is brought to the wait by a thread of its own.
 const RUN_STEP: Duration = Duration::from_millis(100);
 
-// The time the two readers of the output pipes are given to bring the last of
-// the words after the run has stopped. Once the run is stopped the pipes close
-// in a moment, so this is only a wall: a child that put itself outside the
-// group of the run could hold a pipe open for ever, and the call never waits
-// for it.
+// The time the two readers of the output pipes are given to bring the last of the text after
+// the run has stopped. Once the run is stopped the pipes close in a moment, so this is only a
+// wall: a child that put itself outside the group of the run could hold a pipe open for ever,
+// and the call never waits for it.
 const WORDS_GRACE: Duration = Duration::from_millis(500);
 
-// The same, with a clock the user may lengthen or cut short while the program
-// runs. Everything the program printed before it was stopped stands in the
-// answer, for a model that is told a call ran out of time still has to know
-// what the call managed to say.
+// The same, with a clock the user may lengthen or truncated while the program runs. Everything
+// the program printed before it was stopped is in the answer, for a model that is informed a
+// call ran out of time still has to know what the call managed to say.
 //
-// Two rules keep the call from being held longer than the run it watches.
-// The run is put in a group of processes of its own and the signal goes to the
-// group, for a shell forks the command it was given, and the child it forks
-// holds the output pipes open: a signal to the shell alone leaves the call
-// waiting for that child to end by itself. And the two pipes are read on
-// threads of their own into words the call shares with them, so a call that is
-// stopped comes back at once with the words read up to that moment.
+// Two rules keep the call from being held longer than the run it watches. The run is put in a
+// group of processes of its own and the signal goes to the group, for a shell forks the command
+// it was given, and the child it forks holds the output pipes open: a signal to the shell alone
+// leaves the call waiting for that child to end by itself. And the two pipes are read on
+// threads of their own into text the call shares with them, so a call that is stopped returns
+// at once with the text reads up to that moment.
 pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
     program: &str,
     args: &[A],
@@ -237,10 +230,10 @@ pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
 
     let pid = child.id();
 
-    // Read the two output pipes at the same time, each on a thread of its own.
-    // One pipe must not wait for the other, or a program that prints a lot
-    // stops writing, and neither of them may hold the call: the words are taken
-    // from the shared place as they stand when the call is over.
+    // Read the two output pipes at the same time, each on a thread of its own. One pipe must
+    // not wait for the other, or a program that prints a lot stops writing, and neither of them
+    // may hold the call: the text is taken from the shared place as they are now when the call
+    // is over.
     let out_words = Words::new();
     let err_words = Words::new();
     let out_reader = child
@@ -252,8 +245,8 @@ pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
         .take()
         .map(|pipe| read_words(pipe, err_words.clone()));
 
-    // A thread waits for the program itself, so that a run which comes back is
-    // known at once and not at the next step of the wait here.
+    // A thread waits for the program itself, so that a run which returns is known at once and
+    // not at the next step of the wait here.
     let (told, hearing) = mpsc::channel();
     std::thread::spawn(move || {
         let _ = told.send(child.wait());
@@ -270,8 +263,8 @@ pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
                 status = Some(done);
                 break;
             }
-            // The thread that was to say how the run ended is gone, so nothing
-            // is waited for further.
+            // The thread that was to say how the run ended is removed, so nothing is waited for
+            // further.
             Ok(Err(problem)) => {
                 stop_group(pid);
                 return Capture::failed(&problem.to_string());
@@ -287,13 +280,11 @@ pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
             break;
         }
     }
-    // The call is over, and the whole of the run goes with it. What is still
-    // going, and what still holds a pipe of the run open, is a child of the
-    // program that was started: left alive it would print into a pipe nobody
-    // reads for the rest of its life.
+    // The call is over, and all of the run goes with it. What is still going, and what still
+    // holds a pipe of the run open, is a child of the program that was started: left alive it
+    // would print into a pipe nobody reads for the rest of its life.
     stop_group(pid);
-    // The readers are given a little time to bring what the run printed at the
-    // end of it.
+    // The readers are given a little time to bring what the run printed at the end of it.
     wait_for_words(out_reader, WORDS_GRACE);
     wait_for_words(err_reader, WORDS_GRACE);
 
@@ -319,8 +310,8 @@ pub fn capture_watch_in<A: AsRef<std::ffi::OsStr>>(
     }
 }
 
-// The words of one output pipe, held where the call can read them while the
-// thread that reads the pipe is still adding to them.
+// The text of one output pipe, held where the call can read it while the thread that reads
+// the pipe is still adding to them.
 #[derive(Clone)]
 struct Words(Arc<Mutex<Vec<u8>>>);
 
@@ -329,25 +320,24 @@ impl Words {
         Words(Arc::new(Mutex::new(Vec::new())))
     }
 
-    // Add what was read from the pipe. Words are kept as bytes, so a run that
-    // is stopped between the parts of a sign of more than one byte loses that
-    // sign and nothing else.
+    // Add what was read from the pipe. Text is kept as bytes, so a run that is stopped between
+    // the parts of a sign of more than one byte loses that sign and nothing else.
     fn add(&self, made: &[u8]) {
         if let Ok(mut held) = self.0.lock() {
             held.extend_from_slice(made);
         }
     }
 
-    // The words as they stand at this moment.
+    // The text as they are now at this moment.
     fn of(&self) -> String {
         let held = self.0.lock().map(|held| held.clone()).unwrap_or_default();
         String::from_utf8_lossy(&held).to_string()
     }
 }
 
-// Read one pipe on a thread of its own, until the pipe closes. What was read
-// goes into the shared words, so the call may take them whenever it is over,
-// whether the pipe has closed or no.
+// Read one pipe on a thread of its own, until the pipe closes. What was read goes into the
+// shared text, so the call may take them whenever it is over, whether the pipe has closed or
+// no.
 fn read_words<R: Read + Send + 'static>(
     mut pipe: R,
     words: Words,
@@ -362,8 +352,8 @@ fn read_words<R: Read + Send + 'static>(
     })
 }
 
-// Give one reader of a pipe the time given to end. When the time is gone the
-// reader is left to itself, and the call takes the words as they stand.
+// Give one user of a pipe the time given to end. When the time is removed the user is left to
+// itself, and the call takes the text as they are now.
 fn wait_for_words(reader: Option<std::thread::JoinHandle<()>>, grace: Duration) {
     let Some(reader) = reader else { return };
     let began = Instant::now();
@@ -376,14 +366,12 @@ fn wait_for_words(reader: Option<std::thread::JoinHandle<()>>, grace: Duration) 
     let _ = reader.join();
 }
 
-// Put the run in a group of processes of its own. The command a shell is given
-// becomes a child of that shell, and the children of the run are of the group
-// too, so one signal stops the whole of it. No group is set outside unix: the
-// group of the run is then the group of the program that started it, and a
-// signal to it would stop the program itself with the run. The two ways a run
-// is stopped are the clock of the call and the mark the user presses; both go
-// through stop_group here, and neither reaches a run that is no longer of the
-// group of the program.
+// Put the run in a group of processes of its own. The command a shell is given becomes a child
+// of that shell, and the children of the run are of the group too, so one signal stops all of
+// it. No group is set outside unix: the group of the run is then the group of the program that
+// started it, and a signal to it would stop the program itself with the run. The two ways a run
+// is stopped are the clock of the call and the marker the user presses; both go through
+// stop_group here, and neither reaches a run that is no longer of the group of the program.
 fn in_its_own_group(command: &mut Command) {
     #[cfg(unix)]
     {
@@ -402,11 +390,10 @@ fn trim_newlines(text: &mut String) {
     }
 }
 
-// Stop a whole run: the program that was started and every child of it. The id
-// of the group is the id of the program, which was put in a group of its own
-// by in_its_own_group. A signal to a negative id goes to the group of that id.
-// The one road that stops a single process, and nothing of its children, is
-// kill_pid.
+// Stop a whole run: the program that was started and every child of it. The id of the group is
+// the id of the program, which was put in a group of its own by in_its_own_group. A signal to a
+// negative id goes to the group of that id. The one path that stops a single process, and
+// nothing of its children, is kill_pid.
 pub fn stop_group(pid: u32) {
     #[cfg(unix)]
     {
@@ -426,9 +413,8 @@ pub fn stop_group(pid: u32) {
     }
 }
 
-// Stop one program by its process id. A child it forked is not stopped with it
-// and may hold an output pipe open, so a run that was started for its output is
-// stopped by stop_group.
+// Stop one program by its process id. A child it forked is not stopped with it and may hold an
+// output pipe open, so a run that was started for its output is stopped by stop_group.
 pub fn kill_pid(pid: u32) {
     #[cfg(unix)]
     {
@@ -450,8 +436,8 @@ pub fn kill_pid(pid: u32) {
     }
 }
 
-// Split one argument string into parts, like a shell does. Quotes keep parts
-// together. This is used for the extra arguments of llama.cpp.
+// Split one argument string into parts, like a shell does. Quotes keep parts together. This is
+// used for the extra arguments of llama.cpp.
 pub fn split_args(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();
@@ -493,10 +479,10 @@ pub fn split_args(text: &str) -> Vec<String> {
 // The sixty four characters base64 writes with, in the order of the table.
 const B64_TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-// Bytes turned into base64, as a data URL of a picture wants them. Three bytes
-// go out as four characters, and the last two of those stand for nothing when
-// the run of three was short. No crate is added for this: the program keeps the
-// weight of its binary down, and twenty lines of it are cheaper than a part.
+// Bytes turned into base64, as a data URL of an image wants them. Three bytes go out as four
+// characters, and the last two of those mean nothing when the run of three was short. No crate
+// is added for this: the program keeps the weight of its binary down, and twenty lines of it
+// are cheaper than a part.
 pub fn b64(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for part in bytes.chunks(3) {
@@ -507,17 +493,17 @@ pub fn b64(bytes: &[u8]) -> String {
         let pick = |shift: u32| B64_TABLE[(joined as usize >> shift) & 63] as char;
         out.push(pick(18));
         out.push(pick(12));
-        // A short run of two bytes says so with a mark, and one of one byte with
-        // two of them.
+        // A short run of two bytes records it with a marker, and one of one byte with two of
+        // them.
         out.push(if part.len() > 1 { pick(6) } else { '=' });
         out.push(if part.len() > 2 { pick(0) } else { '=' });
     }
     out
 }
 
-// Bytes turned back out of base64, as a data URL of a picture keeps them. A run
-// of marks that is no run of base64 is answered with nothing. The mark of the
-// end, and the new lines a long run is broken with, are passed over.
+// Bytes turned back out of base64, as a data URL of an image keeps them. A run of markers that
+// is no run of base64 is answered with nothing. The marker of the end, and the new lines a long
+// run is broken with, are passed over.
 pub fn b64_of(text: &str) -> Option<Vec<u8>> {
     let mut bits: u32 = 0;
     let mut held = 0u32;
@@ -548,8 +534,8 @@ pub fn b64_of(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-// The room a length code of DEFLATE stands for, and the bits of the room that
-// follow the code: the twenty nine codes of the lengths.
+// The base length a DEFLATE length code means, and the number of extra bits that follow
+// the code: the twenty-nine length codes.
 const LENGTH_ROOM: [(usize, u32); 29] = [
     (3, 0),
     (4, 0),
@@ -582,8 +568,8 @@ const LENGTH_ROOM: [(usize, u32); 29] = [
     (258, 0),
 ];
 
-// The way back a distance code stands for, and the bits of it that follow the
-// code: the thirty codes of the distances.
+// The way back a distance code means, and the bits of it that follow the code: the thirty codes
+// of the distances.
 const DISTANCE_ROOM: [(usize, u32); 30] = [
     (1, 0),
     (2, 0),
@@ -617,18 +603,18 @@ const DISTANCE_ROOM: [(usize, u32); 30] = [
     (24577, 13),
 ];
 
-// The order the lengths of the codes of a block written with its own table stand
-// in, and the greatest length of a code of that table.
+// The order the lengths of the codes of a block written with its own table are in, and the
+// greatest length of a code of that table.
 const CODE_LENGTH_ORDER: [usize; 19] =
     [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
-// The greatest length of a code of the shape, and the symbol that ends a block.
+// The greatest length of a code of the form, and the symbol that ends a block.
 const GREATEST_CODE: usize = 15;
 const END_OF_BLOCK: u16 = 256;
 
-// A run of bytes, read a few bits at a time. The bits of a byte are read from
-// its least end, which is how the shape writes them, and the words of a code are
-// read from the front of the code.
+// A run of bytes, read a few bits at a time. The bits of a byte are read from its least end,
+// which is how the form writes them, and the text of a code is reads from the start of the
+// code.
 struct Bits<'a> {
     data: &'a [u8],
     // The bit of the whole run that comes next.
@@ -660,8 +646,8 @@ impl<'a> Bits<'a> {
         Some(value)
     }
 
-    // Go on to the bound of the next byte, which is how a run of bytes that was
-    // put in whole begins.
+    // Go on to the bound of the next byte, which is how a run of bytes that was put in whole
+    // begins.
     fn align(&mut self) {
         self.at = self.at.div_ceil(8) * 8;
     }
@@ -684,10 +670,9 @@ impl<'a> Bits<'a> {
     }
 }
 
-// A table of codes: how many codes there are of each length, and the symbols
-// those codes stand for, the shortest first and in their order within a length.
-// A canonical table gives its codes in that order, so the two together are the
-// whole of the table.
+// A table of codes: how many codes there are of each length, and the symbols those codes mean,
+// the shortest first and in their order within a length. A canonical table gives its codes in
+// that order, so the two together are all of the table.
 struct Codes {
     counts: [u16; GREATEST_CODE + 1],
     symbols: Vec<u16>,
@@ -712,8 +697,8 @@ impl Codes {
         Codes { counts, symbols }
     }
 
-    // A symbol out of the run, or nothing when the codes of the table come to an
-    // end before the run does.
+    // A symbol out of the run, or nothing when the codes of the table come to an end before the
+    // run does.
     fn read(&self, bits: &mut Bits) -> Option<u16> {
         let mut code = 0i64;
         let mut first = 0i64;
@@ -726,9 +711,8 @@ impl Codes {
                 return self.symbols.get(place).copied();
             }
             index += count as usize;
-            // The first code of the next length is the code just after the last
-            // of this length, with a place kept for the bit this length has no
-            // more than the next one.
+            // The first code of the next length is the code just after the last of this length,
+            // with a place kept for the bit this length has no more than the next one.
             first = (first + count) << 1;
             code <<= 1;
         }
@@ -736,8 +720,8 @@ impl Codes {
     }
 }
 
-// The table of codes a block written with the table of the shape stands on: the
-// one for the words and the lengths, and the one for the distances.
+// The table of codes a block written with the table of the form is on: the one for the text and
+// the lengths, and the one for the distances.
 fn fixed_tables() -> (Codes, Codes) {
     let mut words = vec![0u8; 288];
     for (place, one) in words.iter_mut().enumerate() {
@@ -755,9 +739,8 @@ fn fixed_tables() -> (Codes, Codes) {
     (Codes::new(&words), Codes::new(&distances))
 }
 
-// The table of codes of a block that carries its own table with it. The lengths
-// of the codes of the two tables are themselves written with a table of a third
-// kind.
+// The table of codes of a block that carries its own table with it. The lengths of the codes of
+// the two tables are themselves written with a table of a third type.
 fn read_tables(bits: &mut Bits) -> Option<(Codes, Codes)> {
     let words = 257 + usize::try_from(bits.few(5)?).unwrap_or(0);
     let distances = 1 + usize::try_from(bits.few(5)?).unwrap_or(0);
@@ -783,9 +766,9 @@ fn read_tables(bits: &mut Bits) -> Option<(Codes, Codes)> {
             18 => (true, 7, 11),
             _ => return None,
         };
-        // The mark of a length held over says to write the length before it
-        // again, so there must be one. A run of noughts needs nothing before it:
-        // a table may begin with the whole of its front part nought.
+        // The marker of a length held over reports to write the length before it again, so
+        // there must be one. A run of zeros needs nothing before it: a table may begin with all
+        // of its front part zero.
         let last = *lengths.last().unwrap_or(&0);
         if !nought && lengths.is_empty() {
             return None;
@@ -803,23 +786,22 @@ fn read_tables(bits: &mut Bits) -> Option<(Codes, Codes)> {
     Some((Codes::new(word_lengths), Codes::new(distance_lengths)))
 }
 
-// Bytes made plain out of a run of DEFLATE, with the marks of a zlib stream in
-// front of them when they are there. This is what a stream of a PDF that says
-// `FlateDecode` holds: no crate is added for it, for the program keeps the
-// weight of its binary down, and a hundred lines of it are cheaper than a part.
-// A run that is no run of DEFLATE is answered with nothing, and so is one that
-// goes on for more than the ceiling asked for.
+// Bytes made plain out of a run of DEFLATE, with the markers of a zlib stream in front of them
+// when they are there. This is what a stream of a PDF that shows `FlateDecode` holds: no crate
+// is added for it, for the program keeps the weight of its binary down, and a hundred lines of
+// it are cheaper than a part. A run that is no run of DEFLATE is answered with nothing, and so
+// is one that goes on for more than the ceiling requested.
 pub fn inflate(bytes: &[u8], ceiling: usize) -> Option<Vec<u8>> {
     let mut bits = Bits::new(bytes);
-    // The two marks of a zlib stream say what shape the bytes behind them are of.
-    // A run without them is taken for raw DEFLATE, which is the same writing
-    // without the marks about it.
+    // The two markers of a zlib stream say what form the bytes behind them are of. A run
+    // without them is taken for raw DEFLATE, which is the same writing without the markers
+    // about it.
     if bytes.len() >= 2 && bytes[0] & 0x0f == 8 {
         let check = (u16::from(bytes[0]) << 8) | u16::from(bytes[1]);
         if check % 31 == 0 {
             bits.at = 16;
-            // The mark of a dictionary says that four bytes of the number of it
-            // stand behind the two marks.
+            // The marker of a dictionary reports that four bytes of the number of it are behind
+            // the two markers.
             if bytes[1] & 0x20 != 0 {
                 bits.few(32)?;
             }
@@ -831,8 +813,8 @@ pub fn inflate(bytes: &[u8], ceiling: usize) -> Option<Vec<u8>> {
         let kind = bits.few(2)?;
         let (words, distances) = match kind {
             0 => {
-                // A run of bytes put in whole, with its length twice over: once,
-                // and once again with every bit turned about.
+                // A run of bytes put in whole, with its length twice over: once, and once again
+                // with every bit turned about.
                 bits.align();
                 let length = usize::try_from(bits.pair()?).unwrap_or(0);
                 let again = bits.pair()?;
@@ -874,9 +856,9 @@ pub fn inflate(bytes: &[u8], ceiling: usize) -> Option<Vec<u8>> {
             if way == 0 || way > out.len() || out.len() + length > ceiling {
                 return None;
             }
-            // The words of the run copy out of the bytes before them, and may run
-            // over the bytes they are making, which is how the shape pays so
-            // little for a page of one letter over and over.
+            // The text of the run copy out of the bytes before them, and may run over the bytes
+            // they are making, which is how the form pays so little for a page of one letter
+            // over and over.
             let began = out.len() - way;
             for step in 0..length {
                 let one = out[began + step];
@@ -889,8 +871,8 @@ pub fn inflate(bytes: &[u8], ceiling: usize) -> Option<Vec<u8>> {
     }
 }
 
-// Tokens with a comma every three digits, like 64,763. Both windows show the
-// context size this way.
+// Tokens with a comma every three digits, like 64,763. Both windows show the context size this
+// way.
 pub fn count(value: u64) -> String {
     let digits = value.to_string();
     let mut out = String::new();
@@ -903,8 +885,8 @@ pub fn count(value: u64) -> String {
     out
 }
 
-// A free TCP port on the local machine. The port is taken from the operating
-// system, so two runs do not clash.
+// A free TCP port on the local computer. The port is taken from the operating system, so two
+// runs do not clash.
 pub fn free_port() -> Option<u16> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").ok()?;
     let port = listener.local_addr().ok()?.port();
@@ -912,8 +894,8 @@ pub fn free_port() -> Option<u16> {
     Some(port)
 }
 
-// The address of this machine on the local network. The UDP connect call does
-// not send a packet, it only selects the route the system would use.
+// The address of this computer on the local network. The UDP connect call does not send a
+// packet, it only selects the route the system would use.
 pub fn lan_address() -> Option<std::net::IpAddr> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     // A private address is used so no packet can leave the network.
@@ -926,9 +908,9 @@ pub fn lan_address() -> Option<std::net::IpAddr> {
 mod tests {
     use super::*;
 
-    // Bytes turned into base64, of the shapes a run of three bytes can come in.
-    // The words of a picture that goes to the model are made this way, so the
-    // table and the marks at the end must both be right.
+    // Bytes turned into base64, of the forms a run of three bytes can arrive. The text of an
+    // image that goes to the model is created this way, so the table and the markers at the end
+    // must both be right.
     #[test]
     fn bytes_are_turned_into_base64() {
         assert_eq!(b64(b""), "");
@@ -938,14 +920,12 @@ mod tests {
         assert_eq!(b64(b"foobar"), "Zm9vYmFy");
         assert_eq!(b64(&[0xff, 0xef, 0xbe]), "/+++");
         assert_eq!(b64(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), "AAECAwQFBgcICQ==");
-        // A character of more than one byte is bytes, and not a character, to
-        // the table.
+        // A character of more than one byte is bytes, and not a character, to the table.
         assert_eq!(b64("\u{e9}".as_bytes()), "w6k=");
     }
 
-    // The clock of a call: the time it has left, the time added to it, and the
-    // hand of the user. A call that was given no time at all is left alone by
-    // all three.
+    // The clock of a call: the time it has left, the time added to it, and the user moving the
+    // pointer. A call that was given no time at all is not touched by all three.
     #[test]
     fn the_clock_of_a_call_counts_and_can_be_moved() {
         let watch = Watch::new(Duration::from_millis(40));
@@ -957,7 +937,7 @@ mod tests {
         // More time puts the end of the call back, so the call is no longer over.
         watch.extend(Duration::from_millis(400));
         assert!(!watch.expired());
-        // The hand of the user ends the call at once, and says who ended it.
+        // The user moving the pointer ends the call at once, and reports who ended it.
         watch.stop_now();
         assert!(watch.expired());
         assert!(watch.stopped());
@@ -969,8 +949,7 @@ mod tests {
         assert!(free.limit().is_none());
     }
 
-    // A thing of the program that comes back within the clock is given back as it
-    // came.
+    // An item of the program that returns within the clock is given back as it came.
     #[test]
     fn a_thing_that_comes_back_within_its_clock_is_given_back() {
         let watch = Watch::new(Duration::from_secs(30));
@@ -978,10 +957,9 @@ mod tests {
         assert_eq!(made.as_deref(), Some("the words of the tool"));
     }
 
-    // The fault these tests stand for: a thing of the program that never comes
-    // back. The clock of the call is now read in that road, so the call is given up
-    // when its time is gone instead of holding the chat with a block that says
-    // "running" for as long as the program stands.
+    // The error these tests mean: an item of the program that never returns. The clock of the
+    // call is now read in that path, so the call is given up when its time is removed instead
+    // of holding the chat with a block that shows "running" for as long as the program remains.
     #[test]
     fn a_thing_that_never_comes_back_is_given_up_with_its_clock() {
         let watch = Watch::new(Duration::from_millis(300));
@@ -991,17 +969,17 @@ mod tests {
             String::from("words that come too late")
         });
         let gone = began.elapsed();
-        assert!(made.is_none(), "a thing that never came back was given back");
+        assert!(made.is_none(), "an item that never returned was given back");
         assert!(
             gone < Duration::from_secs(3),
-            "the call was held for {} ms after its clock was gone",
+            "the call was held for {} ms after its timeout elapsed",
             gone.as_millis()
         );
     }
 
-    // The same fault with the mark of the hand: a call that was given no time at
-    // all, and a thing that never comes back. The mark that cuts the call short has
-    // to be answered for at once, for that mark is the one thing the user has.
+    // The same error with the marker of the pointer: a call that was given no time at all, and
+    // an item that never returns. The marker that cuts the call short has to be answered for at
+    // once, for that marker is the one item the user has.
     #[test]
     fn a_thing_that_never_comes_back_is_given_up_with_the_hand() {
         let watch = Watch::unbounded();
@@ -1023,26 +1001,26 @@ mod tests {
         );
         assert!(
             gone < Duration::from_secs(3),
-            "the call was held for {} ms after the mark was pressed",
+            "the call was held for {} ms after the stop was requested",
             gone.as_millis()
         );
     }
 
-    // A run of words written with the table of a block, and a run put in whole:
-    // both with the two marks of a zlib stream about them, as the machine that
-    // wrote them wrote them. These are the two shapes a stream of a PDF page
-    // comes in, and the words must come back as they went.
+    // A run of text written with the table of a block, and a run put in whole: both with the
+    // two markers of a zlib stream about them, as the computer that wrote them wrote them.
+    // These are the two forms a stream of a PDF page arrives, and the text must return as they
+    // went.
     #[test]
     fn the_shape_of_the_machine_is_made_plain() {
-        let words = "The plan of the work stands here, down to the smallest detail. ".repeat(8);
+        let words = "The plan of the work is here, down to the smallest detail. ".repeat(8);
         let written = figures(
-            "78da0bc9485528c849cc53c84f532801b2cbf38bb2158a4b12f3528a1532528b52751452f2\
-             cbf3144af2c1b2c5b9893939a9c5250a29a9258999397a0a21a3da87a67600bd90b321",
+            "78da0bc9485528c849cc53c84f532801b2cbf38bb215328b1532528b52751452f2cbf314\
+             4af2c132c5b9893939a9c5250a29a9258999397a0a21a35a07af5600f884a599",
         );
         assert_eq!(
             inflate(&written, 1 << 20).as_deref(),
             Some(words.as_bytes()),
-            "the words of a block written with its own table came back other than they went"
+            "the text of a block written with its own table returned other than they went"
         );
         let whole = figures("7801010500faff68656c6c6f062c0215");
         assert_eq!(
@@ -1052,21 +1030,21 @@ mod tests {
         );
     }
 
-    // A run that is no run of DEFLATE, and one that would grow past the ceiling
-    // it was given: both answered with nothing.
+    // A run that is no run of DEFLATE, and one that would grow past the ceiling it was given:
+    // both answered with nothing.
     #[test]
     fn a_run_that_is_no_stream_is_answered_with_nothing() {
         assert!(inflate(b"these are no bytes of DEFLATE", 1 << 20).is_none());
-        let words = "The plan of the work stands here, down to the smallest detail. ".repeat(8);
+        let words = "The plan of the work is here, down to the smallest detail. ".repeat(8);
         let written = figures(
-            "78da0bc9485528c849cc53c84f532801b2cbf38bb2158a4b12f3528a1532528b52751452f2\
-             cbf3144af2c1b2c5b9893939a9c5250a29a9258999397a0a21a3da87a67600bd90b321",
+            "78da0bc9485528c849cc53c84f532801b2cbf38bb215328b1532528b52751452f2cbf314\
+             4af2c132c5b9893939a9c5250a29a9258999397a0a21a35a07af5600f884a599",
         );
         assert!(inflate(&written, 8).is_none());
         assert_eq!(inflate(&written, 1 << 20).map(|made| made.len()), Some(words.len()));
     }
 
-    // True when a program with these words in its command line is still going.
+    // True when a program with this text in its command line is still going.
     #[cfg(unix)]
     fn still_going(needle: &str) -> bool {
         Command::new("pgrep")
@@ -1078,10 +1056,10 @@ mod tests {
             .unwrap_or(false)
     }
 
-    // A run that is given less time than it takes is stopped, and the call
-    // comes back at once instead of waiting for the run to end by itself. The
-    // shell forks the command it was given, and that child holds the output
-    // pipe open, so the signal has to go to the group of the run.
+    // A run that is given less time than it takes is stopped, and the call returns at once
+    // instead of waiting for the run to end by itself. The shell forks the command it was
+    // given, and that child holds the output pipe open, so the signal has to go to the group of
+    // the run.
     #[cfg(unix)]
     #[test]
     fn a_run_out_of_time_is_stopped() {
@@ -1104,8 +1082,8 @@ mod tests {
         );
     }
 
-    // A command that forked is stopped with it: the children of the run go when
-    // its time is gone, and nothing of it is left behind.
+    // A command that forked is stopped with it: the children of the run go when its time is
+    // removed, and nothing of it is left behind.
     #[cfg(unix)]
     #[test]
     fn a_run_that_forked_is_stopped_with_it() {
@@ -1117,7 +1095,7 @@ mod tests {
             &Watch::new(Duration::from_millis(200)),
         );
         let gone = began.elapsed();
-        assert!(made.timed_out, "the run was not stopped when its time was gone");
+        assert!(made.timed_out, "the run was not stopped when its time ran out");
         assert!(
             gone < Duration::from_secs(5),
             "the call was held for {} ms",
@@ -1125,13 +1103,12 @@ mod tests {
         );
         assert!(
             !still_going("sleep 32"),
-            "a child of the run was left going after the call came back"
+            "a child of the run was left going after the call returned"
         );
     }
 
-    // A run that ends but leaves a child holding the output pipe open must not
-    // hold the call: the words it printed come back at once, and the child that
-    // was left is stopped with the call.
+    // A run that ends but leaves a child holding the output pipe open must not hold the call:
+    // the text it printed return at once, and the child that was left is stopped with the call.
     #[cfg(unix)]
     #[test]
     fn a_run_that_leaves_a_pipe_open_comes_back() {
@@ -1145,23 +1122,23 @@ mod tests {
         let gone = began.elapsed();
         assert!(
             made.out.contains("here"),
-            "the words the run printed did not come back: {:?}",
+            "the text the run printed did not return: {:?}",
             made.out
         );
         assert!(
             gone < Duration::from_secs(5),
-            "the call was held for {} ms by a pipe one child left open",
+            "the call was held for {} ms by a pipe that a child process left open",
             gone.as_millis()
         );
         assert!(
             !still_going("sleep 34"),
-            "a child of the run was left going after the call came back"
+            "a child of the run was left going after the call returned"
         );
     }
 
-    // A call that is stopped in the middle of a run still carries everything
-    // the run had printed by then, for a model has to know what the call
-    // managed to do before it was stopped.
+    // A call that is stopped in the middle of a run still carries everything the run had
+    // printed by then, for a model has to know what the call managed to do before it was
+    // stopped.
     #[cfg(unix)]
     #[test]
     fn the_words_before_the_end_come_back() {
@@ -1171,21 +1148,21 @@ mod tests {
             None,
             &Watch::new(Duration::from_millis(600)),
         );
-        assert!(made.timed_out, "the run was not stopped when its time was gone");
+        assert!(made.timed_out, "the run was not stopped when its time ran out");
         assert!(
             made.out.contains("one"),
-            "the words printed before the end were lost: {:?}",
+            "the text printed before the end were lost: {:?}",
             made.out
         );
         assert!(
             !made.out.contains("two"),
-            "words printed after the end came back: {:?}",
+            "text printed after the end returned: {:?}",
             made.out
         );
     }
 
-    // A call the user cuts short with the mark is stopped the same way as a
-    // call whose time ran out, and the words it had printed come back too.
+    // A call the user cuts short with the marker is stopped the same way as a call whose time
+    // ran out, and the text it had printed return too.
     #[cfg(unix)]
     #[test]
     fn a_call_the_user_stops_is_stopped_with_it() {
@@ -1207,18 +1184,18 @@ mod tests {
         assert!(watch.stopped(), "the clock does not say the user stopped the call");
         assert!(
             made.out.contains("one"),
-            "the words printed before the stop were lost: {:?}",
+            "the text printed before the stop were lost: {:?}",
             made.out
         );
         assert!(
             gone < Duration::from_secs(5),
-            "the call was held for {} ms after the mark was pressed",
+            "the call was held for {} ms after the stop was requested",
             gone.as_millis()
         );
     }
 
-    // A short run is not held by the wait either: it comes back with its words
-    // and its code as soon as it is done.
+    // A short run is not held by the wait either: it returns with its text and its code as soon
+    // as it is done.
     #[cfg(unix)]
     #[test]
     fn a_short_run_comes_back_at_once() {
@@ -1230,7 +1207,7 @@ mod tests {
             &Watch::new(Duration::from_secs(30)),
         );
         let gone = began.elapsed();
-        assert!(made.ok, "a run that ended well was not told to be well");
+        assert!(made.ok, "a run that ended well was not informed to be well");
         assert_eq!(made.code, 0);
         assert_eq!(made.out, "quick");
         assert!(!made.timed_out);

@@ -1,27 +1,23 @@
-// The pixelated rain behind the words of the chat, looked at in both faces of the
-// program with no engine behind it.
+// The pixelated rain behind the text of the chat, checked in both pages of the program with no
+// engine behind it.
 //
-// Seven things are looked at, in each face:
-//   * the canvas of the splash stands over the chat, catches no hand, and stands
-//     under every menu, sheet and window of the program;
-//   * nothing is drawn while the setting says nothing, whether the splash switch
-//     stands on or off;
-//   * the rain falls while the setting says rain, and it falls although no answer
-//     is being written - which is where it differs from the leaves;
-//   * the drops are drawn in squares: every square of the rain is a whole number
-//     of RAIN_CELL across, and no colour of it stands between one square and the
-//     next;
-//   * the rain splashes where it meets the chat composer box and the blocks of the
-//     chat - the top edge of each of them is stood where the box and the blocks
-//     stand - and with the splash switch turned off nothing at all is drawn on the
-//     canvas of the splash;
-//   * the splash of two drops that meet the same edge at the same place are not the
-//     same splash, for the water is thrown anew each time;
-//   * the sheet of the settings marks the word the settings hold, and the line of
-//     the splash stands only while the rain stands chosen.
+// Seven items are checked, in each page:
+// * the canvas of the splash is above the chat, receives no pointer events, and is under every
+//    menu, sheet and window of the program;
+// * nothing is drawn while the setting reports nothing, whether the splash switch is on or off;
+// * the rain falls while the setting reports rain, and it falls although no answer is being
+//    written - which is where it differs from the leaves;
+// * the drops are drawn in squares: every square of the rain is a whole number of RAIN_CELL
+//    across, and no colour of it is between one square and the next;
+// * the rain splashes where it meets the chat composer box and the blocks of the chat - the top
+//    edge of each of them is placed where the box and the blocks remain - and with the splash
+//    switch turned off nothing at all is drawn on the canvas of the splash;
+// * the splash of two drops that meet the same edge at the same place are not the same splash,
+//    for the water is thrown anew each time;
+// * the settings panel markers the word the settings hold, and the line of the splash remains
+//    only while the rain remains chosen.
 //
-//   node rain-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node rain-check.js
+// node rain-check.js AN_PAGE=web/page.html AN_FETCH=1 node rain-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -45,8 +41,8 @@ function said(id, role, body, extra) {
   return Object.assign(one, extra || {});
 }
 
-// A chat with a thought and a run of a tool in it, so that the rain has the blocks
-// of the chat to splash on as well as the chat composer box.
+// A chat with a thought and a run of a tool in it, so that the rain has the blocks of the chat
+// to splash on as well as the chat composer box.
 function stateOf(theme, background, splash, generating) {
   return {
     rev: 1, unchanged: false, theme: theme || 'light',
@@ -69,7 +65,7 @@ function stateOf(theme, background, splash, generating) {
       said('3', 'Tool', 'rain: started\nrain: 441 mm in an hour', {
         tool: 'command', tool_name: 'command', mono: true,
       }),
-      said('4', 'Assistant', 'It came down hard and square.', {
+      said('4', 'Assistant', 'It dropped hard and square.', {
         reasoning: 'The chat composer box has a top edge, and so has every block.',
         reasoning_ms: 900,
       }),
@@ -88,8 +84,8 @@ function stateOf(theme, background, splash, generating) {
   };
 }
 
-// What is stood in before the page runs: the two bridges, and the reading of the
-// two canvases the rain is drawn on.
+// What is placed in before the page runs: the two bridges, and the reading of the two canvases
+// the rain is drawn on.
 const LOOK = `
 // How many squares of a canvas the program has drawn into.
 function painted(where) {
@@ -214,12 +210,11 @@ async function main() {
     await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
     await sleep(500);
     const notes = [];
-    const note = (what) => { notes.push(what); console.log('  FAULT: ' + what); };
+    const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
     console.log('\n== ' + one.name);
 
-    // The canvas of the splash: over the chat, under the menus, and catching
-    // nothing.
+    // The canvas of the splash: over the chat, under the menus, and catching nothing.
     const stood = await page.evaluate(() => {
       const canvas = document.getElementById('splash');
       const main = document.getElementById('main');
@@ -238,16 +233,16 @@ async function main() {
       };
     });
     if (stood.missing) {
-      note('no canvas of the splash stands in the chat');
+      note('no canvas of the splash is in the chat');
     } else {
-      if (!stood.inMain) { note('the canvas of the splash does not stand in the chat'); }
-      if (!stood.overThread) { note('the splash stands under the talk, where a solid block would hide it'); }
-      if (!stood.underMenu) { note('the splash stands over the menus of the chat'); }
-      if (stood.clicks !== 'none') { note('the canvas of the splash catches the hand'); }
+      if (!stood.inMain) { note('the canvas of the splash is not in the chat'); }
+      if (!stood.overThread) { note('the splash is under the conversation, where a solid block would hide it'); }
+      if (!stood.underMenu) { note('the splash is above the menus of the chat'); }
+      if (stood.clicks !== 'none') { note('the canvas of the splash catches the pointer'); }
       if (!stood.covers) { note('the canvas of the splash does not reach the chat composer box'); }
     }
 
-    // Nothing at all is drawn while the setting says nothing.
+    // Nothing at all is drawn while the setting reports nothing.
     const dry = await page.evaluate(async () => {
       return { wet: await paintedOver('fall', 500), splash: await paintedOver('splash', 500) };
     });
@@ -255,7 +250,7 @@ async function main() {
       note('something is drawn with the setting at nothing: ' + JSON.stringify(dry));
     }
 
-    // The blocks the rain is meant to splash on stand in the chat.
+    // The blocks the rain is meant to splash on are in the chat.
     const edges = await page.evaluate(() => {
       return { blocks: document.querySelectorAll('#thread .tool').length,
         thoughts: document.querySelectorAll('#thread .think').length };
@@ -270,7 +265,7 @@ async function main() {
     await sleep(1200);
     const where = await page.evaluate(() => edges());
     if (where.at < 2) {
-      note('the rain is stood to splash on too little: ' + JSON.stringify(where));
+      note('the rain is placed to splash on too little: ' + JSON.stringify(where));
     } else {
       if (!where.box) { note('the top edge of the chat composer box is not among them'); }
       if (where.blocks && !where.tool) { note('the top edge of a block of the chat is not among them'); }
@@ -284,20 +279,20 @@ async function main() {
     if (wet.drops < 20) { note('the rain barely falls at all: ' + wet.drops + ' squares'); }
     if (wet.splash < 1) { note('the rain falls without splashing on anything'); }
     if (wet.squares.columns && wet.squares.ragged) {
-      note(wet.squares.ragged + ' columns of the rain do not stand on the squares');
+      note(wet.squares.ragged + ' columns of the rain are not on the squares');
     }
 
     // The splash of two drops at one place are not the same splash.
     const unlike = await page.evaluate(() => unlike(220, 300));
     if (unlike.of !== 2) { note('the page did not draw two splashes to compare'); }
-    if (unlike.same) { note('two splashes at one place are alike, so the water is not thrown anew'); }
+    if (unlike.same) { note('two splashes at one place are as well, so the water is not thrown anew'); }
 
     if (want) {
       await page.screenshot({ path: path.join(__dirname, 'rain-' + one.tag + '-light.png') });
     }
 
-    // With the splash switch turned off the rain still falls, and nothing is drawn
-    // on the canvas of the splash.
+    // With the splash switch turned off the rain still falls, and nothing is drawn on the
+    // canvas of the splash.
     await page.evaluate((given) => { window.__set(given); if (typeof poll === 'function') { poll(); } },
       stateOf('light', 'rain', false, false));
     await sleep(900);
@@ -312,7 +307,7 @@ async function main() {
       note('the rain splashes with the switch turned off: ' + past.splash + ' squares');
     }
 
-    // The leaves still wait for an answer, whichever way the rain stands.
+    // The leaves still wait for an answer, whichever way the rain remains.
     await page.evaluate((given) => { window.__set(given); if (typeof poll === 'function') { poll(); } },
       stateOf('light', 'leaves', true, false));
     await sleep(700);
@@ -323,7 +318,7 @@ async function main() {
       note('the leaves fell with no answer being written: ' + JSON.stringify(leaves));
     }
 
-    // The sheet of the settings.
+    // The settings panel.
     const sheet = await page.evaluate(() => {
       showBackgroundButtons('rain');
       var row = document.getElementById('fRainSplashRow');
@@ -342,16 +337,16 @@ async function main() {
       return out;
     });
     if (sheet.word !== 'rain' || !sheet.rain || sheet.none || sheet.leaves) {
-      note('the sheet does not stand at the rain: ' + JSON.stringify(sheet));
+      note('the stylesheet is not at the rain: ' + JSON.stringify(sheet));
     }
-    if (!sheet.shown) { note('the line of the splash is hidden while the rain stands chosen'); }
+    if (!sheet.shown) { note('the line of the splash is hidden while the rain remains chosen'); }
     if (sheet.after !== 'leaves' || !sheet.hidden) {
-      note('the line of the splash stands with the leaves: ' + JSON.stringify(sheet));
+      note('the line of the splash is with the leaves: ' + JSON.stringify(sheet));
     }
-    if (sheet.noneWord !== 'none') { note('the sheet does not stand at nothing'); }
+    if (sheet.noneWord !== 'none') { note('the stylesheet is not at nothing'); }
 
     if (want) {
-      // The same rain on the dark skin, and on the grey one, to be looked at.
+      // The same rain on the dark theme, and on the grey one, to be checked.
       await page.evaluate((given) => { window.__set(given); if (typeof poll === 'function') { poll(); } },
         stateOf('dark', 'rain', true, false));
       await sleep(1400);

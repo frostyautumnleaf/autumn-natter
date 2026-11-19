@@ -1,23 +1,20 @@
-// The line of the user's messages, looked at in both faces with no engine
-// behind them: the drawing is driven by hand, so the window face and the browser
-// face are read the same way. The live check (userline-check.js) does the same
-// things against a running program; this one is here because the two faces must
-// agree, and only one of them is served over HTTP.
+// The line of the user's messages, checked in both pages with no engine behind them: the
+// drawing is driven manually, so the window face and the browser face are read the same way.
+// The live check (userline-check.js) does the same items against a running program; this one is
+// here because the two pages must agree, and only one of them is served over HTTP.
 //
-//   node userline-face-check.js
+// node userline-face-check.js
 //
-// Five things are looked at, in each face:
-//   * the line is drawn, one dash for one message of the user, and the sayings
-//     of the model, the notes of the program and the runs of the tools stand on
-//     no dash;
-//   * a dash is a dash: a stroke across the line, not a bead on it;
-//   * the card of a dash says which message it is, when it was sent, shows a
-//     little of what it says, and counts what hung on it -- pictures told from
-//     the other files;
-//   * the setting switched off takes the line away;
-//   * a chat with more messages than the room beside the chat is tall for
-//     becomes a window onto a longer line, keeps the distance between its
-//     dashes, and shows the end of the line where the newest dash stands.
+// Five items are checked, in each page:
+// * the line is drawn, one dash for one message of the user, and the sayings of the model, the
+//    notes of the program and the runs of the tools are on no dash;
+// * a dash is a dash: a stroke across the line, not a bead on it;
+// * the card of a dash reports which message it is, when it was sent, shows a little of what it
+//    reports, and counts what hung on it -- images informed from the other files;
+// * the setting switched off takes the line away;
+// * a chat with more messages than the space beside the chat is tall for becomes a window onto
+//    a longer line, keeps the distance between its dashes, and shows the end of the line where
+//    the newest dash remains.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -31,13 +28,13 @@ const PAGES = process.env.AN_PAGE
 const shell = process.env.AN_SHELL_BIN || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// A talk with the marks of a working chat in it: sayings of the user, of the
-// model, runs of tools, a note, and one message with things hung on it.
+// A conversation with the markers of a working chat in it: sayings of the user, of the model,
+// runs of tools, a note, and one message with items hung on it.
 function talk(count) {
   const out = [];
   for (let n = 1; n <= count; n++) {
     out.push({
-      id: 'u' + n, role: 'You', body: 'Question ' + n + ' with a `mark` and a long tail of words',
+      id: 'u' + n, role: 'You', body: 'Question ' + n + ' with a `mark` and a long tail of text',
       when: '12:0' + (n % 10), attachments: n === 2
         ? [{ id: 'a1', name: 'cat.png', mime: 'image/png', image: 'x' },
            { id: 'a2', name: 'notes.md', mime: 'text/markdown', image: false }]
@@ -67,7 +64,7 @@ async function main() {
     await page.evaluateOnNewDocument('window.__talk = ' + talk.toString());
     await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
     const notes = [];
-    const note = (what) => { notes.push(what); console.log('  FAULT: ' + what); };
+    const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
     const made = await page.evaluate(() => {
       chatting.userline = true;
@@ -95,7 +92,7 @@ async function main() {
     if (!(made.cards[0] || '').startsWith('Your message 1')) {
       note('the first card does not say which message: ' + (made.cards[0] || '').slice(0, 60));
     }
-    if (!/Sent 12:0/.test(made.cards[0] || '')) { note('the first card says nothing of when'); }
+    if (!/Sent 12:0/.test(made.cards[0] || '')) { note('the first card reports nothing of when'); }
     if ((made.cards[0] || '').indexOf('Question 1') < 0) {
       note('the first card shows no preview');
     }
@@ -103,13 +100,13 @@ async function main() {
       note('the second card does not count the attachments: ' + (made.cards[1] || '').slice(0, 90));
     }
 
-    // The setting off, and a chat with more messages than the room is tall for:
-    // the line becomes a window onto a longer line, and the newest dash stands
-    // inside it. How the window slides is looked at by rail-face-check.js.
+    // The setting off, and a chat with more messages than the space is tall for: the line
+    // becomes a window onto a longer line, and the newest dash is inside it. How the window
+    // slides is checked by rail-face-check.js.
     await page.evaluate(() => {
       const box = document.getElementById('userline');
-      // The setting is the one the page reads, which is the mark the sheet
-      // moves -- not a mark carried in the state of one draw.
+      // The setting is the one the page reads, which is the marker the stylesheet moves -- not
+      // a marker carried in the state of one draw.
       chatting.userline = false;
       drawUserLine({ messages: window.__talk(4) });
       window.__off = box.classList.contains('hidden') || getComputedStyle(box).display === 'none';
@@ -129,8 +126,8 @@ async function main() {
       const here = box.getBoundingClientRect();
       const room = document.getElementById('stage').getBoundingClientRect();
       const last = track.lastElementChild.getBoundingClientRect();
-      // Clicking a dash of a chat whose words are not on the page does nothing,
-      // and must not fault.
+      // Clicking a dash of a chat whose text is not on the page does nothing, and must not
+      // error.
       box.querySelector('.unode').click();
       return {
         off: off, many: many, gap: gap,
@@ -140,11 +137,11 @@ async function main() {
         height: Math.round(here.height),
       };
     });
-    if (!rest.off) { note('the line stands with the setting off'); }
+    if (!rest.off) { note('the line is with the setting off'); }
     if (rest.many !== 60) { note('60 messages drew ' + rest.many + ' dashes'); }
-    if (!rest.more) { note('a line with no room was not made a window'); }
+    if (!rest.more) { note('a line with no space was not made a window'); }
     if (!(rest.gap > 20)) { note('the distance between the dashes changed: ' + rest.gap); }
-    if (!rest.newest) { note('the newest dash does not stand inside the window'); }
+    if (!rest.newest) { note('the newest dash is not inside the window'); }
     if (!rest.fits) { note('the line hangs out of the stage when the chat is long: ' + rest.height); }
 
     if (faults.length) { note('the face faulted: ' + faults.slice(0, 2).join(' | ')); }
@@ -155,7 +152,7 @@ async function main() {
     trouble += notes.length;
   }
   await browser.close();
-  console.log(trouble ? '\n' + trouble + ' faults' : '\nnothing amiss in either face');
+  console.log(trouble ? '\n' + trouble + ' errors' : '\nnothing amiss in either face');
   return trouble;
 }
 

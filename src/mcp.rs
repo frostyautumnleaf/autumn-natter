@@ -1,41 +1,36 @@
 // Custom MCP servers.
 //
-// MCP is the Model Context Protocol: a model is told what a program can do, and
-// the program does it when the model asks. The words between the two are
-// JSON-RPC 2.0, and the parts of the protocol this program reads are
-// `initialize`, `notifications/initialized`, `tools/list` and `tools/call`.
-// The client of the protocol is described at py.sdk.modelcontextprotocol.io.
+// MCP is the Model Context Protocol: a model is informed what a program can do, and the program
+// does it when the model asks. The text between the two are JSON-RPC 2.0, and the parts of the
+// protocol this program reads are `initialize`, `notifications/initialized`, `tools/list` and
+// `tools/call`. The client of the protocol is described at py.sdk.modelcontextprotocol.io.
 //
-// Three kinds of server stand here.
+// Three types of server is here.
 //
-//   * `stdio`: a program of this machine that speaks the protocol over its
-//     standard input and its standard output. The user names the whole line.
-//   * `http`: a server on the network, spoken to over Streamable HTTP. One
-//     POST of JSON-RPC to one address, and the answer comes back as JSON, or
-//     as a stream of `data:` lines.
-//   * `internal`: a server made of words the user pasted into the sheet of
-//     settings. This file writes the plumbing around those words - a small
-//     runner that speaks the protocol - and starts the pair as a stdio server.
-//     The code the user writes needs nothing but the library that stands with
-//     Python itself. A new server of that kind begins with an example of its
-//     own, `TEMPLATE`, which the sheet of settings puts in the field of the
-//     code. The head of that example is written for an AI, so a user may hand
-//     the whole of the field to an AI and get back a server that works.
+// * `stdio`: a program of this computer that speaks the protocol over its standard input and
+//    its standard output. The user names the whole line.
+// * `http`: a server on the network, spoken to over Streamable HTTP. One POST of JSON-RPC to
+//    one address, and the answer returns as JSON, or as a stream of `data:` lines.
+// * `internal`: a server made of text the user pasted into the settings panel. This file writes
+//    the plumbing around that text - a small runner that speaks the protocol - and starts the
+//    pair as a stdio server. The code the user writes needs nothing but the library that is
+//    with Python itself. A new server of that type begins with an example of its own,
+//    `TEMPLATE`, which the settings panel puts in the field of the code. The header of that
+//    example is written for an AI, so a user may hand all of the field to an AI and get back a
+//    server that works.
 //
-// The tools of a server reach the model under a name of its own:
-// `mcp__<server>__<tool>`, for the tools of two servers may share a name, and
-// a name of a tool has to say where the tool came from. The name is kept inside
-// the shape a chat template allows: letters, digits, the dash and the mark
-// below, no more than sixty four characters.
+// The tools of a server reach the model under a name of its own: `mcp__<server>__<tool>`, for
+// the tools of two servers may share a name, and a name of a tool has to say where the tool
+// came from. The name is kept inside the form a chat template allows: letters, digits, the dash
+// and the marker below, no more than sixty four characters.
 //
-// A server is reached for one look and let go again: the connection is opened,
-// the work is done, and the process or the session is closed. Nothing of a
-// server is left standing behind a closed window, and a server that hangs is
-// waited for so long and no longer.
+// A server is reached for one look and let go again: the connection is opened, the work is
+// done, and the process or the session is closed. Nothing of a server is left remaining behind
+// a closed window, and a server that hangs is waited for so long and no longer.
 //
-// A server of any kind runs in the program, as the web search and the tools
-// that work on the files do. It is never put inside the jail of a command, for
-// the jail has no network and no program of its own to run.
+// A server of any type runs in the program, as the web search and the tools that work on the
+// files do. It is never put inside the sandbox of a command, for the sandbox has no network and
+// no program of its own to run.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -55,86 +50,82 @@ use crate::store;
 use crate::tools;
 use crate::util;
 
-// A server that stands as a program of this machine.
+// A server that remains as a program of this computer.
 pub const KIND_STDIO: &str = "stdio";
-// A server that stands on the network.
+// A server that is on the network.
 pub const KIND_HTTP: &str = "http";
-// A server made of words the user pasted, run by the program itself.
+// A server made of text the user pasted, run by the program itself.
 pub const KIND_INTERNAL: &str = "internal";
 
-// The mark at the head of the name of a tool of a server of this program.
+// The marker at the header of the name of a tool of a server of this program.
 pub const NAME_MARK: &str = "mcp__";
 
-// The mark between the name of a server and the name of a tool of it.
+// The marker between the name of a server and the name of a tool of it.
 const SEP: &str = "__";
 
-// The longest name of a tool a chat template can read. llama.cpp reads a call
-// out of an answer for a name of letters, digits, the dash and the mark below,
-// and nothing longer than this.
+// The longest name of a tool a chat template can read. llama.cpp reads a call out of an answer
+// for a name of letters, digits, the dash and the marker below, and nothing longer than this.
 pub const GREATEST_NAME: usize = 64;
 
-// The longest part of the name a server is known by. The room of the name of
-// the tool itself has to be kept as well.
+// The longest part of the name a server is known by. The name of the tool itself has to fit
+// within the limit as well.
 const GREATEST_SLUG: usize = 20;
 
-// The icons the user may put on a server. The sheet of settings and the menu
-// of the badge both draw the icon of a server by its number, so the number
-// stands between the program and the page and the drawing stands in the page.
+// The icons the user may put on a server. The settings panel and the menu of the badge both
+// draw the icon of a server by its number, so the number is between the program and the page
+// and the drawing is in the page.
 pub const ICON_COUNT: usize = 16;
 
-// The longest name of a server, as it stands in the menu and in the sheet.
+// The longest name of a server, as it is now in the menu and in the settings panel.
 pub const GREATEST_SERVER_NAME: usize = 48;
 
 // The most tools of one server that reach the model.
 pub const GREATEST_TOOLS: usize = 32;
 
-// The most words of the code of a server of the program itself.
+// The most text of the code of a server of the program itself.
 pub const GREATEST_CODE: usize = 200_000;
 
-// The most words of the answer of a tool that reach the model. The room of the
-// talk is paid for by every word, and a server that answers with a whole file
-// would take a great deal of it.
+// The most text of the answer of a tool that reach the model. The size of the context is paid
+// for by every word, and a server that answers with a whole file would take a great deal of it.
 pub const GREATEST_OUTPUT: usize = 8000;
 
-// The version of the protocol this program asks for. A server that does not
-// know it answers with the newest version it does know, and that answer is
-// taken as it stands.
+// The version of the protocol this program requests. A server that does not know it answers
+// with the newest version it does know, and that answer is taken as it is now.
 const PROTOCOL_ASKED: &str = "2025-06-18";
 
-// How long the two sides take hands with each other before the program gives
-// up on a server that does not answer.
+// How long the two sides take pointers with each other before the program gives up on a server
+// that does not answer.
 const HANDSHAKE_WAIT: Duration = Duration::from_secs(20);
-// How long the answer of one tool is waited for. A tool that works for a while
-// is worked out, so this is longer than the handshake.
+// How long the answer of one tool is waited for. A tool that works for a while is worked out,
+// so this is longer than the handshake.
 const CALL_WAIT: Duration = Duration::from_secs(60);
 
-// One server the user added. It stands in settings.json, and the sheet of
-// settings writes it and reads it back.
+// One server the user added. It is in settings.json, and the settings panel writes it and reads
+// it back.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct Server {
     // Ten characters of the system random source, as `store::new_id` makes them.
     pub id: String,
-    // The name the user gave the server. It stands in the menu and in the sheet.
+    // The name the user gave the server. It is in the menu and in the settings panel.
     pub name: String,
-    // One of the three kinds above.
+    // One of the three types above.
     pub kind: String,
     // `stdio`: the whole line that starts the server, quotes and all.
     pub command: String,
     // `http`: the address of the server.
     pub url: String,
-    // `internal`: the words of the server, as the user wrote them.
+    // `internal`: the text of the server, as the user wrote it.
     pub code: String,
     // Which of the ICON_COUNT icons the menu draws for this server.
     pub icon: usize,
-    // Whether this server stands in the drop-down of the MCP badge. A server
-    // the user added but does not want in the menu is kept here all the
-    // same, and comes back into the menu when the switch is moved again.
+    // Whether this server is in the drop-down of the MCP badge. A server the user added but
+    // does not want in the menu is kept here all the same, and returns into the menu when the
+    // switch is moved again.
     pub shown: bool,
-    // The part of the name of a tool that stands for this server. It is made
-    // once, when the server is added, and never moved again: renaming a server
-    // must not move the names of its tools, for a chat that is already written
-    // holds those names in its talk.
+    // The part of the name of a tool that means this server. It is created once, when the
+    // server is added, and never moved again: renaming a server must not move the names of its
+    // tools, for a chat that is already written holds those names in its conversation.
     pub slug: String,
 }
 
@@ -147,8 +138,8 @@ impl Server {
         slug_of(&self.name)
     }
 
-    // What this server is: one of the three kinds. A word that is none of them
-    // gives the stdio server, which is what a new server of this program is.
+    // What this server is: one of the three types. A word that is none of them gives the stdio
+    // server, which is what a new server of this program is.
     pub fn kind(&self) -> String {
         match self.kind.as_str() {
             KIND_HTTP => String::from(KIND_HTTP),
@@ -157,9 +148,8 @@ impl Server {
         }
     }
 
-    // The one thing this kind of server needs to be started at all: the line of
-    // a program, the address of a server, or the words of one. Empty says that
-    // the server is not ready yet.
+    // The one item this type of server needs to be started at all: the line of a program, the
+    // address of a server, or the text of one. Empty reports that the server is not ready yet.
     pub fn need(&self) -> &str {
         match self.kind().as_str() {
             KIND_HTTP => self.url.trim(),
@@ -168,15 +158,15 @@ impl Server {
         }
     }
 
-    // Whether enough stands written for this server to be reached.
+    // Whether enough remains written for this server to be reached.
     pub fn ready(&self) -> bool {
         !self.need().is_empty()
     }
 
-    // The server as this program keeps it: the words of each part trimmed, the
-    // name and the code cut inside their bounds, the kind one of the three, and
-    // the number of the icon one of the icons. The sheet is written by a person,
-    // and a person may write a name of a thousand characters into it.
+    // The server as this program keeps it: the text of each part trimmed, the name and the code
+    // cut inside their bounds, the type one of the three, and the number of the icon one of the
+    // icons. The settings panel is written by a person, and a person may write a name of a
+    // thousand characters into it.
     pub fn clean(&self) -> Server {
         let mut name: String = self.name.trim().chars().take(GREATEST_SERVER_NAME).collect();
         name = name.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -196,9 +186,9 @@ impl Server {
         }
     }
 
-    // Whether this server may be kept. A server with nothing written in the
-    // place its kind asks for is refused, for it could never be reached, and a
-    // user left with a server that does nothing wonders about the program.
+    // Whether this server may be kept. A server with nothing written in the place its type
+    // requests is refused, for it could never be reached, and a user left with a server that
+    // does nothing wonders about the program.
     pub fn check(&self) -> Result<(), String> {
         if self.name.trim().is_empty() {
             return Err(String::from("A server needs a name"));
@@ -210,7 +200,7 @@ impl Server {
             return Err(match self.kind().as_str() {
                 KIND_HTTP => String::from("An HTTP server needs an address"),
                 KIND_INTERNAL => String::from(
-                    "A server of this program needs the words of it: write a function, or two",
+                    "A server of this program needs the text of it: write a function, or two",
                 ),
                 _ => String::from("An external server needs the line that starts it"),
             });
@@ -218,8 +208,8 @@ impl Server {
         Ok(())
     }
 
-    // The words the sheet and the menu put beside the name of a tool of this
-    // server, so the user knows where a tool came from.
+    // The text the settings panel and the menu put beside the name of a tool of this server, so
+    // the user knows where a tool came from.
     pub fn where_from(&self) -> String {
         match self.kind().as_str() {
             KIND_HTTP => format!("{} over HTTP", self.name),
@@ -229,9 +219,9 @@ impl Server {
     }
 }
 
-// The parts of the name of a tool that stand for a server: lowercase letters,
-// digits and the mark below. A name of nothing usable gives an empty name, and
-// the caller keeps the room of the name of the tool itself.
+// The parts of the name of a tool that mean a server: lowercase letters, digits and the marker
+// below. A name of nothing usable gives an empty name, and the caller keeps the space of
+// the name of the tool itself.
 pub fn slug_of(name: &str) -> String {
     let mut out = String::new();
     let mut last = '_';
@@ -256,10 +246,9 @@ pub fn slug_of(name: &str) -> String {
     out.chars().take(GREATEST_SLUG).collect()
 }
 
-// A name of a server that no other server of this list holds. The name the
-// user wrote is the first choice; a second server of the same name takes a
-// number behind it, for two servers whose tools answer one another would else
-// be told apart by nothing at all.
+// A name of a server that no other server of this list holds. The name the user wrote is the
+// first choice; a second server of the same name takes a number behind it, for two servers
+// whose tools answer one another would else be distinguished by nothing at all.
 pub fn slug_for(name: &str, taken: &[&Server]) -> String {
     let base = slug_of(name);
     let base = if base.is_empty() {
@@ -279,7 +268,7 @@ pub fn slug_for(name: &str, taken: &[&Server]) -> String {
     base
 }
 
-// The name a tool of a server stands under between this program and the model.
+// The name a tool of a server is under between this program and the model.
 pub fn tool_name(slug: &str, tool: &str) -> String {
     let clean = name_part(tool);
     let clean = if clean.is_empty() {
@@ -293,8 +282,7 @@ pub fn tool_name(slug: &str, tool: &str) -> String {
     format!("{}{}", head, taken)
 }
 
-// The name of a tool out of the words a server gave, made of what a name of a
-// tool may hold.
+// The name of a tool out of the text a server gave, made of what a name of a tool may hold.
 fn name_part(tool: &str) -> String {
     let mut out = String::new();
     for ch in tool.chars() {
@@ -312,9 +300,9 @@ pub fn is_tool(name: &str) -> bool {
     name.starts_with(NAME_MARK)
 }
 
-// The two parts of the name of a tool: the part that stands for a server, and
-// the name the server gave the tool. A name of a tool may itself hold the mark
-// of two parts below, so the split is made at the first of them after the head.
+// The two parts of the name of a tool: the part that means a server, and the name the server
+// gave the tool. A name of a tool may itself hold the marker of two parts below, so the split
+// is created at the first of them after the header.
 pub fn split_tool(name: &str) -> Option<(String, String)> {
     let rest = name.strip_prefix(NAME_MARK)?;
     let (slug, tool) = rest.split_once(SEP)?;
@@ -324,9 +312,9 @@ pub fn split_tool(name: &str) -> Option<(String, String)> {
     Some((slug.to_string(), tool.to_string()))
 }
 
-// The name of a tool of a server, as the user wrote it. The name of a tool of
-// a server of this program is `mcp__<slug>__<tool>`, and the user is given
-// back `<tool>`; a name the program does not know is given back as it stands.
+// The name of a tool of a server, as the user wrote it. The name of a tool of a server of this
+// program is `mcp__<slug>__<tool>`, and the user is given back `<tool>`; a name the program
+// does not know is given back as it is now.
 pub fn shown_tool(name: &str) -> String {
     match split_tool(name) {
         Some((_, tool)) => tool,
@@ -334,16 +322,16 @@ pub fn shown_tool(name: &str) -> String {
     }
 }
 
-// The words of a call that is still being written, as the user is given them.
-// The parts of a tool of a server are known only to the server, so the first
-// text of the parts is what the user watches come in; with no text among them
-// yet, the words of the call as they stand are given.
+// The text of a call that is still being written, as the user is given it. The parts of a
+// tool of a server are known only to the server, so the first text of the parts is what the
+// user watches arrive; with no text among them yet, the text of the call as they is now are
+// given.
 pub fn partial_words(raw: &str) -> String {
     let text = raw.trim();
     if text.is_empty() {
         return String::new();
     }
-    // The first part of the call that holds words of its own.
+    // The first part of the call that holds text of its own.
     let mut best = String::new();
     for key in ["text", "query", "path", "url", "message", "name", "prompt"] {
         let found = tools::partial_text(text, key);
@@ -360,9 +348,9 @@ pub fn partial_words(raw: &str) -> String {
     taken
 }
 
-// One tool a server offered. `list` gives the whole of the list, and each entry
-// is kept as the server gave it, so a server with a schema of its own is sent
-// to the model with that schema and not with a guess of one.
+// One tool a server proposed. `list` gives all of the list, and each entry is kept as the
+// server gave it, so a server with a schema of its own is sent to the model with that schema
+// and not with a guess of one.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Tool {
@@ -370,15 +358,15 @@ pub struct Tool {
     pub name: String,
     // A name for a user, when the server gave one.
     pub title: String,
-    // What the tool does, in the words of the server.
+    // What the tool does, in the text of the server.
     pub description: String,
-    // The shape of the parts the tool asks for, as JSON Schema.
+    // The form of the parts the tool requests, as JSON Schema.
     pub schema: Value,
 }
 
 impl Tool {
-    // The name a user of the block is given: the name for a user when the
-    // server gave one, and the name of the tool when it did not.
+    // The name a user of the block is given: the name for a user when the server gave one, and
+    // the name of the tool when it did not.
     pub fn shown(&self) -> String {
         let title = self.title.trim();
         if title.is_empty() {
@@ -387,8 +375,8 @@ impl Tool {
         title.to_string()
     }
 
-    // The definition of this tool as the model is sent it, under the name of
-    // the server it came from.
+    // The definition of this tool as the model is sent it, under the name of the server it came
+    // from.
     pub fn definition(&self, server: &Server) -> Value {
         let mut said = String::new();
         said.push_str(&format!(
@@ -411,9 +399,8 @@ impl Tool {
     }
 }
 
-// The shape of the parts of a tool, as the model must be sent it. A server that
-// named no shape is given an object of no parts, which lets the model call a
-// tool that asks for nothing.
+// The form of the parts of a tool, as the model must be sent it. A server that named no form is
+// given an object of no parts, which lets the model call a tool that requests nothing.
 pub fn schema_of(tool: &Tool) -> Value {
     match &tool.schema {
         Value::Object(shape) if shape.get("type").is_some() => tool.schema.clone(),
@@ -431,9 +418,8 @@ pub fn schema_of(tool: &Tool) -> Value {
     }
 }
 
-// The words a server of the network is reached at. Only an address of the web
-// is let through, so a server of the sheet can never name a file of the machine
-// or a road of its own.
+// The text a server of the network is reached at. Only an address of the web is let through, so
+// a server of the settings panel can never name a file of the computer or a way of its own.
 pub fn address_of(text: &str) -> Result<String, String> {
     let trimmed = text.trim();
     let lower = trimmed.to_ascii_lowercase();
@@ -448,21 +434,20 @@ pub fn address_of(text: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-// What one run of one tool of a server gave back.
+// What one run of one tool of a server returned.
 #[derive(Clone, Debug, Default)]
 pub struct Report {
-    // False when the server said the tool failed, or when the server could not
-    // be reached at all.
+    // False when the server stated the tool failed, or when the server could not be reached at
+    // all.
     pub ok: bool,
-    // The words the model reads.
+    // The text the model reads.
     pub output: String,
 }
 
 // ------------------------------------------------------------------ the client
 
-// One open way to one server. A stdio server is a child process of this one,
-// spoken to with one JSON object to a line; an HTTP server is one address,
-// spoken to with one POST of JSON-RPC.
+// One open way to one server. A stdio server is a child process of this one, spoken to with one
+// JSON object to a line; an HTTP server is one address, spoken to with one POST of JSON-RPC.
 enum Pipe {
     Stdio(StdioLink),
     Http(HttpLink),
@@ -473,27 +458,26 @@ struct StdioLink {
     child: Child,
     // Where the requests go. It is taken when the child is stopped.
     stdin: Option<ChildStdin>,
-    // The lines the server prints, brought over by a thread of its own. The
-    // thread ends when the server closes its standard output.
+    // The lines the server prints, brought over by a thread of its own. The thread ends when
+    // the server closes its standard output.
     lines: mpsc::Receiver<String>,
-    // What the server wrote to its own error output, kept short. A server that
-    // will not start says why there, and that is the one thing worth showing.
+    // What the server wrote to its own error output, kept short. A server that will not start
+    // reports why there, and that is the one item worth showing.
     errors: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
 struct HttpLink {
     url: String,
-    // The id of the session the server gave this client. It goes with every
-    // request after the handshake, and a server that never gave one is spoken
-    // to without it.
+    // The id of the session the server gave this client. It goes with every request after the
+    // handshake, and a server that never gave one is spoken to without it.
     session: Option<String>,
     agent: ureq::Agent,
 }
 
 impl Session {
-    // Open one way to one server and shake hands over it. Nothing is asked of
-    // the tools of the server here, so a look at the tools of a server and a
-    // run of one of them both begin the same way.
+    // Open one way to one server and shake pointers over it. Nothing is asked of the tools of
+    // the server here, so a look at the tools of a server and a run of one of them both begin
+    // the same way.
     fn open(server: &Server) -> Result<Session, String> {
         let link = match server.kind().as_str() {
             KIND_HTTP => Pipe::Http(HttpLink {
@@ -504,9 +488,8 @@ impl Session {
                     .timeout_read(Duration::from_secs(120))
                     .build(),
             }),
-            // A server of the program itself is written out to the folder of
-            // the servers before it is started, so what the user wrote in the
-            // sheet is what runs.
+            // A server of the program itself is written to the directory of the servers before
+            // it is started, so what the user wrote in the settings panel is what runs.
             kind => {
                 let (program, args, dir) = start_line(server, kind)?;
                 let mut command = Command::new(&program);
@@ -518,9 +501,8 @@ impl Session {
                 if let Some(place) = dir {
                     command.current_dir(place);
                 }
-                // The runner of a server of the program itself prints as it
-                // reads; without this its lines wait in a buffer of Python and
-                // arrive too late or never.
+                // The runner of a server of the program itself prints as it reads; without this
+                // its lines wait in a buffer of Python and arrive too late or never.
                 command.env("PYTHONUNBUFFERED", "1");
                 let mut child = command.spawn().map_err(|problem| {
                     format!(
@@ -538,9 +520,9 @@ impl Session {
                     .take()
                     .ok_or_else(|| String::from("The server has no standard output"))?;
                 let err = child.stderr.take();
-                // The lines of the server are read by a thread of their own, so
-                // a server that prints nothing never holds this thread, and a
-                // server that prints a great deal never stops printing.
+                // The lines of the server are read by a thread of their own, so a server that
+                // prints nothing never holds this thread, and a server that prints a great deal
+                // never stops printing.
                 let (sender, lines) = mpsc::channel::<String>();
                 std::thread::spawn(move || {
                     let stream = BufReader::new(out);
@@ -585,9 +567,8 @@ impl Session {
         Ok(session)
     }
 
-    // Say who this is and what version of the protocol is spoken, then say
-    // that the two sides are ready. Every request of the protocol comes after
-    // these two words.
+    // Say who this is and what version of the protocol is spoken, then say that the two sides
+    // are ready. Every request of the protocol comes after these two words.
     fn shake_hands(&mut self) -> Result<(), String> {
         let greeting = json!({
             "protocolVersion": PROTOCOL_ASKED,
@@ -598,14 +579,13 @@ impl Session {
             },
         });
         self.ask("initialize", &greeting, HANDSHAKE_WAIT)?;
-        // The second word is a saying and not a question: no answer comes back.
+        // The second word is a saying and not a question: no answer returns.
         let _ = self.tell("notifications/initialized");
         Ok(())
     }
 
-    // One question, and the answer to it. Every question of one connection is
-    // numbered, so an answer is matched to the question it answers and not to
-    // the last question that was asked.
+    // One question, and the answer to it. Every question of one connection is numbered, so an
+    // answer is matched to the question it answers and not to the last question that was asked.
     fn ask(&mut self, method: &str, params: &Value, wait: Duration) -> Result<Value, String> {
         self.next += 1;
         let id = self.next;
@@ -621,7 +601,7 @@ impl Session {
         }
     }
 
-    // One saying, with no answer looked for.
+    // One saying, with no answer searched for.
     fn tell(&mut self, method: &str) -> Result<(), String> {
         let line = json!({ "jsonrpc": "2.0", "method": method, "params": {} });
         match &mut self.link {
@@ -630,8 +610,8 @@ impl Session {
         }
     }
 
-    // Let the server go: the pipe is closed and the child is stopped, or the
-    // session of the server is ended.
+    // Let the server go: the pipe is closed and the child is stopped, or the session of the
+    // server is ended.
     fn close(&mut self) {
         match &mut self.link {
             Pipe::Stdio(pipe) => pipe.close(),
@@ -640,9 +620,9 @@ impl Session {
     }
 }
 
-// One open way to one server, with the number the next question carries. The
-// session is closed when it is thrown away, so a child server is never left
-// standing behind a look that went wrong on the way out.
+// One open way to one server, with the number the next question carries. The session is closed
+// when it is deleted, so a child server is never left remaining behind an appearance that went
+// wrong on the way out.
 struct Session {
     link: Pipe,
     next: u64,
@@ -679,16 +659,16 @@ impl StdioLink {
                 Ok(text) => {
                     let line = text.trim();
                     if line.is_empty() || !line.starts_with('{') {
-                        // Words that are not an object are the server talking
-                        // to itself, and are passed by.
+                        // Text that is not an object is the server generating to itself, and
+                        // are passed by.
                         continue;
                     }
                     let Ok(value) = serde_json::from_str::<Value>(line) else {
                         continue;
                     };
                     if value.get("id").and_then(|sent| sent.as_u64()) != Some(id) {
-                        // A saying of the server, or the answer to an older
-                        // question: neither is the answer looked for here.
+                        // A saying of the server, or the answer to an older question: neither
+                        // is the answer searched for here.
                         continue;
                     }
                     return answer_of(&value);
@@ -698,9 +678,8 @@ impl StdioLink {
         }
     }
 
-    // The words of the fault: what the program found, and what the server wrote
-    // to its own error output, for that is where a server that will not start
-    // says why.
+    // The text of the error: what the program found, and what the server wrote to its own error
+    // output, for that is where a server that will not start reports why.
     fn fault(&self, said: &str) -> String {
         let mut text = String::from(said);
         if let Ok(held) = self.errors.lock() {
@@ -717,10 +696,10 @@ impl StdioLink {
     }
 
     fn close(&mut self) {
-        // The standard input goes first: a server that reads until the end of
-        // its input sees that end and leaves of its own accord. It is given a
-        // moment to do it, and only then stopped, for a server that is killed
-        // on the way out may leave a file half written behind.
+        // The standard input goes first: a server that reads until the end of its input sees
+        // that end and leaves of its own accord. It is given a moment to do it, and only then
+        // stopped, for a server that is killed on the way out may leave a file half written
+        // behind.
         self.stdin = None;
         let patience = Instant::now() + Duration::from_millis(400);
         while Instant::now() < patience {
@@ -737,8 +716,8 @@ impl StdioLink {
 
 impl HttpLink {
     fn ask(&mut self, line: &Value, id: u64, wait: Duration) -> Result<Value, String> {
-        // The wait of the caller is the wait of the connection: a server that
-        // takes its time over one tool is waited for, and no longer.
+        // The wait of the caller is the wait of the connection: a server that takes its time
+        // over one tool is waited for, and no longer.
         let _ = wait;
         let body = self.post(line)?;
         let Some(text) = body else {
@@ -760,9 +739,8 @@ impl HttpLink {
         ))
     }
 
-    // One POST of one message. The answer is the words of the body, or nothing
-    // when the server answered with no body at all, which is what it does for a
-    // saying.
+    // One POST of one message. The answer is the text of the body, or nothing when the server
+    // answered with no body at all, which is what it does for a saying.
     fn post(&mut self, line: &Value) -> Result<Option<String>, String> {
         let mut request = self
             .agent
@@ -777,8 +755,8 @@ impl HttpLink {
         let response = request
             .send_string(&body)
             .map_err(|problem| format!("The server did not answer: {}", problem))?;
-        // The id of the session comes with the answer, and goes with every
-        // message after it. A server that gives none is spoken to without one.
+        // The id of the session comes with the answer, and goes with every message after it. A
+        // server that gives none is spoken to without one.
         if let Some(id) = response.header("mcp-session-id") {
             if !id.trim().is_empty() {
                 self.session = Some(id.to_string());
@@ -793,9 +771,8 @@ impl HttpLink {
     }
 
     fn close(&mut self) {
-        // A session of a server is ended by a DELETE of the same address. A
-        // server that does not know the word says nothing useful, and is left
-        // to itself.
+        // A session of a server is ended by a DELETE of the same address. A server that does
+        // not know the word reports nothing useful, and is left to itself.
         let Some(id) = self.session.as_ref() else { return };
         let _ = self
             .agent
@@ -806,10 +783,9 @@ impl HttpLink {
     }
 }
 
-// The messages of the body of an answer. A server that answers with JSON gives
-// one message; a server that answers with a stream gives several, each behind
-// the word `data:`. Both are read here, so a client of this program need not
-// know which way its server chose.
+// The messages of the body of an answer. A server that answers with JSON gives one message; a
+// server that answers with a stream gives several, each behind the word `data:`. Both are read
+// here, so a client of this program need not know which way its server chose.
 fn messages(text: &str) -> Vec<Value> {
     let trimmed = text.trim_start();
     if trimmed.starts_with('{') {
@@ -834,8 +810,7 @@ fn messages(text: &str) -> Vec<Value> {
     out
 }
 
-// The answer to one question: the words of the result, or the words of the
-// fault the server gave.
+// The answer to one question: the text of the result, or the text of the error the server gave.
 fn answer_of(value: &Value) -> Result<Value, String> {
     if let Some(error) = value.get("error") {
         if !error.is_null() {
@@ -845,15 +820,15 @@ fn answer_of(value: &Value) -> Result<Value, String> {
     Ok(value.get("result").cloned().unwrap_or(Value::Null))
 }
 
-// The words of a fault of the protocol. A code of its own is said with the
-// words, for `-32601` says that no such thing exists and that is worth reading.
+// The text of an error in the protocol. A code of its own is reported with the text, for
+// `-32601` reports that no such item exists and that is worth reading.
 fn rpc_fault(error: &Value) -> String {
     let message = error
         .get("message")
         .and_then(|v| v.as_str())
-        .unwrap_or("the server gave no words of the fault");
+        .unwrap_or("the server gave no text of the error");
     match error.get("code").and_then(|v| v.as_i64()) {
-        Some(-32601) => format!("the server has no such thing to offer ({})", message),
+        Some(-32601) => format!("the server has no such method ({})", message),
         Some(code) => format!("{} (the code was {})", message, code),
         None => message.to_string(),
     }
@@ -861,8 +836,7 @@ fn rpc_fault(error: &Value) -> String {
 
 // ------------------------------------------------------------------ the verbs
 
-// The tools a server offers. The server is opened, asked what it has, and let
-// go again.
+// The tools a server proposes. The server is opened, asked what it has, and let go again.
 pub fn list(server: &Server) -> Result<Vec<Tool>, String> {
     if !server.ready() {
         return Err(String::from(
@@ -875,13 +849,12 @@ pub fn list(server: &Server) -> Result<Vec<Tool>, String> {
         Ok(result) => Ok(tools_of(&result)),
         Err(problem) => Err(problem),
     }
-    // The session goes here, and with it the child server, whatever the answer
-    // was.
+    // The session goes here, and with it the child server, whatever the answer was.
 }
 
-// The tools of the answer of `tools/list`. A server with nothing to offer is
-// answered with an empty list, and not with a fault: a server of prompts only
-// is a whole server, and it has no tools.
+// The tools of the answer of `tools/list`. A server with nothing to propose is answered with an
+// empty list, and not with an error: a server of prompts only is a whole server, and it has no
+// tools.
 pub fn tools_of(result: &Value) -> Vec<Tool> {
     let Some(list) = result.get("tools").and_then(|v| v.as_array()) else {
         return Vec::new();
@@ -921,9 +894,8 @@ pub fn tools_of(result: &Value) -> Vec<Tool> {
     out
 }
 
-// One run of one tool of one server. `arguments` are the words of the call, as
-// the model wrote them: they are read as JSON, and words that are no JSON are
-// taken as an object of nothing.
+// One run of one tool of one server. `arguments` are the text of the call, as the model wrote
+// them: they are read as JSON, and text that is no JSON is taken as an object of nothing.
 pub fn run(server: &Server, tool: &str, arguments: &str) -> Report {
     match run_of(server, tool, arguments) {
         Ok(report) => report,
@@ -949,8 +921,8 @@ fn run_of(server: &Server, tool: &str, arguments: &str) -> Result<Report, String
     let parts = match serde_json::from_str::<Value>(arguments) {
         Ok(Value::Object(parts)) => Value::Object(parts),
         Ok(Value::Null) => json!({}),
-        // A model that sent a line of words with no object about it is answered
-        // as the server of the program itself would be: one part named `text`.
+        // A model that sent a line of text with no object about it is answered as the server of
+        // the program itself would be: one part named `text`.
         Ok(Value::String(ref text)) if text.trim().is_empty() => json!({}),
         Ok(Value::String(text)) => json!({ "text": text }),
         Ok(other) => json!({ "value": other }),
@@ -969,11 +941,10 @@ fn run_of(server: &Server, tool: &str, arguments: &str) -> Result<Report, String
     // The session goes here, and with it the child server.
 }
 
-// What the answer of a tool means. `content` is the words the model reads; a
-// picture or a file that came back is named and not carried, for the room of
-// the talk is paid for by every word and the model was not offered a picture.
-// `isError` says that the tool worked and what it worked on failed, which the
-// model has to hear in order to try something else.
+// What the answer of a tool means. `content` is the text the model reads; an image or a file
+// that returned is named and not carried, for the size of the context is paid for by every word
+// and the model was not proposed an image. `isError` reports that the tool worked and what it
+// worked on failed, which the model has to hear in order to try something else.
 pub fn report_of(result: &Value) -> Report {
     let failed = result
         .get("isError")
@@ -1037,8 +1008,8 @@ pub fn report_of(result: &Value) -> Report {
             }
         }
     }
-    // A tool that answers with a shape of its own and no words of its own is
-    // answered with that shape, for the model can read it.
+    // A tool that answers with a form of its own and no text of its own is answered with that
+    // form, for the model can read it.
     if text.trim().is_empty() {
         if let Some(made) = result.get("structuredContent") {
             if !made.is_null() {
@@ -1055,7 +1026,7 @@ pub fn report_of(result: &Value) -> Report {
     }
 }
 
-// Keep the words of a run inside the room the talk can pay for.
+// Keep the text of a run inside the space the conversation can pay for.
 fn cut(text: &str) -> String {
     let count = text.chars().count();
     if count <= GREATEST_OUTPUT {
@@ -1071,13 +1042,13 @@ fn cut(text: &str) -> String {
 
 // ---------------------------------------------------------------- one server
 
-// Look at one server: what it is called, and what it has to offer. The answer
-// is the tools, or the reason the server could not be looked at.
+// Look at one server: what it is called, and what it has to propose. The answer is the tools,
+// or the reason the server could not be checked.
 pub fn look(server: &Server) -> Result<Vec<Tool>, String> {
     list(server)
 }
 
-// The words of the state line after a server was looked at.
+// The text of the state line after a server was checked.
 pub fn looked_words(count: usize) -> String {
     if count == 1 {
         String::from("1 tool")
@@ -1088,16 +1059,16 @@ pub fn looked_words(count: usize) -> String {
 
 // ------------------------------------------------------------------ internal
 
-// The folder the servers of the program itself are written out into. It is a
-// place of passage: the words of a server are kept in `mcp.db`, and the files
-// are laid out here on every start of the server, because the interpreter of the
-// machine reads a file and nothing else. The same shape holds for the talks of
-// the model, which stand in a database and are laid out for llama-server.
+// The folder the servers of the program itself are written out into. It is a place of passage:
+// the text of a server is kept in `mcp.db`, and the files are decompressed here on every start
+// of the server, because the interpreter of the computer reads a file and nothing else. The
+// same format holds for the conversations of the model, which are in a database and are
+// decompressed for llama-server.
 pub fn dir() -> PathBuf {
     config::paths().data.join("mcp")
 }
 
-// The database the files of the servers of the program itself stand in.
+// The database the files of the servers of the program itself are in.
 pub fn database() -> Result<Arc<db::Db>, String> {
     db::open(
         &config::paths().data.join(db::MCP_DB),
@@ -1105,11 +1076,11 @@ pub fn database() -> Result<Arc<db::Db>, String> {
     )
 }
 
-// Keep the files of one server in the database. Every file of the server is put
-// down under the name it stands in, so the words of a server that is gone may be
-// read back by a person who needs them. A fault is said in the log of the
-// program and costs nothing: the server is started from the words the sheet
-// holds, and the database is the keeping of them, not the road they take.
+// Keep the files of one server in the database. Every file of the server is put down under the
+// name it is in, so the text of a server that is removed may be reads back by a person who
+// needs them. An error is reported in the log of the program and costs nothing: the server is
+// started from the text the settings panel holds, and the database is the keeping of them, not
+// the way they take.
 fn keep_files(id: &str, files: &[(String, Vec<u8>)]) {
     let now = store::now_secs();
     let database = match database() {
@@ -1135,19 +1106,19 @@ fn keep_files(id: &str, files: &[(String, Vec<u8>)]) {
     if let Err(problem) = kept {
         proglog::note(
             proglog::STORE,
-            &format!("the words of a server were not kept: {}", problem),
+            &format!("the text of a server was not kept: {}", problem),
         );
     }
 }
 
-// The folder of one server of the program itself.
+// The directory of one server of the program itself.
 pub fn folder(id: &str) -> PathBuf {
     dir().join(id)
 }
 
-// Take the folder of a server away, and the words of it out of the database. The
-// sheet does this when the user takes the server away, so the words of a server
-// that is gone do not stand on the machine for ever.
+// Take the directory of a server away, and the text of it out of the database. The settings
+// panel does this when the user takes the server away, so the text of a server that is removed
+// is not on the computer for ever.
 pub fn remove_folder(id: &str) {
     let safe = safe_id(id);
     let place = folder(&safe);
@@ -1161,14 +1132,14 @@ pub fn remove_folder(id: &str) {
         if let Err(problem) = gone {
             proglog::note(
                 proglog::STORE,
-                &format!("the words of a server are not taken away: {}", problem),
+                &format!("the text of a server is not removed: {}", problem),
             );
         }
     }
 }
 
-// Only the characters an id of this program is made of are let into a path, so
-// a name out of the sheet can never name a folder of the machine.
+// Only the characters an id of this program is made of are let into a path, so a name out of
+// the settings panel can never name a directory of the computer.
 fn safe_id(id: &str) -> String {
     let clean: String = id
         .chars()
@@ -1180,10 +1151,9 @@ fn safe_id(id: &str) -> String {
     clean.chars().take(40).collect()
 }
 
-// Whether the words of a server of the program itself bring their own way of
-// speaking. A user who writes a whole server - one that reads the library of
-// MCP itself - is answered with their own words run as they stand, and the
-// runner of this program is left out.
+// Whether the text of a server of the program itself bring their own way of speaking. A user
+// who writes a whole server - one that reads the library of MCP itself - is answered with their
+// own words run as they are now, and the runner of this program is left out.
 pub fn brings_its_own_server(code: &str) -> bool {
     for mark in [
         "from mcp", "import mcp", "from \"mcp\"", "MCPServer(", "FastMCP(", ".run_stdio",
@@ -1196,9 +1166,8 @@ pub fn brings_its_own_server(code: &str) -> bool {
     false
 }
 
-// The line that starts a server: the program, its arguments, and the folder to
-// start it in. A server of the program itself is written out first, so the
-// words of the user are what runs.
+// The line that starts a server: the program, its arguments, and the folder to start it in. A
+// server of the program itself is written first, so the text of the user is what runs.
 fn start_line(server: &Server, kind: &str) -> Result<(String, Vec<String>, Option<PathBuf>), String> {
     if kind != KIND_INTERNAL {
         let mut parts = util::split_args(server.command.trim());
@@ -1214,23 +1183,21 @@ fn start_line(server: &Server, kind: &str) -> Result<(String, Vec<String>, Optio
     }
 }
 
-// Write the words of a server of the program itself into the folder of the
-// server, and keep them in the database, and give back the line that starts
-// them. Two files stand in the folder of the server: the words of the user, and
-// the runner. They are written again on every start, so what runs is always what
-// stands in the sheet. The database holds the same words, so the keeping of a
-// server is a database and not a folder beside the work of a model.
+// Write the text of a server of the program itself into the directory of the server, and keep
+// them in the database, and give back the line that starts them. Two files are in the directory
+// of the server: the text of the user, and the runner. They are written again on every start,
+// so what runs is always what is in the settings panel. The database holds the same text, so
+// the keeping of a server is a database and not a folder beside the work of a model.
 fn write_internal(server: &Server) -> Result<(String, Vec<String>, PathBuf), String> {
     let place = folder(&safe_id(&server.id));
     std::fs::create_dir_all(&place).map_err(|problem| {
         format!(
-            "The folder of the server could not be made: {}",
+            "The directory of the server could not be made: {}",
             problem
         )
     })?;
-    // The two files are named to the server by the whole of their road, for the
-    // server is started inside the folder they stand in and a road of its own
-    // would be looked for from there.
+    // The two files are named to the server by all of their path, for the server is started
+    // inside the folder they are in and a way of its own would be searched for from there.
     let place = place.canonicalize().unwrap_or(place);
     let program = interpreter(&server.command);
     if brings_its_own_server(&server.code) {
@@ -1267,9 +1234,9 @@ fn write_internal(server: &Server) -> Result<(String, Vec<String>, PathBuf), Str
     ))
 }
 
-// The program that reads the words of a server of the program itself. The
-// user may name one in the field of the command; with the field left empty,
-// the machine is asked for the newest Python it has.
+// The program that reads the text of a server of the program itself. The user may name one in
+// the field of the command; with the field left empty, the computer is requested the newest
+// Python it has.
 pub fn interpreter(named: &str) -> String {
     let named = named.trim();
     if !named.is_empty() {
@@ -1283,10 +1250,9 @@ pub fn interpreter(named: &str) -> String {
     python()
 }
 
-// The Python of this machine, found once and kept. A machine with neither of
-// the two names is answered with the first of them, for the fault of a server
-// that cannot be started is then told by the start of it, and the user hears
-// the reason in the sheet.
+// The Python of this computer, found once and kept. A computer with neither of the two names is
+// answered with the first of them, for the error in a server that cannot be started is then
+// informed by the start of it, and the user hears the reason in the settings panel.
 pub fn python() -> String {
     static HELD: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HELD.get_or_init(|| {
@@ -1303,18 +1269,16 @@ pub fn python() -> String {
     .clone()
 }
 
-// The words a new server of the program itself begins with. The MCP tab of the
-// sheet puts them in the field of the code when the user moves the kind of a
-// new server to that kind, so the shape the runner wants is seen before a word
-// is written. The head of these words is written for an AI as much as for a
-// person: a user hands the whole of the field to an AI, and the AI writes a
-// server that works from these words alone.
+// The text a new server of the program itself begins with. The MCP tab of the settings panel
+// puts them in the field of the code when the user moves the type of a new server to that type,
+// so the form the runner wants is seen before a word is written. The header of this text is
+// written for an AI as much as for a person: a user pointers all of the field to an AI, and the
+// AI writes a server that works from this text alone.
 //
-// The marks of a whole server, the other kind of server of the program, are
-// kept out of these words on purpose. The program looks at the whole of a file
-// for them, so one of them named in a doc string would move every new server of
-// this kind into the other kind, where the runner is left out and the package
-// it asks for is not installed. A test keeps them out.
+// The markers of a whole server, the other type of server of the program, are kept out of this
+// text on purpose. The program checks all of a file for them, so one of them named in a doc
+// string would move every new server of this type into the other type, where the runner is left
+// out and the package it requests is not installed. A test keeps them out.
 pub const TEMPLATE: &str = r##"
 """An example server of the "Built in the program" kind of Autumn Natter.
 
@@ -1333,8 +1297,8 @@ HOW THIS FILE IS RUN
     and starts the runner with this file as its first argument. The runner reads
     the file and then answers the protocol.
   * Do not write a loop for the server, and do not read the standard input or
-    write the standard output yourself. The runner does both. A line of ours
-    among its messages breaks the talk with the program.
+    write the standard output yourself. The runner does both. A line we write
+    among its messages corrupts the protocol stream with the program.
   * Do not reach for a library of the Model Context Protocol of your own. It is
     not installed here, and this program installs nothing. Do not write the name
     of that package, the name of a class of it, or the name of its run over the
@@ -1442,10 +1406,10 @@ def hello(name: str, loud: bool = False) -> str:
 
 @tool
 def word_count(text: str, keep: int = 0) -> dict:
-    """Count the words of some text, and give back the count and the first of them."""
+    """Count the words of some text, and return the count and the first lines."""
     words = str(text).split()
     if not words:
-        raise ValueError("No word came with the call, so there is nothing to count")
+        raise ValueError("No text was given, so there is nothing to count")
     held = words if int(keep) <= 0 else words[: int(keep)]
     return {"count": len(words), "words": one_run(held)}
 
@@ -1463,9 +1427,8 @@ def one_run(words):
     return line[:200] + " ..."
 "##;
 
-// The program of the servers of the program itself. It is written beside the
-// words of the user and started with them, and it needs nothing but the
-// library that stands with Python.
+// The program of the servers of the program itself. It is written beside the text of the user
+// and started with them, and it needs nothing but the Python standard library.
 pub const RUNNER: &str = r##"
 # The runner of a server of the program itself, of Autumn Natter.
 #
@@ -1720,11 +1683,11 @@ mod tests {
         assert_eq!(tool, "lookup_book");
         assert!(split_tool("mcp__bookshop").is_none());
         assert!(split_tool("run_terminal").is_none());
-        // A name of a tool that holds the mark of two parts below keeps the
-        // whole of itself, for the split is made at the first of them.
+        // A name of a tool that holds the marker of two parts below keeps all of itself, for
+        // the split is created at the first of them.
         let (_, tool) = split_tool("mcp__shop__a__b").expect("the parts of the name");
         assert_eq!(tool, "a__b");
-        // The whole name stands inside the shape a chat template reads.
+        // The whole name is inside the form a chat template reads.
         let long = tool_name(&slug_of("a very long name of a server indeed"), &"t".repeat(90));
         assert!(long.chars().count() <= GREATEST_NAME);
         assert!(long.starts_with(NAME_MARK));
@@ -1752,8 +1715,8 @@ mod tests {
         assert_eq!(slug_for("!!!", &[&first, &second]), "server");
     }
 
-    // The tools of two servers that share a name are told apart by the name of
-    // the server, and the model is sent the schema the server gave.
+    // The tools of two servers that share a name are distinguished by the name of the server,
+    // and the model is sent the schema the server gave.
     #[test]
     fn two_servers_of_one_tool_name_are_told_apart() {
         let one = Server {
@@ -1782,17 +1745,16 @@ mod tests {
         assert_eq!(made["function"]["name"], "mcp__one__search");
         assert_eq!(made["function"]["parameters"]["required"][0], "query");
         assert_eq!(tool.definition(&other)["function"]["name"], "mcp__two__search");
-        // The words of the server stand in the description, so the model knows
-        // where the tool came from.
+        // The text of the server is in the description, so the model knows where the tool came
+        // from.
         assert!(made["function"]["description"]
             .as_str()
             .unwrap_or("")
             .contains("Search the catalog."));
     }
 
-    // The shape of the parts of a tool. A server that gave a schema is believed;
-    // a server that gave none is given an object of nothing, so the model may
-    // still call the tool.
+    // The form of the parts of a tool. A server that gave a schema is believed; a server that
+    // gave none is given an object of nothing, so the model may still call the tool.
     #[test]
     fn the_shape_of_the_parts_comes_from_the_server() {
         let given = Tool {
@@ -1815,8 +1777,8 @@ mod tests {
         assert_eq!(schema_of(&empty), json!({"type":"object","properties":{}}));
     }
 
-    // The answer of a tool, read the way the protocol means it: the words of the
-    // content, and the mark of a failure that worked and failed.
+    // The answer of a tool, read the way the protocol means it: the text of the content, and
+    // the marker of a failure that worked and failed.
     #[test]
     fn the_answer_of_a_tool_is_read_as_the_protocol_means_it() {
         let good = report_of(&json!({
@@ -1831,8 +1793,8 @@ mod tests {
         }));
         assert!(!failed.ok);
         assert!(failed.output.contains("Solaris"));
-        // A picture is named and not carried: the room of the talk is paid for
-        // by every word, and no picture was offered to the model.
+        // An image is named and not carried: the size of the context is paid for by every word,
+        // and no image was proposed to the model.
         let picture = report_of(&json!({
             "content": [
                 {"type":"text","text":"Here is the swatch"},
@@ -1842,15 +1804,14 @@ mod tests {
         assert!(picture.ok);
         assert!(picture.output.contains("picture came back"));
         assert!(!picture.output.contains("AAAA"));
-        // A tool that answers with a shape of its own and no words is answered
-        // with that shape.
+        // A tool that answers with a form of its own and no text is answered with that form.
         let shaped = report_of(&json!({ "structuredContent": {"title":"Dune"} }));
         assert!(shaped.output.contains("Dune"));
         let nothing = report_of(&json!({"content": []}));
         assert!(nothing.output.contains("nothing back"));
     }
 
-    // A run of words past the ceiling is cut, and says that it was.
+    // A run of text past the ceiling is cut, and reports that it was.
     #[test]
     fn a_long_answer_is_cut_and_says_so() {
         let long = "x".repeat(GREATEST_OUTPUT + 1000);
@@ -1859,9 +1820,8 @@ mod tests {
         assert!(made.contains("cut at"));
     }
 
-    // The words of `tools/list`. A server with nothing to offer is answered with
-    // an empty list and not with a fault, and the two spellings of the shape of
-    // the parts are both read.
+    // The text of `tools/list`. A server with nothing to propose is answered with an empty list
+    // and not with an error, and the two spellings of the form of the parts are both read.
     #[test]
     fn the_list_of_the_tools_of_a_server_is_read() {
         let list = tools_of(&json!({
@@ -1878,8 +1838,8 @@ mod tests {
         assert!(tools_of(&json!({})).is_empty());
     }
 
-    // The words of a server of the program itself that bring their own way of
-    // speaking are run as they stand; plain functions are run by the runner.
+    // The text of a server of the program itself that bring their own way of speaking are run
+    // as they are now; plain functions are run by the runner.
     #[test]
     fn a_whole_server_is_known_by_its_own_words() {
         assert!(brings_its_own_server(
@@ -1894,8 +1854,8 @@ mod tests {
         assert!(!brings_its_own_server("import numpy as np\n"));
     }
 
-    // The runner speaks the verbs of the protocol, and says so in words that a
-    // search of the file can find.
+    // The runner speaks the verbs of the protocol, and records it in text that a search of the
+    // file can find.
     #[test]
     fn the_runner_knows_the_verbs_of_the_protocol() {
         for verb in [
@@ -1915,30 +1875,29 @@ mod tests {
         assert!(RUNNER.contains("def tool("));
     }
 
-    // The words a new server of the program itself begins with are a server of
-    // that kind: the mark of @tool over a function, a doc string of its own for
-    // every tool, nothing that is not the library of Python, and the rules for
-    // an AI at the head of it.
+    // The text a new server of the program itself begins with are a server of that type: the
+    // marker of @tool over a function, a doc string of its own for every tool, nothing that is
+    // not the library of Python, and the rules for an AI at the header of it.
     #[test]
     fn the_template_is_a_server_of_the_program_itself() {
-        // The marks of a whole server are the trap. One of them in the words of
-        // the template would move every new server of this kind into the other
-        // kind, where the runner is left out.
+        // The markers of a whole server are the trap. One of them in the text of the template
+        // would moves every new server of this type into the other type, where the runner is
+        // left out.
         assert!(
             !brings_its_own_server(TEMPLATE),
-            "the template names a mark of a whole server, so it is not run by the runner"
+            "the template names a marker of a whole server, so it is not run by the runner"
         );
         assert!(TEMPLATE.contains("@tool"), "the template has no tool of its own");
         assert!(
             TEMPLATE.trim_start().starts_with("\"\"\""),
             "the template has no head of its own"
         );
-        // The head is written for an AI, so it has to name the things an AI
-        // would else guess wrong.
+        // The header is written for an AI, so it has to name the items an AI would else guess
+        // wrong.
         for word in [
             "AI",
             "doc string",
-            "library that stands with Python",
+            "standard library",
             "fresh process",
             "eight thousand",
             "int() or float()",
@@ -1946,26 +1905,25 @@ mod tests {
         ] {
             assert!(
                 TEMPLATE.contains(word),
-                "the template says nothing of {}",
+                "the template reports nothing of {}",
                 word
             );
         }
-        // Every tool of the template has a doc string of one line, for that is
-        // the whole of what the model is told about it.
+        // Every tool of the template has a doc string of one line, for that is all of what the
+        // model is informed about it.
         assert!(TEMPLATE.contains("Say hello to one person"));
         assert!(TEMPLATE.contains("Count the words of some text"));
-        // A helper of our own, without the mark, so the model is not offered it.
+        // A helper of our own, without the marker, so the model is not proposed it.
         assert!(TEMPLATE.contains("def one_run(words):"));
     }
 
-    // The template run for real, the way a new server of this kind is run: the
-    // tools it offers, the shape of their parts, and the three ways a tool
-    // answers.
+    // The template run for real, the way a new server of this type is run: the tools it
+    // proposes, the form of their parts, and the three ways a tool answers.
     #[test]
     fn the_template_of_a_server_is_run_for_real() {
         let root = std::env::temp_dir().join("an-mcp-template-check");
         let held = root.join("settings");
-        std::fs::create_dir_all(&held).expect("the place of the check is made");
+        std::fs::create_dir_all(&held).expect("the place of the check is created");
         config::set_data_dir(held);
         let server = Server {
             id: String::from("templatecheck"),
@@ -1985,8 +1943,8 @@ mod tests {
         };
         let names: Vec<&str> = tools.iter().map(|one| one.name.as_str()).collect();
         assert_eq!(names, vec!["hello", "word_count"], "the tools of the template");
-        // The helper is not offered, and the doc string of a tool is what the
-        // model reads. An argument with a default of its own is not wanted.
+        // The helper is not proposed, and the doc string of a tool is what the model reads. An
+        // argument with a default of its own is not wanted.
         assert!(!names.contains(&"one_run"));
         let hello = tools
             .iter()
@@ -1996,7 +1954,7 @@ mod tests {
         assert_eq!(hello.schema["properties"]["name"]["type"], "string");
         assert_eq!(hello.schema["properties"]["loud"]["type"], "boolean");
         assert_eq!(hello.schema["required"], json!(["name"]));
-        // A line of words, a shape turned into words, and a fault told.
+        // A line of text, a form turned into text, and an error informed.
         let said = run(&server, "hello", r#"{"name":"leaf","loud":true}"#);
         assert!(said.ok, "{}", said.output);
         assert_eq!(said.output, "HELLO, LEAF!");
@@ -2005,14 +1963,14 @@ mod tests {
         assert!(counted.output.contains("\"count\": 3"));
         assert!(counted.output.contains("one two"));
         let empty = run(&server, "word_count", r#"{"text":"   "}"#);
-        assert!(!empty.ok, "a fault of a tool was taken for an answer");
+        assert!(!empty.ok, "an error in a tool was taken for an answer");
         assert!(empty.output.contains("nothing to count"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // A server is only reached when the one thing its kind needs stands in the
-    // sheet, and the kind of a word that is none of the three is the stdio
-    // server a new server of this program is.
+    // A server is only reached when the one item its type needs is in the settings panel, and
+    // the type of a word that is none of the three is the stdio server a new server of this
+    // program is.
     #[test]
     fn a_server_needs_the_one_thing_its_kind_asks_for() {
         let mut server = Server::default();
@@ -2023,7 +1981,7 @@ mod tests {
         server.command = String::from("  natter-mcp-demo  ");
         assert!(server.ready());
         server.kind = String::from("http");
-        assert!(server.ready(), "an address is the whole of an HTTP server");
+        assert!(server.ready(), "an address is all of an HTTP server");
         server.url = String::new();
         assert!(!server.ready(), "an HTTP server with no address is not ready");
         server.kind = String::from("nonsense");
@@ -2034,8 +1992,8 @@ mod tests {
         assert!(server.ready());
     }
 
-    // Only the characters an id of this program is made of are let into the
-    // place a server of the program itself is written to.
+    // Only the characters an id of this program is made of are let into the place a server of
+    // the program itself is written to.
     #[test]
     fn the_place_of_a_server_is_named_safely() {
         assert_eq!(safe_id("a1b2c3d4e5"), "a1b2c3d4e5");
@@ -2044,9 +2002,8 @@ mod tests {
         assert_eq!(safe_id("a/b"), "ab");
     }
 
-    // The address of a server on the network. Words that are no address of a
-    // web page are refused, so a server of the sheet can never name a file of
-    // the machine.
+    // The address of a server on the network. Text that is no address of a web page are
+    // refused, so a server of the settings panel can never name a file of the computer.
     #[test]
     fn the_address_of_a_server_is_an_address_of_the_web() {
         assert_eq!(address_of("http://127.0.0.1:8/mcp").unwrap(), "http://127.0.0.1:8/mcp");
@@ -2057,8 +2014,8 @@ mod tests {
         assert!(address_of("file:///etc/passwd").is_err());
     }
 
-    // The stream of a server that answers with `data:` lines is read as the
-    // several messages it holds, and the answer of one object is read as one.
+    // The stream of a server that answers with `data:` lines is read as the several messages it
+    // holds, and the answer of one object is read as one.
     #[test]
     fn the_two_ways_a_server_answers_are_both_read() {
         let one = messages("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"tools\":[]}}");
@@ -2074,18 +2031,17 @@ mod tests {
         assert!(messages("").is_empty());
     }
 
-    // A fault of the protocol is told in words the user can use.
+    // An error in the protocol is informed in text the user can use.
     #[test]
     fn a_fault_of_the_protocol_is_told_in_words() {
         assert!(rpc_fault(&json!({"code":-32601,"message":"Method not found"}))
-            .contains("no such thing"));
+            .contains("no such method"));
         assert!(rpc_fault(&json!({"code":-32000,"message":"nope"})).contains("-32000"));
         assert_eq!(rpc_fault(&json!({"message":"nope"})), "nope");
     }
 
-    // A server that is not there is answered with words, and not with a fault
-    // of the program: the model reads that the server could not be reached and
-    // goes on with its talk.
+    // A server that is not there is answered with text, and not with an error in the program:
+    // the model reads that the server could not be reached and goes on with its conversation.
     #[test]
     fn a_server_that_is_not_there_is_answered_with_words() {
         let gone = Server {
@@ -2102,16 +2058,15 @@ mod tests {
         assert!(report.output.contains("could not be reached"));
     }
 
-    // A whole look at a server of the program itself, over its standard input
-    // and its standard output, with the runner of this program and the words of
-    // a user. This is the road a tool of an internal server takes to the
-    // model, run for real.
+    // A whole look at a server of the program itself, over its standard input and its standard
+    // output, with the runner of this program and the text of a user. This is the way a tool of
+    // an internal server takes to the model, run for real.
     #[test]
     fn a_server_of_the_program_itself_is_run_for_real() {
         let root = std::env::temp_dir().join("an-mcp-runner-check");
         let _ = std::fs::remove_dir_all(&root);
         let held = root.join("settings");
-        std::fs::create_dir_all(&held).expect("the place of the check is made");
+        std::fs::create_dir_all(&held).expect("the place of the check is created");
         config::set_data_dir(held);
         let server = Server {
             id: String::from("runnercheck"),
@@ -2145,24 +2100,24 @@ def helper(x):
         let tools = match list(&server) {
             Ok(list) => list,
             Err(problem) => {
-                // A machine with no Python is told, and the check passes for
-                // that reason and no other.
+                // A computer with no Python is informed, and the check passes for that reason
+                // and no other.
                 println!("no Python on this machine: {}", problem);
                 assert!(problem.contains("could not be started") || problem.contains("Python"));
                 return;
             }
         };
         let names: Vec<&str> = tools.iter().map(|one| one.name.as_str()).collect();
-        assert_eq!(names, vec!["add", "greet"], "only the marked tools are offered");
+        assert_eq!(names, vec!["add", "greet"], "only the flagged tools are proposed");
         let add = tools
             .iter()
             .find(|one| one.name == "add")
-            .expect("the tool the user marked");
+            .expect("the tool the user flagged");
         assert!(add.description.contains("Add two whole numbers"));
         assert_eq!(add.schema["properties"]["a"]["type"], "integer");
         assert_eq!(add.schema["required"], json!(["a", "b"]));
-        // The switch with a default of its own is not wanted, and the two words
-        // of the call reach the function.
+        // The switch with a default of its own is not wanted, and the two words of the call
+        // reach the function.
         let greet = tools
             .iter()
             .find(|one| one.name == "greet")
@@ -2173,25 +2128,25 @@ def helper(x):
         assert_eq!(made.output, "HELLO LEAF");
         let sum = run(&server, "add", &json!({"a":20,"b":22}).to_string());
         assert_eq!(sum.output, "42");
-        // A part the tool wants and the call did not bring is told, and the
-        // model can hear it and ask again.
+        // A part the tool wants and the call did not bring is informed, and the model can hear
+        // it and ask again.
         let short = run(&server, "add", "{}");
         assert!(!short.ok);
         assert!(short.output.contains("wants a"));
-        // A tool that fails says so and says why, and does not stop the server.
+        // A tool that fails records it and reports why, and does not stop the server.
         let bad = run(&server, "nope", "{}");
         assert!(!bad.ok);
         assert!(bad.output.contains("no tool") || bad.output.contains("No tool"));
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // The same kind of server again, and one of its tools run for real: the two
-    // hands, the call, and the words the model is to read.
+    // The same type of server again, and one of its tools run for real: the two pointers, the
+    // call, and the text the model is to read.
     #[test]
     fn a_tool_of_a_server_of_the_program_itself_runs_for_real() {
         let root = std::env::temp_dir().join("an-mcp-run-check");
         let held = root.join("settings");
-        std::fs::create_dir_all(&held).expect("the place of the check is made");
+        std::fs::create_dir_all(&held).expect("the place of the check is created");
         config::set_data_dir(held);
         let server = Server {
             id: String::from("runchannel"),
@@ -2215,8 +2170,8 @@ def twice(word: str) -> str:
         }
         assert!(made.ok, "{}", made.output);
         assert_eq!(made.output, "ember ember");
-        // A tool that is not there is told in words, and the telling is a fault
-        // of the run and not of the program.
+        // A tool that is not there is informed in text, and the report is an error in the run
+        // and not of the program.
         let missing = run(&server, "no_such_tool", "{}");
         assert!(!missing.ok, "a tool that is not there was taken for a run");
     }

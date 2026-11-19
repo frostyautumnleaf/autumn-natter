@@ -1,9 +1,8 @@
-// Autumn Natter. A chat program for models that run on this machine.
+// Autumn Natter. A chat program for models that run on this computer.
 //
-// This is the program the user runs. It reads the command line, then either
-// starts the engine with no window and serves a page for the local network
-// (--remote), or opens the desktop window. All the work lives in the core
-// crate; this crate is the window and the command line.
+// This is the program the user runs. It reads the command line, then either starts the engine
+// with no window and serves a page for the local network (--remote), or opens the desktop
+// window. All the work lives in the core crate; this crate is the window and the command line.
 //
 // Run with --help to see the arguments.
 
@@ -15,7 +14,7 @@ use std::process::ExitCode;
 
 use autumn_natter_core::config;
 
-// What the user asked for on the command line.
+// What the user requested on the command line.
 struct Args {
     // Headless run with a browser server.
     remote: bool,
@@ -66,8 +65,7 @@ fn run() -> Result<(), String> {
     desktop::run(cfg)
 }
 
-// Read the command line. Unknown arguments are an error, so a spelling mistake
-// is not ignored.
+// Read the command line. Unknown arguments are an error, so a spelling mistake is not ignored.
 fn parse_args() -> Result<Args, String> {
     let mut args = Args {
         remote: false,
@@ -131,11 +129,11 @@ Arguments:
   -h, --help          Show this text.
   -V, --version       Show the version.
 
-The settings live in the autumn_natter folder of the program data of the
-operating system, or in another folder chosen in the settings window -
-which --data-dir overrides. The settings window also sets the folders for
-llama-server, for the models, for the repositories, and for the talks the
-model worked its way through.
+Settings are stored in the autumn_natter folder of the program data of the
+operating system, or in another folder chosen in the settings window;
+--data-dir overrides that choice. The settings window also sets the folders
+for llama-server, for the models, for the repositories, and for the
+contexts the model processed.
 ",
         env!("CARGO_PKG_VERSION")
     );

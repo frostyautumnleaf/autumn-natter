@@ -1,26 +1,26 @@
 // The log of the program itself.
 //
-// The log of llama-server says what the server did. This log says what the
-// program did: when it weighed the room of a talk against the limit set for the
+// The log of llama-server reports what the server did. This log reports what the
+// program did: when it weighed the space of a conversation against the limit set for the
 // summarisation, when it asked the model for a handoff summary and with which
 // numbers, why it asked again, where it stopped the writing, and every moment the
-// meter of the context moved. The words of a fault often stand in one log and the
-// reason for them in the other, so the two stand in one folder, apart by the words
-// their names begin with, and the Logs tab of the sheet of settings shows either.
+// meter of the context moved. The text of an error often is in one log and the
+// reason for them in the other, so the two are in one folder, apart by the text
+// their names begin with, and the Logs tab of the settings panel shows either.
 //
-// One line stands for one thing the program did:
+// One line means one item the program did:
 //
-//     2026-11-02 03:01:44.123 room the talk weighs 213733 of 262144
+//     2026-11-02 03:01:44.123 space the conversation weighs 213733 of 262144
 //
-// The time to the millisecond stands first, so that two lines of one second keep
-// their order. One word then says which part of the program the line came from, so
-// a search of the log gives back one part by itself. The rest of the line is the
-// thing that happened, in the words a user reads on the page.
+// The time to the millisecond remains first, so that two lines of one second keep
+// their order. One word then reports which part of the program the line came from, so
+// a search of the log returns one part by itself. The rest of the line is the
+// event that happened, in the text a user reads on the page.
 //
-// One file stands for one run of the program, as one file stands for one start of
+// One file means one run of the program, as one file means one start of
 // the server, and the ten newest of each are kept. Writing a line never fails the
-// work that asked for it: a program that could not make its log at all works on as
-// it did before, and says nothing of it.
+// work that requested it: a program that could not make its log at all works on as
+// it did before, and reports nothing of it.
 
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -28,31 +28,31 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::logs;
 use crate::store;
 
-// The part of the program a line came from. One word each, so that a search of the
-// log gives back one part alone.
+// The part of the program a line came from. One word each, so that a search of the log returns
+// one part alone.
 
 // The log of this run was begun, and what ran when it was.
 pub const START: &str = "start";
-// The meter of the context: the number of the talk that the user is shown.
+// The context meter: the number of the conversation that the user is shown.
 pub const METER: &str = "meter";
-// The room of the talk, weighed against the limit set for the summarisation.
+// The size of the context, weighed against the limit set for the summarisation.
 pub const ROOM: &str = "room";
-// The handoff summary: every ask, the numbers it carried, how it ended, and every
-// ask made again and why.
+// The handoff summary: every ask, the numbers it carried, how it ended, and every ask rebuilt
+// and why.
 pub const SUMMARY: &str = "summary";
-// The writing stopped at the limit, the room that was made, and what the answer
-// was able to do with it.
+// The writing stopped at the limit, the space that was created, and what the answer was able to
+// do with it.
 pub const CUT: &str = "cut";
-// The talks on disk: a chat that could not be written out, and the reason.
+// The conversations on disk: a chat that could not be written out, and the reason.
 pub const STORE: &str = "store";
-// The folders of the program: a data folder named in the settings that is no
-// folder, and so is not stood for the next start of the program.
+// The directories of the program: a data folder named in the settings that is no folder, and so
+// is not was for the next start of the program.
 pub const FOLDERS: &str = "folders";
 
-// Begin the log of this run of the program and give back its place. None comes
-// back when the folder cannot be made, and the program then works as it did with no
-// log of its own. The line that says the log was begun is the first word of the
-// file, so a run that wrote nothing else still says when it stood.
+// Begin the log of this run of the program and give back its place. None returns when the
+// folder cannot be made, and the program then works as it did with no log of its own. The line
+// that shows the log was begun is the first word of the file, so a run that wrote nothing else
+// still reports when it was.
 pub fn start() -> Option<PathBuf> {
     let place = logs::start(logs::Kind::Program)?;
     note(
@@ -65,26 +65,25 @@ pub fn start() -> Option<PathBuf> {
     Some(place)
 }
 
-// Add one line to the log of this run. `part` is one of the words above, and
-// `words` says what happened. A mark of an end inside the words is turned into a
-// space, for one line stands for one thing the program did and two lines would
-// read as two things. Nothing is asked again and nothing fails: a log that cannot
-// be written is a loss of words and not a loss of the work.
+// Add one line to the log of this run. `part` is one of the text above, and `words` reports
+// what happened. A marker of an end inside the text is turned into a space, for one line means
+// one item the program did and two lines would read as two items. Nothing is asked again and
+// nothing fails: a log that cannot be written is a loss of text and not a loss of the work.
 pub fn note(part: &str, words: &str) {
     logs::note_line(logs::Kind::Program, &line_of(part, words));
 }
 
-// One line of the log: the moment, the part it came from, and the words of the
-// thing that happened. Kept apart from the writing of it, so that the shape of a
-// line is looked at without a folder to write into.
+// One line of the log: the moment, the part it came from, and the text of the item that
+// happened. Kept apart from the writing of it, so that the form of a line is checked without a
+// folder to write into.
 fn line_of(part: &str, words: &str) -> String {
     format!("{} {} {}", stamp(), part, words.replace('\n', " "))
 }
 
-// The moment a line stands at: the day and the clock time of this machine to the
-// millisecond, as in `2026-11-02 03:01:44.123`. The millisecond is what keeps the
-// lines of one second in their order, for the meter of the context moves twice a
-// second at most and an answer writes a great many of them.
+// The moment a line is at: the day and the clock time of this computer to the millisecond, as
+// in `2026-11-02 03:01:44.123`. The millisecond is what keeps the lines of one second in their
+// order, for the context meter moves twice a second at most and an answer writes very many of
+// them.
 fn stamp() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -110,8 +109,8 @@ fn stamp() -> String {
             );
         }
     }
-    // No local time to be had: the day and the clock of the seconds the machine
-    // counted from their beginning, which keeps the lines in their order.
+    // No local time to be had: the day and the clock of the seconds the computer counted from
+    // their beginning, which keeps the lines in their order.
     let (year, month, day) = store::civil_from_days(secs.div_euclid(86400));
     let of_day = secs.rem_euclid(86400);
     format!(
@@ -130,40 +129,39 @@ fn stamp() -> String {
 mod tests {
     use super::*;
 
-    // The time of a line holds the day, the clock and the millisecond of it, and
-    // always in the same shape, whatever machine it is read on.
+    // The time of a line holds the day, the clock and the millisecond of it, and always in the
+    // same format, whatever computer it is read on.
     #[test]
     fn the_time_of_a_line_holds_the_millisecond() {
         let made = stamp();
         // 2026-11-02 03:01:44.123
-        assert_eq!(made.len(), 23, "the shape of the time: {}", made);
+        assert_eq!(made.len(), 23, "the form of the time: {}", made);
         assert_eq!(made.matches('-').count(), 2, "the day: {}", made);
         assert_eq!(made.matches(':').count(), 2, "the clock: {}", made);
         assert_eq!(made.matches('.').count(), 1, "the millisecond: {}", made);
-        assert!(made.as_bytes()[4] == b'-', "the year stands first: {}", made);
+        assert!(made.as_bytes()[4] == b'-', "the year remains first: {}", made);
         assert!(made.chars().next().unwrap().is_ascii_digit(), "the time begins with the year");
     }
 
-    // A line is written as one line: the moment, then the part, then the words of
-    // it, and a mark of an end in the words is turned into a space, for one line
-    // stands for one thing the program did.
+    // A line is written as one line: the moment, then the part, then the text of it, and a
+    // marker of an end in the text is turned into a space, for one line means one item the
+    // program did.
     #[test]
     fn a_line_holds_the_part_before_its_words() {
-        let made = line_of(METER, "the talk weighs 412\nand was 900");
-        assert_eq!(made.matches('\n').count(), 0, "one line for one thing: {}", made);
-        assert!(made.starts_with("20"), "the moment stands first: {}", made);
-        // The day, then the clock, then the part, then the words of it.
+        let made = line_of(METER, "the conversation weighs 412\nand was 900");
+        assert_eq!(made.matches('\n').count(), 0, "one line for one item: {}", made);
+        assert!(made.starts_with("20"), "the moment remains first: {}", made);
+        // The day, then the clock, then the part, then the text of it.
         let after = made.split(' ').nth(2).expect("the part of the line");
-        assert_eq!(after, METER, "the part stands before the words: {}", made);
+        assert_eq!(after, METER, "the part is before the text: {}", made);
         assert!(
-            made.ends_with("the talk weighs 412 and was 900"),
-            "the mark of an end became a space: {}",
+            made.ends_with("the conversation weighs 412 and was 900"),
+            "the marker of an end became a space: {}",
             made
         );
     }
 
-    // The log of this run is written through the rule of the logs, which is tried
-    // in `logs`, where the file of a run is begun in a folder of the test. What is
-    // looked at here is the shape of a line, which is all this part of the program
-    // adds to a line of the log.
+    // The log of this run is written through the rule of the logs, which is tried in `logs`,
+    // where the file of a run is begun in a directory of the test. What is checked here is the
+    // form of a line, which is all this part of the program adds to a line of the log.
 }

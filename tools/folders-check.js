@@ -1,14 +1,12 @@
-// Check the two folders of the Program tab that a user may point elsewhere: the
-// directory for the files of the program, and the folder for the talks the model
-// worked its way through. Both stand in the Folders section beside the places that
-// are read out, both are filled from the settings, and both are read back into the
-// words the tab sends when it asks for the settings to be written. Empty words mean
-// the usual place, which is what a settings file written before the two fields
-// existed holds. The page is loaded as it stands, with no bridge and no engine, so
-// the two faces are checked the same way and neither engine is run.
+// Check the two folders of the Program tab that a user may point elsewhere: the directory for
+// the files of the program, and the folder for the contexts the model has processed. Both are
+// in the Folders section beside the places that are extracted, both are filled from the
+// settings, and both are read back into the text the tab sends when it requests the settings to
+// be written. Empty text means the usual place, which is what a settings file written before
+// the two fields existed holds. The page is loaded as it is now, with no bridge and no engine,
+// so the two pages are checked the same way and neither engine is run.
 //
-//   node folders-check.js
-//   AN_PAGE=../web/page.html node folders-check.js
+// node folders-check.js AN_PAGE=../web/page.html node folders-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -34,19 +32,19 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       by(id).dispatchEvent(new Event('change', { bubbles: true }));
     };
 
-    // The settings as the engine holds them, and the two places in use. The
-    // settings name other folders than the ones in use, so that what is filled
-    // into a field can be told from what is read out beside it.
+    // The settings as the engine holds them, and the two places in use. The settings name other
+    // folders than the ones in use, so that what is filled into a field can be informed from
+    // what is extracted beside it.
     var settings = {
       llama_dir: '/llamacpp/build/bin', models_dir: '/models',
-      repositories_dir: '', data_dir: '/spindle/program', contexts_dir: '/spindle/talks',
+      repositories_dir: '', data_dir: '/spindle/program', contexts_dir: '/spindle/conversations',
       remote_port: 8723, upnp_enabled: false, theme: 'light', dark_mode: false,
       model_id: '', model_settings: {}
     };
     var saved = [];   // every settings object the tab asked to be written
 
-    // The two faces ask in their own words: the window names the command of the
-    // bridge, the page of the remote mode names the road of its small server.
+    // The two pages ask in their own text: the window names the command of the bridge, the page
+    // of the remote mode names the path of its small server.
     var answer = function (name) {
       if (name === 'get_config' || name === 'config') {
         return JSON.parse(JSON.stringify(settings));
@@ -75,63 +73,62 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     openSettings('program');
     await wait(200);
 
-    // Both fields stand in the section of the folders, and the two places in use
-    // are read out above them, so the difference between the two words is plain
-    // to the user before anything is written.
+    // Both fields are in the section of the folders, and the two places in use are extracted
+    // above them, so the difference between the two words is plain to the user before anything
+    // is written.
     var pane = by('paneProgram');
     ['fDataDir', 'fContexts'].forEach(function (id) {
       if (!by(id)) { faults.push('the Program tab holds no field ' + id); return; }
-      if (pane && !by(id).closest('#paneProgram')) { faults.push(id + ' stands outside the section of the program'); }
+      if (pane && !by(id).closest('#paneProgram')) { faults.push(id + ' is outside the section of the program'); }
       if (by(id).type !== 'text') { faults.push(id + ' is not a field of words'); }
     });
     if (!by('fData') || !by('fContextsInUse')) {
-      faults.push('the places in use are not read out in the section of the folders');
+      faults.push('the places in use are not extracted in the section of the folders');
       return faults;
     }
     if (by('fData').textContent.indexOf('autumn_natter') < 0) {
-      faults.push('the directory in use is not read out: ' + by('fData').textContent);
+      faults.push('the directory in use is not extracted: ' + by('fData').textContent);
     }
     if (by('fContextsInUse').textContent.indexOf('contexts') < 0) {
-      faults.push('the context folder in use is not read out: '
+      faults.push('the context folder in use is not extracted: '
         + by('fContextsInUse').textContent);
     }
-    // The fields are filled from the settings, which name other folders than the
-    // ones in use.
+    // The fields are filled from the settings, which name other folders than the ones in use.
     if (by('fDataDir').value !== '/spindle/program') {
       faults.push('the field of the data directory holds ' + JSON.stringify(by('fDataDir').value));
     }
-    if (by('fContexts').value !== '/spindle/talks') {
+    if (by('fContexts').value !== '/spindle/conversations') {
       faults.push('the field of the context folder holds ' + JSON.stringify(by('fContexts').value));
     }
 
-    // The fields are read back into the settings, and the ask that has the
-    // settings written carries both words.
+    // The fields are read back into the settings, and the request that has the settings written
+    // carries both text.
     by('fDataDir').value = '/disk2/program';
     move('fDataDir');
-    by('fContexts').value = '/disk2/talks';
+    by('fContexts').value = '/disk2/conversations';
     move('fContexts');
     var back = readProgram();
     if (back.data_dir !== '/disk2/program') {
       faults.push('the fields do not read the data directory back: ' + JSON.stringify(back.data_dir));
     }
-    if (back.contexts_dir !== '/disk2/talks') {
+    if (back.contexts_dir !== '/disk2/conversations') {
       faults.push('the fields do not read the context folder back: ' + JSON.stringify(back.contexts_dir));
     }
-    // Saving the tab asks for the whole of the settings, both folders inside it.
+    // Saving the tab requests all of the settings, both folders inside it.
     saveSheet();
     await wait(200);
     var last = saved[saved.length - 1] || {};
     if (last.data_dir !== '/disk2/program') {
-      faults.push('the ask for the settings did not carry the data directory: '
+      faults.push('the request for the settings did not carry the data directory: '
         + JSON.stringify(last.data_dir));
     }
-    if (last.contexts_dir !== '/disk2/talks') {
-      faults.push('the ask for the settings did not carry the context folder: '
+    if (last.contexts_dir !== '/disk2/conversations') {
+      faults.push('the request for the settings did not carry the context folder: '
         + JSON.stringify(last.contexts_dir));
     }
 
-    // Empty words are kept as they stand, for they are how the usual place is
-    // asked for: nothing of the settings is filled in for the user.
+    // Empty text is kept as they are now, for they are how the usual place is requested:
+    // nothing of the settings is filled in for the user.
     openSettings('program');
     await wait(200);
     by('fDataDir').value = '';
@@ -140,10 +137,10 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     move('fContexts');
     var empty = readProgram();
     if (empty.data_dir !== '') {
-      faults.push('empty words were filled in with something: ' + JSON.stringify(empty.data_dir));
+      faults.push('empty text was filled in with something: ' + JSON.stringify(empty.data_dir));
     }
     if (empty.contexts_dir !== '   ') {
-      faults.push('the words of the context folder were changed: ' + JSON.stringify(empty.contexts_dir));
+      faults.push('the text of the context folder was changed: ' + JSON.stringify(empty.contexts_dir));
     }
     return faults;
   });

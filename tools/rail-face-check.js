@@ -1,25 +1,25 @@
-// The three lines beside the chat, looked at in both faces with no engine behind
-// them: the drawing is driven by hand, so the window face and the browser face
+// The three lines beside the chat, checked in both pages with no engine behind
+// them: the drawing is driven manually, so the window face and the browser face
 // are read the same way.
 //
 //   node rail-face-check.js
-//   AN_PAGE=../web/page.html node rail-face-check.js   # one face only
+//   AN_PAGE=../web/page.html node rail-face-check.js   # one page only
 //
-// Seven things are looked at, for each of the three lines:
-//   * a line with room to spare keeps the distance between its nodes and shows
-//     all of them, with no mark at either end - it looks as it did before the
+// Seven items are checked, for each of the three lines:
+//   * a line with space to spare keeps the distance between its nodes and shows
+//     all of them, with no marker at either end - it looks as it did before the
 //     line became a window;
-//   * a line with more nodes than the room is tall for is cut to the room, keeps
-//     the same distance between its nodes, and stands centred in the room;
-//   * it shows the end of the line where the newest node stands, and the mark
-//     for the newer end is gone while the other one is there;
+//   * a line with more nodes than the space is tall for is cut to the space, keeps
+//     the same distance between its nodes, and remains centred in the sandbox directory;
+//   * it shows the end of the line where the newest node remains, and the marker
+//     for the newer end is removed while the other one is there;
 //   * the rows the window does not show are hidden, so a card of one of them
 //     never lies over the chat, and nothing that is shown hangs out of the
 //     window;
 //   * a wheel over the line slides the line, and not the chat behind it;
-//   * a press of a mark moves the window by part of a screenful;
-//   * while the user is looking at another part of the line, a node coming in
-//     does not drag them back, and when the look is spent the line comes back to
+//   * a press of a marker moves the window by part of a screenful;
+//   * while the user is looking at another part of the line, a node arriving
+//     does not drag them back, and when the look has expired the line returns to
 //     the newest node of itself.
 'use strict';
 
@@ -36,8 +36,8 @@ const PAGES = process.env.AN_PAGE
 const shell = process.env.AN_SHELL_BIN || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// What each of the three lines is made of. Every line is drawn from a talk with
-// this many nodes in it, first with few enough to fit and then with far too many.
+// What each of the three lines is made of. Every line is drawn from a conversation with this
+// many nodes in it, first with few enough to fit and then with far too many.
 const SCRIPT = `
 window.__talk = function (many) {
   var messages = [], chapters = [], handoffs = [];
@@ -110,10 +110,9 @@ window.__mark = function (which, place) {
 
 const LINES = ['chapters', 'timeline', 'userline'];
 
-// How tall a line of three nodes is, and how tall the window of a line that
-// overflows is. The first is the height of three nodes and the two distances
-// between them; the second is the room of the stage with the margin the line
-// keeps at either end taken off.
+// How tall a line of three nodes is, and how tall the window of a line that overflows is. The
+// first is the height of three nodes and the two distances between them; the second is the
+// space of the stage with the margin the line keeps at either end taken off.
 const SHORT_HEIGHT = { chapters: 75, timeline: 75, userline: 51 };
 const EDGE = 26;
 
@@ -134,11 +133,11 @@ async function main() {
     page.on('pageerror', (e) => faults.push(String(e)));
     await page.evaluateOnNewDocument(SCRIPT);
     await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
-    // The look of the user's own is held for five seconds in the program. The
-    // check will not wait that long, so it is shortened here and put back after.
+    // The appearance of the user's own is held for five seconds in the program. The check will
+    // not wait that long, so it is compressed here and put back after.
     await page.evaluate(() => { window.RAIL_LOOK = 350; });
     const notes = [];
-    const note = (what) => { notes.push(what); console.log('  FAULT: ' + what); };
+    const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
     for (const which of LINES) {
       await page.evaluate((w, m) => window.__draw(w, m), which, 3);
@@ -158,8 +157,8 @@ async function main() {
       await sleep(220);
       const long = await page.evaluate((w) => window.__read(w), which);
       const room = await page.evaluate(() => document.getElementById('stage').clientHeight);
-      // The window holds a whole number of rows of nodes, so no node is cut in
-      // half along the edge of it.
+      // The window holds a whole number of rows of nodes, so no node is cut in half along the
+      // edge of it.
       const stride = ROW[which][0], nodeHigh = ROW[which][1];
       const windowHeight = (() => {
         const rows = Math.floor((room - EDGE * 2 + stride) / stride);
@@ -182,7 +181,7 @@ async function main() {
       if (long.off < long.max) { note(which + ': the line does not stand at the newest node'); }
       if (long.last > long.bottom + 1) { note(which + ': the newest node is below the window'); }
 
-      // The wheel of the user slides the line, and the marks answer to it.
+      // The wheel of the user slides the line, and the markers answer to it.
       await page.evaluate((w) => window.__wheel(w, -240), which);
       await sleep(220);
       const looked = await page.evaluate((w) => window.__read(w), which);
@@ -192,8 +191,8 @@ async function main() {
       if (!looked.down) { note(which + ': no mark for the newer part after a scroll back'); }
       if (!looked.inWindow) { note(which + ': a shown row hangs out after a scroll'); }
 
-      // While the look lasts, a node coming in leaves the window where it is;
-      // when it is spent, the line comes back to the newest node of itself.
+      // While the look lasts, a node arriving leaves the window where it is; when it has
+      // expired, the line returns to the newest node of itself.
       const held = await page.evaluate((w) => {
         window.__draw(w, 61);
         return window.__read(w);
@@ -206,7 +205,7 @@ async function main() {
       if (back.off < back.max) { note(which + ': the line did not come back to the newest node'); }
       if (back.down) { note(which + ': the mark for the newer part stands at the end again'); }
 
-      // A press of a mark moves the window the other way.
+      // A press of a marker moves the window the other way.
       const turned = await page.evaluate((w) => {
         window.__wheel(w, 1000000);
         var before = window.__read(w);
@@ -237,7 +236,7 @@ async function main() {
     trouble += notes.length;
   }
   await browser.close();
-  console.log(trouble ? '\n' + trouble + ' faults' : '\nnothing amiss in either face');
+  console.log(trouble ? '\n' + trouble + ' errors' : '\nnothing amiss in either face');
   return trouble;
 }
 

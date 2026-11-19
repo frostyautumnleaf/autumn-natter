@@ -1,51 +1,48 @@
-// The words of an infographic video: what is to be seen, and when.
+// The text of an infographic video: what is to be seen, and when.
 //
-// A video is one project. A project stands in a folder of the room of the chat,
-// and the whole of it is one file of json, `script.json`. The model writes that
-// file through the tools of this module, never with a file tool, so the words it
-// writes are read as they come in and a fault is told to it at once instead of
-// being seen a minute later in a picture of nothing.
+// A video is one project. A project is in a directory of the working directory of the chat, and all of
+// it is one file of json, `script.json`. The model writes that file through the tools of this
+// module, never with a file tool, so the text it writes are read as they arrive and an error is
+// set to it at once instead of being seen a minute later in an image of nothing.
 //
-// The shape is kept small on purpose. A scene is a box of blocks; a block is one
-// thing of the screen with a place on the grid and a way of coming in. The model
-// names a place by the grid -- `col`, `row`, `w`, `h` of twenty-four columns and
-// sixteen rows -- and not by pixels, for the grid reads the same at every size of
-// canvas and never asks the model to do arithmetic. A place in pixels is still
-// let through, for a picture that hangs off the edge of the grid is a thing a
-// model sometimes wants.
+// The form is kept small on purpose. A scene is a box of blocks; a block is one item of the
+// screen with a place on the grid and a way of arriving. The model names a place by the grid --
+// `col`, `row`, `w`, `h` of twenty-four columns and sixteen rows -- and not by pixels, for the
+// grid reads the same at every size of canvas and never asks the model to do arithmetic. A
+// place in pixels is still let through, for an image that hangs off the edge of the grid is an
+// item a model sometimes wants.
 //
-// Nothing here draws. `script.rs` keeps words, `draw.rs` turns them into a
-// picture, and `encode.rs` turns pictures into a file.
+// Nothing here draws. `script.rs` keeps text, `draw.rs` turns them into an image, and
+// `encode.rs` turns images into a file.
 
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-// The name of the file the whole of a project stands in.
+// The name of the file all of a project is in.
 pub const SCRIPT_FILE: &str = "script.json";
 
-// The name of the folder of one project, under `infographics` in the room of
-// the chat.
+// The name of the directory of one project, under `infographics` in the working directory of the chat.
 pub const ROOT: &str = "infographics";
 
 // The name of the project a tool takes when it is given none.
 pub const DEFAULT_PROJECT: &str = "main";
 
-// The grid every block is placed on. Twenty-four columns and sixteen rows fit a
-// wide canvas, a square one and a tall one alike, and give a block a place fine
-// enough for any layout without asking for pixels.
+// The grid every block is placed on. Twenty-four columns and sixteen rows fit a wide canvas, a
+// square one and a tall one as well, and give a block a place fine enough for any layout
+// without asking for pixels.
 pub const COLS: i32 = 24;
 pub const ROWS: i32 = 16;
 
-// How long a scene may be, and how many of them one video may hold. The two
-// ceilings keep a run of the renderer inside a time a user will wait for.
+// How long a scene may be, and how many of them one video may hold. The two ceilings keep a run
+// of the renderer inside a time a user will wait for.
 pub const GREATEST_SCENE_SECONDS: f64 = 120.0;
 pub const GREATEST_SCENES: usize = 80;
 pub const GREATEST_FPS: u32 = 60;
 
 // ---------------------------------------------------------------- canvas
 
-// One size of picture. The word the model uses is kept, so the script reads as
-// the model wrote it and not as a list of numbers.
+// One size of image. The word the model uses is kept, so the script reads as the model wrote it
+// and not as a list of numbers.
 #[derive(Clone, Debug)]
 pub struct Canvas {
     pub word: &'static str,
@@ -53,8 +50,8 @@ pub struct Canvas {
     pub height: u32,
 }
 
-// The sizes a canvas word may name. A model that wants another size writes
-// "2048x858" and gets it.
+// The sizes a canvas word may name. A model that wants another size writes "2048x858" and gets
+// it.
 pub const CANVASES: &[Canvas] = &[
     Canvas { word: "1080p", width: 1920, height: 1080 },
     Canvas { word: "720p", width: 1280, height: 720 },
@@ -64,9 +61,9 @@ pub const CANVASES: &[Canvas] = &[
     Canvas { word: "wide", width: 2560, height: 1080 },
 ];
 
-// The size of a canvas word. A word nothing knows is answered with nothing, and
-// the caller says so. A word of the shape "1280x720" is taken, and both numbers
-// are kept inside the ceiling of the renderer.
+// The size of a canvas word. A word nothing knows is answered with nothing, and the caller
+// records it. A note about the form "1280x720" is taken, and both numbers are kept inside the
+// ceiling of the renderer.
 pub fn canvas_of(word: &str) -> Option<Canvas> {
     let said = word.trim().to_ascii_lowercase();
     if said.is_empty() {
@@ -89,7 +86,7 @@ pub fn canvas_of(word: &str) -> Option<Canvas> {
     Some(Canvas { word: "custom", width, height })
 }
 
-// The words of the sizes, for the guide and for a fault that names them.
+// The text of the sizes, for the guide and for an error that names them.
 pub fn canvas_words() -> String {
     let mut out: Vec<String> = CANVASES
         .iter()
@@ -101,8 +98,8 @@ pub fn canvas_words() -> String {
 
 // ---------------------------------------------------------------- palette
 
-// The colours of one video. Every block takes its colours from here unless it
-// names its own, so a video is re-skinned by one word.
+// The colours of one video. Every block takes its colours from here unless it names its own, so
+// a video is re-skinned by one word.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Palette {
@@ -125,9 +122,9 @@ impl Default for Palette {
     }
 }
 
-// The colours a name may ask for. Nine of them, each a whole skin of its own:
-// two pale, six dark, one of grey alone. The words of a series are six colours
-// that stand apart from one another in a chart of any of these skins.
+// The colours a name may request. Nine of them, each a whole theme of its own: two pale, six
+// dark, one of grey alone. The text of a series is six colours that remain apart from one
+// another in a chart of any of these themes.
 pub fn palette_of(word: &str) -> Option<Palette> {
     let said = word.trim().to_ascii_lowercase();
     let made = match said.as_str() {
@@ -253,9 +250,9 @@ fn colours(words: &[&str]) -> Vec<String> {
     words.iter().map(|one| String::from(*one)).collect()
 }
 
-// One colour out of the palette, with the colour of a series taken by its
-// place. A number past the end of the series wraps, so a chart of nine bars
-// still gives every bar a colour of its own.
+// One colour out of the palette, with the colour of a series taken by its place. A number past
+// the end of the series wraps, so a chart of nine bars still gives every bar a colour of its
+// own.
 pub fn series_colour(palette: &Palette, place: usize) -> String {
     if palette.series.is_empty() {
         return palette.accent.clone();
@@ -273,20 +270,19 @@ pub struct Project {
     pub name: String,
     // A line for the user about what the video is of. Not drawn.
     pub about: String,
-    // The size of the picture: a word of the list, or "WxH".
+    // The size of the image: a note about the list, or "WxH".
     pub canvas: String,
     // Frames of the second.
     pub fps: u32,
-    // The colours of the whole of the video.
+    // The colours of all of the video.
     pub palette: String,
     // The colours the palette gives way to, block by block. Empty for none.
     pub colours: Colours,
-    // The words of the type: "sans", "serif", "mono", or the name of a family
-    // the machine has.
+    // The text of the type: "sans", "serif", "mono", or the name of a family the computer has.
     pub font: String,
-    // How heavy the heads are: "normal", "bold", "black".
+    // How heavy the headers are: "normal", "bold", "black".
     pub heading_weight: String,
-    // The ground every scene stands on unless the scene names its own.
+    // The background every scene is on unless the scene names its own.
     pub background: Background,
     // The scenes, in the order they are shown in.
     pub scenes: Vec<Scene>,
@@ -308,7 +304,7 @@ pub struct Colours {
     pub series: Vec<String>,
 }
 
-// The ground of a scene.
+// The background of a scene.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Background {
@@ -319,9 +315,9 @@ pub struct Background {
     pub to: String,
     // The way a gradient runs, in degrees from the left edge to the right.
     pub angle: f64,
-    // How dark the four corners are made: 0 for nothing, 1 for a great deal.
+    // How dark the four corners are created: 0 for nothing, 1 for a great deal.
     pub vignette: f64,
-    // How far apart the lines of a grid stand, in parts of the width.
+    // How far apart the lines of a grid remain, in parts of the width.
     pub spacing: f64,
 }
 
@@ -329,18 +325,18 @@ pub struct Background {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Scene {
-    // The head of the scene in the storyboard. Not drawn unless a block draws
-    // it; it is what the model and the user read the scene by.
+    // The header of the scene in the storyboard. Not drawn unless a block draws it; it is what
+    // the model and the user read the scene by.
     pub title: String,
-    // What the scene is for, in the words of the model. Never drawn.
+    // What the scene is for, in the text of the model. Never drawn.
     pub note: String,
-    // How long the scene stands, in seconds.
+    // How long the scene remains, in seconds.
     pub seconds: f64,
-    // How the scene comes in from the one before it.
+    // How the scene arrives from the one before it.
     pub transition: Transition,
-    // The things on the screen.
+    // The items on the screen.
     pub blocks: Vec<Block>,
-    // The ground of this scene, when it is not the ground of the video.
+    // The background of this scene, when it is not the background of the video.
     pub background: Option<Background>,
 }
 
@@ -356,35 +352,34 @@ pub struct Transition {
     pub dir: String,
 }
 
-// One thing on the screen. Every kind of block is one shape with many parts,
-// and a part that a kind does not use is left out. `check_keys` says which parts
-// a kind knows, so a part written wrong is told to the model rather than
-// silently passed over.
+// One item on the screen. Every type of block is one form with many parts, and a part that a
+// type does not use is left out. `check_keys` reports which parts a type knows, so a part
+// written wrong is set to the model rather than silently passed over.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Block {
     // What this block is. See `KINDS`.
     pub kind: String,
 
-    // Where it stands, on the grid. Zero means the part was not named.
+    // Where it is, on the grid. Zero means the part was not named.
     pub col: i32,
     pub row: i32,
     pub w: i32,
     pub h: i32,
-    // Where it stands, in pixels, when the grid is not wanted.
+    // Where it is, in pixels, when the grid is not wanted.
     pub x: f64,
     pub y: f64,
     pub pw: f64,
     pub ph: f64,
 
-    // The words.
+    // The text.
     pub text: String,
-    // The lines of a list, of a process, of a timeline. A line may be written as
-    // words alone. See `words_or_items`.
+    // The lines of a list, of a process, of a timeline. A line may be written as text alone.
+    // See `words_or_items`.
     #[serde(default, deserialize_with = "words_or_items")]
     pub items: Vec<Item>,
     pub spans: Vec<Span>,
-    // The two sides of a compare, each with a head and lines of its own.
+    // The two sides of a compare, each with a header and lines of its own.
     pub groups: Vec<Group>,
     // The rows of a table, each a list of cells.
     pub rows: Vec<Vec<String>>,
@@ -392,15 +387,14 @@ pub struct Block {
     pub align: String,
     // "top", "middle", "bottom".
     pub valign: String,
-    // The size of the words, in parts of the height of the canvas, so the same
-    // script fills a 720p picture and a 1080p one alike. 0 takes the size the
-    // kind brings with it.
+    // The size of the text, in parts of the height of the canvas, so the same script fills a
+    // 720p image and a 1080p one as well. 0 takes the size the type brings with it.
     pub size: f64,
     // "normal", "bold", "black".
     pub weight: String,
-    // How tall a line of words stands, as a share of the size.
+    // How tall a line of text remains, as a share of the size.
     pub leading: f64,
-    // How far apart the lines of a list stand, in parts of the height.
+    // How far apart the lines of a list remain, in parts of the height.
     pub gap: f64,
     // For a list: "dot", "check", "cross", "arrow", "number", "none".
     pub marker: String,
@@ -423,44 +417,40 @@ pub struct Block {
     pub prefix: String,
     pub suffix: String,
     pub decimals: i32,
-    // "vertical" or "horizontal" for a bar chart; "row" or "column" for a
-    // process.
+    // "vertical" or "horizontal" for a bar chart; "row" or "column" for a process.
     pub direction: String,
-    // The share of a ring left empty in the middle, and the share a progress bar
-    // stands at.
+    // The share of a ring left empty in the middle, and the share a progress bar is at.
     pub hole: f64,
-    // Whether the numbers of a chart stand on it, and whether the axis does.
+    // Whether the numbers of a chart are on it, and whether the axis does.
     pub show_values: Option<bool>,
     pub show_axis: Option<bool>,
     pub show_legend: Option<bool>,
-    // Whether a number counts up while the scene runs, and whether the bars of a
-    // chart grow.
+    // Whether a number counts up while the scene runs, and whether the bars of a chart grow.
     pub count: Option<bool>,
     pub grow: Option<bool>,
     // How long the growth takes, in milliseconds.
     pub grow_ms: f64,
 
-    // A picture, a shape, or a piece of the model's own drawing.
+    // An image, a form, or a piece of the model's own drawing.
     pub path: String,
     // "contain" or "cover".
     pub fit: String,
     // "rect", "circle", "ring", "panel".
     pub shape: String,
-    // The name of a mark of the set the program draws: see `MARKS`.
+    // The name of a marker of the set the program draws: see `MARKS`.
     pub mark: String,
     // The thickness of a line, in parts of the height.
     pub stroke: f64,
-    // The raw words of a picture of the model's own, for a block of kind "svg".
+    // The raw text of an image of the model's own, for a block of type "svg".
     pub svg: String,
 
-    // How the block comes in.
-    // "none", "fade", "rise", "left", "right", "pop", "wipe", "type".
+    // How the block arrives. "none", "fade", "rise", "left", "right", "pop", "wipe", "type".
     pub reveal: String,
     // When it starts, in milliseconds from the start of the scene.
     pub delay: f64,
-    // How much later each line or item of it comes in.
+    // How much later each line or item of it arrives.
     pub stagger: f64,
-    // How long the coming in takes, in milliseconds.
+    // How long the arriving takes, in milliseconds.
     pub reveal_ms: f64,
 }
 
@@ -471,25 +461,24 @@ pub struct Item {
     pub text: String,
     // A second, smaller line under the first.
     pub sub: String,
-    // A head of its own, for a step and for a point of a timeline.
+    // A header of its own, for a step and for a point of a timeline.
     pub title: String,
-    // When it stands, for a point of a timeline.
+    // When it remains, for a point of a timeline.
     pub when: String,
     // A number, for a step that carries one and for a chart drawn from items.
     pub value: f64,
     pub colour: String,
-    // The mark beside the line, for a list that names its own marks.
+    // The marker beside the line, for a list that names its own markers.
     pub mark: String,
-    // How far along a timeline this point stands, from 0 to 1.
+    // How far along a timeline this point remains, from 0 to 1.
     pub at: f64,
 }
 
-// The lines of a list, with a line let through as words alone. `"items":
-// ["Explore", "Mine", "Craft", "Build"]` is how a list is written first, and a
-// model that is answered with "expected struct Item" has no word to go on for
-// what an item is. A line of words stands for an item whose words are those
-// words; a set of parts is read as it always was; anything else is answered with
-// the line that is wrong, and not with the name of a shape no one has read.
+// The lines of a list, with a line let through as text alone. `"items": ["Explore", "Mine",
+// "Craft", "Build"]` is how a list is written first, and a model that is answered with
+// "expected struct Item" has no word to go on for what an item is. A line of text means an item
+// whose text is that text; a set of parts is read as it always was; anything else is answered
+// with the line that is wrong, and not with the name of a form no one has read.
 fn words_or_items<'de, D>(reader: D) -> Result<Vec<Item>, D::Error>
 where
     D: Deserializer<'de>,
@@ -508,7 +497,7 @@ where
             })?),
             other => {
                 return Err(D::Error::custom(format!(
-                    "line {}: a line of a list is a line of words or a set of parts, not {other}",
+                    "line {}: a line of a list is a line of text or a set of parts, not {other}",
                     place + 1
                 )))
             }
@@ -517,21 +506,20 @@ where
     Ok(out)
 }
 
-// One side of a compare: the head of it, and the lines under it.
+// One side of a compare: the header of it, and the lines under it.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Group {
     pub title: String,
     pub text: String,
-    // The lines of the side, a line written as words alone let through as it is
-    // for a block.
+    // The lines of the side, a line written as text alone let through as it is for a block.
     #[serde(default, deserialize_with = "words_or_items")]
     pub items: Vec<Item>,
     pub colour: String,
 }
 
-// One run of words with colours of its own, for a text block that puts a word
-// in the accent colour.
+// One run of text with colours of its own, for a text block that puts a word in the accent
+// colour.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Span {
@@ -554,8 +542,8 @@ pub struct Series {
     pub width: f64,
 }
 
-// The kinds of block a scene may hold, with the parts each of them reads. A
-// part outside this list is a fault of writing, and the model is told so.
+// The types of block a scene may hold, with the parts each of them reads. A part outside this
+// list is an error in writing, and the model is informed so.
 pub const KINDS: &[(&str, &[&str])] = &[
     ("head", &["text", "spans", "align", "valign", "size", "weight", "colour", "leading", "bg", "border", "radius", "pad", "opacity", "reveal", "delay", "stagger", "reveal_ms"]),
     ("text", &["text", "spans", "align", "valign", "size", "weight", "colour", "leading", "bg", "border", "radius", "pad", "opacity", "reveal", "delay", "stagger", "reveal_ms"]),
@@ -579,16 +567,16 @@ pub const KINDS: &[(&str, &[&str])] = &[
     ("svg", &["svg", "colour", "align", "valign", "opacity", "reveal", "delay", "reveal_ms"]),
 ];
 
-// The parts every block may name, beside the parts of its kind.
+// The parts every block may name, beside the parts of its type.
 pub const COMMON: &[&str] = &["kind", "col", "row", "w", "h", "x", "y", "pw", "ph"];
 
-// The words of the kinds, for the guide and for a fault that names them.
+// The text of the types, for the guide and for an error that names them.
 pub fn kind_names() -> String {
     KINDS.iter().map(|(one, _)| *one).collect::<Vec<&str>>().join(", ")
 }
 
-// The whole of the words of one kind: the parts it reads, and the place it is
-// put on. The model reads this before it writes a block of that kind.
+// All of the text of one type: the parts it reads, and the place it is put on. The model reads
+// this before it writes a block of that type.
 pub fn kind_words(kind: &str) -> String {
     let Some(parts) = known_parts(kind) else {
         return format!("\"{kind}\" is not a kind of block. The kinds are: {}.", kind_names());
@@ -605,24 +593,24 @@ pub fn kind_words(kind: &str) -> String {
     out
 }
 
-// The guide of a whole script: the parts of a project, the parts of a scene,
-// the kinds, the colours, the sizes and the marks.
+// The guide of a whole script: the parts of a project, the parts of a scene, the types, the
+// colours, the sizes and the markers.
 pub fn guide() -> String {
     let mut out = String::new();
-    out.push_str("An infographic video is one project. The shape is this:\n\n");
+    out.push_str("An infographic video is one project. The form is this:\n\n");
     out.push_str("PROJECT\n  ");
     out.push_str(&PROJECT_PARTS.join(", "));
     out.push_str("\n\nSCENE\n  ");
     out.push_str(&SCENE_PARTS.join(", "));
     out.push_str("\n\nGROUND\n  ");
     out.push_str(&BACKGROUND_PARTS.join(", "));
-    out.push_str("\n\nEvery block names a kind and a place on a grid of ");
+    out.push_str("\n\nEvery block names a type and a place on a grid of ");
     out.push_str(&COLS.to_string());
     out.push_str(" columns and ");
     out.push_str(&ROWS.to_string());
     out.push_str(" rows (col, row, w, h).\nThe kinds are: ");
     out.push_str(&kind_names());
-    out.push_str(".\nAsk the guide with one kind named to have the whole of its words.\n\n");
+    out.push_str(".\nAsk the guide with one type named to have all of its text.\n\n");
     out.push_str("Sizes: ");
     out.push_str(&canvas_words());
     out.push_str("\nColour sets: ");
@@ -638,21 +626,20 @@ pub fn guide() -> String {
     out
 }
 
-// True when a kind is one of the program.
+// True when a type is one of the program.
 pub fn is_kind(word: &str) -> bool {
     KINDS.iter().any(|(one, _)| *one == word)
 }
 
-// The parts a kind reads, and the parts every block reads. Nothing is answered
-// for a kind nothing knows.
+// The parts a type reads, and the parts every block reads. Nothing is answered for a type
+// nothing knows.
 fn known_parts(kind: &str) -> Option<&'static [&'static str]> {
     KINDS.iter().find(|(one, _)| *one == kind).map(|(_, parts)| *parts)
 }
 
-// The faults of writing in a list of blocks: a part of a name that no kind
-// reads, a kind that is not one of the program, a list with nothing in it. The
-// words are for the model, so each says which block it is talking about and
-// names the part it thinks was meant.
+// The errors of writing in a list of blocks: a part of a name that no type reads, a type that
+// is not one of the program, a list with nothing in it. The text is for the model, so each
+// reports which block it is generating about and names the part it thinks was meant.
 pub fn block_faults(blocks: &[Value]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for (place, one) in blocks.iter().enumerate() {
@@ -702,9 +689,9 @@ pub fn block_faults(blocks: &[Value]) -> Vec<String> {
     out
 }
 
-// The part of a list a written word was nearest to: a part that starts the same
-// way, or one that shares most of its letters. Nothing comes back when the two
-// are nothing alike, and the caller then names the whole list.
+// The part of a list a written word was nearest to: a part that starts the same way, or one
+// that shares most of its letters. Nothing returns when the two are nothing as well, and the
+// caller then names the whole list.
 fn nearest(written: &str, parts: &[&'static str]) -> Option<&'static str> {
     let word = written.to_ascii_lowercase();
     let mut best: Option<(usize, &'static str)> = None;
@@ -727,8 +714,8 @@ fn nearest(written: &str, parts: &[&'static str]) -> Option<&'static str> {
     best.map(|(_, one)| one)
 }
 
-// How many letters two words share. A rough measure is enough: the answer is
-// only used to say which part the model may have meant.
+// How many letters two words share. A rough measure is enough: the answer is only used to say
+// which part the model may have meant.
 fn shared_letters(one: &str, other: &str) -> usize {
     let mut left: Vec<char> = other.chars().collect();
     let mut count = 0;
@@ -743,10 +730,10 @@ fn shared_letters(one: &str, other: &str) -> usize {
 
 // ---------------------------------------------------------------- reading it
 
-// The part a call named. A part written as nothing at all is a part the call
-// says nothing about: a model that has no word for the colours very often writes
-// `"colours": null`, and the project then keeps what it had. A null read as a
-// part is a fault the model cannot mend, for nothing is no colour and no ground.
+// The part a call named. A part written as nothing at all is a part the call reports nothing
+// about: a model that has no word for the colours very often writes `"colours": null`, and the
+// project then keeps what it had. A null read as a part is an error the model cannot fix, for
+// nothing is no colour and no ground.
 fn named<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     match value.get(key) {
         Some(one) if !one.is_null() => Some(one),
@@ -754,9 +741,9 @@ fn named<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     }
 }
 
-// The project out of the words of a tool call. The parts a call leaves out keep
-// what the project had, so a call that changes the palette does not empty the
-// scenes. A fault of writing is answered with the list of faults and no project.
+// The project out of the text of a tool call. The parts a call leaves out keep what the project
+// had, so a call that changes the palette does not empty the scenes. An error in writing is
+// answered with the list of errors and no project.
 pub fn merge(
     had: &Project,
     value: &Value,
@@ -881,11 +868,10 @@ pub fn merge(
                 None => {}
             }
         }
-        // A head of a scene that names no blocks keeps the blocks that stood at
-        // that place. The tool of the plan says that a part you do not name is
-        // kept as it was, and a model that comes back to the plan to change the
-        // size of the picture, or to put one more scene at the end, must not lose
-        // the scenes it had already filled.
+        // A header of a scene that names no blocks keeps the blocks that was at that place. The
+        // tool of the plan reports that a part you do not name is kept as it was, and a model
+        // that returns to the plan to change the size of the image, or to put one more scene at
+        // the end, must not lose the scenes it had already filled.
         for (place, one) in held.iter_mut().enumerate() {
             if !one.blocks.is_empty() {
                 continue;
@@ -923,7 +909,7 @@ pub const PROJECT_PARTS: &[&str] = &[
     "scenes",
 ];
 
-// The ground of a scene, read with the parts it leaves out filled in.
+// The background of a scene, read with the parts it leaves out filled in.
 fn read_background(value: &Value) -> Result<Background, String> {
     let word = |key: &str| -> String {
         value
@@ -971,9 +957,8 @@ fn read_background(value: &Value) -> Result<Background, String> {
 
 pub const BACKGROUND_PARTS: &[&str] = &["kind", "from", "to", "angle", "vignette", "spacing"];
 
-// One scene of the `scenes` list of a call. A scene given as one word or as one
-// line of text is a scene with a head and nothing else, which is a thing worth
-// letting the model do quickly.
+// One scene of the `scenes` list of a call. A scene given as one word or as one line of text is
+// a scene with a header and nothing else, which is an item worth letting the model do quickly.
 fn read_scene(value: &Value, number: usize, faults: &mut Vec<String>) -> Option<Scene> {
     if let Some(text) = value.as_str() {
         let line = text.trim();
@@ -1006,7 +991,7 @@ fn read_scene(value: &Value, number: usize, faults: &mut Vec<String>) -> Option<
     let map = match value.as_object() {
         Some(map) => map,
         None => {
-            faults.push(format!("scene {number} is neither a line of words nor a set of parts"));
+            faults.push(format!("scene {number} is neither a line of text nor a set of parts"));
             return None;
         }
     };
@@ -1078,7 +1063,7 @@ fn read_scene(value: &Value, number: usize, faults: &mut Vec<String>) -> Option<
     if let Some(one) = named(value, "background") {
         match read_background(one) {
             Ok(held) => scene.background = Some(held),
-            Err(why) => faults.push(format!("scene {number}: the ground does not read: {why}")),
+            Err(why) => faults.push(format!("scene {number}: the background does not read: {why}")),
         }
     }
     Some(scene)
@@ -1140,28 +1125,28 @@ fn read_transition(value: &Value, number: usize, faults: &mut Vec<String>) -> Tr
     }
     if ms < 0.0 || ms > 4000.0 {
         faults.push(format!(
-            "scene {number}: a change of {ms} milliseconds is out of a time. The change stands between 0 and 4000."
+            "scene {number}: a change of {ms} milliseconds is out of a time. The change is between 0 and 4000."
         ));
     }
     Transition { kind: word, ms, dir }
 }
 
-// The whole of the project as the words of its file.
+// All of the project as the text of its file.
 pub fn words(project: &Project) -> String {
     serde_json::to_string_pretty(project).unwrap_or_else(|_| String::from("{}"))
 }
 
-// The project out of the words of its file. Nothing comes back when the file
-// does not read, for the caller says so to the model.
+// The project out of the text of its file. Nothing returns when the file does not read, for the
+// caller records it to the model.
 pub fn from_words(text: &str) -> Option<Project> {
     serde_json::from_str::<Project>(text).ok()
 }
 
-// The storyboard of a project in the words the model and the user read: one line
-// per scene, with the number, the head, the time, and the kinds of the blocks.
+// The storyboard of a project in the text the model and the user read: one line per scene, with
+// the number, the header, the time, and the types of the blocks.
 pub fn storyboard(project: &Project) -> String {
     if project.scenes.is_empty() {
-        return String::from("No scene stands in the project yet.");
+        return String::from("No scene is in the project yet.");
     }
     let mut out: Vec<String> = Vec::new();
     for (place, scene) in project.scenes.iter().enumerate() {
@@ -1191,7 +1176,7 @@ pub fn storyboard(project: &Project) -> String {
     out.join("\n")
 }
 
-// The first line of the first head of a scene, for a scene that names no title.
+// The first line of the first header of a scene, for a scene that names no title.
 fn first_head(scene: &Scene) -> Option<String> {
     for block in &scene.blocks {
         if block.kind == "head" || block.kind == "quote" {
@@ -1213,13 +1198,13 @@ pub fn trim_time(seconds: f64) -> String {
     }
 }
 
-// How long the whole of the video stands.
+// How long all of the video remains.
 pub fn seconds(project: &Project) -> f64 {
     project.scenes.iter().map(|one| one.seconds).sum()
 }
 
-// The colours of a project: the palette the word names, with every part the
-// project puts over it laid on top.
+// The colours of a project: the palette the word names, with every part the project puts over
+// it laid on top.
 pub fn colours_of(project: &Project) -> Palette {
     let mut made = palette_of(&project.palette).unwrap_or_default();
     let held = &project.colours;
@@ -1313,10 +1298,9 @@ mod tests {
         assert_eq!(made.scenes.len(), 1);
     }
 
-    // A new list of scene heads stands in place of the list that stood, but a head
-    // that names no blocks keeps the blocks that stood at its place: coming back to
-    // the plan to change the size of the picture, or to put one more scene at the
-    // end, costs the work already done nothing.
+    // A new list of scene headers replaces the list that was, but a header that names no blocks
+    // keeps the blocks that was at its place: coming back to the plan to change the size of the
+    // image, or to put one more scene at the end, costs the work already done nothing.
     #[test]
     fn a_new_list_of_scene_heads_keeps_the_blocks_that_stood() {
         let had = Project {
@@ -1344,8 +1328,8 @@ mod tests {
         assert_eq!(made.scenes[0].seconds, 4.0);
         assert_eq!(made.scenes[0].blocks.len(), 1);
         assert_eq!(made.scenes[0].blocks[0].text, "Hello");
-        // A head with blocks of its own takes the place of what stood, and a head
-        // that stands where no scene stood has nothing to keep.
+        // A header with blocks of its own takes the place of what was, and a header that is
+        // where no scene was has nothing to keep.
         let made = merge(
             &had,
             &json!({"scenes": [
@@ -1360,9 +1344,9 @@ mod tests {
         assert!(made.scenes[1].blocks.is_empty());
     }
 
-    // A part the call wrote as nothing at all is a part it said nothing about. The
-    // project keeps what it had and answers with no fault, for nothing is neither
-    // a colour nor a ground, and a model has nothing to mend.
+    // A part the call wrote as nothing at all is a part it stated nothing about. The project
+    // keeps what it had and answers with no error, for nothing is neither a colour nor a
+    // ground, and a model has nothing to fix.
     #[test]
     fn a_part_written_as_nothing_keeps_what_the_project_had() {
         let had = Project {
@@ -1393,9 +1377,9 @@ mod tests {
         assert_eq!(made.fps, 30);
         assert_eq!(made.palette, "forest");
         assert_eq!(made.scenes.len(), 1);
-        // The same holds for the parts of a scene: a ground written as nothing is
-        // the ground of the video, and a list of blocks written as nothing is a
-        // scene with no block in it.
+        // The same holds for the parts of a scene: a ground written as nothing is the
+        // background of the video, and a list of blocks written as nothing is a scene with no
+        // block in it.
         let heads = json!({"scenes": [{
             "title": "Two",
             "seconds": 2.0,
@@ -1411,10 +1395,9 @@ mod tests {
         assert_eq!(made.scenes[0].transition.kind, "fade");
     }
 
-    // A line of a list may be written as words alone, for that is how a list is
-    // written first. A set of parts is read as it always was, and a line that is
-    // neither is answered with the line, and not with the name of a shape no one
-    // has read.
+    // A line of a list may be written as text alone, for that is how a list is written first. A
+    // set of parts is read as it always was, and a line that is neither is answered with the
+    // line, and not with the name of a form no one has read.
     #[test]
     fn a_line_of_a_list_may_be_written_as_words_alone() {
         let made: Block = serde_json::from_value(json!({
@@ -1425,19 +1408,19 @@ mod tests {
             "h": 6,
             "items": ["Explore", "Mine", {"text": "Craft", "sub": "and place"}]
         }))
-        .expect("a list of words and of parts");
+        .expect("a list of text and of parts");
         assert_eq!(made.items.len(), 3);
         assert_eq!(made.items[0].text, "Explore");
         assert_eq!(made.items[2].text, "Craft");
         assert_eq!(made.items[2].sub, "and place");
-        // A line that is neither words nor parts names the line that is wrong.
+        // A line that is neither text nor parts names the line that is wrong.
         let wrong = serde_json::from_value::<Block>(json!({"kind": "bullets", "items": [42]}));
         let said = wrong.err().expect("a number is no line of a list").to_string();
         assert!(said.contains("line 1"), "the fault names the line: {said}");
         assert!(!said.contains("Item"), "the fault says nothing of a shape: {said}");
-        // A list left out is no fault at all.
+        // A list left out is no error at all.
         let none: Block =
-            serde_json::from_value(json!({"kind": "head", "text": "A head"})).expect("a head");
+            serde_json::from_value(json!({"kind": "head", "text": "A header"})).expect("a header");
         assert!(none.items.is_empty());
     }
 

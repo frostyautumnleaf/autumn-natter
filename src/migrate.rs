@@ -1,29 +1,26 @@
-// The move from the plain files of the folder of the program into the databases.
+// The move from the plain files of the program directory into the databases.
 //
-// Before the databases the words of the program stood in a folder of plain
-// files: `chats/<id>.json`, `repo_chats/<repository id>/<id>.json`,
-// `repo_records/<repository id>.json`, `planning/<chat id>.md`,
-// `mcp/<server>/<file>`, and the talks of the model with `.packed` at the end of
-// their names. A user who starts this build on a machine that already holds
-// those files must find their chats, their repositories, their plans and their
-// talks where they left them: nothing of the old folders is thrown away, and
-// nothing of a chat is written twice.
+// Before the databases the text of the program was in a directory of plain files:
+// `chats/<id>.json`, `repo_chats/<repository id>/<id>.json`, `repo_records/<repository
+// id>.json`, `planning/<chat id>.md`, `mcp/<server>/<file>`, and the conversations of the model
+// with `.packed` at the end of their names. A user who starts this build on a computer that
+// already holds those files must find their chats, their repositories, their plans and their
+// conversations where they left them: nothing of the old folders is deleted, and nothing of a
+// chat is written twice.
 //
-// This module is that hunt. It runs once, at the start of the program, and again
-// whenever the folder of the program is pointed at another place. The mark of it
-// is `databases.txt` inside the folder of the program, which says the shape of
-// what the program reads now; a folder whose mark stands is not walked again.
+// This module is that scan. It runs once, at the start of the program, and again whenever the
+// program directory is pointed at another place. The marker of it is `databases.txt` inside the
+// program directory, which shows the form of what the program reads now; a folder whose marker
+// remains is not walked again.
 //
-// Every file that is read into a database is then moved into
-// `pre-database/` inside the folder of the program, under the same name. The
-// program never reads that folder: it is what the words looked like before, kept
-// for the day a person needs to look. A file that could not be read is moved
-// there too, and the log of the program says so, so a fault is a line to read
-// and not a chat that went missing.
+// Every file that is read into a database is then moved into `pre-database/` inside the program
+// directory, under the same name. The program never reads that folder: it is what the text
+// looked like before, kept for the day a person needs to look. A file that could not be read is
+// moved there too, and the log of the program records it, so an error is a line to read and not
+// a chat that went missing.
 //
-// The work directories of the chats - a repository, and `work/<chat id>/` for a
-// loose chat - are not touched. What a model wrote there stands there, and no
-// database holds it.
+// The work directories of the chats - a repository, and `work/<chat id>/` for a loose chat -
+// are not touched. What a model wrote there is there, and no database holds it.
 
 use std::fs;
 use std::path::Path;
@@ -37,46 +34,43 @@ use crate::proglog;
 use crate::planning;
 use crate::store::{self, Brought};
 
-// The mark that says the words of this folder have come into the databases. It
-// is written last, so a run that came to an end in the middle of the hunt starts
-// the hunt again rather than say it was done.
+// The marker that shows the text of this folder has come into the databases. It is written
+// last, so a run that finished in the middle of the scan starts the scan again rather than say
+// it was done.
 pub const MARKER: &str = "databases.txt";
 
-// The shape the files of the program are in now. A later change of the shape
-// raises this word, and the hunt runs again over whatever the older shape left.
-// The shape the files of the program are in now. A later change of the shape
-// raises this word, and the hunt runs again over whatever the older shape left.
-// `databases-v2` brought the planning words of the chats into `chats.db`, so a
-// machine whose hunt was made under `databases-v1` walks the planning folder once
-// more and nothing else, because every other step finds its folder gone.
+// The form the files of the program are in now. A later change of the format raises this word,
+// and the scan runs again over whatever the older format left. `databases-v2` brought the
+// planning text of the chats into `chats.db`, so a computer whose scan ran under `databases-v1`
+// walks the planning folder once more and nothing else, because every other step finds its
+// folder removed.
 const VERSION: &str = "databases-v2\n";
 
-// The folder the old files are laid in when they have been read. The program
-// never reads it.
+// The folder the old files are written as when they have been read. The program never reads it.
 pub const BEFORE: &str = "pre-database";
 
-// What the hunt brought across. It is said in the log of the program, so the
-// first start after the change has an account of itself.
+// What the scan brought across. It is reported in the log of the program, so the first start
+// after the change has an account of itself.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Report {
-    // The talks, of the loose chats and of the repositories together.
+    // The conversations, of the loose chats and of the repositories together.
     pub chats: usize,
     // The records of the repositories.
     pub repos: usize,
-    // The planning words of the chats.
+    // The planning text of the chats.
     pub plans: usize,
     // The files of the servers of the program itself.
     pub mcp_files: usize,
-    // The talks the model worked its way through.
+    // The contexts the model has processed.
     pub contexts: usize,
-    // The files that did not read, and were laid in the folder of the old files
-    // without coming into a database.
+    // The files that did not read, and were written as the directory of the old files without
+    // coming into a database.
     pub unreadable: usize,
 }
 
 impl Report {
-    // True when nothing at all came across: the machine was fresh, or the hunt
-    // has been made before.
+    // True when nothing at all came across: the computer was fresh, or the scan has been made
+    // before.
     pub fn is_empty(&self) -> bool {
         self.chats == 0
             && self.repos == 0
@@ -87,38 +81,38 @@ impl Report {
     }
 }
 
-// True when the mark of the hunt stands in this folder of the program.
+// True when the search marker is in this folder of the program.
 pub fn already_ran(data: &Path) -> bool {
     fs::read_to_string(data.join(MARKER))
         .map(|said| said.trim() == VERSION.trim())
         .unwrap_or(false)
 }
 
-// Stand the mark of the hunt. A run that means to leave a folder of the program
-// alone from here stands this mark itself: the tests of the engine do it, so no
-// check reads the folders of the older shape of the machine it works on.
+// Remain the search marker. A run that means to leave a directory of the program alone from
+// here remains this marker itself: the tests of the engine do it, so no check reads the
+// directories of the older format of the computer it works on.
 pub fn mark_ran(data: &Path) {
     let _ = fs::create_dir_all(data);
     let _ = fs::write(&data.join(MARKER), VERSION);
 }
 
-// The hunt. Nothing is done when the mark stands, so a start of the program
-// after the first costs one read of one small file.
+// The scan. Nothing is done when the marker remains, so a start of the program after the first
+// costs one read of one small file.
 pub fn run(cfg: &Config, store: &store::Store) -> Report {
     let places = config::paths();
     if already_ran(&places.data) {
         return Report::default();
     }
     let told = hunt(cfg, store);
-    // The mark stands last. A run that came to an end before this line starts
-    // the hunt again, and every step of the hunt leaves what it read in the
-    // folder of the old files, so nothing is brought twice.
+    // The marker remains last. A run that finished before this line starts the scan again, and
+    // every step of the scan leaves what it read in the directory of the old files, so nothing
+    // is brought twice.
     mark_ran(&places.data);
     if !told.is_empty() {
         proglog::note(
             proglog::STORE,
             &format!(
-                "the words of the older shape came into the databases: {} chats, {} repositories, {} plans, {} files of the servers, {} talks of the model, {} files that did not read",
+                "the text of the older format came into the databases: {} chats, {} repositories, {} plans, {} files of the servers, {} conversations of the model, {} files that did not read",
                 told.chats,
                 told.repos,
                 told.plans,
@@ -131,20 +125,19 @@ pub fn run(cfg: &Config, store: &store::Store) -> Report {
     told
 }
 
-// The hunt, whether the mark stands or no. The engine calls this when the user
-// points the program at another folder of repositories: that folder may hold
-// talks and records of the older shape inside the directories of its
-// repositories, and the mark of the folder of the program says nothing about it.
-// The steps of the hunt each do nothing when the folder they read is not there.
+// The scan, whether the marker remains or no. The engine calls this when the user points the
+// program at another folder of repositories: that folder may hold conversations and records of
+// the older format inside the directories of its repositories, and the program icon directory
+// reports nothing about it. The steps of the scan each do nothing when the folder they read is
+// not there.
 pub fn hunt(cfg: &Config, store: &store::Store) -> Report {
     let places = config::paths();
     let mut told = Report::default();
     let before = places.data.join(BEFORE);
-    // The talks of the repositories and the records of them must first come out
-    // of the directories of the repositories, where a command of the terminal
-    // tool could come at them. The engine makes this itself; it is made here as
-    // well, so the hunt never reads a folder of the old shape that still stands
-    // inside a repository.
+    // The conversations of the repositories and the records of them must first come out of the
+    // directories of the repositories, where a command of the terminal tool could reach them.
+    // The engine makes this itself; it is created here as well, so the scan never reads a
+    // directory of the old form that still is inside a repository.
     store.migrate_chats_out();
     store.migrate_records_out();
     let chats = match store.database() {
@@ -157,7 +150,7 @@ pub fn hunt(cfg: &Config, store: &store::Store) -> Report {
             return told;
         }
     };
-    // The talks, the talks of the repositories and the records of them are the
+    // The conversations, the conversations of the repositories and the records of them are the
     // business of the store, which owns the database they come into.
     let came: Brought = store.bring_older_shape(&before);
     told.chats = came.chats;
@@ -169,11 +162,11 @@ pub fn hunt(cfg: &Config, store: &store::Store) -> Report {
     told
 }
 
-// The planning words of the chats. They stood one file to a chat, in the folder
-// of the plans, under the name `<chat id>.md`; they now stand in the database of
-// the chats, beside the talk they were written for. The name kept with a chat is
-// still the name of the older keeping, because it is the key the row is read by,
-// so a chat that planned something before the hunt reads its plan as it did.
+// The planning text of the chats. They were one file to a chat, in the directory of the plans,
+// under the name `<chat id>.md`; they now are in the database of the chats, beside the
+// conversation they were written for. The name kept with a chat is still the name of the older
+// keeping, because it is the key the row is read by, so a chat that planned something before
+// the scan reads its plan as it did.
 fn bring_plans(told: &mut Report, database: &db::Db, dir: &Path, before: &Path) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -188,9 +181,8 @@ fn bring_plans(told: &mut Report, database: &db::Db, dir: &Path, before: &Path) 
         let Some(name) = path.file_name().map(|one| one.to_string_lossy().to_string()) else {
             continue;
         };
-        // The name of the file of a plan is the id of the chat, with the ending
-        // of a plan file on it. A name of another shape is not one of ours and is
-        // left where it stands.
+        // The name of the file of a plan is the id of the chat, with the ending of a plan file
+        // on it. A name of another form is not one of ours and is left where it is.
         let Some(chat) = planning::chat_of(&name) else {
             continue;
         };
@@ -198,7 +190,7 @@ fn bring_plans(told: &mut Report, database: &db::Db, dir: &Path, before: &Path) 
             told.unreadable += 1;
             continue;
         };
-        // A plan that stands in the table is the newer of the two, and is kept.
+        // A plan that is in the table is the newer of the two, and is kept.
         let made = database
             .write(|conn| {
                 let changed = conn
@@ -219,10 +211,10 @@ fn bring_plans(told: &mut Report, database: &db::Db, dir: &Path, before: &Path) 
     let _ = fs::remove_dir(dir);
 }
 
-// The files of the servers of the program itself. Two files stand in the folder
-// of one server: the words of the user, and the runner of this program. They are
-// written out again on every start of the server, so the database holds what the
-// sheet holds and the folder is a place of passage.
+// The files of the servers of the program itself. Two files are in the directory of one server:
+// the text of the user, and the runner of this program. They are decompressed on every start of
+// the server, so the database holds what the settings panel holds and the folder is a place of
+// passage.
 fn bring_mcp(told: &mut Report, data: &Path, before: &Path) {
     let dir = data.join("mcp");
     let database = match db::open(&data.join(db::MCP_DB), db::Kind::Mcp) {
@@ -287,16 +279,16 @@ fn bring_mcp(told: &mut Report, data: &Path, before: &Path) {
     let _ = fs::remove_dir(&dir);
 }
 
-// The talks the model worked its way through. Only the short shape is brought
-// across: a raw talk stands where the server left it, and is shortened into the
-// database the first time it is read again, as it always was.
+// The contexts the model has processed. Only the compressed form is brought across: a raw
+// conversation is where the server left it, and is compressed into the database the first time
+// it is read again, as it always was.
 fn bring_contexts(told: &mut Report, dir: &Path, before: &Path) {
     let database = match contexts::database(dir) {
         Ok(kept) => kept,
         Err(problem) => {
             proglog::note(
                 proglog::STORE,
-                &format!("the database of the talks did not open: {}", problem),
+                &format!("the database of the conversations did not open: {}", problem),
             );
             return;
         }
@@ -332,19 +324,18 @@ fn bring_contexts(told: &mut Report, dir: &Path, before: &Path) {
     }
 }
 
-// Put one file out of the shape of the program and into the folder of the files
-// that were. The road under that folder is the road the file stood in, so a
-// person who looks finds the shape of the folder of the program as it was. The
-// store retires the words of the chats with it, and this module retires the
-// words of the servers and of the talks.
+// Put one file out of the format of the program and into the directory of the files that were.
+// The path under that folder is the path the file was in, so a person who looks finds the form
+// of the program directory as it was. The store retires the text of the chats with it, and this
+// module retires the text of the servers and of the conversations.
 pub(crate) fn retire(from: &Path, before: &Path, rel: &Path) -> std::io::Result<()> {
     let into = before.join(rel);
     if let Some(parent) = into.parent() {
         fs::create_dir_all(parent)?;
     }
-    // A second file of the same name can stand when the hunt is made twice, once
-    // for a place and once for another. The newer keeps the name and the older
-    // takes a mark of the number of this process, so nothing is thrown away.
+    // A second file of the same name can remain when the scan is created twice, once for a
+    // place and once for another. The newer keeps the name and the older takes a marker of the
+    // number of this process, so nothing is deleted.
     if into.exists() {
         let said = format!(
             "{}.{}.kept",
@@ -359,8 +350,7 @@ pub(crate) fn retire(from: &Path, before: &Path, rel: &Path) -> std::io::Result<
     carry(from, &into)
 }
 
-// Move a file, or copy it and take the first away when the two places are not on
-// one disk.
+// Move a file, or copy it and take the first away when the two places are not on one disk.
 fn carry(from: &Path, into: &Path) -> std::io::Result<()> {
     if fs::rename(from, into).is_ok() {
         return Ok(());
@@ -382,39 +372,39 @@ mod checks {
             std::process::id(),
             TURN.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         ));
-        fs::create_dir_all(&place).expect("the room of the check is made");
+        fs::create_dir_all(&place).expect("the directory of the test is created");
         place
     }
 
-    // The mark of the hunt is what says the folder of the program has been walked
-    // already. A folder of the program with no mark is walked, and the mark of it
-    // stands only when the walk came to an end.
+    // The search marker is what reports the program directory has been scanned already. A
+    // directory of the program with no marker is scanned, and the marker of it remains only
+    // when the walk finished.
     #[test]
     fn the_mark_of_the_hunt_stands_when_the_hunt_came_to_its_end() {
         let data = room("mark");
-        assert!(!already_ran(&data), "a fresh place has no mark");
+        assert!(!already_ran(&data), "a fresh place has no marker");
         mark_ran(&data);
-        assert!(already_ran(&data), "the mark is read back");
-        // Words of another shape are no mark: the hunt is made again over them.
-        fs::write(data.join(MARKER), "databases-v0\n").expect("other words stand");
-        assert!(!already_ran(&data), "the word of the shape is read as well");
+        assert!(already_ran(&data), "the marker is read back");
+        // Text in another form is not the marker: the file is read again.
+        fs::write(data.join(MARKER), "databases-v0\n").expect("other text is written");
+        assert!(!already_ran(&data), "the text of the marker is read as well");
         let _ = fs::remove_dir_all(&data);
     }
 
-    // The files of the servers of the program itself came out of a folder of the
-    // program and into `mcp.db`, and the folder they stood in is gone.
+    // The files of the servers of the program itself came out of a directory of the program and
+    // into `mcp.db`, and the folder they were in is removed.
     #[test]
     fn the_files_of_the_servers_come_into_their_database() {
         let data = room("mcp");
         let server = data.join("mcp").join("sv01");
-        fs::create_dir_all(&server).expect("the folder of the server is made");
-        fs::write(server.join("natter_code.py"), "print(1)").expect("the words of the user stand");
+        fs::create_dir_all(&server).expect("the directory of the server is created");
+        fs::write(server.join("natter_code.py"), "print(1)").expect("the text of the user remains");
         fs::write(server.join("natter_runner.py"), "# runner").expect("the runner stands");
         let before = data.join(BEFORE);
         let mut told = Report::default();
         bring_mcp(&mut told, &data, &before);
         assert_eq!(told.mcp_files, 2, "both files came across");
-        assert!(!server.exists(), "the folder of the server is gone");
+        assert!(!server.exists(), "the directory of the server is removed");
         let database = db::open(&data.join(db::MCP_DB), db::Kind::Mcp).expect("the database opened");
         let names: Vec<String> = database
             .read(|conn| {
@@ -439,32 +429,32 @@ mod checks {
         let _ = fs::remove_dir_all(&data);
     }
 
-    // The talks the model worked its way through came into `contexts.db` out of
-    // the files with `.packed` at the end of their names. The raw talk is left to
-    // the server, which reads and writes it by name, and is shortened into the
-    // database the first time it is read again.
+    // The contexts the model has processed came into `contexts.db` out of the files with
+    // `.packed` at the end of their names. The raw conversation is left to the server, which
+    // reads and writes it by name, and is compressed into the database the first time it is
+    // read again.
     #[test]
     fn the_talks_come_into_their_database() {
         let dir = room("contexts");
         let talk = "ab12cd34ef-0123456789abcdef.ctx";
-        // The short shape of a talk, of the shape an older run left: the program
+        // The compressed form of a conversation, of the form an older run left: the program
         // puts the bytes of it into the database without reading them.
         fs::write(dir.join(contexts::short_of(talk)), vec![7u8; 4096])
-            .expect("the short shape of the older keeping stands");
-        // A raw talk of an interrupted run is left where the server left it.
-        fs::write(dir.join(talk), vec![9u8; 2048]).expect("a raw talk stands");
+            .expect("the compressed form of the older keeping remains");
+        // A raw conversation of an interrupted run is left where the server left it.
+        fs::write(dir.join(talk), vec![9u8; 2048]).expect("a raw conversation remains");
         let before = dir.join(BEFORE);
         let mut told = Report::default();
         bring_contexts(&mut told, &dir, &before);
-        assert_eq!(told.contexts, 1, "the short shape came across");
+        assert_eq!(told.contexts, 1, "the compressed context was migrated");
         let kept = contexts::held_list(&dir);
-        assert_eq!(kept.len(), 1, "the talk stands in the database");
-        assert_eq!(kept[0].0, talk, "the talk stands under the name the server reads");
+        assert_eq!(kept.len(), 1, "the conversation is in the database");
+        assert_eq!(kept[0].0, talk, "the conversation is under the name the server reads");
         assert!(
             !dir.join(contexts::short_of(talk)).exists(),
-            "the file of the older shape is gone"
+            "the file of the older format is removed"
         );
-        assert!(dir.join(talk).is_file(), "the raw talk is left to the server");
+        assert!(dir.join(talk).is_file(), "the raw conversation is left to the server");
         let _ = fs::remove_dir_all(&dir);
     }
 }

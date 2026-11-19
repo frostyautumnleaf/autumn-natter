@@ -1,89 +1,84 @@
-// The tool that offers the user the roads the talk may go on by.
+// The tool that proposes the user the paths the conversation may go on by.
 //
-// An answer that ends at a choice leaves the user to type the choice out. The
-// model may instead put that choice under the answer: up to three short
-// buttons, each one carrying the words that go out when the user presses it.
-// The call runs at once and waits for nothing, so the buttons are an offer and
-// not a question. `ask_user` stays the way to ask for a word the work cannot
+// An answer that ends at a choice leaves the user to type the choice out. The model may instead
+// put that choice under the answer: up to three short buttons, each one carrying the text that
+// go out when the user presses it. The call runs at once and waits for nothing, so the buttons
+// are an propose and not a question. `ask_user` stays the way to request a word the work cannot
 // go on without.
 //
-// The buttons stand at the end of the answer that offered them, and only once
-// the model has stopped writing: an offer that came in in the middle of an
-// answer is not finished work. Only the newest offer stands. A second call in
-// one answer takes the first away, and the offer of an older answer goes when
-// the user speaks again, for the roads it named are no longer the roads the
-// talk is at. Both rules are read off the talk by the page, so they hold in
-// the window and in the browser page of the remote mode alike.
+// The buttons are at the end of the answer that proposed them, and only once the model has
+// stopped writing: a proposal that arrived in the middle of an answer is not finished work.
+// Only the newest propose remains. A second call in one answer takes the first away, and the
+// proposal of an older answer goes when the user speaks again, for the paths it named are no
+// longer the paths the conversation is at. Both rules are read off the conversation by the
+// page, so they hold in the window and in the browser page of the remote mode as well.
 //
-// The offer rides on the message of the run, as an offer of a file does, so it
-// is drawn again when the chat is opened another day.
+// The proposal rides on the message of the run, as an propose of a file does, so it is drawn
+// again when the chat is opened another day.
 //
-// The tool falls under the badge of the tools, and the drop-down of the badge
-// holds the line of its own, as the other tools of the program do.
+// The tool falls under the badge of the tools, and the drop-down of the badge holds the line of
+// its own, as the other tools of the program do.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::tools::with_rule;
 
-// Name the model uses to offer the next steps.
+// Name the model uses to propose the next steps.
 pub const NAME: &str = "offer_suggestions";
 
-// The most buttons one call may put under the answer. Three stand in one line
-// over the width of the chat; a longer list is a menu, and a menu is not what
-// the foot of an answer is for.
+// The most buttons one call may put under the answer. Three are in one line over the width of
+// the chat; a longer list is a menu, and a menu is not what the bottom of an answer is for.
 pub const GREATEST_SUGGESTIONS: usize = 3;
 
-// The longest words a button shows. A label that does not fit a button was
-// written as a sentence, and the sentence belongs in the answer above.
+// The longest text a button shows. A label that does not fit a button was written as a
+// sentence, and the sentence belongs in the answer above.
 pub const GREATEST_LABEL: usize = 70;
 
-// The longest prompt a button sends. The prompt goes out as a message of the
-// user, so it is cut as a message of the user would be, and not as a label.
+// The longest prompt a button sends. The prompt is sent as a message of the user, so it is cut
+// as a message of the user would be, and not as a label.
 pub const GREATEST_PROMPT: usize = 600;
 
-// One button: the words it shows, and the words it sends. The two are one
-// thing most of the time, and are kept apart for a button that says 'Run the
-// tests' and sends a line of commands.
+// One button: the text it shows, and the text it sends. The two are one item most of the time,
+// and are kept apart for a button that shows 'Run the tests' and sends a line of commands.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Suggestion {
     pub label: String,
     pub prompt: String,
 }
 
-// What became of one call. The buttons stand under the answer when `asks`
-// holds anything, and the words of the receipt go back to the model either
-// way.
+// What became of one call. The buttons are under the answer when `asks` holds anything, and the
+// text of the result go back to the model either way.
 pub struct Made {
     pub report: crate::tools::Report,
     pub asks: Vec<Suggestion>,
 }
 
-// The tool as the model is told of it.
+// The tool as the model is informed of it.
 pub fn definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Put up to three buttons at the end of your answer, each one a next step the user may take with a press. Use it when the work has come to a point where the user has a real choice of what to ask for next, and two or three roads follow from what you have just done. Each button carries a short label and the prompt it sends; the prompt goes out as a message from the user, so write it as the user would write it, and leave the prompt out when the label is the whole of it. Call this once, at the END of the answer, after the work and the words are done: the buttons appear only when the answer has stopped. Only your newest offer stands - a second call takes the first away. Never use it to ask a question, for that is what ask_user is for, and never use it when the answer already finished the work or when the user has nothing to choose: offering nothing is better than offering three things nobody wanted.",
+                "Put up to three buttons at the end of your answer, each one a next step the user may take with a press. Use it when the work has come to a point where the user has a real choice of what to request next, and two or three suggestions follow from what you have just done. Each button carries a short label and the prompt it sends; the prompt is sent as a message from the user, so write it as the user would write it, and leave the prompt out when the label is all of it. Call this once, at the END of the answer, after the work and the text is done: the buttons appear only when the answer has stopped. Only your newest propose remains - a second call takes the first away. Never use it to ask a question, for that is what ask_user is for, and never use it when the answer already finished the work or when the user has nothing to choose: offering nothing is better than offering three items nobody wanted.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "suggestions": {
                         "type": "array",
-                        "description": "Up to three next steps, in the order they should stand. A plain string is a button whose label is also its prompt.",
+                        "description": "Up to three next steps, in the order they should remain. A plain string is a button whose label is also its prompt.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "label": {
                                     "type": "string",
-                                    "description": "The short words on the button, such as 'Run the tests' or 'Show me the diff'."
+                                    "description": "The short text on the button, such as 'Run the tests' or 'Show me the diff'."
                                 },
                                 "prompt": {
                                     "type": "string",
-                                    "description": "The words sent when the user presses the button, written as the user would write them. Leave it out to send the label."
+                                    "description": "The text sent when the user presses the button, written as the user would write it. Leave it out to send the label."
                                 }
                             },
                             "required": ["label"]
@@ -96,16 +91,15 @@ pub fn definition() -> Value {
     })
 }
 
-// True when this name of a tool is the offer of the next steps.
+// True when this name of a tool is the suggestions for the next steps.
 pub fn is_tool(name: &str) -> bool {
     name == NAME
 }
 
-// Answer one call. Every part of the offer is read as the model gave it: an
-// array of objects, or an array of plain words, or the older `options` name for
-// the list. A button with no label is passed over, two buttons of one label
-// come once, and the fourth and later buttons of a call are reported and
-// dropped, for three is the most the foot of an answer can hold.
+// Answer one call. Every part of the suggestion is read as the model gave it: an array of
+// objects, or an array of plain text, or the older `options` name for the list. A button with
+// no label is passed over, two buttons of one label come once, and the fourth and later buttons
+// of a call are reported and dropped, for three is the most the bottom of an answer can hold.
 pub fn offer(arguments: &str) -> Made {
     let value: Value = serde_json::from_str(arguments).unwrap_or(Value::Null);
     let list = value
@@ -155,7 +149,7 @@ pub fn offer(arguments: &str) -> Made {
             report: crate::tools::Report {
                 ok: false,
                 output: String::from(
-                    "No button was named, so nothing is offered to the user at the end of the answer",
+                    "No button was named, so nothing is proposed to the user at the end of the answer",
                 ),
             },
             asks: Vec::new(),
@@ -181,10 +175,10 @@ pub fn offer(arguments: &str) -> Made {
     }
 }
 
-// The words of the head of the block while the call is being written: the
-// first label, as far as it has come. A model that writes the objects of the
-// list in the order it likes is read whether the label came first or the
-// prompt did, and a list of plain words gives its first word.
+// The text of the header of the block while the call is being written: the first label, as far
+// as it has come. A model that writes the objects of the list in the order it likes is read
+// whether the label came first or the prompt did, and a list of plain text gives its first
+// word.
 pub fn partial_words(arguments: &str) -> String {
     if let Some(label) = quoted_after(arguments, "label") {
         if !label.is_empty() {
@@ -201,10 +195,9 @@ pub fn partial_words(arguments: &str) -> String {
     let Some(open) = tail.find('[') else {
         return String::new();
     };
-    // A list of objects names its buttons by their labels. The label of the
-    // first object has not come yet, and the head waits for it, as the head of
-    // a file tool waits for the name of the file. A list of plain words names
-    // itself, and its first word is read.
+    // A list of objects names its buttons by their labels. The label of the first object has
+    // not come yet, and the header waits for it, as the header of a file tool waits for the
+    // name of the file. A list of plain text names itself, and its first word is read.
     let rest = tail[open + 1..].trim_start();
     if rest.starts_with('{') {
         return String::new();
@@ -215,8 +208,8 @@ pub fn partial_words(arguments: &str) -> String {
     }
 }
 
-// The first quoted string that stands after `key`, read whether the quote was
-// closed or not. An empty key reads the first quoted string of the words.
+// The first quoted string that is after `key`, read whether the quote was closed or not. An
+// empty key reads the first quoted string of the text.
 fn quoted_after(words: &str, key: &str) -> Option<String> {
     let from = if key.is_empty() {
         0
@@ -259,8 +252,8 @@ fn quoted_after(words: &str, key: &str) -> Option<String> {
     Some(word)
 }
 
-// One line of words, cut at a length. Marks of a new line are turned into
-// spaces, for a button shows one line and the head of a block shows one.
+// One line of text, cut at a length. Markers of a new line are turned into spaces, for a button
+// shows one line and the header of a block shows one.
 fn one_line(words: &str, bound: usize) -> String {
     let flat = words.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= bound {
@@ -291,8 +284,8 @@ mod tests {
         assert_eq!(made.asks[1].prompt, "Show me the diff", "a label with no prompt sends itself");
     }
 
-    // A call of plain words is read as three buttons of one word each, and a
-    // fourth is dropped and said.
+    // A call of plain text is read as three buttons of one word each, and a fourth is dropped
+    // and stated.
     #[test]
     fn the_fourth_button_of_a_call_is_dropped_and_said() {
         let made = offer("{\"suggestions\":[\"one\",\"two\",\"three\",\"four\"]}");
@@ -301,7 +294,7 @@ mod tests {
         assert!(made.report.output.contains("1 further was dropped"), "{}", made.report.output);
     }
 
-    // A call that named nothing usable is answered, and offers nothing.
+    // A call that named nothing usable is answered, and returns nothing.
     #[test]
     fn a_call_with_nothing_usable_offers_nothing() {
         let made = offer("{\"suggestions\":[\"  \",\"  \"]}");
@@ -313,8 +306,8 @@ mod tests {
         assert!(!broken.report.ok);
     }
 
-    // Two buttons of one label come once, for two buttons that say the same
-    // thing are one button read twice.
+    // Two buttons of one label come once, for two buttons that say the same are one button read
+    // twice.
     #[test]
     fn two_buttons_of_one_label_come_once() {
         let made = offer("{\"suggestions\":[\"Run it\",\"Run it\",\"Read it\"]}");
@@ -322,8 +315,8 @@ mod tests {
         assert_eq!(made.asks[1].label, "Read it");
     }
 
-    // The head of a call being written names the first label, and a list of
-    // plain words names its first word.
+    // The header of a call being written names the first label, and a list of plain text names
+    // its first word.
     #[test]
     fn the_head_of_a_call_being_written_names_the_first_button() {
         assert_eq!(
@@ -337,7 +330,7 @@ mod tests {
         assert_eq!(
             partial_words("{\"suggestions\":[{\"prompt\":\"go\"}"),
             "",
-            "the head of an object whose label has not come waits for it"
+            "the header of an object whose label has not come waits for it"
         );
         assert_eq!(partial_words("{\"suggestions\":[\"Run the"), "Run the");
         assert_eq!(partial_words("{}"), "");

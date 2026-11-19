@@ -1,21 +1,21 @@
-// The marks of the page under a hand, looked at in both faces with no engine
-// behind them: the marks wake as the hand comes to them, and settle as it goes,
+// The markers of the page under a pointer, checked in both pages with no engine
+// behind them: the markers start as the pointer comes to them, and settle as it goes,
 // and nothing about the page moves or changes size while that happens.
 //
 //   node hover-face-check.js
-//   AN_PAGE=../web/page.html node hover-face-check.js   # one face only
+//   AN_PAGE=../web/page.html node hover-face-check.js   # one page only
 //
-// Six things are looked at:
-//   * a mark wakes - the class that animates it is on it, and the mark is drawn
-//     bigger than it was - when the control it stands in is hovered, and when the
-//     mark itself is hovered;
-//   * the mark of the program in the bar, which is a picture and not a mark of the
-//     kind the buttons carry, wakes as well;
-//   * going away from a mark is answered: the settling class is on it, and once
-//     that is over no class is left and the mark stands as it was drawn;
-//   * a control with marks of its own wakes the first of them, so the words of the
-//     control and the mark of the control answer as one;
-//   * a stretch of plain words wakes nothing;
+// Six items are checked:
+//   * a marker starts - the class that animates it is on it, and the marker is drawn
+//     bigger than it was - when the control it is in is hovered, and when the
+//     marker itself is hovered;
+//   * the program icon in the top bar, which is an image and not a marker of the
+//     type the buttons carry, starts as well;
+//   * going away from a marker is answered: the settling class is on it, and once
+//     that is over no class is left and the marker remains as it was drawn;
+//   * a control with markers of its own starts the first of them, so the text of the
+//     control and the marker of the control answer as one;
+//   * a stretch of plain text starts nothing;
 //   * with the motion of the system turned down there is no animation at all.
 'use strict';
 
@@ -32,9 +32,9 @@ const PAGES = process.env.AN_PAGE
 const shell = process.env.AN_SHELL_BIN || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// What a mark of the page looks like now: woken or settling or neither, and how
-// big it is drawn. `box` is the box of the control it stands in, so that a motion
-// of the mark is not mistaken for a motion of the page.
+// What a marker of the page looks like now: started or settling or neither, and how big it is
+// drawn. `box` is the box of the control it is in, so that a motion of the marker is not
+// mistaken for a motion of the page.
 const LOOK = `
 window.__look = function (sel) {
   var one = document.querySelector(sel);
@@ -66,14 +66,12 @@ window.__look = function (sel) {
 };
 `;
 
-// The marks the check puts a hand on. Each stands for a kind of the program: a
-// badge of the bar, a mark of a button of the bar, a field of the bar whose mark
-// hangs at its left, the mark of the program itself, and words of the page that
-// hold no mark at all.
-// A chat with the blocks of a working talk in it: a saying of the user, an answer
-// with a train of thought, and a run of a tool. The heads of the thought and of
-// the run are pressed open, so their marks answer to a hand over their words and
-// not only to a hand over the mark itself.
+// The markers the check puts a pointer on. Each means a type of the program: a badge of the top
+// bar, a marker of a button of the top bar, a field of the top bar whose marker hangs at its
+// left, the program icon itself, and text of the page that hold no marker at all. A chat with
+// the blocks of a working conversation in it: a saying of the user, an answer with a train of
+// thought, and a run of a tool. The headers of the thought and of the run are pressed open, so
+// their markers answer to a hand over their text and not only to a hand over the marker itself.
 function drawChat() {
   cur = { chatting: { tools: true, thinking: true, grow: false },
     chat: { id: 'chat-marks', title: 'Marks', home: false },
@@ -83,7 +81,7 @@ function drawChat() {
         reasoning: '', reasoning_ms: 0, attachments: [] },
       { id: 'm1', role: 'Assistant', body: 'The tests pass, all of them.', when: '11:05',
         when_full: 'today at 11:05', tool: '', mono: false, failed: false,
-        reasoning: 'Because the talk asked for the tests, they are run and read.',
+        reasoning: 'Because the conversation requested the tests, they are run and read.',
         reasoning_ms: 1200, attachments: [] },
       { id: 't1', role: 'Tool', body: 'cargo test\n\ntest result: ok', tool: 'ran in 3 s',
         tool_name: 'run_command', mono: true, when: '11:06', when_full: 'today at 11:06',
@@ -96,7 +94,7 @@ function drawChat() {
     marks: document.querySelectorAll('.turn .svg').length };
 }
 
-// The words of a thing the hand may press, away from the mark that stands in it.
+// The text of an item the pointer may press, away from the marker that is in it.
 function wordPlace(sel) {
   var one = document.querySelector(sel);
   if (!one) { return { gone: true }; }
@@ -107,8 +105,8 @@ function wordPlace(sel) {
 
 const PLACES = [
   { sel: '#code', what: 'the badge of the tools' },
-  { sel: '#themebtn', what: 'the mark of the skin' },
-  { sel: 'label.field > .svg', what: 'the mark of the field of the model' },
+  { sel: '#themebtn', what: 'the marker of the theme' },
+  { sel: 'label.field > .svg', what: 'the marker of the field of the model' },
   { sel: 'img.mark', what: 'the mark of the program' },
 ];
 
@@ -130,7 +128,7 @@ async function main() {
     await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
     await sleep(220);
     const notes = [];
-    const note = (what) => { notes.push(what); console.log('  FAULT: ' + what); };
+    const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
     for (const place of PLACES) {
       const rest = await page.evaluate((sel) => window.__look(sel), place.sel);
@@ -142,12 +140,12 @@ async function main() {
       await page.mouse.move(where.x, where.y);
       await sleep(60);
       const woke = await page.evaluate((sel) => window.__look(sel), place.sel);
-      if (!woke.woke) { note(place.what + ' did not wake under the hand'); }
+      if (!woke.woke) { note(place.what + ' did not start under the pointer'); }
       if (!(woke.scale > 1.02)) { note(place.what + ' woke without moving: ' + woke.scale); }
       if (rest.box && woke.box && String(rest.box) !== String(woke.box)) {
-        note(place.what + ' moved the thing it stands in: ' + rest.box + ' -> ' + woke.box);
+        note(place.what + ' moved the item it is in: ' + rest.box + ' -> ' + woke.box);
       }
-      // The hand goes: the mark settles, and is left as it was drawn.
+      // The pointer goes: the marker settles, and is left as it was drawn.
       await page.mouse.move(6, 6);
       await sleep(40);
       const settling = await page.evaluate((sel) => window.__look(sel), place.sel);
@@ -161,7 +159,7 @@ async function main() {
       }));
     }
 
-    // Words of the page that hold no mark wake nothing at all.
+    // Text of the page that hold no marker start nothing at all.
     const idle = await page.evaluate(() => {
       var words = null;
       var all = document.querySelectorAll('.bar span, .hello .greet, .hello .where');
@@ -174,19 +172,19 @@ async function main() {
         y: words.getBoundingClientRect().top + 2 } : { found: false };
     });
     if (!idle.found) {
-      note('no stretch of plain words was found to put a hand on');
+      note('no stretch of plain text was found to put a pointer on');
     } else {
       await page.mouse.move(idle.x, idle.y);
       await sleep(80);
       const woken = await page.evaluate(() => document.querySelectorAll('.mark-in').length);
-      if (woken) { note('plain words woke ' + woken + ' marks'); }
+      if (woken) { note('plain words woke ' + woken + ' markers'); }
       await page.mouse.move(6, 6);
       await sleep(400);
     }
 
-    // The blocks of a working chat: the head of a run of a tool and the head of
-    // a train of thought answer to a hand over their words, for a hand over the
-    // words of a head is a hand over the head.
+    // The blocks of a working chat: the header of a run of a tool and the header of a train of
+    // thought answer to a hand over their text, for a hand over the text of a header is a hand
+    // over the header.
     const chat = await page.evaluate(() => {
       document.querySelector('#draft').value = '';
       return window.__drawChat ? window.__drawChat() : { skipped: true };
@@ -194,7 +192,7 @@ async function main() {
     if (!chat.skipped) {
       console.log('  ' + one.name + ' chat of blocks: ' + JSON.stringify(chat));
       if (!chat.heads) {
-        note('the chat of blocks drew no head to put a hand on');
+        note('the chat of blocks drew no header to put a pointer on');
       } else {
         const head = await page.evaluate(() => window.__wordPlace('.turn .thead'));
         if (head.gone) {
@@ -206,25 +204,25 @@ async function main() {
             var one = document.querySelector('.turn .thead .svg');
             return { woke: one.classList.contains('mark-in'), marks: document.querySelectorAll('.mark-in').length };
           });
-          if (!woke.woke) { note('the head of a run did not wake its mark: ' + JSON.stringify(woke)); }
+          if (!woke.woke) { note('the header of a run did not start its marker: ' + JSON.stringify(woke)); }
           await page.mouse.move(6, 6);
           await sleep(400);
         }
-        // Words that hold no pressable thing wake nothing of their block.
+        // Text that hold no pressable item start nothing of their block.
         const said = await page.evaluate(() => window.__wordPlace('.turn .said, .turn .words, .bubble'));
         console.log('  ' + one.name + ' words of a block: ' + JSON.stringify(said));
         if (!said.gone) {
           await page.mouse.move(said.x, said.y);
           await sleep(80);
           const woken = await page.evaluate(() => document.querySelectorAll('.mark-in').length);
-          if (woken) { note('words of a block woke ' + woken + ' marks'); }
+          if (woken) { note('text of a block woke ' + woken + ' markers'); }
           await page.mouse.move(6, 6);
           await sleep(400);
         }
       }
     }
 
-    // The motion of the system turned down: the marks are left standing.
+    // The motion of the system turned down: the markers are left remaining.
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await sleep(60);
     const quiet = await page.evaluate(() => {
@@ -238,7 +236,7 @@ async function main() {
       return { name: name, out: out };
     });
     if (quiet.name !== 'none' || quiet.out !== 'none') {
-      note('the marks still animate with the motion turned down: ' + JSON.stringify(quiet));
+      note('the markers still animate with the motion turned down: ' + JSON.stringify(quiet));
     }
 
     if (faults.length) { note('the face faulted: ' + faults.slice(0, 2).join(' | ')); }
@@ -246,7 +244,7 @@ async function main() {
     trouble += notes.length;
   }
   await browser.close();
-  console.log(trouble ? '\n' + trouble + ' faults' : '\nnothing amiss in either face');
+  console.log(trouble ? '\n' + trouble + ' errors' : '\nnothing amiss in either face');
   return trouble;
 }
 

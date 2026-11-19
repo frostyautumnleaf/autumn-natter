@@ -1,17 +1,15 @@
-// The layout of an infographic: what a block was asked for, and what it takes
-// on the screen.
+// The layout of an infographic: what a block was requested, and what it takes on the screen.
 //
-// One pass reads a scene and answers two questions about every block: where it
-// stands, and whether what it holds fits there. The same answer is used to check
-// a scene and to draw it, so a scene that checks clean draws clean. A check that
-// measured one thing and a renderer another would be a check nobody could trust.
+// One pass reads a scene and answers two questions about every block: where it is, and whether
+// what it holds fits there. The same answer is used to check a scene and to draw it, so a scene
+// that checks clean draws clean. A check that measured one item and a renderer another would be
+// a check nobody could trust.
 //
-// A block is placed on the grid of twenty-four columns and sixteen rows, inside
-// the safe margin of the canvas. Words are cut into lines that fit the width of
-// the box. A block whose words stand taller than its box is shrunk a step at a
-// time, down to six-tenths of the size it asked for; a block that is still too
-// full is told to the model. That is the point of the whole measure: the video is
-// mended while it is still words, not after it is a picture.
+// A block is placed on the grid of twenty-four columns and sixteen rows, inside the safe margin
+// of the canvas. Text is cut into lines that fit the width of the box. A block whose text
+// remains taller than its box is shrunk a step at a time, down to six-tenths of the size it
+// requested; a block that is still too full is set to the model. That is the point of the whole
+// measure: the video is mended while it is still text, not after it is an image.
 
 use crate::infographic::fonts::{self, Fonts};
 use crate::infographic::marks;
@@ -20,8 +18,7 @@ use crate::infographic::script::{self, Background, Block, Item, Palette, Project
 // The safe margin, as a share of the shorter side of the canvas.
 pub const MARGIN: f64 = 0.045;
 
-// How far a block may be shrunk to make its words fit, and how big a step of it
-// is.
+// How far a block may be shrunk to make its text fit, and how big a step of it is.
 const SMALLEST: f64 = 0.6;
 const STEP: f64 = 0.94;
 
@@ -60,7 +57,7 @@ impl Rect {
     }
 }
 
-// One run of words with the colour and the weight of its own.
+// One run of text with the colour and the weight of its own.
 #[derive(Clone, Debug)]
 pub struct Run {
     pub text: String,
@@ -69,7 +66,7 @@ pub struct Run {
     pub italic: bool,
 }
 
-// One line of words, with the width it measured and the size of its letters.
+// One line of text, with the width it measured and the size of its letters.
 #[derive(Clone, Debug, Default)]
 pub struct Line {
     pub runs: Vec<Run>,
@@ -77,9 +74,9 @@ pub struct Line {
     pub size: f64,
 }
 
-// What a row of a block is: one line of a list, one side-head of a compare, one
-// row of a table, one step, one point of a timeline, one pill, one line of a
-// chart key, one word under a bar.
+// What a row of a block is: one line of a list, one side-header of a compare, one row of a
+// table, one step, one point of a timeline, one pill, one line of a chart key, one word under a
+// bar.
 pub const R_ITEM: &str = "item";
 pub const R_HEAD: &str = "head";
 pub const R_SUB: &str = "sub";
@@ -95,7 +92,7 @@ pub const R_AXIS: &str = "axis";
 pub struct Row {
     pub role: String,
     pub bx: Rect,
-    // The words of the row. For a table row, `words` holds the cells.
+    // The text of the row. For a table row, `words` holds the cells.
     pub lines: Vec<Line>,
     pub sub: Vec<Line>,
     pub title: Vec<Line>,
@@ -110,7 +107,7 @@ pub struct Row {
 // The geometry of a chart, worked out once.
 #[derive(Clone, Debug, Default)]
 pub struct Chart {
-    // The plot inside the box, after the axis and the labels took their room.
+    // The plot inside the box, after the axis and the labels took their space.
     pub plot: Rect,
     pub bars: Vec<Bar>,
     pub lines: Vec<LineChart>,
@@ -162,7 +159,7 @@ pub struct Tick {
     pub words: String,
 }
 
-// A picture of the room, read for the drawing.
+// An image of the space, read for the drawing.
 #[derive(Clone, Debug)]
 pub struct Image {
     pub data: Vec<u8>,
@@ -176,7 +173,7 @@ pub struct Placed {
     pub kind: String,
     pub bx: Rect,
     pub lines: Vec<Line>,
-    // The height the content takes, so a block too full says by how much.
+    // The height the content takes, so a block too full reports by how much.
     pub content: f64,
     pub size: f64,
     // The height of one line of the block.
@@ -205,7 +202,7 @@ pub struct Placed {
     pub number: String,
     pub number_size: f64,
     pub label: String,
-    // Whether the numbers of a chart stand on it, and whether a chart grows.
+    // Whether the numbers of a chart are on it, and whether a chart grows.
     pub show_values: bool,
     pub grows: bool,
     pub grow_ms: f64,
@@ -215,7 +212,7 @@ pub struct Placed {
 
 // ---------------------------------------------------------------- the grid
 
-// The room of the grid: the canvas with the safe margin off it.
+// The space of the grid: the canvas with the safe margin off it.
 pub fn stage(width: u32, height: u32) -> Rect {
     let side = width.min(height) as f64;
     let margin = MARGIN * side;
@@ -252,8 +249,7 @@ pub fn place(block: &Block, board: Rect) -> Rect {
 
 // ---------------------------------------------------------------- measuring
 
-// The whole of a scene: every block placed and measured, with the faults of the
-// scene beside them.
+// All of a scene: every block placed and measured, with the errors of the scene beside them.
 pub fn scene(
     project: &Project,
     palette: &Palette,
@@ -275,13 +271,13 @@ pub fn scene(
     (out, faults)
 }
 
-// Two blocks that stand on one another. Laid over is nearly always an accident,
-// so a pair that shares more than a corner is told.
+// Two blocks that are on one another. Laid over is nearly always an accident, so a pair that
+// shares more than a corner is informed.
 fn overlaps(placed: &[Placed]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for (left, one) in placed.iter().enumerate() {
-        // A shape, a rule and a piece of the model's own drawing are laid under
-        // other things on purpose.
+        // A form, a rule and a piece of the model's own drawing are laid under other items on
+        // purpose.
         if one.kind == "shape" || one.kind == "rule" || one.kind == "svg" {
             continue;
         }
@@ -324,7 +320,7 @@ fn percent(part: f64) -> String {
     format!("{:.0}%", part * 100.0)
 }
 
-// One block: measured, shrunk if it must be, and told on where it fails.
+// One block: measured, shrunk if it must be, and informed on where it fails.
 pub fn block_of(
     project: &Project,
     palette: &Palette,
@@ -337,8 +333,8 @@ pub fn block_of(
     if !can_shrink(&made.kind) || made.content <= made.bx.h + 1.0 {
         return (made, faults);
     }
-    // The block is too full. A smaller size may break the words into fewer lines,
-    // so the whole block is measured again at each step.
+    // The block is too full. A smaller size may break the text into fewer lines, so the whole
+    // block is measured again at each step.
     let first = made.size;
     let mut size = made.size;
     for _ in 0..12 {
@@ -356,7 +352,7 @@ pub fn block_of(
     made.shrunk = true;
     let rows_up = (made.content / (board.h / f64::from(script::ROWS))).ceil() as i32;
     faults.push(format!(
-        "the content stands {} tall and the box holds {}; shrinking to {} of the size did not mend it. Shorten the words, or give the block a greater \"h\" ({} rows stands).",
+        "the content remains {} tall and the box holds {}; shrinking to {} of the size did not fix it. Compress the text, or give the block a greater \"h\" ({} rows remains).",
         whole(made.content),
         whole(made.bx.h),
         percent(SMALLEST),
@@ -365,7 +361,7 @@ pub fn block_of(
     (made, faults)
 }
 
-// Whether shrinking the words of a kind can make it fit.
+// Whether shrinking the text of a type can make it fit.
 fn can_shrink(kind: &str) -> bool {
     matches!(
         kind,
@@ -384,14 +380,14 @@ fn measure_size(
     size: f64,
 ) -> (Placed, Vec<String>) {
     let mut again = block.clone();
-    // A size of a block is read in pixels when it stands at or above 0.2, so the
-    // size settled on is passed on outright.
+    // A size of a block is read in pixels when it is at or above 0.2, so the size settled on is
+    // passed on outright.
     again.size = size.max(0.2);
     measure(project, palette, fonts, &again, board, room)
 }
 
-// One pass over one block. The fault of standing too tall is left to `block_of`,
-// which is the one that shrinks.
+// One pass over one block. The error in remaining too tall is left to `block_of`, which is the
+// one that shrinks.
 fn measure(
     project: &Project,
     palette: &Palette,
@@ -1122,7 +1118,7 @@ fn measure(
             made.content = bx.h;
         }
         _ => {
-            faults.push(String::from("this kind is not known to the layout."));
+            faults.push(String::from("this type is not known to the layout."));
         }
     }
     (made, faults)
@@ -1130,9 +1126,8 @@ fn measure(
 
 // ---------------------------------------------------------------- the parts
 
-// The size of the words of a block: the size it named, or the size its kind
-// brings with it. A size under 0.2 is a share of the height of the picture; a
-// bigger number is pixels.
+// The size of the text of a block: the size it named, or the size its type brings with it. A
+// size under 0.2 is a share of the height of the image; a bigger number is pixels.
 fn size_of(block: &Block, kind: &str, height: f64) -> f64 {
     if block.size > 0.0 {
         if block.size < 0.2 {
@@ -1163,7 +1158,7 @@ fn kind_size(kind: &str, height: f64) -> f64 {
     share * height
 }
 
-// The words a block draws out of its text.
+// The text a block draws out of its text.
 fn words_of(block: &Block) -> String {
     if !block.text.trim().is_empty() {
         return block.text.trim().to_string();
@@ -1179,8 +1174,7 @@ fn words_of(block: &Block) -> String {
     String::new()
 }
 
-// The items of a block, or the lines of its text when the model wrote its list
-// as lines.
+// The items of a block, or the lines of its text when the model wrote its list as lines.
 fn items_of(block: &Block) -> Vec<Item> {
     if !block.items.is_empty() {
         return block.items.clone();
@@ -1210,7 +1204,7 @@ fn items_of(block: &Block) -> Vec<Item> {
     Vec::new()
 }
 
-// The words of the pills of a block.
+// The text of the pills of a block.
 fn pill_words(block: &Block) -> Vec<String> {
     if !block.items.is_empty() {
         return block
@@ -1384,8 +1378,8 @@ fn sets_of(block: &Block, palette: &Palette) -> (Vec<Set>, Vec<String>) {
         }
     }
     if block.kind == "pie" && out.len() == 1 && out[0].values.len() > 1 {
-        // A pie drawn from one set of numbers takes one wedge per number, and
-        // the labels are the names of the wedges.
+        // A pie drawn from one set of numbers takes one wedge per number, and the labels are
+        // the names of the wedges.
         let held = out.remove(0);
         for (at, value) in held.values.iter().enumerate() {
             out.push(Set {
@@ -1412,8 +1406,8 @@ fn numbers_of(sets: &[Set]) -> Vec<f64> {
     out
 }
 
-// The two ends of the value axis: the greatest number rounded up, and the least
-// rounded down, with zero always between them.
+// The two ends of the value axis: the greatest number rounded up, and the least rounded down,
+// with zero always between them.
 fn axis_ends(values: &[f64]) -> (f64, f64) {
     let greatest = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let least = values.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -1488,7 +1482,7 @@ fn value_x(top: f64, floor: f64, value: f64, plot: Rect) -> f64 {
     plot.x + plot.w * ((value - floor) / span)
 }
 
-// The words under the bars or under the points of a line.
+// The text under the bars or under the points of a line.
 fn axis_rows(
     fonts: &Fonts,
     family: &str,
@@ -1504,8 +1498,8 @@ fn axis_rows(
     let mut out: Vec<Row> = Vec::new();
     let last = (labels.len().max(2) - 1) as f64;
     for (at, one) in labels.iter().enumerate() {
-        // A word that will not stand beside the one before it is left out, so a
-        // chart of forty bars still reads.
+        // A word that will not be beside the one before it is left out, so a chart of forty
+        // bars still reads.
         let every = ((one.chars().count() as f64 * size * 1.15)
             / ((plot.w / last).max(1.0)))
         .ceil()
@@ -1570,10 +1564,10 @@ fn legend_rows(sets: &[Set], place: Rect, size: f64) -> Vec<Row> {
     out
 }
 
-// ---------------------------------------------------------------- the words
+// ---------------------------------------------------------------- the text
 
-// The runs of words of a block: the spans it named, or its text read for the
-// marks of `**bold**` and `*italic*`.
+// The runs of text of a block: the spans it named, or its text reads for the markers of
+// `**bold**` and `*italic*`.
 pub fn runs_of(block: &Block, colour: &str, weight: u16, bold: u16) -> Vec<Run> {
     if !block.spans.is_empty() {
         let mut out: Vec<Run> = Vec::new();
@@ -1607,8 +1601,8 @@ fn runs_of_item(
     runs_of_text(&item.text, if item.colour.is_empty() { colour } else { &item.colour }, weight, bold)
 }
 
-// Words read for the marks: `**bold**` takes the bold weight, `*italic*` takes
-// the sloped shape.
+// Text reads for the markers: `**bold**` takes the bold weight, `*italic*` takes the sloped
+// form.
 pub fn runs_of_text(text: &str, colour: &str, weight: u16, bold: u16) -> Vec<Run> {
     let mut out: Vec<Run> = Vec::new();
     let mut current = String::new();
@@ -1620,7 +1614,7 @@ pub fn runs_of_text(text: &str, colour: &str, weight: u16, bold: u16) -> Vec<Run
         if chars[at] == '*' {
             let stars = chars[at..].iter().take_while(|c| **c == '*').count();
             let held = if stars >= 2 { 2 } else { 1 };
-            // The mark ends the run before it and starts the run of its own.
+            // The marker ends the run before it and starts the run of its own.
             if !current.is_empty() {
                 out.push(Run {
                     text: std::mem::take(&mut current),
@@ -1660,17 +1654,17 @@ pub fn runs_of_text(text: &str, colour: &str, weight: u16, bold: u16) -> Vec<Run
     out
 }
 
-// Runs of words cut into lines that fit a width. A word keeps the run it came
-// from, so a colour does not stop at the end of a line.
-// One word with the space that may stand before it, and the run it belongs to.
+// Runs of text cut into lines that fit a width. A word keeps the run it came from, so a colour
+// does not stop at the end of a line. One word with the space that may remain before it, and
+// the run it belongs to.
 struct Token {
     word: String,
     run: usize,
     space: bool,
 }
 
-// The words of several runs, cut into lines that fit. The runs are kept apart
-// so a line may change colour in the middle of a sentence.
+// The text of several runs, cut into lines that fit. The runs are kept apart so a line may
+// change colour in the middle of a sentence.
 pub fn wrap_runs(fonts: &Fonts, family: &str, runs: &[Run], size: f64, width: f64) -> Vec<Line> {
     let width = width.max(10.0);
     let mut tokens: Vec<Token> = Vec::new();
@@ -1761,8 +1755,8 @@ fn make_line(fonts: &Fonts, tokens: &[(Token, f64)], runs: &[Run], family: &str,
     }
 }
 
-// A number written as the block asked: with the prefix, the suffix and the
-// places after the point it named.
+// A number written as the block asked: with the prefix, the suffix and the places after the
+// point it named.
 pub fn number_words(value: f64, prefix: &str, suffix: &str, decimals: i32) -> String {
     let held = if decimals < 0 {
         plain(value)
@@ -1772,8 +1766,8 @@ pub fn number_words(value: f64, prefix: &str, suffix: &str, decimals: i32) -> St
     format!("{prefix}{held}{suffix}")
 }
 
-// A number with nothing after the point taken off, and with the thousands told
-// with a comma: 12345.6 reads "12,345.6".
+// A number with nothing after the point taken off, and with the thousands informed with a
+// comma: 12345.6 reads "12,345.6".
 fn plain(value: f64) -> String {
     let whole = if value == value.trunc() && value.abs() < 1.0e15 {
         format!("{}", value as i64)
@@ -1860,7 +1854,7 @@ fn default_stroke(kind: &str) -> f64 {
     }
 }
 
-// A share of the shorter side of the picture, or the pixels the block named.
+// A share of the shorter side of the image, or the pixels the block named.
 fn share(named: f64, fell: f64, board: Rect) -> f64 {
     let side = board.w.min(board.h);
     let part = if named > 0.0 { named } else { fell };
@@ -1870,8 +1864,8 @@ fn share(named: f64, fell: f64, board: Rect) -> f64 {
     part * side
 }
 
-// A word of a fixed list: the one it named, the one it falls back to, or nothing
-// at all when the word names nothing of the list.
+// A note about a fixed list: the one it named, the one it falls back to, or nothing at all when
+// the word names nothing of the list.
 fn word(named: &str, fell: &str, known: &[&str]) -> String {
     let said = named.trim().to_ascii_lowercase();
     if said.is_empty() {
@@ -1887,7 +1881,7 @@ fn whole(value: f64) -> String {
     format!("{}", value.round() as i64)
 }
 
-// A picture of the room of the chat, read for the drawing.
+// An image of the working directory of the chat, read for the drawing.
 fn read_picture(name: &str, room: Option<&std::path::Path>) -> Result<Image, String> {
     let place = if std::path::Path::new(name).is_absolute() {
         std::path::PathBuf::from(name)
@@ -1933,8 +1927,7 @@ fn read_picture(name: &str, room: Option<&std::path::Path>) -> Result<Image, Str
     })
 }
 
-// The ground of a scene: the scene's own when it names one, the video's when it
-// does not.
+// The background of a scene: the scene's own when it names one, the video's when it does not.
 pub fn ground(named: &Option<Background>, of_project: &Background) -> Background {
     match named {
         Some(one) if !one.kind.is_empty() || !one.from.is_empty() => one.clone(),

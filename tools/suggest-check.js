@@ -1,33 +1,28 @@
-// Check the buttons an answer ends with: the roads the suggestion tool offered,
-// and the button that opens the window over the files that were shown.
+// Check the buttons an answer ends with: the paths the suggestion tool proposed, and the button
+// that opens the window over the files that were shown.
 //
-// The page is loaded as it stands, with no engine under it. The state of the chat
-// is written by hand, so the runs of the two tools are the ones the check puts
-// there. Both bridges are stood in for, so one check runs on the window page and
-// on the page of the remote mode, and the words a press sends are read off the
-// call the page makes rather than off an engine.
+// The page is loaded as it is now, with no engine under it. The state of the chat is written
+// manually, so the runs of the two tools are the ones the check puts there. Both bridges are
+// placed in for, so one check runs on the window page and on the page of the remote mode, and
+// the text a press sends are read off the call the page makes rather than off an engine.
 //
-//   node suggest-check.js
-//   AN_PAGE=../web/page.html AN_FETCH=1 node suggest-check.js
+// node suggest-check.js AN_PAGE=../web/page.html AN_FETCH=1 node suggest-check.js
 //
-// Eight things are looked at:
-//   * the newest offer of a chat is the one that stands, and an older offer is
-//     gone;
-//   * a road is a button that shows its label and sends its prompt, and a press
-//     sends those words over the road a message of the user goes over;
-//   * the buttons are put by as soon as one is taken;
-//   * nothing is offered while the model is still writing, and the offer of an
-//     answer comes back when the writing is over;
-//   * one answer that showed a file, offered a file and offered roads: the three
-//     kinds stand in the one card, in that order, under the head of the card;
-//   * the button of the show is named 'Show files' and stands above the other
-//     buttons of the end, so no two of them are ever given the same place;
-//   * the roads spread over the width of the chat and stand in one line while
-//     their words fit in it;
-//   * a line of roads that will not fit goes under, centred, and nothing runs
-//     out of the chat;
-//   * in a chat as narrow as the window can be made, a road whose words are
-//     longer than the chat is cut by it and never runs out of it.
+// Eight items are checked:
+// * the newest propose of a chat is the one that remains, and an older propose is removed;
+// * a path is a button that shows its label and sends its prompt, and a press sends that text
+//    over the path a message of the user goes over;
+// * the buttons are put by as soon as one is taken;
+// * nothing is proposed while the model is still writing, and the proposal of an answer returns
+//    when the writing is over;
+// * one answer that showed a file, proposed a file and proposed paths: the three types are in
+//    the one card, in that order, under the header of the card;
+// * the button of the show is named 'Show files' and is above the other buttons of the end, so
+//    no two of them are ever given the same place;
+// * the paths spread over the width of the chat and are in one line while their text fit in it;
+// * a line of paths that will not fit goes under, centred, and nothing runs out of the chat;
+// * in a chat as narrow as the window can be made, a path whose text is longer than the chat is
+//    cut by it and never runs out of it.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -56,11 +51,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await wait(400);
 
   const trouble = [];
-  const note = (what) => { trouble.push(what); console.log('  FAULT: ' + what); };
+  const note = (what) => { trouble.push(what); console.log('  ERROR: ' + what); };
 
-  // The page, the state of the chat, and the calls the page makes. The words of
-  // a message are short, for the check is about the buttons and not about the
-  // words; only the labels of the roads are looked at by length.
+  // The page, the state of the chat, and the calls the page makes. The text of a message is
+  // short, for the check is about the buttons and not about the text; only the labels of the
+  // paths are checked by length.
   await page.evaluate(() => {
     window.__sent = [];
     var answer = function (name, body) {
@@ -69,8 +64,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       if (name === 'state') { return { rev: 1, unchanged: true }; }
       return { ok: true };
     };
-    // The bridge of the window, and the small server of the remote mode. The
-    // names of the calls match, so the same list of calls comes out of either.
+    // The bridge of the window, and the small server of the remote mode. The names of the calls
+    // match, so the same list of calls comes out of either.
     invoke = function (name, args) {
       var clean = String(name || '');
       if (clean === 'action' && args && args.path) {
@@ -91,8 +86,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     };
   });
 
-  // The two answers of a chat that was offered roads twice: the first answer
-  // showed a file and offered two roads, the second answer offered one.
+  // The two answers of a chat that was proposed paths twice: the first answer showed a file and
+  // proposed two paths, the second answer proposed one.
   const said = (id, role, body, extra) => Object.assign({
     id: id, role: role, body: body, when: '09:0' + (id % 10),
     when_full: 'today at 09:0' + (id % 10), tool: '', mono: false, failed: false,
@@ -123,7 +118,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     said(7, 'Assistant', 'Say the word.')
   ];
 
-  // 1: the newest offer stands and the older one is gone.
+  // 1: the newest propose remains and the older one is removed.
   const newest = await page.evaluate((all) => {
     cur = { chatting: { send_anim: false }, generating: false, home: false,
       chat: { id: 'chat-one', title: 'A chat', home: false }, messages: all };
@@ -146,17 +141,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }, FIRST.concat(SECOND));
   if (newest.rows !== 1) { note('the chat holds ' + newest.rows + ' rows of roads, not one'); }
   if (newest.labels.join('|') !== 'Show me the diff') {
-    note('the roads that stand are "' + newest.labels.join('|') + '"');
+    note('the suggestions that remain are "' + newest.labels.join('|') + '"');
   }
-  if (!newest.inLastTurn) { note('the roads do not stand under the newest answer'); }
+  if (!newest.inLastTurn) { note('the suggestions are not under the newest answer'); }
   if (newest.shownRows !== 1) {
     note('the chat holds ' + newest.shownRows + ' buttons of a show, not one');
   }
   console.log('newest:', JSON.stringify(newest));
 
-  // 2: a press sends the prompt of the road and not its label, and the buttons
-  // are put by. The answer that carries them is the newest of the chat, so the
-  // roads of that answer stand.
+  // 2: a press sends the prompt of the path and not its label, and the buttons are put by. The
+  // answer that carries them is the newest of the chat, so the paths of that answer remain.
   const pressed = await page.evaluate((all) => {
     cur = { chatting: { send_anim: false }, generating: false, home: false,
       chat: { id: 'chat-one', title: 'A chat', home: false }, messages: all };
@@ -177,17 +171,17 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     return { held: held, sent: sent, allPutBy: after.indexOf(false) === -1 };
   }, FIRST);
   if (pressed.held && pressed.held.join('|') !== 'Run the tests|Read the log') {
-    note('the roads that stand are "' + pressed.held.join('|') + '"');
+    note('the suggestions that remain are "' + pressed.held.join('|') + '"');
   }
   if (!pressed.sent || pressed.sent.join('|') !== 'Run the tests and tell me what failed.') {
     note('the press sent ' + JSON.stringify(pressed.sent));
   }
-  if (pressed.allPutBy === false) { note('a road was left to be taken twice'); }
+  if (pressed.allPutBy === false) { note('a way was left to be taken twice'); }
   console.log('pressed:', JSON.stringify(pressed));
 
-  // 3: the offer of an answer that is not the newest is gone. The user spoke
-  // again and the last answer offered nothing, so the roads of the answer before
-  // it lead to a point the talk has left.
+  // 3: the proposal of an answer that is not the newest is removed. The user spoke again and
+  // the last answer proposed nothing, so the paths of the answer before it lead to a point the
+  // conversation has left.
   const older = await page.evaluate((all) => {
     cur = { chatting: { send_anim: false }, generating: false, home: false,
       chat: { id: 'chat-one', title: 'A chat', home: false }, messages: all };
@@ -197,13 +191,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       shown: document.querySelectorAll('.shown-again').length };
   }, FIRST.concat([
     said(5, 'You', 'And now?'),
-    said(6, 'Assistant', 'Nothing to offer here.')
+    said(6, 'Assistant', 'Nothing to propose here.')
   ]));
-  if (older.rows !== 0) { note('the roads of an older answer still stand: ' + older.rows); }
+  if (older.rows !== 0) { note('the suggestions of an older answer still remain: ' + older.rows); }
   console.log('older:', JSON.stringify(older));
 
-  // 4: nothing stands while the model is writing, and the offer comes back when
-  // the writing is over.
+  // 4: nothing remains while the model is writing, and the proposal returns when the writing is
+  // over.
   const writing = await page.evaluate((all) => {
     var shown = function () { return document.querySelectorAll('.suggests').length; };
     cur = { chatting: { send_anim: false }, generating: true, home: false, live: 'Still at it',
@@ -222,16 +216,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     })
   ]));
   if (writing.whileWriting !== 0) {
-    note('roads stood while the model was writing: ' + writing.whileWriting);
+    note('paths was while the model was writing: ' + writing.whileWriting);
   }
   if (writing.afterWriting !== 1) {
-    note('the offer did not come back when the writing was over: ' + writing.afterWriting);
+    note('the proposal did not return when the writing was over: ' + writing.afterWriting);
   }
   console.log('writing:', JSON.stringify(writing));
 
-  // 5: one answer that showed a file, offered a file and offered roads. The
-  // button of the show is named 'Show files' and stands above the rest, and no
-  // two of the three are given the same place.
+  // 5: one answer that showed a file, proposed a file and proposed paths. The button of the
+  // show is named 'Show files' and is above the rest, and no two of the three are given the
+  // same place.
   const three = await page.evaluate((all) => {
     cur = { chatting: { send_anim: false }, generating: false, home: false,
       chat: { id: 'chat-one', title: 'A chat', home: false }, messages: all };
@@ -239,7 +233,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     drawThread(cur);
     var end = document.querySelector('.answer-end');
     if (!end) { return { missing: 'the answer ends with nothing at all' }; }
-    // The card carries one head over the parts, and the parts are the kinds.
+    // The card carries one header over the parts, and the parts are the types.
     var kinds = [];
     var boxes = [];
     var headWords = '';
@@ -284,24 +278,24 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     tool(4, 'offer_suggestions', '2 next steps are offered', {
       suggestions: [{ label: 'Run the tests' }, { label: 'Read the log' }]
     }),
-    said(5, 'Assistant', 'The plan is in the window over the chat, and the file stands below.')
+    said(5, 'Assistant', 'The plan is in the window over the chat, and the file remains below.')
   ]);
   if (three.kinds && three.kinds.join('|') !== 'shown-again|gifts|suggests') {
     note('the answer ends with ' + JSON.stringify(three.kinds));
   }
-  if (three.headFirst === false) { note('the card of the end has no head over its parts'); }
+  if (three.headFirst === false) { note('the card of the end has no header over its parts'); }
   if (three.headWords !== 'From this answer') {
-    note('the head of the card says "' + three.headWords + '"');
+    note('the header of the card reports "' + three.headWords + '"');
   }
-  if (three.words !== 'Show files') { note('the button of a show says "' + three.words + '"'); }
+  if (three.words !== 'Show files') { note('the button of a show reports "' + three.words + '"'); }
   if (three.overlapped && three.overlapped.length) {
-    note('two blocks of the end stand over one another: ' + three.overlapped.join(', '));
+    note('two blocks of the end remain over one another: ' + three.overlapped.join(', '));
   }
-  if (three.shownFirst === false) { note('the button of a show does not stand at the top'); }
+  if (three.shownFirst === false) { note('the button of a show is not at the top'); }
   console.log('three:', JSON.stringify(three));
 
-  // 6: the roads spread over the width of the chat. Two short roads stand in one
-  // line, and the line fills the width it was given.
+  // 6: the paths spread over the width of the chat. Two short paths are in one line, and the
+  // line fills the width it was given.
   const spread = await page.evaluate((all) => {
     cur = { chatting: { send_anim: false }, generating: false, home: false,
       chat: { id: 'chat-one', title: 'A chat', home: false }, messages: all };
@@ -309,9 +303,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     drawThread(cur);
     var row = document.querySelector('.suggests');
     var buttons = row.querySelectorAll('.suggest');
-    // The roads fill the room of the card, which is the row without its own
-    // padding. The padding is taken away here, for the check is about the roads
-    // and not about the room the card gives them.
+    // The paths fill the space of the card, which is the row without its own padding. The
+    // padding is removed here, for the check is about the paths and not about the space the
+    // card gives them.
     var outer = row.getBoundingClientRect();
     var pad = getComputedStyle(row);
     var rowBox = { left: outer.left + parseFloat(pad.paddingLeft || 0),
@@ -344,19 +338,18 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     tool(2, 'offer_suggestions', '2 next steps are offered', {
       suggestions: [{ label: 'Run the tests' }, { label: 'Read the log' }]
     }),
-    said(3, 'Assistant', 'Two roads below.')
+    said(3, 'Assistant', 'Two paths below.')
   ]);
-  if (spread.oneLine === false) { note('two short roads did not stand in one line'); }
+  if (spread.oneLine === false) { note('two short paths was not in one line'); }
   if (spread.filled > 0.03) {
     note('the roads filled ' + Math.round((1 - spread.filled) * 100) + ' per cent of the chat');
   }
   if (spread.outside && spread.outside.length) { note('a road ran out of the chat'); }
   console.log('spread:', JSON.stringify(spread));
 
-  // 7: a line of roads whose words will not stand side by side goes under, and
-  // each line is centred. Nothing runs out of the chat, and no road is narrower
-  // than the words on it: a road cut by the width of the chat is the one road
-  // that may fill it.
+  // 7: a line of paths whose text will not be side by side goes under, and each line is
+  // centred. Nothing runs out of the chat, and no path is narrower than the text on it: a path
+  // cut by the width of the chat is the one path that may fill it.
   const wrapped = await page.evaluate((all) => {
     cur = { chatting: { send_anim: false }, generating: false, home: false,
       chat: { id: 'chat-one', title: 'A chat', home: false }, messages: all };
@@ -400,21 +393,21 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       suggestions: [
         { label: 'Write the parser of the plan and run its tests' },
         { label: 'Read the log of every run of the last hour' },
-        { label: 'Put the whole of the work into one page' }
+        { label: 'Put all of the work into one page' }
       ]
     }),
-    said(3, 'Assistant', 'Three long roads below.')
+    said(3, 'Assistant', 'Three long paths below.')
   ]);
-  if (wrapped.lines < 2) { note('three long roads did not go under one another'); }
+  if (wrapped.lines < 2) { note('three long paths did not go under one another'); }
   if (wrapped.outside && wrapped.outside.length) { note('a road ran out of the chat'); }
-  if (wrapped.cut && wrapped.cut.length) { note('a road was cut though it had room'); }
+  if (wrapped.cut && wrapped.cut.length) { note('a way was cut though it had space'); }
   var worst = wrapped.offCentre ? Math.max.apply(null, wrapped.offCentre) : 0;
-  if (worst > 2) { note('a line of roads is not centred, by ' + worst + ' pixels'); }
+  if (worst > 2) { note('a line of paths is not centred, by ' + worst + ' pixels'); }
   console.log('wrapped:', JSON.stringify(wrapped));
 
-  // 8: a chat that is narrow. The words of a road are longer than the chat is
-  // wide, so the road is cut by the chat and not let run out of it: a button the
-  // user cannot read whole is a button the user cannot press.
+  // 8: a chat that is narrow. The text of a path is longer than the chat is wide, so the path
+  // is cut by the chat and not let run out of it: a button the user cannot read whole is a
+  // button the user cannot press.
   await page.setViewport({ width: 420, height: 800 });
   await wait(200);
   const narrow = await page.evaluate((all) => {
@@ -460,22 +453,22 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       suggestions: [
         { label: 'Write the parser of the plan and run its whole suite of tests' },
         { label: 'Read the log of every run of the last hour and of the day before' },
-        { label: 'Put the whole of the work into one page of words' }
+        { label: 'Put all of the work into one page of text' }
       ]
     }),
-    said(4, 'Assistant', 'Three long roads in a narrow chat.')
+    said(4, 'Assistant', 'Three long paths in a narrow chat.')
   ]);
   if (narrow.outside && narrow.outside.length) {
-    note('a road ran out of a narrow chat: ' + narrow.outside.join(','));
+    note('a way ran out of a narrow chat: ' + narrow.outside.join(','));
   }
   if (narrow.shownInside === false) { note('the button of a show ran out of a narrow chat'); }
   if (!narrow.cut) {
-    note('no road was cut in a narrow chat, so the words were let run out of it');
+    note('no path was cut in a narrow chat, so the text was let run out of it');
   }
   console.log('narrow:', JSON.stringify(narrow));
   await page.setViewport({ width: 1280, height: 900 });
 
   await browser.close();
-  console.log(trouble.length ? 'FAIL ' + trouble.length + ' faults' : 'ok   the roads at the end of an answer');
+  console.log(trouble.length ? 'FAIL ' + trouble.length + ' errors' : 'ok the suggestions at the end of an answer');
   process.exit(trouble.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

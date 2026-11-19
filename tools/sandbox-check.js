@@ -1,11 +1,10 @@
-// Check the menu of the sandbox badge. The badge is the jail: it is put on and
-// off from the badge itself, whatever the three settings say, and only the right
-// of the badge - its arrow - opens the menu of what a command may reach beyond
-// the jail. The jail is no line of that menu. All three settings stand off until
-// they are opened. The page is loaded as it stands, with no bridge and no engine:
-// the menu is filled by hand with the states the engine hands out. The box of the
-// menu is measured as well, for a setting with a long name must be read on one
-// line of a box that grew to hold it, and never cut off.
+// Check the menu of the sandbox badge. The badge is the sandbox: it is put on and off from the
+// badge itself, whatever the three settings say, and only the right of the badge - its arrow -
+// opens the menu of what a command may reach beyond the sandbox. The sandbox is no line of that
+// menu. All three settings remain off until they are opened. The page is loaded as it is now,
+// with no bridge and no engine: the menu is filled manually with the states the engine pointers
+// out. The box of the menu is measured as well, for a setting with a long name must be read on
+// one line of a box that grew to hold it, and never cut off.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -32,12 +31,12 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       thinking: { mode: 'off', available: false, modes: [] } };
     cur = state;
 
-    // A click on the left of the badge is the switch of the jail, and does not
-    // open the menu: the jail was put on, so the badge asks for it to be taken
-    // away. The right of the badge, over its arrow, is the way into the menu.
+    // A click on the left of the badge is the switch of the sandbox, and does not open the
+    // menu: the sandbox was put on, so the badge requests it to be removed. The right of the
+    // badge, over its arrow, is the way into the menu.
     el.sandbox.click();
     if (sent.length !== 1 || sent[0][0] !== '/api/sandbox' || sent[0][1].on !== false) {
-      faults.push('the badge did not switch the jail: ' + JSON.stringify(sent));
+      faults.push('the badge did not switch the sandbox: ' + JSON.stringify(sent));
     }
     if (!el.sandboxmenu.classList.contains('hidden')) {
       faults.push('the badge opened the menu of the sandbox as well as switching');
@@ -55,7 +54,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var words = [];
     for (var i = 0; i < lines.length; i++) { words.push(lines[i].textContent); }
     if (words.join('|').indexOf('Sandbox') >= 0) {
-      faults.push('the jail stands as a line of its own menu');
+      faults.push('the sandbox remains as a line of its own menu');
     }
     var wanted = ['Network access', 'Allow pip install', 'Allow wget and fetch'];
     for (var w = 0; w < wanted.length; w++) {
@@ -63,13 +62,13 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
         faults.push('the menu has no line for ' + wanted[w]);
       }
     }
-    // All three stand off, and the switches say so.
+    // All three remain off, and the switches record it.
     function gates() {
       var all = el.sandboxmenu.querySelectorAll('button.toggle');
       return Array.prototype.slice.call(all, 0);
     }
-    // The number of lines of words a node is set in. A line of the menu that is
-    // broken in two reads badly, and it is what these measurements are for.
+    // The number of lines of text a node is set in. A line of the menu that is broken in two
+    // reads badly, and it is what these measurements are for.
     function linesOf(node) {
       var range = document.createRange();
       range.selectNodeContents(node);
@@ -81,10 +80,10 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('the menu has ' + first.length + ' lines of settings, not three');
     }
     for (var g = 0; g < first.length; g++) { if (first[g].classList.contains('on')) { on++; } }
-    if (on !== 0) { faults.push(on + ' of the settings read as open though all stand off'); }
+    if (on !== 0) { faults.push(on + ' of the settings read as open though all remain off'); }
 
-    // A click on a line asks for that one setting, and leaves the menu standing
-    // so the switch is seen to move.
+    // A click on a line requests that one setting, and leaves the menu remaining so the switch
+    // is seen to move.
     sent = [];
     var pip = null, fetchLine = null;
     for (var k = 0; k < first.length; k++) {
@@ -96,14 +95,14 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       pip.click();
       if (sent.length !== 1 || sent[0][0] !== '/api/sandbox_setting'
           || sent[0][1].part !== 'pip' || sent[0][1].on !== true) {
-        faults.push('the line of the install asked for ' + JSON.stringify(sent));
+        faults.push('the line of the install requested ' + JSON.stringify(sent));
       }
       if (el.sandboxmenu.classList.contains('hidden')) {
-        faults.push('the menu went away under a click on one of its lines');
+        faults.push('the menu was removed under a click on one of its lines');
       }
     }
-    // The engine says the install is open now, so the menu is filled again and
-    // the switch of that line stands open. The other two stay shut.
+    // The engine reports the install is open now, so the menu is filled again and the switch of
+    // that line is left open. The other two stay shut.
     state.sandbox_pip = true;
     fillSandboxMenu(state);
     var open = [];
@@ -122,10 +121,10 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (fetchLine) {
       fetchLine.click();
       if (sent.length !== 1 || sent[0][1].part !== 'fetch' || sent[0][1].on !== true) {
-        faults.push('the line of the fetch asked for ' + JSON.stringify(sent));
+        faults.push('the line of the fetch requested ' + JSON.stringify(sent));
       }
     }
-    // A setting that stands open is closed by the same line.
+    // A setting that is left open is closed by the same line.
     sent = [];
     state.sandbox_fetch = true;
     fillSandboxMenu(state);
@@ -144,28 +143,27 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     el.sandboxmenu.classList.remove('hidden');
     document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     if (!el.sandboxmenu.classList.contains('hidden')) {
-      faults.push('the menu stood open after a click elsewhere in the page');
+      faults.push('the menu was open after a click elsewhere in the page');
     }
-    // The words of the badge say what a command may reach, so a user who does
-    // not open the menu is not left guessing. Everything stands shut again first.
+    // The text of the badge reports what a command may reach, so a user who does not open the
+    // menu is not left guessing. Everything is kept closed again first.
     state.sandbox_pip = false;
     state.sandbox_fetch = false;
     state.sandbox_network = true;
     drawBadges(state);
     if (String(el.sandbox.title).indexOf('network') < 0) {
-      faults.push('the badge says nothing of the network being open: ' + el.sandbox.title);
+      faults.push('the badge reports nothing of the network being open: ' + el.sandbox.title);
     }
     state.sandbox_network = false;
     state.sandbox_pip = false;
     state.sandbox_fetch = false;
     drawBadges(state);
     if (String(el.sandbox.title).indexOf('no network') < 0) {
-      faults.push('the badge says nothing of the network being shut: ' + el.sandbox.title);
+      faults.push('the badge reports nothing of the network being shut: ' + el.sandbox.title);
     }
-    // The box of the menu is as wide as the longest of its lines. No line of
-    // words is broken in two by a box that was too narrow for the name of a
-    // setting, and no word is cut off at the end of the box. The menu was put
-    // away above, so it is stood up again to be measured.
+    // The box of the menu is as wide as the longest of its lines. No line of text is broken in
+    // two by a box that was too narrow for the name of a setting, and no word is cut off at the
+    // end of the box. The menu was put away above, so it is placed up again to be measured.
     el.sandboxmenu.classList.remove('hidden');
     fillSandboxMenu(state);
     var box = el.sandboxmenu.getBoundingClientRect();
@@ -176,18 +174,18 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var each = el.sandboxmenu.querySelectorAll('button');
     for (var b = 0; b < each.length; b++) {
       var said = each[b].querySelector('.word');
-      if (!said) { faults.push('a line of the menu has no words of its own'); continue; }
+      if (!said) { faults.push('a line of the menu has no text of its own'); continue; }
       if (linesOf(said) !== 1) {
         faults.push('the line ' + JSON.stringify(said.textContent) + ' is broken in '
           + linesOf(said) + ' lines of words, in a box of ' + Math.round(box.width) + 'px');
       }
       if (said.scrollWidth > said.clientWidth + 1) {
-        faults.push('the words ' + JSON.stringify(said.textContent) + ' are cut off: they need '
+        faults.push('the text ' + JSON.stringify(said.textContent) + ' are cut off: they need '
           + said.scrollWidth + 'px and have ' + said.clientWidth + 'px');
       }
     }
-    // A name longer than any of these makes the box wider rather than breaking
-    // the words, for the box is sized by the longest of its lines.
+    // A name longer than any of these makes the box wider rather than breaking the text, for
+    // the box is sized by the longest of its lines.
     var longer = 'Allow wget and fetch and curl';
     el.sandboxmenu.appendChild(gateLine('network', longer, '', false));
     var grown = el.sandboxmenu.getBoundingClientRect();
@@ -199,8 +197,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (linesOf(lastLine) !== 1 || lastLine.scrollWidth > lastLine.clientWidth + 1) {
       faults.push('a longer name was not read on one line of the grown box');
     }
-    // A name too long for what is left of the window is wrapped rather than cut
-    // off, and the box never stands beyond the window.
+    // A name too long for what is left of the window is wrapped rather than cut off, and the
+    // box never remains beyond the window.
     el.sandboxmenu.innerHTML = '';
     el.sandboxmenu.appendChild(gateLine('network',
       'Allow wget and fetch and everything else that a command of this chat may want to run, '
@@ -215,7 +213,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     }
     // The box never leaves the window, whatever the names it holds.
     if (widest.right > window.innerWidth + 1 || widest.left < -1) {
-      faults.push('the box of the menu stands beyond the window: from '
+      faults.push('the box of the menu remains beyond the window: from '
         + Math.round(widest.left) + 'px to ' + Math.round(widest.right) + 'px of '
         + window.innerWidth + 'px');
     }
@@ -226,10 +224,10 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     console.error(out.join('\n'));
     process.exit(1);
   }
-  console.log('the sandbox badge switches the jail from itself and opens its menu '
+  console.log('the sandbox badge switches the sandbox from itself and opens its menu '
     + 'only from its arrow; the menu holds the three settings - Network access, '
-    + 'Allow pip install and Allow wget and fetch - and no line for the jail, all '
-    + 'three stand off, each is asked for on its own, the words of the badge say '
+    + 'Allow pip install and Allow wget and fetch - and no line for the sandbox, all '
+    + 'three remain off, each is requested on its own, the text of the badge reports '
     + 'what a command may reach, and the box of the menu is as wide as the longest '
     + 'of its lines');
 })().catch(function (e) { console.error(e); process.exit(1); });

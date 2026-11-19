@@ -65,9 +65,9 @@ fn a_tool_written_between_thoughts_comes_to_an_end() {
                 .join(", ")
         );
         println!("{}", line);
-        // The block of a call stops saying it is being written as soon as the
-        // model moves on from it, so a state with a written call standing in the
-        // live list is what the fix is about.
+        // The block of a call stops saying it is being written as soon as the model moves on
+        // from it, so a state with a written call remaining in the live list is what the fix is
+        // about.
         if s.live_tools.iter().any(|one| one.done) {
             println!("   ...a call stands written while the answer goes on: {:?}",
                      s.live_tools.iter().map(|one| (one.command.clone(), one.done)).collect::<Vec<_>>());
@@ -75,7 +75,7 @@ fn a_tool_written_between_thoughts_comes_to_an_end() {
         if !s.generating {
             break;
         }
-        assert!(Instant::now() < until, "the answer never came to an end");
+        assert!(Instant::now() < until, "the answer never finished");
         sleep(Duration::from_millis(90));
     }
 }

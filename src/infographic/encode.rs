@@ -1,15 +1,15 @@
 // The frames of an infographic, made into a file.
 //
-// Two ways out, and the machine decides between them:
+// Two ways out, and the computer decides between them:
 //
-//   * MP4, when the machine has `ffmpeg`. The frames are pushed into it as raw
-//     pixels over a pipe, so nothing is written to the disk in between.
-//   * An animated GIF, always. The GIF encoder is part of the program, so a
-//     bare machine still gives a moving picture.
+// * MP4, when the computer has `ffmpeg`. The frames are pushed into it as raw pixels over a
+//    pipe, so nothing is written to the disk in between.
+// * An animated GIF, always. The GIF encoder is part of the program, so a bare computer still
+//    gives a moving image.
 //
-// A still picture is also asked for: one frame of a scene, so a person may look
-// at the layout before the whole video is made. The same drawing code answers
-// both, so what is seen in the still is what stands in the film.
+// A still image is also requested: one frame of a scene, so a person may look at the layout
+// before the whole video is created. The same drawing code answers both, so what is seen in the
+// still is what is in the film.
 
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -19,7 +19,7 @@ use crate::infographic::draw;
 use crate::infographic::fonts::Fonts;
 use crate::infographic::script::{self, Project};
 
-// What the caller asked for.
+// What the caller requested.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Form {
     Mp4,
@@ -36,7 +36,7 @@ pub fn form_of(word: &str) -> Option<Form> {
     }
 }
 
-// Whether the machine has `ffmpeg`. The answer is asked once per run and kept.
+// Whether the computer has `ffmpeg`. The answer is asked once per run and kept.
 pub fn has_ffmpeg() -> bool {
     static SEEN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *SEEN.get_or_init(|| {
@@ -79,11 +79,11 @@ pub fn png(project: &Project, fonts: &Fonts, ms: f64, room: Option<&Path>) -> Re
     let pixmap = paint(&svg, size.0, size.1, fonts)?;
     pixmap
         .encode_png()
-        .map_err(|why| format!("the picture could not be written as a PNG: {why}"))
+        .map_err(|why| format!("the image could not be written as a PNG: {why}"))
 }
 
-// The whole video. The frames are made one after the other, and each is handed
-// on before the next is drawn, so the run takes the memory of one picture.
+// The whole video. The frames are created one after the other, and each is handed on before the
+// next is drawn, so the run takes the memory of one image.
 pub fn video(
     project: &Project,
     fonts: &Fonts,
@@ -106,7 +106,7 @@ pub fn video(
     };
     let path = room.join(out_name(name, form));
 
-    // MP4 needs ffmpeg. Without it the caller is told and a GIF is made instead.
+    // MP4 needs ffmpeg. Without it the caller is informed and a GIF is created instead.
     let form = if form == Form::Mp4 && !has_ffmpeg() {
         told("no ffmpeg on this machine; the video is made as an animated GIF");
         Form::Gif
@@ -118,7 +118,7 @@ pub fn video(
         Form::Png => {
             let bytes = png(project, fonts, 0.0, Some(room))?;
             std::fs::write(&path, bytes)
-                .map_err(|why| format!("the picture could not be written: {why}"))?;
+                .map_err(|why| format!("the image could not be written: {why}"))?;
             Ok(path)
         }
         Form::Mp4 => mp4(project, fonts, room, &path, fps, frames, size, &mut told),
@@ -174,7 +174,7 @@ fn mp4(
         .map(|one| one.status)
         .map_err(|why| format!("ffmpeg could not be waited for: {why}"))?;
     if !status.success() {
-        return Err("ffmpeg stopped before the video was made".to_string());
+        return Err("ffmpeg stopped before the video was created".to_string());
     }
     Ok(path.to_path_buf())
 }
@@ -190,9 +190,8 @@ fn gif(
     size: (u32, u32),
     told: &mut dyn FnMut(&str),
 ) -> Result<PathBuf, String> {
-    // A GIF of every frame of a 25 per second video is a great file. The frames
-    // are thinned to ten a second at most, and each is held for the time of the
-    // ones that were dropped.
+    // A GIF of every frame of a 25 per second video is a great file. The frames are thinned to
+    // ten a second at most, and each is held for the time of the ones that were dropped.
     let kept = fps.min(10);
     let each = fps as f64 / kept as f64;
     let frames = ((frames_total as f64 / each).ceil() as usize).max(1);
@@ -249,7 +248,7 @@ fn paint(svg: &str, width: u32, height: u32, fonts: &Fonts) -> Result<resvg::tin
     let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &opt)
         .map_err(|why| format!("the frame could not be read: {why}"))?;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
-        .ok_or_else(|| "the picture is too big for this machine".to_string())?;
+        .ok_or_else(|| "the image is too big for this computer".to_string())?;
     let scale = ((width as f32) / tree.size().width()).min((height as f32) / tree.size().height());
     resvg::render(
         &tree,
@@ -259,8 +258,8 @@ fn paint(svg: &str, width: u32, height: u32, fonts: &Fonts) -> Result<resvg::tin
     Ok(pixmap)
 }
 
-// Pixels come from the renderer with the colour already multiplied by the
-// alpha. The writers of the files want the colour on its own.
+// Pixels come from the renderer with the colour already multiplied by the alpha. The writers of
+// the files want the colour on its own.
 fn unpremultiply(share: &mut [u8]) {
     let alpha = share[3] as u32;
     if alpha == 0 {
@@ -292,8 +291,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // One frame of a small script is drawn, and the bytes are a PNG. This is the
-    // whole of the way through: the words, the layout, the letters, the picture.
+    // One frame of a small script is drawn, and the bytes are a PNG. This is all of the way
+    // through: the text, the layout, the letters, the image.
     #[test]
     fn one_frame_is_drawn_as_a_png() {
         let head = json!({
@@ -314,6 +313,6 @@ mod tests {
         let fonts = Fonts::new();
         let bytes = png(&made, &fonts, 500.0, None).expect("a frame");
         assert_eq!(&bytes[0..4], &[0x89, b'P', b'N', b'G'], "the bytes are a PNG");
-        assert!(bytes.len() > 500, "the picture carries something: {} bytes", bytes.len());
+        assert!(bytes.len() > 500, "the image carries something: {} bytes", bytes.len());
     }
 }

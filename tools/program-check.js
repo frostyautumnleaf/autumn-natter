@@ -1,26 +1,23 @@
-// The programmed message of the chat box, looked at in both faces of the program
-// with no engine behind it.
+// The programmed message of the chat composer, checked in both pages of the program with no
+// engine behind it.
 //
-// Seven things are looked at, in each face:
-//   * the list that comes up over the box names both commands and says what the
-//     keys of the list do;
-//   * Tab picks the command that stands out, and the word /program changes the
-//     shape of the box: the two blocks over the words, the fence about the box, and
-//     the hand put in the field of the words to look for;
-//   * the block over the field says, word for word, what the field is for;
-//   * a message whose words to look for were left unwritten is not posted, and the
-//     block and the field are marked instead;
-//   * Enter with the words written posts queue_plan with the message and the words
-//     beside it, and puts the box back as it was;
-//   * the waiting list keeps the programmed messages in a section of their own: the
-//     row says what it waits for, is marked apart, and is not taken hold of, while
-//     an ordinary row keeps its mark to take hold of; and the count of the head
-//     counts both kinds;
-//   * taking a programmed row out of the list posts its number, as any other row
-//     does.
+// Seven items are checked, in each page:
+// * the list that appears over the box names both commands and reports what the keys of the
+//    list do;
+// * Tab picks the command that remains out, and the word /program changes the form of the box:
+//    the two blocks over the text, the fence about the box, and the pointer put in the field of
+//    the text to search for;
+// * the block over the field reports, word for word, what the field is for;
+// * a message whose text to search for were left unwritten is not posted, and the block and the
+//    field are flagged instead;
+// * Enter with the text written posts queue_plan with the message and the text beside it, and
+//    puts the box back as it was;
+// * the waiting list keeps the programmed messages in a section of their own: the row reports
+//    what it waits for, is flagged apart, and is not taken hold of, while an ordinary row keeps
+//    its marker to take hold of; and the count of the header counts both types;
+// * taking a programmed row out of the list posts its number, as any other row does.
 //
-//   node program-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node program-check.js
+// node program-check.js AN_PAGE=web/page.html AN_FETCH=1 node program-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -34,8 +31,7 @@ const PAGES = process.env.AN_PAGE
 const shell = process.env.AN_SHELL_BIN || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// The words the block over the field has to say, word for word, as the task asked
-// for them.
+// The text the block over the field has to say, word for word, as the task asked for it.
 const SAYING = 'Enter the text to match in the final response';
 
 function stateOf(theme) {
@@ -48,11 +44,11 @@ function stateOf(theme) {
     chat: { id: 'c1', title: 'A chat with a rule written in it', planning: false, planned: false },
     chats: [{ id: 'c1', title: 'A chat with a rule written in it', repo: '', when: 'Today 09:04',
       active: true, preview: 'Write the rule.' }],
-    // The commands of the chat box, as the engine gives them: the word of the
-    // command and what it is for.
+    // The commands of the chat composer, as the engine gives them: the word of the command and
+    // what it is for.
     commands: [
       { name: '/plan', words: 'Plan the work before any of it is done.' },
-      { name: '/program', words: 'Write a message that goes out when an answer holds the words you name.' },
+      { name: '/program', words: 'Write a message that is sent when an answer holds the text you name.' },
     ],
     home: false, greeting: 'Still here, still ready.', overview: false,
     messages: [
@@ -69,8 +65,8 @@ function stateOf(theme) {
     chatting: { collapse_thinking: true, collapse_tools: true, highlight: true,
       chapters: true, paste_limit: 6000, background: 'none' },
     context: { used: '412', total: '8,192', ratio: 0.05 },
-    // The waiting list. The programmed messages stand in a list of their own, and
-    // each carries the words it waits for.
+    // The waiting list. The programmed messages are in a list of their own, and each carries
+    // the text it waits for.
     queue: null,
     generating: false, busy: false, code: true, sandbox: false,
     sandbox_available: true, sandbox_note: 'bubblewrap works.',
@@ -78,9 +74,9 @@ function stateOf(theme) {
   };
 }
 
-// What is put into the page before it runs: the two bridges, and a book of the
-// actions the page asks for, so the check can read what went out instead of
-// watching for an answer that no engine would send.
+// What is put into the page before it runs: the two bridges, and a book of the actions the page
+// requests, so the check can read what was sent instead of watching for an answer that no
+// engine would send.
 function bridges(given) {
   window.__state = given;
   window.__posts = [];
@@ -110,8 +106,8 @@ function bridges(given) {
   };
 }
 
-// Write words into the chat box as a hand writes them: the value, the place of the
-// caret after them, and the word that says the value changed.
+// Write text into the chat composer as a pointer writes it: the value, the place of the caret
+// after them, and the word that shows the value changed.
 function write(page, words) {
   return page.evaluate(function (text) {
     var box = document.getElementById('draft');
@@ -122,7 +118,7 @@ function write(page, words) {
   }, words);
 }
 
-// One stroke of a key, on the thing that has the hand.
+// One stroke of a key, on the item that has the pointer.
 function key(page, name, where) {
   return page.evaluate(function (keyName, on) {
     var node = on ? document.getElementById(on) : document.activeElement;
@@ -149,9 +145,9 @@ async function main() {
     await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
     await sleep(500);
     const notes = [];
-    const note = (what) => { notes.push(what); console.log('  FAULT: ' + what); };
+    const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
-    // The list that comes up over the box, and the word about the keys.
+    // The list that appears over the box, and the word about the keys.
     await write(page, '/');
     await sleep(120);
     const popped = await page.evaluate(() => {
@@ -176,7 +172,7 @@ async function main() {
     }
     if (popped.hintIsRow) { note('the word about the keys is pickable as a command is'); }
 
-    // Tab picks the command that stands out, and the box changes shape.
+    // Tab picks the command that remains out, and the box changes form.
     await write(page, '/program');
     await sleep(120);
     await key(page, 'Tab');
@@ -202,25 +198,25 @@ async function main() {
     if (shaped.pending !== '/program') {
       note('Tab did not pick the command of the list: ' + shaped.pending);
     }
-    if (!shaped.programming || shaped.hidden) { note('the box of a programmed message is not stood up'); }
+    if (!shaped.programming || shaped.hidden) { note('the box of a programmed message is not was up'); }
     if (shaped.saying !== SAYING) {
       note('the block over the field does not say what it is for, word for word: ' + JSON.stringify(shaped.saying));
     }
     if (!shaped.fenced || !shaped.draftMarked) { note('the fence of the programmed box is not worn'); }
-    if (!shaped.focused) { note('the hand was not put in the field of the words to look for'); }
+    if (!shaped.focused) { note('the pointer was not put in the field of the text to search for'); }
     if (shaped.placeholder.indexOf('answer') < 0) {
       note('the box does not say what the message is for: ' + shaped.placeholder);
     }
-    if (!shaped.list) { note('the list of commands is left standing after the pick'); }
+    if (!shaped.list) { note('the list of commands is left remaining after the pick'); }
 
-    // A message whose words to look for were never written is not posted.
+    // A message whose text to search for were never written is not posted.
     await write(page, 'say it again');
     await sleep(120);
     await key(page, 'Enter', 'draft');
     await sleep(250);
     const refused = await page.evaluate(() => ({
-      // The page asks for the lists of the side bar on its own account, so only
-      // the asks that would send a message say anything here.
+      // The page requests the lists of the side bar on its own account, so only the requests
+      // that would send a message say anything here.
       posts: window.__posts.filter(function (p) {
         return p.name === 'queue_plan' || p.name === 'queue_add' || p.name === 'send';
       }).length,
@@ -231,14 +227,14 @@ async function main() {
       still: programming(),
     }));
     if (refused.posts !== 0) {
-      note('a programmed message with no words to look for was posted: ' + refused.names.join(', '));
+      note('a programmed message with no text to search for was posted: ' + refused.names.join(', '));
     }
-    if (!refused.miss) { note('the field was left unmarked when the words to look for were missing'); }
+    if (!refused.miss) { note('the field was left unmarked when the text to search for were missing'); }
     if (refused.held !== 'say it again' || !refused.still) {
-      note('the message was thrown away instead of being left for the hand to finish');
+      note('the message was deleted instead of being left for the pointer to finish');
     }
 
-    // The words written, and the message goes into the list with them beside it.
+    // The text written, and the message goes into the list with them beside it.
     await page.evaluate(() => {
       const field = document.getElementById('progmatch');
       field.value = 'All done';
@@ -266,15 +262,15 @@ async function main() {
     if (!posted.asked) {
       note('no queue_plan ask went out: ' + posted.names.join(', '));
     } else if (posted.asked.text !== 'say it again' || posted.asked.match !== 'All done') {
-      note('the ask carries the wrong words: ' + JSON.stringify(posted.asked));
+      note('the request carries the wrong text: ' + JSON.stringify(posted.asked));
     }
     if (!posted.empty || posted.programming || posted.fenced || !posted.hidden) {
       note('the box was not put back as it was: ' + JSON.stringify(posted));
     }
-    if (posted.miss) { note('the mark of the missing words was left on the block'); }
+    if (posted.miss) { note('the marker of the missing text was left on the block'); }
     await page.evaluate(() => { window.__posts.length = 0; });
 
-    // The list over the box: two kinds of message in two sections.
+    // The list over the box: two types of message in two sections.
     await page.evaluate(() => {
       window.__state.queue = {
         chat: 'c1',
@@ -310,17 +306,17 @@ async function main() {
         rows: seen,
       };
     });
-    if (!listed.shown) { note('the list of messages waiting is not shown for one message of each kind'); }
+    if (!listed.shown) { note('the list of messages waiting is not shown for one message of each type'); }
     if (listed.count !== '2') {
-      note('the head does not count both kinds: ' + listed.count);
+      note('the header does not count both types: ' + listed.count);
     }
     if (listed.sections.length !== 2) {
-      note('the two kinds are not named apart: ' + listed.sections.join(' / '));
+      note('the two types are not named apart: ' + listed.sections.join(' / '));
     }
     const plannedRow = listed.rows.filter((row) => row.planned)[0];
     const plainRow = listed.rows.filter((row) => !row.planned)[0];
     if (!plannedRow || !plainRow) {
-      note('one of the two kinds of row is not drawn: ' + JSON.stringify(listed.rows));
+      note('one of the two types of row is not drawn: ' + JSON.stringify(listed.rows));
     } else {
       if (plannedRow.words !== 'the programmed one' || plannedRow.waits !== 'All done') {
         note('the programmed row does not say what it waits for: ' + JSON.stringify(plannedRow));
@@ -329,14 +325,14 @@ async function main() {
         note('a programmed row may be taken hold of: ' + JSON.stringify(plannedRow));
       }
       if (!plainRow.grip || !plainRow.draggable || plainRow.words !== 'the plain one') {
-        note('an ordinary row lost its mark to take hold of: ' + JSON.stringify(plainRow));
+        note('an ordinary row lost its marker to take hold of: ' + JSON.stringify(plainRow));
       }
       if (listed.rows[0] !== plannedRow) {
-        note('the programmed messages do not stand over the others in the list');
+        note('the programmed messages are not over the others in the list');
       }
     }
 
-    // Taking a programmed row out asks for its number, as any other row does.
+    // Taking a programmed row out requests its number, as any other row does.
     await page.evaluate(() => {
       const row = document.querySelector('#queuelist .qrow.planned');
       const marks = row.querySelectorAll('.qbtn');
@@ -346,10 +342,10 @@ async function main() {
     const removed = await page.evaluate(() => window.__posts.slice());
     const askedOut = removed.filter((one) => one.name === 'queue_remove');
     if (askedOut.length !== 1 || askedOut[0].body.id !== 4) {
-      note('taking the programmed row out did not ask for its number: ' + JSON.stringify(removed));
+      note('taking the programmed row out did not request its number: ' + JSON.stringify(removed));
     }
 
-    // Only one kind in the list is what the list always was: no word over it.
+    // Only one type in the list is what the list always was: no word over it.
     await page.evaluate(() => {
       window.__state.queue = {
         chat: 'c1',
@@ -368,7 +364,7 @@ async function main() {
       note('a list of one plain message is not drawn as it was: ' + JSON.stringify(single));
     }
     if (single.sections !== 0) {
-      note('a list of one kind is named in sections: ' + single.sections.join(' / '));
+      note('a list of one type is named in sections: ' + single.sections.join(' / '));
     }
 
     if (faults.length) { note('page faults: ' + faults.join(' | ')); }
@@ -377,7 +373,7 @@ async function main() {
   }
   await browser.close();
   if (trouble) { throw new Error(trouble + ' fault(s) across ' + PAGES.length + ' faces'); }
-  console.log('a programmed message is written in the box, waits in the list, and goes when an answer says its words');
+  console.log('a programmed message is written in the box, waits in the list, and goes when an answer reports its text');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

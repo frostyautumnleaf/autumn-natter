@@ -1,26 +1,24 @@
-// Check the questionnaire of planning mode: the sheet of questions the model put
-// with `ask_plan`. It stands in the talk itself, at its end, and the model is
-// waited for the answers with no clock on it - so the sheet must be where the user
-// can read it, and not under the answer that asked. A sheet that comes new into
-// the talk is brought to the top of the chat; one that stands already is left
-// where the reader left it, for the state is read again and again and a sheet that
-// jumped on every read could not be answered.
+// Check the questionnaire of planning mode: the stylesheet of questions the model put with
+// `ask_plan`. It is in the conversation itself, at its end, and the model is waited for the
+// answers with no clock on it - so the stylesheet must be where the user can read it, and not
+// under the answer that asked. A sheet that comes new into the conversation is brought to the
+// top of the chat; one that remains already is left where the user left it, for the state is
+// read again and again and a sheet that jumped on every read could not be answered.
 //
-//   node plan-ask-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node plan-ask-check.js
+// node plan-ask-check.js AN_PAGE=web/page.html AN_FETCH=1 node plan-ask-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
 const PAGE = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const USE_FETCH = process.env.AN_FETCH === '1';
 
-// So many questions of the plan, with three answers each but the last, which the
-// user is to write.
+// So many questions of the plan, with three answers each but the last, which the user is to
+// write.
 function questions(count) {
   var items = [];
   for (var n = 0; n < count; n++) {
     items.push({
-      question: 'Which of the roads stands for question ' + (n + 1) + '?',
+      question: 'Which of the suggestions means question ' + (n + 1) + '?',
       choices: ['the first road', 'the second road', 'the third road'],
       many: n % 2 === 0
     });
@@ -31,8 +29,8 @@ function questions(count) {
 
 function stateOf(count) {
   var messages = [];
-  // A talk long enough that the end of it stands out of the chat: the questions
-  // must be brought back into view rather than left below the fold.
+  // A conversation long enough that the end of it remains out of the chat: the questions must
+  // be brought back into view rather than left below the fold.
   for (var n = 0; n < 8; n++) {
     messages.push({
       id: String(n + 1), role: n % 2 ? 'Assistant' : 'You',
@@ -83,7 +81,7 @@ async function main() {
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
   });
 
-  // The sheet of the questions, the room of the chat, and the marks of the answers.
+  // The stylesheet of the questions, the sandbox directory of the chat, and the markers of the answers.
   const LOOK = `(function () {
     var room = el.thread;
     var box = document.getElementById('planask');
@@ -141,31 +139,31 @@ async function main() {
 
   const faults = [];
 
-  // A sheet of questions that the chat can hold: it is brought whole into view,
-  // the button of send with it, so the answers can be marked and sent without the
-  // reader hunting for the end of it.
+  // A sheet of questions that the chat can hold: it is brought whole into view, the button of
+  // send with it, so the answers can be flagged and sent without the user hunting for the end
+  // of it.
   const shortPage = await open(3);
   const shortSheet = await shortPage.evaluate(LOOK);
   if (shortSheet.none) {
-    throw new Error('the questionnaire of planning mode does not stand in the talk');
+    throw new Error('the questionnaire of planning mode is not in the conversation');
   }
   if (shortSheet.ask !== '7') {
-    faults.push('the sheet does not stand for the ask of the state: ' + shortSheet.ask);
+    faults.push('the stylesheet is not for the request of the state: ' + shortSheet.ask);
   }
   if (shortSheet.questions !== 4 || shortSheet.fields !== 1) {
-    faults.push('the questions of the sheet are wrong: ' + shortSheet.questions
+    faults.push('the questions of the stylesheet are wrong: ' + shortSheet.questions
       + ' questions, ' + shortSheet.fields + ' field to write in');
   }
   if (shortSheet.top < shortSheet.viewTop) {
-    faults.push('the head of the sheet stands above the chat: ' + shortSheet.top
+    faults.push('the header of the stylesheet is above the chat: ' + shortSheet.top
       + ' against ' + shortSheet.viewTop);
   }
   if (shortSheet.sendBottom === null || shortSheet.sendBottom > shortSheet.viewBottom) {
     faults.push('the button of send is out of the chat: ' + shortSheet.sendBottom
       + ' against ' + shortSheet.viewBottom);
   }
-  // A reader who went up in the talk is left there: the state is read again and
-  // again, and the sheet that stands already is not moved about.
+  // A user who went up in the conversation is left there: the state is read again and again,
+  // and the stylesheet that remains already is not moved about.
   const stayed = await shortPage.evaluate(async function () {
     stick = false;
     el.thread.scrollTop = 0;
@@ -173,22 +171,22 @@ async function main() {
     return Math.round(el.thread.scrollTop);
   });
   if (stayed !== 0) {
-    faults.push('the talk was dragged down under a reader who went up in it: scrollTop '
+    faults.push('the conversation was dragged down under a user who went up in it: scrollTop '
       + stayed);
   }
   await shortPage.close();
 
-  // A sheet longer than the chat: its head stands in view, so the first question
-  // is the first thing read, and the rest of it is come at by scrolling down.
+  // A sheet longer than the chat: its header is in view, so the first question is the first
+  // item read, and the rest of it is reached by scrolling down.
   const longPage = await open(12);
   const longSheet = await longPage.evaluate(LOOK);
-  if (longSheet.none) { throw new Error('the long questionnaire is gone'); }
+  if (longSheet.none) { throw new Error('the long questionnaire is removed'); }
   if (longSheet.top < longSheet.viewTop) {
-    faults.push('the head of a sheet longer than the chat stands above the chat: '
+    faults.push('the header of a sheet longer than the chat is above the chat: '
       + longSheet.top + ' against ' + longSheet.viewTop);
   }
   if (longSheet.bottom <= longSheet.viewBottom) {
-    faults.push('a sheet longer than the chat was taken in whole, which says nothing grew');
+    faults.push('a sheet longer than the chat was taken in whole, which shows nothing grew');
   }
   const rest = await longPage.evaluate(async function () {
     stick = false;
@@ -208,9 +206,9 @@ async function main() {
   await browser.close();
   const face = process.env.AN_PAGE ? 'the page of the remote mode' : 'the window page';
   if (!faults.length) {
-    console.log('the questionnaire of planning mode stands in the talk with its head in '
-      + 'view, its button of send within reach, a sheet longer than the chat gone down '
-      + 'into by scrolling, and a reader who went up in the talk left there - on ' + face);
+    console.log('the questionnaire of planning mode is in the conversation with its header in '
+      + 'view, its button of send within reach, a sheet longer than the chat removed down '
+      + 'into by scrolling, and a user who went up in the conversation left there - on ' + face);
     return;
   }
   console.log(`faults on ${face}:`);

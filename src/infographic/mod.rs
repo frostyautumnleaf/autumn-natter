@@ -1,23 +1,22 @@
-// Infographic videos: the tools the model works through, and the folder a
-// project lives in.
+// Infographic videos: the tools the model works through, and the folder a project lives in.
 //
-// A video is not written in one call. The model makes a project, puts scenes
-// into it, has the layout checked, and then has the frames made into a file.
-// Each step answers with what it found, so a fault is put right while it is
-// still one line of json and not a minute of nothing on the screen.
+// A video is not written in one call. The model makes a project, puts scenes into it, has the
+// layout checked, and then has the frames made into a file. Each step answers with what it
+// found, so an error is put right while it is still one line of json and not a minute of
+// nothing on the screen.
 //
-// The whole of a project is one file, `script.json`, in a folder of the room of
-// the chat. Nothing of it is kept in the memory of the program, so a chat may be
-// closed between the steps and the work stands.
+// All of a project is one file, `script.json`, in a directory of the working directory of the chat.
+// Nothing of it is kept in the memory of the program, so a chat may be closed between the steps
+// and the work remains.
 //
 // The five tools:
 //
-//   * `infographic_guide` - the shape of a script, the kinds of the blocks, the
-//     colours, the sizes and the marks. The model reads this before it writes.
-//   * `infographic_plan` - the head of a project and the list of its scenes.
-//   * `infographic_scene` - one scene, with its blocks.
-//   * `infographic_check` - the layout of the scenes, with every fault of it.
-//   * `infographic_render` - the frames, made into a file.
+// * `infographic_guide` - the form of a script, the types of the blocks, the colours, the sizes
+//    and the markers. The model reads this before it writes.
+// * `infographic_plan` - the header of a project and the list of its scenes.
+// * `infographic_scene` - one scene, with its blocks.
+// * `infographic_check` - the layout of the scenes, with every error of it.
+// * `infographic_render` - the frames, made into a file.
 
 pub mod draw;
 pub mod encode;
@@ -47,13 +46,12 @@ pub fn is_tool(name: &str) -> bool {
     )
 }
 
-// The words of a call, made into an object. The five tools of this suite take
-// their parts as a json object and not as a command of the terminal, so the
-// object is read as it stands, and through a fenced block when the model put one
-// about it. It used to be read with `parse_arguments`, whose second answer is the
-// reason a model gives for a terminal command: that reason is empty here, so
-// every call of this suite came in with no part at all, and a plan was made of
-// nothing but the parts the call left out.
+// The text of a call, made into an object. The five tools of this suite take their parts as a
+// json object and not as a command of the terminal, so the object is read as it is now, and
+// through a fenced block when the model put one about it. It used to be read with
+// `parse_arguments`, whose second answer is the reason a model gives for a terminal command:
+// that reason is empty here, so every call of this suite arrived with no part at all, and a
+// plan was made of nothing but the parts the call left out.
 fn object(raw: &str) -> Value {
     let text = raw.trim();
     let cut = crate::tools::extract_object(text).unwrap_or(text);
@@ -63,8 +61,8 @@ fn object(raw: &str) -> Value {
     }
 }
 
-// The words of the state line for one call: the tool, and the project it works
-// on when the model named one.
+// The text of the state line for one call: the tool, and the project it works on when the model
+// named one.
 pub fn shown(name: &str, raw: &str) -> String {
     let head = match name {
         GUIDE_NAME => "the guide of a script",
@@ -83,7 +81,7 @@ pub fn shown(name: &str, raw: &str) -> String {
     }
 }
 
-// The five definitions, for the list of tools of an ask.
+// The five definitions, for the list of tools of a request.
 pub fn definitions() -> Vec<Value> {
     let kinds = script::kind_names();
     let canvases = script::canvas_words();
@@ -94,14 +92,14 @@ pub fn definitions() -> Vec<Value> {
             "function": {
                 "name": GUIDE_NAME,
                 "description": with_rule(String::from(
-                    "Read how an infographic script is built: the parts of a project, the parts of a scene, every kind of block with the words it takes, the colour sets, the sizes of the picture, and the marks that may be drawn. Read this once before you write a script, and read it again when a check says a word is not known."
+                    "Read how an infographic script is built: the parts of a project, the parts of a scene, every type of block with the text it takes, the colour sets, the sizes of the image, and the markers that may be drawn. Read this once before you write a script, and read it again when a check reports a word is not known."
                 )),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "kind": {
                             "type": "string",
-                            "description": "One kind of block to have the whole of its words for, such as 'bars' or 'steps'. Leave it out to have the guide of everything."
+                            "description": "One type of block to have all of its text for, such as 'bars' or 'steps'. Leave it out to have the guide of everything."
                         }
                     }
                 }
@@ -119,12 +117,12 @@ pub fn definitions() -> Vec<Value> {
                     "properties": {
                         "project": { "type": "string", "description": "The name of the project. Leave it out for the one project of this chat." },
                         "about": { "type": "string", "description": "One line about what the video is of." },
-                        "canvas": { "type": "string", "description": "The size of the picture." },
+                        "canvas": { "type": "string", "description": "The size of the image." },
                         "fps": { "type": "integer", "description": "Frames of the second, 1 to 60. 24 is the rule." },
                         "palette": { "type": "string", "description": "The colour set." },
                         "font": { "type": "string", "description": "'sans', 'serif', 'mono', or the name of a family of this machine." },
                         "heading_weight": { "type": "string", "description": "'normal', 'bold' or 'black'." },
-                        "background": { "type": "object", "description": "The ground of the scenes: kind, from, to, angle, vignette." },
+                        "background": { "type": "object", "description": "The background of the scenes: type, from, to, angle, vignette." },
                         "scenes": {
                             "type": "array",
                             "description": "The list of the scenes, in the order they are shown. Each one is a head and a length; the blocks come with the scene tool. Given at all, this list is what stands.",
@@ -164,13 +162,13 @@ pub fn definitions() -> Vec<Value> {
             "function": {
                 "name": CHECK_NAME,
                 "description": with_rule(
-                    "Lay out the scenes of an infographic project and say what is wrong: a block off the board, words that do not fit their box, a chart with no numbers, two blocks on one another, a scene with nothing in it. Nothing is drawn and nothing is written. Do this before you render, and mend what it says.".to_string()
+                    "Lay out the scenes of an infographic project and say what is wrong: a block off the board, text that does not fit their box, a chart with no numbers, two blocks on one another, a scene with nothing in it. Nothing is drawn and nothing is written. Do this before you render, and fix what it reports.".to_string()
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "project": { "type": "string", "description": "The name of the project." },
-                        "at": { "type": "integer", "description": "One scene by its place, when only that scene is to be looked at." }
+                        "at": { "type": "integer", "description": "One scene by its place, when only that scene is to be checked." }
                     }
                 }
             }
@@ -195,7 +193,7 @@ pub fn definitions() -> Vec<Value> {
     ]
 }
 
-// The folder of one project.
+// The directory of one project.
 pub fn room_of(workdir: &Path, name: &str) -> PathBuf {
     let clean = if name.trim().is_empty() {
         script::DEFAULT_PROJECT
@@ -205,8 +203,8 @@ pub fn room_of(workdir: &Path, name: &str) -> PathBuf {
     workdir.join(script::ROOT).join(clean)
 }
 
-// The project out of its folder. Nothing comes back when there is no project
-// yet, and the caller says so.
+// The project out of its folder. Nothing returns when there is no project yet, and the caller
+// records it.
 fn read(room: &Path) -> Option<script::Project> {
     let text = std::fs::read_to_string(room.join(script::SCRIPT_FILE)).ok()?;
     script::from_words(&text)
@@ -215,13 +213,13 @@ fn read(room: &Path) -> Option<script::Project> {
 // The project written into its folder.
 fn write(room: &Path, project: &script::Project) -> Result<(), String> {
     std::fs::create_dir_all(room)
-        .map_err(|why| format!("the folder of the project could not be made: {why}"))?;
+        .map_err(|why| format!("the directory of the project could not be made: {why}"))?;
     std::fs::write(room.join(script::SCRIPT_FILE), script::words(project))
         .map_err(|why| format!("the script could not be written: {why}"))
 }
 
-// One call of one of the five tools. The answer is the words the model reads
-// back; a fault is answered with the fault and nothing written.
+// One call of one of the five tools. The answer is the text the model reads back; an error is
+// answered with the error and nothing written.
 pub fn run(
     name: &str,
     raw: &str,
@@ -241,7 +239,7 @@ pub fn run(
     }
 }
 
-// The shape of a script, in the words the model reads.
+// The form of a script, in the text the model reads.
 fn guide(given: &Value) -> String {
     let asked = given.get("kind").and_then(Value::as_str).unwrap_or("");
     if !asked.is_empty() {
@@ -256,7 +254,7 @@ fn guide(given: &Value) -> String {
     script::guide()
 }
 
-// The head of a project and the list of its scenes.
+// The header of a project and the list of its scenes.
 fn plan(room: &Path, given: &Value) -> String {
     let name = room
         .file_name()
@@ -274,11 +272,10 @@ fn plan(room: &Path, given: &Value) -> String {
         background: Default::default(),
         scenes: Vec::new(),
     });
-    // The head is made of the parts a call may name, and of nothing else. The
-    // name of a project is the name of its folder, which the call does not write
-    // into the script, and the scenes are read here as much as anywhere else, so
-    // that a head of a scene is answered with the words of `read_scene` and comes
-    // with a way of coming in, as every scene does.
+    // The header is made of the parts a call may name, and of nothing else. The name of a
+    // project is the name of its folder, which the call does not write into the script, and the
+    // scenes are read here as much as anywhere else, so that a header of a scene is answered
+    // with the text of `read_scene` and comes with a way of arriving, as every scene does.
     let mut head = serde_json::Map::new();
     for part in script::PROJECT_PARTS {
         if let Some(one) = given.get(*part) {
@@ -289,7 +286,7 @@ fn plan(room: &Path, given: &Value) -> String {
         Ok(one) => one,
         Err(faults) => return faults.join("; "),
     };
-    // The name of the project is the name of the folder it stands in.
+    // The name of the project is the name of the folder it is in.
     made.name = name;
     if let Err(why) = write(room, &made) {
         return why;
@@ -318,8 +315,8 @@ fn scene(room: &Path, given: &Value) -> String {
     if at < 0 || at as usize > script::GREATEST_SCENES {
         return format!("the place of a scene is between 0 and {}", script::GREATEST_SCENES);
     }
-    // The blocks are looked at before the scene is made, so a word out of place
-    // is answered with the word and not with a fault of the shape.
+    // The blocks are checked before the scene is created, so a word out of place is answered
+    // with the word and not with an error in the form.
     if let Some(blocks) = body.get("blocks").and_then(Value::as_array) {
         let faults = script::block_faults(blocks);
         if !faults.is_empty() {
@@ -367,7 +364,7 @@ fn scene(room: &Path, given: &Value) -> String {
     out
 }
 
-// The layout of the scenes, with every fault of it.
+// The layout of the scenes, with every error of it.
 fn check(room: &Path, given: &Value) -> String {
     let Some(project) = read(room) else {
         return "there is no project here yet".to_string();
@@ -414,8 +411,8 @@ fn render(
     if !said.is_empty() {
         told(&said);
     }
-    // A fault of the layout does not stop a render: the model may want to see
-    // what it looks like. The faults are put under the answer all the same.
+    // An error in the layout does not stop a render: the model may want to see what it looks
+    // like. The errors are put under the answer all the same.
     let (faults, _) = look(&project, None, &fonts);
     let made = if form == encode::Form::Png {
         let ms = given.get("at").and_then(Value::as_f64).unwrap_or(0.0) * 1000.0;
@@ -439,13 +436,13 @@ fn render(
         Ok(path) => {
             let size = std::fs::metadata(&path).map(|one| one.len()).unwrap_or(0);
             let mut out = format!(
-                "The file stands at {} ({} kB, {} long).",
+                "The file is at {} ({} kB, {} long).",
                 path.display(),
                 size / 1024,
                 script::trim_time(script::seconds(&project))
             );
             if !faults.is_empty() {
-                out.push_str("\nThe layout said, and was not mended:\n");
+                out.push_str("\nThe layout stated, and was not mended:\n");
                 out.push_str(&faults.join("\n"));
             }
             out
@@ -465,8 +462,8 @@ fn pair() -> (fonts::Fonts, String) {
     (made, said)
 }
 
-// The layout of a project, or of one scene of it. The answer is every fault, and
-// the count of the blocks that were laid out.
+// The layout of a project, or of one scene of it. The answer is every error, and the count of
+// the blocks that were decompressed.
 fn look(project: &script::Project, at: Option<usize>, fonts: &fonts::Fonts) -> (Vec<String>, usize) {
     let size = script::canvas_of(&project.canvas)
         .unwrap_or(script::Canvas { word: "1080p", width: 1920, height: 1080 });
@@ -480,9 +477,9 @@ fn look(project: &script::Project, at: Option<usize>, fonts: &fonts::Fonts) -> (
                 continue;
             }
         }
-        // A scene with nothing in it draws nothing, and the video then has a blank
-        // in the middle of it. The tool of the check says that it looks for this,
-        // so it is looked for here.
+        // A scene with nothing in it draws nothing, and the video then has a blank in the
+        // middle of it. The tool of the check reports that it searches for this, so it is
+        // searched for here.
         if scene.blocks.is_empty() {
             faults.push(format!(
                 "scene {} ({}): the scene holds no block, so it draws nothing. Put the blocks in with infographic_scene, or take the scene out of the plan.",
@@ -504,8 +501,8 @@ fn look(project: &script::Project, at: Option<usize>, fonts: &fonts::Fonts) -> (
 mod tests {
     use super::*;
 
-    // The room of one test: a folder of its own under the temp place, thrown
-    // away when the test is over.
+    // The directory of one test: a directory of its own under the temp place, deleted when the
+    // test is over.
     fn place(what: &str) -> PathBuf {
         let room = std::env::temp_dir().join(format!(
             "atnatter-infographic-{}-{what}-{}",
@@ -525,12 +522,11 @@ mod tests {
         run(which, raw, work, &stop, |_| {})
     }
 
-    // The plan tool answers with the storyboard of a project and writes its
-    // script. It used to answer with three faults on every call, whatever the
-    // model sent: the name of the project was put among the parts a call may
-    // name, every part the call left out was put in as nothing, and the parts the
-    // call did name never came at all, because the words of the call were read
-    // with the reader of a terminal command.
+    // The plan tool answers with the storyboard of a project and writes its script. It used to
+    // answer with three errors on every call, whatever the model sent: the name of the project
+    // was put among the parts a call may name, every part the call left out was put in as
+    // nothing, and the parts the call did name never came at all, because the text of the call
+    // was reads with the user of a terminal command.
     #[test]
     fn a_plan_of_scene_heads_stands_and_says_so() {
         let work = place("plan");
@@ -552,13 +548,13 @@ mod tests {
         assert_eq!(held.palette, "forest");
         assert_eq!(held.scenes.len(), 3);
         assert_eq!(held.scenes[1].seconds, 3.5);
-        // A scene head comes with a way of coming in, as every scene does.
+        // A scene header comes with a way of arriving, as every scene does.
         assert_eq!(held.scenes[1].transition.kind, "fade");
         let _ = std::fs::remove_dir_all(&work);
     }
 
-    // A plan that names nothing but the project stands too: the parts it says
-    // nothing about keep what a project of this program stands on.
+    // A plan that names nothing but the project remains too: the parts it reports nothing about
+    // keep what a project of this program is on.
     #[test]
     fn a_plan_that_names_nothing_but_the_project_stands() {
         let work = place("bare");
@@ -573,15 +569,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&work);
     }
 
-    // The parts of a call come through a fenced block as they come plain, the
-    // guide answers for the one kind named, and the line over the block of the
-    // run names the project the call works on.
+    // The parts of a call come through a fenced block as they come plain, the guide answers for
+    // the one type named, and the line over the block of the run names the project the call
+    // works on.
     #[test]
     fn the_parts_of_a_call_come_through_a_fence() {
         let work = place("fence");
         let said = call(GUIDE_NAME, "```json\n{\"kind\":\"bars\"}\n```", &work);
         assert!(said.contains("A block of kind \"bars\""), "the guide of one kind: {said}");
-        // The guide of everything, and the guide of one kind, are not the same.
+        // The guide of everything, and the guide of one type, are not the same.
         let all = call(GUIDE_NAME, "{}", &work);
         assert!(!all.contains("A block of kind \"bars\" reads"), "the whole guide: {all}");
         assert_eq!(
@@ -591,10 +587,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&work);
     }
 
-    // The way the model works, through: a plan of heads, one scene with blocks in
-    // it, and the check of the layout. A scene of nothing is named by the check,
-    // for it draws nothing and the video would stand on a blank in the middle of
-    // it.
+    // The way the model works, through: a plan of headers, one scene with blocks in it, and the
+    // check of the layout. A scene of nothing is named by the check, for it draws nothing and
+    // the video would be on a blank in the middle of it.
     #[test]
     fn a_scene_lands_on_a_plan_and_the_check_reads_the_video() {
         let work = place("flow");
@@ -608,8 +603,8 @@ mod tests {
         assert!(said.contains("2 blocks were laid out"), "the blocks are laid: {said}");
         let told = call(CHECK_NAME, "{\"project\":\"loop\"}", &work);
         assert!(told.starts_with("Nothing is wrong"), "the check: {told}");
-        // A second scene that was planned but never filled is a blank in the
-        // video, and the check says so.
+        // A second scene that was planned but never filled is a blank in the video, and the
+        // check records it.
         call(
             PLAN_NAME,
             "{\"project\":\"loop\",\"scenes\":[{\"title\":\"The loop\",\"seconds\":4},{\"title\":\"The stats\",\"seconds\":3}]}",

@@ -1,25 +1,24 @@
-// The five skins of the pages, and the pixel-art form of every one of them, looked
-// at in both faces of the program with no engine behind it.
+// The five themes of the pages, and the pixel-art form of all of them, checked in both pages of
+// the program with no engine behind it.
 //
-// Seven things are looked at, in each face:
-//   * the sheet offers five skins and two forms, and the list the bar steps
-//     through holds the five;
-//   * the fifth skin goes on when its mark is clicked, its colour tokens answer,
-//     and the call it makes carries both words of the skin;
-//   * the pixel-art form keeps the colours of the skin it is laid over, so the
-//     ground and the words are the same numbers with the form on as off;
-//   * the form squares every corner of the page: a part that stood round in the
-//     standard form stands square in the pixel-art one, and no part of what is
-//     seen holds a corner of more than nought;
-//   * the form is drawn from the state, so the two pages follow the one setting,
-//     and the words of the mark of the bar say which form the skin stands in;
-//   * the marks of the two forms make the call that writes them, and the whole of
-//     the settings is written with both words of the skin in it;
-//   * the welcome screen offers the fifth skin, and the mark of the form puts the
-//     form on the screen it stands on.
+// Seven items are checked, in each page:
+// * the stylesheet proposes five themes and two forms, and the list the top bar steps through
+//    holds the five;
+// * the fifth theme goes on when its marker is clicked, its colour tokens answer, and the call
+//    it makes carries both text of the theme;
+// * the pixel-art form keeps the colours of the theme it is laid over, so the background and
+//    the text is the same numbers with the form on as off;
+// * the form squares every corner of the page: a part that was round in the standard form
+//    remains square in the pixel-art one, and no part of what is seen holds a corner of more
+//    than zero;
+// * the form is drawn from the state, so the two pages follow the one setting, and the text of
+//    the icon in the top bar say which form the theme is in;
+// * the markers of the two forms make the call that writes them, and all of the settings is
+//    written with both text of the theme in it;
+// * the welcome screen proposes the fifth theme, and the marker of the form puts the form on
+//    the screen it is on.
 //
-//   node skin-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node skin-check.js
+// node theme-check.js AN_PAGE=web/page.html AN_FETCH=1 node theme-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -39,26 +38,26 @@ function said(id, role, body) {
   };
 }
 
-// The state of the engine, as the record of web::state, for a chat with a thought
-// and a run of a tool in it, so that the two forms have parts to be laid over.
+// The state of the engine, as the record of web::state, for a chat with a thought and a run of
+// a tool in it, so that the two forms have parts to be laid over.
 function stateOf(theme, pixel) {
   return {
     rev: 1, unchanged: false, theme: theme || 'light', theme_pixel: !!pixel,
     model: { id: 'm1', name: 'Qwen3.5-0.8B-Q6_K_XL', kind: 'GGUF' },
     models: [{ id: 'm1', name: 'Qwen3.5-0.8B-Q6_K_XL', kind: 'GGUF' }],
     repository: { id: '', name: 'No repository' },
-    repositories: [{ id: 'r1', name: 'A repository of the skin' }],
-    chat: { id: 'c1', title: 'A chat in a skin', planning: false, planned: false },
-    chats: [{ id: 'c1', title: 'A chat in a skin', repo: '', when: 'Today 09:04',
-      active: true, preview: 'Five skins.' }],
+    repositories: [{ id: 'r1', name: 'A repository of the theme' }],
+    chat: { id: 'c1', title: 'A chat in a theme', planning: false, planned: false },
+    chats: [{ id: 'c1', title: 'A chat in a theme', repo: '', when: 'Today 09:04',
+      active: true, preview: 'Five themes.' }],
     home: false, greeting: 'Still here, still ready.', overview: false,
     messages: [
       said('1', 'You', 'Draw me in squares.'),
       said('2', 'Assistant', 'The same colours, out of squares.', {
-        reasoning: 'The colours are those of the skin; only the shape of the parts moves.',
+        reasoning: 'The colours are those of the theme; only the form of the parts moves.',
         reasoning_ms: 1800,
       }),
-      said('3', 'Tool', 'skin: pale, dark, silver, corporate, neon', {
+      said('3', 'Tool', 'theme: pale, dark, silver, corporate, neon', {
         tool: 'command', tool_name: 'command', mono: true,
       }),
     ],
@@ -104,8 +103,8 @@ async function start(state) {
         if (init && init.body) {
           try { window.__posted.push({ path: String(url), body: JSON.parse(init.body) }); }
           catch (e) { window.__posted.push({ path: String(url) }); }
-          // A skin and a form that were written are answered by the next ask, as
-          // the engine answers them.
+          // A theme and a form that were written are answered by the next ask, as the engine
+          // answers them.
           try {
             var said = JSON.parse(init.body);
             if (String(url).indexOf('/api/theme') === 0) {
@@ -133,8 +132,8 @@ async function start(state) {
             if (command === 'action') {
               window.__posted.push({ path: '/api/' + ((args && args.path) || ''),
                 body: (args && args.body) || {} });
-              // A skin and a form that were written are answered by the next ask,
-              // as the engine answers them.
+              // A theme and a form that were written are answered by the next ask, as the
+              // engine answers them.
               if (args && args.path === 'theme' && args.body) {
                 if (args.body.theme) {
                   window.__state.theme = args.body.theme;
@@ -158,7 +157,7 @@ async function start(state) {
   return { browser: browser, page: page, errors: errors };
 }
 
-// The posts that answer to a skin, which are the ones that say what a click did.
+// The posts that answer to a theme, which are the ones that say what a click did.
 const skinsPosted = function (page) {
   return page.evaluate(function () {
     return (window.__posted || []).filter(function (one) {
@@ -174,12 +173,12 @@ async function main() {
   let trouble = 0;
   for (const one of faces) {
     const notes = [];
-    const note = (words) => { notes.push(words); console.log('  FAULT ' + one.name + ': ' + words); };
+    const note = (words) => { notes.push(words); console.log('  ERROR ' + one.name + ': ' + words); };
 
     const run = await start(stateOf('light', false));
     const page = run.page;
 
-    // The five skins and the two forms are offered, and the bar steps through five.
+    // The five themes and the two forms are proposed, and the top bar steps through five.
     const offered = await page.evaluate(function (words) {
       const marks = words.map(function (word) {
         const id = 'fTheme' + word.charAt(0).toUpperCase() + word.slice(1);
@@ -193,17 +192,17 @@ async function main() {
       };
     }, WORDS);
     if (offered.list.length !== 5 || offered.list.join('|') !== WORDS.join('|')) {
-      note('the list of the skins is not the five: ' + JSON.stringify(offered.list));
+      note('the list of the themes is not the five: ' + JSON.stringify(offered.list));
     }
     if (offered.skins.indexOf(false) >= 0) {
-      note('a skin has no mark of its own in the sheet: ' + JSON.stringify(offered.skins));
+      note('a theme has no marker of its own in the stylesheet: ' + JSON.stringify(offered.skins));
     }
     if (offered.forms.indexOf(false) >= 0) {
-      note('a form of the skin has no mark of its own: ' + JSON.stringify(offered.forms));
+      note('a form of the theme has no marker of its own: ' + JSON.stringify(offered.forms));
     }
 
-    // The fifth skin: the mark puts it on, its tokens answer, and the call that
-    // goes out holds both words of the skin.
+    // The fifth theme: the marker puts it on, its tokens answer, and the call that is sent
+    // holds both text of the theme.
     const neon = await page.evaluate(async function () {
       document.getElementById('fThemeNeon').click();
       await new Promise(function (r) { setTimeout(r, 60); });
@@ -221,25 +220,25 @@ async function main() {
       };
     });
     if (!neon.on || neon.others || neon.word !== 'neon' || !neon.marked) {
-      note('the fifth skin is not put on by its mark: ' + JSON.stringify(neon));
+      note('the fifth theme is not put on by its marker: ' + JSON.stringify(neon));
     }
     if (neon.scheme !== 'dark') {
-      note('the fifth skin does not tell the view that it is dark: ' + neon.scheme);
+      note('the fifth theme does not tell the view that it is dark: ' + neon.scheme);
     }
     if (neon.ground.toLowerCase() !== '#05060f') {
-      note('the ground of the fifth skin is not its own: ' + neon.ground);
+      note('the background of the fifth theme is not its own: ' + neon.ground);
     }
     if (neon.accent.toLowerCase() !== '#22c8ff') {
-      note('the accent of the fifth skin is not its own: ' + neon.accent);
+      note('the accent of the fifth theme is not its own: ' + neon.accent);
     }
     let went = await skinsPosted(page);
     if (!went.length || went[went.length - 1].body.theme !== 'neon'
       || went[went.length - 1].body.pixel !== false) {
-      note('the fifth skin did not go out with both of its words: ' + JSON.stringify(went));
+      note('the fifth theme did not go out with both of its text: ' + JSON.stringify(went));
     }
 
-    // The colours are kept under the form: the ground and the words are the same
-    // numbers with the form on as with it off.
+    // The colours are kept under the form: the background and the text is the same numbers with
+    // the form on as with it off.
     const kept = await page.evaluate(async function () {
       const before = {};
       const look = getComputedStyle(document.body);
@@ -263,11 +262,11 @@ async function main() {
       };
     });
     if (!kept.on || !kept.marked || kept.standard) {
-      note('the form is not put on by its mark: ' + JSON.stringify(kept));
+      note('the form is not put on by its marker: ' + JSON.stringify(kept));
     }
     for (const key of Object.keys(kept.before)) {
       if (kept.before[key] !== kept.after[key]) {
-        note('the form moved a colour of the skin (' + key + '): '
+        note('the form moved a colour of the theme (' + key + '): '
           + kept.before[key] + ' -> ' + kept.after[key]);
       }
     }
@@ -275,16 +274,16 @@ async function main() {
       note('the words of the pixel-art form are not in a fixed-width face: ' + kept.face);
     }
     if (kept.radius !== '0px') {
-      note('the corner of the pixel-art form is not nought: ' + kept.radius);
+      note('the corner of the pixel-art form is not zero: ' + kept.radius);
     }
     went = await skinsPosted(page);
     const last = went[went.length - 1];
     if (!last || last.body.pixel !== true || last.body.theme !== 'neon') {
-      note('the form did not go out beside the skin: ' + JSON.stringify(last));
+      note('the form did not go out beside the theme: ' + JSON.stringify(last));
     }
 
-    // Every corner of the page is squared. What stood round in the standard form is
-    // looked for by name, and then the whole of what is seen is counted again.
+    // Every corner of the page is squared. What was round in the standard form is searched for
+    // by name, and then all of what is seen is counted again.
     const corners = await page.evaluate(async function () {
       const names = ['#bar', '#box', '.btn', '.seg', '.seg button', '.think', '.tool',
         '.bubble', '.side-menu', '.ask-card', '.meter', '.srow', 'select', 'textarea'];
@@ -327,7 +326,7 @@ async function main() {
       return { standard: standard, pixel: pixel };
     });
     if (corners.standard.round.round === 0) {
-      note('nothing stood round in the standard form, so the squaring says nothing');
+      note('nothing was round in the standard form, so the squaring reports nothing');
     }
     if (corners.pixel.round.round !== 0) {
       note(corners.pixel.round.round + ' part(s) of ' + corners.pixel.round.seen
@@ -343,8 +342,8 @@ async function main() {
       note('the page drew only ' + corners.pixel.round.seen + ' parts, so the look is thin');
     }
 
-    // The state carries both words, so a page that is opened again stands where the
-    // settings do, and the mark of the bar says what the skin is drawn in.
+    // The state carries both text, so a page that is opened again is where the settings do, and
+    // the icon in the top bar reports what the theme is drawn in.
     await page.evaluate((given) => {
       if (typeof window.__set === 'function') { window.__set(given); }
       if (typeof poll === 'function') { poll(); }
@@ -361,13 +360,13 @@ async function main() {
       };
     });
     if (!fromState.skin || !fromState.form || !fromState.marked || !fromState.formMarked) {
-      note('the state did not put on both of its words: ' + JSON.stringify(fromState));
+      note('the state did not put on both of its text: ' + JSON.stringify(fromState));
     }
     if (fromState.title.indexOf('pixel-art') < 0) {
-      note('the mark of the bar does not say the form: ' + fromState.title);
+      note('the icon in the top bar does not say the form: ' + fromState.title);
     }
 
-    // The whole of the settings is written with both words of the skin in it.
+    // All of the settings is written with both text of the theme in it.
     const written = await page.evaluate(function () {
       showTheme('corporate');
       showPixelArt(true);
@@ -375,11 +374,11 @@ async function main() {
       return { theme: cfg.theme, pixel: cfg.theme_pixel, dark: cfg.dark_mode };
     });
     if (written.theme !== 'corporate' || written.pixel !== true || written.dark !== false) {
-      note('the whole of the settings is not written with both words: ' + JSON.stringify(written));
+      note('all of the settings is not written with both text: ' + JSON.stringify(written));
     }
 
-    // The welcome screen: the fifth skin among the cards, and the mark of the form
-    // putting the form on the screen it stands on.
+    // The welcome screen: the fifth theme among the cards, and the marker of the form putting
+    // the form on the screen it is on.
     const welcome = await page.evaluate(async function () {
       welcomeChosen = null;
       showWelcome();
@@ -406,12 +405,12 @@ async function main() {
       return out;
     });
     if (welcome.cards.indexOf('Neon') < 0) {
-      note('the welcome screen does not offer the fifth skin: ' + JSON.stringify(welcome.cards));
+      note('the welcome screen does not propose the fifth theme: ' + JSON.stringify(welcome.cards));
     }
     if (!welcome.hasForm) {
-      note('the welcome screen holds no mark of the pixel-art form');
+      note('the welcome screen holds no marker of the pixel-art form');
     } else if (!welcome.on || welcome.chosen !== true) {
-      note('the mark of the form does not put it on the welcome screen: '
+      note('the marker of the form does not put it on the welcome screen: '
         + JSON.stringify(welcome));
     }
 
@@ -426,7 +425,7 @@ async function main() {
           }, stateOf(skin, form));
           await sleep(300);
           await page.screenshot({
-            path: path.join(__dirname, 'skin-' + one.tag + '-' + skin
+            path: path.join(__dirname, 'theme-' + one.tag + '-' + skin
               + (form ? '-pixel' : '') + '.png'),
           });
         }

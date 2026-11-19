@@ -1,21 +1,20 @@
-// Several chats answered at once, looked at in both faces of the program with no
-// engine behind it.
+// Several chats answered at once, checked in both pages of the program with no engine behind
+// it.
 //
-// Five things are looked at, in each face:
-//   * the mark of a new chat stands, and the side bar lets another chat be
-//     opened, while an answer is being written: the program answers as many chats
-//     at once as the model was started with room for;
-//   * every chat that is being answered wears a beating mark in the side bar,
-//     whether the window looks at it or not, and an idle chat wears none;
-//   * the mark goes out of the bar when the answer is over, which means the bar is
-//     made anew when the list of chats at work moves;
-//   * opening another chat, and starting a new one, while an answer comes in post
-//     what they always posted, and nothing else;
-//   * the words the program says when a model setting is changed during an answer
-//     are shown on the line of state, and the settings still went out.
+// Five items are checked, in each page:
+// * the marker of a new chat remains, and the side bar lets another chat be opened, while an
+//    answer is being written: the program answers as many chats at once as the model was
+//    started with space for;
+// * every chat that is being answered wears a pulsing marker in the side bar, whether the
+//    window checks it or not, and an idle chat wears none;
+// * the marker is sent of the top bar when the answer is over, which means the top bar is
+//    created anew when the list of chats at work moves;
+// * opening another chat, and starting a new one, while an answer arrives post what they always
+//    posted, and nothing else;
+// * the text the program reports when a model setting is changed during an answer are shown on
+//    the line of state, and the settings still was sent.
 //
-//   node parallel-check.js
-//   node parallel-check.js shots
+// node parallel-check.js node parallel-check.js shots
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -35,9 +34,8 @@ const PAGES = process.env.AN_PAGE
 const shell = process.env.AN_SHELL_BIN || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// The words the program is asked to say when a model setting is moved while an
-// answer is on the way. The settings go out all the same, and hold on the next
-// turn of the chat.
+// The text the program is asked to say when a model setting is moved while an answer is on the
+// way. The settings go out all the same, and hold on the next turn of the chat.
 const TAKES_EFFECT = 'The changed model settings will take effect on a new turn';
 
 function said(id, role, body) {
@@ -49,14 +47,13 @@ function said(id, role, body) {
   };
 }
 
-// The chats of the side bar stand in `window.__lists`, which the bridges below
-// hand to the page: two chats belong to no repository and one stands in the
-// repository of the machine. The open one is `c1`, which is also the chat that is
-// answered in the states below.
+// The chats of the side bar are in `window.__lists`, which the bridges below hand to the page:
+// two chats belong to no repository and one is in the repository of the computer. The open one
+// is `c1`, which is also the chat that is answered in the states below.
 
-// The state of the window. `working` holds the ids of the chats that are being
-// answered, and `generating` says whether the chat the window looks at is one of
-// them. `status` is what the program said last.
+// The state of the window. `working` holds the ids of the chats that are being answered, and
+// `generating` reports whether the chat the window checks is one of them. `status` is what the
+// program stated last.
 function stateOf(theme, rev, generating, working, status) {
   return {
     rev: rev, unchanged: false, theme: theme || 'light',
@@ -83,15 +80,15 @@ function stateOf(theme, rev, generating, working, status) {
     queue: null,
     generating: !!generating, busy: false, code: true, sandbox: false,
     sandbox_available: true, sandbox_note: 'bubblewrap works.',
-    // The chats the model is at work on. More than one of them may stand here.
+    // The chats the model is at work on. More than one of them may is here.
     working: working || [],
     status: status || 'ready', dark: false, data_dir: '/tmp/autumn-natter',
     structure_rev: 1,
   };
 }
 
-// What is put into the page before it runs: the two bridges, and a book of the
-// actions the page asks for, so the check can read what went out.
+// What is put into the page before it runs: the two bridges, and a book of the actions the page
+// requests, so the check can read what was sent.
 function bridges(given) {
   window.__state = given;
   window.__posts = [];
@@ -116,15 +113,15 @@ function bridges(given) {
       id: 'r1', name: 'autumn-natter', pinned: false,
       chats: [{ id: 'c3', title: 'A chat of the repository', repo: 'r1', when: 'Today 09:03',
         pinned: false, archived: false, active: false, messages: 12,
-        preview: 'The last words of A chat of the repository' }],
+        preview: 'The last text of A chat of the repository' }],
     }],
     loose: [
       { id: 'c1', title: 'The chat being answered', repo: '', when: 'Today 09:01',
         pinned: false, archived: false, active: true, messages: 8,
-        preview: 'The last words of The chat being answered' },
+        preview: 'The last text of The chat being answered' },
       { id: 'c2', title: 'A chat at rest', repo: '', when: 'Today 09:02',
         pinned: false, archived: false, active: false, messages: 3,
-        preview: 'The last words of A chat at rest' },
+        preview: 'The last text of A chat at rest' },
     ],
     archived: [],
   };
@@ -145,7 +142,7 @@ function bridges(given) {
   };
 }
 
-// The rows of the side bar, by the id of the chat, with the marks they wear.
+// The rows of the side bar, by the id of the chat, with the markers they wear.
 function rows(page) {
   return page.evaluate(function () {
     var out = {};
@@ -163,7 +160,7 @@ function rows(page) {
   });
 }
 
-// Whether a button of the window stands, as the user sees it.
+// Whether a button of the window remains, as the user sees it.
 function shown(page, id) {
   return page.evaluate(function (one) {
     var node = document.getElementById(one);
@@ -224,16 +221,16 @@ async function main() {
     await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
     await sleep(600);
     const notes = [];
-    const note = (what) => { notes.push(what); console.log('  FAULT: ' + what); };
+    const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
     console.log('\n== ' + one.name);
 
-    // A new chat is started, and another chat opened, while an answer comes in.
+    // A new chat is started, and another chat opened, while an answer arrives.
     if (await shown(page, 'newchat') !== 'shown') {
-      note('the mark of a new chat is hidden while an answer comes in');
+      note('the mark of a new chat is hidden while an answer arrives');
     }
     if (await shown(page, 'sideNew') !== 'shown') {
-      note('the mark of a new chat in the side bar is hidden while an answer comes in');
+      note('the mark of a new chat in the side bar is hidden while an answer arrives');
     }
 
     const marked = await rows(page);
@@ -241,16 +238,16 @@ async function main() {
       if (!marked[id]) { note('no row of the chat ' + id + ' stands in the bar'); }
     }
     if (marked.c1 && !marked.c1.work) { note('the chat being answered wears no mark'); }
-    if (marked.c3 && !marked.c3.work) { note('a chat answered out of sight wears no mark'); }
+    if (marked.c3 && !marked.c3.work) { note('a chat answered out of sight wears no marker'); }
     if (marked.c2 && marked.c2.work) { note('a chat at rest wears the mark of an answer'); }
     if (marked.c3 && marked.c3.title.indexOf('being answered') < 0) {
-      note('the mark of a chat at work says nothing of itself: "' + marked.c3.title + '"');
+      note('the mark of a chat at work reports nothing of itself: "' + marked.c3.title + '"');
     }
 
-    // The look of the bar while two chats are answered at once.
+    // The appearance of the top bar while two chats are answered at once.
     await page.screenshot({ path: path.join(__dirname, 'parallel-' + (one.tag || 'face') + '.png') });
 
-    // Opening another chat, and starting a new one, while the answer comes in.
+    // Opening another chat, and starting a new one, while the answer arrives.
     {
       const okRow = await pressRow(page, 'c2');
       if (!okRow) { note('the row of the idle chat could not be pressed'); }
@@ -264,11 +261,11 @@ async function main() {
       if (opened && opened.body.id !== 'c2') {
         note('opening the idle chat named the wrong chat: ' + JSON.stringify(opened.body));
       }
-      if (names.indexOf('new_chat') < 0) { note('starting a new chat asked for nothing'); }
+      if (names.indexOf('new_chat') < 0) { note('starting a new chat requested nothing'); }
     }
 
-    // A model setting moved during an answer: the words of the program are the
-    // ones asked for, and the setting still went out.
+    // A model setting moved during an answer: the text of the program is the ones requested,
+    // and the setting still was sent.
     await replaceState(page, stateOf('light', 2, true, ['c1', 'c3'], TAKES_EFFECT));
     await sleep(250);
     const line = await page.evaluate(function () {
@@ -276,10 +273,10 @@ async function main() {
       return node ? node.textContent : '';
     });
     if (line !== TAKES_EFFECT) {
-      note('the line of state says something else: "' + line + '"');
+      note('the line of state reports something else: "' + line + '"');
     }
 
-    // The answers are over. The bar is made anew, and no chat wears a mark.
+    // The answers are over. The top bar is created anew, and no chat wears a marker.
     await replaceState(page, stateOf('light', 3, false, [], 'ready'));
     await sleep(300);
     const rest = await rows(page);
@@ -288,7 +285,7 @@ async function main() {
     }
 
     if (await shown(page, 'newchat') !== 'shown') {
-      note('the mark of a new chat does not stand with the chat at rest');
+      note('the mark of a new chat is not with the chat at rest');
     }
 
     if (faults.length) {

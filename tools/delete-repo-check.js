@@ -1,17 +1,15 @@
-// Taking a repository away is asked for by name, so one stray click cannot take
-// a whole repository out of the side bar. The menu of a repository holds a
-// delete entry; it opens the window of the ask with a hint line that says the
-// name, and the button stays dead until the box holds that name. Typing
-// anything else and pressing Enter leaves the window open and marks the box.
-// Once the name is right, accepting posts one action for the engine, and the
-// engine takes the record, the chats, the saved context, the plans and the
-// tasks out and moves the folder aside rather than destroying it.
+// Taking a repository away is requested by name, so one stray click cannot take a whole
+// repository out of the side bar. The menu of a repository holds a delete entry; it opens the
+// window of the request with a hint line that shows the name, and the button stays dead until
+// the box holds that name. Typing anything else and pressing Enter leaves the window open and
+// markers the box. Once the name is right, accepting posts one action for the engine, and the
+// engine takes the record, the chats, the saved context, the plans and the tasks out and moves
+// the folder aside rather than destroying it.
 //
-// Both faces are looked at: the window of the program and the page served by
-// --remote carry the same menu and the same window of the ask.
+// Both pages are checked: the window of the program and the page served by --remote carry the
+// same menu and the same window of the request.
 //
-//   node delete-repo-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node delete-repo-check.js
+// node delete-repo-check.js AN_PAGE=web/page.html AN_FETCH=1 node delete-repo-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -27,9 +25,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const REPO = { id: 'r1', name: 'Autumn Notes', pinned: false };
 
-// The page asks for its state and for its lists on its own. Only the actions a
-// reader of this check cares about are counted, and the counting is done in the
-// page, where the list of them stands.
+// The page requests its state and for its lists on its own. Only the actions a user of this
+// check cares about are counted, and the counting is done in the page, where the list of them
+// remains.
 
 function stateOf() {
   return {
@@ -59,9 +57,9 @@ function stateOf() {
   };
 }
 
-// Both bridges are stubbed, so the real `post` of each face runs and lands in
-// the same list of actions. The names are brought to one shape: the window
-// speaks of `delete_repo`, the page of `/api/delete_repo`.
+// Both bridges are stubbed, so the real `post` of each page runs and lands in the same list of
+// actions. The names are brought to one form: the window speaks of `delete_repo`, the page of
+// `/api/delete_repo`.
 function stubs(state) {
   window.__actions = [];
   window.fetch = function (url, init) {
@@ -105,7 +103,7 @@ async function main() {
     await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
     await sleep(400);
     const notes = [];
-    const note = (what) => { notes.push(what); console.log('  FAULT: ' + what); };
+    const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
     const opened = await page.evaluate((repo) => {
       side.pointerX = 40; side.pointerY = 40;
@@ -133,8 +131,8 @@ async function main() {
       };
     }, REPO);
 
-    // A wrong name keeps the door shut, and the Enter key is answered with the
-    // window staying open rather than with the repository going.
+    // A wrong name keeps the entry point shut, and the Enter key is answered with the window
+    // staying open rather than with the repository going.
     const wrong = await page.evaluate(() => {
       const input = document.getElementById('askInput');
       input.value = 'Autumn';
@@ -151,8 +149,8 @@ async function main() {
       };
     });
 
-    // The right name, written in another case and with spaces around it, opens
-    // the door, and accepting asks for one thing.
+    // The right name, written in another case and with spaces around it, opens the entry point,
+    // and accepting requests one item.
     const right = await page.evaluate(() => {
       const input = document.getElementById('askInput');
       input.value = '  AUTUMN notes  ';
@@ -169,10 +167,10 @@ async function main() {
       };
     });
 
-    // The window is shared with the other asks, so the name mode has to put the
-    // window back: a later ask for words comes with a live button and no hint.
+    // The window is shared with the other asks, so the name mode has to put the window back: a
+    // later request text comes with a live button and no hint.
     const plain = await page.evaluate(() => {
-      sideAskText('Name this chat', 'The name stands in the side bar.', 'A chat', function () {});
+      sideAskText('Name this chat', 'The name is in the side bar.', 'A chat', function () {});
       const hint = document.getElementById('askHint');
       const ok = document.getElementById('askOk');
       const named = {
@@ -185,7 +183,7 @@ async function main() {
       document.getElementById('askInput').value = 'Renamed';
       document.getElementById('askOk').click();
       const yes = { asking: false };
-      sideAskYes('Delete this chat?', 'The words are gone.', 'Delete', function () {
+      sideAskYes('Delete this chat?', 'The text is removed.', 'Delete', function () {
         post('/api/delete_chat', { id: 'c1' });
       });
       yes.shown = document.getElementById('sideAsk').classList.contains('on');
@@ -211,10 +209,10 @@ async function main() {
     if (!opened.okDisabled) { note('the button lives while the box is empty'); }
     if (!wrong.stillShut) { note('the button lives while the name is wrong'); }
     if (!wrong.open) { note('a wrong name closed the window'); }
-    if (!wrong.wrong || !wrong.hintBad) { note('a wrong name is not marked as one'); }
+    if (!wrong.wrong || !wrong.hintBad) { note('a wrong name is not flagged as one'); }
     if (wrong.actions.length) { note('a wrong name posted: ' + JSON.stringify(wrong.actions)); }
-    if (!right.enabled) { note('the right name did not wake the button'); }
-    if (!right.wrongGone) { note('the mark of a wrong name stayed on after typing it right'); }
+    if (!right.enabled) { note('the right name did not start the button'); }
+    if (!right.wrongGone) { note('the marker of a wrong name stayed on after typing it right'); }
     if (right.open) { note('the window stayed open after the name was accepted'); }
     const made = right.actions.filter((a) => a.name === 'delete_repo');
     if (made.length !== 1) {
@@ -223,12 +221,12 @@ async function main() {
     } else if (!made[0].body || made[0].body.id !== REPO.id) {
       note('the action carries ' + JSON.stringify(made[0].body) + ', not the id of the repository');
     }
-    if (!plain.named.asking) { note('the ask for words is no longer in words mode'); }
+    if (!plain.named.asking) { note('the request for text is no longer in text mode'); }
     if (plain.named.hintOn || plain.named.hintText) { note('the hint line was left in the next ask'); }
     if (plain.named.okDisabled) { note('the button of the next ask is dead'); }
-    if (plain.named.bad) { note('the button of a naming ask is marked as damaging'); }
+    if (plain.named.bad) { note('the button of a naming ask is flagged as damaging'); }
     if (!plain.yes.shown || !plain.yes.bad || plain.yes.disabled) {
-      note('the yes ask came up wrong: ' + JSON.stringify(plain.yes));
+      note('the yes ask appeared wrong: ' + JSON.stringify(plain.yes));
     }
     const chats = plain.actions.filter((a) => a.name === 'delete_chat');
     if (chats.length !== 1) { note('the chat delete posted ' + chats.length + ' times'); }
@@ -237,7 +235,7 @@ async function main() {
   }
   await browser.close();
   if (trouble) { throw new Error(trouble + ' fault(s) across ' + PAGES.length + ' faces'); }
-  console.log('the name of a repository is asked for before it goes, in both faces');
+  console.log('the name of a repository is requested before it goes, in both pages');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

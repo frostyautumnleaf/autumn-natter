@@ -1,25 +1,24 @@
-// The tool that hands a file of the chat to the user.
+// The tool that pointers a file of the chat to the user.
 //
-// The model names one or more files that stand in the room of the chat, and the
-// program puts blocks of its own into the talk: the mark of the kind of file,
-// the name of it, the extension under the name, and a button. The user presses
-// the button and the file comes down. Nothing is fetched, and nothing is written:
-// the file stands where the model put it, and the block only names it.
+// The model names one or more files that are in the working directory of the chat, and the program puts
+// blocks of its own into the conversation: the marker of the type of file, the name of it, the
+// extension under the name, and a button. The user presses the button and the file drops.
+// Nothing is fetched, and nothing is written: the file is where the model put it, and the block
+// only names it.
 //
-// The blocks are read again after a restart of the program, and in the page of
-// the remote mode. The bytes are asked for by the name the file has in the room
-// of the chat, and are let through only when that room is the room of the chat
-// that is open. A file outside the room of the chat is not handed out at all,
-// which is the rule the file tools have always worked to: the sandbox of a
-// command and the reach of a download are the same room.
+// The blocks are read again after a restart of the program, and in the page of the remote mode.
+// The bytes are requested by the name the file has in the working directory of the chat, and are let
+// through only when that directory is the working directory of the chat that is open. A file outside
+// the working directory of the chat is not handed out at all, which is the rule the file tools have
+// worked to: the sandbox of a command and the reach of a download are one directory.
 //
-// The tool is offered under the badge of the tools, and falls under it as the
-// other internal tools do: the badge is the switch over all of them, and the
-// drop-down of the badge holds the switch of this one.
+// The tool is proposed under the badge of the tools, and falls under it as the other internal
+// tools do: the badge is the switch over all of them, and the drop-down of the badge holds the
+// switch of this one.
 //
-// A block is never drawn while the model is still writing, and the blocks of an
-// answer stand at its end: a file the model was offering is not finished work
-// until the answer that made it is over.
+// A block is never drawn while the model is still writing, and the blocks of an answer are at
+// its end: a file the model was offering is not finished work until the answer that made it is
+// over.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -27,31 +26,29 @@ use std::path::{Path, PathBuf};
 
 use crate::tools::with_rule;
 
-// Name the model uses to ask for a file to be handed to the user.
+// Name the model uses to request a file to be handed to the user.
 pub const NAME: &str = "offer_files";
 
-// The longest name of a file the block may show. A name above this is cut in
-// the middle, so the block keeps its shape.
+// The longest name of a file the block may show. A name above this is cut in the middle, so the
+// block keeps its form.
 pub const GREATEST_NAME: usize = 90;
 
-// The most files one call may offer. A model that wants to hand over the whole of
-// a repository was not asked to, and a block for every file of it is not a thing
-// a user looks at.
+// The most files one call may propose. A model that wants to hand over all of a repository was
+// not asked to, and a block for every file of it is not an item a user checks.
 pub const GREATEST_FILES: usize = 8;
 
-// The most bytes of one file that are kept for the user. A file above this is
-// named but not handed out, for a block that fills the memory of the window is no
-// use to anyone.
+// The most bytes of one file that are kept for the user. A file above this is named but not
+// handed out, for a block that fills the memory of the window is no use to anyone.
 pub const GREATEST_FILE: u64 = 64 * 1024 * 1024;
 
-// The tool as the model is told of it.
+// The tool as the model is informed of it.
 pub fn definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Offer one or more files of the working directory to the user, so the user can take each of them with the button of a block in the chat. Use it when the work left a file the user asked for: a page, a document, a picture, an archive of the work. Call it at the end of the answer, once the work is done. The blocks are placed BELOW your answer, at its foot: they are never above it, and never stand while it is still being written. So never tell the user the files are above them - say the files are below, or say only that they are offered. The block shows the kind of the file, its name without the extension, the extension under the name, and the button. A file that is not there, or that is bigger than 64 MiB, is answered and no block stands for it.",
+                "Propose one or more files of the working directory to the user, so the user can take each of them with the button of a block in the chat. Use it when the work left a file the user requested: a page, a document, an image, an archive of the work. Call it at the end of the answer, once the work is done. The blocks are placed BELOW your answer, at the bottom: they are never above it, and never remain while it is still being written. So never tell the user the files are above them - say the files are below, or say only that they are proposed. The block shows the type of the file, its name without the extension, the extension under the name, and the button. A file that is not there, or that is bigger than 64 MiB, is answered and no block means it.",
             )),
             "parameters": {
                 "type": "object",
@@ -63,11 +60,11 @@ pub fn definition() -> Value {
                     },
                     "path": {
                         "type": "string",
-                        "description": "One file to offer, when there is only one and no array is given."
+                        "description": "One file to propose, when there is only one and no array is given."
                     },
                     "note": {
                         "type": "string",
-                        "description": "A short line for the blocks, in the words of the chat, such as 'The page you asked for'. It is shown above them. Nothing is put there when it is left out."
+                        "description": "A short line for the blocks, in the text of the chat, such as 'The page you asked for'. It is shown above them. Nothing is put there when it is left out."
                     }
                 },
                 "required": ["paths"]
@@ -76,10 +73,10 @@ pub fn definition() -> Value {
     })
 }
 
-// One file a block offers. The record of the message holds these, so the blocks
-// are drawn again when the chat is opened another day, and in the page of the
-// remote mode. `path` is the name the file has in the room of the chat, which is
-// what the user's click asks the program for.
+// One file a block proposes. The record of the message holds these, so the blocks are drawn
+// again when the chat is opened another day, and in the page of the remote mode. `path` is the
+// name the file has in the working directory of the chat, which is what the user's click asks the
+// program for.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Gift {
     pub name: String,
@@ -89,19 +86,19 @@ pub struct Gift {
     pub size: u64,
 }
 
-// What became of one call. The blocks stand in the chat when `gifts` holds
-// anything, and the words of the receipt go back to the model either way.
+// What became of one call. The blocks are in the chat when `gifts` holds anything, and the text
+// of the result go back to the model either way.
 pub struct Made {
     pub report: crate::tools::Report,
-    // The files that may stand as blocks, in the order the model named them.
+    // The files that may remain as blocks, in the order the model named them.
     pub gifts: Vec<Gift>,
-    // The words the model gave for the blocks, cut to one short line.
+    // The text the model gave for the blocks, cut to one short line.
     pub note: String,
 }
 
-// Answer one call. Every file is looked for in the room of the chat, and only in
-// that room. A file that is not there is reported and skipped; a call with
-// nothing usable in it gives no block at all.
+// Answer one call. Every file is searched for in the working directory of the chat, and only in that
+// working directory. A file that is not there is reported and skipped; a call with nothing usable
+// gives no block at all.
 pub fn offer(workdir: &Path, arguments: &str) -> Made {
     let value: Value = serde_json::from_str(arguments).unwrap_or(Value::Null);
     let note = trim_note(value.get("note").and_then(|v| v.as_str()).unwrap_or(""));
@@ -110,7 +107,7 @@ pub fn offer(workdir: &Path, arguments: &str) -> Made {
         return Made {
             report: crate::tools::Report {
                 ok: false,
-                output: String::from("No file was named, so nothing is offered to the user"),
+                output: String::from("No file was named, so nothing is proposed to the user"),
             },
             gifts: Vec::new(),
             note,
@@ -155,10 +152,10 @@ pub fn offer(workdir: &Path, arguments: &str) -> Made {
     }
     if gifts.is_empty() {
         let said = if missed.is_empty() {
-            String::from("No file was named, so nothing is offered to the user")
+            String::from("No file was named, so nothing is proposed to the user")
         } else {
             format!(
-                "Nothing is offered: {}. Check the names and the sizes.",
+                "Nothing is proposed: {}. Check the names and the sizes.",
                 missed.join("; ")
             )
         };
@@ -174,7 +171,7 @@ pub fn offer(workdir: &Path, arguments: &str) -> Made {
     let shown: Vec<String> = gifts.iter().map(full_name).collect();
     let mut output = if gifts.len() == 1 {
         format!(
-            "The file {} is offered to the user in a download block.",
+            "The file {} is proposed to the user in a download block.",
             shown[0]
         )
     } else {
@@ -204,8 +201,8 @@ pub fn offer(workdir: &Path, arguments: &str) -> Made {
     }
 }
 
-// The names the model gave. `paths` is what the tool asks for; `path` is read as
-// well, for a model that has one file to hand often reaches for it.
+// The names the model gave. `paths` is what the tool requests; `path` is read as well, for a
+// model that has one file to hand often reaches for it.
 fn asked_paths(value: &Value) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     if let Some(list) = value.get("paths").and_then(|v| v.as_array()) {
@@ -233,14 +230,14 @@ fn full_name(one: &Gift) -> String {
     format!("{}.{}", one.name, one.extension)
 }
 
-// The name of a file of the chat, as the block of the chat asks for it again:
-// relative to the room of the chat, with the separator of the machine turned into
-// the one the page uses.
+// The name of a file of the chat, as the block of the chat asks for it again: relative to the
+// working directory of the chat, with the separator of the computer turned into the one the
+// page uses.
 fn clean_of(workdir: &Path, inside: &Path) -> String {
-    // The room of the chat is followed through its links before the name is cut
-    // off it, for the file tools work on the room they found that way, and a room
-    // that was come at by another road would otherwise leave the whole of the road
-    // standing in the name the block shows.
+    // The working directory of the chat is followed through its links before the name is cut off,
+    // for the file tools work on the directory they found that way, and a directory that was reached
+    // by another path would otherwise leave all of the path remaining in the name the block
+    // shows.
     let room = workdir
         .canonicalize()
         .unwrap_or_else(|_| workdir.to_path_buf());
@@ -251,7 +248,7 @@ fn clean_of(workdir: &Path, inside: &Path) -> String {
     tail.to_string_lossy().replace('\\', "/")
 }
 
-// The first line of what the model wrote, for a receipt.
+// The first line of what the model wrote, for a result.
 fn first_line_of(words: &str) -> String {
     words.lines().next().unwrap_or("").trim().to_string()
 }
@@ -274,9 +271,9 @@ fn trim_note(words: &str) -> String {
     out
 }
 
-// The name of a file, cut into the part the block shows big and the extension it
-// shows under it. A point at the start of a name is not an extension, for a name
-// of that shape is a hidden file of the machine.
+// The name of a file, cut into the part the block shows big and the extension it shows under
+// it. A point at the start of a name is not an extension, for a name of that form is a hidden
+// file of the computer.
 pub fn split_name(name: &str) -> (String, String) {
     let path = Path::new(name);
     let Some(point) = path.extension().and_then(|e| e.to_str()) else {
@@ -307,10 +304,9 @@ fn cut(name: &str) -> String {
     out
 }
 
-// The kind of a file, from its extension. The block draws one mark for each of
-// these, so the user knows what is offered without reading the extension. A
-// page of a web browser stands on its own, for it is the thing a chat most often
-// hands over; a table of numbers does too.
+// The type of a file, from its extension. The block draws one marker for each of these, so the
+// user knows what is proposed without reading the extension. A web page stands on its own,
+// because it is the file a chat most often points at; a table of numbers does too.
 pub fn kind(extension: &str) -> &'static str {
     match extension.to_ascii_lowercase().as_str() {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif" | "tif" | "tiff"
@@ -331,8 +327,8 @@ pub fn kind(extension: &str) -> &'static str {
     }
 }
 
-// The kind of file to write in the answer, so a browser keeps the name the block
-// gave rather than the kind it guessed.
+// The type of file to write in the answer, so a browser keeps the name the block gave rather
+// than the type it guessed.
 pub fn mime(extension: &str) -> &'static str {
     match extension.to_ascii_lowercase().as_str() {
         "txt" | "log" => "text/plain",
@@ -368,10 +364,9 @@ pub fn is_tool(name: &str) -> bool {
     name == NAME
 }
 
-// The words of the head of the block while the call is being written: the last
-// name the model has begun to write. The note of the model is not a name, so it
-// is passed over, and a run of words the model has not finished quoting is read
-// as far as it has gone.
+// The text of the header of the block while the call is being written: the last name the model
+// has begun to write. The note of the model is not a name, so it is passed over, and a run of
+// text the model has not finished quoting is read as far as it has removed.
 pub fn partial_words(arguments: &str) -> String {
     let letters: Vec<char> = arguments.chars().collect();
     let mut last: Option<String> = None;
@@ -429,18 +424,18 @@ pub fn partial_words(arguments: &str) -> String {
     text.rsplit('/').next().unwrap_or(&text).to_string()
 }
 
-// The road of a file of the chat, kept inside the room of the chat. A name that
-// steps out of the room, or that leads into the records of the attachments, is
-// refused, which is the rule the file tools work to as well.
+// The path of a file of the chat, kept inside the working directory of the chat. A name that steps out
+// of the working directory, or that leads into the records of the attachments, is refused, which is
+// rule the file tools work to as well.
 fn place_of(workdir: &Path, asked: &str) -> Option<PathBuf> {
     let held = crate::editfile::place_in(workdir, asked).ok()?;
     Some(held)
 }
 
-// The bytes of a file the user was offered. The name is read as the tool reads
-// it, and only the room of the chat is opened: a name that tries to leave the
-// room gives nothing, and neither does a file above the size one block may carry.
-// This is the road the button of a block comes down.
+// The bytes of a file the user was proposed. The name is read as the tool reads it, and only
+// the working directory of the chat is opened: a name that tries to leave the working directory gives nothing,
+// and neither does a file above the size one block may carry. This is the path the button of a
+// block drops.
 pub fn bytes_of(workdir: &Path, asked: &str) -> Option<(String, Vec<u8>)> {
     let inside = place_of(workdir, asked)?;
     if !inside.is_file() {
@@ -455,11 +450,11 @@ pub fn bytes_of(workdir: &Path, asked: &str) -> Option<(String, Vec<u8>)> {
     Some((name, bytes))
 }
 
-// The archive of several files, made in memory and handed to the user under one
-// button. The files are kept as they are, without compressing them: the point is
-// one download rather than several, and the work of a chat is not what
-// compressing is for. Only the name of a file stands in the archive, not the
-// folders it came out of, so what the user unpacks is what they were offered.
+// The archive of several files, made in memory and handed to the user under one button. The
+// files are kept as they are, without compressing them: the point is one download rather than
+// several, and the working directory of a chat is not what compressing is for. Only the name of a
+// file is in the archive, not the folders it came out of, so what the user unpacks is what they
+// were proposed.
 pub fn zip_of(files: Vec<(String, Vec<u8>)>) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
     let mut book: Vec<(String, u32, u32, u32)> = Vec::new();
@@ -534,9 +529,8 @@ fn push32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
-// The check number of a zip entry. It is worked out bit by bit rather than from a
-// table, for the archive of a download holds a few files and the bytes of a chat
-// are not many.
+// The check number of a zip entry. It is worked out bit by bit rather than from a table, for
+// the archive of a download holds a few files and the bytes of a chat are not many.
 pub fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = !0u32;
     for one in bytes {
@@ -557,8 +551,8 @@ mod tests {
     use super::*;
     use std::fs;
 
-    // A folder of its own for one test, so the tests of this file never stand on
-    // one another's work.
+    // A directory of its own for one test, so the tests of this file never are on one another's
+    // work.
     fn room(what: &str) -> PathBuf {
         static TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let place = std::env::temp_dir().join(format!(
@@ -572,9 +566,8 @@ mod tests {
         place
     }
 
-    // The kinds the blocks are drawn by. A page of a web browser and a table of
-    // numbers stand on their own, for those are two of the things a chat hands
-    // over most.
+    // The types the blocks are drawn by. A page of a web browser and a table of numbers are on
+    // their own, for those are two of the items a chat pointers over most.
     #[test]
     fn the_kind_of_a_file_is_told_from_its_extension() {
         assert_eq!(kind("png"), "image");
@@ -596,8 +589,8 @@ mod tests {
         assert_eq!(mime("nothing"), "application/octet-stream");
     }
 
-    // The tool takes several files at once, keeps the names of the room of the
-    // chat, and refuses a name that steps out of that room.
+    // The tool takes several files at once, keeps names inside the working directory of the chat, and
+    // refuses a name that steps out of that working directory.
     #[test]
     fn a_call_offers_its_files_and_refuses_the_ones_outside_the_room() {
         let place = room("offer");
@@ -618,16 +611,16 @@ mod tests {
         assert_eq!(made.gifts[1].kind, "document");
         assert_eq!(made.note, "The page you asked for");
         assert!(made.report.output.contains("2 files"));
-        // A name that leaves the room, and a file that is not there: the call says
-        // so, and no block stands for either.
+        // A name that leaves the working directory, and a file that is not there: the call records it,
+        // and no block means either.
         let out = offer(&place, r#"{"paths":["../../etc/passwd"]}"#);
         assert!(!out.report.ok, "{:?}", out.report.output);
         assert!(out.gifts.is_empty());
         let gone = offer(&place, r#"{"paths":["nowhere.txt"]}"#);
         assert!(!gone.report.ok);
         assert!(gone.gifts.is_empty());
-        // One file may be named the short way as well, and a name out of the
-        // eight is answered rather than kept quiet about.
+        // One file may be named the short way as well, and a name out of the eight is answered
+        // rather than kept quiet about.
         let one = offer(&place, r#"{"path":"page.html"}"#);
         assert_eq!(one.gifts.len(), 1);
         let many = format!(
@@ -643,8 +636,8 @@ mod tests {
         let _ = fs::remove_dir_all(&place);
     }
 
-    // The bytes of a file are let through only for a name inside the room of the
-    // chat, which is the rule of the sandbox over the button of a block too.
+    // The bytes of a file are let through only for a name inside the working directory of the chat,
+    // which is the rule of the sandbox over the button of a block too.
     #[test]
     fn the_bytes_of_a_file_come_only_from_the_room_of_the_chat() {
         let place = room("bytes");
@@ -657,9 +650,9 @@ mod tests {
         let _ = fs::remove_dir_all(&place);
     }
 
-    // The archive of several files is a zip the user can open: it begins with
-    // the mark of an entry, holds every name, keeps the bytes of each file whole,
-    // and ends with the mark of the list of them.
+    // The archive of several files is a zip the user can open: it begins with the marker of an
+    // entry, holds every name, keeps the bytes of each file whole, and ends with the marker of
+    // the list of them.
     #[test]
     fn several_files_go_into_one_archive() {
         let made = zip_of(vec![
@@ -672,20 +665,18 @@ mod tests {
         assert!(text.contains("page.html"), "{}", text);
         assert!(text.contains("notes.md"), "{}", text);
         assert!(text.contains("<p>work</p>"), "the bytes are not kept");
-        // A file from a folder stands under its own name, not under the road it
-        // came out of.
+        // A file from a folder is under its own name, not under the path it came out of.
         let deep = zip_of(vec![(String::from("reports/summary.md"), b"x".to_vec())]);
         let text = String::from_utf8_lossy(&deep);
         assert!(text.contains("summary.md"), "{}", text);
         assert!(!text.contains("reports/summary.md"), "{}", text);
-        // The check number of a known string, so an archive that opens is not a
-        // matter of luck.
+        // The check number of a known string, so an archive that opens is not a matter of luck.
         assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
         assert_eq!(crc32(b""), 0);
     }
 
-    // The head of the block has something to say even while the model is writing
-    // the first name.
+    // The header of the block has something to say even while the model is writing the first
+    // name.
     #[test]
     fn the_head_of_a_block_being_written_names_the_file() {
         assert_eq!(partial_words(r#"{"paths":["shared/pa"#), "pa");

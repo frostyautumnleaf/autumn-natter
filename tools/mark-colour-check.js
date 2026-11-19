@@ -1,19 +1,17 @@
-// The mark of the program in every skin, looked at in both faces with no engine
-// behind it.
+// The program icon in every theme, checked in both pages with no engine behind it.
 //
-// Each face is opened in each of the four skins, over a chat and on the first
-// screen. Four things are looked at:
-//   * the mark of the top bar and the mark above the chat box of the first screen
-//     both stand, and are drawn from the file of the program's own mark;
-//   * neither is put through a colour filter, so the leaf keeps the colours it is
-//     drawn with - which is what the two skins of grey used to take from it;
-//   * the skin the page is drawn in is the one the state asked for, so a filter
-//     that came back could not be hidden behind another skin;
-//   * the mark of the top bar is to be seen over a chat, and the mark above the
-//     chat box on the first screen.
+// Each page is opened in each of the four themes, over a chat and on the first screen. Four
+// items are checked:
+// * the marker of the top bar and the marker above the chat composer of the first screen both
+//    remain, and are drawn from the file of the program's own marker;
+// * neither is put through a colour filter, so the leaf keeps the colours it is drawn with -
+//    which is what the two themes of grey used to take from it;
+// * the theme the page is drawn in is the one the state requested, so a filter that returned
+//    could not be hidden behind another theme;
+// * the marker of the top bar is to be seen over a chat, and the marker above the chat composer
+//    on the first screen.
 //
-//   node mark-colour-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node mark-colour-check.js
+// node marker-colour-check.js AN_PAGE=web/page.html AN_FETCH=1 node marker-colour-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -39,8 +37,8 @@ function stateOf(theme) {
     chats: [{ id: 'c1', title: 'A chat with a leaf over it', repo: '', when: 'Today 09:04',
       active: true, preview: 'The leaf of the program.' }],
     commands: [{ name: '/plan', words: 'Plan the work before any of it is done.' }],
-    // The first screen is where the mark of the program stands above the chat box,
-    // so the look at it is taken with a chat open and then with none.
+    // The first screen is where the program icon is above the chat composer, so the look at it
+    // is taken with a chat open and then with none.
     home: false, greeting: 'Good morning.', overview: false,
     messages: [
       { id: '1', role: 'You', body: 'The leaf of the program.', reasoning: '', reasoning_ms: 0,
@@ -83,8 +81,8 @@ function bridges(given) {
   };
 }
 
-// What the two marks are like: whether they stand, what they are drawn from, and
-// what is done to their colours.
+// What the two markers are like: whether they remain, what they are drawn from, and what is
+// done to their colours.
 function looked(page) {
   return page.evaluate(function () {
     var out = { skin: document.body.className, marks: [] };
@@ -96,7 +94,7 @@ function looked(page) {
       out.marks.push({
         inBar: !!one.closest('.brand'),
         shown: box.width > 4 && box.height > 4,
-        // A file of the mark, whichever way the page reaches it.
+        // A file of the marker, whichever way the page reaches it.
         leaf: /autumn-natter\.svg$/.test(one.getAttribute('src') || ''),
         filter: style.filter === 'none' ? 'none' : style.filter,
       });
@@ -105,8 +103,8 @@ function looked(page) {
   });
 }
 
-// The skin the page is drawn in. The pale skin is drawn with no class of its own,
-// so a body that names none of the others is in it.
+// The theme the page is drawn in. The pale theme is drawn with no class of its own, so a body
+// that names none of the others is in it.
 function skinOf(bodyClass) {
   const named = ['silver', 'corporate', 'dark'];
   for (const n of named) {
@@ -135,27 +133,27 @@ async function main() {
       await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
       await sleep(500);
       const notes = [];
-      const note = (what) => { notes.push(what); console.log('  FAULT: ' + what); };
+      const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
       const first = await looked(page);
       if (skinOf(first.skin) !== skin) {
         note('the skin asked for was ' + skin + ' and the page is drawn in ' + skinOf(first.skin));
       }
       if (first.marks.length !== 2) {
-        note('two marks of the program should stand and ' + first.marks.length + ' were found');
+        note('two markers of the program should remain and ' + first.marks.length + ' were found');
       }
       const inBar = first.marks.filter((m) => m.inBar);
-      if (inBar.length !== 1) { note('the mark of the top bar does not stand alone'); }
+      if (inBar.length !== 1) { note('the marker of the top bar is not alone'); }
       for (const mark of first.marks) {
-        if (!mark.leaf) { note('a mark of the program is not drawn from the file of the mark'); }
+        if (!mark.leaf) { note('a marker of the program is not drawn from the file of the marker'); }
         if (mark.filter !== 'none') {
-          note('a mark of the program is put through a colour filter in the ' + skin
-            + ' skin: ' + mark.filter);
+          note('a marker of the program is put through a colour filter in the ' + skin
+            + ' theme: ' + mark.filter);
         }
       }
 
-      // The mark above the chat box of the first screen has to be seen on that
-      // screen; the mark of the top bar is seen on both.
+      // The marker above the chat composer of the first screen has to be seen on that screen;
+      // the marker of the top bar is seen on both.
       const hello = await page.evaluate(() => {
         const box = document.querySelector('.hello img.mark');
         if (!box) { return { stands: false, shown: false, filter: '' }; }
@@ -165,15 +163,15 @@ async function main() {
       });
       if (screen === 'first') {
         if (!hello.stands) {
-          note('no mark of the program stands above the chat box of the first screen');
+          note('no marker of the program is above the chat composer of the first screen');
         } else if (!hello.shown) {
-          note('the mark above the chat box of the first screen is not to be seen');
+          note('the marker above the chat composer of the first screen is not to be seen');
         } else if (hello.filter !== 'none') {
-          note('the mark above the chat box is put through a colour filter in the '
-            + skin + ' skin: ' + hello.filter);
+          note('the marker above the chat composer is put through a colour filter in the '
+            + skin + ' theme: ' + hello.filter);
         }
       } else if (inBar.length !== 1 || !inBar[0].shown) {
-        note('the mark of the top bar is not to be seen over a chat');
+        note('the marker of the top bar is not to be seen over a chat');
       }
 
       for (const fault of faults) { note('a page fault: ' + fault); }

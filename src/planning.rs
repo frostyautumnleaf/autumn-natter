@@ -1,38 +1,32 @@
-// Planning mode: the work of laying out a large piece of work before any of it
-// is done.
+// Planning mode: the work of laying out a large piece of work before any of it is done.
 //
-// A user writes `/plan` and the chat changes from a talk into a drawing board.
-// The model is told, in a prompt of its own, to plan the work down to its
-// smallest part; it has one tool for the plan file, and no other way of
-// touching it; and when the user says the plan is good, the model calls the
-// second tool, the talk of the planning is put away, and the plan itself becomes
-// the first message of the work.
+// A user writes `/plan` and the chat changes from a conversation into a drawing board. The
+// model is informed, in a prompt of its own, to plan the work down to its smallest part; it has
+// one tool for the plan, and no other way of touching it; and when the user reports the plan is
+// good, the model calls the second tool, the conversation of the planning is closed, and the
+// plan itself becomes the first message of the work.
 //
-// The plan stands in `chats.db`, in the table of the plans, beside the talk it
-// was written for - and not in the room of the chat. A plan is therefore never
-// mixed with the work it plans, and a command of the terminal tool cannot write
-// over it by accident. Before the databases it stood in a folder of the data
-// directory under the name `<chat id>.md`; those files are read into the table by
-// the hunt in `src/migrate.rs`, and the folder goes with them.
+// The plan is in `chats.db`, in the table of the plans, beside the conversation it was written
+// for - and not in the working directory of the chat. A plan is therefore never mixed with the work it
+// plans, and a command of the terminal tool cannot write over it by accident. Before the
+// databases it was in a directory of the data directory under the name `<chat id>.md`; those
+// files are read into the table by the scan in `src/migrate.rs`, and the folder goes with them.
 //
-// The name kept with a chat is still the name of the older keeping, because it is
-// the key the row of the plan is looked up by: `plan_file` says `<chat id>.md`,
-// and the row of the plans says the same id.
-// The tool the model has for the plan carries no place at all: it reaches the one
-// file of the one chat, and nothing else. It cannot be switched off by the user,
-// for a planning chat without it has nowhere to put its work.
+// The name kept with a chat is still the name of the older keeping, because it is the key the
+// row of the plan is looked up by: `plan_file` reports `<chat id>.md`, and the row of the plans
+// reports the same id. The tool the model has for the plan carries no place at all: it reaches
+// the one file of the one chat, and nothing else. It cannot be switched off by the user, for a
+// planning chat without it has nowhere to put its work.
 //
-// Both tools stand only while planning mode is on. When the plan is let go they
-// go away with the planning prompt, so the model that does the work reads neither
-// the one nor the other.
+// Both tools remain only while planning mode is on. When the plan is let go they go away with
+// the planning prompt, so the model that does the work reads neither the one nor the other.
 //
-// The prompt holds two rules above the rest of it, because the two mistakes a
-// planning model makes are the two this mode exists to stop. The first is that
-// the work is not done here: no file, no setting, no commit, and no command that
-// leaves a thing changed, while reading and the commands that only look about
-// stay open, so the plan is still built on what the work is. The second is that
-// `end_planning` is the only way out of the mode: a model that says the work has
-// begun has not left the mode, and stays forbidden until the tool is called.
+// The prompt holds two rules above the rest of it, because the two mistakes a planning model
+// makes are the two this mode exists to stop. The first is that the work is not done here: no
+// file, no setting, no commit, and no command that leaves an item changed, while reading and
+// the commands that only look about stay open, so the plan is still built on what the work is.
+// The second is that `end_planning` is the only way out of the mode: a model that shows the
+// work has begun has not left the mode, and stays forbidden until the tool is called.
 
 use std::sync::Arc;
 
@@ -43,41 +37,43 @@ use crate::config;
 use crate::db;
 use crate::tools::{self, with_rule};
 
-// The name the model uses to change the plan, the name it uses to write the
-// whole of a plan that has nothing in it yet, and the name it uses to say that
-// the plan is done and the work may begin.
+// The name the model uses to change the plan, the name it uses to write all of a plan that has
+// nothing in it yet, and the name it uses to say that the plan is done and the work may begin.
 pub const EDIT_NAME: &str = "edit_plan";
 pub const INIT_NAME: &str = "init_plan";
 pub const END_NAME: &str = "end_planning";
 
-// The word a user writes for planning mode, and the words of the same command
-// with its mark before it.
+// The word a user writes for planning mode, and the text of the same command with its marker
+// before it.
 pub const COMMAND: &str = "plan";
 pub const COMMAND_WORD: &str = "/plan";
 
-// The words of the command, for the list of them the chat box puts up.
-pub const COMMAND_WORDS: &str = "Plan the work before any of it is done. The model writes a plan of the whole piece of work, in the smallest detail, to a plan file of its own, and changes it as you answer. When the plan is good, say so, and the model begins the work from the plan.";
+// The text of the command, for the list of them the chat composer puts up.
+pub const COMMAND_WORDS: &str = "Plan the work before any of it is done. The model writes a plan of the whole piece of work, in the smallest detail, into \
+                the plan of this chat, and changes it as you answer. When the \
+                plan is agreed, release it, and the model begins the work from \
+                the plan.";
 
-// The folder the plans stood in, before they stood in the database. The hunt
-// reads it once. See `src/migrate.rs`.
+// The folder the plans was in, before they were in the database. The scan reads it once. See
+// `src/migrate.rs`.
 pub fn folder() -> std::path::PathBuf {
     config::paths().data.join("planning")
 }
 
-// The database the plans stand in: the same file as the talks, because a plan
-// belongs to a chat and is read and put away with it.
+// The database the plans are in: the same file as the conversations, because a plan belongs to
+// a chat and is read and put away with it.
 fn database() -> Result<Arc<db::Db>, String> {
     db::open(&config::paths().data.join(db::CHATS_DB), db::Kind::Chats)
 }
 
-// The name of the plan file of one chat. The id of a chat is ten hexadecimal
-// characters, so the name needs nothing else to keep it apart.
+// The name of the plan of one chat. The id of a chat is ten hexadecimal characters, so the name
+// needs nothing else to keep it apart.
 pub fn file_name(chat: &str) -> String {
     format!("{}.md", neat(chat))
 }
 
-// True when a name kept with a chat is one this module could have written. A
-// strange name opens nothing at all.
+// True when a name kept with a chat is one this module could have written. A strange name opens
+// nothing at all.
 fn looks_like_name(name: &str) -> bool {
     let Some(stem) = name.strip_suffix(".md") else {
         return false;
@@ -87,9 +83,9 @@ fn looks_like_name(name: &str) -> bool {
         && stem.chars().all(|one| one.is_ascii_hexdigit())
 }
 
-// The id of the chat a plan file belongs to, from the name of the file. Nothing
-// comes back for a name this module could not have written. The move of the plans
-// into the database reads the old folder with it. See `src/migrate.rs`.
+// The id of the chat a plan belongs to, from the name it is kept under. Nothing returns for a
+// name this module could not have written. The move of the plans into the database reads the
+// old folder with it. See `src/migrate.rs`.
 pub fn chat_of(name: &str) -> Option<String> {
     if !looks_like_name(name) {
         return None;
@@ -97,9 +93,8 @@ pub fn chat_of(name: &str) -> Option<String> {
     Some(name.strip_suffix(".md")?.to_string())
 }
 
-// The whole of the plan of a chat, out of the table of the plans. Nothing comes
-// back for a name this module could not have written, or for a chat whose plan
-// does not stand.
+// All of the plan of a chat, out of the table of the plans. Nothing returns for a name this
+// module could not have written, or for a chat whose plan is not.
 fn read(name: &str) -> Option<String> {
     let chat = chat_of(name)?;
     let database = database().ok()?;
@@ -118,8 +113,8 @@ fn read(name: &str) -> Option<String> {
         .flatten()
 }
 
-// Write the whole plan of a chat. The row of the plan is put down whole, so a
-// write that cannot be finished leaves the plan that stood to be read again.
+// Write the whole plan of a chat. The row of the plan is put down whole, so a write that cannot
+// be finished leaves the plan that was to be read again.
 fn write(name: &str, words: &str) -> Result<(), String> {
     let chat = chat_of(name).ok_or_else(String::new)?;
     let when = crate::store::now_secs();
@@ -135,9 +130,9 @@ fn write(name: &str, words: &str) -> Result<(), String> {
     })
 }
 
-// True when a chat has a row of the plan at all. A chat that goes into planning
-// mode twice keeps the plan it wrote, and a plan that was never written is a
-// thing apart from a plan of no words.
+// True when a chat has a row of the plan at all. A chat that goes into planning mode twice
+// keeps the plan it wrote, and a plan that was never written is an item apart from a plan of no
+// text.
 fn stands(name: &str) -> bool {
     let Some(chat) = chat_of(name) else { return false };
     let Ok(database) = database() else { return false };
@@ -152,9 +147,8 @@ fn stands(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-// Take the plan of a chat out of the table. A chat that is taken away takes its
-// plan with it, so the words of a chat that is gone do not stand in the database
-// for nothing.
+// Take the plan of a chat out of the table. A chat that is removed takes its plan with it, so
+// the text of a chat that is removed is not in the database for nothing.
 pub fn drop_plan(chat: &str) {
     let Ok(database) = database() else { return };
     let gone = database.write(|conn| {
@@ -165,61 +159,70 @@ pub fn drop_plan(chat: &str) {
     if let Err(problem) = gone {
         crate::proglog::note(
             crate::proglog::STORE,
-            &format!("the plan of a chat is not taken away: {}", problem),
+            &format!("the plan of a chat is not removed: {}", problem),
         );
     }
 }
 
-// Make the plan file of a chat, and give back the name kept with the chat. A
-// plan that stands already is left as it stands, so a chat that goes into
-// planning mode twice does not lose what it wrote.
+// Make the plan of a chat, and give back the name kept with the chat. A plan that remains
+// already is left as it is now, so a chat that goes into planning mode twice does not lose what
+// it wrote.
 pub fn create(chat: &str) -> String {
     let name = file_name(chat);
     if !stands(&name) {
-        // The row is made empty. Words of the program's own in a new plan were
-        // words the model then had to hunt out of the plan, and words the user
-        // read in the window for a plan that was never written. An empty plan is
-        // read as not written yet, which is what it is.
+        // The row is created empty. Text of the program's own in a new plan were text the model
+        // then had to scan out of the plan, and text the user read in the window for a plan
+        // that was never written. An empty plan is read as not written yet, which is what it
+        // is.
         let _ = write(&name, "");
     }
     name
 }
 
-// The whole of a plan, for the popup of the heading and for the first message of
-// the work. Nothing comes back when the plan is gone.
+// All of a plan, for the popup of the heading and for the first message of the work. Nothing
+// returns when the plan is removed.
 pub fn words(name: &str) -> Option<String> {
     read(name)
 }
 
-// The words of a plan that is not there: said plainly, so a model is never given
-// a blank space for a file it was told to read.
-pub const GONE_WORDS: &str = "(the plan file of this chat is not there)";
+// The text of a plan that is not there: stated plainly, so a model is never given a blank space
+// for a file it was set to read.
+pub const GONE_WORDS: &str = "(this chat has no plan)";
 
-// The room of the plan file. A plan longer than this is a file no model can read
-// whole, and a call that would grow it past this is refused.
+// The greatest size of a plan. A plan longer than this is a text no model can read whole, and a
+// call that would grow it past this is refused.
 const GREATEST_PLAN_BYTES: usize = 8 * 1024 * 1024;
 
 // The most changes one call may make to the plan.
 const MAX_EDITS: usize = 100;
 
-// The call that writes the whole plan at once. It stands beside the tool that
-// changes the plan by matching words, for a plan that has nothing in it has no
-// words to match: the first writing of a plan is a whole of words sent in one
-// call, and every writing after it is a change of the plan that stands.
+// The call that writes the whole plan at once. It is beside the tool that changes the plan by
+// matching text, for a plan that has nothing in it has no text to match: the first writing of a
+// plan is a whole of text sent in one call, and every writing after it is a change of the plan
+// that remains.
 pub fn init_definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": INIT_NAME,
             "description": with_rule(String::from(
-                "Write the whole plan of this chat in one call. This tool has no path, because it reaches the plan file of this chat and no other. It is the first writing of the plan: call it once, when the plan file holds nothing yet, with the whole of the plan from its first heading to its last line. What you send becomes the plan from beginning to end, and anything that stood in the plan file is gone. Never call it again once the plan has been begun: a second call throws away the plan and every part of it the user read. Change a plan that stands with the tool `edit_plan`, part by part, so a change is seen as a change and nothing that was agreed is lost. The words must be the plan itself, and not a promise of it: a plan of one line is refused as no plan. Never write the plan with another tool, and never write the plan in your answer.",
+                "Write the whole plan of this chat in one call. This \
+                tool has no path, because it reaches the plan of this chat and \
+                no other. It \
+        is the first writing of the plan: call it once, when the plan is empty, \
+        with all of the plan from its first heading to its last line. What you \
+        send becomes the plan from beginning to end, and anything that was \
+        there before is replaced. Never call it again once the plan has been begun: a second call deletes the plan and every part of it the user read. Change \
+        a plan that exists with the tool `edit_plan`, part by part, so each \
+        change is visible and nothing that was agreed is lost. The text must be the plan itself, and not a promise of it: a plan of one line is refused as no plan. Never write the plan with another tool, and never write the plan in your answer.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "plan": {
                         "type": "string",
-                        "description": "The whole of the plan, as it is to stand in the plan file. Every part of it, from the first heading to the last line."
+                        "description": "The whole plan, exactly as it \
+        should read. Every part of it, from the first heading to the last line."
                     }
                 },
                 "required": ["plan"]
@@ -228,35 +231,36 @@ pub fn init_definition() -> Value {
     })
 }
 
-// Write the whole plan of a chat at once. What stands in the plan file is
-// written over, for the call is the first writing of a plan and not a change of
-// one: a plan of no words at all is refused, so a call that meant nothing never
-// takes a written plan away.
+// Write the whole plan of a chat at once. What was there before is written over, for the call
+// is the first writing of a plan and not a change of one: a plan of no text at all is refused,
+// so a call that meant nothing never takes a written plan away.
 pub fn write_init(name: &str, raw: &str) -> tools::Report {
     let failed = |output: String| tools::Report { ok: false, output };
     if chat_of(name).is_none() {
         return failed(String::from(
-            "This chat has no plan file, so there is nothing to write.",
+            "This chat has no plan, so there is nothing to write.",
         ));
     }
     let Ok(call) = serde_json::from_str::<Value>(raw) else {
         return failed(String::from(
-            "The call was not whole words of JSON, so nothing was written.",
+            "The call was not valid JSON, so nothing was written.",
         ));
     };
     let Some(words) = call.get("plan").and_then(|one| one.as_str()) else {
         return failed(String::from(
-            "The call carries no words of a plan. Give the whole plan in `plan`.",
+            "The call carries no text of a plan. Give the whole plan in `plan`.",
         ));
     };
     if words.trim().is_empty() {
         return failed(String::from(
-            "Nothing was written. The words you sent hold no plan, and a plan of nothing is no plan.",
+            "Nothing was written. The text you sent holds no plan, and a \
+        plan of nothing is no plan.",
         ));
     }
     if words.len() > GREATEST_PLAN_BYTES {
         return failed(String::from(
-            "Nothing was written. The plan is longer than the length this program keeps a plan to.",
+            "Nothing was written. The plan is longer than the greatest \
+        length this program stores.",
         ));
     }
     let before = read(name).unwrap_or_default();
@@ -268,7 +272,8 @@ pub fn write_init(name: &str, raw: &str) -> tools::Report {
         lines_of(words)
     );
     if !before.trim().is_empty() {
-        said.push_str(" What stood in the plan file before this call is gone.");
+        said.push_str("The plan that was there before this call is \
+        replaced.");
     }
     if let Some(head) = head_of(words) {
         said.push_str("\nThe plan begins:\n");
@@ -277,36 +282,44 @@ pub fn write_init(name: &str, raw: &str) -> tools::Report {
     tools::Report { ok: true, output: said }
 }
 
-// The call that changes the plan. It carries no place: the plan file of this chat
-// is the only file it can reach.
+// The call that changes the plan. It carries no path: the plan of this chat is the only file it
+// can reach.
 pub fn edit_definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": EDIT_NAME,
             "description": with_rule(String::from(
-                "Change the plan file of this chat. This tool has no path, because it reaches that one file and no other: the plan file stands in a folder of the planning directory of the program, and it is the only file this planning mode may change. Copy each old_string exactly from the plan, spacing included, and give the whole of a change to one call. The changes are made one after another, each against the plan as the change before it left it, and no two of them may cover the same text. Each old_string must match one place, unless replace_all is set for it; if one matches no place, or more than one, nothing at all is written. An old_string that is empty adds the words of new_string at the end of the plan, which is how a plan is written out in parts. A call that succeeded means the plan now holds what was sent, so read it again only when you must. Never write the plan with another tool, and never write the plan in your answer: this tool is the only way into the plan file.",
+                "Change the plan of this chat. This tool has no path, \
+        because it reaches that one plan and no other: the plan is a row of the \
+        chats database, and it is the only thing this planning mode may change. Copy each old_string exactly from the plan, spacing included, and give the whole of a change to one call. The changes are made one after another, each against the plan as the change before it left it, and no two of them may cover the same text. Each old_string must match one place, unless replace_all is set for it; if one matches no place, or more than one, nothing at all is written. An old_string that is empty adds the words of new_string at the end of the plan, which is how a plan is written out in parts. A call that succeeded means the plan now holds what was sent, so \
+        read it again only when you must. Never write the plan with another \
+        tool, and never write the plan in your answer: this tool is the only \
+        way to change the plan.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "edits": {
                         "type": "array",
-                        "description": "The changes to make in one call. Each change gives the words to replace and the words to put in their place.",
+                        "description": "The changes to make in one call. \
+        Each change gives the text to replace and the text to put in its place.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "old_string": {
                                     "type": "string",
-                                    "description": "The words to replace, copied from the plan. Empty means: add the words of new_string at the end of the plan."
+                                    "description": "The text to replace, copied from the plan. Empty means: add the text of new_string at the end of the plan."
                                 },
                                 "new_string": {
                                     "type": "string",
-                                    "description": "The words to put in its place."
+                                    "description": "The text to put in its place."
                                 },
                                 "replace_all": {
                                     "type": "boolean",
-                                    "description": "Replace every place these words appear, instead of requiring that they appear once. Off when it is not given."
+                                    "description": "Replace every place \
+        this text appears, instead of requiring that it appears once. Off when \
+        it is not given."
                                 }
                             },
                             "required": ["old_string", "new_string"]
@@ -319,22 +332,25 @@ pub fn edit_definition() -> Value {
     })
 }
 
-// The call that says the plan is done: the user gave leave, and the work may
-// begin. Nothing of the planning talk goes with the work.
+// The call that shows the plan is done: the user gave leave, and the work may begin. Nothing of
+// the planning conversation goes with the work.
 pub fn end_definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": END_NAME,
             "description": with_rule(String::from(
-                "End planning mode and begin the work from the plan. It is the only way planning mode ends: no sentence you write, and no plan that reads as finished, ends it in place of this call. Call this only after the user has said, in their own words, that the plan is agreed and the work may begin: words such as go ahead, start, begin, do it, or an answer to your question for leave. Never call it while the plan is still open, never call it to avoid more planning, and never call it twice in one turn. When it is called, the plan file is sent whole as the first message of a new talk, and nothing of this planning talk is kept, so the plan must stand on its own: it must name every file, every step and every check, and it must not refer to this conversation.",
+                "End planning mode and begin the work from the plan. It is the only way planning mode ends: no sentence you write, and no plan that reads as finished, ends it in place of this call. Call this only after the user has stated, in their own text, that the plan is agreed and the work may begin: text such as go ahead, start, begin, do it, or an answer to your question for leave. Never call it while the plan is still open, never call it to avoid more planning, and never call it twice in one turn. When \
+        it is called, the plan is sent whole as the first message of a new \
+        conversation, and nothing of this planning conversation is kept, so the \
+        plan must be on its own: it must name every file, every step and every check, and it must not refer to this conversation.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "why": {
                         "type": "string",
-                        "description": "The words the user said that gave the leave to begin, or a short saying of what they agreed to."
+                        "description": "The text the user stated that gave the leave to begin, or a short saying of what they agreed to."
                     }
                 },
                 "required": []
@@ -343,9 +359,9 @@ pub fn end_definition() -> Value {
     })
 }
 
-// The prompt that stands in the talk of a chat while planning mode is on. It goes
-// out beside the words of the program, in a message of the role `system`, for
-// every ask of a planning chat, and it goes away with planning mode.
+// The prompt that is in the conversation of a chat while planning mode is on. It is sent beside
+// the text of the program, in a message of the role `system`, for every ask of a planning chat,
+// and it is removed with planning mode.
 pub fn system_prompt(plan: &str) -> String {
     let mut out = String::new();
     out.push_str(&format!(
@@ -355,7 +371,7 @@ pub fn system_prompt(plan: &str) -> String {
          person, can carry out without asking a single question afterwards. Write \
          that plan into the plan file, and keep it there in the best shape you can \
          bring it to, turn after turn.\n\n\
-         Two rules stand over everything below. The first: you plan the work and \
+         Two rules govern everything below. The first: you plan the work and \
          never do it - not one line of code of it, not one file of it, not one \
          command of it that leaves a thing changed. The second: planning mode ends \
          only when `{}` is called, and only on the leave of the user. Every other \
@@ -372,7 +388,7 @@ pub fn system_prompt(plan: &str) -> String {
          message, no record, no branch. Nothing of the work is made, moved, \
          copied, renamed or deleted. The plan file is the one file you may change, \
          and only through `{}` and `{}`.\n\
-         Run no command that leaves a thing changed. That covers every command \
+         Run no command that changes anything. That covers every command \
          that builds, compiles, installs, tests, checks, formats, generates, \
          migrates, seeds, deploys, publishes, uploads, restarts, cleans, removes, \
          moves or writes; it covers the words of version control that move a thing \
@@ -380,7 +396,7 @@ pub fn system_prompt(plan: &str) -> String {
          tag; and it covers a redirect, a here-document or a pipe that puts words \
          into a file, and a command run in the room of the work that leaves a \
          folder of build words behind it.\n\
-         A command that only asks what stands there is allowed, and wanted: \
+         A command that only reads what is there is allowed, and wanted: \
          listing a folder, reading a file, searching, `git status`, `git log`, \
          `git diff`, `git show`, `git remote -v`, `pwd`, `wc`, `which`, reading a \
          config or a manual page, asking a service what it holds. Where you cannot \
@@ -388,7 +404,7 @@ pub fn system_prompt(plan: &str) -> String {
          what you would have run and what you expected from it, or ask the user to \
          run it and tell you the answer.\n\
          Never say that you wrote, made, fixed, ran, built, installed or tested a \
-         thing, and never hand a finished piece of the work over in the talk as \
+         thing, and never hand a finished piece of the work over in the conversation as \
          though it stood somewhere. What you give is the plan of what is to be \
          written: the names, the signatures, the exact words of a new setting, \
          message or error, the shape and the order of the change - a thing a \
@@ -401,22 +417,22 @@ pub fn system_prompt(plan: &str) -> String {
     ));
     out.push_str(&format!(
         "The plan file.\n\
-         The plan of this chat stands in one file: `{}`. It lives in a folder of \
-         the planning directory of this program, away from the work it plans. Two \
-         tools reach it, and nothing else does. `{}` writes the whole plan in one \
+         The plan of this chat is kept in one file: `{}`. It is stored in a folder \
+         of the planning directory of this program, away from the work it plans. \
+         Only two tools can change it. `{}` writes the whole plan in one \
          call, and it is for the first writing only: when the file holds nothing \
          yet, send the plan from its first heading to its last line in one call. \
-         `{}` changes a plan that stands, by matching words in it, and it is the \
-         way into the plan for every writing after the first: a change made there \
-         reads as a change, and nothing the user has read or agreed to is thrown \
-         away. Never call `{}` a second time, for it writes over the whole of what \
-         stands. Never write the plan with any other tool: not with a file tool, \
-         not with a command of the terminal, not by sending the words in an answer. \
-         The plan file is the only file you may change in this mode, and these two \
-         tools are the only way into it. \
+         `{}` changes an existing plan by matching text in it, and it is the tool \
+         for every write after the first: a change made there is recorded as a \
+         change, and nothing the user has read or agreed to is thrown away. Never \
+         call `{}` a second time, because it overwrites the whole file. Never \
+         write the plan with any other tool: a file tool does not read the plan \
+         file, not with a command of the terminal, not by sending the text in an \
+         answer. The plan is the only thing you may change in this mode, and these \
+         two tools are the only way to change it. \
          Your answers to the user stay short: they say what changed in the plan, \
-         what you still need, and nothing else. Never repeat the plan in the \
-         talk.\n\n",
+         what you still need, and nothing else. Never repeat the plan in your \
+         reply.\n\n",
         plan, INIT_NAME, EDIT_NAME, INIT_NAME
     ));
     out.push_str(
@@ -490,7 +506,7 @@ pub fn system_prompt(plan: &str) -> String {
     ));
     out.push_str(&format!(
         "The user, and what the plan must never hold.\n\n\
-         The user never sees the plan file. They see this talk only: your answers, \
+         The user never sees the plan file. They see this conversation only: your answers, \
          and the marks of the tools you call. So never write a question into the \
          plan, never leave an open point there for the user to settle, and never \
          ask them in the plan to confirm, to choose or to fill anything in. A plan \
@@ -503,7 +519,7 @@ pub fn system_prompt(plan: &str) -> String {
          after the turn is over and often not answered at all. Ask any \
          number of questions in one call, each with the answers the user may choose \
          from; set many to true when several of them may be chosen, and give no \
-         list when the user is to write the answer. The questions stand in the talk \
+         list when the user is to write the answer. The questions stand in the conversation \
          itself, the user marks what they like of every one of them, and nothing \
          comes back until they send the whole of it. No clock runs on those \
          questions, so wait for them: never settle on your own a thing you said you \
@@ -523,32 +539,33 @@ pub fn system_prompt(plan: &str) -> String {
          `{}` is the only way planning mode ends. Nothing else ends it: not a \
          sentence you write, not a plan that reads as finished, not an answer that \
          went ahead and started the work, not words of the user that you took for \
-         leave without asking. While planning mode is on, these instructions come \
-         back with every ask of this chat, and a step of the work is still \
-         forbidden - so a turn in which you did a step of the work is a turn that \
-         broke the first rule, and not a sign that you are out of the mode.\n\
+         permission without asking. While planning mode is on, these instructions \
+         come back with every request in this chat, and a step of the work is \
+         still forbidden - so a turn in which you did a step of the work is a turn \
+         that broke the first rule, and not a sign that you are out of the mode.\n\
          Never announce that the work has begun, that you will now carry out the \
-         plan, or that you are making the first change. Such a sentence says the \
+         plan, or that you are making the first change. Such a sentence claims the \
          mode is over when it is not, and it is how a model comes to do the work \
-         instead of calling `{}`. When you are moved to write words such as I \
-         will start now, stop: call `{}` if the user has given the leave, and ask \
+         instead of calling `{}`. When you are about to write words such as I \
+         will start now, stop: call `{}` if the user has given permission, and ask \
          for it if they have not. Never do a step of the work as a beginning, as \
          a trial, or to prove that the plan can be carried out.\n\
          The work begins only when the user says it may. When they have said, in \
          their own words, that the plan is agreed and the work may begin, call `{}` \
          and say nothing else. When their words are not clear, ask once whether \
          they mean the plan is agreed. Never call `{}` on your own, never call it \
-         because the plan feels long enough, and never call it twice in one turn.\n\
-         When `{}` is called, this talk is put away: the plan file is sent whole as \
-         the first message of a new talk, with the tools and the prompts it had \
-         before planning mode, and none of these instructions. Nothing of this \
-         conversation is kept, and the planning tools are gone. The plan must \
-         therefore stand entirely on its own: it must say what the work is, what \
-         the ground is, and what to do, without needing anything said here.\n\
+         because the plan is detailed enough, and never call it twice in one turn.\n\
+         When `{}` is called, this conversation is dropped: the plan file is sent \
+         whole as the first message of a new conversation, with the tools and the \
+         prompts it had before planning mode, and none of these instructions. \
+         Nothing of this conversation is kept, and the planning tools are gone. \
+         The plan must therefore stand entirely on its own: it must say what the \
+         work is, what the starting point is, and what to do, without needing \
+         anything said here.\n\
          Until `{}` is called there is nothing here to report but the plan. A user \
          who says begin, and is answered with more words about the work instead of \
-         the call that lets the plan go, is left exactly where they stood, and will \
-         say begin again.",
+         the call that starts it, is left exactly where they stood, and will say \
+         begin again.",
         END_NAME,
         END_NAME,
         END_NAME,
@@ -560,39 +577,38 @@ pub fn system_prompt(plan: &str) -> String {
     out
 }
 
-// The commands of the chat box stand here, and this is where the next one is put.
-// The second of them does not change what the model is told: it puts a message in
-// the waiting list of the chat, to go out when an answer holds the words the user
-// named. Its words are kept with the words of the waiting list, in the engine.
+// The command names of the chat composer are kept here, and this is where the next one is
+// added. The second of them does not change what the model is told: it puts a message in the
+// waiting list of the chat, to send when an answer contains the text the user named. Its text
+// is kept with the text of the waiting list, in the engine.
 pub const PROGRAM_WORD: &str = "/program";
-pub const PROGRAM_WORDS: &str = "Write a message that goes out when an answer holds the words you name. The chat box changes shape: the words to look for go in a field of their own, and the message in the box. The message goes out ahead of the messages that were only queued, and only when an answer says those words.";
+pub const PROGRAM_WORDS: &str = "Write a message that is sent when an answer contains the text you name. The chat composer changes form: the text to search for goes in a field of its own, and the message in the box. The message is sent ahead of the messages that were only queued, and only when an answer contains that text.";
 
-// A message that was sent with the word of the programmed message before it. The
-// words it waits for are given in the chat box and not among the words of the
-// message, so a message that came this way was written out by hand and cannot be
-// answered from the words alone.
+// A message that was sent with the word of the programmed message before it. The text it waits
+// for are given in the chat composer and not among the text of the message, so a message that
+// came this way was written out manually and cannot be answered from the text alone.
 pub fn asked_as_program(text: &str) -> bool {
     let trimmed = text.trim_start();
     let Some(rest) = trimmed.strip_prefix(PROGRAM_WORD) else {
         return false;
     };
-    // `/programme` is no command: the word has to stand on its own.
+    // `/programme` is no command: the word has to be on its own.
     match rest.chars().next() {
         None => true,
         Some(next) => next.is_whitespace(),
     }
 }
 
-// The command a message begins with, and the words left when it is taken away.
-// Only the first word of a message is a command, and only when it begins with the
-// mark of one. A message that is only the command comes back with nothing after
-// it, which is the user asking for the mode without a request in it.
+// The command a message begins with, and the text left when it is removed. Only the first word
+// of a message is a command, and only when it begins with the marker of one. A message that is
+// only the command returns with nothing after it, which is the user asking for the mode without
+// a request in it.
 pub fn split(text: &str) -> (Option<Command>, String) {
     let trimmed = text.trim_start();
     let Some(rest) = trimmed.strip_prefix(COMMAND_WORD) else {
         return (None, text.to_string());
     };
-    // `/planet` is no command: the word has to stand on its own.
+    // `/planet` is no command: the word has to be on its own.
     if let Some(next) = rest.chars().next() {
         if !next.is_whitespace() {
             return (None, text.to_string());
@@ -601,27 +617,26 @@ pub fn split(text: &str) -> (Option<Command>, String) {
     (Some(Command::Plan), rest.trim_start().to_string())
 }
 
-// The commands of the chat box, in the order they are listed. One command now,
-// and the list is where the next one is put.
+// The commands of the chat composer, in the order they are listed. One command now, and the
+// list is where the next one is put.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     Plan,
 }
 
 impl Command {
-    // The word the user writes for this command, mark included.
+    // The word the user writes for this command, marker included.
     pub fn word(&self) -> &'static str {
         COMMAND_WORD
     }
 
-    // What the command is for, for the list the chat box puts up.
+    // What the command is for, for the list the chat composer puts up.
     pub fn words(&self) -> &'static str {
         COMMAND_WORDS
     }
 }
 
-// The words of the command list, for the state: the word of the command and what
-// it is for.
+// The text of the command list, for the state: the word of the command and what it is for.
 pub fn list() -> Vec<Value> {
     vec![
         json!({
@@ -635,15 +650,15 @@ pub fn list() -> Vec<Value> {
     ]
 }
 
-// Change the plan file of a chat. The plan is read whole, every change is matched
-// against it as it stands, and the whole of the plan is written again or not at
-// all. A call that names no change, or too many of them, is refused with a word
-// about what the tool takes.
+// Change the plan of a chat. The plan is read whole, every change is matched against it as it
+// is now, and all of the plan is written again or not at all. A call that names no change, or
+// too many of them, is refused with a word about what the tool takes.
 pub fn edit_plan(name: &str, raw: &str) -> tools::Report {
     if chat_of(name).is_none() {
         return tools::Report {
             ok: false,
-            output: String::from("This chat has no plan file, so there is nothing to change."),
+            output: String::from("This chat has no plan, so there is \
+        nothing to change."),
         };
     }
     let changes = match changes_of(raw) {
@@ -651,16 +666,16 @@ pub fn edit_plan(name: &str, raw: &str) -> tools::Report {
         Err(why) => return tools::Report { ok: false, output: why },
     };
     let before: String = read(name).unwrap_or_default();
-    // The changes go one after another, each against the plan as the change
-    // before it left it. A plan is written in parts, and a model that gives a
-    // part and a change in one call means the one to follow the other.
+    // The changes go one after another, each against the plan as the change before it left it.
+    // A plan is written in parts, and a model that gives a part and a change in one call means
+    // the one to follow the other.
     let mut after = before;
     let mut made = 0usize;
     let mut added = 0usize;
     for change in &changes {
         if change.old.is_empty() {
-            // The mark of an empty place: the words go at the end of the plan,
-            // which is how a plan of many parts is written out.
+            // The marker of an empty place: the text go at the end of the plan, which is how a
+            // plan of many parts is written.
             if !after.is_empty() && !after.ends_with('\n') {
                 after.push('\n');
             }
@@ -674,7 +689,7 @@ pub fn edit_plan(name: &str, raw: &str) -> tools::Report {
             return tools::Report {
                 ok: false,
                 output: format!(
-                    "Nothing was written. These words are not in the plan: {}{}",
+                    "Nothing was written. This text is not in the plan: {}{}",
                     quote_head(&change.old),
                     if after.trim().is_empty() {
                         String::from(
@@ -690,7 +705,8 @@ pub fn edit_plan(name: &str, raw: &str) -> tools::Report {
             return tools::Report {
                 ok: false,
                 output: format!(
-                    "Nothing was written. These words stand {} places in the plan, and one of them is not enough to say which was meant: {}",
+                    "Nothing was written. This text appears {} places in \
+        the plan, and that is not enough to say which one was meant: {}",
                     places,
                     quote_head(&change.old)
                 ),
@@ -709,7 +725,8 @@ pub fn edit_plan(name: &str, raw: &str) -> tools::Report {
         return tools::Report {
             ok: false,
             output: String::from(
-                "Nothing was written. The plan would grow past the length this program keeps a plan to.",
+                "Nothing was written. The plan would grow past the \
+        greatest length this program stores.",
             ),
         };
     }
@@ -742,12 +759,13 @@ struct Change {
     all: bool,
 }
 
-// The changes of one call. The call may be given whole, or in pieces that are
-// still coming in, and a call whose words are cut in half is answered with the
-// words that say so rather than with a half change to the plan.
+// The changes of one call. The call may be given whole, or in parts that are still arriving,
+// and a call whose text is cut in half is answered with the text that record it rather than
+// with a half change to the plan.
 fn changes_of(raw: &str) -> Result<Vec<Change>, String> {
     let value: Value = serde_json::from_str(raw).map_err(|_| {
-        String::from("The call was not whole words of JSON, so nothing was written.")
+        String::from("The call was not valid JSON, so nothing \
+                was written.")
     })?;
     let Some(items) = value.get("edits").and_then(|made| made.as_array()) else {
         return Err(String::from(
@@ -759,7 +777,7 @@ fn changes_of(raw: &str) -> Result<Vec<Change>, String> {
     }
     if items.len() > MAX_EDITS {
         return Err(format!(
-            "The call asks for {} changes, and this tool takes at most {}.",
+            "The call requests {} changes, and this tool takes at most {}.",
             items.len(),
             MAX_EDITS
         ));
@@ -785,7 +803,7 @@ fn changes_of(raw: &str) -> Result<Vec<Change>, String> {
     Ok(out)
 }
 
-// How many places one run of words stands in another.
+// How many places one run of text is in another.
 fn count_of(text: &str, needle: &str) -> usize {
     if needle.is_empty() {
         return 0;
@@ -799,8 +817,8 @@ fn count_of(text: &str, needle: &str) -> usize {
     places
 }
 
-// The first lines of the plan, for the receipt. The model is given a look at
-// where it is, not a copy of the file.
+// The first lines of the plan, for the result. The model is given a look at where it is, not a
+// copy of the file.
 fn head_of(words: &str) -> Option<String> {
     let mut out = String::new();
     let mut lines = 0usize;
@@ -821,7 +839,7 @@ fn head_of(words: &str) -> Option<String> {
     Some(out)
 }
 
-// How many lines a run of words holds.
+// How many lines a run of text holds.
 fn lines_of(words: &str) -> usize {
     if words.is_empty() {
         return 0;
@@ -829,7 +847,7 @@ fn lines_of(words: &str) -> usize {
     words.lines().count()
 }
 
-// A run of words for a fault word, cut short and on one line.
+// A run of text for an error word, truncated and on one line.
 fn quote_head(words: &str) -> String {
     let one_line: String = words
         .chars()
@@ -839,8 +857,8 @@ fn quote_head(words: &str) -> String {
     format!("`{}`", cut.trim())
 }
 
-// The name of a chat id turned into what a file name may hold. The id of a chat
-// is already hexadecimal; this is the guard for a name that came from elsewhere.
+// The name of a chat id turned into what a file name may hold. The id of a chat is already
+// hexadecimal; this is the guard for a name that came from elsewhere.
 fn neat(name: &str) -> String {
     name.chars()
         .filter(|one| one.is_ascii_alphanumeric())
@@ -850,43 +868,50 @@ fn neat(name: &str) -> String {
 
 // ------------------------------------------------ questions of the plan
 //
-// A model that plans needs things settled that only the user can settle. The
-// questionnaire is the way to ask for them: any number of questions at once,
-// each with any number of answers to choose from, the user free to choose
-// several of them, and nothing sent until the user presses the mark of send. No
-// clock runs on a questionnaire, for the plan is not served on time.
+// A model that plans needs items settled that only the user can settle. The questionnaire is
+// the way to request them: any number of questions at once, each with any number of answers to
+// choose from, the user free to choose several of them, and nothing sent until the user presses
+// the send marker. No clock runs on a questionnaire, for the plan is not served on time.
 
 pub const ASK_NAME: &str = "ask_plan";
 
-// The most questions one questionnaire may hold, and the most answers one
-// question may offer. Both are kept generous, for a plan of a large piece of
-// work has a large number of things to settle.
+// The most questions one questionnaire may hold, and the most answers one question may propose.
+// Both are kept generous, for a plan of a large piece of work has a large number of items to
+// settle.
 const GREATEST_QUESTIONS: usize = 12;
 const GREATEST_CHOICES: usize = 12;
 
-// The call the model is offered.
+// The call the model is proposed.
 pub fn ask_definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": ASK_NAME,
-            "description": "Put a questionnaire to the user, and wait for the answers. Use it for the few things that only the user can settle, and never for the rest. Ask any number of questions in one call. Each question carries the words of it and the answers the user may choose from; set many to true when more than one of them may be chosen, and leave the list empty when the user is to write the answer instead. The questionnaire stands in the talk itself, the user chooses what they like of it and sends the whole of it when they are ready, and there is no clock on it. This is the way to ask the user anything while planning mode is on: use it instead of `ask_user`, whose card over the chat box is gone when its few seconds are spent and brings back one answer at a time, and instead of a question written in the words of an answer, which is read after the turn is over and often not answered at all. Nothing of the plan is sent to the user, so every question you need an answer to must be asked with this tool: never write a question, an open point for the user, or a list of things to confirm into the plan file.",
+            "description": "Put a questionnaire to the user, and wait for the answers. Use it for the few things that only the user can settle, and never for the rest. Ask any number of questions in one call. Each question carries the words of it and the answers the user may choose from; set many to true when more than one of them may be chosen, and leave the list empty when the user is to write the answer instead. The \
+                questionnaire appears in the conversation itself, the user \
+                chooses what they like of it and sends the whole of it when \
+                they are ready, and there is no clock on it. This is the way to ask the user anything while planning mode is on: use it instead of `ask_user`, whose card over the chat box is gone when its few seconds are spent and brings back one answer at a time, and instead of a question written in the words of an answer, which is read after the turn is over and often not answered at all. Nothing of the plan is sent to the user, so every question you need an answer to must be asked with this tool: never \
+                write a question, an open point for the user, or a list of \
+                things to confirm into the plan.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "questions": {
                         "type": "array",
-                        "description": "The questions to put to the user, in the order they are to stand.",
+                        "description": "The questions to put to the \
+        user, in the order they should appear.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "question": {
                                     "type": "string",
-                                    "description": "The question, in one or two sentences that stand by themselves."
+                                    "description": "The question, in one \
+        or two sentences that are on their own."
                                 },
                                 "choices": {
                                     "type": "array",
-                                    "description": "The answers the user may choose from. Empty when the user is to write the answer.",
+                                    "description": "The answers the user \
+        may choose from. Leave it empty when the user should write the answer.",
                                     "items": { "type": "string" }
                                 },
                                 "many": {
@@ -904,13 +929,12 @@ pub fn ask_definition() -> Value {
     })
 }
 
-// The questions of one call, read and made ready. A question with no words in it
-// is a fault of the call, for a questionnaire the user cannot read is no help to
-// the plan.
+// The questions of one call, read and prepared. A question with no text in it is an error in
+// the call, for a questionnaire the user cannot read is no help to the plan.
 pub fn questions_of(raw: &str) -> Result<Vec<crate::engine::AskItem>, String> {
     let Ok(call) = serde_json::from_str::<Value>(raw) else {
         return Err(String::from(
-            "The call was not whole words of JSON, so nothing was asked.",
+            "The call was not valid JSON, so nothing was asked.",
         ));
     };
     let Some(items) = call.get("questions").and_then(|made| made.as_array()) else {
@@ -962,40 +986,41 @@ pub fn questions_of(raw: &str) -> Result<Vec<crate::engine::AskItem>, String> {
 
 // ---------------------------------------------------- reading the plan back
 //
-// The words of the plan, exactly as they stand in the file. A model that changed
-// the plan needs to see how the change landed, so the plan is read back to it
-// line by line, as the search command of a terminal reads a file back: the
-// number each line stands on, the lines about each place that was found, and the
-// start or the end of the file when those were what was asked for.
+// The text of the plan, exactly as they are now in the file. A model that changed the plan
+// needs to see how the change landed, so the plan is read back to it line by line, as the
+// search command of a terminal reads a file back: the number each line is on, the lines about
+// each place that was found, and the start or the end of the file when those were what was
+// requested.
 
 pub const READ_NAME: &str = "read_plan";
 
-// The most characters one answer may carry. A read that ran past this says so,
-// for a model that was not told might take the part for the whole.
+// The most characters one answer may carry. A read that ran past this records it, for a model
+// that was not informed might take the part for the whole.
 const GREATEST_READ_CHARS: usize = 12_000;
 
-// The most lines one answer may carry, so a search that found the whole of a
-// long plan does not answer with the whole of it.
+// The most lines one answer may carry, so a search that found all of a long plan does not
+// answer with all of it.
 const GREATEST_READ_LINES: usize = 400;
 
-// The call the model is offered. It takes no file: the plan of this chat is the
-// only text it can read, and it is never changed by reading it.
+// The call the model is proposed. It takes no file: the plan of this chat is the only text it
+// can read, and it is never changed by reading it.
 pub fn read_definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": READ_NAME,
-            "description": "Read back the plan file of this chat, exactly as it stands, with the number of each line in front of it. Use it when you want to see how a change landed, or to look at a part of the plan again. It works like the search command of a terminal: give a pattern to look for, with before and after for the whole lines to give about each place that is found, and at_most to stop after that many places. With no pattern, head gives the first lines, tail the last lines, and from_line with to_line a range of them; with none of those the whole plan is read back. Places that are found are kept apart by a line of two marks. This tool changes nothing.",
+            "description": "Read back the plan of this chat, exactly as \
+        it stands, with the number of each line in front of it. Use it when you want to see how a change landed, or to look at a part of the plan again. It works like the search command of a terminal: give a pattern to look for, with before and after for the whole lines to give about each place that is found, and at_most to stop after that many places. With no pattern, head gives the first lines, tail the last lines, and from_line with to_line a range of them; with none of those the whole plan is read back. Places that are found are kept apart by a line of two marks. This tool changes nothing.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "The words to look for in the plan. With none given, head, tail or the range of lines says what is read back."
+                        "description": "The text to search for in the plan. With none given, header, tail or the range of lines reports what is read back."
                     },
                     "ignore_case": {
                         "type": "boolean",
-                        "description": "Look for the words whatever their letters stand for, upper or lower. Off when it is not given."
+                        "description": "Search for the text whatever their letters mean, upper or lower. Off when it is not given."
                     },
                     "before": {
                         "type": "number",
@@ -1032,8 +1057,8 @@ pub fn read_definition() -> Value {
     })
 }
 
-// A count out of the call, when one was given. A number written between quotes
-// is read as a count too, for a model writes counts that way as often as not.
+// A count out of the call, when one was given. A number written between quotes is read as a
+// count too, for a model writes counts that way as often as not.
 fn asked(call: &Value, key: &str) -> Option<usize> {
     let given = call.get(key)?;
     if let Some(count) = given.as_u64() {
@@ -1045,11 +1070,11 @@ fn asked(call: &Value, key: &str) -> Option<usize> {
     given.as_str().and_then(|word| word.trim().parse::<usize>().ok())
 }
 
-// The lines of the answer, each with the number it stands on in the plan. The
-// places given in `groups` begin a new group, and a group is set apart from the
-// one before it by a line of two marks, as the search command of a terminal does.
-// The number of the line is carried with it, so a read of a part of the plan
-// answers with the numbers of the file and not with the count of the answer.
+// The lines of the answer, each with the number it is on in the plan. The places given in
+// `groups` begin a new group, and a group is set apart from the one before it by a line of two
+// markers, as the search command of a terminal does. The number of the line is carried with it,
+// so a read of a part of the plan answers with the numbers of the file and not with the count
+// of the answer.
 fn numbered(held: &[(usize, &str)], groups: &[usize]) -> String {
     let mut out = String::new();
     for (number, (place, line)) in held.iter().enumerate() {
@@ -1061,25 +1086,25 @@ fn numbered(held: &[(usize, &str)], groups: &[usize]) -> String {
     out
 }
 
-// Read the plan back. The plan is looked at line by line, so every number the
-// answer carries is the number of the file. The two ways of reading it - a
-// search, and a read of a part - fill in the words of the answer themselves,
-// which is why the words are named before either of them has run.
+// Read the plan back. The plan is checked line by line, so every number the answer carries is
+// the number of the file. The two ways of reading it - a search, and a read of a part - fill in
+// the text of the answer itself, which is why the text is named before either of them has
+// run.
 #[allow(clippy::needless_late_init)]
 pub fn read_plan(name: &str, raw: &str) -> tools::Report {
     let failed = |output: String| tools::Report { ok: false, output };
     if chat_of(name).is_none() {
         return failed(String::from(
-            "This chat has no plan file, so there is nothing to read back.",
+            "This chat has no plan, so there is nothing to read back.",
         ));
     }
     let Some(words) = read(name) else {
         return failed(String::from(
-            "The plan file could not be read, so nothing was answered.",
+            "The plan could not be read, so nothing was answered.",
         ));
     };
-    // A new plan holds nothing at all, and there is no line to read in it. The
-    // word about it names the tool that writes the plan whole.
+    // A new plan holds nothing at all, and there is no line to read in it. The word about it
+    // names the tool that writes the plan whole.
     if words.trim().is_empty() {
         return tools::Report {
             ok: true,
@@ -1090,22 +1115,21 @@ pub fn read_plan(name: &str, raw: &str) -> tools::Report {
     }
     let Ok(call) = serde_json::from_str::<Value>(raw) else {
         return failed(String::from(
-            "The call was not whole words of JSON, so nothing was answered.",
+            "The call was not valid JSON, so nothing was answered.",
         ));
     };
-    // The plan is looked at line by line. A mark of a new line at the very end
-    // closes the last line rather than opening one, so it is not a line of the
-    // plan, as it is not in a terminal either.
+    // The plan is checked line by line. A marker of a new line at the very end closes the last
+    // line rather than opening one, so it is not a line of the plan, as it is not in a terminal
+    // either.
     let mut lines: Vec<&str> = words.split('\n').collect();
     if words.ends_with('\n') {
         lines.pop();
     }
     let pattern = call.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
-    // The lines of the answer, and the places among them where a new group
-    // begins. The two are worked out below, one way for a search and one for a
-    // read of a part.
-    // The lines of the answer, with the number each of them stands on in the
-    // plan, and the places among them where a new group begins.
+    // The lines of the answer, and the places among them where a new group begins. The two are
+    // worked out below, one way for a search and one for a read of a part. The lines of the
+    // answer, with the number each of them is on in the plan, and the places among them where a
+    // new group begins.
     let mut held: Vec<(usize, &str)> = Vec::new();
     let mut groups: Vec<usize> = Vec::new();
     let said: String;
@@ -1119,8 +1143,8 @@ pub fn read_plan(name: &str, raw: &str) -> tools::Report {
         let after = asked(&call, "after").unwrap_or(0);
         let ceiling = asked(&call, "at_most").unwrap_or(usize::MAX);
         let mut found = 0usize;
-        // One past the last line the answer holds already, so a place that falls
-        // among lines given is joined to them instead of being given twice.
+        // One past the last line the answer holds already, so a place that falls among lines
+        // given is joined to them instead of being given twice.
         let mut held_to = 0usize;
         for (number, line) in lines.iter().enumerate() {
             let here = if ignoring { line.to_lowercase() } else { line.to_string() };
@@ -1160,8 +1184,8 @@ pub fn read_plan(name: &str, raw: &str) -> tools::Report {
             lines.len()
         );
     } else {
-        // Nothing to look for: the start of the plan, its end, a range of its
-        // lines, or the whole of it.
+        // Nothing to search for: the start of the plan, its end, a range of its lines, or all
+        // of it.
         let head = asked(&call, "head");
         let tail = asked(&call, "tail");
         let from = asked(&call, "from_line").map(|one| one.saturating_sub(1).min(lines.len()));
@@ -1204,7 +1228,7 @@ pub fn read_plan(name: &str, raw: &str) -> tools::Report {
             lines.len()
         );
     }
-    // The answer is kept to a size, and a read that ran past it says so.
+    // The answer is kept to a size, and a read that ran past it records it.
     let mut cut = false;
     if held.len() > GREATEST_READ_LINES {
         held.truncate(GREATEST_READ_LINES);
@@ -1235,18 +1259,18 @@ pub fn read_plan(name: &str, raw: &str) -> tools::Report {
 mod tests {
     use super::*;
 
-    // A plan is a row of the table of the plans, so a check that needs a plan of
-    // its own words lays one down through the same door the tools write through,
-    // and takes the row away again when the check is done.
+    // A plan is a row of the table of the plans, so a check that needs a plan of its own text
+    // lays one down through the same door the tools write through, and takes the row away again
+    // when the check is done.
     fn lay_down(chat: &str, text: &str) -> String {
         let name = file_name(chat);
         write(&name, text).expect("the plan is laid down");
         name
     }
 
-    // The plan of a chat stands in the database of the talks, and only a name
-    // this module wrote is a name it knows. A chat that goes into planning mode
-    // twice keeps the plan it wrote.
+    // The plan of a chat is in the database of the conversations, and only a name this module
+    // wrote is a name it knows. A chat that goes into planning mode twice keeps the plan it
+    // wrote.
     #[test]
     fn a_plan_of_a_chat_is_one_row_of_the_table() {
         let _guard = config::test_turn();
@@ -1255,11 +1279,11 @@ mod tests {
         assert_eq!(chat_of(&name).as_deref(), Some("ab12cd34ef"));
         assert!(stands(&name), "planning mode makes the row of the plan");
         let held = words(&name).expect("the plan reads back");
-        // A new plan holds nothing. Words of the program in a new plan were
-        // words the model had to hunt out of the plan again, and words the user
-        // read in the window of a plan that was never written.
+        // A new plan holds nothing. Text of the program in a new plan were text the model had
+        // to scan out of the plan again, and text the user read in the window of a plan that
+        // was never written.
         assert!(held.trim().is_empty(), "{}", held);
-        // A second look leaves the plan as it stands.
+        // A second look leaves the plan as it is now.
         lay_down("ab12cd34ef", "the plan as the model wrote it");
         create("ab12cd34ef");
         assert_eq!(words(&name).unwrap(), "the plan as the model wrote it");
@@ -1273,24 +1297,24 @@ mod tests {
         assert!(!stands("notes.md"));
     }
 
-    // The tool changes the plan by matching words, and an empty place adds a part
-    // at the end of it.
+    // The tool changes the plan by matching text, and an empty place adds a part at the end of
+    // it.
     #[test]
     fn the_plan_is_changed_by_matching_words() {
         let _guard = config::test_turn();
         let name = create("1234567890");
         let first = write_init(
             &name,
-            "{\"plan\":\"# The plan\\n\\nThe work is not laid out yet.\\n\"}",
+            "{\"plan\":\"# The plan\\n\\nThe work is not written yet.\\n\"}",
         );
         assert!(first.ok, "{}", first.output);
         let made = edit_plan(
             &name,
-            r#"{"edits":[{"old_string":"The work is not laid out yet.","new_string":"The work is laid out below."}]}"#,
+            r#"{"edits":[{"old_string":"The work is not written yet.","new_string":"The work is written below."}]}"#,
         );
         assert!(made.ok, "{}", made.output);
         assert!(made.output.contains("1 change"), "{}", made.output);
-        assert!(words(&name).unwrap().contains("The work is laid out below"));
+        assert!(words(&name).unwrap().contains("The work is written below"));
         let added = edit_plan(
             &name,
             r#"{"edits":[{"old_string":"","new_string":"\n## Step one\n"}]}"#,
@@ -1301,9 +1325,9 @@ mod tests {
         drop_plan("1234567890");
     }
 
-    // The first writing of a plan is one call of whole words. What stands in the
-    // plan file is written over, and a call that carries no plan is refused, so a
-    // call that meant nothing never takes a written plan away.
+    // The first writing of a plan is one whole call. What was there before is written over, and
+    // a call that carries no plan is refused, so a call that meant nothing never takes a
+    // written plan away.
     #[test]
     fn the_first_writing_of_a_plan_is_one_call() {
         let _guard = config::test_turn();
@@ -1313,22 +1337,22 @@ mod tests {
         assert!(begun.ok, "{}", begun.output);
         assert!(begun.output.contains("3 lines"), "{}", begun.output);
         assert!(begun.output.contains("# The way in"), "{}", begun.output);
-        // Nothing stood before, so nothing is said about what was lost.
+        // Nothing was before, so nothing is reported about what was lost.
         assert!(!begun.output.contains("gone"), "{}", begun.output);
         assert_eq!(words(&name).unwrap(), "# The way in\n\nStep one.\n");
-        // The plan may be gone through again in parts, for the tool that matches
-        // words has words to match now.
+        // The plan may be removed through again in parts, for the tool that matches text has
+        // text to match now.
         let part = edit_plan(
             &name,
             r#"{"edits":[{"old_string":"Step one.","new_string":"Step one. Then step two."}]}"#,
         );
         assert!(part.ok, "{}", part.output);
-        // A second whole writing takes the plan that stood with it, and says so.
+        // A second whole writing takes the plan that was with it, and records it.
         let again = write_init(&name, r##"{"plan":"# Another way in\n"}"##);
         assert!(again.ok, "{}", again.output);
-        assert!(again.output.contains("gone"), "{}", again.output);
+        assert!(again.output.contains("replaced"), "{}", again.output);
         assert_eq!(words(&name).unwrap(), "# Another way in\n");
-        // A call of no words, or of spaces only, writes nothing at all.
+        // A call of no text, or of spaces only, writes nothing at all.
         let empty = write_init(&name, r#"{"plan":"   \n\n  "}"#);
         assert!(!empty.ok);
         assert!(empty.output.contains("no plan"), "{}", empty.output);
@@ -1345,8 +1369,8 @@ mod tests {
         drop_plan("8800880088");
     }
 
-    // A change asked for of a plan that holds nothing says which tool writes the
-    // plan whole, for there is nothing there to match against.
+    // A change requested of a plan that holds nothing reports which tool writes the plan whole,
+    // for there is nothing there to match against.
     #[test]
     fn an_empty_plan_says_which_tool_writes_it() {
         let _guard = config::test_turn();
@@ -1357,7 +1381,7 @@ mod tests {
         );
         assert!(!made.ok);
         assert!(made.output.contains(INIT_NAME), "{}", made.output);
-        // A part written into an empty plan with no place to match still stands.
+        // A part written into an empty plan with no place to match still remains.
         let part = edit_plan(&name, r##"{"edits":[{"old_string":"","new_string":"# Step one\n"}]}"##);
         assert!(part.ok, "{}", part.output);
         assert_eq!(words(&name).unwrap(), "# Step one\n");
@@ -1385,7 +1409,7 @@ mod tests {
         drop_plan("aabbccddeeff");
     }
 
-    // The word of the user, and the words left when the command is taken away.
+    // The word of the user, and the text left when the command is removed.
     #[test]
     fn the_command_stands_at_the_head_of_the_message() {
         let (command, rest) = split("/plan build the side bar");
@@ -1416,7 +1440,7 @@ mod tests {
         assert!(first.contains("no path"), "{}", first);
         assert!(
             first.contains("first writing"),
-            "the tool must say that it stands for the first writing only: {}",
+            "the tool must say that it means the first writing only: {}",
             first
         );
         let edit = edit_definition();
@@ -1433,11 +1457,10 @@ mod tests {
         assert!(ended["function"]["description"]
             .as_str()
             .unwrap()
-            .contains("the user has said"));
+            .contains("the user has stated"));
     }
 
-    // The prompt says what the model must do with the plan file, and how deep it
-    // must go.
+    // The prompt reports what the model must do with the plan, and how detailed it must be.
     #[test]
     fn the_prompt_names_the_one_way_into_the_plan() {
         let _guard = config::test_turn();
@@ -1448,15 +1471,15 @@ mod tests {
         assert!(said.contains(EDIT_NAME));
         assert!(said.contains("down to the smallest detail"));
         assert!(said.contains(END_NAME));
-        // The plan file is named, and no other file is offered to it.
+        // The plan is named, and no other file is proposed to it.
         assert!(!said.contains("edit_file"), "{}", said);
     }
 
-    // The first rule of the mode, in the words of the prompt: nothing of the work
-    // is done while planning mode stands. The ban is on writing and on every
-    // command that leaves a thing changed, and it is named by the kinds of
-    // command a model reaches for; the commands that only look about stay open, so
-    // that the plan is still built on what the work is and not on a guess.
+    // The first rule of the mode, in the text of the prompt: nothing of the work is done while
+    // planning mode remains. The ban is on writing and on every command that leaves an item
+    // changed, and it is named by the types of command a model reaches for; the commands that
+    // only look about stay open, so that the plan is still built on what the work is and not on
+    // a guess.
     #[test]
     fn the_prompt_forbids_the_work_and_keeps_the_reading() {
         let _guard = config::test_turn();
@@ -1466,15 +1489,15 @@ mod tests {
             "{said}"
         );
         assert!(
-            said.contains("Two rules stand over everything below"),
+            said.contains("Two rules govern everything below"),
             "{said}"
         );
         assert!(
-            said.contains("Run no command that leaves a thing changed"),
+            said.contains("Run no command that changes anything"),
             "{said}"
         );
-        // The kinds of command that change a thing are said out, so that a model
-        // cannot read a build, an install or a commit as a thing apart.
+        // The types of command that change something are stated out, so that a model cannot
+        // read a build, an install or a commit as an item apart.
         for kind in [
             "builds",
             "compiles",
@@ -1491,31 +1514,29 @@ mod tests {
         }
         // A redirect into a file is a writing, whatever the command before it was.
         assert!(said.contains("a redirect, a here-document or a pipe"), "{said}");
-        // Reading, and the commands that only tell what stands there, stay open.
+        // Reading, and the commands that only tell what is there, stay open.
         assert!(
-            said.contains("A command that only asks what stands there is allowed"),
+            said.contains("A command that only reads what is there is allowed"),
             "{said}"
         );
         for looker in ["`git status`", "`git log`", "`git diff`", "`git show`"] {
             assert!(said.contains(looker), "{looker} should stay open: {said}");
         }
-        // Where a command is not plainly a looking one, the plan takes the place of
-        // running it.
+        // Where a command is not plainly a looking one, the plan takes the place of running it.
         assert!(
             said.contains("do not run it: write into the plan"),
             "{said}"
         );
-        // The one file that may change is the plan, and the file tools of the work
-        // are never named to it.
-        assert!(said.contains("The plan file is the one file you may change"), "{said}");
+        // The one file that may change is the plan, and the file tools of the work are never
+        // named to it.
+        assert!(said.contains("The plan is the only thing you may change"), "{said}");
         assert!(!said.contains("edit_file"), "{said}");
         assert!(!said.contains("create_file"), "{said}");
     }
 
-    // The second rule of the mode: `end_planning` is the only way out of planning
-    // mode, so a model may not say the work has begun, and may not do a step of it
-    // in place of the call. The words of the tool say the same, for a model reads
-    // the tool list beside the prompt.
+    // The second rule of the mode: `end_planning` is the only way out of planning mode, so a
+    // model may not say the work has begun, and may not do a step of it in place of the call.
+    // The text of the tool reports the same, for a model reads the tool list beside the prompt.
     #[test]
     fn the_prompt_names_the_one_way_out_of_planning_mode() {
         let _guard = config::test_turn();
@@ -1554,8 +1575,8 @@ mod tests {
         );
     }
 
-    // A plan that was never written reads back as nothing written, and says which
-    // tool writes it whole: the model is never left with a blank space for a file.
+    // A plan that was never written reads back as nothing written, and reports which tool
+    // writes it whole: the model is never left with a blank space for a file.
     #[test]
     fn a_plan_that_was_never_written_reads_back_as_nothing() {
         let _guard = config::test_turn();
@@ -1570,10 +1591,10 @@ mod tests {
         drop_plan("6600660066");
     }
 
-    // The plan is read back with the lines about each place that was found, and
-    // two places that do not touch are kept apart by a line of two marks. The
-    // numbers the answer carries are the numbers of the file, so a read of a part
-    // of the plan says where each line stands in it.
+    // The plan is read back with the lines about each place that was found, and two places that
+    // do not touch are kept apart by a line of two markers. The numbers the answer carries are
+    // the numbers of the file, so a read of a part of the plan reports where each line is in
+    // it.
     #[test]
     fn the_plan_is_read_back_about_a_place() {
         let _guard = config::test_turn();
@@ -1586,9 +1607,9 @@ mod tests {
             "{}",
             made.output
         );
-        // The two places touch, for the line after the first holds the line
-        // before the second, so no mark stands between them. With no line about
-        // the places they do not touch, and a line of two marks does stand.
+        // The two places touch, for the line after the first holds the line before the second,
+        // so no marker is between them. With no line about the places they do not touch, and a
+        // line of two markers does remain.
         let tight = read_plan(&name, r#"{"pattern":"step one"}"#);
         assert!(tight.ok, "{}", tight.output);
         assert!(
@@ -1600,14 +1621,14 @@ mod tests {
         let one = read_plan(&name, r#"{"pattern":"step one","at_most":1}"#);
         assert!(one.output.contains("1 place"), "{}", one.output);
         assert!(!one.output.contains("gamma"), "{}", one.output);
-        // The letters of the words are looked past when it is asked for.
+        // The letters of the text is looked past when it is requested.
         let loose = read_plan(&name, r#"{"pattern":"ALPHA STEP ONE","ignore_case":true}"#);
         assert!(loose.output.contains("1 place"), "{}", loose.output);
         drop_plan("7001001");
     }
 
-    // The start of the plan, a range of its lines, and the whole of it are read
-    // back with the numbers of the file in front of the lines.
+    // The start of the plan, a range of its lines, and all of it are read back with the numbers
+    // of the file in front of the lines.
     #[test]
     fn a_part_of_the_plan_is_read_back() {
         let _guard = config::test_turn();
@@ -1615,13 +1636,13 @@ mod tests {
         let head = read_plan(&name, r#"{"head":2}"#);
         assert!(head.ok, "{}", head.output);
         assert!(head.output.contains("1: one\n2: two\n"), "{}", head.output);
-        // A range of lines is asked for by the numbers of the file, and answers
-        // with those numbers and not with a count of its own.
+        // A range of lines is requested by the numbers of the file, and answers with those
+        // numbers and not with a count of its own.
         let middle = read_plan(&name, r#"{"from_line":2,"to_line":3}"#);
         assert!(middle.ok, "{}", middle.output);
         assert!(middle.output.contains("2: two\n3: three\n"), "{}", middle.output);
         assert!(!middle.output.contains("one"), "{}", middle.output);
-        // The last lines of the plan, and the whole of it.
+        // The last lines of the plan, and all of it.
         let last = read_plan(&name, r#"{"tail":1}"#);
         assert!(last.output.contains("4: four"), "{}", last.output);
         let whole = read_plan(&name, "{}");
@@ -1634,8 +1655,8 @@ mod tests {
         drop_plan("7001002");
     }
 
-    // A search that found nothing says so plainly, for a model that was answered
-    // with silence might take it for a plan that holds the words.
+    // A search that found nothing records it plainly, for a model that was answered with
+    // silence might take it for a plan that holds the text.
     #[test]
     fn a_search_of_the_plan_that_found_nothing_says_so() {
         let _guard = config::test_turn();
@@ -1646,10 +1667,10 @@ mod tests {
         drop_plan("7001003");
     }
 
-    // The questions of the plan go to one tool. The prompt and the words of the
-    // tool both say that the questionnaire is the way to ask in planning mode, and
-    // not the card over the chat box, which is gone when its few seconds are spent,
-    // nor a question written in the words of an answer.
+    // The questions of the plan go to one tool. The prompt and the text of the tool both
+    // reports that the questionnaire is the way to ask in planning mode, and not the card over
+    // the chat composer, which is removed when its few seconds are spent, nor a question
+    // written in the text of an answer.
     #[test]
     fn the_prompt_sends_the_questions_to_the_questionnaire() {
         let said = system_prompt("plan-7.md");
@@ -1664,13 +1685,13 @@ mod tests {
         assert!(words.contains("no clock on it"), "{words}");
     }
 
-    // The prompt tells the model that the user never sees the plan, names the
-    // questionnaire and the read-back as the two ways of reaching the user and
-    // the plan, and forbids questions written into the plan.
+    // The prompt reports the model that the user never sees the plan, names the questionnaire
+    // and the read-back as the two ways of reaching the user and the plan, and forbids
+    // questions written into the plan.
     #[test]
     fn the_prompt_keeps_questions_out_of_the_plan() {
         let said = system_prompt("plans/plan-1.md");
-        assert!(said.contains("never sees the plan file"), "{}", said);
+        assert!(said.contains("does not read the plan file"), "{}", said);
         assert!(said.contains(ASK_NAME), "{}", said);
         assert!(said.contains(READ_NAME), "{}", said);
         assert!(said.contains("never write a question into the"), "{}", said);
@@ -1678,13 +1699,13 @@ mod tests {
         assert!(said.contains("No clock runs on those"), "{}", said);
     }
 
-    // A questionnaire is any number of questions, each with the answers the user
-    // may choose from and the mark of whether several may be chosen. A question
-    // with no words in it is refused, for the user cannot read it.
+    // A questionnaire is any number of questions, each with the answers the user may choose
+    // from and the marker of whether several may be chosen. A question with no text in it is
+    // refused, for the user cannot read it.
     #[test]
     fn a_questionnaire_is_read_from_the_call() {
         let raw = r#"{"questions":[
-            {"question":"Which skin first?","choices":["pale","dark","grey"],"many":true},
+            {"question":"Which theme first?","choices":["pale","dark","grey"],"many":true},
             {"question":"What is the name?","choices":[]}
         ]}"#;
         let items = questions_of(raw).expect("two questions");
@@ -1707,9 +1728,9 @@ mod tests {
         assert!(questions_of(&too_many).is_err());
     }
 
-    // The word of the programmed message stands on its own, as the word of the plan
-    // does: a longer word that begins the same way is no command, and neither is the
-    // word in the middle of a sentence.
+    // The word of the programmed message is on its own, as the word of the plan does: a longer
+    // word that begins the same way is no command, and neither is the word in the middle of a
+    // sentence.
     #[test]
     fn the_word_of_the_programmed_message_stands_on_its_own() {
         assert!(asked_as_program("/program"));

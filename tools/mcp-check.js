@@ -1,10 +1,8 @@
-// Check the MCP badge and the MCP tab. The badge is a door to the servers of
-// the user's own: it holds one line for each server that stands in the menu,
-// and a line turns a server on or off for this chat alone. The tab holds every
-// server, the mark chosen for it, and the words of one that is written in the
-// program itself. The page is loaded as it stands, with no bridge and no
-// engine: the menu and the tab are filled by hand with the states the engine
-// hands out.
+// Check the MCP badge and the MCP tab. The badge is a door to the servers of the user's own: it
+// holds one line for each server that is in the menu, and a line turns a server on or off for
+// this chat alone. The tab holds every server, the marker chosen for it, and the text of one
+// that is written in the program itself. The page is loaded as it is now, with no bridge and no
+// engine: the menu and the tab are filled manually with the states the engine pointers out.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -37,8 +35,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       generating: false, thinking: { mode: 'off', available: false, modes: [] } };
     cur = state;
 
-    // The badge opens a menu, and asks nothing of the program until a line of
-    // that menu is pressed.
+    // The badge opens a menu, and asks nothing of the program until a line of that menu is
+    // pressed.
     el.mcp.click();
     if (el.mcpmenu.classList.contains('hidden')) {
       faults.push('the badge did not open the menu of the servers');
@@ -53,30 +51,30 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('a server of the menu is missing its name');
     }
     if (words.indexOf('Archive') >= 0) {
-      faults.push('a server kept out of the menu stands in it');
+      faults.push('a server kept out of the menu is in it');
     }
     if (el.mcpmenu.querySelectorAll('.ico svg').length !== 2) {
-      faults.push('a line of the menu has no mark of its own');
+      faults.push('a line of the menu has no marker of its own');
     }
     if (!el.mcpmenu.querySelector('button.toggle.on')) {
-      faults.push('the server this chat stands on is not marked in the menu');
+      faults.push('the server this chat is on is not flagged in the menu');
     }
-    // One line turns one server on or off, and says which.
+    // One line turns one server on or off, and reports which.
     lines[0].click();
     if (!sent.length || sent[0][0] !== '/api/mcp_on'
         || sent[0][1].on !== false || sent[0][1].id !== 'one') {
-      faults.push('the line of the menu did not ask for the one server: ' + JSON.stringify(sent));
+      faults.push('the line of the menu did not request the one server: ' + JSON.stringify(sent));
     }
-    // The badge says how many servers the chat offers.
+    // The badge reports how many servers the chat proposes.
     drawMcp(state);
     if (el.mcptext.textContent.indexOf('1') < 0) {
-      faults.push('the badge does not say how many servers are offered: ' + el.mcptext.textContent);
+      faults.push('the badge does not say how many servers are proposed: ' + el.mcptext.textContent);
     }
-    if (!el.mcp.classList.contains('on')) { faults.push('the badge does not stand bright'); }
+    if (!el.mcp.classList.contains('on')) { faults.push('the badge is not bright'); }
     el.mcp.click();
 
-    // The tab holds every server, the one kept out of the menu saying so, and
-    // the one that did not answer saying why.
+    // The tab holds every server, the one kept out of the menu saying so, and the one that did
+    // not answer saying why.
     var list = byId('mcpList');
     list.innerHTML = '';
     for (var i = 0; i < servers.length; i++) { list.appendChild(mcpRow(servers[i])); }
@@ -84,39 +82,39 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (rows.length !== 3) { faults.push('the tab holds ' + rows.length + ' servers, not three'); }
     var said = list.textContent;
     if (said.indexOf('Did not answer') < 0) {
-      faults.push('a server that did not answer does not say so');
+      faults.push('a server that did not answer does not record it');
     }
     if (list.querySelectorAll('.mcprow .ico svg').length !== 3) {
-      faults.push('a server of the list has no mark of its own');
+      faults.push('a server of the list has no marker of its own');
     }
     var menuButtons = [];
     for (var r = 0; r < rows.length; r++) {
       var hold = rows[r].querySelector('button[title^="Let this server stand"]');
-      if (!hold) { faults.push('a row has no switch for standing in the menu'); }
+      if (!hold) { faults.push('a row has no switch for remaining in the menu'); }
       else { menuButtons.push(hold.textContent); }
     }
     if (menuButtons.join('|') !== 'In menu|In menu|Out') {
-      faults.push('the switch of the menu does not say where each server stands: '
+      faults.push('the switch of the menu does not say where each server remains: '
         + menuButtons.join('|'));
     }
-    // The picker offers sixteen marks and stands on one of them.
+    // The picker proposes sixteen markers and is on one of them.
     showMcpEditor(null);
     var marks = byId('mcIcon').querySelectorAll('button');
-    if (marks.length !== 16) { faults.push('the picker holds ' + marks.length + ' marks'); }
+    if (marks.length !== 16) { faults.push('the picker holds ' + marks.length + ' markers'); }
     if (!byId('mcIcon').querySelector('button.on')) {
-      faults.push('the picker has no mark stood on');
+      faults.push('the picker has no marker was on');
     }
     marks[4].click();
     if (mcpIcon !== 4 || !byId('mcIcon').querySelector('button.on.title')
         && byId('mcIcon').querySelectorAll('button')[4].className.indexOf('on') < 0) {
-      faults.push('a mark of the picker cannot be stood on');
+      faults.push('a marker of the picker cannot be was on');
     }
-    // The kind moves which fields stand.
+    // The type moves which fields remain.
     var kind = byId('mcKind');
     kind.value = 'internal';
     kind.dispatchEvent(new Event('change', { bubbles: true }));
     if (byId('mcCodeRow').style.display === 'none') {
-      faults.push('the words of a server of the program itself are hidden');
+      faults.push('the text of a server of the program itself are hidden');
     }
     if (byId('mcUrlRow').style.display !== 'none') {
       faults.push('the address of a server of the program itself is shown');
@@ -127,9 +125,9 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('the address of a server of the network is hidden');
     }
     if (byId('mcCodeRow').style.display !== 'none') {
-      faults.push('the words of Python stand under a server of the network');
+      faults.push('the text of Python is under a server of the network');
     }
-    // What stands in the fields is what is kept, under the kind it began as.
+    // What is in the fields is what is kept, under the type it began as.
     byId('mcName').value = 'Tally';
     byId('mcUrl').value = 'http://127.0.0.1:9000/mcp';
     mcpSave();
@@ -140,12 +138,12 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       var server = save[1].server;
       if (server.name !== 'Tally' || server.kind !== 'http'
           || server.url !== 'http://127.0.0.1:9000/mcp' || server.icon !== 4) {
-        faults.push('Save sent other words than the fields held: ' + JSON.stringify(server));
+        faults.push('Save sent other text than the fields held: ' + JSON.stringify(server));
       }
     }
-    // The example a server of the program itself begins with comes from the
-    // program with the list of the servers, and the field of the code takes it
-    // when the kind is moved to that one.
+    // The example a server of the program itself begins with comes from the program with the
+    // list of the servers, and the field of the code takes it when the type is moved to that
+    // one.
     var EXAMPLE = '"""An example of a server of the program itself.\n\n' +
       '@tool\ndef hello(name: str) -> str:\n    """Say hello to one person."""\n' +
       '    return "Hello, " + name;\n';
@@ -162,8 +160,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (byId('mcCode').value !== EXAMPLE) {
       faults.push('the field of the code did not take the example: ' + byId('mcCode').value);
     }
-    // What the user wrote is never written over, and the example is offered
-    // again when the field still holds the example whole.
+    // What the user wrote is never written over, and the example is proposed again when the
+    // field still holds the example whole.
     byId('mcCode').value = 'the words of the user';
     kind.value = 'stdio';
     kind.dispatchEvent(new Event('change', { bubbles: true }));
@@ -178,7 +176,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     kind.value = 'internal';
     kind.dispatchEvent(new Event('change', { bubbles: true }));
     if (byId('mcCode').value !== EXAMPLE) {
-      faults.push('the example could not be offered again to a fresh field');
+      faults.push('the example could not be proposed again to a fresh field');
     }
     // A page that never got the example leaves the field as the user left it.
     mcpTemplate = '';
@@ -190,8 +188,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (byId('mcCode').value !== '') {
       faults.push('a field was filled with nothing at all');
     }
-    // A tool of a server is drawn in the shape of a tool of a server, and the
-    // name the user sees is the name the server gave it.
+    // A tool of a server is drawn in the form of a tool of a server, and the name the user sees
+    // is the name the server gave it.
     var shape = toolShape('mcp__bookshop__look_up');
     if (String(shape.head).indexOf('Calling') < 0) {
       faults.push('a tool of a server is not drawn as one');
@@ -207,9 +205,9 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     out.forEach(function (f) { console.log(f); });
     process.exit(1);
   }
-  console.log('the MCP badge opens a menu of the servers with a mark and a switch each, '
-    + 'the tab holds every server with its mark, its kind and what became of the look, '
-    + 'the picker offers sixteen marks, the kind moves which fields stand, the field of '
+  console.log('the MCP badge opens a menu of the servers with a marker and a switch each, '
+    + 'the tab holds every server with its marker, its type and what became of the look, '
+    + 'the picker proposes sixteen markers, the type moves which fields remain, the field of '
     + 'the code of a server of the program itself begins with the example the program '
     + 'sends and keeps what the user wrote, and Save sends what the fields hold');
 })();

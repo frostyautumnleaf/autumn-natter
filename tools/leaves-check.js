@@ -1,30 +1,26 @@
-// The leaves that fall behind the words of the chat, looked at in both faces of
-// the program with no engine behind them.
+// The leaves that fall behind the text of the chat, checked in both pages of the program with
+// no engine behind them.
 //
-// Six things are looked at, in each face:
-//   * the background canvas stands in the chat stage, under the thread, and does
-//     not catch clicks;
-//   * the leaf is the program's icon: the path data of the leaf body, the stem and
-//     the veins equals the path data in `frontend/assets/autumn-natter.svg`, the
-//     paths are drawn with Path2D, and the drawn shape has the proportions of the
-//     icon and grows with the size it is asked for;
-//   * the colour of a leaf is read out of the skin - darker than the ground of a
-//     pale skin, lighter than the ground of a dark one, and grey where the skin
-//     is grey;
-//   * nothing falls while the setting says nothing, however long an answer is
-//     being written;
-//   * leaves fall while an answer is being written and the setting asks for them,
-//     they are drawn, and they go out again when the answer stops;
-//   * a machine asked for few moves is given no falling at all, and the marks of
-//     the sheet of the settings stand at the word the settings hold.
+// Six items are checked, in each page:
+// * the background canvas is in the chat stage, under the thread, and does not catch clicks;
+// * the leaf is the program's icon: the path data of the leaf body, the stem and the veins
+//    equals the path data in `frontend/assets/autumn-natter.svg`, the paths are drawn with
+//    Path2D, and the drawn form has the proportions of the icon and grows with the size it is
+//    requested;
+// * the colour of a leaf is extracted from the theme - darker than the background of a pale
+//    theme, lighter than the background of a dark one, and grey where the theme is grey;
+// * nothing falls while the setting reports nothing, however long an answer is being written;
+// * leaves fall while an answer is being written and the setting requests them, they are drawn,
+//    and they go out again when the answer stops;
+// * a computer requested few moves is given no falling at all, and the markers of the settings
+//    panel are at the word the settings hold.
 //
-//   node leaves-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node leaves-check.js
+// node leaves-check.js AN_PAGE=web/page.html AN_FETCH=1 node leaves-check.js
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
 
-// The mark of the program, which the falling leaves are drawn from.
+// The program icon, which the falling leaves are drawn from.
 const MARK_SVG = path.join(__dirname, '..', 'frontend', 'assets', 'autumn-natter.svg');
 
 const PAGES = process.env.AN_PAGE
@@ -51,7 +47,7 @@ function stateOf(theme) {
     messages: [
       { id: '1', role: 'You', body: 'Let the leaves fall.', reasoning: '', reasoning_ms: 0,
         attachments: [], tool: '', mono: false, failed: false, when: '09:04' },
-      { id: '2', role: 'Assistant', body: 'The leaves are of the ground, a shade off it.',
+      { id: '2', role: 'Assistant', body: 'The leaves are of the background, a shade off it.',
         reasoning: '', reasoning_ms: 0, attachments: [], tool: '', mono: false,
         failed: false, when: '09:05' },
     ],
@@ -139,9 +135,9 @@ async function main() {
     const faults = [];
     page.on('pageerror', (e) => faults.push(String(e)));
     await page.evaluateOnNewDocument(LOOK);
-    // Both bridges are stood in, so either face may be read the same way. The
-    // state is kept on the page, so a step of this check may say whether an answer
-    // is being written and let the page notice it for itself, as it does in use.
+    // Both bridges are placed in, so either face may be read the same way. The state is kept on
+    // the page, so a step of this check may say whether an answer is being written and let the
+    // page notice it for itself, as it does in use.
     await page.evaluateOnNewDocument(function (given) {
       window.__state = given;
       window.__work = function (on) { window.__state.generating = !!on; };
@@ -165,9 +161,9 @@ async function main() {
     await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
     await sleep(400);
     const notes = [];
-    const note = (what) => { notes.push(what); console.log('  FAULT: ' + what); };
+    const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
-    // Where the canvas stands.
+    // Where the canvas remains.
     const placed = await page.evaluate(() => {
       const canvas = document.getElementById('fall');
       const stage = document.getElementById('stage');
@@ -183,8 +179,8 @@ async function main() {
       };
     });
 
-    // The leaf itself: the path data the face draws with, and what one leaf looks
-    // like when it is drawn. The path data is compared with the mark on disk below.
+    // The leaf itself: the path data the face draws with, and what one leaf looks like when it
+    // is drawn. The path data is compared with the marker on disk below.
     const shapes = await page.evaluate(() => {
       const one = (size) => ({ size: size, tone: 0, turned: false });
       const small = leafPaint(one(LEAF_SIZES[0]));
@@ -207,9 +203,9 @@ async function main() {
       };
     });
 
-    // The path data on disk, as one string of space-separated numbers per path.
-    // The body of the mark is drawn twice on disk (the colour and the shading of
-    // it), so the leaf is compared with both of them being the same path.
+    // The path data on disk, as one string of space-separated numbers per path. The body of the
+    // marker is drawn twice on disk (the colour and the shading of it), so the leaf is compared
+    // with both of them being the same path.
     const markText = fs.readFileSync(MARK_SVG, 'utf8');
     const join = (d) => String(d).replace(/\s+/g, ' ').trim();
     const markPaths = (markText.match(/\bd="([^"]+)"/g) || [])
@@ -218,9 +214,9 @@ async function main() {
     const markStalk = markPaths.filter((d) => /^M64 86 C/.test(d));
     const markVeins = markPaths.filter((d) => /^M\d+ \d+ L/.test(d));
 
-    // The colour of a leaf, in the two skins of the program, and in the two of
-    // grey. A leaf has to be of the ground it is seen against, and off it by a
-    // shade the way the ground asks for.
+    // The colour of a leaf, in the two themes of the program, and in the two of grey. A leaf
+    // has to be of the background it is seen against, and off it by a shade the way the
+    // background requests.
     const tones = await page.evaluate(() => {
       const given = [];
       ['light', 'dark', 'silver', 'corporate'].forEach((word) => {
@@ -234,8 +230,8 @@ async function main() {
           word: word,
           ground: ground,
           body: body,
-          // The stalk has to stand off the ground more than the body of the leaf
-          // does, or it is a part of the leaf and not its stalk.
+          // The stalk has to remain off the background more than the body of the leaf does, or
+          // it is a part of the leaf and not its stalk.
           stronger: Math.abs(strong - ground) > Math.abs(body - ground),
           grey: Math.abs(raw[0] - raw[1]) < 3 && Math.abs(raw[1] - raw[2]) < 3,
           span: Math.abs(ground - body),
@@ -246,7 +242,7 @@ async function main() {
       return given;
     });
 
-    // Nothing falls while the setting says nothing, however long the answer is.
+    // Nothing falls while the setting reports nothing, however long the answer is.
     const silent = await page.evaluate(() => {
       fallWant('none');
       window.__work(true);
@@ -257,8 +253,8 @@ async function main() {
       raf: fall.raf, leaves: fall.leaves.length, painted: painted(),
     }));
 
-    // The word of the setting is carried in with the state: the page is told by
-    // the engine, and not by this check.
+    // The word of the setting is carried in with the state: the page is informed by the engine,
+    // and not by this check.
     await page.evaluate(() => { window.__state.chatting.background = 'leaves'; });
     await sleep(700);
     const told = await page.evaluate(() => ({
@@ -266,11 +262,11 @@ async function main() {
       busy: fall.busy, asked: fallAsked(), size: [fall.w, fall.h],
     }));
 
-    // And now they fall, while an answer is being written. The word came in with
-    // the state above, so it is the page that lets them go, and not this check.
+    // And now they fall, while an answer is being written. The word arrived with the state
+    // above, so it is the page that lets them go, and not this check.
     await sleep(400);
-    // A screen of leaves: how many there are, and whether they differ from one
-    // another in angle, in size and in which way up they are turned.
+    // A screen of leaves: how many there are, and whether they differ from one another in
+    // angle, in size and in which way up they are turned.
     const falling = await page.evaluate(() => {
       const angles = fall.leaves.map((one) => one.angle);
       const sizes = fall.leaves.map((one) => one.size);
@@ -296,7 +292,7 @@ async function main() {
       raf: fall.raf, leaves: fall.leaves.length, painted: painted(),
     }));
 
-    // A machine asked for few moves is given none of this.
+    // A computer requested few moves is given none of this.
     const calm = await page.evaluate(() => {
       reduce = true;
       fallWant('none');
@@ -314,7 +310,7 @@ async function main() {
       window.__work(false);
     });
 
-    // The marks of the sheet of the settings, and the word they stand at.
+    // The markers of the settings panel, and the word they are at.
     const sheet = await page.evaluate(() => {
       showBackgroundButtons('leaves');
       const marks = {
@@ -331,9 +327,9 @@ async function main() {
       return marks;
     });
 
-    // A page that never saw the skin move, as a page opened under the skin it
-    // already had: the colours of the leaves are then read at the first frame, and
-    // the first leaf drawn is drawn of the skin the page stands in.
+    // A page that never saw the theme move, as a page opened under the theme it already had:
+    // the colours of the leaves are then read at the first frame, and the first leaf drawn is
+    // drawn of the theme the page is in.
     await page.evaluate(() => {
       fall.tones = null;
       fall.paths = null;
@@ -358,20 +354,20 @@ async function main() {
     await page.close();
 
     if (faults.length) { note('page faults: ' + faults.join(' | ')); }
-    if (!placed.inStage || !placed.first) { note('the canvas does not stand first in the place of the chat'); }
+    if (!placed.inStage || !placed.first) { note('the canvas is not first in the place of the chat'); }
     if (!placed.overThread) { note('the canvas is not under the thread'); }
-    if (placed.clicks !== 'none') { note('the canvas catches the hand: ' + placed.clicks); }
+    if (placed.clicks !== 'none') { note('the canvas catches the pointer: ' + placed.clicks); }
     if (!placed.wide || !placed.tall) { note('the canvas has no size: ' + placed.wide + ' by ' + placed.tall); }
-    if (shapes.mark !== 128) { note('the leaf is not drawn in the square of the mark: ' + shapes.mark); }
+    if (shapes.mark !== 128) { note('the leaf is not drawn in the square of the marker: ' + shapes.mark); }
     if (markBody.length < 1 || markBody.some((d) => d !== markBody[0])
       || join(shapes.body) !== markBody[0]) {
-      note('the body of the leaf is not the body of the mark on disk');
+      note('the body of the leaf is not the body of the marker on disk');
     }
     if (markStalk.length !== 1 || join(shapes.stalk) !== markStalk[0]) {
-      note('the stalk of the leaf is not the stalk of the mark on disk');
+      note('the stalk of the leaf is not the stalk of the marker on disk');
     }
     if (shapes.veinCount !== markVeins.length || shapes.veins.length !== markVeins.length) {
-      note('the leaf does not carry the veins of the mark: ' + shapes.veinCount
+      note('the leaf does not carry the veins of the marker: ' + shapes.veinCount
         + ' drawn, ' + markVeins.length + ' in the mark');
     } else {
       shapes.veins.forEach((vein, at) => {
@@ -379,7 +375,7 @@ async function main() {
       });
     }
     if (!shapes.isPath) { note('the leaf is not drawn as a Path2D'); }
-    if (!shapes.cached) { note('the paths of the leaf are made again every frame'); }
+    if (!shapes.cached) { note('the paths of the leaf are rebuilt every frame'); }
     if (!shapes.sizes.length || shapes.sizes.length < 2) {
       note('the leaf has only one size: ' + JSON.stringify(shapes.sizes));
     }
@@ -402,17 +398,17 @@ async function main() {
     }
     const square = shapes.large.wide / shapes.large.tall;
     if (!(square > 0.6 && square < 1.5)) {
-      note('a leaf is not the shape of the mark it is drawn from: ' + shapes.large.wide
+      note('a leaf is not the form of the marker it is drawn from: ' + shapes.large.wide
         + ' by ' + shapes.large.tall);
     }
     tones.forEach((tone) => {
       const needed = tone.word === 'light' ? tone.body < tone.ground : tone.body > tone.ground;
       if (!needed) {
-        note('a leaf of the ' + tone.word + ' skin is not off its ground the right way: ground '
+        note('a leaf of the ' + tone.word + ' theme is not off its ground the right way: ground '
           + tone.ground.toFixed(1) + ', leaf ' + tone.body.toFixed(1));
       }
       if (tone.span < 12 || tone.span > 60) {
-        note('a leaf of the ' + tone.word + ' skin is too far off its ground, or not far enough: '
+        note('a leaf of the ' + tone.word + ' theme is too far off its ground, or not far enough: '
           + tone.span.toFixed(1));
       }
       if (tone.stronger !== true) { note('the stalk of a leaf is not the stronger part'); }
@@ -421,7 +417,7 @@ async function main() {
       if (!grey && tone.grey) { note('a leaf of the ' + tone.word + ' skin lost its warmth'); }
     });
     if (silent.raf || silent.leaves || stillSilent.painted) {
-      note('leaves fell while the setting said nothing: ' + JSON.stringify(stillSilent));
+      note('leaves fell while the setting stated nothing: ' + JSON.stringify(stillSilent));
     }
     if (told.want !== 'leaves' || told.held !== 'leaves') {
       note('the word of the setting was not carried in: ' + JSON.stringify(told));
@@ -441,7 +437,7 @@ async function main() {
     }
     if (!falling.spin) { note('the leaves do not turn as they come down'); }
     if (falling.angleSpan < 0.4) {
-      note('the leaves stand at nearly the same angle: ' + falling.angleSpan.toFixed(2));
+      note('the leaves are at nearly the same angle: ' + falling.angleSpan.toFixed(2));
     }
     if (falling.sizeKinds < 2 && falling.leaves > 3) {
       note('every leaf that falls is of one size: ' + JSON.stringify(falling.sizeKinds));
@@ -459,16 +455,16 @@ async function main() {
       note('the leaves did not go out when the answer stopped: ' + JSON.stringify(stopped));
     }
     if (calm.raf || stillCalm.painted || stillCalm.leaves) {
-      note('a machine asked for few moves was given leaves: ' + JSON.stringify(stillCalm));
+      note('a computer requested few moves was given leaves: ' + JSON.stringify(stillCalm));
     }
     if (sheet.word !== 'leaves' || sheet.none || !sheet.leaves || !sheet.group) {
-      note('the marks of the sheet do not stand at the word: ' + JSON.stringify(sheet));
+      note('the markers of the stylesheet are not at the word: ' + JSON.stringify(sheet));
     }
-    if (sheet.after !== 'none') { note('a click on Nothing did not move the mark'); }
-    if (sheet.dirty !== true) { note('the sheet was not marked as holding words never written'); }
+    if (sheet.after !== 'none') { note('a click on Nothing did not move the marker'); }
+    if (sheet.dirty !== true) { note('the stylesheet was not flagged as holding text never written'); }
     if (sheet.fallback !== 'none') { note('no word in the settings did not give Nothing'); }
     if (!fresh.tones || !fresh.leaves || !fresh.raf || fresh.painted < 200) {
-      note('a page whose skin never moved drew nothing: ' + JSON.stringify(fresh));
+      note('a page whose theme never moved drew nothing: ' + JSON.stringify(fresh));
     }
     if (cleared.raf || cleared.leaves || cleared.painted) {
       note('the leaves of that page did not go out again: ' + JSON.stringify(cleared));
@@ -478,7 +474,7 @@ async function main() {
   }
   await browser.close();
   if (trouble) { throw new Error(trouble + ' fault(s) across ' + PAGES.length + ' faces'); }
-  console.log('the leaves of the chat background fall, and stop, in both faces');
+  console.log('the leaves of the chat background fall, and stop, in both pages');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

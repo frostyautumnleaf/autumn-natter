@@ -1,15 +1,15 @@
 // A live check of a turn of the model with nothing in it, not for the repository.
 //
 // The server here is not llama.cpp but `probe/emptyturn/llama-server`: a script
-// that comes to its own end straight out of a thought, which is what the reader's
-// log showed. A turn with no words of its own goes back to the server as a saying
+// that comes to its own end straight out of a thought, which is what the user's
+// log showed. A turn with no text of its own goes back to the server as a saying
 // of the model with nothing after it, and the server is then put to go on where the
 // model left off: it leaves the turn empty again, and every send of the chat ends
 // under "(the model gave no answer)". The check is that the program asks on with a
 // word of its own behind such a turn, that the word never comes into the chat, that
-// no ask ever goes out on an empty turn alone, and -- in the stubborn mood, where
+// no request ever is sent on an empty turn alone, and -- in the stubborn mood, where
 // the model has nothing to give at all -- that two turns of nothing end the answer
-// and tell the reader.
+// and tell the user.
 //
 //     cargo test -p autumn-natter-core --test live_empty_turn -- --nocapture --test-threads=1
 
@@ -31,9 +31,9 @@ fn wait_for<T>(what: &str, mut look: impl FnMut() -> Option<T>) -> T {
     }
 }
 
-// The asks the script answered, out of its log. The script counts every ask, and
-// the program sends one kind of ask that is not a saying of the talk at all (it
-// asks for the number of tokens), so only the asks with a shape of their own count.
+// The requests the script answered, out of its log. The script counts every ask, and the
+// program sends one type of ask that is not a saying of the conversation at all (it requests
+// the number of tokens), so only the requests with a form of their own count.
 fn kinds(scratch: &Path) -> Vec<String> {
     let text = std::fs::read_to_string(scratch.join("asks.jsonl")).unwrap_or_default();
     text.lines()
@@ -46,10 +46,9 @@ fn kinds(scratch: &Path) -> Vec<String> {
         .collect()
 }
 
-// Wait until the script has answered this many asks of the talk, or until two
-// minutes have passed. The state of the program is not looked at here, for it is
-// idle before the worker has begun and idle again after it, and a check that only
-// waits for idle passes at once.
+// Wait until the script has answered this many asks of the conversation, or until two minutes
+// have passed. The state of the program is not checked here, for it is idle before the worker
+// has begun and idle again after it, and a check that only waits for idle passes at once.
 fn wait_asks(scratch: &Path, most: usize) -> Vec<String> {
     let until = Instant::now() + Duration::from_secs(120);
     loop {
@@ -67,7 +66,7 @@ fn wait_asks(scratch: &Path, most: usize) -> Vec<String> {
     }
 }
 
-// The rows of the chat, as `role body` lines, so a look shows what the reader has.
+// The rows of the chat, as `role body` lines, so a look shows what the user has.
 fn rows(engine: &Engine) -> Vec<String> {
     engine
         .snapshot()
@@ -77,9 +76,9 @@ fn rows(engine: &Engine) -> Vec<String> {
         .collect()
 }
 
-// The program, the script, and the chat, with the tools offered so that the model
-// has something to fall back on. The model file is only wanted so the engine has a
-// model to choose: the script reads no model at all.
+// The program, the script, and the chat, with the tools proposed so that the model has
+// something to fall back on. The model file is only wanted so the engine has a model to choose:
+// the script reads no model at all.
 fn start(named: &str, scratch_name: &str) -> (Engine, PathBuf) {
     let root = PathBuf::from("..").canonicalize().expect("the sandbox root");
     let scratch = root.join(scratch_name);
@@ -111,15 +110,14 @@ fn start(named: &str, scratch_name: &str) -> (Engine, PathBuf) {
     (engine, scratch)
 }
 
-// The model thought, wrote no line of its own, and stopped. The answer is asked
-// on with the word of the program behind the empty turn, the model answers it, and
-// the reader is left with the words of an answer rather than with a line about an
-// answer that never came.
+// The model thought, wrote no line of its own, and stopped. The answer is asked on with the
+// word of the program behind the empty turn, the model answers it, and the user is left with
+// the text of an answer rather than with a line about an answer that never came.
 #[test]
 fn a_turn_of_nothing_is_asked_on_with_a_word_of_the_program() {
     let (engine, scratch) = start("live-empty-turn", "probe/emptyturn");
     engine.prompt("the first message".to_string(), Vec::new());
-    // The first ask, and the ask that carries the word of the program.
+    // The first ask, and the request that carries the word of the program.
     wait_asks(&scratch, 2);
     wait_for("the answer to come to an end", || {
         let s = engine.snapshot();
@@ -133,46 +131,45 @@ fn a_turn_of_nothing_is_asked_on_with_a_word_of_the_program() {
         println!("chat: {}", line);
     }
     println!("status: {}", engine.snapshot().status);
-    // No ask went out on an empty turn alone, and the second ask carried the word.
+    // No request was sent on an empty turn alone, and the second ask carried the word.
     assert_eq!(
         asked,
         vec!["other".to_string(), "word".to_string()],
-        "the ask behind a turn of nothing did not carry the word of the program"
+        "the request behind a turn of nothing did not carry the word of the program"
     );
-    // The row of the turn of nothing stands with nothing in it, as the template of
-    // the model writes an empty turn.
+    // The row of the turn of nothing is with nothing in it, as the template of the model writes
+    // an empty turn.
     assert!(
         said.iter()
             .any(|line| line.starts_with("Assistant") && line.trim_end() == "Assistant"),
-        "the row of the turn of nothing does not stand in the chat"
+        "the row of the turn of nothing is not in the chat"
     );
     // The answer came, so nothing was written about an answer that never came.
     let joined = said.join("\n");
     assert!(
         joined.contains("The two files are written and the tests pass."),
-        "the words of the answer never reached the chat"
+        "the text of the answer never reached the chat"
     );
     assert!(
         !joined.contains("the model gave no answer"),
-        "the reader was told there was no answer, although there was one"
+        "the user was informed there was no answer, although there was one"
     );
-    // The word of the program rode on the ask and never came into the chat.
+    // The word of the program rode on the request and never came into the chat.
     assert!(
         !joined.contains("You wrote nothing above"),
         "the word of the program came to the window"
     );
 }
 
-// The model has nothing to give: it answers with nothing even when the word of the
-// program stands behind its empty turn. Two turns of nothing end the answer, the
-// reader is told in the chat as well as under the top bar, and no third ask goes
-// out for the same shape of nothing.
+// The model has nothing to give: it answers with nothing even when the word of the program is
+// behind its empty turn. Two turns of nothing end the answer, the user is informed in the chat
+// as well as under the top bar, and no third ask is sent for the same format of nothing.
 #[test]
 fn two_turns_of_nothing_end_the_answer_and_tell_the_reader() {
     let (engine, scratch) = start("live-empty-turn-stubborn", "probe/emptyturn-stubborn");
     engine.prompt("the first message".to_string(), Vec::new());
-    // The first ask and the two that carry the word of the program: after the
-    // second of them the answer ends, and no third ask goes out.
+    // The first ask and the two that carry the word of the program: after the second of them
+    // the answer ends, and no third ask is sent.
     wait_asks(&scratch, 3);
     wait_for("the answer to come to an end", || {
         let s = engine.snapshot();
@@ -188,7 +185,7 @@ fn two_turns_of_nothing_end_the_answer_and_tell_the_reader() {
     println!("status: {}", engine.snapshot().status);
     assert!(
         !asked.contains(&"empty".to_string()),
-        "an ask went out on an empty turn alone"
+        "a request was sent on an empty turn alone"
     );
     assert_eq!(
         asked.iter().filter(|kind| kind.as_str() == "word").count(),
@@ -198,10 +195,10 @@ fn two_turns_of_nothing_end_the_answer_and_tell_the_reader() {
     let joined = said.join("\n");
     assert!(
         joined.contains("no answer twice over"),
-        "the reader was not told in the chat that the answer ended"
+        "the user was not informed in the chat that the answer ended"
     );
     assert!(
         engine.snapshot().status.contains("twice over"),
-        "the reader was not told under the top bar"
+        "the user was not informed under the top bar"
     );
 }

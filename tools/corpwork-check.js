@@ -1,15 +1,13 @@
-// Check the one card an answer stands behind in the corporate display.
+// Check the one card an answer is behind in the corporate display.
 //
-// The corporate display hides the thoughts and the calls whole. One card stands
-// for an answer: its head says what the model is at, and inside it stand the
-// thoughts of the model, the words it wrote while it worked, and the short of the
-// work it wrote itself. The answer the model ended with stands outside the card,
-// in the plain words of the chat, and the rows of the parts written before the
-// answer stand away, for the card holds them. This drives the thread by hand with
-// the states the engine hands out, and looks at what the page made.
+// The corporate display hides the thoughts and the calls whole. One card means an answer: its
+// header reports what the model is at, and inside it remain the thoughts of the model, the text
+// it wrote while it worked, and the summary of the work it wrote itself. The answer the model
+// ended with is outside the card, in the plain text of the chat, and the rows of the parts
+// written before the answer is offset, for the card holds them. This drives the thread manually
+// with the states the engine pointers out, and checks what the page made.
 //
-//   node corpwork-check.js
-//   AN_PAGE=../web/page.html node corpwork-check.js
+// node corpwork-check.js AN_PAGE=../web/page.html node corpwork-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -49,7 +47,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       return m;
     }
 
-    // The parts of a short of the work, as the engine gives them back.
+    // The parts of a summary of the work, as the engine gives them back.
     function line(head, sub) {
       return { head: head, lines: [], tool: 'work_log', id: '', done: false, failed: false,
         adds: 0, cuts: 0, command: '', file: '', output: '', sub: sub || [],
@@ -81,9 +79,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var PLAIN = { collapse_thinking: true, grow_thinking: true, tools_in_thinking: true,
       collapse_tools: true, highlight: true, chapters: true, corporate: false };
 
-    // The short of the work of an answer that worked: a line with nothing under
-    // it, a line with a command under it, and a run of three files made one
-    // after another.
+    // The summary of the work of an answer that worked: a line with nothing under it, a line
+    // with a command under it, and a run of three files made one after another.
     var SHORT = [heading('Mending the order', [
       line('Reading the parser.'),
       line('Running the tests.', [call('run_terminal', 'c1', 'Ran a command cargo test')]),
@@ -94,18 +91,18 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       ])])
     ])];
 
-    // A talk of two answers: the one worked, and ended with its words outside the
-    // card; the other is nothing but a thought.
+    // A context of two answers: the one worked, and ended with its text outside the card; the
+    // other is nothing but a thought.
     var talk = [
-      said(1, 'You', 'Mend the order and run the tests.'),
+      said(1, 'You', 'Fix the order and run the tests.'),
       said(2, 'Assistant', 'I will read the parser first.',
         { reasoning: 'Read before touching.', reasoning_ms: 4200 }),
       said(3, 'Tool', 'cargo test', { tool: '6 tests passed' }),
-      said(4, 'Assistant', 'The tests pass. Two things changed.',
+      said(4, 'Assistant', 'The tests pass. Two items changed.',
         { reasoning: 'Say what changed.', reasoning_ms: 2600, work: SHORT,
           work_head: 'Ran a command, Created files (3)', work_closed: true }),
       said(5, 'You', 'And the bar?'),
-      said(6, 'Assistant', 'The bar takes its height from the words beside it.',
+      said(6, 'Assistant', 'The top bar takes its height from the text beside it.',
         { reasoning: 'The answer is already known.', reasoning_ms: 11800,
           work_head: 'Thought for 12 seconds', work_closed: true })
     ];
@@ -127,43 +124,42 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       return Array.prototype.slice.call(box.querySelectorAll('.turn'));
     }
 
-    // One: one card for an answer, at the head of the row that carries the last
-    // message of the answer, and the rows of the parts written before it away.
-    where = 'a talk of two answers';
+    // One: one card for an answer, at the header of the row that carries the last message of
+    // the answer, and the rows of the parts written before it away.
+    where = 'a context of two answers';
     var box = look(state(talk, CHAT));
     var made = cards(box);
     if (made.length !== 2) {
-      faults.push('a talk of two answers made ' + made.length + ' cards, not two ' + where);
+      faults.push('a context of two answers made ' + made.length + ' cards, not two ' + where);
     }
     var heads = made.map(function (one) {
       return (one.querySelector('.whead') || {}).textContent || '';
     });
     if (heads.join(' / ') !== '▾Ran a command, Created files (3) / ▾Thought for 12 seconds') {
-      faults.push('the heads of the two cards read "' + heads.join(' / ') + '" ' + where);
+      faults.push('the headers of the two cards read "' + heads.join(' / ') + '" ' + where);
     }
-    // The card stands at the head of its row, and the row that carries it is the
-    // row of the last message of the answer.
+    // The card is at the header of its row, and the row that carries it is the row of the last
+    // message of the answer.
     var lastRow = box.querySelector('.turn[data-mid="4"]');
     if (!lastRow || !lastRow.firstElementChild || !lastRow.firstElementChild.classList.contains('work')) {
-      faults.push('the card of an answer does not stand at the head of its row ' + where);
+      faults.push('the card of an answer is not at the header of its row ' + where);
     }
-    // The words the model said while it worked stand inside the card, and the
-    // answer it ended with stands outside it.
+    // The text the model stated while it worked are inside the card, and the answer it ended
+    // with is outside it.
     var said = box.querySelector('.turn[data-mid="4"] .answer-words');
     if (!said) {
-      faults.push('the answer the model ended with does not stand in the chat ' + where);
+      faults.push('the answer the model ended with is not in the chat ' + where);
     }
     if (made[0].querySelector('.answer-words')) {
-      faults.push('the words of the answer stand inside the card as well ' + where);
+      faults.push('the text of the answer is inside the card as well ' + where);
     }
     if (!made[0].querySelector('.wwords')) {
-      faults.push('the words the model said while it worked do not stand in the card ' + where);
+      faults.push('the text the model stated while it worked are not in the card ' + where);
     }
     if (!made[0].querySelector('.wthink')) {
-      faults.push('the thought of the model does not stand in the card ' + where);
+      faults.push('the thought of the model is not in the card ' + where);
     }
-    // The rows of the parts written before the answer stand away; the words of
-    // the user do not.
+    // The rows of the parts written before the answer is offset; the text of the user does not.
     var away = ['2', '3'].filter(function (id) {
       var row = box.querySelector('.turn[data-mid="' + id + '"]');
       return row && row.classList.contains('t-hush');
@@ -172,15 +168,15 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('a row of the parts of an answer is put on the page ' + where);
     }
     if (box.querySelector('.turn[data-mid="1"]').classList.contains('t-hush')) {
-      faults.push('the words of the user stand away ' + where);
+      faults.push('the text of the user is offset ' + where);
     }
     if (box.querySelector('.turn[data-mid="5"]').classList.contains('t-hush')) {
-      faults.push('the second question of the user stands away ' + where);
+      faults.push('the second question of the user is offset ' + where);
     }
 
-    // Two: a run of calls of one tool is one block, said in the plural with the
-    // count, and holds the calls under it. A line of the short with nothing under
-    // it is a plain line with nothing to open.
+    // Two: a run of calls of one tool is one block, stated in the plural with the count, and
+    // holds the calls under it. A line of the summary with nothing under it is a plain line
+    // with nothing to open.
     where = 'a run of calls of one tool';
     var runs = Array.prototype.slice.call(made[0].querySelectorAll('.wblock'))
       .filter(function (one) {
@@ -197,24 +193,23 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     }
     var spare = made[0].querySelectorAll('.wplainline');
     if (spare.length !== 1 || !/Reading the parser/.test(spare[0].textContent)) {
-      faults.push('a line of the short with nothing under it is not a plain line ' + where);
+      faults.push('a line of the summary with nothing under it is not a plain line ' + where);
     } else if (spare[0].querySelector('.wfold')) {
-      faults.push('a plain line of the short carries a mark to open ' + where);
+      faults.push('a plain line of the summary carries a marker to open ' + where);
     }
 
-    // Three: an answer of nothing but a thought says how long the model thought
-    // for once, and not twice.
+    // Three: an answer of nothing but a thought reports how long the model thought for once,
+    // and not twice.
     where = 'an answer of nothing but a thought';
     if (made[1].querySelectorAll('.wthink').length !== 1) {
-      faults.push('a thought of an answer stands twice over ' + where);
+      faults.push('a thought of an answer remains twice over ' + where);
     }
     if (made[1].querySelector('.wthink .wbhead')) {
-      faults.push('the thought of an answer says again what the head of the card says ' + where);
+      faults.push('the thought of an answer reports again what the header of the card reports ' + where);
     }
 
-    // Four: an answer coming in is held by the card at the head of its turn, and
-    // the rows of its parts written before stand away. The words coming in stand
-    // outside the card.
+    // Four: an answer arriving is held by the card at the header of its turn, and the rows of
+    // its parts written before is offset. The text arriving are outside the card.
     where = 'an answer coming in';
     box = look(state(talk.slice(0, 4), CHAT, {
       generating: true, live: 'The tests pass.', reasoning: 'Say what changed.',
@@ -223,38 +218,38 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var liveRow = box.querySelector('.turn:last-child');
     var liveCard = liveRow && liveRow.querySelector(':scope > .work');
     if (!liveCard) {
-      faults.push('an answer coming in has no card at the head of its turn ' + where);
+      faults.push('an answer arriving has no card at the header of its turn ' + where);
     } else {
       var liveHead = (liveCard.querySelector('.whead') || {}).textContent || '';
       if (!/Creating files \(3\)/.test(liveHead)) {
-        faults.push('the head of the card of an answer coming in says "' + liveHead + '" ' + where);
+        faults.push('the header of the card of an answer arriving reports "' + liveHead + '" ' + where);
       }
       if (!liveCard.querySelector('.wthink') || !liveCard.querySelector('.wwords')) {
-        faults.push('the thought or the words of the work are not in the card of an '
+        faults.push('the thought or the text of the work is not in the card of an '
           + 'answer coming in ' + where);
       }
     }
     if (box.querySelector('.turn[data-mid="2"]').classList.contains('t-hush') === false) {
-      faults.push('a part of the answer coming in is put on the page as well ' + where);
+      faults.push('a part of the answer arriving is put on the page as well ' + where);
     }
-    // More words of the same answer come in: the card is put again, and stands
-    // once, and the words of the answer stay outside it.
+    // More text of the same answer arrive: the card is put again, and remains once, and the
+    // text of the answer stay outside it.
     box = look(state(talk.slice(0, 4), CHAT, {
-      generating: true, live: 'The tests pass. Two things changed.',
+      generating: true, live: 'The tests pass. Two items changed.',
       reasoning: 'Say what changed.', reasoning_ms: 1400, live_work: SHORT,
       live_work_head: 'Creating files (3)'
     }));
     var again = box.querySelector('.turn:last-child');
     if (again.querySelectorAll(':scope > .work').length !== 1) {
-      faults.push('an answer coming in stands behind more than one card ' + where);
+      faults.push('an answer arriving is behind more than one card ' + where);
     }
     var flowing = again.querySelector('.plain');
-    if (!flowing || !/Two things changed/.test(flowing.textContent)) {
-      faults.push('the words of an answer coming in do not stand outside the card ' + where);
+    if (!flowing || !/Two items changed/.test(flowing.textContent)) {
+      faults.push('the text of an answer arriving is not outside the card ' + where);
     }
 
-    // Five: the block closed by the model's own tool. The words written after the
-    // mark stand outside the card, and the head of the card is done.
+    // Five: the block closed by the model's own tool. The text written after the marker are
+    // outside the card, and the header of the card is done.
     where = 'the block closed by the model';
     box = look(state(talk.slice(0, 4), CHAT, {
       generating: true, live: 'The tests pass.', reasoning: 'Say what changed.',
@@ -263,19 +258,19 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     }));
     var shut = box.querySelector('.turn:last-child > .work .whead');
     if (!shut || !/Ran a command/.test(shut.textContent)) {
-      faults.push('the head of the card of a closed block says nothing of the work ' + where);
+      faults.push('the header of the card of a closed block reports nothing of the work ' + where);
     }
 
-    // Six: with the corporate display off nothing of this stands: no card, and no
-    // row of an answer away.
+    // Six: with the corporate display off nothing of this remains: no card, and no row of an
+    // answer away.
     where = 'the corporate display off';
     box = look(state(talk, PLAIN));
     if (cards(box).length) {
-      faults.push('a card stands with the corporate display off ' + where);
+      faults.push('a card is with the corporate display off ' + where);
     }
     var hushed = turns(box).filter(function (one) { return one.classList.contains('t-hush'); });
     if (hushed.length) {
-      faults.push('a row stands away with the corporate display off ' + where);
+      faults.push('a row is offset with the corporate display off ' + where);
     }
     if (!box.querySelector('.turn[data-mid="2"] .think')) {
       faults.push('the thought of the model is hidden with the corporate display off ' + where);
@@ -288,7 +283,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     console.error(out.join('\n'));
     process.exit(1);
   }
-  console.log('one card stands for an answer, at the head of the row that carries its last '
+  console.log('one card means an answer, at the header of the row that carries its last '
     + 'message; the thoughts, the words of the work and the short of the work stand inside '
     + 'it, the answer itself outside; a run of calls of one tool is one block in the plural; '
     + 'a line of the short with nothing under it is a plain line; an answer coming in is '

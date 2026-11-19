@@ -1,22 +1,21 @@
-// Convert markdown text into blocks that the window can render.
-// Block-level parts (code, headings, lists) become separate blocks.
+// Convert markdown text into blocks that the window can render. Block-level parts (code,
+// headings, lists) become separate blocks.
 //
-// The words of a block stay plain. The marks are taken out here, and only the
-// kind of the block is kept, so a bold word reads as a plain word and never as
-// <b> and </b> around it. The window draws the mark of a block itself: a heading
-// gets a short bar of an accent colour, and a list stands behind a rule. The
-// address of a link stands after the words of the link, which is how plain text
-// shows an address.
+// The text of a block stay plain. The markers are taken out here, and only the type of the
+// block is kept, so a bold word reads as a plain word and never as <b> and </b> around it. The
+// window draws the marker of a block itself: a heading gets a short bar of an accent colour,
+// and a list is behind a rule. The address of a link is after the text of the link, which is
+// how plain text shows an address.
 
 /// One block of rendered markdown.
 #[derive(Debug, Clone, Default)]
 pub struct Block {
     /// "text", "code", "heading", "list"
     pub kind: String,
-    /// Heading level (1-6). Zero for other kinds.
+    /// Heading level (1-6). Zero for other types.
     pub level: i32,
-    /// The words of the block. Marks are taken out, so this is plain text. For
-    /// a code block this holds the code.
+    /// The text of the block. Markers are taken out, so this is plain text. For a code block
+    /// this holds the code.
     pub content: String,
 }
 
@@ -93,14 +92,14 @@ pub fn parse(markdown: &str) -> Vec<Block> {
                 });
                 current_heading_level = 0;
             }
-            // A list or a quote cannot start inside a paragraph, so the words
-            // that came before it are made into a block first. Without this the
-            // list would stand before the words that came before it.
+            // A list or a quote cannot start inside a paragraph, so the text that came before
+            // it is created into a block first. Without this the list would remain before the
+            // text that came before it.
             pulldown_cmark::Event::Start(pulldown_cmark::Tag::List(_))
             | pulldown_cmark::Event::Start(pulldown_cmark::Tag::BlockQuote(_)) => {
                 flush_text(&mut blocks, &mut current_text);
             }
-            // The end of a paragraph is the end of a block of words.
+            // The end of a paragraph is the end of a block of text.
             pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Paragraph) => {
                 flush_text(&mut blocks, &mut current_text);
             }
@@ -131,8 +130,7 @@ pub fn parse(markdown: &str) -> Vec<Block> {
                 }
             }
             pulldown_cmark::Event::Code(text) => {
-                // An inline piece of code keeps its words and loses the marks
-                // around them.
+                // An inline piece of code keeps its text and loses the markers around them.
                 if in_code {
                     code_content.push_str(&text);
                 } else if in_list {
@@ -150,15 +148,15 @@ pub fn parse(markdown: &str) -> Vec<Block> {
                     current_text.push('\n');
                 }
             }
-            // An italic word or a bold word keeps its words and loses its marks.
+            // An italic word or a bold word keeps its text and loses its markers.
             pulldown_cmark::Event::Start(pulldown_cmark::Tag::Emphasis)
             | pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Emphasis)
             | pulldown_cmark::Event::Start(pulldown_cmark::Tag::Strong)
             | pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Strong) => {}
-            // HTML inside the words is dropped, so no tag can reach the window.
+            // HTML inside the text is dropped, so no tag can reach the window.
             pulldown_cmark::Event::Html(_) | pulldown_cmark::Event::InlineHtml(_) => {}
-            // A link gives its words where they fall. Its address follows them,
-            // so the address can be read and typed in.
+            // A link gives its text where it falls. Its address follows it, so the address
+            // can be read and typed in.
             pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link { dest_url, .. }) => {
                 link_url = dest_url.to_string();
             }
@@ -214,14 +212,14 @@ pub struct ThinkingOptions {
     pub has_effort: bool,
     /// The effort levels the template names, in display order.
     pub efforts: Vec<String>,
-    /// True if the template can keep the thinking of the turns before the last
-    /// answer, so the model may work on its own thoughts again.
+    /// True if the template can keep the thinking of the turns before the last answer, so the
+    /// model may work on its own thoughts again.
     pub has_preserve: bool,
 }
 
-/// The words a template reads when it is told to keep or to drop the thinking
-/// of the earlier turns. llama.cpp sets all of them from the one switch, so a
-/// template that names any of them offers the choice.
+/// The text a template reads when it is set to keep or to drop the thinking of the earlier
+/// turns. llama.cpp sets all of them from the one switch, so a template that names any of them
+/// presents the choice.
 pub const PRESERVE_KEYS: [&str; 4] = [
     "preserve_thinking",
     "clear_thinking",
@@ -230,9 +228,9 @@ pub const PRESERVE_KEYS: [&str; 4] = [
 ];
 
 impl ThinkingOptions {
-    /// The modes the badge of the chat offers, in the order they are listed.
-    /// There is no "auto": the user chooses, and thinking is off unless it
-    /// is asked for. An empty list means the model has no thinking mode.
+    /// The modes the badge of the chat proposes, in the order they are listed. There is no
+    /// "auto": the user chooses, and thinking is off unless it is requested. An empty list
+    /// means the model has no thinking mode.
     pub fn modes(&self) -> Vec<&'static str> {
         if self.has_effort {
             let all: &[&str] = &["low", "medium", "high", "xhigh"];
@@ -263,16 +261,14 @@ pub fn analyze_template(template: &str) -> ThinkingOptions {
     }
     // The on and off switch is the enable_thinking keyword.
     options.has_thinking = template.contains("enable_thinking");
-    // The effort level comes in through the reasoning_effort keyword.
+    // The effort level arrives through the reasoning_effort keyword.
     options.has_effort = template.contains("reasoning_effort");
-    // The choice to keep the thinking of the earlier turns is taken from the
-    // same look at the template: one of the words for it stands in the template
-    // when the model can do the thing.
+    // The choice to keep the thinking of the earlier turns is taken from the same look at the
+    // template: one of the text for it is in the template when the model can do the item.
     options.has_preserve = PRESERVE_KEYS.iter().any(|key| template.contains(key));
     if options.has_effort {
-        // A level counts when the template compares the effort against it.
-        // The comparison quotes the level, so a word like "following" does
-        // not count as "low".
+        // A level counts when the template compares the effort against it. The comparison
+        // quotes the level, so a word like "following" does not count as "low".
         for level in ["low", "medium", "high", "xhigh"] {
             if template.contains(&format!("'{}'", level))
                 || template.contains(&format!("\"{}\"", level))
@@ -288,7 +284,7 @@ pub fn analyze_template(template: &str) -> ThinkingOptions {
 mod tests {
     use super::*;
 
-    // The words of the first text block of a one-block answer.
+    // The text of the first text block of a one-block answer.
     fn words(markdown: &str) -> String {
         let blocks = parse(markdown);
         assert_eq!(blocks.len(), 1, "one block was expected for: {markdown}");
@@ -333,12 +329,12 @@ mod tests {
         for block in parse(mixed) {
             assert!(
                 !block.content.contains('<') && !block.content.contains('>'),
-                "a tag reached the words: {}",
+                "a tag reached the text: {}",
                 block.content
             );
             assert!(
                 !block.content.contains("**"),
-                "marks reached the words: {}",
+                "markers reached the text: {}",
                 block.content
             );
         }
@@ -392,8 +388,8 @@ mod tests {
         assert!(options.efforts.is_empty());
     }
 
-    // A template that reads the word for keeping the thinking of the earlier
-    // turns offers the choice, and one that does not read it does not.
+    // A template that reads the word for keeping the thinking of the earlier turns presents the
+    // choice, and one that does not read it does not.
     #[test]
     fn the_choice_to_keep_the_thinking_of_history_is_seen() {
         let template = "{%- if preserve_thinking is true %}A{% endif %}{{ enable_thinking }}";
@@ -408,15 +404,15 @@ mod tests {
         assert!(options.has_thinking);
         assert!(!options.has_preserve);
 
-        // The other words for the same switch count as well.
+        // The other text for the same switch count as well.
         let cleared = "{{ clear_thinking }}{{ truncate_history_thinking }}{{ drop_thinking }}";
         assert!(analyze_template(cleared).has_preserve);
     }
 
     #[test]
     fn the_blocks_keep_the_order_they_were_written_in() {
-        // A list that was written after a paragraph must not move in front of
-        // it, and the same for the block of code after the list.
+        // A list that was written after a paragraph must not move in front of it, and the same
+        // for the block of code after the list.
         let answer = "## Ways\n\nOne command does the work.\n\n- one file\n- many files\n\n```rust\nlet n = 1;\n```\n\nThe read is one call.";
         let blocks = parse(answer);
         let kinds: Vec<&str> = blocks.iter().map(|one| one.kind.as_str()).collect();

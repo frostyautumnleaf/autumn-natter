@@ -1,40 +1,40 @@
-// The marks an infographic draws for itself.
+// The markers an infographic draws for itself.
 //
-// A picture of a thing says more in one place than a line of words, and a model
-// that wants a mark beside a bullet must not have to draw one. These are drawn
-// here, in words of a 24 by 24 field, so a mark is one path of the frame and
-// costs nothing to carry. Every mark is made of strokes of the current colour,
-// with no ground of its own, so it reads on any panel of any palette.
+// An image of an item reports more in one place than a line of text, and a model that wants a
+// marker beside a bullet must not have to draw one. These are drawn here, in text of a 24 by 24
+// field, so a marker is one path of the frame and costs nothing to carry. Every marker is made
+// of strokes of the current colour, with no background of its own, so it reads on any panel of
+// any palette.
 //
-// The set is kept to the marks an infographic asks for: the marks of yes and no,
-// the marks of a way through a process, the marks of the common shapes of data,
-// and the marks of the things a chart is about.
+// The set is kept to the markers an infographic requests: the markers of yes and no, the
+// markers of a way through a process, the markers of the common forms of data, and the markers
+// of the items a chart is about.
 
-// One mark: the words of its drawing.
+// One marker: the text of its drawing.
 pub struct Mark {
     pub name: &'static str,
-    // The words of a `path`. A mark of more than one piece carries more than one
-    // string, and each is drawn.
+    // The text of a `path`. A marker of more than one piece carries more than one string, and
+    // each is drawn.
     pub parts: &'static [&'static str],
-    // Whether the piece is filled rather than drawn as a stroke.
+    // Whether the part is filled rather than drawn as a stroke.
     pub filled: &'static [bool],
-    // What the mark is, in the words a model reads.
+    // What the marker is, in the text a model reads.
     pub about: &'static str,
 }
 
-// The marks of the program. The drawings stand in a field of 24 by 24.
+// The markers of the program. The drawings are in a field of 24 by 24.
 pub const MARKS: &[Mark] = &[
     Mark {
         name: "check",
         parts: &["M4.5 12.6 L9.4 17.5 L19.5 6.9"],
         filled: &[false],
-        about: "a thing is true, done, or good",
+        about: "an item is true, done, or good",
     },
     Mark {
         name: "cross",
         parts: &["M6.5 6.5 L17.5 17.5", "M17.5 6.5 L6.5 17.5"],
         filled: &[false, false],
-        about: "a thing is false, missing, or wrong",
+        about: "an item is false, missing, or wrong",
     },
     Mark {
         name: "dot",
@@ -46,13 +46,13 @@ pub const MARKS: &[Mark] = &[
         name: "arrow_right",
         parts: &["M4 12 H19", "M13.5 6.5 L19.5 12 L13.5 17.5"],
         filled: &[false, false],
-        about: "the way on, to the next thing",
+        about: "the way on, to the next item",
     },
     Mark {
         name: "arrow_left",
         parts: &["M20 12 H5", "M10.5 6.5 L4.5 12 L10.5 17.5"],
         filled: &[false, false],
-        about: "back to the thing before",
+        about: "back to the item before",
     },
     Mark {
         name: "arrow_up",
@@ -74,7 +74,7 @@ pub const MARKS: &[Mark] = &[
             "M10.7 21.2 H13.3",
         ],
         filled: &[false, false, false],
-        about: "an idea, a finding, a thing worth knowing",
+        about: "an idea, a finding, an item worth knowing",
     },
     Mark {
         name: "warn",
@@ -84,7 +84,7 @@ pub const MARKS: &[Mark] = &[
             "M12 16.8 v0.1",
         ],
         filled: &[false, false, false],
-        about: "a risk, a fault, a thing to be careful of",
+        about: "a risk, an error, an item to be careful of",
     },
     Mark {
         name: "info",
@@ -159,7 +159,7 @@ pub const MARKS: &[Mark] = &[
             "M12 3.4 V6 M12 18 V20.6 M3.4 12 H6 M18 12 H20.6 M6 6 L7.9 7.9 M16.1 16.1 L18 18 M18 6 L16.1 7.9 M7.9 16.1 L6 18",
         ],
         filled: &[false, false],
-        about: "a setting, a way a thing is set up",
+        about: "a setting, a way an item is set up",
     },
     Mark {
         name: "lock",
@@ -168,7 +168,7 @@ pub const MARKS: &[Mark] = &[
             "M8.8 11 V8.4 A3.2 3.2 0 0 1 15.2 8.4 V11",
         ],
         filled: &[false, false],
-        about: "safety, a thing kept private, a wall",
+        about: "safety, an item kept private, a wall",
     },
     Mark {
         name: "shield",
@@ -190,13 +190,13 @@ pub const MARKS: &[Mark] = &[
             "M12 11.2 A0.9 0.9 0 1 1 11.9 11.2 Z",
         ],
         filled: &[false, false, true],
-        about: "a goal, an aim, the thing aimed at",
+        about: "a goal, an aim, the item aimed at",
     },
     Mark {
         name: "star",
         parts: &["M12 3.6 L14.5 9.1 L20.4 9.8 L16 13.9 L17.1 19.8 L12 16.9 L6.9 19.8 L8 13.9 L3.6 9.8 L9.5 9.1 Z"],
         filled: &[false],
-        about: "the best, a rating, a thing worth praise",
+        about: "the best, a rating, an item worth praise",
     },
     Mark {
         name: "doc",
@@ -212,7 +212,7 @@ pub const MARKS: &[Mark] = &[
         name: "code",
         parts: &["M9 7.4 L4 12 L9 16.6", "M15 7.4 L20 12 L15 16.6", "M13.4 5.4 L10.6 18.6"],
         filled: &[false, false, false],
-        about: "a program, words a machine reads",
+        about: "a program, text a computer reads",
     },
     Mark {
         name: "cpu",
@@ -222,7 +222,7 @@ pub const MARKS: &[Mark] = &[
             "M10 4 V7.4 M14 4 V7.4 M10 16.6 V20 M14 16.6 V20 M4 10 H7.4 M4 14 H7.4 M16.6 10 H20 M16.6 14 H20",
         ],
         filled: &[false, false, false],
-        about: "a chip, a processor, the work of a machine",
+        about: "a chip, a processor, the work of a computer",
     },
     Mark {
         name: "database",
@@ -248,7 +248,7 @@ pub const MARKS: &[Mark] = &[
         name: "search",
         parts: &["M10.8 4 A6.8 6.8 0 1 1 10.79 4 Z", "M15.6 15.6 L20 20"],
         filled: &[false, false],
-        about: "a look for a thing, a search",
+        about: "a search for an item, a search",
     },
     Mark {
         name: "money",
@@ -264,7 +264,7 @@ pub const MARKS: &[Mark] = &[
         name: "flag",
         parts: &["M6.6 20.4 V4", "M6.6 4.8 H17.4 L14.6 8.6 L17.4 12.4 H6.6"],
         filled: &[false, false],
-        about: "a mark of a place, a milestone, a warning",
+        about: "a marker of a place, a milestone, a warning",
     },
     Mark {
         name: "eye",
@@ -279,13 +279,13 @@ pub const MARKS: &[Mark] = &[
         name: "play",
         parts: &["M8 5.4 L18.4 12 L8 18.6 Z"],
         filled: &[false],
-        about: "the start of a thing, a video",
+        about: "the start of an item, a video",
     },
     Mark {
         name: "fire",
         parts: &["M12 3.4 C14.4 7 17.6 8.6 17.6 12.8 A5.6 5.6 0 0 1 6.4 12.8 C6.4 10.4 8 9.4 8.8 7.4 C9.6 9.4 11 9.8 12 3.4 Z"],
         filled: &[false],
-        about: "heat, demand, a thing growing fast",
+        about: "heat, demand, an item growing fast",
     },
     Mark {
         name: "link",
@@ -304,11 +304,11 @@ pub const MARKS: &[Mark] = &[
             "M12 17 v0.1",
         ],
         filled: &[false, false, false],
-        about: "a question, an open thing",
+        about: "a question, an open item",
     },
 ];
 
-// The words of one mark, or nothing at all when the name is not one of them.
+// The text of one marker, or nothing at all when the name is not one of them.
 pub fn of(name: &str) -> Option<&'static Mark> {
     let said = name.trim().to_ascii_lowercase().replace([' ', '-'], "_");
     if said.is_empty() {
@@ -317,7 +317,7 @@ pub fn of(name: &str) -> Option<&'static Mark> {
     MARKS.iter().find(|one| one.name == said)
 }
 
-// The names of the marks, for the guide and for a fault that names them.
+// The names of the markers, for the guide and for an error that names them.
 pub fn names() -> String {
     MARKS
         .iter()
@@ -326,7 +326,7 @@ pub fn names() -> String {
         .join(", ")
 }
 
-// The marks with what each of them is for, for the guide.
+// The markers with what each of them is for, for the guide.
 pub fn about() -> String {
     MARKS
         .iter()
@@ -351,7 +351,7 @@ mod tests {
             );
             for part in one.parts {
                 assert!(part.starts_with('M'), "{} does not start a path", one.name);
-                // Every mark stands inside the field of 24 by 24.
+                // Every marker is inside the field of 24 by 24.
                 for word in part.split_whitespace() {
                     if let Ok(number) = word.parse::<f64>() {
                         assert!(

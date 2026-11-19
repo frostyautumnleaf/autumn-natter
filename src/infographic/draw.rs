@@ -1,18 +1,17 @@
 // The drawing of one frame of an infographic.
 //
-// A frame is a picture of lines: a document of SVG, written out for one moment
-// of the video. Lines are the right shape for this work. They are exact at every
-// size, they cost nothing to state, and the whole of a scene is readable by a
-// person and by a model alike -- a frame may be looked at as words when
-// something looks wrong.
+// A frame is an image of lines: a document of SVG, written out for one moment of the video.
+// Lines are the right form for this work. They are exact at every size, they cost nothing to
+// state, and all of a scene is readable by a person and by a model as well -- a frame may be
+// checked as text when something looks wrong.
 //
-// The moment decides everything else. `at` finds the scene that stands at the
-// moment, the way it comes in from the one before it, and how far each block has
-// come in. A block that has not started is left out of the words altogether, so
-// the picture carries no weight for a thing that is not to be seen.
+// The moment decides everything else. `at` finds the scene that is at the moment, the way it
+// arrives from the one before it, and how far each block has arrive. A block that has not
+// started is left out of the text altogether, so the image carries no weight for an item that
+// is not to be seen.
 //
-// Nothing here measures words or places a block: `layout.rs` did that, and the
-// same measure is what `check` reports on. Here the places are only drawn.
+// Nothing here measures text or places a block: `layout.rs` did that, and the same measure is
+// what `check` reports on. Here the places are only drawn.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 
@@ -21,22 +20,21 @@ use crate::infographic::layout::{self, Line, Placed, Rect, Row, R_AXIS, R_HEAD, 
 use crate::infographic::marks;
 use crate::infographic::script::{self, Background, Palette, Project};
 
-// How far a block has come in, at one moment.
+// How far a block has arrive, at one moment.
 #[derive(Clone, Copy, Debug)]
 struct Come {
     // The share of the block that is to be seen, from 0 to 1, eased.
     part: f64,
-    // The share of the words of the block that are to be seen, for the typing
-    // shape of coming in.
+    // The share of the text of the block that is to be seen, for the typing form of arriving.
     typed: f64,
 }
 
-// The drawing of a frame. The fonts are borrowed for the time the frame is
-// built, and no longer.
+// The drawing of a frame. The fonts are borrowed for the time the frame is built, and no
+// longer.
 struct Board<'a> {
     out: String,
     defs: String,
-    // The next number for the names of the pieces of a frame.
+    // The next number for the names of the parts of a frame.
     next: usize,
     palette: Palette,
     fonts: &'a Fonts,
@@ -89,8 +87,8 @@ pub fn at(project: &Project, fonts: &Fonts, ms: f64, room: Option<&std::path::Pa
             frame
         }
         Standing::Between(before, after, part, local) => {
-            // The change from one scene to the next: both are drawn, and the way
-            // the new one comes decides how.
+            // The change from one scene to the next: both are drawn, and the way the new one
+            // comes decides how.
             let transition = project
                 .scenes
                 .get(after)
@@ -119,8 +117,7 @@ pub fn at(project: &Project, fonts: &Fonts, ms: f64, room: Option<&std::path::Pa
     }
 }
 
-// Which scene stands at a moment, and how far the change from the one before it
-// has come.
+// Which scene is at a moment, and how far the change from the one before it has come.
 enum Standing {
     One(usize, f64),
     Between(usize, usize, f64, f64),
@@ -152,15 +149,15 @@ fn standing(project: &Project, ms: f64) -> Standing {
     Standing::Nothing
 }
 
-// The head of a document of SVG.
+// The header of a document of SVG.
 fn head(width: u32, height: u32) -> String {
     format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\">"
     )
 }
 
-// The pieces a frame borrows, put in the box the renderer reads them from. An
-// empty box is left out, for a frame with nothing in it is read faster.
+// The parts a frame borrows, put in the box the renderer reads them from. An empty box is left
+// out, for a frame with nothing in it is read faster.
 fn defsheet(defs: &str) -> String {
     if defs.is_empty() {
         return String::new();
@@ -183,7 +180,7 @@ fn change(
     match transition.kind.as_str() {
         "cut" => new,
         "zoom" => {
-            // The new scene grows into place while the old one goes away.
+            // The new scene grows into place while the old one is removed.
             let scale = 0.94 + 0.06 * part;
             let fade = part;
             format!(
@@ -239,8 +236,7 @@ fn change(
             )
         }
         _ => {
-            // A fade: the old scene is left where it is and the new one comes up
-            // over it.
+            // A fade: the old scene is left where it is and the new one appears over it.
             format!(
                 "<g>{old}</g><g opacity=\"{:.3}\">{new}</g>",
                 part
@@ -249,7 +245,7 @@ fn change(
     }
 }
 
-// One scene: its ground, and every block that stands at the moment.
+// One scene: its ground, and every block that is at the moment.
 fn scene(
     board: &mut Board,
     project: &Project,
@@ -261,8 +257,8 @@ fn scene(
         return String::new();
     };
     let held = layout::ground(&scene.background, &project.background);
-    // The palette is taken aside, so the board may be drawn on while the colours
-    // of the ground are read.
+    // The palette is taken aside, so the board may be drawn on while the colours of the
+    // background are read.
     let colours = board.palette.clone();
     let mut out = ground(board, &held, &colours);
     let (placed, _) = layout::scene(
@@ -310,7 +306,7 @@ fn scene(
     out
 }
 
-// The ground of a scene.
+// The background of a scene.
 fn ground(board: &mut Board, held: &Background, palette: &Palette) -> String {
     let width = board.board.w + board.board.x * 2.0;
     let height = board.board.h + board.board.y * 2.0;
@@ -437,7 +433,7 @@ fn along(angle: f64, width: f64, height: f64) -> (f64, f64, f64, f64) {
 
 // ---------------------------------------------------------------- the blocks
 
-// A block of words: a head, a piece of text, or a quote.
+// A block of text: a header, a part of text, or a quote.
 fn words(board: &mut Board, block: &Placed, part: f64, local: f64) {
     let panel = panel(board, block, part);
     let typed = if block.reveal == "type" {
@@ -493,7 +489,7 @@ fn words(board: &mut Board, block: &Placed, part: f64, local: f64) {
     wrap_block(board, block, part, format!("{panel}{quote}{body}"));
 }
 
-// One line of words, placed in the box.
+// One line of text, placed in the box.
 fn line_words(
     board: &mut Board,
     line: &Line,
@@ -532,7 +528,7 @@ fn line_words(
     )
 }
 
-// The foot of the first line of a block, with the vertical place taken in.
+// The bottom of the first line of a block, with the vertical place taken in.
 fn first_line_y(block: &Placed, inner: Rect) -> f64 {
     let lines = block.lines.len().max(1) as f64;
     let taken = lines * block.step;
@@ -544,7 +540,7 @@ fn first_line_y(block: &Placed, inner: Rect) -> f64 {
     top + block.size * 0.94
 }
 
-// A list of lines with marks beside them.
+// A list of lines with markers beside them.
 fn bullets(board: &mut Board, block: &Placed, part: f64, local: f64) {
     let panel = panel(board, block, part);
     let mut body = String::new();
@@ -714,7 +710,7 @@ fn stat(board: &mut Board, block: &Placed, part: f64) {
     wrap_block(board, block, part, format!("{panel}{out}"));
 }
 
-// A bar chart: the axis, the grid, the bars, and the words under them.
+// A bar chart: the axis, the grid, the bars, and the text under them.
 fn bars(board: &mut Board, block: &Placed, part: f64, local: f64) {
     let panel = panel(board, block, part);
     let mut out = axis(board, block, part);
@@ -1103,7 +1099,7 @@ fn timeline(board: &mut Board, block: &Placed, part: f64, local: f64) {
     wrap_block(board, block, part, format!("{panel}{out}"));
 }
 
-// A table: the head row, the rows, and the hairlines between them.
+// A table: the header row, the rows, and the hairlines between them.
 fn table(board: &mut Board, block: &Placed, part: f64, local: f64) {
     let panel = panel(board, block, part);
     let mut out = String::new();
@@ -1162,7 +1158,7 @@ fn table(board: &mut Board, block: &Placed, part: f64, local: f64) {
                     said(line)
                 ));
             }
-            // The room of the column is the width of the widest cell of it.
+            // The space of the column is the width of the widest cell of it.
             let widest = row
                 .words
                 .iter()
@@ -1190,7 +1186,7 @@ fn table(board: &mut Board, block: &Placed, part: f64, local: f64) {
     wrap_block(board, block, part, format!("{panel}{out}"));
 }
 
-// Words of a program, on a panel, in the shape of a code block.
+// Text of a program, on a panel, in the form of a code block.
 fn code(board: &mut Board, block: &Placed, part: f64, local: f64) {
     let panel = panel(board, block, part);
     let inner = block.bx.inset(block.pad);
@@ -1335,7 +1331,7 @@ fn progress(board: &mut Board, block: &Placed, part: f64, local: f64) {
     wrap_block(board, block, part, format!("{panel}{out}"));
 }
 
-// A picture of the room of the chat.
+// An image of the working directory of the chat.
 fn image(board: &mut Board, block: &Placed, part: f64) {
     let Some(held) = &block.image else {
         return;
@@ -1406,7 +1402,7 @@ fn image(board: &mut Board, block: &Placed, part: f64) {
     wrap_block(board, block, part, out);
 }
 
-// One mark of the set the program draws.
+// One marker of the set the program draws.
 fn icon(board: &mut Board, block: &Placed, part: f64) {
     let Some(one) = marks::of(&block.mark) else {
         return;
@@ -1448,7 +1444,7 @@ fn icon(board: &mut Board, block: &Placed, part: f64) {
     wrap_block(board, block, part, out);
 }
 
-// The words of a mark, laid in a field of 24 by 24.
+// The text of a marker, written as a field of 24 by 24.
 fn mark_words(
     board: &mut Board,
     one: &'static marks::Mark,
@@ -1480,7 +1476,7 @@ fn mark_words(
     )
 }
 
-// A mark beside a line of a list. A number is drawn rather than a path.
+// A marker beside a line of a list. A number is drawn rather than a path.
 fn mark_at(
     board: &mut Board,
     name: &str,
@@ -1529,7 +1525,7 @@ fn mark_at(
     }
 }
 
-// A shape: a panel, a ring, a circle, a bar.
+// A form: a panel, a ring, a circle, a bar.
 fn shape(board: &mut Board, block: &Placed, part: f64) {
     let bx = block.bx;
     let fill = if block.bg.is_empty() {
@@ -1605,13 +1601,13 @@ fn rule(board: &mut Board, block: &Placed, part: f64) {
     );
 }
 
-// A piece of the model's own drawing, laid in its box.
+// A piece of the model's own drawing, written as its box.
 fn raw(board: &mut Board, block: &Placed, part: f64) {
     let bx = block.bx;
     let words = block.svg.trim();
-    // The words are put in a group of their own, moved and scaled into the box.
-    // A piece of drawing of the model's own is taken as it stands: it is the one
-    // way to have a thing the kinds do not hold.
+    // The text is put in a group of their own, moved and scaled into the box. A part of drawing
+    // of the model's own is taken as it is now: it is the one way to have an item the types do
+    // not hold.
     let held = if words.contains("xmlns=") {
         String::from(words)
     } else {
@@ -1661,7 +1657,7 @@ fn panel(board: &mut Board, block: &Placed, part: f64) -> String {
     )
 }
 
-// The group a block is drawn in, with the way it comes in laid over it.
+// The group a block is drawn in, with the way it arrives laid over it.
 fn wrap_block(board: &mut Board, block: &Placed, part: f64, words: String) {
     if words.is_empty() {
         return;
@@ -1711,7 +1707,7 @@ fn wrap_block(board: &mut Board, block: &Placed, part: f64, words: String) {
     }
 }
 
-// The shift a block carries while it comes in.
+// The shift a block carries while it arrives.
 fn slide_of(block: &Placed, part: f64) -> (f64, f64) {
     if part >= 1.0 {
         return (0.0, 0.0);
@@ -1768,7 +1764,7 @@ fn axis(board: &mut Board, block: &Placed, part: f64) -> String {
     out
 }
 
-// The words under the bars or under the points.
+// The text under the bars or under the points.
 fn axis_labels(board: &mut Board, block: &Placed, part: f64) -> String {
     let mut out = String::new();
     for row in &block.rows {
@@ -1825,7 +1821,7 @@ fn key(board: &mut Board, block: &Placed, part: f64) -> String {
     out
 }
 
-// Whether the numbers of a chart stand on it.
+// Whether the numbers of a chart are on it.
 fn shows_values(block: &Placed) -> bool {
     block.show_values
 }
@@ -1845,7 +1841,7 @@ fn grow_to(block: &Placed, _part: f64, local: f64) -> f64 {
     come(local, block.delay, length)
 }
 
-// The whole of the words of a line, for the count of a typed coming in.
+// All of the text of a line, for the count of a typed arriving.
 fn word_count(line: &Line) -> usize {
     line.runs
         .iter()
@@ -1853,7 +1849,7 @@ fn word_count(line: &Line) -> usize {
         .sum()
 }
 
-// A line cut to the number of words that are to be seen.
+// A line cut to the number of text that is to be seen.
 fn clip_words(line: &Line, words: usize) -> Line {
     if words >= word_count(line) {
         return line.clone();
@@ -1884,7 +1880,7 @@ fn clip_words(line: &Line, words: usize) -> Line {
     }
 }
 
-// The words of a line, glued together.
+// The text of a line, glued together.
 fn line_text(line: &Line) -> String {
     line.runs
         .iter()
@@ -1898,8 +1894,8 @@ fn count_to(words: &str, part: f64) -> String {
     if part >= 0.999 {
         return String::from(words);
     }
-    // The digits of the number are taken out of the words, the rest of the words
-    // kept: a prefix and a suffix stay where they stand.
+    // The digits of the number are taken out of the text, the rest of the text kept: a prefix
+    // and a suffix stay where they are.
     let mut head = String::new();
     let mut tail = String::new();
     let chars: Vec<char> = words.chars().collect();
@@ -1936,8 +1932,7 @@ fn count_to(words: &str, part: f64) -> String {
 fn wedge(cx: f64, cy: f64, r: f64, inner: f64, from: f64, to: f64) -> String {
     let span = to - from;
     if span >= 359.9 {
-        // The whole of the ring: two arcs, for one arc of a whole circle draws
-        // nothing.
+        // All of the ring: two arcs, for one arc of a whole circle draws nothing.
         let mut out = format!(
             "M{:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} A{r:.1} {r:.1} 0 1 1 {:.1} {:.1} Z",
             cx,
@@ -1979,7 +1974,7 @@ fn edge(cx: f64, cy: f64, r: f64, angle: f64) -> (f64, f64) {
     (cx + r * radians.cos(), cy + r * radians.sin())
 }
 
-// How far a thing has come in at a moment, eased.
+// How far an item has arrive at a moment, eased.
 fn come(local: f64, delay: f64, length: f64) -> f64 {
     if local == f64::MAX {
         return 1.0;
@@ -1989,24 +1984,24 @@ fn come(local: f64, delay: f64, length: f64) -> f64 {
     ease(held.clamp(0.0, 1.0))
 }
 
-// The easing of a coming in: slow at both ends, quick in the middle.
+// The easing of a arriving: slow at both ends, quick in the middle.
 fn ease(part: f64) -> f64 {
     let held = part.clamp(0.0, 1.0);
     held * held * (3.0 - 2.0 * held)
 }
 
-// The family of the words of a frame.
+// The family of the text of a frame.
 fn family(board: &Board) -> String {
     quote_family(&board.fonts.body)
 }
 
-// The family of the words of a code block.
+// The family of the text of a code block.
 fn family_code(board: &Board) -> String {
     let mono = board.fonts.mono.clone();
     quote_family(&mono)
 }
 
-// A family name with the marks a document of SVG needs.
+// A family name with the markers a document of SVG needs.
 fn quote_family(name: &str) -> String {
     if name.is_empty() {
         return String::from("sans-serif");
@@ -2014,8 +2009,8 @@ fn quote_family(name: &str) -> String {
     format!("'{}'", name.replace('\'', ""))
 }
 
-// A colour of the program, or one the model named. A name that is not a colour
-// is answered with nothing, so a fault of writing costs a fill and not a frame.
+// A colour of the program, or one the model named. A name that is not a colour is answered with
+// nothing, so an error in writing costs a fill and not a frame.
 fn colour(named: &str) -> String {
     let said = named.trim();
     if said.is_empty() {
@@ -2048,7 +2043,7 @@ fn colour(named: &str) -> String {
     }
 }
 
-// Words of the model, made safe for a document of SVG.
+// Text of the model, made safe for a document of SVG.
 fn said(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
