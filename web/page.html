@@ -415,7 +415,7 @@ body.home .stage { display: none; }
  * Each of the three lines beside the chat is a window onto a longer line when the chat has more
  * nodes than the screen is tall for. The nodes are in a track that slides up and down inside
  * the window, and a marker at either end of the window does the sliding - the markers are
- * outside the window, in the sandbox directory the window keeps at its ends. The rows the
+ * outside the window, in the space the window keeps at its ends. The rows the
  * window does not show are hidden rather than clipped, for the card of a row hangs out to the
  * side of the line and would else be cut in half by the edge of the window. */
 .railtrack {
@@ -484,7 +484,7 @@ body.home .stage { display: none; }
 
 /* ------------------------------------------------------- summarisation line */
 /*
- * A chat that has been summarised makes space at the right, and the line of the summarisations
+ * A chat that has been summarised makes space at the right, and the summarisation timeline
  * is there: one node for one summarisation, always the same distance apart, the oldest at the
  * top. A chat that was never summarised has no line at all, and in a narrow window the line is
  * removed and the chat takes all of the space again. */
@@ -807,7 +807,7 @@ body.home .stage { display: none; }
 .h.l3, .h.l4, .h.l5, .h.l6 { font-size: 14px; color: var(--ink-leaf); }
 .h:first-child { margin-top: 2px; }
 /*
- * The marker of an item is outside its box, in the sandbox directory the list leaves for it.
+ * The marker of an item is outside its box, in the space the list leaves for it.
  * The space must be wider than the widest number, or the number is above the rule. Two digits
  * and a gap are kept for it, and the text of the item start after a gap of their own. */
 ul.marks, ol.marks { margin: 4px 0 10px; padding: 1px 0 1px 40px;
@@ -993,8 +993,8 @@ body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: n
 /*
  * A row that has nothing to show while the corporate display remains: a run of a tool whose
  * block is hidden, with no answer after it. It is offset, for a chat is not read through gaps
- * that hold nothing. A row that carries the blocks an answer ends with keeps its place, for the
- * files of an propose is there. */
+ * that hold nothing. A row that carries the blocks an answer ends with keeps its place, for
+ * the offered files are there. */
 body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
 .work { margin: 14px 0; border: 1px solid var(--line); border-radius: 9px; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
@@ -1435,7 +1435,7 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
 .look-md > :first-child { margin-top: 0; }
 .look-md > :last-child { margin-bottom: 0; }
 /*
- * The button of a show, at the end of the answer that made it. The window closes with the key
+ * The display button, at the end of the answer that made it. The window closes with the key
  * of escape, so the answer keeps the way back to it. It is with the other blocks an answer ends
  * with, and not in the block of the run: what the user asked to see is read after the answer,
  * not in the middle of the account of how it was created. */
@@ -1821,14 +1821,14 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 }
 .gift .get:hover, .gifts .all:hover { background: var(--tint); border-color: var(--accent); }
 /*
- * A block of an propose opens the window over the contents of the file, so it wears the marker
+ * A block of an offer opens the window over the contents of the file, so it wears the marker
  * of an item that may be checked. The button of the block is not that item, and is above this
  * rule. */
 .gift.peek { cursor: pointer; }
 .gift.peek:hover { border-color: var(--accent-line); background: var(--tint); }
 .gift .get .svg, .gifts .all .svg { width: 13px; height: 13px; stroke: var(--ink); }
 /*
- * The button of the whole proposal is under the files it takes, in the middle of the chat as
+ * The button for the whole offer is under the files it takes, in the middle of the chat as
  * they are. */
 .gifts .all { align-self: center; }
 /*
@@ -1873,11 +1873,11 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
  * Inside the card no type has a background or a shadow of its own, for the card is the
  * background. The steps lose the box they had and keep their own header; the hair line of their
  * own parts takes the colour of the card. A file of the proposal spreads over the width of the
- * card, which is what a row of a list does. The button of the whole proposal and the button of
- * a show are at the left edge under the header of the card, and not in the middle, for the card
+ * card, which is what a row of a list does. The button for the whole offer and the display
+ * button are at the left edge under the header of the card, and not in the middle, for the card
  * is read from that edge. */
 /*
- * The button of a show and the button of the whole proposal are at the left edge under the
+ * The display button and the button for the whole offer are at the left edge under the
  * header of the card, and not in the middle, for the card is read from that edge. In a chat as
  * narrow as the window can be made a button is cut by the space it has, as a path is, and never
  * runs over the edge of the card. */
@@ -1925,8 +1925,8 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
  * The paths the model proposed for what comes next. A button is one path: the text it shows are
  * short, and the text it sends may be longer. They are in the middle of the chat, under the
  * answer that proposed them, and only once the model has stopped writing: a path proposed in
- * the middle of an answer leads to work that is not finished. Only the newest propose of a chat
- * remains, so the buttons of an older answer go when the user speaks again. */
+ * the middle of an answer leads to work that is not finished. Only the newest set of paths of
+ * a chat remains, so the buttons of an older answer go when the user speaks again. */
 .suggests {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
   animation: rise 240ms ease-out;
@@ -2009,8 +2009,8 @@ body.home .dock { width: min(760px, 100%); margin: 0 auto; padding: 0 20px 20px;
 .steps .snav.gone { display: none; }
 /*
  * The row of the steps. It is on one line and never wraps: the rail is cut by the width of the
- * chat, and an arrow comes out at an end of it when the buttons behind that end will not be in
- * the sandbox directory. */
+ * chat, and an arrow comes out at an end of it when the buttons behind that end are out of
+ * view. */
 .steps .srow {
   display: flex; align-items: center; gap: 6px; padding: 9px 10px;
   border-top: 1px solid var(--plate-line);
@@ -3068,8 +3068,8 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
 
     <!--   The messages the user has queued. A model that is still writing takes them one after
       another when it comes to the end of the answer, the oldest first, and the oldest is at the
-      bottom of the list. The list is shut up to one line until the user opens it, and it is above
-      the chat composer in the sandbox directory of its own, so the widget of the current work and
+      bottom of the list. The list is shut up to one line until the user opens it, and it is
+      above the chat composer on a line of its own, so the widget of the current work and
       the question of the model never remain over it. -->
     <div class="queue hidden" id="queue">
       <button class="queue-head" id="queuehead" title="Open the list of the messages waiting to go">
@@ -3325,7 +3325,7 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
           <span class="sub">When a paste into the chat composer is longer than this, the text is attached to the message as a file instead of being written in the box. The least is 100.</span>
           <div class="ctl"><input id="fPasteLimit" type="number" min="100" max="1000000" step="1" placeholder="6000"><span class="unit">characters</span></div></div>
         <div class="fld"><span class="lbl">Width of the chat</span>
-          <span class="sub">How wide the column of the chat may be. 780 pixels is the width the chat always had, and it is the least. The chat never grows past 80 per cent of the width of the window, and it keeps clear of the line of the chapters, the line of the summarisations and the arrows of the chat.</span>
+          <span class="sub">How wide the column of the chat may be. 780 pixels is the width the chat always had, and it is the least. The chat never grows past 80 per cent of the width of the window, and it keeps clear of the chapter timeline, the summarisation timeline and the arrows of the chat.</span>
           <div class="ctl"><input id="fChatWidth" type="number" min="780" max="4000" step="10" placeholder="780"><span class="unit">pixels</span></div></div>
 
         <div class="fld"><span class="lbl">Carry a sent message into the chat</span>
@@ -3829,8 +3829,8 @@ function tight() { return (document.documentElement.clientWidth || 640) < 860; }
 // ---------------------------------------------------------------- draw
 // The width of the chat. The width the chat always had is the least it can be, and the setting
 // of the Chatting section makes it wider. The chat never runs past 80 per cent of the width of
-// the window, and never takes the space the line of the chapters, the line of the
-// summarisations and the arrows of the chat are in. The two lines are checked where they are,
+// the window, and never takes the space the chapter timeline, the summarisation timeline and
+// the arrows of the chat are in. The two lines are checked where they are,
 // so a chat that has neither keeps all of the space again.
 function setChatWidth() {
   // The size of the context, not the width of the whole window: the top bar at the left is
@@ -3841,7 +3841,7 @@ function setChatWidth() {
   var room = wide - 48;
   if (el.stage && el.stage.classList.contains('withchapters')) { room -= 116; }
   // The two lines at the right take the space together when both remain, for the line of the
-  // messages is between the chat and the line of the summarisations rather than beyond it, and
+  // messages is between the chat and the summarisation timeline rather than beyond it, and
   // the two together cost less than each of them would by itself.
   var right = 0;
   if (el.stage) {
@@ -4729,13 +4729,13 @@ function makeClimber(node, words) {
   return aim;
 }
 
-// The two numbers of the context meter. Only the text in use climb while an answer arrives; the
-// whole sandbox directory stays still. The marker of the hundredth is in the page, outside the
+// The two numbers of the context meter. Only the text in use climbs while an answer arrives;
+// the total stays still. The marker of the hundredth is in the page, outside the
 // number that is rolled.
 var climbUsed = makeClimber(el.ctxused, commas);
 var climbPct = makeClimber(el.ctxpctnum, function (n) { return String(n); });
 
-// The context meter: the text in use, the whole sandbox directory, and a bar. The two numbers
+// The context meter: the text in use, the total size of the context, and a bar. The two numbers
 // are walked to rather than set, for the engine sends a new number of the conversation about
 // six times a second while an answer arrives.
 function drawContext(s) {
@@ -5079,7 +5079,7 @@ var TOOL_LINES = [
   ['hand_out', 'Offer files',
    'The model may propose a file of the chat to you in a block with a button. The block only names the file: nothing is fetched, and only the working directory of the chat is opened, so a file outside it is not handed out at all. A click on the block opens the window that reads a file whole.'],
   ['display', 'Show files',
-   'The model may put the contents of files of the chat in a window over the chat, and only when you asked to see them. A click on the block of the show opens that window again. Only the types the window can show are let through, and while the sandbox remains only the working directory of the chat is opened.'],
+   'The model may put the contents of files of the chat in a window over the chat, and only when you asked to see them. A click on the block of the display opens that window again. Only the types the window can show are let through, and while the sandbox remains only the working directory of the chat is opened.'],
   ['ask', 'Ask questions',
    'The model may stop and ask you a question, with up to five answers to choose from, when it cannot continue without a word from you. An ordinary question is given up after the short wait in the Chatting settings; one the model marked as weighty waits until you answer.'],
   ['suggest', 'Suggest next steps',
@@ -6105,7 +6105,7 @@ var TOOL_SHAPES = {
     empty: 'nothing to look at', begun: 'the images to look at'
   },
   // A file held out to the user. The block of the run reports which file was
-  // proposed; the block of the proposal itself, with the button, is under the
+  // proposed; the block of the offer itself, with the button, is under the
   // answer and not here.
   offer_files: {
     mark: 'M8 2.4v6.4M5.4 6.4 8 9l2.6-2.6M3.2 12.6h9.6',
@@ -6284,7 +6284,7 @@ function offerHead(shape, m, over) {
 }
 
 // The text of the header of a block that showed the contents of files. Every file
-// of the call is named, as the header of an propose names the files it proposed: the
+// of the call is named, as the header of an offer names the files it proposed: the
 // sentence the tool sent back is not a name, and a header that carried it stated the
 // the same twice.
 function shownHead(shape, m, over) {
@@ -6297,7 +6297,7 @@ function shownHead(shape, m, over) {
 }
 
 // The text of the header of a block that proposed the next steps. Every path the
-// call named is spoken, as the header of an propose names the files it proposed: the
+// call named is spoken, as the header of an offer names the files it proposed: the
 // sentence the tool sent back is not a name of a way, and a header that carried it
 // stated the same twice. A call that proposed nothing - one that failed, or
 // one the user stopped - keeps what returned, which is the reason.
@@ -6324,10 +6324,10 @@ function stepsHead(shape, m, over) {
     + said + ' (' + list.length + (list.length === 1 ? ' step)' : ' steps)');
 }
 
-// The button of a show, at the end of the answer that made it. The window over
+// The display button, at the end of the answer that made it. The window over
 // the contents of a file is opened by the model once and by the user as often as
 // they like, so the answer keeps the marker that opens the same files again. The
-// files of every show of the answer are in the one window, in the order they
+// files of every display call of the answer are in the one window, in the order they
 // were named, so a second call adds to the window instead of hiding the first.
 var SHOWN_MARK = 'M1.7 8S3.9 3.9 8 3.9 14.3 8 14.3 8 12.1 12.1 8 12.1 1.7 8 1.7 8z'
   + 'M8 6.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4';
@@ -8336,8 +8336,8 @@ function fill(turn, m) {
     // while the mode remains: the block of the run and the panel of the thought are both
     // hidden. A turn of an answer that the one block is above is hidden as well, for the block
     // holds its thought, its text of the work and an account of its calls. Either row is
-    // offset, unless the blocks an answer ends with hang on it, for the files of an propose is
-    // there and the user must still reach them.
+    // offset, unless the blocks an answer ends with hang on it, for the offered files are there
+    // and the user must still reach them.
     var held = at >= 0 && rowHushed(items, at, at + 1);
     var blank = m.role === 'Tool'
       || (m.role === 'Assistant' && !String(m.body || '').trim());
@@ -9136,14 +9136,14 @@ function roleStamp(m) {
   return [m.role, m.body.length, m.reasoning ? m.reasoning.length : 0,
     (m.tool || '').length, /^running \.\.\.$/i.test(m.tool) ? 1 : 0,
     m.attachments ? m.attachments.length : 0, m.when || '',
-    // The blocks of an propose are under the answer, so the row that carries them is rebuilt
-    // when an propose arrives or is sent.
+    // The blocks of an offer are under the answer, so the row that carries them is rebuilt
+    // when an offer arrives or is sent.
     m.downloads ? 'gift' + m.downloads.length : '',
-    // The button of a show is at the end of the answer too, so the row that carries the end is
-    // rebuilt when a show arrives.
+    // The display button is at the end of the answer too, so the row that carries the end is
+    // rebuilt when a display arrives.
     m.displayed ? 'shown' + m.displayed.length : '',
     // The paths proposed for what comes next are at the end of the answer with them, so the row
-    // is rebuilt when an propose of paths arrives.
+    // is rebuilt when an offer of paths arrives.
     m.suggestions ? 'suggest' + m.suggestions.length : '',
     // The block of the steps of the work is at the end of the answer too, so the row that
     // carries the end is rebuilt when a list of steps arrives.
@@ -9760,10 +9760,10 @@ function drawThread(s) {
     for (var k = rows.length - 3; k < rows.length; k++) {
       if (k >= 0) { syncTurn(turns[k], items, rows[k]); }
     }
-    // The blocks the last answers end with are checked again here as well: a proposal that
+    // The blocks the last answers end with are checked again here as well: an offer that
     // arrived while the model was writing remains aside until the answer is over, and the row
-    // that carries it has nothing else to say when it ends. The same is true of the button of a
-    // show and of the paths proposed for what comes next, which are in the same place.
+    // that carries it has nothing else to say when it ends. The same is true of the display
+    // button and of the paths proposed for what comes next, which are in the same place.
     for (var q = rows.length - 3; q < rows.length; q++) {
       if (q >= 0) { placeEnd(turns[q], plan[q]); }
     }
@@ -9828,17 +9828,17 @@ var GIFT_MARKS = {
   font: 'M3.4 12.6 8 3.4l4.6 9.2M5.2 9.4h5.6',
   file: 'M4 2.2h5.2l2.8 2.8v8.8H4zM9.2 2.2v3.2H12'
 };
-// The marker of the button of a block, and of the button of a whole propose.
+// The marker of the button of a block, and of the button for the whole offer.
 var GIFT_DOWN = 'M8 2.4v6.4M5.4 6.4 8 9l2.6-2.6M3.2 12.6h9.6';
 
 // The path of a file of the chat. The small server of the program answers for it, and opens
-// only the sandbox directory of the chat that is open: the rule of the sandbox lies over a
+// only the working directory of the chat that is open: the rule of the sandbox lies over a
 // download as it lies over a command.
 function giftHref(one) {
   return '/api/gift?path=' + encodeURIComponent(one.path);
 }
 
-// The path of all of an propose, wound into one archive in the memory of the program. Every
+// The path of all of an offer, wound into one archive in the memory of the program. Every
 // file of the suggestion is one word of the request.
 function giftZipHref(list) {
   var parts = [];
@@ -9848,13 +9848,13 @@ function giftZipHref(list) {
   return '/api/gift_zip?' + parts.join('&');
 }
 
-// The whole name of a file of an propose, which is the name the browser is given, so it keeps
+// The whole name of a file of an offer, which is the name the browser is given, so it keeps
 // the name the block showed and not the type it guessed.
 function giftWhole(one) {
   return one.extension ? one.name + '.' + one.extension : one.name;
 }
 
-// The type of a file of an propose, in the text a save dialog of the browser reads. The map is
+// The type of a file of an offer, in the text a save dialog of the browser reads. The map is
 // short on purpose: a file of a type it does not know is saved under whatever ending the user
 // writes, which is what a dialog proposes when nothing is requested.
 var GIFT_MIMES = {
@@ -9870,14 +9870,14 @@ var GIFT_MIMES = {
   yaml: 'application/yaml', yml: 'application/yaml'
 };
 
-// The text of the type for one file of an propose. Nothing returns for a file with no ending,
+// The text of the type for one file of an offer. A file with no extension returns nothing here,
 // or of a type the map does not know.
 function giftMime(one) {
   var tail = String((one && one.extension) || '').toLowerCase();
   return GIFT_MIMES[tail] || '';
 }
 
-// Where a file of an propose is to go. A browser that answers to `showSaveFilePicker` is asked,
+// Where a file of an offer is to go. A browser that answers to `showSaveFilePicker` is asked,
 // and the native dialog of the operating system appears: the user chooses the folder, may write
 // the name again, and the bytes are written there. The browser answers only where the page is
 // on a secure place - the computer itself, or a name behind https - and only while the user
@@ -9903,7 +9903,7 @@ function saveChosen(name, mime) {
   });
 }
 
-// Write the bytes of an propose into the file the user chose in the dialog. The handle is
+// Write the bytes of an offer into the file the user chose in the dialog. The handle is
 // opened, written and closed; a handle that will not open, or a disk that will not take the
 // bytes, is reported on the button, which is where the user is looking.
 function writeChosen(where, made, button) {
@@ -9927,7 +9927,7 @@ function takeDown(href, name) {
 }
 
 // The button reports what went wrong, for a moment, rather than taking a file that is not
-// there. A block of an propose the user was shown an hour ago names a file that may have been
+// there. A block of an offer the user was shown an hour ago names a file that may have been
 // written over since.
 function failGift(button, words) {
   if (!button) { return; }
@@ -9942,9 +9942,9 @@ function failGift(button, words) {
   }, 2400);
 }
 
-// Take one file of an propose. The dialog of the browser is asked first, while the pointer is
-// on the button, and the bytes are requested after it, so a file that has been sent of the
-// sandbox directory of the chat records it instead of bringing down nothing.
+// Take one file of the offer. The browser dialog is asked first, while the pointer is still on
+// the button, and the bytes are requested afterwards, so a file that has gone from the working
+// directory of the chat is reported as missing instead of being saved empty.
 function takeGift(one, button) {
   var whole = giftWhole(one);
   saveChosen(whole, giftMime(one)).then(function (where) {
@@ -9962,9 +9962,9 @@ function takeGift(one, button) {
   });
 }
 
-// Take all of an propose at once. The archive is created in the memory of the program and is
-// never written out to the sandbox directory of the chat. The dialog is requested the archive
-// by the same rule as it is for one file.
+// Take all of an offer at once. The archive is created in the memory of the program and is
+// never written to the working directory of the chat. The save dialog is asked for the archive
+// under the same rule as for one file.
 function takeGifts(list, button) {
   var whole = giftWhole(list[0]) + '.zip';
   saveChosen(whole, 'application/zip').then(function (where) {
@@ -9982,7 +9982,7 @@ function takeGifts(list, button) {
   });
 }
 
-// One file of an propose: the marker of its type, its name with the ending under it, and the
+// One file of an offer: the marker of its type, its name with the ending under it, and the
 // button at the right of the block.
 function giftBlock(one) {
   var box = make('div', 'gift');
@@ -10038,7 +10038,7 @@ function giftShown(one, shape) {
   };
 }
 
-// The blocks of one propose, with the button of all of it under them when there is more than
+// The blocks of one offer, with the button of all of it under them when there is more than
 // one file.
 function giftRow(list) {
   var row = make('div', 'gifts');
@@ -10342,7 +10342,7 @@ function stepHeadShown() {
 // between one word of the user and the next, which is why these belong to a whole answer and
 // not to the one message the tool ran in.
 //
-// The files of an propose and the files of a show are gathered over all of the answer, in the
+// The files of an offer and the files of a display are gathered over all of the answer, in the
 // order the calls named them: a user who was proposed two files by two calls was proposed two
 // files. The paths are not gathered. The newest call of an answer wins, and an answer that is
 // not the newest of the chat carries none of them, for the paths an older answer named are no
@@ -10395,7 +10395,7 @@ function holdsPath(list, path) {
 
 // Which row of the thread carries the blocks its answer ends with, and what they are made of.
 // Only the last row of an answer carries them, and an answer that is still being written
-// carries nothing at all: an propose made in the middle of an answer is not finished work. The
+// carries nothing at all: an offer made in the middle of an answer is not finished work. The
 // paths requested more besides - the newest answer of the chat only, and nothing at all while
 // the model is writing - so they go the moment the user takes one or reports something of their
 // own.
@@ -10971,9 +10971,9 @@ function gotoChapter(chapter) {
   if (!turns.length) { return; }
   var node = null;
   if (!chapter.after) {
-    // The first turn of the conversation, and not whatever remains first in the sandbox directory of
-    // the conversation: the questions of the plan are in the same space, at the end of
-    // it, and a conversation that has no turn has no place to go to either.
+    // The first turn of the conversation, not whatever element stands first in it: the
+    // questions of the plan are in the same container, at the end of it, and a conversation
+    // with no turn has nowhere to go either.
     node = turns[0];
   } else {
     var at = messageIndex(chapter.after);
@@ -11109,9 +11109,9 @@ function railResizePlace() {
 }
 
 // The line hugs the chat rather than the window. The column of the chat is centred in the
-// sandbox directory it has, so the distance from the edge of the stage to the line is checked
+// space it has, so the distance from the edge of the stage to the line is checked
 // again after the text is decompressed: the dashes remain a little way right of the text, as a
-// border of them, and the line of the summarisations remains beyond the dashes when a chat has
+// border of them, and the summarisation timeline remains beyond the dashes when a chat has
 // both.
 function placeUserLine() {
   var box = el.userline;
@@ -11121,7 +11121,7 @@ function placeUserLine() {
   if (!col.width || !stage.width) { return; }
   var both = el.stage.classList.contains('withtimeline');
   // The text ends, and the line stays a little way from it. The line is never crowded
-  // against the line of the summarisations either: with both, it keeps its distance from the
+  // against the summarisation timeline either: with both, it keeps its distance from the
   // edge of the stage.
   var want = Math.round(stage.right - (col.right + (both ? 22 : 26)));
   var least = both ? 104 : 14;
@@ -11484,15 +11484,17 @@ function sayNothing(body) {
 
 // ------------------------------------------------- the window over file contents
 //
-// The show of a file, and the click on a block of an propose, both come to this window. It
-// carries one file at a time, and the two arrows of its header turn the files of a show. Each
+// The display of a file, and the click on a block of an offer, both come to this window. It
+// carries one file at a time, and the two arrows of its header turn the files of the display.
+// Each
 // type is put up its own way: text is written down, markers of markdown are put up as those
 // markers ask, an image and a drawing of lines are hung as an image, a page of html makes the
 // page it makes, and a document of pages is given to the user of the computer. A file of a type
 // nothing knows is never requested at all: the tool that made the block would not have named
 // it.
 
-// The files of the show that is left open, where the window is in them, and whether the text of
+// The files of the display that is left open, where the window is in them, and whether the text
+// of
 // the file is put up instead of the item it makes.
 var lookFiles = null;
 var lookAt = 0;
@@ -11503,7 +11505,8 @@ var lookRaw = false;
 var lookTurn = 0;
 
 // The types of file the window shows, and how each is put up. The program answers with the form
-// of every file of a show; a file that was only proposed has none, so the page works it out
+// of every file of the display; a file that was only proposed has none, so the page works it
+// out
 // here from the same list of endings. An ending that is in no row is a type the window does not
 // show.
 var LOOK_PICTURE = 'png jpg jpeg gif webp bmp ico avif';
@@ -11551,7 +11554,8 @@ function lookCanRaw(one) {
     && oneOf(LOOK_MARKS, String(one.extension || '').toLowerCase());
 }
 
-// All of the window over the contents of files. `list` is the row of files one show put in the
+// All of the window over the contents of files. `list` is the row of files one display put in
+// the
 // window, in the order the model named them, and `at` is the one to begin on.
 function openShownLook(list, at) {
   if (!list || !list.length) { return; }
@@ -11561,8 +11565,8 @@ function openShownLook(list, at) {
   openViewer({ files: list });
 }
 
-// The bytes of one file of a show, as a place the page may hang them on. The program opens the
-// sandbox directory of the chat for them, under the same rule as the call that made the block,
+// The bytes of one file of the display, held as data the page can show. The program opens the
+// working directory of the chat for them, under the same rule as the call that made the block,
 // and a type the window does not show is refused there too.
 function shownData(path) {
   return fetch('/api/display?path=' + encodeURIComponent(path))
@@ -11574,7 +11578,7 @@ function shownData(path) {
     }, function () { return ''; });
 }
 
-// The file of the show that is left open: the header of the window is set for it, and its bytes
+// The file of the display that is left open: the header of the window is set for it, and its bytes
 // are requested.
 function drawLookFile() {
   var list = lookFiles || [];
@@ -11613,7 +11617,8 @@ function drawLookFile() {
   });
 }
 
-// Put one file of the show up in the window. `raw` reports the text of the file is wanted, and
+// Put one file of the display up in the window. `raw` reports the text of the file is wanted,
+// and
 // not the item the file makes.
 function putLookFile(body, one, url, raw) {
   if (raw) { readLookWords(body, url, one, true); return; }
@@ -11695,7 +11700,7 @@ function showDocumentLook(body, url, one) {
   body.appendChild(down);
 }
 
-// The name of a file of the show, with its ending behind it.
+// The name of a file of the display, with its ending behind it.
 function wholeOf(one) {
   return one.extension ? one.name + '.' + one.extension : one.name;
 }
@@ -11784,7 +11789,7 @@ function closeViewer() {
   box.classList.add('hidden');
   if (el.lookbody) { lookTurnOn(el.lookbody, false); el.lookbody.innerHTML = ''; }
   // The window over the contents of files is begun again from the first of them next time it is
-  // opened, and the block of a show opens it whole.
+  // opened, and the block of the display opens it whole.
   lookFiles = null;
   lookAt = 0;
   lookRaw = false;
@@ -11828,7 +11833,8 @@ function wireViewer() {
       closeViewer();
     }
   });
-  // The two keys of the arrows turn the files of a show, while the window is left open and the
+  // The two keys of the arrows turn the files of the display, while the window is left open and
+  // the
   // pointer is not busy in a box of text.
   window.addEventListener('keydown', function (event) {
     if (!lookFiles || !el.viewer || el.viewer.classList.contains('hidden')) { return; }
