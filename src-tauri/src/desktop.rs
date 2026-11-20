@@ -38,6 +38,8 @@ pub fn run(cfg: Config) -> Result<(), String> {
             commands::save_model_settings,
             commands::preview_command,
             commands::get_mcp,
+            commands::get_embed_state,
+            commands::get_sources,
             commands::get_logs,
             commands::get_log,
             commands::take_files,

@@ -180,6 +180,15 @@ fn handle(engine: &Engine, mut request: Request) {
         ("GET", "/api/mcp") => {
             let _ = request.respond(json_response(&web::mcp_value(engine)));
         }
+        // The embedding model of the sources, for the section at the top of the Program tab, and
+        // the sources of the open chat, for their pop-up. Both are read again while a download or
+        // a counting is going on, and neither comes with the state of the page.
+        ("GET", "/api/embed_state") => {
+            let _ = request.respond(json_response(&engine.embedding_state()));
+        }
+        ("GET", "/api/sources_list") => {
+            let _ = request.respond(json_response(&engine.sources_value()));
+        }
         ("GET", "/api/logs") => {
             let kind = crate::logs::Kind::of_word(&query_value(&query, "kind"));
             let _ = request.respond(json_response(&web::logs_value(kind)));

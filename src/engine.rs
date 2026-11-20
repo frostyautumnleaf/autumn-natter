@@ -4085,6 +4085,22 @@ impl State {
         self.chat().map(|chat| self.workdir_for(chat))
     }
 
+    // The space the sources of retrieval belong to. With a chat open they are the sources of that
+    // chat. With none open they are the sources of the repository this window works in, for the
+    // sources of a repository stand for every chat of it, and a user who means to add some before
+    // the first message of a chat is written finds them in the same place. A loose chat has no
+    // space of its own until its first message makes it, and there is nowhere to put a source
+    // before that.
+    fn sources_workdir(&self) -> Option<PathBuf> {
+        if let Some(chat) = self.chat() {
+            return Some(self.workdir_for(chat));
+        }
+        if self.scope_repo.is_empty() {
+            return None;
+        }
+        self.store.repo_path(&self.scope_repo)
+    }
+
     // What retrieval is at in the open chat. The two numbers of the counting model are read from
     // the settings, and the state of the folder from the index, so a chat with an empty folder is
     // reported as empty rather than as ready.
@@ -4096,7 +4112,7 @@ impl State {
             .unwrap_or(self.new_rag);
         let ready = worker.as_ref().map(|one| one.ready()).unwrap_or(false);
         let vision = worker.as_ref().map(|one| one.vision()).unwrap_or(false);
-        let Some(chat) = self.chat() else {
+        let Some(workdir) = self.sources_workdir() else {
             return RagSnap {
                 enabled,
                 ready,
@@ -4104,7 +4120,6 @@ impl State {
                 ..RagSnap::default()
             };
         };
-        let workdir = self.workdir_for(chat);
         let (files, chunks, pending) = rag::counts(&rag::key_of(&workdir));
         RagSnap {
             enabled,
@@ -5152,8 +5167,11 @@ impl Engine {
         let Ok(state) = self.state.lock() else {
             return crate::web::refused("The program state is removed");
         };
-        let Some(workdir) = state.open_workdir() else {
-            return crate::web::refused("No chat is open, so there are no sources to read");
+        let Some(workdir) = state.sources_workdir() else {
+            return crate::web::refused(
+                "The sources belong to a working directory. Write the first message of a chat, or\
+                 choose a repository, and they have a place to go.",
+            );
         };
         let key = rag::key_of(&workdir);
         let mut made = rag::list(&key, &workdir);
@@ -5169,12 +5187,17 @@ impl Engine {
         let Ok(state) = self.state.lock() else {
             return crate::web::refused("The program state is removed");
         };
-        let Some(workdir) = state.open_workdir() else {
-            return crate::web::refused("No chat is open, so there is nowhere to put the files");
+        let Some(workdir) = state.sources_workdir() else {
+            return crate::web::refused(
+                "The sources belong to a working directory. Write the first message of a chat, or\
+                 choose a repository, and they have a place to go.",
+            );
         };
         let key = rag::key_of(&workdir);
-        let (given, refused) = rag::parse_given(body);
-        if given.is_empty() {
+        let (given, mut refused) = rag::parse_given(body);
+        let (placed, refused_here) = rag::parse_placed(body);
+        refused.extend(refused_here);
+        if given.is_empty() && placed.is_empty() {
             return crate::web::refused(if refused.is_empty() {
                 "No file came with the call"
             } else {
@@ -5183,7 +5206,7 @@ impl Engine {
         }
         let worker = state.rag_worker();
         drop(state);
-        if let Err(problem) = rag::store(&key, &workdir, given, worker) {
+        if let Err(problem) = rag::store_all(&key, &workdir, given, placed, worker) {
             return crate::web::refused(&problem);
         }
         let mut answer = json!({ "ok": true, "taken": refused.is_empty() });
@@ -5199,7 +5222,7 @@ impl Engine {
         let Ok(state) = self.state.lock() else {
             return crate::web::refused("The program state is removed");
         };
-        let Some(workdir) = state.open_workdir() else {
+        let Some(workdir) = state.sources_workdir() else {
             return crate::web::refused("No chat is open, so there are no sources to take out");
         };
         let key = rag::key_of(&workdir);
@@ -5214,7 +5237,7 @@ impl Engine {
         let Ok(state) = self.state.lock() else {
             return crate::web::refused("The program state is removed");
         };
-        let Some(workdir) = state.open_workdir() else {
+        let Some(workdir) = state.sources_workdir() else {
             return crate::web::refused("No chat is open, so there is nothing to count");
         };
         let key = rag::key_of(&workdir);

@@ -2876,6 +2876,54 @@ body.pixel .meter i, body.pixel .meter-box.near .meter i {
     rgba(0, 0, 0, .3) 0 4px, transparent 4px 8px);
 }
 body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
+
+/* ------------------------------------------------------------ the sources */
+/*
+ * The badge at the far left of the chat composer holds two items and no switch of its own, so it
+ * carries a mark alone and is narrower than a badge with a name. */
+.badge.only { padding: 0 8px; }
+/*
+ * The window of the sources. The drop zone is the whole of the top of it, for a drop may land
+ * anywhere in the window; the files already there are in rows under the line of the count. */
+.srcview .sbody { flex: 1 1 auto; min-height: 0; }
+.src-drop { display: flex; flex-direction: column; align-items: center; gap: 6px;
+  margin: 12px 0 10px; padding: 22px 18px; text-align: center;
+  border: 1px dashed var(--line-strong); border-radius: var(--r-m);
+  background: var(--surface-2); color: var(--dim); }
+.src-drop .svg { width: 17px; height: 17px; }
+.src-drop.over { border-style: solid; border-color: var(--accent-line);
+  background: var(--accent-soft); color: var(--ink); }
+.src-drop .say { font-size: 13px; color: var(--text); }
+.src-drop .sub { font-size: 11.5px; color: var(--faint); max-width: 470px; line-height: 1.5; }
+.src-picks { display: flex; gap: 8px; margin-top: 8px; }
+.src-job { display: flex; align-items: center; gap: 10px; margin: 0 0 10px;
+  font-size: 12px; color: var(--text-2); }
+.src-job .bar { flex: 1 1 auto; height: 5px; border-radius: 999px; background: var(--line);
+  overflow: hidden; }
+.src-job .bar i { display: block; height: 100%; width: 0; background: var(--accent);
+  transition: width .3s ease; }
+.src-note { margin: 0 0 10px; font-size: 12px; line-height: 1.5; color: var(--text-2);
+  overflow-wrap: anywhere; }
+.src-note.bad { color: var(--ink-fail); }
+.src-foot { display: flex; align-items: center; gap: 10px; margin: 2px 0 10px; }
+.src-foot #srcCount { font-size: 12px; color: var(--dim); }
+.src-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px;
+  align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.src-row .ico { display: flex; align-items: center; justify-content: center; color: var(--text-2); }
+.src-row .ico .svg { width: 14px; height: 14px; }
+.src-row .path { font-size: 12.5px; color: var(--text); overflow-wrap: anywhere; }
+.src-row .meta { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+.src-row .meta .wait { color: var(--ink-fail); }
+/*
+ * The section of the settings panel the program opens by itself: the badge of retrieval points at
+ * it while no embedding model is installed, and the aim is a moment of light around the name of
+ * the section, so the eye finds it without a scroll of looking. */
+.sec.aim { animation: aim 1.8s ease 1; border-radius: var(--r-s); }
+@keyframes aim {
+  0% { color: var(--accent); background: none; }
+  25% { color: var(--accent); background: var(--accent-soft); }
+  100% { color: inherit; background: none; }
+}
 </style>
 </head>
 <body>
@@ -3138,6 +3186,16 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
       <div class="dock-row">
         <div class="badges">
           <div class="b-left">
+            <div class="menuwrap" id="pluswrap">
+              <button class="badge only" id="plus" title="Add a file to this message, or add sources the model may search.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
+              </button>
+              <div class="menu hidden" id="plusmenu">
+                <button id="plusattach" type="button"><span class="word">Add attachments</span></button>
+                <button id="plussources" type="button"><span class="word">Add RAG sources</span></button>
+              </div>
+              <input id="pickfiles" type="file" multiple hidden>
+            </div>
             <div class="menuwrap" id="codewrap">
               <button class="badge" id="code" title="Let the model use the tools of the program. The badge is the switch over all of them: with the badge off, no tool is proposed at all. Click the arrow beside the name to choose which tools the model may reach.">
                 <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.8 4.2a0.67 0.67 0 0 0 0 0.94l1.07 1.07a0.67 0.67 0 0 0 0.94 0l2.51-2.51a4 4 0 0 1-5.29 5.29l-4.61 4.61a1.41 1.41 0 1 1-2-2l4.61-4.61a4 4 0 0 1 5.29-5.29l-2.51 2.51z"/></svg>
@@ -3146,6 +3204,10 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
               </button>
               <div class="menu hidden" id="codemenu"></div>
             </div>
+            <button class="badge" id="rag" title="Retrieval: let the model search the sources of this working directory.">
+              <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.6 2.9h4.9l2.2 2.2v2.3M3.6 13.1h5.2M3.6 2.9v10.2"/><circle cx="10.5" cy="10.4" r="2.5"/><path d="M12.4 12.3 14.1 14"/></svg>
+              <span id="ragtext">RAG</span>
+            </button>
             <button class="badge" id="search" title="Let the model search the web and read a page of it. Search runs in the program, not in the sandbox of a command: a command has no network access. Search touches no file of the computer, and nothing that is read is stored.">
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
               <span id="searchtext">Search</span>
@@ -3232,6 +3294,24 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
     </div>
     <div class="sheet-body">
       <div class="pane" id="paneProgram">
+        <div class="sec" id="secEmbedding">Embedding model</div>
+        <div class="fld"><span class="lbl">Embedding model</span>
+          <span class="sub">The model that counts the words of the sources of retrieval. Nothing is downloaded until the button under it is pressed, and the model is started only while files are being counted or searched.</span>
+          <div class="ctl"><select id="fEmbedModel"></select></div></div>
+        <div class="fld"><span class="lbl">Quantization</span>
+          <span class="sub">The size of the model file. BF16 is the form the model was published in; a smaller quant takes less room and counts the words a little less finely.</span>
+          <div class="ctl"><select id="fEmbedQuant"></select></div></div>
+        <div class="fld"><span class="lbl">Vision projector</span>
+          <span class="sub">The projector that lets the counting model reach pictures as well as words. It is optional: with none chosen, a picture is searched by its name alone. A projector that is in the folder is used at once.</span>
+          <div class="ctl"><select id="fEmbedMmproj"></select></div></div>
+        <div class="fld wide"><span class="lbl">State</span>
+          <span class="sub" id="fEmbedState">Nothing of the embedding model has been read yet.</span></div>
+        <div class="fld wide"><span class="lbl">Folder in use</span>
+          <span class="sub">Where the files of the embedding model are kept, beside the models of the chats.</span>
+          <div class="ctl"><span class="ro" id="fEmbedFolder"></span></div></div>
+        <div class="fld wide"><span class="lbl">Download</span>
+          <span class="sub">What is chosen above and is not in the folder yet is fetched from the repository of the model. A download may be left and come back to, and the files already there are not fetched again.</span>
+          <div class="ctl"><button class="btn" id="embedInstall" type="button">Install</button><button class="quiet hidden" id="embedCancel" type="button">Stop the download</button></div></div>
         <div class="sec">Folders</div>
         <div class="fld wide"><span class="lbl">Data directory in use</span>
           <span class="sub">Where Autumn Natter stores the settings, the chats and the repository data, for this run of the program.</span>
@@ -3729,6 +3809,51 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
 <!--   One pre-written prompt, whole, in a window of its own. The page never carries the text of the
   prompts: it requests the one the user clicked on, and shows it here for reading. Nothing in
   this window is written back. -->
+<!--   The sources of retrieval, in a window of their own. The files a user gives are written under
+  `.sources` of the working directory, with the tree they came in kept, and their words are counted
+  by the embedding model chosen at the top of the Program tab. Nothing else is written into the
+  working directory: the index of the vectors is in a database of the program, so a terminal command
+  of a model may read a source and cannot corrupt the index of them. -->
+<div class="overlay hidden" id="srcOverlay">
+  <div class="sumview srcview" role="dialog" aria-modal="true" aria-label="The sources of retrieval">
+    <div class="vhead">
+      <div class="shead">
+        <span class="stitle">RAG sources</span>
+        <span class="smeta" id="srcMeta">Nothing has been read yet.</span>
+      </div>
+      <button class="mark-btn x" id="srcClose" type="button" title="Close" aria-label="Close">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+    </div>
+    <div class="sbody">
+      <div class="src-drop" id="srcDrop">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.4v6.6M5.1 5.9 8 8.8l2.9-2.9M2.7 11.3v1.3c0 0.4 0.3 0.7 0.7 0.7h9.2c0.4 0 0.7-0.3 0.7-0.7v-1.3"/></svg>
+        <span class="say">Drop files or folders here to add them to the sources</span>
+        <span class="sub">The tree of a folder is kept as it is. Every file is counted with the embedding model as soon as it arrives, and the model may then search it with search_sources.</span>
+        <span class="src-picks">
+          <button class="btn" id="srcFiles" type="button">Choose files</button>
+          <button class="btn" id="srcFolders" type="button">Choose a folder</button>
+        </span>
+      </div>
+      <input id="srcpickfiles" type="file" multiple hidden>
+      <input id="srcpickfolders" type="file" webkitdirectory multiple hidden>
+      <div class="src-job hidden" id="srcJob">
+        <span id="srcJobText"></span>
+        <span class="bar"><i id="srcJobFill"></i></span>
+        <button class="quiet" id="srcCancel" type="button">Stop</button>
+      </div>
+      <div class="src-note hidden" id="srcNote"></div>
+      <div class="src-foot">
+        <span id="srcCount"></span>
+        <span class="grow"></span>
+        <button class="btn" id="srcRecount" type="button">Count the files again</button>
+        <button class="quiet" id="srcClear" type="button">Take all out of the index</button>
+      </div>
+      <div class="src-list" id="srcList"></div>
+    </div>
+  </div>
+</div>
+
 <div class="overlay hidden" id="promptOverlay">
   <div class="sumview" role="dialog" aria-modal="true" aria-label="A pre-written prompt">
     <div class="vhead">
@@ -3779,6 +3904,8 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'newchat', 'settingsbtn', 'modelbtn', 'themebtn', 'chapters', 'timeline', 'userline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
+  'plus', 'pluswrap', 'plusmenu', 'plusattach', 'plussources', 'pickfiles',
+  'rag', 'ragtext',
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts', 'queue', 'queuehead', 'queuecount', 'queuelist',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
@@ -5252,6 +5379,7 @@ function drawBadges(s) {
   // just moved is seen to move, and a new chat does not leave the old lines remaining.
   if (el.sandboxmenu && !el.sandboxmenu.classList.contains('hidden')) { fillSandboxMenu(s); }
   drawMcp(s);
+  drawRag(s);
 }
 
 // The speed of the work, put next to the text of the state. Two types of work are at hand while
@@ -12804,7 +12932,7 @@ el.newrepo.addEventListener('click', function () {
 // Bring one drop-down up and every other one down, for two menus over one row of badges read as
 // an error in the page.
 function showOnly(opener) {
-  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu();
+  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closePlusMenu();
   if (opener) { opener(); }
 }
 
@@ -12878,7 +13006,9 @@ wireMenuBadge(el.think, el.thinkmenu, openThinkMenu);
 // switched on its own and there is nothing to switch as a whole.
 wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
 // A click anywhere else in the page puts the menus away.
-document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); });
+document.addEventListener('click', function () {
+  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closePlusMenu();
+});
 
 // ------------------------------------------- icons under the pointer
 //
@@ -13150,6 +13280,14 @@ function watchTheWindow() {
     nativeDrops = true;
     el.box.classList.toggle('drop', kind === 'over');
     if (kind !== 'down' || !made.paths || made.paths.length === 0) { return; }
+    // The window of the sources takes a drop of its own. The places are sent as they are, and
+    // the program reads what they name, every file of a folder that was let go included, with the
+    // tree of it kept.
+    if (srcOpen) {
+      post('/api/sources_add', { paths: made.paths });
+      srcRead();
+      return;
+    }
     invoke('take_files', { paths: made.paths }).then(function (answer) {
       addTaken((answer && answer.files) || []);
     }, function () {});
@@ -13166,6 +13304,699 @@ el.box.addEventListener('dragleave', function (e) {
 });
 
 function openChat(id) { post('/api/open_chat', { id: id }); }
+
+
+// ---------------------------------------------------------------- the sources
+//
+// Retrieval, in the window of the sources and on the badge of the chat composer. A source is a
+// file of the working directory of the chat, written under `.sources` with the tree it came in
+// kept, and counted into pieces by the embedding model chosen at the top of the Program tab. The
+// index of the vectors is a database under the data folder of the program and never a file of the
+// working directory, so a terminal command of a model may read the sources of its own directory
+// and cannot corrupt the index of them.
+//
+// The browser page reads the files of a drop itself and sends their bytes as data URLs a few files
+// at a time, for a folder of a thousand files is a thousand asks. The window of the program is
+// told the places of the files it was given, and sends only those names: the bytes are read from
+// the disk of the computer, where they already are.
+
+// Two reads and one write of the panels. The browser page names a route, and the window of the
+// program names a command of its own for the two reads.
+function readEmbed() { return invoke('get_embed_state'); }
+function readSources() { return invoke('get_sources'); }
+function addSources(body) { return invoke('action', { path: 'sources_add', body: body }); }
+
+// The badge of retrieval. It reports the folder of the sources as well as the switch, so a user
+// who has never added a source is told so before they ask the model to search for nothing.
+function drawRag(s) {
+  if (!el.rag) { return; }
+  var made = s.rag || {};
+  var files = made.files || 0;
+  var pieces = made.chunks || 0;
+  var waiting = made.pending || 0;
+  el.rag.classList.toggle('on', !!made.enabled);
+  el.ragtext.textContent = files ? 'RAG ' + files : 'RAG';
+  el.rag.title = (made.enabled
+      ? 'The model may search the sources of this working directory with search_sources.'
+      : 'Retrieval is off, so the search of the sources is not proposed to the model.')
+    + (files
+      ? ' ' + files + (files === 1 ? ' file' : ' files') + ' and ' + pieces
+        + (pieces === 1 ? ' piece' : ' pieces') + ' of text are in the index.'
+      : ' No source is in the folder of this working directory yet. The + badge at the left adds them.')
+    + (waiting ? ' ' + waiting + ' wait to be counted.' : '')
+    + (made.ready ? '' : ' No embedding model is installed, so nothing can be counted yet.')
+    + (made.vision ? ' Pictures are counted too.' : '')
+    + ' Click to switch retrieval on or off.';
+}
+
+// ---------------------------------------------------------------- the window of the sources
+
+var srcOpen = false;     // the window of the sources is in front
+var srcTimer = 0;        // the read that follows a job that is going on
+var srcJob = null;       // the job the last read reported
+var srcQueue = [];       // the batches of files still to send
+var srcSending = false;  // a batch is in the hands of the program
+var srcReads = 0;        // the reads that came since a batch was sent
+var srcStarted = false;  // the job was seen working since a batch was sent
+var srcFaults = [];      // the files the page could not read, with the reason
+
+function openSources() {
+  srcOpen = true;
+  srcFaults = [];
+  var box = byId('srcOverlay');
+  if (box) { box.classList.remove('hidden'); }
+  srcRead();
+  srcGo();
+}
+
+function closeSources() {
+  srcOpen = false;
+  var box = byId('srcOverlay');
+  if (box) { box.classList.add('hidden'); }
+  srcStop();
+}
+
+// The sources are read again on their own, for the state of the page says nothing of a file that
+// arrived while a job is going on. The read is cheap - rows of a database and one line of the job.
+function srcRead() {
+  if (!srcOpen) { return; }
+  readSources().then(srcDraw, function () { });
+}
+
+function srcGo() {
+  if (srcTimer) { return; }
+  srcTimer = setInterval(srcRead, 900);
+}
+
+function srcStop() {
+  if (srcTimer) { clearInterval(srcTimer); srcTimer = 0; }
+}
+
+function srcDraw(v) {
+  if (!srcOpen) { return; }
+  if (!v || !v.ok) { drawSrcRefused(v); return; }
+  var counts = v.counts || {};
+  var job = v.job || {};
+  srcJob = job;
+  var meta = byId('srcMeta');
+  if (meta) {
+    meta.textContent = (v.folder || '') + ' - ' + (counts.files || 0)
+      + ((counts.files || 0) === 1 ? ' file' : ' files') + ', ' + (counts.chunks || 0)
+      + ((counts.chunks || 0) === 1 ? ' piece of text' : ' pieces of text');
+  }
+  drawSrcJob(job);
+  drawSrcNote(job);
+  drawSrcList(v.files || []);
+  drawSrcFoot(counts, v);
+  srcAdvance();
+}
+
+// A loose chat has no working directory of its own until its first message makes one, and a
+// window of the sources opened before that has nowhere to read a list from. The reason the program
+// gave stands in place of the list, and the two buttons of the panel are put out of reach.
+function drawSrcRefused(v) {
+  var words = (v && (v.status || v.error)) || 'The sources could not be read.';
+  var note = byId('srcNote');
+  if (note) {
+    note.textContent = words;
+    note.classList.remove('hidden');
+    note.classList.remove('bad');
+  }
+  var meta = byId('srcMeta');
+  if (meta) { meta.textContent = words; }
+  var list = byId('srcList');
+  if (list) { list.innerHTML = ''; }
+  var count = byId('srcCount');
+  if (count) { count.textContent = ''; }
+  var again = byId('srcRecount');
+  if (again) { again.disabled = true; }
+  var clear = byId('srcClear');
+  if (clear) { clear.disabled = true; }
+}
+
+// The line of the job: the files coming in, or the words being counted, with how far the work has
+// come and a way to give it up.
+function drawSrcJob(job) {
+  var box = byId('srcJob');
+  if (!box) { return; }
+  box.classList.toggle('hidden', !job.active);
+  if (!job.active) { return; }
+  var word = job.stage === 'counting' ? 'Counting the words of' : 'Adding';
+  var said = byId('srcJobText');
+  if (said) {
+    said.textContent = word + ' '
+      + (job.total ? ((job.done || 0) + ' of ' + job.total) : (job.done || 0))
+      + (job.file ? (': ' + job.file) : '');
+  }
+  var fill = byId('srcJobFill');
+  if (fill) { fill.style.width = (job.percent || 0) + '%'; }
+}
+
+// What the last job said when it ended, and the files this page could not read. A failure of the
+// counting is named as one, for a user must know that the index is short.
+function drawSrcNote(job) {
+  var box = byId('srcNote');
+  if (!box) { return; }
+  var words = job.active ? '' : (job.note || '');
+  if (srcFaults.length) { words = (words ? words + '. ' : '') + srcFaults.join('; '); }
+  box.textContent = words;
+  box.classList.toggle('hidden', !words);
+  box.classList.toggle('bad', !job.active && !!job.failed);
+}
+
+function drawSrcList(files) {
+  var list = byId('srcList');
+  if (!list) { return; }
+  list.innerHTML = '';
+  if (!files.length) {
+    var none = make('div', 'none');
+    none.textContent = 'No source is in this working directory yet.';
+    list.appendChild(none);
+    return;
+  }
+  for (var n = 0; n < files.length; n++) { list.appendChild(srcRow(files[n])); }
+}
+
+// One file of the index: its path inside the folder, what is known of its words, and the way out
+// of the index. A file taken out of the index stays in the folder, which the row says, for a user
+// may wonder where their file went.
+function srcRow(one) {
+  var row = make('div', 'src-row');
+  var icon = make('div', 'ico');
+  icon.appendChild(mark(SRC_MARKS[one.kind] || SRC_MARKS.other));
+  var body = make('div', 'body');
+  var path = make('div', 'path');
+  path.textContent = one.path;
+  body.appendChild(path);
+  var meta = make('div', 'meta');
+  var said = [logSize(one.bytes || 0)];
+  if (one.kind === 'image') {
+    said.push(one.counted ? 'counted as a picture' : 'not counted as a picture');
+  } else {
+    said.push(groupNumber(one.words || 0) + ' characters');
+  }
+  said.push((one.chunks || 0) + ((one.chunks || 0) === 1 ? ' piece' : ' pieces'));
+  meta.textContent = said.join(' - ');
+  if (one.fault) {
+    var fault = make('span', 'wait');
+    fault.textContent = ' - ' + one.fault;
+    meta.appendChild(fault);
+  } else if (!one.counted) {
+    var wait = make('span', 'wait');
+    wait.textContent = ' - waiting to be counted';
+    meta.appendChild(wait);
+  }
+  body.appendChild(meta);
+  var acts = make('div', 'acts');
+  var cut = make('button', 'quiet');
+  cut.type = 'button';
+  cut.textContent = 'Take out';
+  cut.title = 'Take ' + one.path + ' out of the index. The file itself stays in the folder.';
+  cut.addEventListener('click', function () {
+    post('/api/sources_remove', { paths: [one.path] });
+    srcRead();
+  });
+  acts.appendChild(cut);
+  row.appendChild(icon);
+  row.appendChild(body);
+  row.appendChild(acts);
+  return row;
+}
+
+// The mark of a source, by the type the program reads it as.
+var SRC_MARKS = {
+  text: 'M3.4 2.9h6.1l3.1 3.1v7.1H3.4z M9.2 3.2v3.1h2.9',
+  document: 'M3.4 2.9h6.1l3.1 3.1v7.1H3.4z M5.4 7.6h5.2M5.4 9.8h5.2',
+  image: 'M2.6 3.4h10.8v9.2H2.6z M2.9 10.4l2.6-2.6 2.2 2.2 1.8-1.8 3.4 3.2',
+  other: 'M3.4 2.9h6.1l3.1 3.1v7.1H3.4z'
+};
+
+// The line under the list: what the index holds, and whether anything waits for an embedding
+// model. The two buttons are the work a user does by hand: count again, or take all out.
+function drawSrcFoot(counts, v) {
+  var line = byId('srcCount');
+  if (line) {
+    var made = v.rag || {};
+    var waiting = counts.pending || 0;
+    line.textContent = (counts.files || 0) + ((counts.files || 0) === 1 ? ' file' : ' files')
+      + ', ' + (counts.chunks || 0) + ((counts.chunks || 0) === 1 ? ' piece' : ' pieces')
+      + (waiting ? (', ' + waiting + ' waiting to be counted') : '')
+      + (made.ready ? '' : ' - no embedding model is installed');
+  }
+  var again = byId('srcRecount');
+  if (again) { again.disabled = !(counts.pending || 0); }
+  var clear = byId('srcClear');
+  if (clear) { clear.disabled = !(counts.files || 0); }
+}
+
+// ------------------------------------------------------------------ dropping
+
+// The files of a drop, with the path each keeps inside the folder of the sources. A folder is read
+// through the entry of the web view, so its tree is kept; a web view that gives no entries hands
+// over only the files it was given, under their own names. The whole of the walk is a promise, for
+// the children of a folder come when the web view has read them.
+var SRC_GREATEST_FILES = 4000;
+
+function srcCollect(transfer) {
+  var items = transfer && transfer.items;
+  var roots = [];
+  var plain = [];
+  if (items && items.length) {
+    for (var n = 0; n < items.length; n++) {
+      if (items[n].kind !== 'file') { continue; }
+      var entry = items[n].webkitGetAsEntry ? items[n].webkitGetAsEntry() : null;
+      if (entry) { roots.push(entry); continue; }
+      var one = items[n].getAsFile ? items[n].getAsFile() : null;
+      if (one) { plain.push({ file: one, path: one.name }); }
+    }
+  }
+  if (!roots.length) {
+    var held = [];
+    for (var k = 0; k < plain.length; k++) { held.push(plain[k]); }
+    if (!held.length) {
+      var files = filesFrom(transfer);
+      for (var f = 0; f < files.length; f++) { held.push({ file: files[f], path: files[f].name }); }
+    }
+    return Promise.resolve(held);
+  }
+  var out = [];
+  return roots.reduce(function (each, root) {
+    return each.then(function () { return srcWalk(root, '', out); });
+  }, Promise.resolve()).then(function () { return out; });
+}
+
+function srcWalk(entry, prefix, held) {
+  if (!entry || held.length >= SRC_GREATEST_FILES) { return Promise.resolve(); }
+  // The folder of the sources is never a source of itself, and the folders a machine keeps for its
+  // own work hold nothing the user wrote as a source.
+  if (entry.name === '.sources' || entry.name === '.git' || entry.name === 'node_modules') {
+    return Promise.resolve();
+  }
+  if (entry.isFile) {
+    return new Promise(function (go) {
+      entry.file(function (file) {
+        held.push({ file: file, path: srcJoin(prefix, entry.name) });
+        go();
+      }, function () { go(); });
+    });
+  }
+  if (!entry.isDirectory) { return Promise.resolve(); }
+  var here = srcJoin(prefix, entry.name);
+  var reader = entry.createReader();
+  return srcEntries(reader).then(function (children) {
+    children.sort(function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); });
+    return children.reduce(function (each, child) {
+      return each.then(function () { return srcWalk(child, here, held); });
+    }, Promise.resolve());
+  }, function () { });
+}
+
+// The children of a folder, all of them. The reader of the web view gives at most a thousand at
+// one ask, and answers with nothing when there are no more.
+function srcEntries(reader, held) {
+  var made = held || [];
+  return new Promise(function (go) {
+    reader.readEntries(function (some) {
+      if (!some || !some.length) { go(made); return; }
+      srcEntries(reader, made.concat(some)).then(go);
+    }, function () { go(made); });
+  });
+}
+
+function srcJoin(prefix, name) { return prefix ? prefix + '/' + name : name; }
+
+// A number in groups of three, as the number of tokens of the context is written.
+function groupNumber(made) {
+  var words = String(made || 0);
+  var out = '';
+  var every = 0;
+  for (var n = words.length - 1; n >= 0; n--) {
+    out = words.charAt(n) + out;
+    every += 1;
+    if (every === 3 && n > 0) { out = ',' + out; every = 0; }
+  }
+  return out;
+}
+
+// The files chosen in the file browser of the system. A folder chosen through the web view carries
+// its own path in the name of every file inside it, which is the tree to keep.
+function srcChosen(files) {
+  var out = [];
+  for (var n = 0; n < files.length && out.length < SRC_GREATEST_FILES; n++) {
+    var one = files[n];
+    var path = one.webkitRelativePath || one.name;
+    out.push({ file: one, path: path });
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------- sending
+
+// A drop, or a choice of the file browser, becomes a queue of batches. The program works on one job
+// of the sources at a time, so the batches go one after another: each is sent when the job the
+// program reported has ended.
+function srcGive(items) {
+  if (!items || !items.length) { return; }
+  srcFaults = [];
+  srcQueue = srcBatches(items);
+  srcSending = false;
+  srcReads = 0;
+  srcStarted = false;
+  srcNext();
+}
+
+// A batch is a few files whose bytes together are small enough for one ask. Twenty files, or eight
+// megabytes, whichever comes first: the bytes of a data URL are a third bigger than the file.
+var SRC_BATCH_FILES = 20;
+var SRC_BATCH_BYTES = 8 * 1024 * 1024;
+
+function srcBatches(items) {
+  var out = [];
+  var now = [];
+  var bytes = 0;
+  for (var n = 0; n < items.length; n++) {
+    var size = (items[n].file && items[n].file.size) || 0;
+    if (now.length && (now.length >= SRC_BATCH_FILES || bytes + size > SRC_BATCH_BYTES)) {
+      out.push(now);
+      now = [];
+      bytes = 0;
+    }
+    now.push(items[n]);
+    bytes += size;
+  }
+  if (now.length) { out.push(now); }
+  return out;
+}
+
+function srcNext() {
+  if (srcSending || !srcQueue.length) { return; }
+  var batch = srcQueue.shift();
+  Promise.all(batch.map(srcBytes)).then(function (made) {
+    var files = made.filter(function (one) { return !!one; });
+    if (!files.length) { srcNext(); return; }
+    srcSending = true;
+    srcReads = 0;
+    srcStarted = false;
+    addSources({ files: files }).then(function (answer) {
+      if (answer && answer.refused && answer.refused.length) {
+        srcFaults = srcFaults.concat(answer.refused);
+      }
+      if (answer && answer.ok === false && answer.status) { srcFaults.push(answer.status); }
+      srcRead();
+    }, function () { srcRead(); });
+  });
+}
+
+// The bytes of one file, as the program takes them: a data URL. A file the web view cannot read is
+// left out with the reason, rather than stop the rest of the drop.
+function srcBytes(one) {
+  return new Promise(function (go) {
+    var file = one.file || one;
+    var reader = new FileReader();
+    reader.onload = function () {
+      go({
+        path: one.path || file.name,
+        mime: file.type || 'application/octet-stream',
+        data: String(reader.result)
+      });
+    };
+    reader.onerror = function () {
+      srcFaults.push((one.path || file.name) + ' could not be read');
+      go(null);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// The next batch goes when the program has done with this one. The job of a drop is begun by the
+// call itself, so a read that finds the job already ended is not trouble: after three reads of the
+// timer the next batch is on its way whatever the job did in the meantime.
+function srcAdvance() {
+  if (!srcSending) { return; }
+  var job = srcJob || {};
+  if (job.active) { srcStarted = true; return; }
+  srcReads += 1;
+  if (!srcStarted && srcReads < 3) { return; }
+  srcSending = false;
+  srcNext();
+}
+
+// ---------------------------------------------------------------- embedding model
+
+var embedHeld = null;   // the answer the section is drawn from
+var embedTimer = 0;     // the read that follows a download that is going on
+
+// The section at the top of the Program tab. It is read when the tab comes forward, and again
+// while a download is at work; the fields themselves are built again only while nothing is being
+// fetched, so a choice list left open is not knocked shut under the pointer.
+function loadEmbed() {
+  readEmbed().then(drawEmbed, function () { });
+}
+
+function embedGo() {
+  if (embedTimer) { return; }
+  embedTimer = setInterval(loadEmbed, 800);
+}
+
+function embedStop() {
+  if (embedTimer) { clearInterval(embedTimer); embedTimer = 0; }
+}
+
+function drawEmbed(v) {
+  if (!v || !v.ok) { return; }
+  embedHeld = v;
+  var job = v.job || {};
+  var fresh = !job.active;
+  if (fresh) { drawEmbedChoices(v); }
+  var state = byId('fEmbedState');
+  if (state) {
+    var said = [];
+    said.push(v.installed
+      ? (v.name + ' (' + v.quant + ') is in the folder')
+      : (v.name + ' (' + v.quant + ') is not installed yet'));
+    if (v.mmproj && v.mmproj !== 'none') {
+      said.push(v.projector_used
+        ? 'the vision projector is in use, so pictures are counted too'
+        : 'the vision projector chosen is not in the folder yet');
+    } else {
+      said.push('no vision projector is chosen, so a picture is searched by its name alone');
+    }
+    said.push(job.active
+      ? ('downloading ' + (job.file || 'the model') + (job.total ? ', ' + embedWords(job) : ''))
+      : (job.note || ''));
+    state.textContent = said.filter(function (one) { return !!one; })
+      .map(capitalWord).join('. ');
+  }
+  var folder = byId('fEmbedFolder');
+  if (folder) { folder.textContent = v.dir || ''; }
+  var install = byId('embedInstall');
+  if (install) {
+    install.disabled = !!job.active;
+    install.textContent = v.installed && wantProjector(v) && !v.projector_used
+      ? 'Install the vision projector'
+      : (v.installed ? 'Install what is missing' : 'Install');
+  }
+  var cancel = byId('embedCancel');
+  if (cancel) { cancel.classList.toggle('hidden', !job.active); }
+  if (job.active) { embedGo(); } else { embedStop(); }
+}
+
+// Whether a projector was chosen and is not in the folder. The name of the projector the program
+// settled on is empty when nothing was found.
+function wantProjector(v) { return v.mmproj && v.mmproj !== 'none'; }
+
+// A piece of the line of the state, begun with a capital, for the pieces are joined into
+// sentences and the program writes some of them in the middle of a sentence.
+function capitalWord(words) {
+  if (!words) { return words; }
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// The bytes of a download, in the words of the line of the state.
+function embedWords(job) {
+  var done = (job.done || 0) / (1024 * 1024);
+  var total = (job.total || 0) / (1024 * 1024);
+  if (!total) { return Math.round(done) + ' MiB'; }
+  return Math.round(done) + ' of ' + Math.round(total) + ' MiB';
+}
+
+// The three choice lists. The sizes of the files are in the lines, for a user chooses a quantization
+// by the room it takes, and an installed file is named as one.
+function drawEmbedChoices(v) {
+  var models = v.models || [];
+  fillChoice(byId('fEmbedModel'), models.map(function (one) {
+    return { value: one.id, text: one.name };
+  }), v.model);
+  fillChoice(byId('fEmbedQuant'), (v.quants || []).map(function (one) {
+    return { value: one.label, text: one.label + ' - ' + one.size + (one.installed ? ' (installed)' : '') };
+  }), v.quant);
+  var mmprojs = (v.mmprojs || []).map(function (one) {
+    return { value: one.label, text: one.label + ' - ' + one.size + (one.installed ? ' (installed)' : '') };
+  });
+  mmprojs.push({ value: 'none', text: 'No vision projector' });
+  fillChoice(byId('fEmbedMmproj'), mmprojs, v.mmproj);
+}
+
+// A choice list of the settings panel. The value the settings hold is the word of the model, of the
+// quantization or of the projector; the line the user reads is that word with the size of the file
+// and a mark when the file is in the folder already.
+function fillChoice(box, lines, chosen) {
+  if (!box) { return; }
+  box.innerHTML = '';
+  for (var n = 0; n < lines.length; n++) {
+    var option = document.createElement('option');
+    option.textContent = lines[n].text;
+    option.value = lines[n].value;
+    box.appendChild(option);
+  }
+  box.value = chosen || (lines.length ? lines[0].value : '');
+  if (box.selectedIndex < 0 && lines.length) { box.selectedIndex = 0; }
+}
+
+// The three fields of the section write the choice as soon as one of them moves: the choice is a
+// thing of the settings, and the download is a separate press. The change is stopped here so the
+// panel does not think the words of a whole tab were written and refuse to read them again.
+function embedChosen(event) {
+  if (event) { event.stopPropagation(); }
+  post('/api/embed_choose', {
+    model: (byId('fEmbedModel') || {}).value || '',
+    quant: (byId('fEmbedQuant') || {}).value || '',
+    mmproj: (byId('fEmbedMmproj') || {}).value || 'none'
+  });
+  loadEmbed();
+}
+
+// The badge of retrieval opens the settings at this section when no embedding model is installed,
+// for a user who switched the badge on is asking for the sources to be searched, and nothing can be
+// searched that was never counted.
+function aimEmbedding() {
+  var section = byId('secEmbedding');
+  if (!section) { return; }
+  section.classList.remove('aim');
+  // The mark is put on again in a moment, so the light of the aim is started afresh even when the
+  // section was aimed at a moment ago.
+  window.setTimeout(function () {
+    section.classList.add('aim');
+    if (section.scrollIntoView) { section.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+  }, 30);
+}
+
+// -------------------------------------------------------------------- wiring
+
+function openPlusMenu() {
+  if (el.plusmenu) { el.plusmenu.classList.remove('hidden'); }
+}
+
+function closePlusMenu() {
+  if (el.plusmenu) { el.plusmenu.classList.add('hidden'); }
+}
+
+// The badge at the far left of the chat composer is a door to the two ways a file comes in: an
+// attachment of this one message, or a source of this working directory, which every chat of that
+// directory may search.
+wireMenuBadge(el.plus, el.plusmenu, openPlusMenu);
+if (el.plusattach) {
+  el.plusattach.addEventListener('click', function () {
+    closePlusMenu();
+    if (el.pickfiles) { el.pickfiles.click(); }
+  });
+}
+if (el.plussources) {
+  el.plussources.addEventListener('click', function () {
+    closePlusMenu();
+    openSources();
+  });
+}
+// The file browser of the system, for an attachment of the message that is being written. The
+// field is emptied again so the same file chosen twice is a choice twice.
+if (el.pickfiles) {
+  el.pickfiles.addEventListener('change', function () {
+    var files = el.pickfiles.files ? Array.prototype.slice.call(el.pickfiles.files) : [];
+    addFiles(files);
+    el.pickfiles.value = '';
+  });
+}
+// The badge of retrieval is a switch of the chat, as the badge of the search is: the same choice
+// opens the next chat too.
+if (el.rag) {
+  el.rag.addEventListener('click', function () {
+    if (!cur) { return; }
+    var made = cur.rag || {};
+    var going = !made.enabled;
+    post('/api/rag', { on: going });
+    if (going && !made.ready) {
+      openSettings('program');
+      aimEmbedding();
+    }
+  });
+}
+
+// The window of the sources. A drop may land anywhere in it, and the two buttons are the file
+// browser of the system for the user who would rather choose than drag.
+if (byId('srcOverlay')) {
+  byId('srcClose').addEventListener('click', closeSources);
+  byId('srcFiles').addEventListener('click', function () { byId('srcpickfiles').click(); });
+  byId('srcFolders').addEventListener('click', function () { byId('srcpickfolders').click(); });
+  byId('srcpickfiles').addEventListener('change', function () {
+    srcGive(srcChosen(Array.prototype.slice.call(this.files || [])));
+    this.value = '';
+  });
+  byId('srcpickfolders').addEventListener('change', function () {
+    srcGive(srcChosen(Array.prototype.slice.call(this.files || [])));
+    this.value = '';
+  });
+  byId('srcRecount').addEventListener('click', function () {
+    post('/api/sources_count', {});
+    srcRead();
+  });
+  // Taking all out of the index is a thing a user must mean: the files stay in the folder, and it
+  // is the index that is emptied.
+  byId('srcClear').addEventListener('click', function () {
+    if (!window.confirm('Take every source of this working directory out of the index? The files themselves stay in the folder.')) { return; }
+    post('/api/sources_remove', {});
+    srcRead();
+  });
+  byId('srcCancel').addEventListener('click', function () {
+    srcQueue = [];
+    srcSending = false;
+    post('/api/sources_cancel', {});
+    srcRead();
+  });
+  var drop = byId('srcDrop');
+  drop.addEventListener('dragover', function (event) {
+    event.preventDefault();
+    drop.classList.add('over');
+  });
+  drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
+  // The rest of the window takes a drop too, and the page below must not hear of it: a file let go
+  // over the sources is a source, and never an attachment of the message being written.
+  byId('srcOverlay').addEventListener('dragover', function (event) { event.preventDefault(); });
+  byId('srcOverlay').addEventListener('drop', function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    drop.classList.remove('over');
+    srcCollect(event.dataTransfer).then(srcGive, function () { });
+  });
+}
+
+// The fields of the embedding section. A change of one of them writes the choice, and the download
+// is a press of its own.
+if (byId('fEmbedModel')) {
+  ['fEmbedModel', 'fEmbedQuant', 'fEmbedMmproj'].forEach(function (name) {
+    byId(name).addEventListener('change', embedChosen);
+  });
+  byId('embedInstall').addEventListener('click', function (event) {
+    event.stopPropagation();
+    post('/api/embed_install', {
+      model: (byId('fEmbedModel') || {}).value || '',
+      quant: (byId('fEmbedQuant') || {}).value || '',
+      mmproj: (byId('fEmbedMmproj') || {}).value || 'none'
+    });
+    loadEmbed();
+  });
+  byId('embedCancel').addEventListener('click', function () { post('/api/sources_cancel', {}); });
+}
+
 
 // ---------------------------------------------------------------- settings
 //
@@ -13581,6 +14412,7 @@ function openSettings(tab) {
 // read while the settings panel is closed.
 function closeSettings() {
   logsStop();
+  embedStop();
   findClearBoth();
   byId('overlay').classList.add('hidden');
 }
@@ -13601,6 +14433,8 @@ function showSetTab(tab) {
   // was in front.
   if (tab === 'logs') { logFresh(); loadLogs(false); logsGo(); } else { logsStop(); }
   if (tab === 'mcp') { loadMcp(); }
+  if (tab === 'program') { loadEmbed(); }
+  else { embedStop(); }
   byId('sheetSub').textContent = tab === 'program'
     ? 'The settings of this program'
     : tab === 'logs' ? 'The output of llama-server, and the log of the program itself'

@@ -76,6 +76,13 @@ pub const GREATEST_FILES: usize = 64;
 // levels is a mistake or an attack, and either way it is not put into the index.
 pub const GREATEST_DEPTH: usize = 16;
 
+// The most files one drop of places may bring, and the most bytes of them the program reads. The
+// window names the files it was given instead of sending their bytes, so the two numbers are far
+// larger than the ones that keep a call of the page small. A drop of more is stopped with the
+// reason rather than fill the folder of the sources.
+pub const GREATEST_PLACED_FILES: usize = 4000;
+pub const GREATEST_PLACED_BYTES: u64 = 768 * 1024 * 1024;
+
 // True for the name of the tool of the suite.
 pub fn is_tool(name: &str) -> bool {
     name == NAME
@@ -703,6 +710,167 @@ pub fn parse_given(value: &Value) -> (Vec<Given>, Vec<String>) {
     (given, refused)
 }
 
+// One file the window gave up: the path it keeps inside the folder, its type, and the place of it
+// on the disk of the computer. The web view of the system on Linux never brings the bytes of a
+// drop down to the page, so the window names the file it was given and the program reads it here.
+#[derive(Clone, Debug, Default)]
+pub struct Placed {
+    pub path: String,
+    pub mime: String,
+    pub from: PathBuf,
+}
+
+// The files behind the places a drop of the window gave up. A place of a file is taken as it is,
+// under its own name. A place of a folder is walked, and every file under it keeps the folder's
+// own name as the first part of its path, so the tree the user sees is the tree in `.sources`.
+// Nothing of the folder of the sources itself, and nothing of a version control folder, is taken.
+pub fn parse_placed(value: &Value) -> (Vec<Placed>, Vec<String>) {
+    let mut placed: Vec<Placed> = Vec::new();
+    let mut refused: Vec<String> = Vec::new();
+    let Some(list) = value.get("paths").and_then(|one| one.as_array()) else {
+        return (placed, refused);
+    };
+    let mut bytes = 0u64;
+    for one in list.iter() {
+        let raw = one.as_str().unwrap_or_default();
+        if raw.is_empty() {
+            continue;
+        }
+        let place = Path::new(raw);
+        if place.is_dir() {
+            let name = place
+                .file_name()
+                .and_then(|one| one.to_str())
+                .unwrap_or("folder");
+            let (found, note) = walk_places(place, name, 0);
+            if found.is_empty() {
+                refused.push(format!("{} holds no file this program takes", short_of(raw)));
+            }
+            for one in found {
+                if placed.len() >= GREATEST_PLACED_FILES {
+                    refused.push(format!(
+                        "Only {} files are taken from one drop. The rest of {} was left out.",
+                        GREATEST_PLACED_FILES,
+                        short_of(raw)
+                    ));
+                    break;
+                }
+                let Ok(len) = fs::metadata(&one.from).map(|made| made.len()) else {
+                    continue;
+                };
+                if len > GREATEST_BYTES {
+                    refused.push(format!("{} is bigger than this program takes", one.path));
+                    continue;
+                }
+                if bytes.saturating_add(len) > GREATEST_PLACED_BYTES {
+                    refused.push(String::from(
+                        "the drop holds more bytes than this program takes in one go",
+                    ));
+                    break;
+                }
+                bytes = bytes.saturating_add(len);
+                placed.push(one);
+            }
+            if let Some(why) = note {
+                refused.push(why);
+            }
+            continue;
+        }
+        if !place.is_file() {
+            refused.push(format!("{} is no file this program can read", short_of(raw)));
+            continue;
+        }
+        let name = place
+            .file_name()
+            .and_then(|one| one.to_str())
+            .unwrap_or_default();
+        let Some(path) = tidy_path(name) else {
+            refused.push(format!("{} is not a name this program will write", short_of(raw)));
+            continue;
+        };
+        let Ok(len) = fs::metadata(place).map(|made| made.len()) else {
+            refused.push(format!("{} could not be read", short_of(raw)));
+            continue;
+        };
+        if len > GREATEST_BYTES {
+            refused.push(format!("{} is bigger than this program takes", path));
+            continue;
+        }
+        if bytes.saturating_add(len) > GREATEST_PLACED_BYTES {
+            refused.push(String::from(
+                "the drop holds more bytes than this program takes in one go",
+            ));
+            break;
+        }
+        bytes = bytes.saturating_add(len);
+        let mime = attach::mime_of(name).to_string();
+        placed.push(Placed {
+            path,
+            mime,
+            from: place.to_path_buf(),
+        });
+    }
+    (placed, refused)
+}
+
+// The files under one folder, with their paths inside it. The folder's own name comes first, so a
+// drop of `/home/user/notes` puts `notes/todo.md` into the sources. The walk stops at the depth
+// the paths of the index are kept to, and a folder that cannot be read is a note rather than a
+// failure of the whole drop.
+fn walk_places(place: &Path, prefix: &str, depth: usize) -> (Vec<Placed>, Option<String>) {
+    let mut found: Vec<Placed> = Vec::new();
+    let mut note: Option<String> = None;
+    if depth >= GREATEST_DEPTH {
+        return (found, Some(format!("{} is deeper than this program reads", prefix)));
+    }
+    let Ok(read) = fs::read_dir(place) else {
+        return (found, Some(format!("{} could not be read", prefix)));
+    };
+    let mut held: Vec<PathBuf> = read
+        .filter_map(|one| one.ok())
+        .map(|one| one.path())
+        .collect();
+    held.sort();
+    for child in held {
+        if found.len() >= GREATEST_PLACED_FILES {
+            break;
+        }
+        let Some(name) = child.file_name().and_then(|one| one.to_str()) else {
+            continue;
+        };
+        // The folder of the sources is never a source of itself, and a version control folder is
+        // a machine's own record rather than a file the user wrote.
+        if name == FOLDER || name == ".git" || name == "node_modules" {
+            continue;
+        }
+        let Some(part) = tidy_path(name) else { continue };
+        let inside = if prefix.is_empty() {
+            part
+        } else {
+            format!("{}/{}", prefix, part)
+        };
+        if child.is_dir() {
+            let (under, deeper) = walk_places(&child, &inside, depth + 1);
+            for one in under {
+                found.push(one);
+            }
+            if let Some(why) = deeper {
+                note = Some(why);
+            }
+            continue;
+        }
+        if !child.is_file() {
+            continue;
+        }
+        found.push(Placed {
+            mime: attach::mime_of(name).to_string(),
+            path: inside,
+            from: child,
+        });
+    }
+    (found, note)
+}
+
 // A path the user wrote, cut short, for a text about a file that was refused.
 fn short_of(words: &str) -> String {
     let made = words.replace('\n', " ");
@@ -817,14 +985,27 @@ fn end(note: String, failed: bool) {
 // its own, which is what the pop-up of the sources is built for: it shows the files coming in and
 // stays open while they do.
 pub fn store(work: &str, workdir: &Path, given: Vec<Given>, embedder: Option<Arc<dyn Embedder>>) -> Result<(), String> {
-    let total = given.len();
+    store_all(work, workdir, given, Vec::new(), embedder)
+}
+
+// The same, for a drop the window named instead of sent. The files of the page and the files read
+// from the disk of the computer go into the folder in one job, so the pop-up of the sources shows
+// one progress of the work rather than two.
+pub fn store_all(
+    work: &str,
+    workdir: &Path,
+    given: Vec<Given>,
+    placed: Vec<Placed>,
+    embedder: Option<Arc<dyn Embedder>>,
+) -> Result<(), String> {
+    let total = given.len() + placed.len();
     begin("storing", total)?;
     let key = work.to_string();
     let place = workdir.to_path_buf();
     std::thread::Builder::new()
         .name("an-sources-store".to_string())
         .spawn(move || {
-            let note = store_and_count(&key, &place, &given, embedder.as_deref());
+            let note = store_and_count(&key, &place, &given, &placed, embedder.as_deref());
             end(note, false);
         })
         .map_err(|why| format!("The files could not be started: {}", why))?;
@@ -833,10 +1014,17 @@ pub fn store(work: &str, workdir: &Path, given: Vec<Given>, embedder: Option<Arc
 
 // All of the work of a drop: write the files, then count what was written. The reason the user
 // reads comes back from here.
-fn store_and_count(work: &str, workdir: &Path, given: &[Given], embedder: Option<&dyn Embedder>) -> String {
+fn store_and_count(
+    work: &str,
+    workdir: &Path,
+    given: &[Given],
+    placed: &[Placed],
+    embedder: Option<&dyn Embedder>,
+) -> String {
     let folder = make_folder(workdir);
     let mut stored = 0usize;
     let mut said: Vec<String> = Vec::new();
+    let mut held: Vec<(String, String)> = Vec::new();
     for (at, one) in given.iter().enumerate() {
         if cancelled() {
             said.push(String::from("the rest of the files were given up"));
@@ -851,11 +1039,32 @@ fn store_and_count(work: &str, workdir: &Path, given: &[Given], embedder: Option
             )),
             Err(problem) => said.push(format!("{}: {}", one.path, problem)),
         }
+        held.push((one.path.clone(), one.mime.clone()));
+    }
+    // The files the window named are copied from where the user left their name, with the tree of
+    // a folder kept as it was. They follow the files of the page, so the progress of the job moves
+    // in the order the pop-up of the sources shows them.
+    let first = given.len();
+    for (at, one) in placed.iter().enumerate() {
+        if cancelled() {
+            said.push(String::from("the rest of the files were given up"));
+            break;
+        }
+        tell(&one.path, first + at);
+        match copy_one(&folder, one) {
+            Ok(true) => stored += 1,
+            Ok(false) => said.push(format!(
+                "{} is bigger than this program takes and was not written",
+                one.path
+            )),
+            Err(problem) => said.push(format!("{}: {}", one.path, problem)),
+        }
+        held.push((one.path.clone(), one.mime.clone()));
     }
     // The counting follows. A file whose words are known goes into the index at once; a file that
     // has no words to count, or a run with nothing installed to count with, stays in the folder
     // with its row saying so.
-    let counted = count_all(work, &folder, given, embedder);
+    let counted = count_all(work, &folder, &held, embedder);
     if counted == 0 {
         match embedder {
             Some(worker) if !worker.ready() => said.push(String::from(
@@ -898,24 +1107,42 @@ fn write_one(folder: &Path, one: &Given) -> Result<bool, String> {
     Ok(true)
 }
 
+// Read one file of the computer into the folder. The file is read rather than moved or linked,
+// so a source outlives the file the user dropped, and a drop that came from a removable drive
+// costs nothing of the drive later. A file bigger than the program takes is refused with
+// `Ok(false)`.
+fn copy_one(folder: &Path, one: &Placed) -> Result<bool, String> {
+    let bytes = fs::read(&one.from).map_err(|why| format!("it could not be read: {}", why))?;
+    if bytes.len() as u64 > GREATEST_BYTES {
+        return Ok(false);
+    }
+    let place = folder.join(&one.path);
+    if let Some(parent) = place.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|why| format!("the folder of it could not be made: {}", why))?;
+    }
+    fs::write(&place, bytes).map_err(|why| format!("it could not be written: {}", why))?;
+    Ok(true)
+}
+
 // The rows of the files of a drop, and the pieces of them. The pieces are counted in batches, so
 // a hundred files of a directory cost a few asks of the counting server rather than hundreds.
-fn count_all(work: &str, folder: &Path, given: &[Given], embedder: Option<&dyn Embedder>) -> usize {
+fn count_all(work: &str, folder: &Path, held: &[(String, String)], embedder: Option<&dyn Embedder>) -> usize {
     let mut counted = 0usize;
-    for one in given {
+    for (path, mime) in held {
         if cancelled() {
             break;
         }
-        tell(&one.path, 0);
-        let place = folder.join(&one.path);
+        tell(path, 0);
+        let place = folder.join(path);
         let Ok(bytes) = fs::read(&place) else { continue };
         let row = FileRow {
-            path: one.path.clone(),
-            kind: kind_of(&one.path, &one.mime).to_string(),
+            path: path.clone(),
+            kind: kind_of(path, mime).to_string(),
             bytes: bytes.len() as i64,
             ..FileRow::default()
         };
-        if count_one(work, row, &one.mime, &bytes, embedder) {
+        if count_one(work, row, mime, &bytes, embedder) {
             counted += 1;
         }
     }
@@ -1424,6 +1651,85 @@ mod checks {
         assert_eq!(files, 0, "the row is gone");
         assert_eq!(pieces, 0, "and its pieces with it");
         assert!(folder.join("docs/notes.md").is_file(), "the file stays");
+        let _ = fs::remove_dir_all(&room);
+    }
+
+    // A drop the window named is a place of a file, or a place of a folder. A folder is walked,
+    // with its own name as the first part of every path under it, so the tree the user sees is the
+    // tree in the sources. Nothing of a version control folder, of the folder of the sources, or
+    // of the packages of a project is taken.
+    #[test]
+    fn a_drop_of_places_is_walked_counted_and_kept_in_the_tree() {
+        let _guard = config::test_turn();
+        setup();
+        let room = place("placed-room");
+        let drop = place("placed-drop");
+        fs::write(drop.join("top.md"), b"# Top\n\nThe token lasts an hour.\n")
+            .expect("a file of the drop is written");
+        fs::create_dir_all(drop.join("deep/api")).expect("a folder of the drop is made");
+        fs::write(drop.join("deep/api/auth.md"), b"The token is refreshed by the client.")
+            .expect("a file of a folder of the drop is written");
+        fs::create_dir_all(drop.join(".git")).expect("the version control folder is made");
+        fs::write(drop.join(".git/config"), b"[core]").expect("its file is written");
+        fs::create_dir_all(drop.join(FOLDER)).expect("a folder of the sources inside the drop");
+        fs::write(drop.join(FOLDER).join("inner.md"), b"not a source again")
+            .expect("its file is written");
+        let name = drop
+            .file_name()
+            .and_then(|one| one.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let body = json!({ "paths": [drop.display().to_string()] });
+        let (placed, refused) = parse_placed(&body);
+        assert!(refused.is_empty(), "{}", refused.join("; "));
+        let held: Vec<String> = placed.iter().map(|one| one.path.clone()).collect();
+        assert_eq!(
+            held,
+            vec![
+                format!("{}/deep/api/auth.md", name),
+                format!("{}/top.md", name),
+            ],
+            "the tree of the folder is kept, and the machine's own folders are left out"
+        );
+        assert_eq!(kind_of(&held[0], &placed[0].mime), "text");
+        // The files are copied into the folder of the sources, and counted, with their tree.
+        let folder = make_folder(&room);
+        let pairs: Vec<(String, String)> = placed
+            .iter()
+            .map(|one| {
+                assert!(copy_one(&folder, one).unwrap_or(false), "{} is copied", one.path);
+                (one.path.clone(), one.mime.clone())
+            })
+            .collect();
+        assert!(folder.join(format!("{}/deep/api/auth.md", name)).is_file());
+        let work = key_of(&room);
+        assert_eq!(count_all(&work, &folder, &pairs, Some(&Echo)), 2);
+        let (files, pieces, pending) = counts(&work);
+        assert_eq!(files, 2);
+        assert!(pieces >= 2);
+        assert_eq!(pending, 0, "nothing of what came waits to be counted");
+        let made = run(&work, Some(&Echo), r#"{"query":"token refreshed by the client"}"#);
+        assert!(made.ok);
+        assert!(
+            made.output.contains(&format!("{}/deep/api/auth.md", name)),
+            "{}",
+            made.output
+        );
+        // A place of one file is taken under its own name, without a folder before it.
+        let single = json!({ "paths": [drop.join("top.md").display().to_string()] });
+        let (alone, notes) = parse_placed(&single);
+        assert_eq!(alone.len(), 1);
+        assert_eq!(alone[0].path, "top.md");
+        assert!(notes.is_empty());
+        // A place that is neither a file nor a folder is refused with the reason, and a call that
+        // carries neither bytes nor places carries no file at all.
+        let gone = json!({ "paths": ["/no/such/place-at-all"] });
+        let (none, notes) = parse_placed(&gone);
+        assert!(none.is_empty());
+        assert_eq!(notes.len(), 1, "{}", notes.join("; "));
+        let (given, _) = parse_given(&json!({ "files": [] }));
+        assert!(given.is_empty());
+        let _ = fs::remove_dir_all(&drop);
         let _ = fs::remove_dir_all(&room);
     }
 

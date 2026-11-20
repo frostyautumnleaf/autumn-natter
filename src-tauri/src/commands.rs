@@ -145,6 +145,21 @@ pub async fn get_mcp(engine: State<'_, Engine>) -> Result<Value, String> {
     Ok(web::mcp_value(&engine))
 }
 
+// The embedding model of the sources, for the section at the top of the Program tab: the choice
+// of the model, its quantization and its vision projector, which of the files are in the folder,
+// whether the server that counts the words runs, and how a download is going.
+#[tauri::command]
+pub async fn get_embed_state(engine: State<'_, Engine>) -> Result<Value, String> {
+    Ok(engine.embedding_state())
+}
+
+// The sources of the open chat, for the pop-up of the sources: the files and their state, the
+// folder they are in, the number of them, and the job that may be going on over them.
+#[tauri::command]
+pub async fn get_sources(engine: State<'_, Engine>) -> Result<Value, String> {
+    Ok(engine.sources_value())
+}
+
 // The logs, for the Logs tab of the settings panel: the output of llama-server, and the log the
 // program writes of its own work. The list is small: the name of every log of that type that is
 // kept, the date and the time it is at, its size, and which of them this run of the program is
