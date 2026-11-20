@@ -5233,7 +5233,7 @@ var TOOL_LINES = [
   ['steps', 'Show steps',
    'The model may end an answer with a step by step list of the work, in a block of its own. The block shows the text of one step at a time, with one button per step under it and buttons for going back and going on. It appears only once the answer has stopped, and it is above the other blocks an answer ends with. The model gives as many steps as the work needs.'],
   ['infographics', 'Create infographics',
-   'The model may make an infographic video: a script of scenes and blocks, a check of the layout, and the frames written into a file. The work is in the infographics directory of the chat, and the video is written there too. The last step takes a while, and the status line reports how far it has got.'],
+   'The model may make a video: a composition of a header and layers - words, tables, charts, shapes, pictures, films and sound - each layer owning a range of the timeline. Five tools write it, and a frame of the work in progress is drawn and shown to the model as an image, so it may mend what it built before any file is rendered. A subject may be keyed out of a green screen, with the numbers of the key measured from the picture. The work is in the infographics directory of the chat, with the still frames under it in a frames directory, and the video is written there too. Rendering takes about a minute for a minute of video, and the status line reports how far it has got.'],
   ['tasks', 'Tasks suite',
    'The model may keep a list of tasks for the working directory of the chat: create a task, view every task, view one task with its content, complete a task, and cancel or delete a task only when you request it. Each task has a UUID index, and every tool of the suite names the task by that index. The list belongs to the working directory and not to the chat, so two chats of one repository share it, and it is kept in the tasks database of the program: nothing is written into the working directory. While this line is on, the model is set to view the tasks before it ends an answer, so that no task is left open without a word about it.'],
   ['summarise', 'Manually summarise',
@@ -6295,33 +6295,43 @@ var TOOL_SHAPES = {
     word: 'steps', end: 'result',
     empty: 'no steps', begun: 'the steps being written', steps: true
   },
-  // The five tools of the infographic suite. The header names what the call works
-  // on and the project it is in, which the engine gives; the body carries the
-  // parts of the call as the model writes them.
-  infographic_guide: {
-    mark: 'M2.8 3.2h4.8v9.6H2.8zM8.4 3.2h4.8v9.6H8.4M4.6 5.8h1.4M10.2 5.8h1.4',
-    head: 'Writing ', done: 'Wrote ', word: 'parts', end: 'result',
-    empty: 'the project', begun: 'the project'
-  },
-  infographic_plan: {
+  // The five tools of the composition suite. The engine names each call - what it
+  // works on and which composition it is in - so the header of the block carries
+  // that and no prefix of its own, which would say the same twice. The body holds
+  // the parts of the call as the model writes them, and a call that drew a frame
+  // hands the frame back as an image, as the images of the view tool do.
+  infographic_project: {
     mark: 'M2.4 3h11.2v10H2.4zM2.4 6h11.2M5 8.4h2.6v2.6H5zM9.4 8.4h3',
-    head: 'Writing ', done: 'Wrote ', word: 'parts', end: 'result',
-    empty: 'the project', begun: 'the project'
+    head: '', done: '', word: 'parts', end: 'result',
+    empty: 'the composition', begun: 'the composition'
   },
-  infographic_scene: {
+  infographic_layer: {
     mark: 'M2.4 3.4h11.2v9.2H2.4zM4.6 6h4.4M4.6 8.4h6.8M4.6 10.8h3.2',
-    head: 'Writing ', done: 'Wrote ', word: 'parts', end: 'result',
-    empty: 'the project', begun: 'the project'
+    head: '', done: '', word: 'parts', end: 'result',
+    empty: 'the composition', begun: 'the composition'
+  },
+  infographic_cutout: {
+    mark: 'M2.4 3h11.2v10H2.4zM8 5.2a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8M5.3 '
+      + '12.1c0-1.9 1.2-3.1 2.7-3.1s2.7 1.2 2.7 3.1',
+    head: '', done: '', word: 'parts', end: 'result',
+    empty: 'the picture', begun: 'the picture'
   },
   infographic_check: {
     mark: 'M2.4 3h11.2v10H2.4zM5 8.2l1.9 1.9 4-4.2',
-    head: 'Checking ', done: 'Checked ', word: 'parts', end: 'result',
-    empty: 'the project', begun: 'the project'
+    head: '', done: '', word: 'parts', end: 'result',
+    empty: 'the composition', begun: 'the composition'
   },
   infographic_render: {
     mark: 'M2.4 3.4h11.2v9.2H2.4zM4.8 3.4v9.2M11.2 3.4v9.2M12.4 6h.6M12.4 10h.6',
-    head: 'Drawing ', done: 'Drew ', word: 'parts', end: 'result',
-    empty: 'the project', begun: 'the project'
+    head: '', done: '', word: 'parts', end: 'result',
+    empty: 'the composition', begun: 'the composition'
+  },
+  // The sources of the working directory, searched for the words of a question.
+  // The engine names the question, so the header carries that alone.
+  search_sources: {
+    mark: 'M3 2.8h7.2l2.8 2.8v7.6H3zM10.2 2.8v2.8H13M5.4 9h5.2M5.4 11.4h3.4',
+    head: '', done: '', word: 'parts', end: 'result',
+    empty: 'the sources', begun: 'the sources'
   },
   // The summary of the work the model writes for the corporate display. The header
   // names the heading of the area of work, and the body carries that heading and

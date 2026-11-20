@@ -3620,6 +3620,17 @@ impl State {
                 "content": tasks::system_prompt(),
             }));
         }
+        // The text of the composition suite, beside the text of the program. The five tools are
+        // proposed only while the line of the badge is on, and the whole vocabulary of a
+        // composition - the canvases, the colour sets, the layer kinds, the style fields, the
+        // motions, the keyframe properties, the effects - is in that text rather than in the tool
+        // descriptions. The text go away with the line.
+        if chat.meta.tools.infographics {
+            out.push(json!({
+                "role": "system",
+                "content": infographic::system_prompt(),
+            }));
+        }
         // The text of the sources, beside the text of the program. The tool of the sources is
         // proposed only while the badge of retrieval is on, and a model that is never told the
         // folder exists does not think to search it. The account of what is in the folder is part
@@ -10818,11 +10829,11 @@ fn run_program_tool(
         planning::READ_NAME => "Reading the plan",
         planning::ASK_NAME => "Asking about the plan",
         planning::END_NAME => "Letting the plan go",
-        infographic::GUIDE_NAME => "Writing the guide of a script",
-        infographic::PLAN_NAME => "Planning the video",
-        infographic::SCENE_NAME => "Writing a scene",
-        infographic::CHECK_NAME => "Checking the layout",
-        infographic::RENDER_NAME => "Drawing the frames",
+        infographic::PROJECT_NAME => "Setting up a composition",
+        infographic::LAYER_NAME => "Editing a layer",
+        infographic::CUTOUT_NAME => "Previewing a key",
+        infographic::CHECK_NAME => "Checking a composition",
+        infographic::RENDER_NAME => "Rendering a video",
         tasks::CREATE_NAME => "Making a task",
         tasks::VIEW_ALL_NAME => "Reading the list of tasks",
         tasks::VIEW_ONE_NAME => "Reading a task",
@@ -11106,9 +11117,12 @@ fn run_program_tool(
         guard.finish_steps_in(chat, &message_id, &made.report.output, made.report.ok, made.plan);
         return;
     }
-    // An infographic. The five tools of the suite work on one file of text in the space of
+    // A composition. The five tools of the suite work on one file of json in the space of
     // the chat, and the last of them draws the frames. A render is the slow work of a minute,
-    // so the way it comes is put on the line of the state as it goes.
+    // so the way it comes is put on the line of the state as it goes. A render and a key preview
+    // answer with stills as well as with text: the stills ride on the message of the run as
+    // attachments of the chat, as the images of the view_images tool do, and go to the model with
+    // the text of the result when the history is rebuilt.
     if infographic::is_tool(&call.name) {
         let cancel_render = cancel.clone();
         let told = |one: &str| {
@@ -11116,10 +11130,36 @@ fn run_program_tool(
                 guard.set_status(one);
             }
         };
-        let made = infographic::run(&call.name, &call.arguments, workdir, &cancel_render, told);
-        let ok = !made.starts_with("the ") || made.contains("stands");
+        let (seen, jailed) = {
+            let Ok(guard) = state.lock() else { return };
+            (
+                guard.pictures_can_go(),
+                guard.chat_of(chat).map(|one| one.meta.sandbox_enabled).unwrap_or(false),
+            )
+        };
+        let made =
+            infographic::run(&call.name, &call.arguments, workdir, seen, jailed, &cancel_render, told);
+        let records = if made.pictures.is_empty() {
+            Vec::new()
+        } else {
+            let held: Vec<attach::Incoming> = made
+                .pictures
+                .iter()
+                .map(|picture| attach::Incoming {
+                    name: picture.name.clone(),
+                    mime: picture.mime.clone(),
+                    data: picture.data.clone(),
+                    text: String::new(),
+                })
+                .collect();
+            let Ok(guard) = state.lock() else { return };
+            match guard.attach_place_for_chat(chat) {
+                Some(place) => attach::save_at(&place, &held),
+                None => Vec::new(),
+            }
+        };
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool_in(chat, &message_id, &made, ok);
+        guard.finish_tool_with_in(chat, &message_id, &made.report.output, made.report.ok, records);
         return;
     }
     // The tasks of the working directory. The six tools of the suite work on the list that belongs
@@ -13073,18 +13113,20 @@ mod tests {
         let made = watched(std::slice::from_ref(&plan));
         assert_eq!(made[0].target, "the plan file");
         assert_eq!(made[0].command, "plan: # Plan\nFix the parser");
-        // A tool of the infographic suite is named for the project it works on, and carries its
-        // parts under their own names.
+        // A tool of the infographic suite is named for the composition it works on, and carries
+        // its parts under their own names.
         let scene = ToolCall {
             id: String::from("call-scene-parts"),
-            name: String::from(infographic::SCENE_NAME),
-            arguments: String::from("{\"project\":\"launch\",\"scene\":{\"title\":\"First light\"}}"),
+            name: String::from(infographic::LAYER_NAME),
+            arguments: String::from(
+                "{\"project\":\"launch\",\"layer\":{\"id\":\"head\",\"kind\":\"text\"}}",
+            ),
         };
         let made = watched(std::slice::from_ref(&scene));
-        assert_eq!(made[0].target, "a scene of a video (launch)");
+        assert_eq!(made[0].target, "Editing a layer (launch)");
         assert_eq!(
             made[0].command,
-            "project: launch\nscene: {\"title\":\"First light\"}"
+            "project: launch\nlayer: {\"id\":\"head\",\"kind\":\"text\"}"
         );
         // The summary of the work for the corporate display is named by the heading of the area
         // of work, and the lines are in the body.
@@ -13134,9 +13176,9 @@ mod tests {
             planning::READ_NAME,
             planning::ASK_NAME,
             planning::END_NAME,
-            infographic::GUIDE_NAME,
-            infographic::PLAN_NAME,
-            infographic::SCENE_NAME,
+            infographic::PROJECT_NAME,
+            infographic::LAYER_NAME,
+            infographic::CUTOUT_NAME,
             infographic::CHECK_NAME,
             infographic::RENDER_NAME,
             corporate::NAME,
