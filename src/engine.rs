@@ -21,6 +21,7 @@ use crate::contexts;
 use crate::display;
 use crate::download;
 use crate::editfile;
+use crate::embed;
 use crate::gpu::{self, Gpu};
 use crate::infographic;
 use crate::llama::{self, ModelInfo, Server, ToolCall};
@@ -30,6 +31,7 @@ use crate::migrate;
 use crate::proglog;
 use crate::corporate;
 use crate::planning;
+use crate::rag;
 use crate::search;
 use crate::store::{self, Chat, Message, Repo};
 use crate::steps;
@@ -494,6 +496,12 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             tools::live_arguments(raw),
             String::new(),
             infographic::shown(name, raw),
+        ),
+        // The search of the sources is named by the question the model asked them.
+        name if name == rag::NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            named(rag::partial_words(raw), "the sources"),
         ),
         // A tool of the tasks suite is named by the task it works on: the name of the task
         // being made, or the index of the task being pointed at. The read of the whole list is
@@ -1358,6 +1366,9 @@ pub struct Snap {
     pub tool_switches: store::ToolSwitches,
     // The switch of the web search of the open chat.
     pub search_enabled: bool,
+    // Retrieval: the switch of the open chat, and what the sources of its working directory are
+    // at. See `crate::rag`.
+    pub rag: RagSnap,
     pub sandbox_enabled: bool,
     pub sandbox_available: bool,
     // What a command of the open chat may reach beyond its own folder: the network, an install
@@ -1688,6 +1699,9 @@ pub struct State {
     // the choice of them in this chat leaves them.
     pub new_tools: store::ToolSwitches,
     pub new_search: bool,
+    // Retrieval, for the next chat in the same way: the badge of the chat that was at the front
+    // opens the tool of the sources for the next one as well.
+    pub new_rag: bool,
     pub new_sandbox: bool,
     // What a command of the next chat may reach. A new chat takes the choices of the chat that
     // was at the front, as it takes the other badges.
@@ -3606,6 +3620,17 @@ impl State {
                 "content": tasks::system_prompt(),
             }));
         }
+        // The text of the sources, beside the text of the program. The tool of the sources is
+        // proposed only while the badge of retrieval is on, and a model that is never told the
+        // folder exists does not think to search it. The account of what is in the folder is part
+        // of the text, so a chat with an empty folder does not spend a turn on searches that
+        // cannot answer. The text go away with the badge.
+        if chat.meta.rag_enabled {
+            out.push(json!({
+                "role": "system",
+                "content": self.rag_words_for(chat),
+            }));
+        }
         let vision_on = self.pictures_can_go();
         // The records of the attachments of this chat are in a directory of its own space,
         // so that is where their text and images are searched for.
@@ -3843,6 +3868,7 @@ impl State {
         chat.meta.code_enabled = self.new_code;
         chat.meta.tools = self.new_tools.clone();
         chat.meta.search_enabled = self.new_search;
+        chat.meta.rag_enabled = self.new_rag;
         chat.meta.thinking_mode = self.new_thinking.clone();
         chat.meta.preserve_thinking = self.new_preserve;
         chat.meta.mcp = self.new_mcp.clone();
@@ -4053,6 +4079,63 @@ impl State {
         self.chat().map(|chat| self.attach_place_for(chat))
     }
 
+    // The directory a tool of the open chat works in. The panel of the sources and the badge of
+    // retrieval ask for it: the sources of a chat are the folder `.sources` of this directory.
+    pub fn open_workdir(&self) -> Option<PathBuf> {
+        self.chat().map(|chat| self.workdir_for(chat))
+    }
+
+    // What retrieval is at in the open chat. The two numbers of the counting model are read from
+    // the settings, and the state of the folder from the index, so a chat with an empty folder is
+    // reported as empty rather than as ready.
+    fn rag_of_open(&self) -> RagSnap {
+        let worker = rag::embedder_for(&self.cfg);
+        let enabled = self
+            .chat()
+            .map(|chat| chat.meta.rag_enabled)
+            .unwrap_or(self.new_rag);
+        let ready = worker.as_ref().map(|one| one.ready()).unwrap_or(false);
+        let vision = worker.as_ref().map(|one| one.vision()).unwrap_or(false);
+        let Some(chat) = self.chat() else {
+            return RagSnap {
+                enabled,
+                ready,
+                vision,
+                ..RagSnap::default()
+            };
+        };
+        let workdir = self.workdir_for(chat);
+        let (files, chunks, pending) = rag::counts(&rag::key_of(&workdir));
+        RagSnap {
+            enabled,
+            files,
+            chunks,
+            pending,
+            ready,
+            vision,
+        }
+    }
+
+    // The embedder the settings ask for, for the panel of the sources and for a search. Nothing
+    // when this computer has no llama-server to count with.
+    fn rag_worker(&self) -> Option<Arc<dyn rag::Embedder>> {
+        rag::embedder_for(&self.cfg)
+    }
+
+    // The account of the sources of the working directory of one chat: what is in the folder and
+    // what may be done with it. The model is told this only while the badge of retrieval is on.
+    fn rag_words_for(&self, chat: &Chat) -> String {
+        let workdir = self.workdir_for(chat);
+        let key = rag::key_of(&workdir);
+        let (files, _chunks, _pending) = rag::counts(&key);
+        let counted = rag::counted_files(&key);
+        let vision = self
+            .rag_worker()
+            .map(|one| one.vision())
+            .unwrap_or(false);
+        rag::system_prompt(files, counted, vision)
+    }
+
     // True when the open chat is working in planning mode.
     pub fn planning_open(&self) -> bool {
         self.chat()
@@ -4220,6 +4303,7 @@ impl State {
             search_enabled: chat
                 .map(|c| c.meta.search_enabled)
                 .unwrap_or(self.new_search),
+            rag: self.rag_of_open(),
             sandbox_enabled: chat
                 .map(|c| c.meta.sandbox_enabled)
                 .unwrap_or(self.new_sandbox),
@@ -4497,6 +4581,7 @@ impl Engine {
             new_code: false,
             new_tools: store::ToolSwitches::default(),
             new_search: false,
+            new_rag: false,
             new_sandbox: true,
             // Every part of what a command may reach remains off for a new set of settings, and
             // for a chat written before the three existed.
@@ -4982,6 +5067,178 @@ impl Engine {
         } else {
             "Web search is off"
         });
+    }
+
+    // Retrieval for the open chat. It is on a switch of its own, beside the badge of the tools,
+    // for it reads files the user put in `.sources` of the working directory and asks nothing of
+    // the sandbox of a command. Turning it on over a folder that has nothing in it is allowed -
+    // the badge reports the folder as empty - because the tool is what tells the model to look.
+    pub fn set_rag(&self, enabled: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if let Some(chat) = state.chat_mut() {
+            chat.meta.rag_enabled = enabled;
+        }
+        // The same choice opens the next chat too, whatever is left open now.
+        state.new_rag = enabled;
+        state.persist();
+        state.set_status(if enabled {
+            "The model may search the sources of this working directory"
+        } else {
+            "Retrieval is off"
+        });
+    }
+
+    // The state of the embedding model that counts the words of the sources: what is chosen, what
+    // is in the folder, whether the server of the counting runs, and how a download that is going
+    // on is going.
+    pub fn embedding_state(&self) -> Value {
+        let cfg = self.config();
+        embed::state(&cfg.embedding_model, &cfg.embedding_quant, &cfg.embedding_mmproj)
+    }
+
+    // Choose the embedding model, its quantization and its vision projector, write the choice
+    // into the settings, and - when the user asked for it - start the download of the files. The
+    // choice is written whether the download starts or not, so a user who chooses a model and
+    // closes the panel without installing it has still said what they want.
+    pub fn choose_embedding(&self, model: &str, quant: &str, mmproj: &str, install: bool) -> Value {
+        let mut started = false;
+        {
+            let Ok(mut state) = self.state.lock() else {
+                return crate::web::refused("The program state is removed");
+            };
+            state.cfg.embedding_model = embed::sanitize_model(model);
+            state.cfg.embedding_quant =
+                embed::sanitize_quant(&state.cfg.embedding_model, quant);
+            state.cfg.embedding_mmproj =
+                embed::sanitize_mmproj(&state.cfg.embedding_model, mmproj);
+            if let Err(problem) = config::save(&state.cfg) {
+                return crate::web::refused(&format!(
+                    "The settings could not be written: {}",
+                    problem
+                ));
+            }
+            if install {
+                started = embed::install(
+                    &state.cfg.embedding_model,
+                    &state.cfg.embedding_quant,
+                    &state.cfg.embedding_mmproj,
+                )
+                .is_ok();
+            }
+        }
+        if install && !started {
+            return crate::web::refused("A download is going on already. Wait for it to end.");
+        }
+        // The counting of the files that were stored before a model arrived cannot start without
+        // the model, so it is asked for here: every working directory that has files waiting gets
+        // them counted in the background as soon as the download is over.
+        if install {
+            let state = Arc::clone(&self.state);
+            std::thread::Builder::new()
+                .name("an-sources-count-after".to_string())
+                .spawn(move || count_stored_sources(&state))
+                .ok();
+        }
+        let mut answer = self.embedding_state();
+        answer["ok"] = json!(true);
+        answer
+    }
+
+    // The sources of the open chat, for the panel: the files, their state, the folder they are in,
+    // and the job that may be going on over them.
+    pub fn sources_value(&self) -> Value {
+        let Ok(state) = self.state.lock() else {
+            return crate::web::refused("The program state is removed");
+        };
+        let Some(workdir) = state.open_workdir() else {
+            return crate::web::refused("No chat is open, so there are no sources to read");
+        };
+        let key = rag::key_of(&workdir);
+        let mut made = rag::list(&key, &workdir);
+        made["rag"] = rag::state(&key, &workdir, state.rag_worker().as_deref());
+        made["enabled"] = json!(state.rag_of_open().enabled);
+        made
+    }
+
+    // Take the files a drop of the panel brought into the sources of the open chat. The call
+    // returns at once: the files are written and counted in a thread of their own, and the panel
+    // reads how they are going on from `sources_value`.
+    pub fn sources_add(&self, body: &Value) -> Value {
+        let Ok(state) = self.state.lock() else {
+            return crate::web::refused("The program state is removed");
+        };
+        let Some(workdir) = state.open_workdir() else {
+            return crate::web::refused("No chat is open, so there is nowhere to put the files");
+        };
+        let key = rag::key_of(&workdir);
+        let (given, refused) = rag::parse_given(body);
+        if given.is_empty() {
+            return crate::web::refused(if refused.is_empty() {
+                "No file came with the call"
+            } else {
+                refused.first().map(String::as_str).unwrap_or("No file came")
+            });
+        }
+        let worker = state.rag_worker();
+        drop(state);
+        if let Err(problem) = rag::store(&key, &workdir, given, worker) {
+            return crate::web::refused(&problem);
+        }
+        let mut answer = json!({ "ok": true, "taken": refused.is_empty() });
+        if !refused.is_empty() {
+            answer["refused"] = json!(refused);
+        }
+        answer
+    }
+
+    // Take sources out of the index of the open chat. No path means all of them. The files
+    // themselves stay in the folder, which the panel says.
+    pub fn sources_remove(&self, paths: &[String]) -> Value {
+        let Ok(state) = self.state.lock() else {
+            return crate::web::refused("The program state is removed");
+        };
+        let Some(workdir) = state.open_workdir() else {
+            return crate::web::refused("No chat is open, so there are no sources to take out");
+        };
+        let key = rag::key_of(&workdir);
+        let gone = rag::remove(&key, paths);
+        json!({ "ok": true, "gone": gone })
+    }
+
+    // Count the sources of the open chat that are stored and not counted. This is the button of
+    // the panel that says the same, and it is also what happens after an embedding model is
+    // installed.
+    pub fn sources_count(&self) -> Value {
+        let Ok(state) = self.state.lock() else {
+            return crate::web::refused("The program state is removed");
+        };
+        let Some(workdir) = state.open_workdir() else {
+            return crate::web::refused("No chat is open, so there is nothing to count");
+        };
+        let key = rag::key_of(&workdir);
+        let Some(worker) = state.rag_worker() else {
+            return crate::web::refused("llama-server was not found, so nothing can count the files");
+        };
+        if !worker.ready() {
+            return crate::web::refused(
+                "No embedding model is installed. Choose one in the settings and install it.",
+            );
+        }
+        drop(state);
+        match rag::count_pending(&key, &workdir, worker) {
+            Ok(wanted) => json!({ "ok": true, "wanted": wanted }),
+            Err(problem) => crate::web::refused(&problem),
+        }
+    }
+
+    // Give up the job the sources are at: a download that is going on, or the writing of a drop,
+    // or a counting.
+    pub fn sources_cancel(&self) -> Value {
+        rag::cancel();
+        embed::cancel();
+        json!({ "ok": true })
     }
 
     // One server of the user's own, switched on or off for this chat and for the next one. The
@@ -6047,6 +6304,9 @@ impl Engine {
         // is nothing to work from, and the next repository found at that path should not
         // inherit them.
         let tasks = crate::tasks::drop_work(&work_key);
+        // The index of the sources of the directory goes with them for the same reason. The files
+        // in `.sources` go with the folder, which was deleted above.
+        let _sources = rag::drop_work(&work_key);
         if let Err(problem) = state.store.drop_repo(&id) {
             state.note_record_problem(&problem);
         }
@@ -6355,6 +6615,10 @@ impl Engine {
                 flag.store(true, Ordering::SeqCst);
             }
         }
+        // The server of the embeddings is a child of this process, as the server of the answers
+        // is, so it is stopped here as well: a model left running after the program went would
+        // hold memory of the computer for nothing.
+        embed::stop();
         let _ = self.jobs.send(Job::Shutdown);
     }
 }
@@ -6380,6 +6644,7 @@ impl Snap {
             code_enabled: false,
             tool_switches: store::ToolSwitches::default(),
             search_enabled: false,
+            rag: RagSnap::default(),
             sandbox_enabled: true,
             sandbox_available: false,
             thinking_mode: String::from("off"),
@@ -7548,6 +7813,66 @@ fn ask_summary_for_handoff(
     shot
 }
 
+// What retrieval is at in one chat. The switch is the badge of the chat; the numbers are the
+// state of the `.sources` folder of its working directory, and the two words say whether anything
+// is installed to count the files with. The badge is drawn from these, so a user who turns
+// retrieval on over an empty folder is told so by the badge itself instead of by a search that
+// answers with nothing.
+#[derive(Clone, Debug, Default)]
+pub struct RagSnap {
+    pub enabled: bool,
+    pub files: usize,
+    pub chunks: usize,
+    pub pending: usize,
+    pub ready: bool,
+    pub vision: bool,
+}
+
+// Count the sources that were stored while nothing was installed to count them with. The install
+// of an embedding model asks for this: the download has to come to its end first, and after that
+// every working directory whose files are waiting is gone through in turn. One job of the sources
+// runs at a time, so a user who is dropping files while this happens is waited for rather than
+// run over.
+fn count_stored_sources(state: &Arc<Mutex<State>>) {
+    // The download of a model of half a gigabyte is a minute on a good line and a long while on a
+    // bad one. The hour is a ceiling, not a expectation: after it the counting of the next start
+    // of the program takes the files over.
+    for _ in 0..720 {
+        if !embed::busy() {
+            break;
+        }
+        std::thread::sleep(Duration::from_secs(5));
+    }
+    let worker = {
+        let Ok(guard) = state.lock() else { return };
+        guard.rag_worker()
+    };
+    let Some(worker) = worker else { return };
+    if !worker.ready() {
+        return;
+    }
+    for work in rag::waiting_work() {
+        let workdir = PathBuf::from(&work);
+        if !workdir.is_dir() {
+            continue;
+        }
+        for _ in 0..720 {
+            if !rag::busy() {
+                break;
+            }
+            std::thread::sleep(Duration::from_secs(5));
+        }
+        let _ = rag::count_pending(&work, &workdir, Arc::clone(&worker));
+        // The counting of one directory is a job of its own, and the next directory waits for it.
+        for _ in 0..7200 {
+            if !rag::busy() {
+                break;
+            }
+            std::thread::sleep(Duration::from_secs(5));
+        }
+    }
+}
+
 // The tools of the request for a summary: the same list, in the same format, as the list an
 // answer of this chat is asked with. The list of the tools is rendered into the start of the
 // conversation, so a request that carried another list -- or none, as this ask used to -- is a
@@ -7557,6 +7882,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
         sandbox_on,
         code_on,
         search_on,
+        rag_on,
         planning_on,
         corporate_on,
         access,
@@ -7570,6 +7896,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
             chat.as_ref().map(|c| c.meta.sandbox_enabled).unwrap_or(false),
             chat.as_ref().map(|c| c.meta.code_enabled).unwrap_or(false),
             chat.as_ref().map(|c| c.meta.search_enabled).unwrap_or(false),
+            chat.as_ref().map(|c| c.meta.rag_enabled).unwrap_or(false),
             guard.planning_open(),
             guard.corporate_open(),
             chat.as_ref().map(|c| access_of(&c.meta)).unwrap_or_default(),
@@ -7584,6 +7911,7 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
         corporate_on,
         code_on,
         search_on,
+        rag_on,
         access,
         &mcp_tools,
         &switches,
@@ -8910,7 +9238,7 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, planning_on, corporate_on, switches, thought,
+        let (mut history, code_on, search_on, rag_on, planning_on, corporate_on, switches, thought,
          compaction_on) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
@@ -8919,6 +9247,10 @@ fn run_turn(
                 guard
                     .chat()
                     .map(|c| c.meta.search_enabled)
+                    .unwrap_or(false),
+                guard
+                    .chat()
+                    .map(|c| c.meta.rag_enabled)
                     .unwrap_or(false),
                 guard.planning_open(),
                 guard.corporate_open(),
@@ -9023,7 +9355,7 @@ fn run_turn(
         // with none: the text the user stopped are at the end of the conversation, and a call
         // cut in half cannot be mended.
         let use_tools = !resuming
-            && (code_on || search_on || planning_on || !mcp_tools.is_empty());
+            && (code_on || search_on || rag_on || planning_on || !mcp_tools.is_empty());
         let mut body = json!({
             "messages": history,
             "stream": true,
@@ -9051,6 +9383,7 @@ fn run_turn(
                 corporate_on,
                 code_on,
                 search_on,
+                rag_on,
                 access,
                 &mcp_tools,
                 &switches,
@@ -10126,6 +10459,15 @@ fn group_of(name: &str) -> Option<&'static str> {
 // where the tools are proposed; this is the same rule laid over the call itself, for a model
 // can name a tool it was never proposed.
 fn tool_allowed(state: &Arc<Mutex<State>>, name: &str) -> bool {
+    // The search of the sources is on the badge of retrieval and not behind the badge of the
+    // tools, so it is gated by its own switch.
+    if name == rag::NAME {
+        let Ok(guard) = state.lock() else { return false };
+        return guard
+            .chat()
+            .map(|chat| chat.meta.rag_enabled)
+            .unwrap_or(false);
+    }
     let Some(part) = group_of(name) else { return true };
     let Ok(guard) = state.lock() else { return false };
     // The handoff summary is no tool at all while compaction remains off: there is no summary
@@ -10192,6 +10534,7 @@ fn offered_with_planning(
     corporate_on: bool,
     code_on: bool,
     search_on: bool,
+    rag_on: bool,
     access: tools::Access,
     mcp_tools: &[Value],
     switches: &store::ToolSwitches,
@@ -10201,6 +10544,7 @@ fn offered_with_planning(
         sandbox,
         code_on,
         search_on,
+        rag_on,
         access,
         mcp_tools,
         switches,
@@ -10232,12 +10576,13 @@ fn offered(
     sandbox: bool,
     code_on: bool,
     search_on: bool,
+    rag_on: bool,
     access: tools::Access,
     mcp_tools: &[Value],
     switches: &store::ToolSwitches,
     compaction_on: bool,
 ) -> Option<Value> {
-    if !(code_on || search_on || !mcp_tools.is_empty()) {
+    if !(code_on || search_on || rag_on || !mcp_tools.is_empty()) {
         return None;
     }
     let mut list: Vec<Value> = Vec::new();
@@ -10294,6 +10639,12 @@ fn offered(
     }
     if search_on {
         list.push(search::definition());
+    }
+    // The search of the sources is on a badge of its own and not behind the badge of the tools,
+    // for it reads files the user put there and never the computer. It is proposed whatever the
+    // badge of the tools says, as the web search is.
+    if rag_on {
+        list.push(rag::definition());
     }
     // The tools of the servers of the user's own remain last, each under the name of the server
     // it came from.
@@ -10455,6 +10806,7 @@ fn run_program_tool(
         tasks::COMPLETE_NAME => "Completing a task",
         tasks::CANCEL_NAME => "Cancelling a task",
         tasks::DELETE_NAME => "Deleting a task",
+        rag::NAME => "Reading the sources",
         _ => "A tool of the program",
     };
     let message_id = {
@@ -10804,6 +11156,30 @@ fn run_program_tool(
                 },
             }
         }
+        // The sources of the working directory. The question is counted, and the index of the
+        // pieces is scanned: the first asks a server of its own, which may be starting a model at
+        // that moment. The wait is bounded by the clock of the call, as a search of the web is and
+        // as a command is, so a counting that never answers cannot hold the chat with a block that
+        // shows "running".
+        rag::NAME => {
+            let worker = match state.lock() {
+                Ok(guard) => guard.rag_worker(),
+                Err(_) => None,
+            };
+            let words = call.arguments.clone();
+            let key = rag::key_of(workdir);
+            match crate::util::within(&watch, move || rag::run(&key, worker.as_deref(), &words)) {
+                Some(made) => made,
+                None => tools::Report {
+                    ok: false,
+                    output: String::from(if watch.stopped() {
+                        "The call was stopped: you requested it to end. The counting of the question may still be going, and what it brings after this is not known."
+                    } else {
+                        "The call ran out of time and was stopped. The counting of the question may still be going, and what it brings after this is not known."
+                    }),
+                },
+            }
+        }
         other => tools::Report {
             ok: false,
             output: format!(
@@ -11030,7 +11406,7 @@ mod tests {
         assert!(snap.tool_switches.picture);
         assert!(snap.tool_switches.hand_out);
         let words = |code_on: bool, switches: &store::ToolSwitches| {
-            offered(false, code_on, false, tools::Access::default(), &[], switches, true)
+            offered(false, code_on, false, false, tools::Access::default(), &[], switches, true)
                 .map(|list| {
                     list.as_array()
                         .unwrap()
@@ -11113,6 +11489,7 @@ mod tests {
                 false,
                 false,
                 false,
+                false,
                 tools::Access::default(),
                 &[],
                 &switches,
@@ -11178,6 +11555,7 @@ mod tests {
             names(offered(
                 false,
                 true,
+                false,
                 false,
                 tools::Access::default(),
                 &[],
@@ -12845,6 +13223,7 @@ mod tests {
                 false,
                 true,
                 false,
+                false,
                 tools::Access::default(),
                 &[],
                 switches,
@@ -12955,6 +13334,7 @@ mod tests {
             offered(
                 false,
                 true,
+                false,
                 false,
                 tools::Access::default(),
                 &[],
@@ -13263,6 +13643,7 @@ mod tests {
             false,
             false,
             false,
+            false,
             tools::Access::default(),
             &[],
             &store::ToolSwitches::default(),
@@ -13273,6 +13654,7 @@ mod tests {
         let open = offered(
             false,
             true,
+            false,
             false,
             tools::Access::default(),
             &[],
@@ -13292,6 +13674,7 @@ mod tests {
             false,
             false,
             true,
+            false,
             tools::Access::default(),
             &[],
             &store::ToolSwitches::default(),
@@ -13304,6 +13687,7 @@ mod tests {
             false,
             true,
             true,
+            false,
             tools::Access::default(),
             &[],
             &store::ToolSwitches::default(),
@@ -13318,6 +13702,7 @@ mod tests {
         let open = offered(
             true,
             true,
+            false,
             false,
             tools::Access { network: true, pip: true, fetch: true },
             &[],
@@ -13357,6 +13742,7 @@ mod tests {
             offered(
                 sandbox,
                 true,
+                false,
                 false,
                 tools::Access::default(),
                 &[],
@@ -13429,6 +13815,7 @@ mod tests {
         };
         let made = vec![tool.definition(&server)];
         let list = offered(
+            false,
             false,
             false,
             false,
@@ -16293,6 +16680,7 @@ mod tests {
             false,
             true,
             false,
+            false,
             tools::Access::default(),
             &[],
             &switches,
@@ -17012,6 +17400,7 @@ mod tests {
                 false,
                 true,
                 false,
+                false,
                 tools::Access::default(),
                 &[],
                 &switches,
@@ -17119,6 +17508,102 @@ mod tests {
         );
     }
 
+    // The badge of retrieval. It is a switch of its own beside the badge of the tools, because it
+    // reads files the user put in `.sources` and asks nothing of the sandbox: it proposes the tool
+    // of the sources whatever the badge of the tools says, it gates a call of that tool, the
+    // account of the folder rides in the request only while the badge is on, and the state of the
+    // folder travels with the state of the page.
+    #[test]
+    fn the_badge_of_retrieval_gates_the_tool_of_the_sources() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        // The tool of the sources stands or falls with its own badge, and not with the badge of
+        // the tools: a chat that may run no command may still read what the user put in the
+        // folder.
+        let names = |rag_on: bool, code_on: bool| {
+            offered(
+                false,
+                code_on,
+                false,
+                rag_on,
+                tools::Access::default(),
+                &[],
+                &store::ToolSwitches::default(),
+                true,
+            )
+            .map(|list| {
+                list.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|one| String::from(one["function"]["name"].as_str().unwrap_or("")))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+        };
+        assert!(
+            !names(false, true).contains(&rag::NAME.to_string()),
+            "a new chat does not read the sources"
+        );
+        assert!(
+            names(true, false).contains(&rag::NAME.to_string()),
+            "the badge of the tools is off, and the sources are still read"
+        );
+        assert!(
+            offered(false, false, false, false, tools::Access::default(), &[], &store::ToolSwitches::default(), true)
+                .is_none(),
+            "a chat with every badge off carries no tools at all"
+        );
+        // The badge, and the state of the folder beside it.
+        {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+        }
+        let first = || -> Value {
+            crate::web::state(&engine.snapshot(), None)["rag"].clone()
+        };
+        assert_eq!(first()["enabled"], json!(false), "the badge is off at first");
+        assert_eq!(first()["files"], json!(0), "the folder of a new chat is empty");
+        engine.set_rag(true);
+        let told = first();
+        assert_eq!(told["enabled"], json!(true), "the badge is on");
+        // A call of the tool is refused while the badge is off and let through while it is on, for
+        // a model may name a tool it was never proposed.
+        engine.set_rag(false);
+        assert!(!tool_allowed(&engine.state, rag::NAME), "the call is refused");
+        engine.set_rag(true);
+        assert!(tool_allowed(&engine.state, rag::NAME), "and let through");
+        // The account of the sources rides with the request while the badge is on, and is taken
+        // out with it.
+        let said = || -> String {
+            let state = engine.state.lock().unwrap();
+            state.build_history().to_string()
+        };
+        assert!(
+            said().contains(rag::NAME),
+            "the text of the sources went missing with the badge on"
+        );
+        assert!(
+            said().contains("Nothing has been put"),
+            "the text does not report the empty folder"
+        );
+        engine.set_rag(false);
+        assert!(
+            !said().contains(rag::NAME),
+            "the text of the sources outlived its badge"
+        );
+        // The same choice opens the next chat, as every badge does.
+        {
+            engine.set_rag(true);
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+        }
+        assert!(
+            engine.snapshot().rag.enabled,
+            "the next chat was opened with retrieval on"
+        );
+    }
+
     // Deleting a repository takes its chats, the conversations the model made of them, its plans
     // and the tasks of its directory with it, and deletes the folder of the repository from disk.
     // The side bar is the listing of the repositories directory, so it has nothing left to show.
@@ -17167,6 +17652,27 @@ mod tests {
                 .output
                 .contains("The last task"),
             "the task of the doomed directory remains"
+        );
+
+        // A source of the doomed directory, stored and waiting for a counting: the rows of the
+        // index of a directory go with it, as the list of its tasks does, because both are keyed
+        // by the path of the directory.
+        let source = rag::Given {
+            path: String::from("note.md"),
+            mime: String::from("text/markdown"),
+            data: String::from("data:text/markdown;base64,aGVsbG8gaW4gdGhlIHNvdXJjZXM="),
+        };
+        rag::store(&going_key, &going, vec![source], None).expect("the file is taken in");
+        for _ in 0..200 {
+            if !rag::busy() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(rag::counts(&going_key).0, 1, "the source of the directory is listed");
+        assert!(
+            rag::waiting_work().contains(&going_key),
+            "and it waits to be counted"
         );
 
         // An answer being written in one of its chats holds the going off: the text of that
@@ -17247,6 +17753,11 @@ mod tests {
                 .output
                 .contains("A task elsewhere"),
             "the list of the other directory remains"
+        );
+        assert_eq!(rag::counts(&going_key), (0, 0, 0), "the index of the doomed directory went with it");
+        assert!(
+            !rag::waiting_work().contains(&going_key),
+            "and nothing of it waits to be counted"
         );
 
         // The directory of the repository is deleted with everything in it: nothing of it is

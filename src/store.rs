@@ -424,6 +424,13 @@ pub struct ChatMeta {
     // switch existed starts with it off.
     #[serde(default)]
     pub search_enabled: bool,
+    // Retrieval is on when this is true: the tool that searches the `.sources` folder of the
+    // working directory is proposed, and the text that tells the model about it goes with the
+    // prompt. It is on a switch of its own, beside the badge of the tools, because it reads files
+    // the user put there and asks nothing of the sandbox. A chat written before the switch
+    // existed starts with it off.
+    #[serde(default)]
+    pub rag_enabled: bool,
     // Run the tool inside bubblewrap when this is true.
     pub sandbox_enabled: bool,
     // The three settings of the sandbox. All of them remain off, for a chat and its commands
@@ -503,6 +510,7 @@ impl Default for ChatMeta {
             // drop-down of the badge.
             tools: ToolSwitches::default(),
             search_enabled: false,
+            rag_enabled: false,
             // The sandbox is on unless the user turns it off.
             sandbox_enabled: true,
             // What a command may reach beyond its own folder remains off, whatever the sandbox

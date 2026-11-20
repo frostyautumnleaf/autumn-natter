@@ -99,7 +99,7 @@ pub fn canvas_words() -> String {
 // ---------------------------------------------------------------- palette
 
 // The colours of one video. Every block takes its colours from here unless it names its own, so
-// a video is re-skinned by one word.
+// a video is restyled by one word.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Palette {

@@ -25,6 +25,20 @@ fn on_by_default() -> bool {
     true
 }
 
+// The embedding model of a set of settings that names none: the model of the program, at its
+// biggest quantization, with its vision projector. See `crate::embed`.
+fn default_embedding_model() -> String {
+    String::from(crate::embed::DEFAULT_MODEL)
+}
+
+fn default_embedding_quant() -> String {
+    String::from(crate::embed::DEFAULT_QUANT)
+}
+
+fn default_embedding_mmproj() -> String {
+    String::from(crate::embed::DEFAULT_MMPROJ)
+}
+
 // ------------------------------------------------------------ compaction
 //
 // A chat goes on for ever once the size of the context is rebuilt on the way. The compaction
@@ -263,6 +277,18 @@ pub struct Config {
     pub llama_dir: String,
     // Directory that holds the model files.
     pub models_dir: String,
+    // The embedding model that counts the words of the sources of retrieval, and its
+    // quantization. The words are the ones the catalog in `src/embed.rs` knows; a word that
+    // names nothing is read as the model of the program at the biggest quantization. Nothing is
+    // downloaded by these settings alone: the model arrives when the Install button is pressed.
+    #[serde(default = "default_embedding_model")]
+    pub embedding_model: String,
+    #[serde(default = "default_embedding_quant")]
+    pub embedding_quant: String,
+    // The vision projector of the embedding model, or `none` when the contents of a picture are
+    // not wanted. A projector that is in the folder anyway is used, whatever is written here.
+    #[serde(default = "default_embedding_mmproj")]
+    pub embedding_mmproj: String,
     // Directory that holds the repositories. Empty means the default place.
     pub repositories_dir: String,
     // Another place for the settings, the conversations, the logs and the records of this
@@ -798,6 +824,9 @@ impl Default for Config {
         Self {
             llama_dir: default_llama_dir(),
             models_dir: paths().models.display().to_string(),
+            embedding_model: default_embedding_model(),
+            embedding_quant: default_embedding_quant(),
+            embedding_mmproj: default_embedding_mmproj(),
             repositories_dir: String::new(),
             // Both folders answer for themselves when the settings say nothing: the usual place
             // for the files of the program, and the `contexts` folder inside it for the
@@ -1091,6 +1120,12 @@ pub fn load() -> Config {
     if turn_the_skin_words(&mut cfg) {
         let _ = save(&cfg);
     }
+    // A settings file that names an embedding model this program does not know, or a quantization
+    // that is not in the list of one, is read as the model of the program rather than as nothing
+    // at all: a search of the sources would otherwise fail with no word about why.
+    cfg.embedding_model = crate::embed::sanitize_model(&cfg.embedding_model);
+    cfg.embedding_quant = crate::embed::sanitize_quant(&cfg.embedding_model, &cfg.embedding_quant);
+    cfg.embedding_mmproj = crate::embed::sanitize_mmproj(&cfg.embedding_model, &cfg.embedding_mmproj);
     cfg
 }
 

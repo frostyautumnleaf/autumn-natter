@@ -391,6 +391,18 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "summarise": snap.tool_switches.summarise,
         },
         "search": snap.search_enabled,
+        // Retrieval: the badge of the chat, and what the `.sources` folder of its working
+        // directory holds. The badge is drawn from these: a folder with nothing in it, or files
+        // that are stored but not counted, is shown on the badge rather than left for a search to
+        // report.
+        "rag": {
+            "enabled": snap.rag.enabled,
+            "files": snap.rag.files,
+            "chunks": snap.rag.chunks,
+            "pending": snap.rag.pending,
+            "ready": snap.rag.ready,
+            "vision": snap.rag.vision,
+        },
         "sandbox": snap.sandbox_enabled,
         "sandbox_available": snap.sandbox_available,
         "sandbox_note": snap.sandbox_note,
@@ -1097,6 +1109,56 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.set_search(flag(&value, "on"));
             done()
         }
+        // Retrieval. The badge of the composer switches it for this chat and for the next one, as
+        // every other badge does.
+        "/api/rag" | "rag" => {
+            engine.set_rag(flag(&value, "on"));
+            done()
+        }
+        // The embedding model of the sources, for the section at the top of the Program tab: what
+        // is chosen, what is in the folder, and how a download is going.
+        "/api/embed_state" | "embed_state" => engine.embedding_state(),
+        // The choice of the model, its quantization and its vision projector, and the download of
+        // the files when the user pressed Install. Without `install` the choice alone is written,
+        // which is what a change of the selects does.
+        "/api/embed_install" | "embed_install" => engine.choose_embedding(
+            &text_field(&value, "model"),
+            &text_field(&value, "quant"),
+            &text_field(&value, "mmproj"),
+            true,
+        ),
+        "/api/embed_choose" | "embed_choose" => engine.choose_embedding(
+            &text_field(&value, "model"),
+            &text_field(&value, "quant"),
+            &text_field(&value, "mmproj"),
+            false,
+        ),
+        // The sources of the open chat, for the pop-up of the sources: the files, their state, the
+        // folder they are in, and the job that may be going on over them.
+        "/api/sources_list" | "sources_list" => engine.sources_value(),
+        // A drop of files. The bytes come as data URLs, for that is how a page reads a file it was
+        // given, and the writing of them and the counting of their words go on in a thread of
+        // their own while the pop-up watches the job.
+        "/api/sources_add" | "sources_add" => engine.sources_add(&value),
+        // Take sources out of the index. With no path in the call, all of them go; the files
+        // themselves stay in the folder.
+        "/api/sources_remove" | "sources_remove" => {
+            let paths: Vec<String> = value
+                .get("paths")
+                .and_then(|one| one.as_array())
+                .map(|list| {
+                    list.iter()
+                        .filter_map(|one| one.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            engine.sources_remove(&paths)
+        }
+        // Count the files that are stored and not counted. This is the button of the pop-up, and
+        // it is what happens by itself after an embedding model is installed.
+        "/api/sources_count" | "sources_count" => engine.sources_count(),
+        // Give up the job the sources, or the download of the embedding model, are at.
+        "/api/sources_cancel" | "sources_cancel" => engine.sources_cancel(),
         "/api/sandbox" | "sandbox" => {
             engine.set_sandbox(flag(&value, "on"));
             done()

@@ -58,6 +58,11 @@ pub const MCP_DB: &str = "mcp.db";
 // directory itself, because a model works there: a file of the program's own in a directory a
 // command runs in would be read, changed and committed like any other file.
 pub const TASKS_DB: &str = "tasks.db";
+// The index of the sources of retrieval: the pieces of the files in the hidden `.sources` folder
+// of a working directory, and the vector of each piece. The files themselves stay in the work
+// directory, where a command may read them; only their index is here, and it is keyed by the path
+// of that directory, as the tasks are. See `crate::rag`.
+pub const SOURCES_DB: &str = "sources.db";
 
 // How long one wait for another writer of the same file lasts, in milliseconds. A write of this
 // program takes a few milliseconds, so a wait of two seconds is a generous ceiling and still
@@ -78,6 +83,8 @@ pub enum Kind {
     // The tasks of the work directories: the repository of a chat, or the working directory of
     // a loose chat.
     Tasks,
+    // The index of the sources of retrieval: the files of `.sources`, and the pieces of them.
+    Sources,
 }
 
 // The tables of one type. `IF NOT EXISTS` throughout, so opening a file of the type again costs
@@ -153,6 +160,31 @@ CREATE TABLE IF NOT EXISTS tasks (
     updated INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS tasks_of_work ON tasks (work, created ASC);
+"
+        }
+        Kind::Sources => {
+            "
+CREATE TABLE IF NOT EXISTS files (
+    work    TEXT NOT NULL,
+    path    TEXT NOT NULL,
+    kind    TEXT NOT NULL DEFAULT 'other',
+    bytes   INTEGER NOT NULL DEFAULT 0,
+    words   INTEGER NOT NULL DEFAULT 0,
+    chunks  INTEGER NOT NULL DEFAULT 0,
+    counted INTEGER NOT NULL DEFAULT 0,
+    fault   TEXT NOT NULL DEFAULT '',
+    updated INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (work, path)
+);
+CREATE INDEX IF NOT EXISTS files_of_work ON files (work, path ASC);
+CREATE TABLE IF NOT EXISTS chunks (
+    work   TEXT NOT NULL,
+    path   TEXT NOT NULL,
+    idx    INTEGER NOT NULL,
+    text   TEXT NOT NULL DEFAULT '',
+    vector BLOB NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS chunks_of_work ON chunks (work, path, idx);
 "
         }
     }
