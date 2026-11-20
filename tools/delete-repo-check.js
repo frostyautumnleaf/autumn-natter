@@ -1,13 +1,13 @@
-// Taking a repository away is requested by name, so one stray click cannot take a whole
-// repository out of the side bar. The menu of a repository holds a delete entry; it opens the
-// window of the request with a hint line that shows the name, and the button stays dead until
-// the box holds that name. Typing anything else and pressing Enter leaves the window open and
-// markers the box. Once the name is right, accepting posts one action for the engine, and the
-// engine takes the record, the chats, the saved context, the plans and the tasks out and moves
-// the folder aside rather than destroying it.
+// Deleting a repository is asked for by name, so one stray click cannot take a whole repository
+// out of the side bar. The menu of a repository has a Delete entry; it opens the confirmation
+// window with a hint line that shows the name, and the button stays disabled until the box holds
+// that name. Typing anything else and pressing Enter leaves the window open and marks the box as
+// wrong. Once the name matches, accepting posts one action for the engine, and the engine removes
+// the record, the chats, the saved context, the plans and the tasks and deletes the folder of the
+// repository from disk.
 //
 // Both pages are checked: the window of the program and the page served by --remote carry the
-// same menu and the same window of the request.
+// same menu and the same confirmation window.
 //
 // node delete-repo-check.js AN_PAGE=web/page.html AN_FETCH=1 node delete-repo-check.js
 const path = require('path');
@@ -126,6 +126,7 @@ async function main() {
         title: document.getElementById('askTitle').textContent,
         hintOn: hint.classList.contains('on'),
         hintText: hint.textContent,
+        bodyText: document.getElementById('askBody').textContent,
         okLabel: ok.textContent,
         okDisabled: ok.disabled,
       };
@@ -205,6 +206,14 @@ async function main() {
     if (!opened.hintOn || opened.hintText.indexOf(REPO.name) < 0) {
       note('the hint does not say the name: "' + opened.hintText + '"');
     }
+    // The note has to say plainly that the folder is deleted: the confirmation is the only
+    // defence before a directory of the user's work disappears.
+    if (opened.bodyText.indexOf('deleted from disk') < 0) {
+      note('the note does not say the folder is deleted from disk: "' + opened.bodyText + '"');
+    }
+    if (opened.bodyText.indexOf('moved into the removed folder') >= 0) {
+      note('the note still promises the folder is moved aside: "' + opened.bodyText + '"');
+    }
     if (opened.okLabel !== 'Delete repository') { note('the button says "' + opened.okLabel + '"'); }
     if (!opened.okDisabled) { note('the button lives while the box is empty'); }
     if (!wrong.stillShut) { note('the button lives while the name is wrong'); }
@@ -234,8 +243,8 @@ async function main() {
     if (!notes.length) { console.log('  ok ' + one.name); } else { trouble += notes.length; }
   }
   await browser.close();
-  if (trouble) { throw new Error(trouble + ' fault(s) across ' + PAGES.length + ' faces'); }
-  console.log('the name of a repository is requested before it goes, in both pages');
+  if (trouble) { throw new Error(trouble + ' fault(s) across ' + PAGES.length + ' pages'); }
+  console.log('a repository is deleted only after its name is typed, in both pages');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

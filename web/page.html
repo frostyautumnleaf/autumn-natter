@@ -15480,13 +15480,13 @@ function sideOpenMenu(kind, item, where, anchor) {
       post('/api/select_repository', { id: item.id });
     }));
     menu.appendChild(sideNode('div', 'sep'));
-    // A repository holds the user's own work, so taking it away is requested by name and not by
-    // one click. The directory itself is moved aside, never destroyed; the chats, the saved
-    // context, the plans and the tasks of the repository are removed. See
+    // A repository holds the user's own work, so taking it away is asked for by name and not by
+    // one click. The directory is deleted with everything in it, together with the chats, the
+    // saved context, the plans and the tasks of the repository. See
     // `Engine::remove_repository`.
     menu.appendChild(sideItem('Delete repository', function () {
       sideAskName('Delete this repository?',
-        'The chats of “' + (item.name || 'this repository') + '”, the context saved for them, their plans and its tasks are gone, and are not brought back. Its folder is moved into the removed folder of the repositories and nothing in it is deleted.',
+        'The chats of “' + (item.name || 'this repository') + '”, the context saved for them, their plans and its tasks are gone, and are not brought back. Its folder and everything inside it are deleted from disk.',
         item.name || '', 'Delete repository', function () {
           post('/api/delete_repo', { id: item.id });
         });

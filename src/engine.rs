@@ -5975,16 +5975,14 @@ impl Engine {
     }
 
     // Take a repository away: its record, its chats, the conversations the model made of those
-    // chats, the plans of them, the tasks of its directory, and the directory itself out of the
-    // repositories directory.
+    // chats, the plans of them, the tasks of its directory, and its directory with everything in
+    // it.
     //
-    // The name of the repository, written out in the window that asks, is what lets this
-    // happen: the side bar will not answer the request until the name under it is the name of
-    // the repository. The directory is not destroyed - it is moved into the `removed/` corner
-    // of the repositories directory, where it is until a pointer moves it back - but the chats
-    // of the repository, the conversations, the plans and the tasks are removed from the
-    // program and nothing of them returns, which is a deal the naming is there to make sure the
-    // user meant.
+    // The name of the repository, written into the window that asks, is what lets this happen:
+    // the side bar does not send the request until the name typed matches the name of the
+    // repository under it. The directory is deleted, not moved aside, and so are the chats, the
+    // conversations, the plans and the tasks of the repository - which is the deal the naming is
+    // there to confirm.
     //
     // An answer being written in a chat of this repository stops the going: the text of that
     // answer would else be put into a chat that is no more, and the server would be left
@@ -6026,19 +6024,16 @@ impl Engine {
             state.set_status(&words);
             return;
         }
-        // The key of the tasks is created while the folder still remains, for it is the folder
-        // made absolute, and once the folder has moved there is nothing left to make absolute.
+        // The key of the tasks is taken while the folder still remains, for it is the folder
+        // made absolute, and once the folder is deleted there is nothing left to make absolute.
         let work_key = crate::tasks::key_of(&repo.path);
-        // The folder goes first. A going that cannot move the folder has therefore taken
+        // The folder goes first. A deletion that cannot delete the folder has therefore taken
         // nothing away, and the repository is left where the user can see it
         // - which is a better answer than one whose chats vanished from under it.
-        let stood = match state.store.retire_dir(&id) {
-            Ok(place) => place,
-            Err(problem) => {
-                state.set_status(&problem);
-                return;
-            }
-        };
+        if let Err(problem) = state.store.delete_dir(&id) {
+            state.set_status(&problem);
+            return;
+        }
         let mut contexts = 0usize;
         let mut chats = 0usize;
         for one in &mine {
@@ -6073,13 +6068,13 @@ impl Engine {
         proglog::note(
             proglog::FOLDERS,
             &format!(
-                "the repository {} ({}) was removed: {} chats, {} conversations, {} tasks; the directory is at {}",
+                "the repository {} ({}) was removed: {} chats, {} conversations, {} tasks; the directory {} was deleted",
                 repo.name,
                 id,
                 chats,
                 contexts,
                 tasks,
-                stood.display(),
+                repo.path.display(),
             ),
         );
     }
@@ -17124,13 +17119,12 @@ mod tests {
         );
     }
 
-    // A repository removed takes its chats, the conversations the model made of them, its plans
-    // and the tasks of its directory with it. Its folder is moved into the `removed/` corner of
-    // the repositories directory, so nothing of the user's own work is destroyed, while the
-    // side bar - which is the listing of that folder - has nothing left to show. An answer
-    // being written in a chat of the repository stops the going, and a repository was open for
-    // work gives the place of work back. The chats, the conversations and the tasks of every
-    // other repository remain untouched.
+    // Deleting a repository takes its chats, the conversations the model made of them, its plans
+    // and the tasks of its directory with it, and deletes the folder of the repository from disk.
+    // The side bar is the listing of the repositories directory, so it has nothing left to show.
+    // An answer being written in a chat of the repository holds the deletion off, and a repository
+    // that was open for work gives the place of work back. The chats, the conversations and the
+    // tasks of every other repository are untouched.
     #[test]
     fn a_repository_is_taken_away_with_its_chats() {
         let _guard = config::test_turn();
@@ -17255,27 +17249,30 @@ mod tests {
             "the list of the other directory remains"
         );
 
-        // The directory of the user's own work is moved aside, never destroyed, and it is in
-        // the corner of what went - which is never listed.
+        // The directory of the repository is deleted with everything in it: nothing of it is
+        // kept beside the other repositories, and nothing is parked in the corner the older
+        // behaviour used.
         let repos = config::repositories_dir(&Config::default());
-        assert!(!going.exists(), "the folder is removed from where it was");
-        assert!(repos.join(store::REMOVED).is_dir(), "the corner of what went");
-        let aside = format!("doomed-orchard_{}", doomed);
-        let moved: Vec<PathBuf> = std::fs::read_dir(repos.join(store::REMOVED))
-            .expect("the corner is read")
-            .flatten()
-            .map(|one| one.path())
-            .filter(|one| {
-                one.file_name()
-                    .map(|name| name.to_string_lossy().starts_with(&aside))
-                    .unwrap_or(false)
-            })
-            .collect();
-        assert_eq!(moved.len(), 1, "the one folder of this repository was moved aside");
-        assert!(
-            moved[0].join("the-work.md").is_file(),
-            "the work of the user is with the folder"
-        );
+        let folder = going
+            .file_name()
+            .map(|one| one.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let mut left: Vec<PathBuf> = Vec::new();
+        for place in [repos.clone(), repos.join(store::REMOVED)] {
+            if let Ok(entries) = std::fs::read_dir(&place) {
+                for entry in entries.flatten() {
+                    if entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(folder.as_str())
+                    {
+                        left.push(entry.path());
+                    }
+                }
+            }
+        }
+        assert!(!going.exists(), "the folder is deleted");
+        assert!(left.is_empty(), "nothing of the repository is kept: {:?}", left);
         assert!(staying.is_dir(), "the directory of the other repository stands");
         assert!(
             engine.lists().repositories.iter().all(|(repo, _)| {

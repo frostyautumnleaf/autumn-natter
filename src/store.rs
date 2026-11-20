@@ -215,9 +215,9 @@ pub fn repo_dir_name(raw: &str, id: &str) -> String {
     }
 }
 
-// The corner of the repositories directory that a repository is moved into when it is removed.
-// It is not a repository, and the listing of the folder goes past it - see `scan_repos` and
-// `retire_dir`.
+// A corner of the repositories directory left behind by the earlier behaviour, which moved a
+// removed repository aside instead of deleting it. It is not a repository: the listing of the
+// folder goes past it - see `scan_repos`. Nothing writes to it now.
 pub const REMOVED: &str = "removed";
 
 // Parse a directory name back to the id part.
@@ -1177,40 +1177,21 @@ impl Store {
         })
     }
 
-    // Move the directory of a repository out of the repositories directory, into `removed/`,
-    // and say where it came to remain.
+    // Delete the directory of a repository, with everything in it.
     //
-    // The list of the side bar is the listing of that folder, so a repository is only removed
-    // from the list when its directory is removed from the folder. A directory of a repository
-    // is the user's own work, though, and nothing of this program is entitled to destroy it: it
-    // is moved aside instead, under a name that keeps the name of the directory and adds the
-    // second it went under, so it can be found again and moved back manually. The id inside the
-    // name goes on naming it, should it ever return, and the chats of the repository are
-    // removed from the program either way - which is what the naming of the repository in the
-    // confirmation is for.
-    pub fn retire_dir(&self, id: &str) -> Result<PathBuf, String> {
+    // The side bar is the listing of the repositories directory, so a repository leaves the list
+    // when its directory leaves the folder. Removal is asked for twice: once from the menu of the
+    // repository, and once by typing the name of the repository into the window that asks, so the
+    // folder that is deleted is the folder the user named. The chats of the repository, its
+    // conversations, its plans and its tasks are removed with it, and no copy of the work is kept
+    // back: an old folder parked beside the live ones is confusing, is never cleaned up, and the
+    // naming of the repository in the confirmation is what makes sure the deletion was meant.
+    pub fn delete_dir(&self, id: &str) -> Result<(), String> {
         let Some(path) = self.repo_path(id) else {
             return Err("That repository is not there".to_string());
         };
-        let corner = self.repos_dir.join(REMOVED);
-        fs::create_dir_all(&corner)
-            .map_err(|why| format!("the corner of what is removed cannot be made: {}", why))?;
-        let name = path
-            .file_name()
-            .map(|one| one.to_string_lossy().to_string())
-            .unwrap_or_else(|| "repository".to_string());
-        let hour = now_secs();
-        let mut stood = corner.join(format!("{}-{}", name, hour));
-        // A place taken by something that was removed in the same second is answered by
-        // counting up, so nothing that remains is stepped on.
-        let mut again = 1;
-        while stood.exists() {
-            stood = corner.join(format!("{}-{}-{}", name, hour, again));
-            again += 1;
-        }
-        fs::rename(&path, &stood)
-            .map_err(|why| format!("the directory of the repository cannot be moved away: {}", why))?;
-        Ok(stood)
+        fs::remove_dir_all(&path)
+            .map_err(|why| format!("the directory of the repository cannot be deleted: {}", why))
     }
 
     // Read one chat of any place by its id: the loose chats first, then the chats of every
@@ -2256,37 +2237,28 @@ mod tests {
         assert!(!switches.any_on_with(true), "no line stands on at all");
     }
 
-    // A repository removed is moved out of the repositories directory into the `removed/`
-    // corner. The side bar is the listing of that folder, so the group is removed from it,
-    // while the work of the user is on with all of its files. Two repositories that went in the
-    // same second do not conflict with one another, and the corner is never taken for a
-    // repository.
+    // Deleting a repository deletes its folder, so the group leaves the side bar, which is the
+    // listing of the repositories directory. A corner left by the older behaviour is skipped by
+    // the listing, and nothing inside it counts as a repository.
     #[test]
-    fn a_repository_moved_aside_is_not_listed() {
+    fn a_removed_repository_is_deleted_and_not_listed() {
         let room = room("moved-aside");
         let store = store_in(&room);
         let one = store.create_repo("The Orchard").expect("the first is made");
         let two = store.create_repo("The Arbour").expect("the second is made");
         fs::write(one.path.join("notes.md"), "the work of the user").expect("work is written");
         assert!(store.rows_of_repos().contains_key(&one.id), "both stand");
-        let stood = store.retire_dir(&one.id).expect("the directory is moved aside");
-        assert!(!one.path.exists(), "the folder is removed from where it was");
+        store.delete_dir(&one.id).expect("the directory is deleted");
+        assert!(!one.path.exists(), "the folder is gone");
         assert!(
-            stood.join("notes.md").exists(),
-            "the work of the user is with the folder"
-        );
-        assert!(
-            stood
-                .parent()
-                .map(|place| place.ends_with(REMOVED))
-                .unwrap_or(false),
-            "the folder came to rest in the corner of what went"
+            !store.repos_dir.join(REMOVED).exists(),
+            "no corner is made to keep what was deleted"
         );
         let listed: Vec<String> = store.scan_repos().into_iter().map(|r| r.id).collect();
-        assert!(!listed.contains(&one.id), "the repository that went is not listed");
+        assert!(!listed.contains(&one.id), "the deleted repository is not listed");
         assert!(listed.contains(&two.id), "the other stands on");
-        // Nothing inside the corner is a repository, and a directory a level below the
-        // repositories directory is not seen from here at all.
+        // A corner left behind by the older behaviour is not a repository, and the directories
+        // inside it are one level too deep to be seen from here.
         let deep = room
             .join("repositories")
             .join(REMOVED)
@@ -2304,7 +2276,7 @@ mod tests {
         assert!(store.rows_of_repos().contains_key(&two.id), "the other record stands");
         let named = store.drop_repo("");
         assert!(named.is_err(), "nothing to remove is answered as an error");
-        let gone = store.retire_dir("nothing-at-all");
+        let gone = store.delete_dir("nothing-at-all");
         assert!(gone.is_err(), "a repository that is not there is answered as an error");
         let _ = fs::remove_dir_all(&room);
     }
