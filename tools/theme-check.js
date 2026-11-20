@@ -24,7 +24,7 @@ const puppeteer = require('puppeteer');
 
 const PAGE = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const USE_FETCH = process.env.AN_FETCH === '1';
-const SHOTS = process.env.AN_SKIN_SHOTS === '1';
+const SHOTS = process.env.AN_THEME_SHOTS === '1';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const WORDS = ['light', 'dark', 'silver', 'corporate', 'neon'];
@@ -158,7 +158,7 @@ async function start(state) {
 }
 
 // The posts that answer to a theme, which are the ones that say what a click did.
-const skinsPosted = function (page) {
+const themesPosted = function (page) {
   return page.evaluate(function () {
     return (window.__posted || []).filter(function (one) {
       return one.path === '/api/theme';
@@ -185,8 +185,8 @@ async function main() {
         return !!document.getElementById(id);
       });
       return {
-        skins: marks,
-        list: SKINS.slice(),
+        marks: marks,
+        list: THEMES.slice(),
         forms: [!!document.getElementById('fThemeStandard'),
           !!document.getElementById('fThemePixel')],
       };
@@ -194,8 +194,8 @@ async function main() {
     if (offered.list.length !== 5 || offered.list.join('|') !== WORDS.join('|')) {
       note('the list of the themes is not the five: ' + JSON.stringify(offered.list));
     }
-    if (offered.skins.indexOf(false) >= 0) {
-      note('a theme has no marker of its own in the stylesheet: ' + JSON.stringify(offered.skins));
+    if (offered.marks.indexOf(false) >= 0) {
+      note('a theme has no marker of its own in the stylesheet: ' + JSON.stringify(offered.marks));
     }
     if (offered.forms.indexOf(false) >= 0) {
       note('a form of the theme has no marker of its own: ' + JSON.stringify(offered.forms));
@@ -231,7 +231,7 @@ async function main() {
     if (neon.accent.toLowerCase() !== '#22c8ff') {
       note('the accent of the fifth theme is not its own: ' + neon.accent);
     }
-    let went = await skinsPosted(page);
+    let went = await themesPosted(page);
     if (!went.length || went[went.length - 1].body.theme !== 'neon'
       || went[went.length - 1].body.pixel !== false) {
       note('the fifth theme did not go out with both of its text: ' + JSON.stringify(went));
@@ -276,7 +276,7 @@ async function main() {
     if (kept.radius !== '0px') {
       note('the corner of the pixel-art form is not zero: ' + kept.radius);
     }
-    went = await skinsPosted(page);
+    went = await themesPosted(page);
     const last = went[went.length - 1];
     if (!last || last.body.pixel !== true || last.body.theme !== 'neon') {
       note('the form did not go out beside the theme: ' + JSON.stringify(last));
@@ -351,7 +351,7 @@ async function main() {
     await sleep(400);
     const fromState = await page.evaluate(function () {
       return {
-        skin: document.body.classList.contains('silver'),
+        silver: document.body.classList.contains('silver'),
         form: document.body.classList.contains('pixel'),
         marked: document.getElementById('fThemeSilver').classList.contains('on'),
         formMarked: document.getElementById('fThemePixel').classList.contains('on'),
@@ -359,7 +359,7 @@ async function main() {
           ? (document.getElementById('themebtn').getAttribute('data-tip') || '') : '',
       };
     });
-    if (!fromState.skin || !fromState.form || !fromState.marked || !fromState.formMarked) {
+    if (!fromState.silver || !fromState.form || !fromState.marked || !fromState.formMarked) {
       note('the state did not put on both of its text: ' + JSON.stringify(fromState));
     }
     if (fromState.title.indexOf('pixel-art') < 0) {
@@ -415,17 +415,17 @@ async function main() {
     }
 
     if (SHOTS) {
-      for (const skin of WORDS) {
+      for (const theme of WORDS) {
         for (const form of [false, true]) {
           await page.evaluate((given) => {
             if (typeof window.__set === 'function') { window.__set(given); }
             if (typeof poll === 'function') { poll(); }
             showTheme(given.theme);
             showPixelArt(!!given.theme_pixel);
-          }, stateOf(skin, form));
+          }, stateOf(theme, form));
           await sleep(300);
           await page.screenshot({
-            path: path.join(__dirname, 'theme-' + one.tag + '-' + skin
+            path: path.join(__dirname, 'theme-' + one.tag + '-' + theme
               + (form ? '-pixel' : '') + '.png'),
           });
         }

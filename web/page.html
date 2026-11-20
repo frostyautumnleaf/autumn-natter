@@ -221,18 +221,16 @@ textarea, input { font: inherit; color: inherit; }
 .svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor;
   stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
-/* ------------------------------------------------- the markers under a pointer */
+/* ------------------------------------------------- icon hover animation */
 /*
- * Every marker of the program starts when a pointer comes to it, and settles when the pointer
- * is removed. Coming, a marker lifts, turns a little and grows past the size it comes to rest
- * at, which is what gives the move its bounce; going, it sinks a little below the line and
- * returns up, so a marker is never simply switched off. The motion is of the marker and never
- * of the item it is in, so no text of the page shift under a pointer and no row changes its
- * width. The two classes are put on and taken off manually - see markFind and markRest - for
- * CSS gives no animation to a property at the moment the rule that requested it stops applying,
- * and going away from a marker has an animation of its own. The program icon in the top bar and
- * over the first screen is started as well as the markers of the buttons, for it is an icon of
- * the program like any other. */
+ * Every icon of the program animates when the pointer enters it and when the pointer leaves. On
+ * entry the icon lifts, rotates slightly and scales past its resting size, which gives the
+ * movement its overshoot; on leave it dips and returns, so an icon never snaps back. Only the
+ * icon moves, never the control around it, so no text shifts under the pointer and no row
+ * changes width. The two classes are applied and removed in script (see markFind and markRest),
+ * because CSS starts no animation at the moment the rule that requested it stops applying, and
+ * leaving an icon has an animation of its own. The program icon in the top bar and above the
+ * first screen animates as well: it is an icon of the program like any other. */
 .svg, img.mark { transform-origin: 50% 55%; }
 @keyframes mark-in {
   0% { transform: none; }
@@ -12788,67 +12786,112 @@ wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
 // A click anywhere else in the page puts the menus away.
 document.addEventListener('click', function () { closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); });
 
-// ------------------------------------------- the markers under a pointer
+// ------------------------------------------- icons under the pointer
 //
-// A marker starts under the pointer and settles when the pointer goes: the classes marker-in
-// and marker-out of the style carry the motion, and these few lines decide which marker a
-// pointer is over. The marker is the marker of the control the pointer is over
-// - a badge, a button of the side bar, the header of a block of tools, a marker of one of the
-//    lines beside the chat - or, when the pointer is above a marker itself, that marker; the
-//    program icon in the top bar answers as well. A stretch of plain text starts nothing, so a
-//    marker is never moved for a hover the user cannot see, and a control with markers of its
-//    own starts the first of them.
+// Every icon of the program animates when the pointer enters it and when the pointer leaves: the
+// classes mark-in and mark-out in the style carry the two movements, and these lines decide which
+// icons the pointer is over. When the pointer stands on an icon, that icon answers. When it stands
+// anywhere else on a control - the text of a badge, a field of choices, the header of a tool
+// block - every mark of that control answers together, so the marks of one control read as one
+// thing. The program icon in the top bar answers too. Plain text selects nothing, so an icon
+// never moves for a hover the user cannot see.
 //
-// The classes are moved here rather than left to :hover, for going away from a marker has an
-// animation of its own, and CSS starts no animation at the moment the rule that requested it
-// stops applying.
-var markUnder = null;
+// The classes are applied here instead of by :hover because the leave movement is a separate
+// animation, and CSS starts no animation at the moment the rule that requested it stops applying.
+var markUnder = [];
 
-// The marker a pointer is over, or nothing at all when it is over none. An item the pointer may
-// press counts as a control, which is what a pointer remaining for a cursor reports - the
-// headers of blocks of tools and of thoughts are such, and are no buttons.
-function markFind(node) {
-  var control = 'button, a[href], label, summary, [role="button"], [role="menuitem"]';
-  for (var at = node && node.nodeType === 1 ? node : null; at && at !== document.body;
-       at = at.parentElement) {
-    if (at.classList.contains('svg') || (at.matches && at.matches('img.mark'))) { return at; }
-    var hand = (at.matches && at.matches(control)) || getComputedStyle(at).cursor === 'pointer';
-    if (hand) {
-      for (var n = 0; n < at.children.length; n++) {
-        var child = at.children[n];
-        if (child.classList.contains('svg') || child.matches('img.mark')) { return child; }
-      }
-      // An item the pointer may press with no marker of its own - the text of a badge, a field
-      // of choices - leaves the look going up further, for the marker of the control the user
-      // means remains one level higher more often than not.
-    }
-  }
-  return null;
+// What counts as an icon: an svg element, an element carrying the svg class, or the program
+// image. A bare svg counts when it is drawn at the size of a mark, which is how the buttons of
+// the side bar hold theirs: the svg in them carries no class. Drawings bigger than MARK_MAX are
+// illustrations, and the ring of the meter is a spinner rather than a mark.
+var MARK_ICON = 'svg, .svg, img.mark';
+var MARK_CONTROL = 'button, a[href], label, summary, [role="button"], [role="menuitem"]';
+var MARK_MAX = 28;
+
+function isMark(el) {
+  if (!el || el.nodeType !== 1) { return false; }
+  if (el.matches('img.mark') || el.matches('.svg')) { return true; }
+  if (!el.matches('svg')) { return false; }
+  var box = el.getBoundingClientRect();
+  return box.width > 0 && box.width <= MARK_MAX && box.height <= MARK_MAX;
 }
 
-// The pointer has removed from the marker: it settles, and the class that set it settling is
-// removed when the settling is over, so the page is left as it was written.
+// Every mark of a control: the direct children first, then those nested deeper, and never one
+// that belongs to a control nested inside it. The field of a choice holds two marks, the one at
+// its head and the arrow of the drop-down, and both answer with the field.
+function controlMarks(control) {
+  var out = [];
+  var n;
+  for (n = 0; n < control.children.length; n++) {
+    if (isMark(control.children[n])) { out.push(control.children[n]); }
+  }
+  if (out.length) { return out; }
+  var found = control.querySelectorAll(MARK_ICON);
+  for (n = 0; n < found.length; n++) {
+    if (!isMark(found[n])) { continue; }
+    var nested = false;
+    for (var at = found[n].parentElement; at && at !== control; at = at.parentElement) {
+      if (at.matches(MARK_CONTROL)) { nested = true; break; }
+    }
+    if (!nested) { out.push(found[n]); }
+  }
+  return out;
+}
+
+// The marks the pointer is over, which are none when it is over none. A control is anything the
+// pointer may press: the selector MARK_CONTROL, or a cursor of pointer, which is how the headers
+// of tool blocks and thinking blocks answer without being buttons. A disabled control animates
+// nothing. A clickable item with no mark of its own keeps searching upwards, because the mark the
+// user means usually stands one level higher.
+function markFind(node) {
+  for (var at = node && node.nodeType === 1 ? node : null; at && at !== document.body;
+       at = at.parentElement) {
+    if (isMark(at)) { return [at]; }
+    var clickable = (at.matches && at.matches(MARK_CONTROL))
+      || getComputedStyle(at).cursor === 'pointer';
+    if (clickable) {
+      if (at.disabled || at.getAttribute('aria-disabled') === 'true') { return []; }
+      var marks = controlMarks(at);
+      if (marks.length) { return marks; }
+    }
+  }
+  return [];
+}
+
+function sameMarks(one, two) {
+  if (one.length !== two.length) { return false; }
+  for (var n = 0; n < one.length; n++) { if (one[n] !== two[n]) { return false; } }
+  return true;
+}
+
+// The pointer has left the marks: they settle, and mark-out is removed when the settling ends,
+// so nothing is left on the elements.
 function markRest() {
-  var one = markUnder;
-  markUnder = null;
-  if (!one || !one.classList.contains('mark-in')) { return; }
-  one.classList.remove('mark-in');
-  one.classList.add('mark-out');
+  var gone = markUnder;
+  markUnder = [];
+  for (var n = 0; n < gone.length; n++) {
+    if (gone[n].classList.contains('mark-in')) {
+      gone[n].classList.remove('mark-in');
+      gone[n].classList.add('mark-out');
+    }
+  }
 }
 
 document.addEventListener('pointerover', function (event) {
-  var one = markFind(event.target);
-  if (one === markUnder) { return; }
+  var marks = markFind(event.target);
+  if (sameMarks(marks, markUnder)) { return; }
   markRest();
-  if (!one) { return; }
-  markUnder = one;
-  one.classList.remove('mark-out');
-  one.classList.add('mark-in');
+  if (!marks.length) { return; }
+  markUnder = marks;
+  for (var n = 0; n < marks.length; n++) {
+    marks[n].classList.remove('mark-out');
+    marks[n].classList.add('mark-in');
+  }
 });
-// A pointer that leaves the window altogether reports nothing further, so the marker it was
-// over is let go here rather than left remaining started.
+// A pointer that leaves the window sends no further event, so the icon it was over is settled
+// here instead of being left in its hover state.
 document.addEventListener('pointerout', function (event) {
-  if (markUnder && !event.relatedTarget) { markRest(); }
+  if (markUnder.length && !event.relatedTarget) { markRest(); }
 });
 window.addEventListener('blur', markRest);
 document.addEventListener('animationend', function (event) {
@@ -12856,10 +12899,9 @@ document.addEventListener('animationend', function (event) {
   if (at && at.classList && at.classList.contains('mark-out')) { at.classList.remove('mark-out'); }
 });
 
-// The quick switch of the theme: it steps through the four of them, and the marker under it
-// reports which one the page is in.
+// The theme switch steps through the five themes in order; the icon shows the theme in use.
 el.themebtn.addEventListener('click', function () {
-  var next = SKINS[(SKINS.indexOf(themeWord) + 1) % SKINS.length];
+  var next = THEMES[(THEMES.indexOf(themeWord) + 1) % THEMES.length];
   chooseTheme(next);
 });
 el.draft.addEventListener('input', function () {
@@ -13478,12 +13520,12 @@ function showSetTab(tab) {
 var themeWord = 'light';   // the theme the page is in
 
 // The five themes, in the order the settings panel and the marker of the browser page step through them.
-var SKINS = ['light', 'dark', 'silver', 'corporate', 'neon'];
+var THEMES = ['light', 'dark', 'silver', 'corporate', 'neon'];
 
 // The word of a theme out of any text: one of the five remains, and anything else is the pale
 // theme, which is the one a new set of settings is on.
 function themeOf(word) {
-  return SKINS.indexOf(word) >= 0 ? word : 'light';
+  return THEMES.indexOf(word) >= 0 ? word : 'light';
 }
 
 // Whether the theme that remains is drawn in its pixel-art form. The form is a note about its
@@ -13509,7 +13551,7 @@ function showTheme(word) {
 
 // The five markers of the settings panel, so the switch is at the theme in use.
 function showThemeButtons() {
-  SKINS.forEach(function (one) {
+  THEMES.forEach(function (one) {
     var node = byId('fTheme' + one.charAt(0).toUpperCase() + one.slice(1));
     if (node) { node.classList.toggle('on', one === themeWord); }
   });

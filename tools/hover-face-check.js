@@ -1,22 +1,21 @@
-// The markers of the page under a pointer, checked in both pages with no engine
-// behind them: the markers start as the pointer comes to them, and settle as it goes,
-// and nothing about the page moves or changes size while that happens.
+// The hover animation of the icons, checked in both pages with no engine behind them: an icon
+// animates as the pointer arrives and settles as it leaves, and nothing else on the page moves
+// or changes size while that happens.
 //
 //   node hover-face-check.js
 //   AN_PAGE=../web/page.html node hover-face-check.js   # one page only
 //
 // Six items are checked:
-//   * a marker starts - the class that animates it is on it, and the marker is drawn
-//     bigger than it was - when the control it is in is hovered, and when the
-//     marker itself is hovered;
-//   * the program icon in the top bar, which is an image and not a marker of the
-//     type the buttons carry, starts as well;
-//   * going away from a marker is answered: the settling class is on it, and once
-//     that is over no class is left and the marker remains as it was drawn;
-//   * a control with markers of its own starts the first of them, so the text of the
-//     control and the marker of the control answer as one;
-//   * a stretch of plain text starts nothing;
-//   * with the motion of the system turned down there is no animation at all.
+//   * an icon animates - the class that animates it is on it, and it is drawn larger than at
+//     rest - when the control it stands in is hovered and when the icon itself is hovered;
+//   * the program icon in the top bar, which is an image rather than one of the icons the
+//     buttons carry, animates as well;
+//   * leaving an icon is answered: the settle class is on it, and once that animation ends no
+//     class is left and the icon is as it was drawn;
+//   * hovering the text of a control animates the icon of that control, so text and icon answer
+//     as one;
+//   * plain text starts no animation;
+//   * with reduced motion requested there is no animation at all.
 'use strict';
 
 const path = require('path');
@@ -32,9 +31,9 @@ const PAGES = process.env.AN_PAGE
 const shell = process.env.AN_SHELL_BIN || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// What a marker of the page looks like now: started or settling or neither, and how big it is
-// drawn. `box` is the box of the control it is in, so that a motion of the marker is not
-// mistaken for a motion of the page.
+// How an icon stands now: animating, settling or at rest, and how large it is drawn. `box` is
+// the box of the control it stands in, so that the movement of an icon is not mistaken for a
+// movement of the page.
 const LOOK = `
 window.__look = function (sel) {
   var one = document.querySelector(sel);
@@ -48,8 +47,8 @@ window.__look = function (sel) {
   var box = host ? host.getBoundingClientRect() : null;
   var scale = 1;
   if (style.transform !== 'none') {
-    // The transform of a mark that is being moved is a matrix; the first two
-    // numbers say how wide it is drawn, which is what is looked at here.
+    // The transform of an animating icon is a matrix. Its first two numbers give the width it
+    // is drawn at, which is what is compared here.
     var nums = style.transform.slice(style.transform.indexOf('(') + 1).split(',');
     var a = parseFloat(nums[0]) || 0;
     var b = parseFloat(nums[1]) || 0;
@@ -66,12 +65,12 @@ window.__look = function (sel) {
 };
 `;
 
-// The markers the check puts a pointer on. Each means a type of the program: a badge of the top
-// bar, a marker of a button of the top bar, a field of the top bar whose marker hangs at its
-// left, the program icon itself, and text of the page that hold no marker at all. A chat with
-// the blocks of a working conversation in it: a saying of the user, an answer with a train of
-// thought, and a run of a tool. The headers of the thought and of the run are pressed open, so
-// their markers answer to a hand over their text and not only to a hand over the marker itself.
+// The places the check puts the pointer on. Each stands for a type of control in the program: a
+// badge of the top bar, a button of the top bar, a field of the top bar with its icon at the
+// left, and the program icon itself. The chat drawn for the check holds the blocks of a working
+// conversation: a message of the user, an answer with its thinking, and a tool call. The headers
+// of the thinking panel and of the tool block are open, so their icons answer to a hover over
+// their text and not only to a hover over the icon itself.
 function drawChat() {
   cur = { chatting: { tools: true, thinking: true, grow: false },
     chat: { id: 'chat-marks', title: 'Marks', home: false },
@@ -94,7 +93,7 @@ function drawChat() {
     marks: document.querySelectorAll('.turn .svg').length };
 }
 
-// The text of an item the pointer may press, away from the marker that is in it.
+// A point over the text of a clickable item, away from the icon inside it.
 function wordPlace(sel) {
   var one = document.querySelector(sel);
   if (!one) { return { gone: true }; }
@@ -104,10 +103,10 @@ function wordPlace(sel) {
 }
 
 const PLACES = [
-  { sel: '#code', what: 'the badge of the tools' },
-  { sel: '#themebtn', what: 'the marker of the theme' },
-  { sel: 'label.field > .svg', what: 'the marker of the field of the model' },
-  { sel: 'img.mark', what: 'the mark of the program' },
+  { sel: '#code', what: 'the tools badge' },
+  { sel: '#themebtn', what: 'the theme icon' },
+  { sel: 'label.field > .svg', what: 'the model field icon' },
+  { sel: 'img.mark', what: 'the program icon' },
 ];
 
 async function main() {
@@ -140,26 +139,26 @@ async function main() {
       await page.mouse.move(where.x, where.y);
       await sleep(60);
       const woke = await page.evaluate((sel) => window.__look(sel), place.sel);
-      if (!woke.woke) { note(place.what + ' did not start under the pointer'); }
-      if (!(woke.scale > 1.02)) { note(place.what + ' woke without moving: ' + woke.scale); }
+      if (!woke.woke) { note(place.what + ' did not animate on hover'); }
+      if (!(woke.scale > 1.02)) { note(place.what + ' has the class but does not move: ' + woke.scale); }
       if (rest.box && woke.box && String(rest.box) !== String(woke.box)) {
-        note(place.what + ' moved the item it is in: ' + rest.box + ' -> ' + woke.box);
+        note(place.what + ' moved the control it stands in: ' + rest.box + ' -> ' + woke.box);
       }
-      // The pointer goes: the marker settles, and is left as it was drawn.
+      // The pointer leaves: the icon settles and is left as it was drawn.
       await page.mouse.move(6, 6);
       await sleep(40);
       const settling = await page.evaluate((sel) => window.__look(sel), place.sel);
-      if (!settling.set) { note(place.what + ' was left without settling back'); }
+      if (!settling.set) { note(place.what + ' was left without a settle animation'); }
       await sleep(420);
       const back = await page.evaluate((sel) => window.__look(sel), place.sel);
-      if (back.woke || back.set) { note(place.what + ' kept a class after the going'); }
-      if (Math.abs(back.scale - 1) > 0.02) { note(place.what + ' never came back to size: ' + back.scale); }
+      if (back.woke || back.set) { note(place.what + ' kept an animation class after the animation ended'); }
+      if (Math.abs(back.scale - 1) > 0.02) { note(place.what + ' did not return to its resting size: ' + back.scale); }
       console.log('  ' + one.name + ' ' + place.what + ': ' + JSON.stringify({
         woke: woke.woke, scale: woke.scale, set: settling.set, back: back.scale,
       }));
     }
 
-    // Text of the page that hold no marker start nothing at all.
+    // Text with no icon in it starts no animation.
     const idle = await page.evaluate(() => {
       var words = null;
       var all = document.querySelectorAll('.bar span, .hello .greet, .hello .where');
@@ -172,31 +171,31 @@ async function main() {
         y: words.getBoundingClientRect().top + 2 } : { found: false };
     });
     if (!idle.found) {
-      note('no stretch of plain text was found to put a pointer on');
+      note('no place of plain text was found to put the pointer on');
     } else {
       await page.mouse.move(idle.x, idle.y);
       await sleep(80);
       const woken = await page.evaluate(() => document.querySelectorAll('.mark-in').length);
-      if (woken) { note('plain words woke ' + woken + ' markers'); }
+      if (woken) { note('plain text started ' + woken + ' icon animations'); }
       await page.mouse.move(6, 6);
       await sleep(400);
     }
 
-    // The blocks of a working chat: the header of a run of a tool and the header of a train of
-    // thought answer to a hand over their text, for a hand over the text of a header is a hand
-    // over the header.
+    // The blocks of a working chat: the header of a tool call and the header of the thinking
+    // panel answer to a hover over their text, because hovering the text of a header is
+    // hovering the header.
     const chat = await page.evaluate(() => {
       document.querySelector('#draft').value = '';
       return window.__drawChat ? window.__drawChat() : { skipped: true };
     });
     if (!chat.skipped) {
-      console.log('  ' + one.name + ' chat of blocks: ' + JSON.stringify(chat));
+      console.log('  ' + one.name + ' blocks of the chat: ' + JSON.stringify(chat));
       if (!chat.heads) {
-        note('the chat of blocks drew no header to put a pointer on');
+        note('the chat drew no header to put the pointer on');
       } else {
         const head = await page.evaluate(() => window.__wordPlace('.turn .thead'));
         if (head.gone) {
-          note('the head of the run is not on the page');
+          note('the header of the tool block is not on the page');
         } else {
           await page.mouse.move(head.x, head.y);
           await sleep(70);
@@ -204,25 +203,25 @@ async function main() {
             var one = document.querySelector('.turn .thead .svg');
             return { woke: one.classList.contains('mark-in'), marks: document.querySelectorAll('.mark-in').length };
           });
-          if (!woke.woke) { note('the header of a run did not start its marker: ' + JSON.stringify(woke)); }
+          if (!woke.woke) { note('the header of the tool block did not animate its icon: ' + JSON.stringify(woke)); }
           await page.mouse.move(6, 6);
           await sleep(400);
         }
-        // Text that hold no pressable item start nothing of their block.
+        // Text with nothing clickable in it starts no animation in its block.
         const said = await page.evaluate(() => window.__wordPlace('.turn .said, .turn .words, .bubble'));
-        console.log('  ' + one.name + ' words of a block: ' + JSON.stringify(said));
+        console.log('  ' + one.name + ' text of a block: ' + JSON.stringify(said));
         if (!said.gone) {
           await page.mouse.move(said.x, said.y);
           await sleep(80);
           const woken = await page.evaluate(() => document.querySelectorAll('.mark-in').length);
-          if (woken) { note('text of a block woke ' + woken + ' markers'); }
+          if (woken) { note('text of a block started ' + woken + ' icon animations'); }
           await page.mouse.move(6, 6);
           await sleep(400);
         }
       }
     }
 
-    // The motion of the system turned down: the markers are left remaining.
+    // With reduced motion requested, neither animation runs.
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await sleep(60);
     const quiet = await page.evaluate(() => {
@@ -236,15 +235,15 @@ async function main() {
       return { name: name, out: out };
     });
     if (quiet.name !== 'none' || quiet.out !== 'none') {
-      note('the markers still animate with the motion turned down: ' + JSON.stringify(quiet));
+      note('the icons still animate with reduced motion requested: ' + JSON.stringify(quiet));
     }
 
-    if (faults.length) { note('the face faulted: ' + faults.slice(0, 2).join(' | ')); }
+    if (faults.length) { note('page faults: ' + faults.slice(0, 2).join(' | ')); }
     await page.close();
     trouble += notes.length;
   }
   await browser.close();
-  console.log(trouble ? '\n' + trouble + ' errors' : '\nnothing amiss in either face');
+  console.log(trouble ? '\n' + trouble + ' errors' : '\nthe hover animation is correct in both pages');
   return trouble;
 }
 
