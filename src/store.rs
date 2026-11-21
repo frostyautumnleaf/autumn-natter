@@ -303,7 +303,7 @@ pub struct ToolSwitches {
     // here.
     #[serde(default = "switch_on")]
     pub summarise: bool,
-    // The model may keep a list of tasks for the working directory it works in: six tools under
+    // The model may keep a list of tasks for the working directory it works in: eight tools under
     // the line "Tasks suite" of the drop-down. Off at first, for the list is something a model
     // has to be informed to use, and most chats do not want it. See `crate::tasks`.
     #[serde(default)]

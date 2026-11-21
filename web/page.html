@@ -5230,7 +5230,7 @@ var TOOL_LINES = [
   ['infographics', 'Create infographics',
    'The model may make a video: a composition of a header and layers - words, tables, charts, shapes, pictures, films and sound - each layer owning a range of the timeline. Five tools write it, and a frame of the work in progress is drawn and shown to the model as an image, so it may mend what it built before any file is rendered. A subject may be keyed out of a green screen, with the numbers of the key measured from the picture. The work is in the infographics directory of the chat, with the still frames under it in a frames directory, and the video is written there too. Rendering takes about a minute for a minute of video, and the status line reports how far it has got.'],
   ['tasks', 'Tasks suite',
-   'The model may keep a list of tasks for the working directory of the chat: create a task, view every task, view one task with its content, complete a task, and cancel or delete a task only when you request it. Each task has a UUID index, and every tool of the suite names the task by that index. The list belongs to the working directory and not to the chat, so two chats of one repository share it, and it is kept in the tasks database of the program: nothing is written into the working directory. While this line is on, the model is set to view the tasks before it ends an answer, so that no task is left open without a word about it.'],
+   'The model may keep a list of tasks for the working directory of the chat: create a task, view every task, view one task with its content, change the name, summary or content of a task, add to its content, complete a task, and cancel or delete a task only when you request it. Each task has a UUID index, and every tool of the suite names the task by that index. The list belongs to the working directory and not to the chat, so two chats of one repository share it, and it is kept in the tasks database of the program: nothing is written into the working directory. While this line is on, the model is set to view the tasks before it ends an answer, so that no task is left open without a word about it.'],
   ['summarise', 'Manually summarise',
    'The model may put the conversation of this chat into a handoff summary, when it requests it or when you ask it to. The program writes the summary where the conversation was cut, and the text it represents go back to the model no more: the work goes on in the space that is created. Nothing you have read is removed, and the files the model wrote remain where they were written. The line remains only while the handoff summary is chosen in the Chatting settings.',
    'compaction']
@@ -6338,7 +6338,7 @@ var TOOL_SHAPES = {
     head: 'Writing the short: ', done: 'Wrote the short: ', word: 'parts', end: 'result',
     empty: 'the short of the work', begun: 'the short being written'
   },
-  // The six tools of the tasks suite. The list of tasks belongs to the working
+  // The eight tools of the tasks suite. The list of tasks belongs to the working
   // directory and not to the chat, so the header of a block names the task the call
   // works on: the name of the task being made, or the index of the task being
   // pointed at. The index is a UUID, and the header of the block is cut to the
@@ -6357,6 +6357,16 @@ var TOOL_SHAPES = {
   view_task: {
     mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.5 7.1h4.2M6.5 9.1h4.2M6.5 11.1h2.4',
     head: 'Reading a task: ', done: 'Read a task: ', word: 'index', end: 'result',
+    empty: 'no task index', begun: 'the index being written'
+  },
+  edit_task: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.1 10.7l3.7-3.7 1.5 1.5-3.7 3.7H6.1z',
+    head: 'Changing a task: ', done: 'Changed a task: ', word: 'index', end: 'result',
+    empty: 'no task index', begun: 'the index being written'
+  },
+  append_task: {
+    mark: 'M4.2 2.4h5l3.6 3.6v7.6H4.2zM6.4 5.9h4.4M8.6 7.6v3.4M6.9 9.3h3.4',
+    head: 'Adding to a task: ', done: 'Added to a task: ', word: 'index', end: 'result',
     empty: 'no task index', begun: 'the index being written'
   },
   complete_task: {

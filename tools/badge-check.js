@@ -160,7 +160,7 @@ async function main() {
   // gives them. The line of the handoff summary remains only while a summary is chosen, so it
   // is not searched for here. The steps of an answer and the running of a failed call again are
   // types of their own, added after the menu was first drawn, and they remain between the
-  // proposes of the next path and the making of an infographic. The six tools of the tasks of a
+  // proposes of the next path and the making of an infographic. The eight tools of the tasks of a
   // working directory are a group of their own, and remain last.
   const named = ['Terminal commands', 'File management', 'View images', 'Offer files',
     'Show files', 'Ask questions', 'Suggest next steps', 'Show steps',

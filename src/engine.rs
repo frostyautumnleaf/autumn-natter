@@ -3610,7 +3610,7 @@ impl State {
                 "content": planning::system_prompt(&chat.meta.plan_file),
             }));
         }
-        // The text of the tasks suite, beside the text of the program. The six tools are
+        // The text of the tasks suite, beside the text of the program. The eight tools are
         // proposed only while the line of the badge is on, and the rule the suite exists for -
         // that the list of tasks is read before an answer ends - is worth nothing unless the
         // model is informed of it. The text go away with the line.
@@ -10658,7 +10658,7 @@ fn offered(
         if switches.infographics {
             list.extend(infographic::definitions());
         }
-        // The six tools of the tasks suite remain or fall as one line of the badge: a list of
+        // The eight tools of the tasks suite remain or fall as one line of the badge: a list of
         // tasks with no way of reading it is a list nobody works through.
         if switches.tasks {
             list.extend(tasks::definitions());
@@ -10837,6 +10837,8 @@ fn run_program_tool(
         tasks::CREATE_NAME => "Making a task",
         tasks::VIEW_ALL_NAME => "Reading the list of tasks",
         tasks::VIEW_ONE_NAME => "Reading a task",
+        tasks::EDIT_NAME => "Changing a task",
+        tasks::APPEND_NAME => "Adding to a task",
         tasks::COMPLETE_NAME => "Completing a task",
         tasks::CANCEL_NAME => "Cancelling a task",
         tasks::DELETE_NAME => "Deleting a task",
@@ -11162,7 +11164,7 @@ fn run_program_tool(
         guard.finish_tool_with_in(chat, &message_id, &made.report.output, made.report.ok, records);
         return;
     }
-    // The tasks of the working directory. The six tools of the suite work on the list that belongs
+    // The tasks of the working directory. The eight tools of the suite work on the list that belongs
     // to the directory the chat works in, and not to the chat: two chats of one repository read
     // one list, and a task outlives the chat that made it. Nothing is written into the work
     // directory - the rows are in `tasks.db` under the data folder of the program. See
@@ -17447,7 +17449,7 @@ mod tests {
         );
     }
 
-    // The tasks suite: the six tools are behind the line of the badge, off at first; a task
+    // The tasks suite: the eight tools are behind the line of the badge, off at first; a task
     // made by a call belongs to the working directory and is in the database of the program, with
     // nothing written into the directory; and the prompt of the suite rides in the request only
     // while the line is on.
@@ -17456,7 +17458,7 @@ mod tests {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        // The six tools are proposed only while the line of the drop-down is on, and they
+        // The eight tools are proposed only while the line of the drop-down is on, and they
         // remain or fall together.
         let names = |on: bool| {
             let mut switches = store::ToolSwitches::default();
@@ -17489,6 +17491,8 @@ mod tests {
             tasks::CREATE_NAME,
             tasks::VIEW_ALL_NAME,
             tasks::VIEW_ONE_NAME,
+            tasks::EDIT_NAME,
+            tasks::APPEND_NAME,
             tasks::COMPLETE_NAME,
             tasks::CANCEL_NAME,
             tasks::DELETE_NAME,

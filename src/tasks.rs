@@ -1,11 +1,13 @@
 // The tasks of a working directory: a list of items to be done that the model writes itself, works
 // through, and checks before it ends an answer.
 //
-// The six tools are behind one line of the badge of the tools, "Tasks suite", which is off
-// until the user turns it on. They are: `create_task`, `view_tasks`, `view_task`,
-// `complete_task`, `cancel_task` and `delete_task`. The last two change what the user
-// requested, so their descriptions say that they are only for when the user requested it, and
-// the prompt of the suite reports it again.
+// The eight tools are behind one line of the badge of the tools, "Tasks suite", which is off
+// until the user turns it on. They are: `create_task`, `view_tasks`, `view_task`, `edit_task`,
+// `append_task`, `complete_task`, `cancel_task` and `delete_task`. `edit_task` changes the name,
+// the summary or the content of a task by matching the text to change, as the tool that changes a
+// file does, and `append_task` adds to the content of a task without writing all of it again. The
+// last two change what the user requested, so their descriptions say that they are only for when
+// the user requested it, and the prompt of the suite reports it again.
 //
 // A task belongs to the working directory the chat works in - the directory of the repository, or
 // `work/<chat id>/` for a loose chat - and not to the chat. Two chats of one repository
@@ -30,10 +32,12 @@ use crate::db;
 use crate::proglog;
 use crate::tools;
 
-// The six names the model calls the suite by.
+// The eight names the model calls the suite by.
 pub const CREATE_NAME: &str = "create_task";
 pub const VIEW_ALL_NAME: &str = "view_tasks";
 pub const VIEW_ONE_NAME: &str = "view_task";
+pub const EDIT_NAME: &str = "edit_task";
+pub const APPEND_NAME: &str = "append_task";
 pub const COMPLETE_NAME: &str = "complete_task";
 pub const CANCEL_NAME: &str = "cancel_task";
 pub const DELETE_NAME: &str = "delete_task";
@@ -44,13 +48,27 @@ pub const STATUS_OPEN: &str = "open";
 pub const STATUS_DONE: &str = "completed";
 pub const STATUS_CANCELLED: &str = "cancelled";
 
-// True for a name of one of the six tools of the suite.
+// True for a name of one of the eight tools of the suite.
 pub fn is_tool(name: &str) -> bool {
     matches!(
         name,
-        CREATE_NAME | VIEW_ALL_NAME | VIEW_ONE_NAME | COMPLETE_NAME | CANCEL_NAME | DELETE_NAME
+        CREATE_NAME
+            | VIEW_ALL_NAME
+            | VIEW_ONE_NAME
+            | EDIT_NAME
+            | APPEND_NAME
+            | COMPLETE_NAME
+            | CANCEL_NAME
+            | DELETE_NAME
     )
 }
+
+// The three parts of a task a call may be pointed at, and the column each is kept in. A name or a
+// summary is never left without a word in it, for a task is not made without them.
+pub const FIELDS: [&str; 3] = ["name", "summary", "content"];
+
+// The most changes of a task one call of `edit_task` may carry.
+const MOST_EDITS: usize = 20;
 
 // One row of the table of the tasks.
 #[derive(Clone, Debug, Default)]
@@ -253,6 +271,212 @@ fn set_status(work: &str, id: &str, status: &str) -> Result<Task, String> {
     })
 }
 
+// One change of one part of a task: the text to find, the text to put in its place, and whether it
+// is to be replaced wherever it stands.
+#[derive(Debug)]
+struct Change {
+    before: String,
+    after: String,
+    everywhere: bool,
+}
+
+// The words of the part of a task a call points at, and the column that part is kept in. Both
+// answers come from the same three names, so a part that has no column cannot be reached.
+fn part_of<'a>(one: &'a Task, field: &str) -> Result<&'a str, String> {
+    match field {
+        "name" => Ok(&one.name),
+        "summary" => Ok(&one.summary),
+        "content" => Ok(&one.content),
+        other => Err(format!(
+            "\"{other}\" is not a part of a task. The parts are {}.",
+            FIELDS.join(", ")
+        )),
+    }
+}
+
+fn column_of(field: &str) -> Option<&'static str> {
+    match field {
+        "name" => Some("name"),
+        "summary" => Some("summary"),
+        "content" => Some("content"),
+        _ => None,
+    }
+}
+
+// How many places one run of text is in another.
+fn count_of(text: &str, needle: &str) -> usize {
+    if needle.is_empty() {
+        return 0;
+    }
+    let mut places = 0usize;
+    let mut from = 0usize;
+    while let Some(found) = text[from..].find(needle) {
+        places += 1;
+        from += found + needle.len();
+    }
+    places
+}
+
+// Change the name, the summary or the content of one task by matching the text that is to be
+// changed. The changes are made one after the other, each against the part as the change before it
+// left it, and nothing at all is written when one of them matches no place or more than one - the
+// way the tool that changes a file behaves, so a task is never left holding half of a change. An
+// empty text to find adds the words at the end of the part, which is how the content of a task is
+// written out in pieces. A name or a summary is never left without a word in it, for a task is not
+// made without them.
+pub fn edit(work: &str, index: &str, field: &str, edits: &[Change]) -> Result<Task, String> {
+    let found = lookup(work, index)?;
+    let held = part_of(&found, field)?;
+    let said = column_of(field).ok_or_else(|| format!("\"{field}\" has no place in the list"))?;
+    if edits.is_empty() {
+        return Err(String::from(
+            "The call named no changes. Give the changes of the task in `edits`.",
+        ));
+    }
+    if edits.len() > MOST_EDITS {
+        return Err(format!(
+            "The call asks for {} changes, and one call takes at most {}."
+            ,
+            edits.len(),
+            MOST_EDITS
+        ));
+    }
+    let mut made = held.to_string();
+    for (place, one) in edits.iter().enumerate() {
+        let number = place + 1;
+        if one.before.is_empty() {
+            made.push_str(&one.after);
+            continue;
+        }
+        let hits = count_of(&made, &one.before);
+        if hits == 0 {
+            return Err(format!(
+                "Change {number} matched nothing in the {field} of task {}, so nothing was \
+                 written. Copy the text to change out of view_task, spacing included.",
+                found.id
+            ));
+        }
+        if hits > 1 && !one.everywhere {
+            return Err(format!(
+                "Change {number} is in {hits} places of the {field} of task {}, so it is not \
+                 enough. Give more of the text, or set replace_all.",
+                found.id
+            ));
+        }
+        made = if one.everywhere {
+            made.replace(&one.before, &one.after)
+        } else {
+            let at = made.find(&one.before).unwrap_or(0);
+            format!(
+                "{}{}{}",
+                &made[..at],
+                one.after,
+                &made[at + one.before.len()..]
+            )
+        };
+    }
+    let made = made.trim().to_string();
+    if made.is_empty() && field != "content" {
+        return Err(format!(
+            "The changes would leave the {field} of task {} with nothing in it. A task needs a {}.",
+            found.id, field
+        ));
+    }
+    let when = crate::store::now_secs();
+    let kept = database()?;
+    let text = made.clone();
+    kept.write(|conn| {
+        conn.execute(
+            &format!(
+                "UPDATE tasks SET {said} = ?1, updated = ?2 WHERE id = ?3",
+                said = said
+            ),
+            params![text, when, found.id],
+        )
+        .map_err(db::fault)?;
+        Ok(())
+    })?;
+    let mut updated = found;
+    match said {
+        "name" => updated.name = made,
+        "summary" => updated.summary = made,
+        _ => updated.content = made,
+    }
+    updated.updated = when;
+    Ok(updated)
+}
+
+// Add to the content of one task, without writing the whole of it again. The words go under the
+// content that stands, with an empty line between the two, which is how the content of a task reads
+// when it was written in one call.
+pub fn append(work: &str, index: &str, more: &str) -> Result<Task, String> {
+    let found = lookup(work, index)?;
+    let more = more.trim();
+    if more.is_empty() {
+        return Err(String::from(
+            "Nothing was given to add. Give the words to add to the content of the task.",
+        ));
+    }
+    let made = if found.content.trim().is_empty() {
+        more.to_string()
+    } else {
+        format!("{}\n\n{}", found.content.trim_end(), more)
+    };
+    let when = crate::store::now_secs();
+    let kept = database()?;
+    let text = made.clone();
+    kept.write(|conn| {
+        conn.execute(
+            "UPDATE tasks SET content = ?1, updated = ?2 WHERE id = ?3",
+            params![text, when, found.id],
+        )
+        .map_err(db::fault)?;
+        Ok(())
+    })?;
+    Ok(Task {
+        content: made,
+        updated: when,
+        ..found
+    })
+}
+
+// The changes of one call: the text to find, the text to put in its place, and whether it stands
+// everywhere it is. A call that named no change is refused, for a change that does nothing is read
+// as the task being looked at.
+fn changes_of(value: &Value) -> Result<Vec<Change>, String> {
+    let Some(items) = value.get("edits").and_then(Value::as_array) else {
+        return Err(String::from(
+            "The call named no changes. Give the changes of the task in `edits`.",
+        ));
+    };
+    if items.is_empty() {
+        return Err(String::from("The call named no changes."));
+    }
+    let mut out: Vec<Change> = Vec::with_capacity(items.len());
+    for item in items {
+        let before = item
+            .get("old_string")
+            .and_then(Value::as_str)
+            .ok_or_else(|| String::from("A change of the call has no old_string."))?
+            .to_string();
+        let after = item
+            .get("new_string")
+            .and_then(Value::as_str)
+            .ok_or_else(|| String::from("A change of the call has no new_string."))?
+            .to_string();
+        let everywhere = item
+            .get("replace_all")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        out.push(Change {
+            before,
+            after,
+            everywhere,
+        });
+    }
+    Ok(out)
+}
+
 // Take one task out of the list for good.
 fn remove(work: &str, id: &str) -> Result<Task, String> {
     let found = lookup(work, id)?;
@@ -368,6 +592,35 @@ fn one_words(work: &str, index: &str) -> tools::Report {
     }
 }
 
+// What the answer of `edit_task` reports: the task as it now stands, and the part that was changed
+// in full when it is short enough to be repeated. A content longer than that is not written into
+// the answer and not cut up in it either - `view_task` is the tool for reading a content, and half
+// of a content in an answer is the kind of text a model mistakes for the whole of it.
+fn changed_words(value: &Value, one: &Task) -> String {
+    let field = word_of(value, "field");
+    let held = part_of(one, field.as_str()).unwrap_or("");
+    let mut out = format!(
+        "Task {} is changed.\nstatus: {}\n{}: {}\n",
+        one.id,
+        one.status,
+        field,
+        held
+    );
+    if held.chars().count() > 80 || held.contains('\n') {
+        out = format!(
+            "Task {} is changed.\nstatus: {}\n{}\nThe {} now holds {} characters and {} lines. Call view_task with the index to read all of it.",
+            one.id,
+            one.status,
+            line_of(one),
+            field,
+            held.chars().count(),
+            held.lines().count()
+        );
+    }
+    out.push_str("\n\nNothing else of the task is changed.");
+    out
+}
+
 // A small item the tool answers with.
 fn report(ok: bool, output: String) -> tools::Report {
     tools::Report { ok, output }
@@ -403,6 +656,31 @@ pub fn run(name: &str, work: &str, raw: &str) -> tools::Report {
         }
         VIEW_ALL_NAME => list_words(work),
         VIEW_ONE_NAME => one_words(work, word_of(&value, "index").as_str()),
+        EDIT_NAME => {
+            let index = word_of(&value, "index");
+            let field = word_of(&value, "field");
+            match changes_of(&value).and_then(|edits| edit(work, index.as_str(), field.as_str(), &edits)) {
+                Err(why) => report(false, why),
+                Ok(one) => report(true, changed_words(&value, &one)),
+            }
+        }
+        APPEND_NAME => match append(
+            work,
+            word_of(&value, "index").as_str(),
+            word_of(&value, "content").as_str(),
+        ) {
+            Err(why) => report(false, why),
+            Ok(one) => report(
+                true,
+                format!(
+                    "The content of task {} is added to.\nname: {}\n{} characters and {} lines of content now.\n\nCall view_task with the index when you need all of the content.",
+                    one.id,
+                    one.name,
+                    one.content.chars().count(),
+                    one.content.lines().count()
+                ),
+            ),
+        },
         COMPLETE_NAME => match set_status(work, word_of(&value, "index").as_str(), STATUS_DONE) {
             Err(why) => report(false, why),
             Ok(one) => {
@@ -461,7 +739,7 @@ pub fn partial_words(name: &str, raw: &str) -> String {
     word_of(&value, part)
 }
 
-// The six definitions of the suite, in the order the model is proposed them in.
+// The eight definitions of the suite, in the order the model is proposed them in.
 pub fn definitions() -> Vec<Value> {
     vec![
         json!({
@@ -499,6 +777,49 @@ pub fn definitions() -> Vec<Value> {
                         "index": { "type": "string", "description": "The index of the task, as create_task returned it." }
                     },
                     "required": ["index"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": EDIT_NAME,
+                "description": "Change the name, the summary or the content of one task by matching the text that is to be changed. Say which part of the task is changed under `field`, and give the changes under `edits`. Copy each old_string exactly from the task as view_task returned it, spacing included. The changes are made one after another, each against the part as the change before it left it. Each old_string must match one place, unless replace_all is set for it; if one matches no place, or more than one, nothing at all is written. An old_string that is empty adds the words of new_string at the end of the part. A name or a summary is never left with nothing in it. To add to the content without writing it again, use append_task.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "index": { "type": "string", "description": "The index of the task, or the start of it when that identifies one task and no other." },
+                        "field": { "type": "string", "enum": ["name", "summary", "content"], "description": "Which part of the task the changes are made in." },
+                        "edits": {
+                            "type": "array",
+                            "description": "The changes to make in one call, each giving the text to replace and the text to put in its place.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "old_string": { "type": "string", "description": "The text to replace, copied from the task. Empty means: add the words of new_string at the end of the part." },
+                                    "new_string": { "type": "string", "description": "The text to put in its place." },
+                                    "replace_all": { "type": "boolean", "description": "Replace every place this text appears, instead of requiring that it appears once. Off when it is not given." }
+                                },
+                                "required": ["old_string", "new_string"]
+                            }
+                        }
+                    },
+                    "required": ["index", "field", "edits"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": APPEND_NAME,
+                "description": "Add to the content of one task, without writing the whole of it again. The words you give go under the content that stands, with an empty line between the two. Use it when a task gains a further requirement, or when the content is written out in pieces. Only the content is changed: the name, the summary and the status stay as they were, and view_task returns the content as it now is.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "index": { "type": "string", "description": "The index of the task, or the start of it when that identifies one task and no other." },
+                        "content": { "type": "string", "description": "The words to add to the content of the task." }
+                    },
+                    "required": ["index", "content"]
                 }
             }
         }),
@@ -553,8 +874,9 @@ pub fn definitions() -> Vec<Value> {
 pub fn system_prompt() -> String {
     String::from(
         "TASKS SUITE\n\n\
-You have a list of tasks for the working directory of this chat, and six tools that work on it: create_task, view_tasks, view_task, complete_task, cancel_task and delete_task. The tasks belong to the working directory, not to this chat, and they stand there after this chat ends. Every task has an index - a UUID, which create_task gives out - and the other five tools are pointed at a task by that index.\n\n\
+You have a list of tasks for the working directory of this chat, and eight tools that work on it: create_task, view_tasks, view_task, edit_task, append_task, complete_task, cancel_task and delete_task. The tasks belong to the working directory, not to this chat, and they stand there after this chat ends. Every task has an index - a UUID, which create_task gives out - and the other seven tools are pointed at a task by that index.\n\n\
 Make a task when the work has parts that cannot be done at once, or that have to be gone back to later. Write the content of a task so that it can be done from the content alone. Set a task to completed with complete_task when its work is really done.\n\n\
+When a task turns out to ask for something different, or for more than it did, change it rather than make a second task about the same work: edit_task changes its name, its summary or its content by matching the text to change, and append_task adds to the content without writing the whole of it again. Read the task with view_task before you change it, and copy the text you are matching from what it returned.\n\n\
 cancel_task and delete_task are for the user alone. Use either of them only when the user has asked for that task to be cancelled or deleted. A task you no longer want is left in the list, or cancelled only if the user asked.\n\n\
 Before you write your final message to the user, and so before you end this turn, you must call view_tasks and read the list. Every task that stands open has to be dealt with: finish it, or say in your message why it stands open and what you need from the user to finish it. Never end a turn with a task left open without a word about it.",
     )
@@ -629,7 +951,7 @@ mod tests {
         assert_eq!(rows(&other).len(), 1);
     }
 
-    // The six calls of the suite, read the same list over: the list without the contents of the
+    // The eight calls of the suite, read the same list over: the list without the contents of the
     // tasks, one task with them, the three ways a task is ended, and a task that is not there.
     #[test]
     fn the_six_calls_work_on_the_same_list() {
@@ -686,12 +1008,155 @@ mod tests {
         let _ = std::fs::remove_dir_all(&work);
     }
 
-    // The definitions of the suite: six of them, all parts wanted of a task, and the two tools
+    // A task is changed part by part, and added to, without the whole of it being written again.
+    // A change that matches nothing, or matches in two places, leaves the task exactly as it was.
+    #[test]
+    fn a_task_is_changed_and_added_to() {
+        let _guard = config::test_turn();
+        setup();
+        let work = place("changed");
+        let made = create(
+            &work,
+            "Read the reader",
+            "Read the file.",
+            "Read the file whole.\nThen write the table.",
+        )
+        .expect("a task");
+        let index = made.id.clone();
+        // One line of the content, matched by its exact words.
+        let said = run(
+            EDIT_NAME,
+            &work,
+            &format!(
+                "{{\"index\":\"{index}\",\"field\":\"content\",\"edits\":[{{\"old_string\":\"Then write the table.\",\"new_string\":\"Then write the table of rules.\"}}]}}"
+            ),
+        );
+        assert!(said.ok, "{}", said.output);
+        let one = run(VIEW_ONE_NAME, &work, &format!("{{\"index\":\"{index}\"}}"));
+        assert!(
+            one.output.contains("Then write the table of rules."),
+            "{}",
+            one.output
+        );
+        assert!(
+            one.output.contains("Read the file whole."),
+            "the words that were not named stay: {}",
+            one.output
+        );
+        assert!(
+            one.output.contains("Read the reader"),
+            "the name of the task is not moved: {}",
+            one.output
+        );
+        // The name and the summary are parts of a task as the content is.
+        let named = run(
+            EDIT_NAME,
+            &work,
+            &format!(
+                "{{\"index\":\"{index}\",\"field\":\"name\",\"edits\":[{{\"old_string\":\"reader\",\"new_string\":\"reader of the crate\",\"replace_all\":true}}]}}"
+            ),
+        );
+        assert!(named.ok, "{}", named.output);
+        let held = rows(&work);
+        assert_eq!(held[0].name, "Read the reader of the crate", "{}", held[0].name);
+        // A change that matches nothing says so, and writes nothing.
+        let missed = run(
+            EDIT_NAME,
+            &work,
+            &format!(
+                "{{\"index\":\"{index}\",\"field\":\"content\",\"edits\":[{{\"old_string\":\"nowhere at all\",\"new_string\":\"x\"}}]}}"
+            ),
+        );
+        assert!(!missed.ok, "a change that matches nothing is refused");
+        assert!(missed.output.contains("matched nothing"), "{}", missed.output);
+        assert_eq!(
+            rows(&work)[0].content,
+            held[0].content,
+            "nothing was written"
+        );
+        // A change in two places is refused until replace_all is set for it.
+        let twice = run(
+            EDIT_NAME,
+            &work,
+            &format!(
+                "{{\"index\":\"{index}\",\"field\":\"content\",\"edits\":[{{\"old_string\":\"the\",\"new_string\":\"one\"}}]}}"
+            ),
+        );
+        assert!(!twice.ok, "a change in two places is not enough");
+        assert!(twice.output.contains("2 places"), "{}", twice.output);
+        let whole = run(
+            EDIT_NAME,
+            &work,
+            &format!(
+                "{{\"index\":\"{index}\",\"field\":\"content\",\"edits\":[{{\"old_string\":\"the\",\"new_string\":\"one\",\"replace_all\":true}}]}}"
+            ),
+        );
+        assert!(whole.ok, "{}", whole.output);
+        assert!(!rows(&work)[0].content.contains(" the "), "every place was changed");
+        // A name is never left with nothing in it.
+        let empty = run(
+            EDIT_NAME,
+            &work,
+            &format!(
+                "{{\"index\":\"{index}\",\"field\":\"name\",\"edits\":[{{\"old_string\":\"Read the reader of the crate\",\"new_string\":\"  \"}}]}}"
+            ),
+        );
+        assert!(!empty.ok, "a name is never left empty");
+        assert!(empty.output.contains("needs a name"), "{}", empty.output);
+        // A part of a task that is not one of the three is refused by name.
+        let wrong = run(
+            EDIT_NAME,
+            &work,
+            &format!(
+                "{{\"index\":\"{index}\",\"field\":\"status\",\"edits\":[{{\"old_string\":\"open\",\"new_string\":\"done\"}}]}}"
+            ),
+        );
+        assert!(!wrong.ok, "a part that is not one of the three is refused: {}", wrong.output);
+        assert!(wrong.output.contains("not a part of a task"), "{}", wrong.output);
+        // The words of a task are added to, under the content that stands, and nothing else of
+        // the task moves.
+        let before = rows(&work)[0].clone();
+        let more = run(
+            APPEND_NAME,
+            &work,
+            &format!(
+                "{{\"index\":\"{index}\",\"content\":\"Also: keep the words of each fault.\"}}"
+            ),
+        );
+        assert!(more.ok, "{}", more.output);
+        let after = rows(&work)[0].clone();
+        assert!(
+            after.content.starts_with(before.content.trim_end()),
+            "the content that stood is kept: {:?}",
+            after.content
+        );
+        assert!(
+            after.content.ends_with("Also: keep the words of each fault."),
+            "the words were added under it: {:?}",
+            after.content
+        );
+        assert!(after.content.contains("\n\nAlso:"), "with an empty line between");
+        assert_eq!(after.name, before.name, "the name is not moved");
+        assert_eq!(after.summary, before.summary, "the summary is not moved");
+        assert_eq!(after.status, before.status, "the status is not moved");
+        assert!(after.updated >= before.updated, "the row records the change");
+        // Nothing given to add is a call that would empty nothing and change nothing.
+        let nothing = run(
+            APPEND_NAME,
+            &work,
+            &format!("{{\"index\":\"{index}\",\"content\":\"   \"}}"),
+        );
+        assert!(!nothing.ok, "nothing given to add is refused: {}", nothing.output);
+        assert_eq!(rows(&work)[0].content, after.content, "nothing was added");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    // The definitions of the suite: eight of them, all parts wanted of a task, and the two tools
     // of the user's own saying so in their text.
     #[test]
-    fn the_six_definitions_are_offered() {
+    fn the_eight_definitions_are_offered() {
         let list = definitions();
-        assert_eq!(list.len(), 6);
+        assert_eq!(list.len(), 8);
         let names: Vec<&str> = list
             .iter()
             .map(|one| one["function"]["name"].as_str().expect("a name"))
@@ -702,6 +1167,8 @@ mod tests {
                 CREATE_NAME,
                 VIEW_ALL_NAME,
                 VIEW_ONE_NAME,
+                EDIT_NAME,
+                APPEND_NAME,
                 COMPLETE_NAME,
                 CANCEL_NAME,
                 DELETE_NAME
@@ -718,19 +1185,51 @@ mod tests {
             .map(|one| one.as_str().unwrap_or(""))
             .collect::<Vec<&str>>();
         assert_eq!(wanted, vec!["name", "summary", "content"]);
-        let cancel = list[4]["function"]["description"]
+        // The two tools that change what a task says name the part they change, and the words to
+        // change it by.
+        let changed = &list[3]["function"];
+        assert_eq!(changed["name"], EDIT_NAME);
+        assert_eq!(
+            changed["parameters"]["required"]
+                .as_array()
+                .expect("the parts wanted")
+                .iter()
+                .map(|one| one.as_str().unwrap_or(""))
+                .collect::<Vec<&str>>(),
+            vec!["index", "field", "edits"]
+        );
+        assert_eq!(
+            changed["parameters"]["properties"]["field"]["enum"]
+                .as_array()
+                .expect("the parts of a task")
+                .iter()
+                .map(|one| one.as_str().unwrap_or(""))
+                .collect::<Vec<&str>>(),
+            FIELDS
+        );
+        let added = &list[4]["function"];
+        assert_eq!(added["name"], APPEND_NAME);
+        assert!(
+            added["description"]
+                .as_str()
+                .unwrap_or("")
+                .contains("without writing the whole of it again"),
+            "{}",
+            added["description"]
+        );
+        let cancel = list[6]["function"]["description"]
             .as_str()
             .expect("words")
             .to_lowercase();
         assert!(cancel.contains("only use this when the user has requested"), "{cancel}");
-        let remove = list[5]["function"]["description"]
+        let remove = list[7]["function"]["description"]
             .as_str()
             .expect("words")
             .to_lowercase();
         assert!(remove.contains("only use this when the user has requested"), "{remove}");
     }
 
-    // The prompt of the suite names all six tools and the rule the suite exists for: the list
+    // The prompt of the suite names all eight tools and the rule the suite exists for: the list
     // is read before an answer ends.
     #[test]
     fn the_prompt_names_the_suite_and_the_rule_at_the_end_of_a_turn() {
@@ -749,6 +1248,8 @@ mod tests {
         assert!(said.contains("Before you write your final message"), "{said}");
         assert!(said.contains("belong to the working directory"), "{said}");
         assert!(said.contains("user alone"), "{said}");
+        assert!(said.contains(EDIT_NAME), "the prompt names {EDIT_NAME}");
+        assert!(said.contains(APPEND_NAME), "the prompt names {APPEND_NAME}");
     }
 
     // The checks work in a directory of their own, so a computer of the older format is never
