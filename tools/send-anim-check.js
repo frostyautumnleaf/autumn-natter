@@ -1,31 +1,31 @@
 // Check the journey of a sent message: the copy out of the box, the squeeze,
 // the curve up the chat, and the message unfolding into its place.
 //
-// The page is loaded as it stands, with no engine under it. The state of the
-// chat is written by hand, so the message that comes in after a send is the one
+// The page is loaded as it is now, with no engine under it. The state of the
+// chat is written manually, so the message that arrives after a send is the one
 // the check puts there.
 //
 //   node send-anim-check.js                     the desktop face
 //   AN_PAGE=web/page.html AN_FETCH=1 node send-anim-check.js    the browser face
 //
-// Twelve things are looked at:
-//   * a send makes a copy of the words over the box, and the box is empty;
+// Twelve items are checked:
+//   * a send makes a copy of the text over the box, and the box is empty;
 //   * the copy squeezes itself small while it waits for its message;
-//   * the message that comes in stands in the chat but is not seen, so the
-//     words are read once and not twice over;
+//   * the message that arrives is in the chat but is not seen, so the
+//     text is read once and not twice over;
 //   * the copy is carried up the chat, and it comes to rest on the bubble of
 //     that message;
 //   * the copy goes, the message is let through, and nothing is left over;
-//   * with the setting off no copy is made at all, and a message of another
+//   * with the setting off no copy is created at all, and a message of another
 //     chat is never taken for the one the copy is looking for;
 //   * a message that is put by for later while the model is writing makes no
-//     copy at all;
-//   * the copy is as wide as its own words, and as wide as the bubble it lands
-//     on, so the message does not shrink when the copy goes away;
+//     copy at all; it goes to the program, and its row is above the box;
+//   * the copy is as wide as its own text, and as wide as the bubble it lands
+//     on, so the message does not shrink when the copy is removed;
 //   * the copy goes up the chat and into the corner the messages of the user
-//     stand in, and not away from it;
-//   * a copy that cannot read the words it carries still takes the message that
-//     came in;
+//     are in, and not away from it;
+//   * a copy that cannot read the text it carries still takes the message that
+//     arrived;
 //   * a page that is not seen gets no journey at all;
 //   * a page that is given no steps still lets its message through when the
 //     bound of the journey comes, so no message is held out of sight by a
@@ -51,8 +51,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const faults = [];
   page.on('pageerror', (e) => faults.push(String(e)));
   page.on('console', (m) => {
-    // The ask of a page that stands without an engine cannot go anywhere: the
-    // page takes the failure in its stride, and the browser says so.
+    // The request of a page that remains without an engine cannot go anywhere: the page takes
+    // the failure in its stride, and the browser records it.
     if (m.type() === 'error' && !/Fetch API cannot load|ERR_|Failed to fetch|favicon/.test(m.text())) {
       faults.push(m.text());
     }
@@ -61,14 +61,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await wait(400);
 
   const trouble = [];
-  const note = (what) => { trouble.push(what); console.log('  FAULT: ' + what); };
+  const note = (what) => { trouble.push(what); console.log('  ERROR: ' + what); };
 
-  // The chat before the send: one message of the user and one answer, so the
-  // thread is not empty and the box has its usual room.
+  // The chat before the send: one message of the user and one answer, so the thread is not
+  // empty and the box has its usual space.
   await page.evaluate(() => {
     cur = { chatting: { send_anim: true }, chat: { id: 'chat-one', title: 'A chat',
       home: false }, messages: [
-        { id: 'm1', role: 'You', body: 'What stands at the beginning?', when: '09:00',
+        { id: 'm1', role: 'You', body: 'What is at the beginning?', when: '09:00',
           when_full: 'today at 09:00', tool: '', mono: false, failed: false,
           reasoning: '', reasoning_ms: 0 },
         { id: 'm2', role: 'Assistant', body: 'A line, and then another.', when: '09:01',
@@ -77,17 +77,17 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       ] };
     readChatting(cur);
     drawThread(cur);
-    el.draft.value = 'And what stands at the end?';
+    el.draft.value = 'And what is at the end?';
     grow();
   });
   await wait(150);
 
-  // 1: the send. The copy is taken while the box still holds the words, so it
-  // stands over the place they were written on, and the box is emptied.
+  // 1: the send. The copy is taken while the box still holds the text, so it is above the place
+  // they were written on, and the box is emptied.
   const made = await page.evaluate(() => {
     send();
     const card = document.querySelector('.flycard');
-    if (!card) { return { missing: 'the send made no copy of the words' }; }
+    if (!card) { return { missing: 'the send made no copy of the text' }; }
     const box = el.draft.getBoundingClientRect();
     const r = card.getBoundingClientRect();
     const style = getComputedStyle(card);
@@ -100,10 +100,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     };
   });
   if (made.missing) { note(made.missing); await browser.close(); process.exit(1); }
-  if (!made.emptied) { note('the box kept its words after the send'); }
-  if (!made.over) { note('the copy does not stand over the box'); }
-  if (made.words !== 'And what stands at the end?') { note('the copy holds other words'); }
-  if (made.still !== 'none') { note('the copy catches the hand: pointer-events ' + made.still); }
+  if (!made.emptied) { note('the box kept its text after the send'); }
+  if (!made.over) { note('the copy is not over the box'); }
+  if (made.words !== 'And what is at the end?') { note('the copy holds other words'); }
+  if (made.still !== 'none') { note('the copy catches the pointer: pointer-events ' + made.still); }
   if (made.one !== 1) { note('there are ' + made.one + ' copies over the page'); }
   console.log('made:', JSON.stringify(made));
 
@@ -120,19 +120,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   else if (!(squeezed.sx > 0.2 && squeezed.sx < 0.75)) {
     note('the copy did not squeeze itself small: scale ' + squeezed.sx);
   }
-  if (squeezed.landing) { note('a message was held back before one came in'); }
+  if (squeezed.landing) { note('a message was held back before one arrived'); }
   console.log('squeezed:', JSON.stringify(squeezed));
 
-  // 3: the message comes in. It stands in the chat, and it is not seen.
+  // 3: the message arrives. It is in the chat, and it is not seen.
   await page.evaluate(() => {
-    cur.messages.push({ id: 'm3', role: 'You', body: 'And what stands at the end?',
+    cur.messages.push({ id: 'm3', role: 'You', body: 'And what is at the end?',
       when: '09:02', when_full: 'today at 09:02', tool: '', mono: false, failed: false,
       reasoning: '', reasoning_ms: 0 });
     drawThread(cur);
   });
   const held = await page.evaluate(() => {
     const turn = document.querySelector('.turn[data-mid="m3"]');
-    if (!turn) { return { missing: 'the message that came in is not in the chat' }; }
+    if (!turn) { return { missing: 'the message that arrived is not in the chat' }; }
     const bubble = turn.querySelector('.bubble');
     return {
       landing: turn.classList.contains('landing'),
@@ -145,13 +145,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   else {
     if (!held.landing) { note('the message the copy is on its way to was not held back'); }
     if (held.seen !== 'hidden') { note('the message is seen while the copy is coming'); }
-    if (!held.room) { note('the message that is held back took no room in the chat'); }
-    if (!held.flying) { note('the copy went away before it reached its message'); }
+    if (!held.room) { note('the message that is held back took no space in the chat'); }
+    if (!held.flying) { note('the copy was removed before it reached its message'); }
   }
   console.log('held:', JSON.stringify(held));
 
-  // 4: the copy is on its way up the chat. Halfway through the journey it
-  // stands above the box and under its message.
+  // 4: the copy is on its way up the chat. Halfway through the journey it is above the box and
+  // under its message.
   await wait(200);
   const midway = await page.evaluate((was) => {
     const card = document.querySelector('.flycard');
@@ -172,7 +172,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   console.log('midway:', JSON.stringify(midway));
 
-  // 5: the copy is gone, the message is let through, and nothing is left over.
+  // 5: the copy is removed, the message is let through, and nothing is left over.
   await wait(700);
   const landed = await page.evaluate(() => {
     const turn = document.querySelector('.turn[data-mid="m3"]');
@@ -189,29 +189,29 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (landed.landing) { note('the message is still held back after the copy landed'); }
   if (!landed.landed) { note('the message did not unfold into its place'); }
   if (landed.seen !== 'visible') { note('the message is not seen after it landed'); }
-  if (landed.words !== 'And what stands at the end?') { note('the message lost its words'); }
+  if (landed.words !== 'And what is at the end?') { note('the message lost its text'); }
   if (landed.flying) { note('the page still thinks a copy is on its way'); }
   console.log('landed:', JSON.stringify(landed));
 
-  // 6a: with the setting off no copy is made, and the message stands at once.
+  // 6a: with the setting off no copy is created, and the message is at once.
   const off = await page.evaluate(() => {
     chatting.send_anim = false;
     startFly('Words with no journey');
     const card = document.querySelector('.flycard');
     return { card: !!card, fly: !!window.fly };
   });
-  if (off.card) { note('a copy was made though the setting stands off'); }
+  if (off.card) { note('a copy was created though the setting remains off'); }
   if (off.fly) { note('the page is still waiting for a journey that was not made'); }
   console.log('off:', JSON.stringify(off));
 
-  // 6b: a message of another chat is never taken for the one the copy looks
-  // for. The copy is made here, the chat is turned over, and the copy is given
-  // up rather than flown into the words of a chat it was not made for.
+  // 6b: a message of another chat is never taken for the one the copy searches for. The copy is
+  // created here, the chat is turned over, and the copy is given up rather than flown into the
+  // text of a chat it was not made for.
   const other = await page.evaluate(() => {
     chatting.send_anim = true;
-    el.draft.value = 'Words for this chat only';
+    el.draft.value = 'Text for this chat only';
     grow();
-    startFly('Words for this chat only');
+    startFly('Text for this chat only');
     cur = { chatting: { send_anim: true }, chat: { id: 'chat-two', title: 'Another chat',
       home: false }, messages: [
         { id: 'z1', role: 'You', body: 'Quite another thing', when: '10:00',
@@ -236,47 +236,68 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (after.seen !== 'visible') { note('the message of the other chat is not seen'); }
   console.log('after:', JSON.stringify(after));
 
-  // 7: a message that is put by for later while the model is writing is not
-  // carried anywhere: it stands in the list over the box.
+  // 7: a message that is put by for later while the model is writing is not carried anywhere
+  // and makes no copy: it goes to the program, which keeps the list, and the row of it is above
+  // the box. The list is kept by the program and not by the page, so the row is searched for
+  // after the state that carries it returns.
   const queued = await page.evaluate(() => {
     cur = { chatting: { send_anim: true }, generating: true, chat: { id: 'chat-two',
       title: 'Another chat', home: false }, messages: [
         { id: 'z1', role: 'You', body: 'Quite another thing', when: '10:00',
           when_full: 'today at 10:00', tool: '', mono: false, failed: false,
           reasoning: '', reasoning_ms: 0 } ] };
-    queue.length = 0;
+    syncQueue({ queue: { items: [] } });
+    var posts = [];
+    var realPost = window.post;
+    window.post = function (path, body) { posts.push({ path: path, body: body }); };
     el.draft.value = 'Words put by for later';
     grow();
     send();
+    window.post = realPost;
+    syncQueue({ queue: { items: [{ id: 'q1', text: 'Words put by for later', files: [] }] } });
+    queueOpen = true;
+    drawQueue();
+    var row = document.querySelector('#queuelist .qrow');
     return { cards: document.querySelectorAll('.flycard').length,
-      fly: !!window.fly, inList: queue.length, emptied: el.draft.value === '' };
+      fly: !!window.fly, posts: posts, inList: queue.length,
+      rows: document.querySelectorAll('#queuelist .qrow').length,
+      words: row ? row.textContent.replace(/\s+/g, ' ').trim() : '',
+      emptied: el.draft.value === '' };
   });
+  const putBy = (queued.posts || []).filter((p) => p.path === '/api/queue_add');
   if (queued.cards) { note('a message put by for later made a copy over the page'); }
   if (queued.fly) { note('a message put by for later set a copy on its way'); }
-  if (queued.inList !== 1) { note('the message put by did not stand in the list'); }
-  if (!queued.emptied) { note('the box kept its words though the message was put by'); }
+  if (putBy.length !== 1 || !putBy[0].body || putBy[0].body.text !== 'Words put by for later') {
+    note('the message put by did not go to the program: ' + JSON.stringify(queued.posts));
+  }
+  if (queued.inList !== 1 || queued.rows !== 1) {
+    note('the message put by was not in the list: ' + JSON.stringify(queued));
+  }
+  if (queued.words.indexOf('Words put by for later') < 0) {
+    note('the row of the list does not show the text put by: ' + queued.words);
+  }
+  if (!queued.emptied) { note('the box kept its text though the message was put by'); }
   console.log('queued:', JSON.stringify(queued));
 
-  // 8 and 9: the copy is as wide as its own words, under the cap a bubble stands
-  // under, and it goes up the chat and into the corner the messages of the user
-  // stand in. A copy as wide as the chat read as a message that shrank when it
-  // landed, and a copy that drifted the wrong way read as a message going the
-  // wrong road.
+  // 8 and 9: the copy is as wide as its own text, under the cap a bubble is under, and it goes
+  // up the chat and into the corner the messages of the user are in. A copy as wide as the chat
+  // read as a message that shrank when it landed, and a copy that drifted the wrong way read as
+  // a message going the wrong path.
   const way = await page.evaluate(() => {
     chatting.send_anim = true;
     cur = { chatting: { send_anim: true }, chat: { id: 'chat-three', title: 'Third chat',
       home: false }, messages: [
-        { id: 'k1', role: 'You', body: 'How wide is the copy of these words?', when: '11:00',
+        { id: 'k1', role: 'You', body: 'How wide is the copy of this text?', when: '11:00',
           when_full: 'today at 11:00', tool: '', mono: false, failed: false,
           reasoning: '', reasoning_ms: 0 },
-        { id: 'k2', role: 'Assistant', body: 'As wide as its words, and no wider.',
+        { id: 'k2', role: 'Assistant', body: 'As wide as its text, and no wider.',
           when: '11:01', when_full: 'today at 11:01', tool: '', mono: false, failed: false,
           reasoning: '', reasoning_ms: 0 } ] };
     readChatting(cur);
     drawThread(cur);
     var bubble = document.querySelector('.turn[data-mid="k1"] .bubble');
     var b = bubble.getBoundingClientRect();
-    el.draft.value = 'How wide is the copy of these words?';
+    el.draft.value = 'How wide is the copy of this text?';
     grow();
     send();
     var card = document.querySelector('.flycard');
@@ -298,9 +319,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('size:', JSON.stringify(way));
 
   await wait(60);
-  // The message comes in, the copy takes it, and the journey is on its way.
+  // The message arrives, the copy takes it, and the journey is on its way.
   await page.evaluate(() => {
-    cur.messages.push({ id: 'k3', role: 'You', body: 'How wide is the copy of these words?',
+    cur.messages.push({ id: 'k3', role: 'You', body: 'How wide is the copy of this text?',
       when: '11:02', when_full: 'today at 11:02', tool: '', mono: false, failed: false,
       reasoning: '', reasoning_ms: 0 });
     drawThread(cur);
@@ -309,7 +330,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const going = await page.evaluate((was) => {
     var card = document.querySelector('.flycard');
     var bubble = document.querySelector('.turn[data-mid="k3"] .bubble');
-    if (!card || !bubble) { return { missing: 'the copy or its message went away' }; }
+    if (!card || !bubble) { return { missing: 'the copy or its message was removed' }; }
     var c = card.getBoundingClientRect();
     var b = bubble.getBoundingClientRect();
     var box = el.draft.getBoundingClientRect();
@@ -324,7 +345,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (going.missing) { note(going.missing); }
   else {
     if (!going.nearer) {
-      note('the copy did not come to the corner its message stands in: ' + going.near
+      note('the copy did not come to the corner its message is in: ' + going.near
         + ' from it, was ' + going.far);
     }
     if (!going.above) { note('the copy did not leave the box: top ' + going.top); }
@@ -332,22 +353,21 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   console.log('way:', JSON.stringify(going));
 
-  // 10: a copy that cannot read the words it carries still takes the message
-  // that came in. The newest message that was not in the chat when the words went
-  // out is the message they became.
+  // 10: a copy that cannot read the text it carries still takes the message that arrived. The
+  // newest message that was not in the chat when the text was sent is the message they became.
   const blind = await page.evaluate(() => {
     var was = flyWordsMatch;
     window.__match = was;
     flyWordsMatch = function () { return false; };
     cur = { chatting: { send_anim: true }, chat: { id: 'chat-four', title: 'Fourth chat',
       home: false }, messages: [
-        { id: 'n1', role: 'You', body: 'A question with marks of **weight** in it',
+        { id: 'n1', role: 'You', body: 'A question with markers of **weight** in it',
           when: '12:00', when_full: 'today at 12:00', tool: '', mono: false, failed: false,
           reasoning: '', reasoning_ms: 0 } ] };
     readChatting(cur);
     drawThread(cur);
-    startFly('A question with marks of **weight** in it');
-    cur.messages.push({ id: 'n2', role: 'You', body: 'A question with marks of **weight** in it',
+    startFly('A question with markers of **weight** in it');
+    cur.messages.push({ id: 'n2', role: 'You', body: 'A question with markers of **weight** in it',
       when: '12:01', when_full: 'today at 12:01', tool: '', mono: false, failed: false,
       reasoning: '', reasoning_ms: 0 });
     drawThread(cur);
@@ -362,13 +382,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     return out;
   });
   if (taken.held !== 1 || taken.mid !== 'n2') {
-    note('a copy that could not read its words did not take the message that came in: '
+    note('a copy that could not read its text did not take the message that arrived: '
       + JSON.stringify(taken));
   }
   console.log('blind:', JSON.stringify({ start: blind, taken: taken }));
 
-  // 11: a page that is not seen gets no journey at all, for a page behind another
-  // is given no steps and a copy there would hold its message out of sight.
+  // 11: a page that is not seen gets no journey at all, for a page behind another is given no
+  // steps and a copy there would hold its message out of sight.
   const hidden = await page.evaluate(() => {
     dropFly();
     var on = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
@@ -378,12 +398,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     Object.defineProperty(document, 'hidden', { configurable: true, get: on.get });
     return made;
   });
-  if (hidden.card || hidden.fly) { note('a copy was made for a page that is not seen'); }
+  if (hidden.card || hidden.fly) { note('a copy was created for a page that is not seen'); }
   console.log('hidden:', JSON.stringify(hidden));
 
-  // 12: a page that is given no steps at all still lets its message through. The
-  // bound is kept by a timer, and a copy that cannot be moved is given up when the
-  // bound comes, so no message is held out of sight by a journey that stopped.
+  // 12: a page that is given no steps at all still lets its message through. The bound is kept
+  // by a timer, and a copy that cannot be moved is given up when the bound comes, so no message
+  // is held out of sight by a journey that stopped.
   const stalled = await page.evaluate(() => {
     dropFly();
     window.__raf = window.requestAnimationFrame;
@@ -433,6 +453,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('stalled:', JSON.stringify({ at: stalled, after1s: stillHeld, atBound: freed }));
 
   await browser.close();
-  console.log(trouble.length ? 'FAIL ' + trouble.length + ' faults' : 'ok   the journey of a sent message');
+  console.log(trouble.length ? 'FAIL ' + trouble.length + ' errors' : 'ok   the journey of a sent message');
   process.exit(trouble.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

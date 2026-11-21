@@ -1,11 +1,11 @@
 // A live check, not for the repository: it starts the real llama.cpp with the
-// testing model on the CPU and hangs a picture on a message, so an answer
-// about the colour can only come from the picture riding across. Run with
+// testing model on the CPU and hangs an image on a message, so an answer
+// about the colour can only come from the image riding across. Run with
 //
 //     cargo test --release --test live_vision -- --nocapture --test-threads=1
 
-// A swatch of one colour, as a whole small picture file. The test hangs it
-// on the message, so an answer about the colour can only come from seeing it.
+// A swatch of one colour, as a whole small image file. The test hangs it on the message, so an
+// answer about the colour can only come from seeing it.
 const ORANGE: &str = concat!(
     "data:image/png;base64,",
     "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAAjUlEQVR42u3QMQ0AAAgDsOlAM57B",
@@ -53,12 +53,12 @@ fn a_picture_hung_on_a_message_comes_back_as_words() {
         max_tokens: 60,
         ..Default::default()
     };
-    // The CPU only: the list of flags is fitted to the devices of the machine,
-    // and a short list is padded with enabled ones.
+    // The CPU only: the list of flags is fitted to the devices of the computer, and a short
+    // list is padded with enabled ones.
     ms.gpu_enabled = vec![false; 8];
-    // The testing box has no list of devices to speak of, so the two words of
-    // the engine are added by hand. The card of the box is full of another
-    // model, and a server left to itself would fall over trying to use it.
+    // The testing box has no list of devices to speak of, so the two words of the engine are
+    // added manually. The card of the box is full of another model, and a server left to itself
+    // would fall over trying to use it.
     ms.extra_args = "--device none -ngl 0".to_string();
     let mut cfg = Config {
         llama_dir: root.join("llamacpp/build/bin").display().to_string(),
@@ -70,14 +70,14 @@ fn a_picture_hung_on_a_message_comes_back_as_words() {
 
     let engine = Engine::start(cfg);
     // The server needs its time with nine billion numbers.
-    wait_for("the model to stand ready", || {
+    wait_for("the model to remain ready", || {
         let s = engine.snapshot();
         (!s.generating && !s.busy && !s.model_name.is_empty()).then_some(())
     });
 
     engine.new_chat();
     engine.prompt(
-        "What colour is this picture? Answer in one short sentence.".to_string(),
+        "What colour is this image? Answer in one short sentence.".to_string(),
         vec![Incoming {
             name: "orange-swatch.png".to_string(),
             mime: "image/png".to_string(),
@@ -85,9 +85,9 @@ fn a_picture_hung_on_a_message_comes_back_as_words() {
             text: String::new(),
         }],
     );
-    // The worker first lets the reader's message stand in the thread, then
-    // wakes the server, and at last writes the answer as its own message.
-    wait_for("the reader's message to stand in the thread", || {
+    // The worker first lets the user's message are in the thread, then starts the server, and
+    // at last writes the answer as its own message.
+    wait_for("the user's message to appear in the thread", || {
         engine
             .snapshot()
             .messages
@@ -95,13 +95,13 @@ fn a_picture_hung_on_a_message_comes_back_as_words() {
             .any(|m| m.role == "You")
             .then_some(())
     });
-    wait_for("the answer to stand in the thread", || {
+    wait_for("the answer to appear in the thread", || {
         let s = engine.snapshot();
         if s.messages.iter().any(|m| m.role == "Assistant") {
             return Some(());
         }
         if s.status.contains("cannot") || s.status.contains("failed") {
-            panic!("the engine said: {}", s.status);
+            panic!("the engine stated: {}", s.status);
         }
         None
     });
@@ -113,15 +113,15 @@ fn a_picture_hung_on_a_message_comes_back_as_words() {
     let user = snap
         .messages
         .iter().rfind(|m| m.role == "You")
-        .expect("the reader's message");
-    assert_eq!(user.attachments.len(), 1, "the picture did not hang on the message");
+        .expect("the user's message");
+    assert_eq!(user.attachments.len(), 1, "the image did not hang on the message");
     assert_eq!(user.attachments[0].name, "orange-swatch.png");
     assert!(user.attachments[0].image, "the picture is not marked as one");
     let answer = snap
         .messages
         .iter().rfind(|m| m.role == "Assistant")
         .expect("the model's answer");
-    println!("the model said: {}", answer.body.trim());
+    println!("the model stated: {}", answer.body.trim());
     assert!(
         answer.body.to_lowercase().contains("orange"),
         "the model did not see the colour: {}",

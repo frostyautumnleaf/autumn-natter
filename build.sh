@@ -136,9 +136,8 @@ fi
 [ -f Cargo.toml ] && [ -f src-tauri/src/main.rs ] || die "build.sh must sit next to Cargo.toml"
 ok "checkout looks right"
 
-# The window is a Tauri app, so it needs the web view of the system. Linux
-# wants the WebKitGTK development files. A warning only: the core, the tests
-# and the remote page build without them.
+# The window is a Tauri app, so it needs the web view of the system. Linux wants the WebKitGTK
+# development files. A warning only: the core, the tests and the remote page build without them.
 if [ "$OS" = Linux ]; then
   if command -v pkg-config >/dev/null 2>&1 \
      && ( pkg-config --exists webkit2gtk-4.1 || pkg-config --exists webkit2gtk-4.0 ); then
@@ -211,8 +210,8 @@ if [ "$MODE" = "check" ]; then
   exit 0
 fi
 
-# Only skip if the binary exists and --force-build was not given.
-# Cargo's incremental build makes a no-change rebuild fast.
+# Only skip if the binary exists and --force-build was not given. Cargo's incremental build
+# makes a no-change rebuild fast.
 if [ -x "$BIN" ] && [ "$FORCE_BUILD" = 0 ]; then
   # Check if any source file is newer than the binary.
   NEED_BUILD=0

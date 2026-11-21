@@ -1,13 +1,12 @@
-// Check that a fold the user moved by hand stays where the user put it.
+// Check that a fold the user moved manually stays where the user put it.
 //
-// A row of the chat is made again whenever the state of the chat moves: the
-// answer that was coming in becomes a message of the chat, a run of a tool comes
-// in among the thoughts, the words of an answer are written again. A fold kept
-// only in the class of a panel went with the panel, and the user who had opened
-// a thinking panel saw it close itself when the model called a tool inside it, and
-// a user who had opened a block of a run saw it shut when the model finished
-// writing. The folds are now read off a row before it is made again and put back
-// after. The page is loaded as it stands, with no bridge and no engine.
+// A row of the chat is rebuilt whenever the state of the chat moves: the answer that was
+// arriving becomes a message of the chat, a run of a tool arrives among the thoughts, the text
+// of an answer is written again. A fold kept only in the class of a panel went with the panel,
+// and the user who had opened a thinking panel saw it close itself when the model called a tool
+// inside it, and a user who had opened a block of a run saw it shut when the model finished
+// writing. The folds are now read off a row before it is rebuilt and put back after. The page
+// is loaded as it is now, with no bridge and no engine.
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
@@ -47,7 +46,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       return m;
     }
 
-    // The head of a panel is what the user clicks.
+    // The header of a panel is what the user clicks.
     function open(node) {
       var head = node.querySelector('.thead');
       if (!head) { faults.push('no head to click ' + where); return; }
@@ -62,9 +61,9 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
         reasoning_ms: 1200 })
     ];
 
-    // One: a thinking panel that starts closed. The user opens it while the
-    // answer is coming in; the answer then becomes a message of the chat, which
-    // makes the row again. The panel must stand open still.
+    // One: a thinking panel that starts closed. The user opens it while the answer is arriving;
+    // the answer then becomes a message of the chat, which makes the row again. The panel must
+    // are left open still.
     where = 'a thinking panel opened over an answer that finished';
     var one = { messages: head, generating: true, summarising: false, live: '',
       reasoning: 'I must run a command first.', reasoning_ms: 900, reasoning_done: false,
@@ -73,7 +72,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var panel = box.querySelector('.turn:last-child .think');
     if (!panel) { faults.push('no thinking panel came ' + where); }
     if (panel && !closed(panel)) {
-      faults.push('a thinking panel stood open though the setting folds it ' + where);
+      faults.push('a thinking panel was open though the setting folds it ' + where);
     }
     if (panel) {
       open(panel);
@@ -95,9 +94,9 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
         + 'became a message of the chat, ' + where);
     }
 
-    // Two: a block of a run inside a thinking panel, folded as the setting has it.
-    // The user opens it; the model then writes on, and the part of the panel is
-    // made again with the new words of the run. The block must stand open still.
+    // Two: a block of a run inside a thinking panel, folded as the setting has it. The user
+    // opens it; the model then writes on, and the part of the panel is rebuilt with the new
+    // text of the run. The block must be left open still.
     where = 'a block of a run opened inside a thinking panel';
     var three = { messages: head.concat([
         said('m5', 'Assistant', '', { reasoning: 'I must look at the notes first.',
@@ -110,7 +109,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var block = box.querySelector('.think .tool');
     if (!block) { faults.push('no block of a run inside the thinking panel ' + where); }
     if (block && !closed(block)) {
-      faults.push('a block of a run stood open though the setting folds it ' + where);
+      faults.push('a block of a run was open though the setting folds it ' + where);
     }
     if (block) {
       open(block);
@@ -121,18 +120,18 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     four.live = 'The notes say more and more';
     box = look(four);
     var block2 = box.querySelector('.think .tool');
-    if (!block2) { faults.push('the block of the run went away ' + where); }
+    if (!block2) { faults.push('the block of the run was removed ' + where); }
     else if (closed(block2)) {
       faults.push('the block of a run the user opened shut itself when the model '
         + 'finished writing, ' + where);
     }
 
-    // Three: a fold the user never moved follows the setting, whatever the
-    // making of the row did. A panel of the chat that stands closed must not be
-    // forced open by the folds of another row.
+    // Three: a fold the user never moved follows the setting, whatever the making of the row
+    // did. A panel of the chat that is closed must not be forced open by the folds of another
+    // row.
     where = 'a fold the user never moved';
     var five = { messages: head.concat([
-        said('m7', 'Assistant', 'And here are the words.', { reasoning: 'A thought of its own.',
+        said('m7', 'Assistant', 'And here are the text.', { reasoning: 'A thought of its own.',
           reasoning_ms: 400 })
       ]),
       generating: false, summarising: false, live: '', reasoning: '', reasoning_ms: 0,
@@ -143,7 +142,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var ownPanel = last.querySelector('.think');
     if (!ownPanel) { faults.push('the last message has no thinking panel ' + where); }
     else if (!closed(ownPanel)) {
-      faults.push('a thinking panel the user never touched stood open though the '
+      faults.push('a thinking panel the user never touched was open though the '
         + 'setting folds it, ' + where);
     }
 

@@ -1,20 +1,19 @@
-// The search tool: it looks a thing up on the web, and reads a page of it.
+// The search tool: it looks an item up on the web, and reads a page of it.
 //
-// One name does two things. Given words to look for, the tool asks the engines
-// in order and gives back the titles, the addresses and the short words of the
-// places it found. Given an address, it reads that page and gives back its
-// words, cut of their marks and cut short. The model is the user of both
-// answers, and the model reads words, so nothing of the marks of a page is kept
-// unless they say something.
+// One name does two items. Given text to search for, the tool asks the engines in order and
+// returns the titles, the addresses and the short text of the places it found. Given an
+// address, it reads that page and returns its text, cut of their markers and truncated. The
+// model is the user of both answers, and the model reads text, so nothing of the markers of a
+// page is kept unless they say something.
 //
-// The shape of these answers was first made in another program, whose code is
-// under the AGPL. Nothing was copied. The engines this machine can reach are not
-// the engines of that program either, so the reading of each answer was written
-// again here, from what the engine actually sends back.
+// The form of these answers was first made in another program, whose code is under the AGPL.
+// Nothing was copied. The engines this computer can reach are not the engines of that program
+// either, so the reading of each answer was written again here, from what the engine actually
+// sends back.
 //
-// No new part is added to the program for this. The words of a page are read by
-// a small user of its own, and the marks of a page are taken out by a rule of
-// its own, so the binary keeps the weight it had.
+// No new part is added to the program for this. The text of a page is reads by a small user of
+// its own, and the markers of a page are taken out by a rule of its own, so the binary keeps
+// the weight it had.
 
 use serde_json::{json, Value};
 use std::io::Read;
@@ -22,68 +21,66 @@ use std::time::Duration;
 
 use crate::tools::{self, with_rule};
 
-// The name the model uses to look a thing up.
+// The name the model uses to look an item up.
 pub const NAME: &str = "web_search";
 
-// The most bytes of one page that are read. A page of a news house may hold
-// three times this in the marks of its head alone, and none of those marks are
-// words.
+// The most bytes of one page that are read. A page of a news house may hold three times this in
+// the markers of its header alone, and none of those markers are text.
 const MAX_FETCH_BYTES: usize = 512 * 1024;
 
-// The most words of a page, or of a whole answer, that reach the model. The room
-// of the talk is small, and the front of a page holds the best of it.
+// The most text of a page, or of a whole answer, that reach the model. The size of the context
+// is small, and the start of a page holds the best of it.
 const MAX_PAGE_CHARS: usize = 16_000;
 
 // The most places one search names.
 const MAX_PLACES: usize = 6;
 
-// The words between two places of the answer, and the words at the end that tell
-// the model what to do with an address it likes.
+// The text between two places of the answer, and the text at the end that tell the model what
+// to do with an address it likes.
 const BETWEEN: &str = "\n\n---\n\n";
 const LAST: &str = "\n\n---\n\nThese are short summaries of each result. To read a whole page, call again with its address, as {\"url\": \"https://...\"}.";
 
-// The words that stand after a page of more words than this program sends.
+// The text that remains after a page of more text than this program sends.
 const CUT: &str = "(the text of the page was cut here, because the page was longer than this program sends)";
 
-// The engines, in the order they are worth asking. Two of the well known engines
-// answer this machine with a test to prove that it is not a house of robots, so
-// the engine that asks no such test comes first, and a failure of one engine is
-// passed on quietly to the next. The second of them answers with such a test
-// today as well, and it is kept as a second try for the day the test goes away.
+// The engines, in the order they are worth asking. Two of the well known engines answer this
+// computer with a test to prove that it is not a house of robots, so the engine that asks no
+// such test comes first, and a failure of one engine is passed on quietly to the next. The
+// second of them answers with such a test today as well, and it is kept as a second try for the
+// day the test is removed.
 const ENGINES: [&str; 2] = ["brave", "duckduckgo"];
 
-// The mark that stands in the tag opening one place of a Brave answer. The whole
-// tag cannot be written out: the class of it carries a mark of the build of the
-// engine, and that mark changes while the words of the page stand. The place of
-// one answer therefore begins after the tag this mark stands in, and ends where
-// the next such tag stands.
+// The marker that is in the tag opening one place of a Brave answer. The whole tag cannot be
+// written out: the class of it carries a marker of the build of the engine, and that marker
+// changes while the text of the page remains. The place of one answer therefore begins after
+// the tag this marker is in, and ends where the next such tag remains.
 const BRAVE_MARK: &str = "data-type=\"web\"";
 
-// The address of the encyclopedia, which is the last place to look and holds
-// words of one kind only. It is named out loud when it answered, so the model
-// does not take it for the whole of the web.
+// The address of the encyclopedia, which is the last place to look and holds text of one type
+// only. It is named out loud when it answered, so the model does not take it for all of the
+// web.
 const ENCYCLOPEDIA: &str = "https://en.wikipedia.org/w/api.php?action=query&format=json&list=search&srlimit=6&srsearch=";
 const ENCYCLOPEDIA_PAGE: &str = "https://en.wikipedia.org/wiki/";
 
-// The words a browser of the machine says, and the language to ask for. An
-// engine that is not shown a browser answers with a test instead of an answer.
+// The text a browser of the computer reports, and the language to request. An engine that is
+// not shown a browser answers with a test instead of an answer.
 const AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
 
-// The words of the call, and the words the user is shown.
+// The text of the call, and the text the user is shown.
 pub fn definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Search the web, and read a page of it. With words to search for it returns the titles, the addresses and the short summaries of the results. With an address it reads that page and returns its text, so use the address of a result you want instead of guessing at it. The answer of a search engine is a short summary only, so a second call with the address of the page is often the better part of the work. Nothing that is read is stored.",
+                "Search the web, and read a page of it. With text to search for it returns the titles, the addresses and the short summaries of the results. With an address it reads that page and returns its text, so use the address of a result you want instead of guessing at it. The answer of a search engine is a short summary only, so a second call with the address of the page is often the better part of the work. Nothing that is read is stored.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The words to search for."
+                        "description": "The text to search for."
                     },
                     "url": {
                         "type": "string",
@@ -103,9 +100,9 @@ struct Place {
     words: String,
 }
 
-// What the call named: the words to look for, and the address to read. A model
-// writes a name other than the one that was asked for more often than one would
-// think, so the other names a local model reaches for are read as well.
+// What the call named: the text to search for, and the address to read. A model writes a name
+// other than the one that was requested more often than one would think, so the other names a
+// local model reaches for are read as well.
 pub fn words_of(raw: &str) -> (String, String) {
     let Some(call) = object(raw) else {
         let part = tools::partial_text(raw.trim_start(), "query");
@@ -118,9 +115,8 @@ pub fn words_of(raw: &str) -> (String, String) {
     )
 }
 
-// The one thing the call named, as far as it has come. The user watches this
-// while the call is written. An address is worth showing whole, for the words to
-// look for may not have come yet.
+// The one item the call named, as far as it has come. The user watches this while the call is
+// written. An address is worth showing whole, for the text to search for may not have come yet.
 pub fn partial_words(raw: &str) -> String {
     let text = raw.trim_start();
     let query = tools::partial_text(text, "query");
@@ -130,7 +126,7 @@ pub fn partial_words(raw: &str) -> String {
     tools::partial_text(text, "url")
 }
 
-// Look a thing up, or read a page. The answer is the words the model is given.
+// Look an item up, or read a page. The answer is the text the model is given.
 pub fn run(raw: &str) -> tools::Report {
     let (query, address) = words_of(raw);
     if !address.trim().is_empty() {
@@ -141,7 +137,7 @@ pub fn run(raw: &str) -> tools::Report {
         return tools::Report {
             ok: false,
             output: String::from(
-                "The call needs words to search for, or the address of a page to read",
+                "The call needs text to search for, or the address of a page to read",
             ),
         };
     }
@@ -169,8 +165,8 @@ pub fn run(raw: &str) -> tools::Report {
     }
 }
 
-// The answer of a search, in the shape the model reads: a place, then the words
-// between two places, and at the end the word about reading a whole page.
+// The answer of a search, in the form the model reads: a place, then the text between two
+// places, and at the end the word about reading a whole page.
 fn told(places: Vec<Place>, encyclopedia: bool) -> tools::Report {
     let mut parts: Vec<String> = Vec::new();
     for place in places.iter().take(MAX_PLACES) {
@@ -198,7 +194,7 @@ fn told(places: Vec<Place>, encyclopedia: bool) -> tools::Report {
     }
 }
 
-// Read one page of the web, and give back its words.
+// Read one page of the web, and give back its text.
 fn read_page(address: &str) -> tools::Report {
     if !address.starts_with("http://") && !address.starts_with("https://") {
         return tools::Report {
@@ -235,7 +231,7 @@ fn read_page(address: &str) -> tools::Report {
     }
 }
 
-// Ask one engine for the words of a search.
+// Ask one engine for the text of a search.
 fn ask(engine: &str, wanted: &str) -> Result<Vec<Place>, String> {
     let address = match engine {
         "brave" => format!(
@@ -255,8 +251,8 @@ fn ask(engine: &str, wanted: &str) -> Result<Vec<Place>, String> {
     })
 }
 
-// The places of an answer of Brave. Every place of its own accord opens with a
-// mark that says what kind of thing it is.
+// The places of an answer of Brave. Every place of its own accord opens with a marker that
+// shows what type of item it is.
 fn brave_places(page: &str) -> Vec<Place> {
     let mut out: Vec<Place> = Vec::new();
     let mut from = 0usize;
@@ -264,8 +260,8 @@ fn brave_places(page: &str) -> Vec<Place> {
         let Some(here) = find_from(page, from, BRAVE_MARK) else {
             break;
         };
-        // The words of the place stand after the tag the mark stands in, and not
-        // after the mark itself, which is in the middle of that tag.
+        // The text of the place remains after the tag the marker is in, and not after the
+        // marker itself, which is in the middle of that tag.
         let Some(open) = find_from(page, here, ">") else {
             break;
         };
@@ -279,9 +275,8 @@ fn brave_places(page: &str) -> Vec<Place> {
     out
 }
 
-// One place of a Brave answer: its address, its title, and its short words. A
-// block that is not in the shape that was looked for is given up on, and the
-// next block is read.
+// One place of a Brave answer: its address, its title, and its short text. A block that is not
+// in the form that was searched for is given up on, and the next block is read.
 fn brave_block(block: &str) -> Option<Place> {
     let mut at = 0usize;
     let rest = past(block, &mut at, "<a href=\"")?;
@@ -290,10 +285,10 @@ fn brave_block(block: &str) -> Option<Place> {
     if !address.starts_with("http") {
         return None;
     }
-    // The title hangs on the mark that opened the part of it.
+    // The title hangs on the marker that opened the part of it.
     let rest = past(block, &mut at, "<div class=\"title")?;
     let title = quoted(rest, "title=\"")?;
-    // The short words stand in a part of their own after the title.
+    // The short text is in a part of their own after the title.
     let rest = past(block, &mut at, "<div class=\"content")?;
     let rest = match rest.find('>') {
         Some(at) => rest.get(at + 1..).unwrap_or(rest),
@@ -307,8 +302,8 @@ fn brave_block(block: &str) -> Option<Place> {
     })
 }
 
-// The places of a DuckDuckGo answer. The address of a place hides behind the
-// address of the engine, and is set free before the model is given it.
+// The places of a DuckDuckGo answer. The address of a place hides behind the address of the
+// engine, and is set free before the model is given it.
 fn duckduckgo_places(page: &str) -> Vec<Place> {
     let mut out: Vec<Place> = Vec::new();
     let mut at = 0usize;
@@ -326,7 +321,7 @@ fn duckduckgo_places(page: &str) -> Vec<Place> {
         let begin = open + 1;
         let Some(close) = find_from(page, begin, "</a>") else { break };
         let title = words_of_marks(page.get(begin..close).unwrap_or(""));
-        // The short words stand in the link of their own after the title.
+        // The short text is in the link of their own after the title.
         let Some(mark) = find_from(page, close, "class=\"result__snippet\"") else {
             break;
         };
@@ -335,8 +330,8 @@ fn duckduckgo_places(page: &str) -> Vec<Place> {
         let begin = open + 1;
         let Some(close) = find_from(page, begin, "</a>") else { break };
         let said = words_of_marks(page.get(begin..close).unwrap_or(""));
-        // The reading carries on after the short words, so the next place read is
-        // the next one, and not the same one again.
+        // The reading carries on after the short text, so the next place read is the next one,
+        // and not the same one again.
         at = close;
         if !address.starts_with("http") {
             continue;
@@ -350,8 +345,8 @@ fn duckduckgo_places(page: &str) -> Vec<Place> {
     out
 }
 
-// The place a mark stands in, at or after a place we had read to, when the mark
-// is in what was left.
+// The place a marker is in, at or after a place we had read to, when the marker is in what was
+// left.
 fn find_from(text: &str, at: usize, mark: &str) -> Option<usize> {
     let rest = text.get(at..)?;
     rest.find(mark).map(|found| at + found)
@@ -370,16 +365,16 @@ fn unhide(text: &str) -> String {
     }
 }
 
-// Ask the encyclopedia. It is not an engine of the whole web: its words are of
-// one kind, and the answer says so out loud when it was the one that answered.
+// Ask the encyclopedia. It is not an engine of the whole web: its text is of one type, and the
+// answer records it out loud when it was the one that answered.
 fn encyclopedia(wanted: &str) -> Result<Vec<Place>, String> {
     let address = format!("{}{}", ENCYCLOPEDIA, urlencoding::encode(wanted));
     let page = fetch(&address)?;
     Ok(wiki_places(&page))
 }
 
-// The places of an answer of the encyclopedia. Its words are JSON, and the short
-// words of a place hold marks of their own.
+// The places of an answer of the encyclopedia. Its text is JSON, and the short text of a place
+// hold markers of their own.
 fn wiki_places(page: &str) -> Vec<Place> {
     let Ok(value) = serde_json::from_str::<Value>(page) else {
         return Vec::new();
@@ -406,8 +401,8 @@ fn wiki_places(page: &str) -> Vec<Place> {
     out
 }
 
-// Get one address, and read what comes back. The bytes are stopped at the cap,
-// so a page that goes on for ever does not hold the program.
+// Get one address, and read what returns. The bytes are stopped at the cap, so a page that goes
+// on for ever does not hold the program.
 fn fetch(address: &str) -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
@@ -432,15 +427,15 @@ fn fetch(address: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
-// The words of a page of marks. The parts that hold no words for a user are
-// dropped whole: the head of the page, the programmes of it, the styles of it,
-// and the notes of the writer. A mark that ends a block of words leaves a new
-// line behind, and the mark of a list leaves a dash. The rest of the marks go.
+// The text of a page of markers. The parts that hold no text for a user are dropped whole: the
+// header of the page, the programmes of it, the styles of it, and the notes of the writer. A
+// marker that ends a block of text leaves a new line behind, and the marker of a list leaves a
+// dash. The rest of the markers go.
 fn to_words(page: &str) -> String {
     let mut out = String::new();
     let mut rest = page;
-    // A page of nothing but marks would go on for as long as it is long, so the
-    // reading has a ceiling of its own.
+    // A page of nothing but markers would go on for as long as it is long, so the reading has a
+    // ceiling of its own.
     let mut guard = 0usize;
     while let Some(at) = rest.find('<') {
         out.push_str(&decode(&rest[..at]));
@@ -448,7 +443,7 @@ fn to_words(page: &str) -> String {
         if guard > 100_000 {
             break;
         }
-        // A part with no words for a user is left out whole.
+        // A part with no text for a user is left out whole.
         if let Some(after) = dropped(rest, at) {
             rest = after;
             continue;
@@ -468,14 +463,14 @@ fn to_words(page: &str) -> String {
     tidy_words(&out)
 }
 
-// The parts of a page that hold nothing a user would want to read, with the
-// mark that closes each of them. Marks of a page are written in either half of
-// the alphabet, so each pair is looked for without minding the case.
+// The parts of a page that hold nothing a user would want to read, with the marker that closes
+// each of them. Markers of a page are written in either half of the alphabet, so each pair is
+// searched for without minding the case.
 //
-// The marks of the house of a page stand here as well: the menu of it, the tools
-// at its side and the words at its foot stand the same on every page of the
-// house, and they are not the words the page was written about. The mark of a
-// header is not among them, for many a page hangs the words of its front on one.
+// The markers of the site of a page is here as well: the menu of it, the tools at its side and
+// the text at the bottom remain the same on every page of the site, and they are not the text
+// the page was written about. The marker of a header is not among them, for many a page hangs
+// the text of its front on one.
 const DROPS: [(&str, &str); 11] = [
     ("<script", "</script>"),
     ("<style", "</style>"),
@@ -490,11 +485,11 @@ const DROPS: [(&str, &str); 11] = [
     ("<footer", "</footer>"),
 ];
 
-// The page after a part of it that holds no words, when the mark at the place
-// asked for opens such a part. Nothing is left when the mark that ends the part
-// is not in the page at all, which is how a page cut short in the middle of a
-// programme of its own is left standing there. The words of such a programme are
-// no words for a user, and reading them would fill the answer of them.
+// The page after a part of it that holds no text, when the marker at the place requested opens
+// such a part. Nothing is left when the marker that ends the part is not in the page at all,
+// which is how a page truncated in the middle of a programme of its own is left remaining
+// there. The text of such a programme is no text for a user, and reading it would fill the
+// answer of them.
 fn dropped(page: &str, at: usize) -> Option<&str> {
     let head = page.get(at..)?;
     for (open, close) in DROPS {
@@ -510,7 +505,7 @@ fn dropped(page: &str, at: usize) -> Option<&str> {
     None
 }
 
-// The marks that end a block of words, and the marks that open a part of a list.
+// The markers that end a block of text, and the markers that open a part of a list.
 const BLOCK_ENDS: &[&str] = &[
     "</p", "</div", "<br", "</li", "</h1", "</h2", "</h3", "</h4", "</h5", "</h6", "</tr",
     "</table", "</section", "</article", "</blockquote", "</header", "</footer", "</nav",
@@ -518,10 +513,9 @@ const BLOCK_ENDS: &[&str] = &[
 ];
 const LIST_MARKS: &[&str] = &["<li", "<dt", "<dd", "<tr"];
 
-// True when the mark at the front of the words is the name that was asked for,
-// and that name is the whole of the word. The mark of the head of a page is not
-// the mark of a header of it, and reading one for the other would throw away the
-// words of the page.
+// True when the marker at the start of the text is the name that was requested, and that name
+// is all of the word. The marker of the header of a page is not the marker of a header of it,
+// and reading one for the other would delete the text of the page.
 fn opens(head: &str, name: &str) -> bool {
     let Some(tail) = head.get(..name.len()) else {
         return false;
@@ -535,10 +529,9 @@ fn opens(head: &str, name: &str) -> bool {
     }
 }
 
-// True when the words at the front begin with any of the marks. The front is
-// taken with a look that minds the end of a character: the words of a page may
-// begin with a sign of more than one byte, and cutting a mark out of the middle
-// of one would stop the program.
+// True when the text at the front begin with any of the markers. The front is taken with an
+// appearance that minds the end of a character: the text of a page may begin with a sign of
+// more than one byte, and cutting a marker out of the middle of one would stop the program.
 fn starts_any(head: &str, marks: &[&str]) -> bool {
     marks.iter().any(|mark| {
         head.get(..mark.len())
@@ -546,8 +539,8 @@ fn starts_any(head: &str, marks: &[&str]) -> bool {
     })
 }
 
-// The place a run of words stands in, without minding the case of it. Marks of a
-// page are written in both halves of the alphabet by different houses.
+// The place a run of text is in, without minding the case of it. Markers of a page are written
+// in both halves of the alphabet by different houses.
 fn find_ignore(text: &str, wanted: &str) -> Option<usize> {
     let bytes = text.as_bytes();
     let needle = wanted.as_bytes();
@@ -564,15 +557,14 @@ fn find_ignore(text: &str, wanted: &str) -> Option<usize> {
     None
 }
 
-// The words of a page, made ready: the spaces of the marks go, many new lines in
-// a row become two, and the words of one line stand together.
+// The text of a page, prepared: the spaces of the markers go, many new lines in a row become
+// two, and the text of one line remains together.
 fn tidy_words(text: &str) -> String {
     let mut out = String::new();
     for line in text.lines() {
         let kept = line.split_whitespace().collect::<Vec<_>>().join(" ");
         if kept.is_empty() {
-            // A line of nothing is worth keeping between two parts, and nowhere
-            // else.
+            // A line of nothing is worth keeping between two parts, and nowhere else.
             if !out.is_empty() && !out.ends_with('\n') {
                 out.push('\n');
             }
@@ -593,17 +585,17 @@ fn tidy_words(text: &str) -> String {
     out.trim().to_string()
 }
 
-// The words with the marks of the page turned back into the characters they stand
-// for. A mark that is not known stands as it was written, which reads better than
-// a word that went missing.
+// The text with the markers of the page turned back into the characters they mean. A marker
+// that is not known remains as it was written, which reads better than a word that went
+// missing.
 fn decode(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(at) = rest.find('&') {
         out.push_str(&rest[..at]);
         let tail = &rest[at + 1..];
-        // A name of a mark is short. A longer run of words behind an ampersand is
-        // an ampersand, and not a mark.
+        // A name of a marker is short. A longer run of text behind an ampersand is an
+        // ampersand, and not a marker.
         let Some(end) = tail.find(';').filter(|place| *place < 12) else {
             out.push('&');
             rest = tail;
@@ -615,8 +607,8 @@ fn decode(text: &str) -> String {
                 rest = &tail[end + 1..];
             }
             None => {
-                // A mark that is not one of ours stands as it was written, for a
-                // word with a hole in it reads worse than one with a strange sign.
+                // A marker that is not one of ours remains as it was written, for a word with a
+                // hole in it reads worse than one with a strange sign.
                 out.push('&');
                 out.push_str(&tail[..end]);
                 out.push(';');
@@ -628,8 +620,8 @@ fn decode(text: &str) -> String {
     out
 }
 
-// The character a mark of a page stands for. The short words of a page are full
-// of the marks that no key of a keyboard has.
+// The character a marker of a page means. The short text of a page is full of the markers that
+// no key of a keyboard has.
 fn entity(name: &str) -> Option<char> {
     let name = name.trim();
     if let Some(rest) = name.strip_prefix('#') {
@@ -666,10 +658,10 @@ fn entity(name: &str) -> Option<char> {
     }
 }
 
-// The end of a mark of a page, counted from the sign that opened it. A page of
-// today carries whole answers of its own in the words between two quotes of a
-// mark, and such a run may hold the sign that seems to close the mark. Reading
-// the mark as ended there would pour the words of the attribute into the answer.
+// The end of a marker of a page, counted from the sign that opened it. A page of today carries
+// whole answers of its own in the text between two quotes of a marker, and such a run may hold
+// the sign that seems to close the marker. Reading the marker as ended there would pour the
+// text of the attribute into the answer.
 fn mark_end(text: &str) -> Option<usize> {
     let mut quote: Option<char> = None;
     for (at, ch) in text.char_indices() {
@@ -686,20 +678,20 @@ fn mark_end(text: &str) -> Option<usize> {
             },
         }
     }
-    // A mark whose quote never ends is read to its first sign, which is what a
-    // browser makes of the words between the quotes.
+    // A marker whose quote never ends is read to its first sign, which is what a browser makes
+    // of the text between the quotes.
     text.find('>')
 }
 
-// The words of a piece of a page that still holds marks: the marks go, and what
-// is left is one line of words.
+// The text of a part of a page that still holds markers: the markers go, and what is left is
+// one line of text.
 fn words_of_marks(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(at) = rest.find('<') {
         out.push_str(&decode(&rest[..at]));
-        // The mark ends at the sign that closes it, and not at a sign in front
-        // of where it opened, which would eat words that were no mark.
+        // The marker ends at the sign that closes it, and not at a sign before where it opened,
+        // which would eat text that was no marker.
         let Some(gt) = mark_end(&rest[at..]) else { break };
         rest = &rest[at + gt + 1..];
     }
@@ -709,9 +701,9 @@ fn words_of_marks(text: &str) -> String {
     flat(&out, MAX_PAGE_CHARS)
 }
 
-// Move a place in a page past a mark, and give back what is left after it.
-// Nothing comes back when the mark is not in what was left, which is how a page
-// of a shape that was not expected is given up on.
+// Move a place in a page past a marker, and give back what is left after it. Nothing returns
+// when the marker is not in what was left, which is how a page of a form that was not expected
+// is given up on.
 fn past<'a>(page: &'a str, at: &mut usize, mark: &str) -> Option<&'a str> {
     let rest = page.get(*at..)?;
     let found = rest.find(mark)?;
@@ -719,9 +711,9 @@ fn past<'a>(page: &'a str, at: &mut usize, mark: &str) -> Option<&'a str> {
     page.get(*at..)
 }
 
-// The value of one named part of a mark, such as the title behind title=". The
-// words of it are turned back into characters, for an engine writes its titles
-// with the marks of a page around them.
+// The value of one named part of a marker, such as the title behind title=". The text of it is
+// turned back into characters, for an engine writes its titles with the markers of a page
+// around them.
 fn quoted(text: &str, key: &str) -> Option<String> {
     let at = text.find(key)? + key.len();
     let rest = text.get(at..)?;
@@ -729,28 +721,28 @@ fn quoted(text: &str, key: &str) -> Option<String> {
     Some(one_line(rest.get(..end)?))
 }
 
-// The words between where the reading stands and the mark that ends them.
+// The text between where the reading stops and the marker that ends it.
 fn words_till(text: &str, end_mark: &str) -> Option<String> {
     let end = text.find(end_mark)?;
     Some(text[..end].to_string())
 }
 
-// Words made one line, and cut at the length asked for. The words stand as they
-// were written, marks and all.
+// Text made one line, and cut at the length requested. The text remains as they were written,
+// markers and all.
 fn flat(text: &str, most: usize) -> String {
     let kept = text.split_whitespace().collect::<Vec<_>>().join(" ");
     first_words(&kept, most)
 }
 
-// Words of a page made one line: the marks of the page behind them are turned
-// back, the spaces of them go, and the line is cut at the length asked for.
+// The page text flattened to one line: the markup around it is dropped, runs of spaces are
+// collapsed, and the line is cut to the length requested.
 fn one_line(text: &str) -> String {
     let kept = decode(text).split_whitespace().collect::<Vec<_>>().join(" ");
     first_words(&kept, MAX_PAGE_CHARS)
 }
 
-// The first words of a run, cut at the length asked for, with a mark that says
-// the rest was left out.
+// The first text of a run, cut at the length requested, with a marker that shows the rest was
+// left out.
 fn first_words(text: &str, most: usize) -> String {
     let out: String = text.chars().take(most).collect();
     if out.chars().count() < text.chars().count() {
@@ -759,7 +751,7 @@ fn first_words(text: &str, most: usize) -> String {
     out
 }
 
-// Words cut at the length asked for, at the end of a whole word.
+// Text cut at the length requested, at the end of a whole word.
 fn cut_words(text: &str, most: usize) -> String {
     let mut out: String = text.chars().take(most).collect();
     if out.chars().count() == text.chars().count() {
@@ -771,7 +763,7 @@ fn cut_words(text: &str, most: usize) -> String {
     out
 }
 
-// The words of the call, made into a thing with parts in it.
+// The text of the call, made into an item with parts in it.
 fn object(raw: &str) -> Option<Value> {
     let text = raw.trim();
     let cut = tools::extract_object(text).unwrap_or(text);
@@ -780,8 +772,8 @@ fn object(raw: &str) -> Option<Value> {
         .filter(|value| value.is_object())
 }
 
-// The first of a list of names that holds words. A model writes "q" for the words
-// to look for, or "uri" for an address, more often than one would think.
+// The first of a list of names that holds text. A model writes "q" for the text to search for,
+// or "uri" for an address, more often than one would think.
 fn first(call: &Value, keys: &[&str]) -> String {
     for key in keys {
         if let Some(text) = call.get(*key).and_then(|v| v.as_str()) {
@@ -793,8 +785,8 @@ fn first(call: &Value, keys: &[&str]) -> String {
     String::new()
 }
 
-// An address made plain: the marks of a page behind it are turned back, and the
-// spaces of it go, for an address has none.
+// An address made plain: the markers of a page behind it are turned back, and the spaces of it
+// go, for an address has none.
 fn clean(text: &str) -> String {
     let kept: String = decode(text).chars().filter(|ch| !ch.is_whitespace()).collect();
     first_words(&kept, 600)
@@ -808,7 +800,7 @@ mod tests {
     fn the_call_needs_one_of_the_two_things() {
         let out = run("{}");
         assert!(!out.ok);
-        assert!(out.output.contains("words to search for"));
+        assert!(out.output.contains("text to search for"));
     }
 
     #[test]
@@ -831,11 +823,10 @@ mod tests {
         assert_eq!(found.words, "one < two");
     }
 
-    // The shape of a place of an answer of Brave, taken from the page of the
-    // engine on the day this was written. The class of the mark that opens a
-    // place carries a mark of the build of the engine, so the words that name a
-    // build are not looked for, and the old shape of the block above is read as
-    // well as this one.
+    // The form of a place of an answer of Brave, taken from the page of the engine on the day
+    // this was written. The class of the marker that opens a place carries a marker of the
+    // build of the engine, so the text that name a build is not searched for, and the old form
+    // of the block above is read as well as this one.
     #[test]
     fn a_brave_answer_of_today_gives_its_places() {
         let page = concat!(
@@ -867,10 +858,9 @@ mod tests {
         assert_eq!(found[1].title, "Lake Erie");
     }
 
-    // A page cut short in the middle of a programme of its own holds no words
-    // past the place it was cut at, for the words of a programme are no words
-    // for a user. The menu of the house of a page, the tools at its side and
-    // the words at its foot are left out whole.
+    // A page truncated in the middle of a programme of its own holds no text past the place it
+    // was cut at, for the text of a programme is no text for a user. The menu of the site of a
+    // page, the tools at its side and the text at the bottom are left out whole.
     #[test]
     fn the_house_of_a_page_is_left_out_of_its_words() {
         let cut = "<p>words</p><script>var marks = {\"a\": \"b\"";
@@ -879,9 +869,9 @@ mod tests {
         assert_eq!(to_words(house), "the words");
     }
 
-    // A mark of a page may carry the sign that seems to close it in the words of
-    // a part of its own, for a page of today writes whole answers into the marks
-    // it opens with. The words behind such a sign are no words of the page.
+    // A marker of a page may carry the sign that seems to close it in the text of a part of its
+    // own, for a page of today writes whole answers into the markers it opens with. The text
+    // behind such a sign are no text of the page.
     #[test]
     fn a_mark_may_hold_the_sign_that_closes_another_mark() {
         let page = "<p>x <span data-mw='{\"wt\":\"a > b\"}'>and</span> y</p><p>words</p>";
@@ -889,10 +879,9 @@ mod tests {
         assert_eq!(made, "x and y\nwords");
     }
 
-    // The mark of a page may hold a sign of more than one byte, for a page is
-    // written in the tongues of the world. The twelfth byte of the mark below
-    // stands in the middle of a sign, and a mark of twelve bytes looked for by
-    // its length alone would be cut out of it.
+    // The marker of a page may hold a sign of more than one byte, for a page is written in the
+    // tongues of the world. The twelfth byte of the marker below is in the middle of a sign,
+    // and a marker of twelve bytes searched for by its length alone would be cut out of it.
     #[test]
     fn a_mark_of_a_page_may_hold_a_sign_of_more_than_one_byte() {
         let head = "<p class=\"a\u{e9}\">x";

@@ -1,15 +1,13 @@
-// The tooltips of the page are drawn by the page. The tooltip of the machine is
-// a grey box that answers to none of the colours of the chat, and in the window of
-// the program it is not even themed. The page therefore takes the words a part
-// carries in its `title` once: they move to `data-tip`, the `title` goes away for
-// good, and `aria-label` keeps them for a screen reader. Nothing is put back - the
-// words standing in a `title` again let the grey box come up over the part, and the
-// `mouseover` that would take them away does not come again until the pointer
-// leaves the part and enters it, so a part used to be served its own tooltip and
-// the box of the machine on alternate hovers.
+// The tooltips of the page are drawn by the page. The tooltip of the computer is a grey box
+// that answers to none of the colours of the chat, and in the window of the program it is not
+// even themed. The page therefore takes the text a part carries in its `title` once: they move
+// to `data-tip`, the `title` is removed for good, and `aria-label` keeps them for a screen
+// reader. Nothing is put back - the text remaining in a `title` again let the grey box come up
+// over the part, and the `mouseover` that would take them away does not come again until the
+// pointer leaves the part and enters it, so a part used to be served its own tooltip and the
+// box of the computer on alternate hovers.
 //
-//   node tip-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node tip-check.js
+// node tip-check.js AN_PAGE=web/page.html AN_FETCH=1 node tip-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -32,9 +30,9 @@ function stateOf() {
         attachments: [{ id: 'a1', name: 'swatch.png', mime: 'image/png', image: true,
           data: 'data:image/png;base64,iVBORw0KGgo=' }],
         tool: '', mono: false, failed: false, when: '09:04' },
-      { id: '2', role: 'Assistant', body: 'This picture is orange.', reasoning: '',
+      { id: '2', role: 'Assistant', body: 'This image is orange.', reasoning: '',
         reasoning_ms: 0, attachments: [], tool: '', mono: false, failed: false,
-        seen: 'The model saw this picture', when: '09:05' },
+        seen: 'The model saw this image', when: '09:05' },
       { id: '3', role: 'Tool', body: 'The swatch, shown to the model.',
         tool: 'shown to the model', tool_name: 'view_image',
         attachments: [{ id: 'a2', name: 'swatch.png', mime: 'image/png', image: true }],
@@ -101,11 +99,10 @@ async function main() {
   await page.goto('file://' + path.resolve(PAGE));
   await new Promise(function (r) { setTimeout(r, 500); });
 
-  // Rest the pointer on a part, wait out the short wait the machine would have
-  // waited too, and read what the tooltip of the page says. Then leave the part,
-  // rest on it again, and rest on it a third time after a scroll put the tooltip
-  // away under the pointer: the part is served the same way every time, and the
-  // words never come back to the machine.
+  // Rest the pointer on a part, wait out the short wait the computer would have waited too, and
+  // read what the tooltip of the page reports. Then leave the part, rest on it again, and rest
+  // on it a third time after a scroll put the tooltip away under the pointer: the part is
+  // served the same way every time, and the text never return to the computer.
   const tip = await page.evaluate(async function () {
     function hover(node) {
       node.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
@@ -125,8 +122,8 @@ async function main() {
     out.insideWindow = box ? (box.getBoundingClientRect().top >= 0
       && box.getBoundingClientRect().right <= window.innerWidth) : false;
 
-    // The pointer leaves, and comes back: the words were taken for good, so the
-    // tooltip of the page comes up again rather than the grey box of the machine.
+    // The pointer leaves, and returns: the text was taken for good, so the tooltip of the page
+    // appears again rather than the grey box of the computer.
     send.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, cancelable: true }));
     await rest(60);
     out.hidden = !document.querySelector('.tip.on');
@@ -135,19 +132,18 @@ async function main() {
     var again = document.querySelector('.tip.on');
     out.shownAgain = !!again && again.textContent === out.holds;
 
-    // A scroll puts the tooltip away while the pointer still rests on the part.
-    // Nothing may stand in the `title` afterwards, for the `mouseover` that took
-    // the words away does not come again until the pointer leaves and enters.
+    // A scroll puts the tooltip away while the pointer still rests on the part. Nothing may be
+    // in the `title` afterwards, for the `mouseover` that took the text away does not come
+    // again until the pointer leaves and enters.
     el.thread.scrollTop += 1;
     window.dispatchEvent(new Event('scroll'));
     await rest(60);
     out.hiddenAfterScroll = !document.querySelector('.tip.on');
     out.titleAfterScroll = send.getAttribute('title');
 
-    // The eye over a picture the model saw is a part of the page like any other,
-    // and its words are the reason the eye stands there at all. It must not carry
-    // a word the machine would read, for the box of the machine hides the very
-    // picture it speaks of.
+    // The eye icon over an image the model saw is a part of the page like any other, and its
+    // text is the reason the eye icon is there at all. It must not carry a word the computer
+    // would read, for the box of the computer hides the very image it speaks of.
     var eye = document.querySelector('.seen');
     out.eyeFound = !!eye;
     if (eye) {
@@ -161,8 +157,8 @@ async function main() {
       }
     }
 
-    // Nothing anywhere carries words the machine could read. An empty `title` is
-    // left alone, for it is how a part says it wants no tooltip at all.
+    // Nothing anywhere carries text the computer could read. An empty `title` is skipped, for
+    // it is how a part reports it wants no tooltip at all.
     var left = document.querySelectorAll('[title]');
     out.titles = Array.prototype.slice.call(left).map(function (one) {
       return (one.className || one.tagName) + '="' + one.getAttribute('title') + '"';
@@ -172,38 +168,38 @@ async function main() {
 
   await browser.close();
   if (errors.length) { throw new Error('page faults: ' + errors.join(' | ')); }
-  if (!tip.holds) { throw new Error('the send button carries no words to say'); }
-  if (!tip.shown) { throw new Error('no tooltip of the page came up'); }
+  if (!tip.holds) { throw new Error('the send button carries no text to say'); }
+  if (!tip.shown) { throw new Error('no tooltip of the page appeared'); }
   if (!tip.taken) { throw new Error('the title was left on the part under the tooltip'); }
   if (tip.kept !== tip.holds) {
-    throw new Error('the words of the part did not stand where they are kept: ' +
+    throw new Error('the text of the part was not where they are kept: ' +
       JSON.stringify(tip.kept) + ' against ' + JSON.stringify(tip.holds));
   }
-  if (!tip.hidden) { throw new Error('the tooltip stood on after the pointer left'); }
+  if (!tip.hidden) { throw new Error('the tooltip was on after the pointer left'); }
   if (!tip.shownAgain) {
-    throw new Error('the part was hovered again and no tooltip of the page came up, '
-      + 'which is the fault of the grey box taking over');
+    throw new Error('the part was hovered again and no tooltip of the page appeared, '
+      + 'which is the error in the grey box taking over');
   }
-  if (!tip.hiddenAfterScroll) { throw new Error('the tooltip stood on after the talk was scrolled'); }
+  if (!tip.hiddenAfterScroll) { throw new Error('the tooltip was on after the conversation was scrolled'); }
   if (tip.titleAfterScroll !== null) {
-    throw new Error('a scroll gave the words back to the part: ' + JSON.stringify(tip.titleAfterScroll));
+    throw new Error('a scroll gave the text back to the part: ' + JSON.stringify(tip.titleAfterScroll));
   }
   if (tip.themed === 'rgba(0, 0, 0, 0)' || tip.themed === 'transparent') {
     throw new Error('the tooltip has no ground of its own');
   }
   if (!tip.insideWindow) { throw new Error('the tooltip was put outside the window'); }
-  if (!tip.eyeFound) { throw new Error('the eye over a picture the model saw is gone'); }
-  if (!tip.eyeShown) { throw new Error('the eye over a picture the model saw brought up no tooltip'); }
-  if (tip.eyeTitled) { throw new Error('a word stands where the machine reads it over the eye'); }
+  if (!tip.eyeFound) { throw new Error('the eye icon over an image the model saw is removed'); }
+  if (!tip.eyeShown) { throw new Error('the eye icon over an image the model saw brought up no tooltip'); }
+  if (tip.eyeTitled) { throw new Error('a word is where the computer reads it over the eye icon'); }
   if (tip.titles.length) {
-    throw new Error('the machine has words to show over ' + tip.titles.length + ' part(s): '
+    throw new Error('the computer has text to show over ' + tip.titles.length + ' part(s): '
       + tip.titles.slice(0, 3).join(', '));
   }
-  console.log('the page draws its own tooltip out of the words of a part and takes those '
-    + 'words for good, so the part is served the same tooltip the first time it is '
+  console.log('the page draws its own tooltip out of the text of a part and takes those '
+    + 'text for good, so the part is served the same tooltip the first time it is '
     + 'hovered and every time after, a scroll puts the tooltip away without giving the '
-    + 'words back to the machine, nothing in the page carries words the machine could '
-    + 'read, and the eye over a picture the model saw speaks its reason with no grey box '
+    + 'text back to the computer, nothing in the page carries text the computer could '
+    + 'read, and the eye icon over an image the model saw speaks its reason with no grey box '
     + 'over the picture');
 }
 

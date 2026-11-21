@@ -1,51 +1,49 @@
-// The handoff summary the model may ask for on its own word.
+// The handoff summary the model may request on its own word.
 //
-// The room of a talk is made by a handoff summary: the program asks the model
-// for a short account of the work, puts that account in the place of the words
-// it stands for, and the talk goes on in the room that is made. The program
-// does this on its own when the talk stands past the limit set in the Chatting
-// settings. This tool lets the model ask for the same thing at a moment of its
-// own choosing: when a large part of the work is finished and a new part is
-// about to begin, or when the user asked for it in words.
+// The space of a conversation is created by a handoff summary: the program asks the model
+// for a short account of the work, puts that account in the place of the text it means, and the
+// conversation goes on in the space that is created. The program does this on its own when the
+// conversation remains past the limit set in the Chatting settings. This tool lets the model
+// request the same at a moment of its own choosing: when a large part of the work is finished
+// and a new part is about to begin, or when the user requested it in text.
 //
-// The call runs in the middle of an answer. The answer is laid aside while the
-// summary is written, exactly as it is when the room is made for the weight of
-// the talk, and it is taken up again when the words are in the mark. The block
-// of the call is put into the chat after the mark and not before it, so the
-// model reads what the call came to after the summary rather than among the
-// words the summary stands for: a block put before the mark would be cut away
-// with the rest of them, and the model would see no answer to its own call.
+// The call runs in the middle of an answer. The answer is laid aside while the summary is
+// written, exactly as it is when the space is freed for the weight of the conversation, and it
+// is taken up again when the text is in the marker. The block of the call is put into the chat
+// after the marker and not before it, so the model reads what the call came to after the
+// summary rather than among the text the summary means: a block put before the marker would be
+// cut away with the rest of them, and the model would see no answer to its own call.
 //
-// The tool stands under the badge of the tools and under a line of its own in
-// the drop-down of the badge, as the other tools of the program do. It stands
-// only while the settings make the room by a handoff summary: with compaction
-// off there is no summary to be made, the line of the drop-down is hidden on
-// the page, and a call of the name is answered as a tool that is switched off.
+// The tool is under the badge of the tools and under a line of its own in the drop-down of the
+// badge, as the other tools of the program do. It remains only while the settings make the
+// space by a handoff summary: with compaction off there is no summary to be made, the line
+// of the drop-down is hidden on the page, and a call of the name is answered as a tool that is
+// switched off.
 
 use serde_json::{json, Value};
 
 use crate::tools;
 
-// The name the model uses to ask for the room.
+// The name the model uses to request the space.
 pub const NAME: &str = "summarise_chat";
 
-// The tool as the model is told of it. The call carries nothing but the reason
-// the model gives for it, and the reason is nothing the work needs: it stands
-// in the block of the run, so the user sees why the talk was cut.
+// The tool as the model is informed of it. The call carries nothing but the reason the model
+// gives for it, and the reason is nothing the work needs: it is in the block of the run, so the
+// user sees why the conversation was cut.
 pub fn definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": NAME,
             "description": tools::with_rule(String::from(
-                "Put the talk of this chat into a handoff summary now, and go on with the work in the room that is made. The program writes the summary, keeps it in the chat where the talk was cut, and sends you the words it stands for no more: you read the summary in their place. Nothing of the work is lost: the files stand where they were written, and every word the user read stands in the chat. Call it when a large part of the work is finished and the talk has grown long, or when the user asks you to summarise, compact or clear the chat. Do not call it at the start of a talk, do not call it twice in one answer, and do not call it because a step went wrong.",
+                "Put the conversation of this chat into a handoff summary now, and continue the work in the new context that is created. The program writes the summary, keeps it in the chat where the conversation was cut, and stops sending you the messages the summary replaced: you read the summary instead. Nothing of the work is lost: the files stay where they were written, and every message the user sent is still in the chat. Call it when a large part of the work is finished and the conversation has grown long, or when the user asks you to summarise, compact or clear the chat. Do not call it at the start of a conversation, do not call it twice in one answer, and do not call it because a step failed.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "why": {
                         "type": "string",
-                        "description": "The reason the room is wanted now, in a few words, or the words of the user that asked for it."
+                        "description": "The reason the summary is needed now, in a few words, or the text of the user who requested it."
                     }
                 },
                 "required": []
@@ -54,9 +52,8 @@ pub fn definition() -> Value {
     })
 }
 
-// The reason the model gave with the call, for the head of its block. Nothing
-// comes back for a call that carries no reason, or for words that are no
-// object at all.
+// The reason the model gave with the call, for the header of its block. Nothing returns for a
+// call that carries no reason, or for text that is no object at all.
 pub fn reason(raw: &str) -> String {
     let text = raw.trim();
     let cut = tools::extract_object(text).unwrap_or(text);
@@ -67,31 +64,30 @@ pub fn reason(raw: &str) -> String {
     said.chars().take(200).collect()
 }
 
-// The words the model is given back when the summary was written. The two
-// numbers are the room of the talk before the summary and after it, so the
-// model can see what the call won and can judge the next step.
+// The text the model is given back when the summary was written. The two numbers are the size
+// of the context before the summary and after it, so the model can see what the call won and
+// can judge the next step.
 pub fn kept_words(count: usize, before: u64, after: u64) -> String {
     format!(
-        "The talk was put into handoff summary #{}. The room of the talk went from {} to {}. The words the summary stands for are sent to you no more: read the summary in their place, and go on with the work from the point it reached.",
+        "The conversation was put into handoff summary #{}. The size of the context went from {} to {}. The messages the summary replaced are no longer sent to you: read the summary instead, and continue the work from the point the chat reached.",
         count, before, after
     )
 }
 
-// The words the model is given back when there was nothing to summarise: the
-// newest thing of the chat is a summarisation already, so a second one would
-// stand for no talk at all.
+// The text the model is given back when there was nothing to summarise: the newest item of the
+// chat is a summarisation already, so a second one would mean no conversation at all.
 pub fn refused_words() -> String {
     String::from(
-        "The newest thing of this chat is a summarisation already, so nothing new stands that is worth a summary of its own. Nothing was written and the talk goes on as it stood.",
+        "The newest item in this chat is already a summarisation, so nothing new remains that is worth a summary of its own. Nothing was written and the conversation goes on as it was.",
     )
 }
 
-// The words the model is given back when the summary was asked for and never
-// came. The talk keeps every word it had, so the work is not the worse for the
-// call; the room is simply not there.
+// The text the model is given back when the summary was requested and never came. The
+// conversation keeps every word it had, so the work is not the worse for the call; the space is
+// simply not there.
 pub fn failed_words(before: u64) -> String {
     format!(
-        "The handoff summary was not written, so the talk keeps every word it had and the room of it still stands at {}. Go on with the work in small parts, and leave the room to the program.",
+        "The handoff summary was not written, so the conversation keeps every message it had and its size is still {}. Continue the work in small parts, and leave the context to the program.",
         before
     )
 }
@@ -100,8 +96,8 @@ pub fn failed_words(before: u64) -> String {
 mod tests {
     use super::*;
 
-    // The tool is offered in the shape every tool of the program is offered in,
-    // and carries the rule of the tools like every other one of them.
+    // The tool is proposed in the form every tool of the program is proposed in, and carries
+    // the rule of the tools like every other one of them.
     #[test]
     fn the_tool_is_offered_in_the_shape_of_the_others() {
         let made = definition();
@@ -113,8 +109,8 @@ mod tests {
         assert_eq!(made["function"]["parameters"]["type"], "object");
     }
 
-    // The reason is read out of the words of the call, and a call with nothing
-    // in it gives back nothing rather than a word of its own.
+    // The reason is extracted from the text of the call, and a call with nothing in it returns
+    // nothing rather than a note about its own.
     #[test]
     fn the_reason_of_a_call_is_read_out_of_its_words() {
         assert_eq!(reason(r#"{ "why": "the plan is finished" }"#), "the plan is finished");
@@ -123,8 +119,8 @@ mod tests {
         assert_eq!(reason(r#"{ "other": "words" }"#), "");
     }
 
-    // The three receipts say which of the three things happened, and each of
-    // them says it in words a model can act on.
+    // The three results say which of the three items happened, and each of them reports it in
+    // text a model can act on.
     #[test]
     fn the_three_receipts_tell_the_model_what_happened() {
         let kept = kept_words(3, 7000, 900);

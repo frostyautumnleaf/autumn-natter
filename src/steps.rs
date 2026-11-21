@@ -1,25 +1,24 @@
 // The tool that shows the steps of the work as a block under the answer.
 //
-// A long answer often describes several steps in running text. The user then has
-// to read the whole answer again to find the step they are on. This tool lets the
-// model put those steps in a block of their own: a title, the text of one step at
-// a time, and a row of buttons that selects a step.
+// A long answer often describes several steps in running text. The user then has to read the
+// whole answer again to find the step they are on. This tool lets the model put those steps in
+// a block of their own: a title, the text of one step at a time, and a row of buttons that
+// selects a step.
 //
-// The call runs at once and waits for nothing. The block stands under the answer
-// that made the call, and only once the model has stopped writing: a step list
-// that came in the middle of an answer describes work that is not finished. The
-// newest call of an answer wins, so a model that corrects its own list replaces it
-// rather than adding a second block.
+// The call runs at once and waits for nothing. The block is under the answer that made the
+// call, and only once the model has stopped writing: a step list that arrived the middle of an
+// answer describes work that is not finished. The newest call of an answer wins, so a model
+// that corrects its own list replaces it rather than adding a second block.
 //
-// The model may give as many steps as the work needs. The page lays out the row
-// of step buttons for the width of the chat and adds arrows when the row does not
-// fit, so a long list stays readable.
+// The model may give as many steps as the work needs. The page lays out the row of step buttons
+// for the width of the chat and adds arrows when the row does not fit, so a long list stays
+// readable.
 //
-// The list rides on the message of the run, as an offered file does, so it is
-// drawn again when the chat is opened another day.
+// The list rides on the message of the run, as an proposed file does, so it is drawn again when
+// the chat is opened another day.
 //
-// The tool falls under the Tools badge, and the drop-down of the badge holds a
-// line of its own, as the other tools of the program do.
+// The tool falls under the Tools badge, and the drop-down of the badge holds a line of its own,
+// as the other tools of the program do.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -29,14 +28,14 @@ use crate::tools::with_rule;
 // Name the model uses to show the steps of the work.
 pub const NAME: &str = "show_steps";
 
-// The longest words a step button shows. A label longer than this is a sentence,
-// and the sentence belongs in the text of the step.
+// The longest text a step button shows. A label longer than this is a sentence, and the
+// sentence belongs in the text of the step.
 pub const GREATEST_LABEL: usize = 60;
 
-// The longest words of the title of the block.
+// The longest text of the title of the block.
 pub const GREATEST_TITLE: usize = 120;
 
-// One step: the words on its button, and the text the block shows for it.
+// One step: the text on its button, and the text the block shows for it.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Step {
     pub label: String,
@@ -50,28 +49,28 @@ pub struct Plan {
     pub steps: Vec<Step>,
 }
 
-// What became of one call. The block stands under the answer when `plan` holds
-// anything, and the receipt goes back to the model either way.
+// What became of one call. The block is under the answer when `plan` holds anything, and the
+// result goes back to the model either way.
 pub struct Made {
     pub report: crate::tools::Report,
     pub plan: Option<Plan>,
 }
 
-// The tool as the model is told of it.
+// The tool as the model is informed of it.
 pub fn definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Show the user a step by step list of the work in a block of its own under your answer. Use it when the work has several ordered steps the user will want to follow one at a time: a plan of what you are about to do, the stages of a procedure you just carried out, or the steps the user must take themselves. Give as many steps as the work needs. Each step has a short label for its button and the text of the step, and the whole block has a title. Call this once, at the END of the answer, after the work and the words are done: the block appears only when the answer has stopped, and a second call in the same answer replaces the first. Do not use it for a task of one or two steps, and do not repeat in the block words you already wrote in the answer.",
+                "Show the user a step by step list of the work in a block of its own under your answer. Use it when the work has several ordered steps the user will want to follow one at a time: a plan of what you are about to do, the stages of a procedure you just carried out, or the steps the user must take themselves. Give as many steps as the work needs. Each step has a short label for its button and the text of the step, and the whole block has a title. Call this once, at the END of the answer, after the work and the text is done: the block appears only when the answer has stopped, and a second call in the same answer replaces the first. Do not use it for a task of one or two steps, and do not repeat in the block text you already wrote in the answer.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "The head of the block, such as 'Steps to finish the install'. Keep it short. Leave it out and the block is headed 'Steps'."
+                        "description": "The header of the block, such as 'Steps to finish the install'. Keep it short. Leave it out and the block is headed 'Steps'."
                     },
                     "steps": {
                         "type": "array",
@@ -81,7 +80,7 @@ pub fn definition() -> Value {
                             "properties": {
                                 "label": {
                                     "type": "string",
-                                    "description": "The short words on the button for this step, such as 'Install' or 'Run the tests'. Leave it out and the button is named from the start of the text."
+                                    "description": "The short text on the button for this step, such as 'Install' or 'Run the tests'. Leave it out and the button is named from the start of the text."
                                 },
                                 "content": {
                                     "type": "string",
@@ -103,9 +102,9 @@ pub fn is_tool(name: &str) -> bool {
     name == NAME
 }
 
-// Answer one call. Every part is read as the model gave it: a list of objects, or
-// a list of plain words, and the usual aliases for the two parts of a step. A
-// step with no text is passed over. The number of steps is not limited.
+// Answer one call. Every part is read as the model gave it: a list of objects, or a list of
+// plain text, and the usual aliases for the two parts of a step. A step with no text is passed
+// over. The number of steps is not limited.
 pub fn show(arguments: &str) -> Made {
     let value: Value = serde_json::from_str(arguments).unwrap_or(Value::Null);
     let list = value
@@ -183,10 +182,9 @@ pub fn show(arguments: &str) -> Made {
     }
 }
 
-// The words of the head of the block while the call is being written: the title
-// of the block when the model wrote one, and the label of the first step when it
-// did not. A step whose label has not come yet is named from its text, as the
-// finished block names it.
+// The text of the header of the block while the call is being written: the title of the block
+// when the model wrote one, and the label of the first step when it did not. A step whose label
+// has not come yet is named from its text, as the finished block names it.
 pub fn partial_words(arguments: &str) -> String {
     if let Some(title) = quoted_after(arguments, "title") {
         let said = one_line(&title, GREATEST_TITLE);
@@ -210,10 +208,10 @@ pub fn partial_words(arguments: &str) -> String {
     }
 }
 
-// The words of the call that are shown in the block while it is written: one line
-// per step, with the label of the step and the text of it so far. A model that
-// writes the text before the label is read the same way, and a list of plain words
-// is read as a list of steps of one text each.
+// The text of the call that is shown in the block while it is written: one line per step, with
+// the label of the step and the text of it so far. A model that writes the text before the
+// label is read the same way, and a list of plain text is read as a list of steps of one text
+// each.
 pub fn live_body(arguments: &str) -> String {
     let labels = all_values(arguments, "label").unwrap_or_default();
     let texts = all_values(arguments, "content")
@@ -242,9 +240,8 @@ pub fn live_body(arguments: &str) -> String {
             }
             out
         }
-        // The text of the first step has not come yet. A list of plain words gives
-        // its words under their own numbers, and a list of objects waits for the
-        // text of its first step.
+        // The text of the first step has not come yet. A list of plain text gives its text
+        // under their own numbers, and a list of objects waits for the text of its first step.
         None => {
             let tail = arguments
                 .find("\"steps\"")
@@ -258,15 +255,15 @@ pub fn live_body(arguments: &str) -> String {
     }
 }
 
-// The words of a list of plain strings, read from the first `[` of the words to
-// the `]` of that list. The last string may still be open, and gives what has
-// come. A list of objects gives nothing, for its words stand under keys.
+// The text of a list of plain strings, read from the first `[` of the text to the `]` of that
+// list. The last string may still be open, and gives what has come. A list of objects gives
+// nothing, for its text is under keys.
 fn plain_list(words: &str) -> Vec<String> {
     let Some(open) = words.find('[') else {
         return Vec::new();
     };
-    // A list of objects is not a list of plain words: its strings stand under
-    // their keys, and reading them here would name a step for a key.
+    // A list of objects is not a list of plain text: its strings are under their keys, and
+    // reading them here would name a step for a key.
     if words[open + 1..].trim_start().starts_with('{') {
         return Vec::new();
     }
@@ -308,9 +305,9 @@ fn plain_list(words: &str) -> Vec<String> {
     out
 }
 
-// Every value of one named part of an object that may not be finished, in the
-// order they stand. The words of a value that is still being quoted give what has
-// come, and the look stops there, for what comes after it cannot be read.
+// Every value of one named part of an object that may not be finished, in the order they
+// remain. The text of a value that is still being quoted give what has come, and the look stops
+// there, for what comes after it cannot be read.
 fn all_values(text: &str, key: &str) -> Option<Vec<String>> {
     let needle = format!("\"{}\"", key);
     if !text.contains(&needle) {
@@ -357,8 +354,8 @@ fn all_values(text: &str, key: &str) -> Option<Vec<String>> {
     Some(out)
 }
 
-// The first quoted string that stands after `key`, read whether the quote was
-// closed or not. An empty key reads the first quoted string of the words.
+// The first quoted string that is after `key`, read whether the quote was closed or not. An
+// empty key reads the first quoted string of the text.
 fn quoted_after(words: &str, key: &str) -> Option<String> {
     let from = if key.is_empty() {
         0
@@ -401,8 +398,8 @@ fn quoted_after(words: &str, key: &str) -> Option<String> {
     Some(word)
 }
 
-// One line of words, cut at a length. Marks of a new line are turned into spaces,
-// for a button shows one line and the head of a block shows one.
+// One line of text, cut at a length. Markers of a new line are turned into spaces, for a button
+// shows one line and the header of a block shows one.
 fn one_line(words: &str, bound: usize) -> String {
     let flat = words.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= bound {
@@ -431,8 +428,8 @@ mod tests {
         assert_eq!(plan.steps[1].label, "Test");
     }
 
-    // The model may give as many steps as it wants: twenty come through as
-    // twenty, and the receipt counts them.
+    // The model may give as many steps as it wants: twenty come through as twenty, and the
+    // result counts them.
     #[test]
     fn a_long_list_of_steps_comes_through_whole() {
         let list: Vec<String> = (0..20)
@@ -446,8 +443,8 @@ mod tests {
         assert!(made.report.output.contains("20. Step 19"), "{}", made.report.output);
     }
 
-    // A step of plain words is read as a step whose text is those words, and its
-    // button is named from the start of the text.
+    // A step of plain text is read as a step whose text is that text, and its button is named
+    // from the start of the text.
     #[test]
     fn a_step_of_plain_words_names_its_own_button() {
         let made = show("{\"steps\":[\"Check out the branch and open it in the editor.\"]}");
@@ -457,8 +454,8 @@ mod tests {
         assert_eq!(plan.title, "", "a call with no title gives no title");
     }
 
-    // A step with no text is passed over, and a call of nothing but such steps
-    // says that nothing stands.
+    // A step with no text is passed over, and a call of nothing but such steps reports that
+    // nothing remains.
     #[test]
     fn a_step_with_no_text_is_passed_over() {
         let made = show("{\"steps\":[{\"label\":\"One\"},{\"content\":\"  \"},{\"content\":\"Real\"}]}");
@@ -472,8 +469,8 @@ mod tests {
         assert!(!broken.report.ok);
     }
 
-    // The head of a call being written names the title, and the label of the
-    // first step when no title came.
+    // The header of a call being written names the title, and the label of the first step when
+    // no title came.
     #[test]
     fn the_head_of_a_call_being_written_names_the_block() {
         assert_eq!(partial_words("{\"title\":\"Ship it\",\"steps\":["), "Ship it");
@@ -485,8 +482,8 @@ mod tests {
         assert_eq!(partial_words("{}"), "");
     }
 
-    // The body of a block being written holds every step so far, numbered, with
-    // the text of each as far as it has come.
+    // The body of a block being written holds every step so far, numbered, with the text of
+    // each as far as it has come.
     #[test]
     fn the_body_of_a_block_being_written_holds_the_steps_so_far() {
         let whole = "{\"title\":\"Ship it\",\"steps\":[{\"label\":\"Build\",\"content\":\"Run build.sh.\"},{\"label\":\"Test\",\"content\":\"Run the tests\"}";

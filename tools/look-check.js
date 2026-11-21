@@ -1,9 +1,9 @@
-// Check that the chat box takes files the way a user offers them: a file let
+// Check that the chat composer takes files the way a user proposes them: a file let
 // go over the page, a file pasted into the box, and a paste whose event carries
-// its file in the list of items only. The last shape is what a web view of a
-// window hands over where the list of files is left empty, so the box must
-// still take the file. A paste into a field of the sheet of settings is left
-// alone, and a paste of many words still turns into a file of its own.
+// its file in the list of items only. The last form is what a web view of a
+// window pointers over where the list of files is left empty, so the box must
+// still take the file. A paste into a field of the settings panel is left
+// alone, and a paste of a lot of text still turns into a file of its own.
 //
 //   node look-check.js                  # the window page
 //   AN_PAGE=../web/page.html AN_FETCH=1 node attach-check.js
@@ -13,12 +13,11 @@ const puppeteer = require('puppeteer');
 
 const PAGE = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const USE_FETCH = process.env.AN_FETCH === '1';
-// The sheet of settings stands in the window alone, so its field is looked at
-// there only.
+// The settings panel is in the window alone, so its field is checked there only.
 const IS_WINDOW = !USE_FETCH;
 
-// The state of the engine, as the record of web::state. One chat with two
-// messages, so the box and the talk both stand.
+// The state of the engine, as the record of web::state. One chat with two messages, so the box
+// and the conversation both remain.
 function stateOf(dark) {
   return {
     rev: 1, unchanged: false,
@@ -36,7 +35,7 @@ function stateOf(dark) {
         attachments: [{ id: 'a1', name: 'swatch.png', mime: 'image/png', image: true },
           { id: 'a2', name: 'plan.pdf', mime: 'application/pdf', image: false }],
         tool: '', mono: false, failed: false, when: '09:04' },
-      { id: '2', role: 'Assistant', body: 'This picture is orange.', reasoning: '',
+      { id: '2', role: 'Assistant', body: 'This image is orange.', reasoning: '',
         reasoning_ms: 0, attachments: [], tool: '', mono: false, failed: false, when: '09:05' },
     ],
     live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
@@ -52,8 +51,8 @@ function stateOf(dark) {
   };
 }
 
-// The blocks over the words of the box, as the user sees them: one name each,
-// whether the row stands, the words of the box and the mark of send.
+// The blocks over the text of the box, as the user sees them: one name each, whether the row
+// remains, the text of the box and the send marker.
 function readHeld() {
   var row = document.getElementById('parts');
   var names = [];
@@ -68,8 +67,8 @@ function readHeld() {
 }
 
 async function main() {
-  // The headless shell of another machine is named with AN_SHELL_BIN, as the
-  // other checks of this program do.
+  // The headless shell of another computer is named with AN_SHELL_BIN, as the other checks of
+  // this program do.
   let shell = process.env.AN_SHELL_BIN || '';
   if (!shell) {
     try {
@@ -99,8 +98,8 @@ async function main() {
       };
       return;
     }
-    // The calls of the page, so a check can see which road was taken, and the
-    // events of the window, so a check can send one.
+    // The calls of the page, so a check can see which path was taken, and the events of the
+    // window, so a check can send one.
     window.__asked = [];
     window.__events = {};
     window.__send__ = function (name, payload) {
@@ -115,13 +114,13 @@ async function main() {
           if (command === 'get_attachment') {
             if (args && args.id === 'a2') {
               return Promise.resolve({ name: 'plan.pdf', mime: 'application/pdf',
-                data: '', text: 'the words read out of the document' });
+                data: '', text: 'the text extracted from the document' });
             }
             return Promise.resolve({ name: 'swatch.png', mime: 'image/png',
               data: 'data:image/png;base64,iVBORw0KGgo=', text: '' });
           }
-          // The window reads a file of the machine by its place: a picture of
-          // one ending comes as a data URL, the rest as words.
+          // The window reads a file of the computer by its place: an image of one ending comes
+          // as a data URL, the rest as text.
           if (command === 'take_files') {
             window.__asked.push('take_files:' + ((args && args.paths) || []).join(','));
             var made = ((args && args.paths) || []).map(function (place) {
@@ -134,12 +133,12 @@ async function main() {
             });
             return Promise.resolve({ files: made });
           }
-          // The clipboard of the machine, which holds a picture of the screen.
+          // The clipboard of the computer, which holds an image of the screen.
           if (command === 'clipboard_take') {
             window.__asked.push('clipboard_take');
             return Promise.resolve({ files: [{ name: 'pasted-picture.png',
               mime: 'image/png', kind: 'image',
-              data: 'data:image/png;base64,iVBORw0KGgo=', text: '' }], road: 'machine' });
+              data: 'data:image/png;base64,iVBORw0KGgo=', text: '' }], source: 'machine' });
           }
           return Promise.resolve({ ok: true });
         }
@@ -172,8 +171,8 @@ async function main() {
     });
   };
 
-  // One: a picture and a file of words land over the box. The picture is looked
-  // at through the block; the file of words through its eye.
+  // One: an image and a text file land over the box. The image is checked through the block;
+  // the file of text through its eye.
   await page.evaluate(function () {
     var transfer = new DataTransfer();
     transfer.items.add(new File(['a picture of bytes'], 'plan.png', { type: 'image/png' }));
@@ -192,8 +191,8 @@ async function main() {
     };
   });
   if (peeked.count !== 2) { faults.push('two files did not leave two blocks: ' + JSON.stringify(peeked)); }
-  if (peeked.pics !== 1) { faults.push('the picture does not say it may be looked at: ' + JSON.stringify(peeked)); }
-  if (peeked.eyes !== 1) { faults.push('the file of words has no eye to read it by: ' + JSON.stringify(peeked)); }
+  if (peeked.pics !== 1) { faults.push('the image does not say it may be checked: ' + JSON.stringify(peeked)); }
+  if (peeked.eyes !== 1) { faults.push('the file of text has no eye to read it by: ' + JSON.stringify(peeked)); }
 
   await page.evaluate(function () {
     var row = document.getElementById('parts');
@@ -202,17 +201,17 @@ async function main() {
   });
   await new Promise(function (r) { setTimeout(r, 300); });
   var shown = await look();
-  if (!shown.open) { faults.push('a click on the picture did not open the window'); }
-  if (!shown.pic) { faults.push('the window holds no picture: ' + JSON.stringify(shown)); }
+  if (!shown.open) { faults.push('a click on the image did not open the window'); }
+  if (!shown.pic) { faults.push('the window holds no image: ' + JSON.stringify(shown)); }
   if (shown.kind !== 'Image') { faults.push('the window does not say it is an image: ' + JSON.stringify(shown)); }
 
   // Two: the key of escape puts the window away.
   await page.keyboard.press('Escape');
   await new Promise(function (r) { setTimeout(r, 200); });
   shown = await look();
-  if (shown.open) { faults.push('the key of escape left the window standing'); }
+  if (shown.open) { faults.push('the key of escape left the window remaining'); }
 
-  // Three: the eye of the file of words opens the same window, on the words.
+  // Three: the eye icon of the file of text opens the same window, on the text.
   await page.evaluate(function () {
     var row = document.getElementById('parts');
     var eye = row ? row.querySelector('.part button.eye') : null;
@@ -220,7 +219,7 @@ async function main() {
   });
   await new Promise(function (r) { setTimeout(r, 300); });
   shown = await look();
-  if (!shown.open) { faults.push('the eye of the file of words did not open the window'); }
+  if (!shown.open) { faults.push('the eye icon of the file of text did not open the window'); }
   if (shown.words.indexOf('the words of the note') < 0) {
     faults.push('the window does not hold the words of the file: ' + JSON.stringify(shown));
   }
@@ -230,10 +229,10 @@ async function main() {
   });
   await new Promise(function (r) { setTimeout(r, 200); });
   shown = await look();
-  if (shown.open) { faults.push('the mark of closing left the window standing'); }
+  if (shown.open) { faults.push('the marker of closing left the window remaining'); }
 
-  // Four: the block of the file of words keeps its other work — its words go
-  // into the box, and the block goes away with them.
+  // Four: the block of the file of text keeps its other work — its text go into the box, and
+  // the block is removed with them.
   await page.evaluate(function () {
     var row = document.getElementById('parts');
     var blocks = row ? row.querySelectorAll('.part') : [];
@@ -247,31 +246,31 @@ async function main() {
   await new Promise(function (r) { setTimeout(r, 300); });
   var held = await page.evaluate(readHeld);
   if (held.words.indexOf('the words of the note') < 0) {
-    faults.push('the block of the file of words no longer puts its words in the box');
+    faults.push('the block of the file of text no longer puts its text in the box');
   }
   if (held.names.length !== 1) {
     faults.push('the block that emptied itself into the box was left over it: '
       + JSON.stringify(held.names));
   }
 
-  // Five: the files hanging on a sent message may be looked at too. The bytes
-  // are asked for by the number of the attachment, which is what the window does
-  // when the block never carried them.
+  // Five: the files hanging on a sent message may be checked too. The bytes are requested by
+  // the number of the attachment, which is what the window does when the block never carried
+  // them.
   await page.evaluate(function () {
     window.attachmentWords = function (id) {
       if (id === 'a2') {
         return Promise.resolve({ name: 'plan.pdf', mime: 'application/pdf',
-          data: '', text: 'the words read out of the document' });
+          data: '', text: 'the text extracted from the document' });
       }
       return Promise.resolve({ name: 'memory-map.png', mime: 'image/png',
-        data: 'data:image/png;base64,iVBORw0KGgo=', text: 'the words of the sent file' });
+        data: 'data:image/png;base64,iVBORw0KGgo=', text: 'the text of the sent file' });
     };
   });
   var sent = await page.evaluate(function () {
     var rows = document.querySelectorAll('.parts .part.peek');
     return rows.length;
   });
-  if (sent < 1) { faults.push('no block of a sent message says it may be looked at'); }
+  if (sent < 1) { faults.push('no block of a sent message reports it may be checked'); }
   await page.evaluate(function () {
     var rows = document.querySelectorAll('.parts .part.peek');
     if (rows.length) { rows[0].click(); }
@@ -280,8 +279,8 @@ async function main() {
   shown = await look();
   if (!shown.open) { faults.push('a click on a sent block did not open the window'); }
 
-  // Six: the block of a document hanging on a sent message opens the same
-  // window, and shows the words the program read out of the shape of it.
+  // Six: the block of a document hanging on a sent message opens the same window, and shows the
+  // text the program extracted from the form of it.
   var clicked = await page.evaluate(function () {
     var rows = Array.prototype.slice.call(document.querySelectorAll('.bubble .parts .part'));
     for (var n = 0; n < rows.length; n++) {
@@ -294,25 +293,25 @@ async function main() {
     }
     return false;
   });
-  if (!clicked) { faults.push('the block of the sent document cannot be looked at'); }
+  if (!clicked) { faults.push('the block of the sent document cannot be checked'); }
   await new Promise(function (r) { setTimeout(r, 400); });
   shown = await look();
-  if (!shown.open || shown.words.indexOf('read out of the document') < 0) {
-    faults.push('the sent document did not show the words read out of it: ' + JSON.stringify(shown));
+  if (!shown.open || shown.words.indexOf('the text extracted from the document') < 0) {
+    faults.push('the sent document did not show the text extracted from it: ' + JSON.stringify(shown));
   }
   if (shown.kind !== 'Document') {
     faults.push('the window of a document is labelled: ' + shown.kind);
   }
 
-  if (errors.length) { faults.push('the page said: ' + errors.join(' | ')); }
+  if (errors.length) { faults.push('the page stated: ' + errors.join(' | ')); }
   await browser.close();
   if (faults.length) {
     console.log('FAULTS\n' + faults.join('\n'));
     process.exit(1);
   }
-  console.log('a picture opens at a click, a file of words opens at its eye, the key of'
-    + ' escape and the mark of closing put the window away, every sent block opens too,'
-    + ' and a sent document shows the words read out of it');
+  console.log('an image opens at a click, a text file opens at its eye, the key of'
+    + ' escape and the marker of closing put the window away, every sent block opens too,'
+    + ' and a sent document shows the text extracted from it');
 }
 
 main();

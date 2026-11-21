@@ -1,19 +1,17 @@
-// Check the thinking panels of a turn that asks for a tool. The page is loaded
-// as it stands, with no bridge and no engine: the thread is driven by hand with
-// the states the engine hands out while a model thinks, asks for a tool, and
-// then thinks again. A tool block that stands inside a thinking panel must be to
-// be seen while the panel is open. A train of thought that runs over a run of
-// tools must stand in one panel, and not in a row of them. More than one tool
-// call must fit inside one thinking block. A panel that the user folded must
-// put its whole body away, the runs among the thoughts as well. And with the
-// Chatting setting off the old shape must stand, so nothing is taken away from a
-// user who does not want it.
+// Check the thinking panels of a turn that requests a tool. The page is loaded as it is now,
+// with no bridge and no engine: the thread is driven manually with the states the engine
+// pointers out while a model thinks, requests a tool, and then thinks again. A tool block that
+// is inside a thinking panel must be to be seen while the panel is open. A train of thought
+// that runs over a run of tools must be in one panel, and not in a row of them. More than one
+// tool call must fit inside one thinking block. A panel that the user folded must put its whole
+// body away, the runs among the thoughts as well. And with the Chatting setting off the old
+// form must remain, so nothing is removed from a user who does not want it.
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
 
 // The page to drive: the window page, or the page of the remote mode with
-//   AN_PAGE=../web/page.html AN_FETCH=1 node tools/think-check.js
+// AN_PAGE=../web/page.html AN_FETCH=1 node tools/think-check.js
 const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
 const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
 
@@ -30,9 +28,9 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var faults = [];
     var where = 'at the start';
 
-    // A block the user can see: it has a box, and no part of the page above
-    // it stands with display none. A tool block folded away inside a thinking
-    // panel is the fault this check was written for.
+    // A block the user can see: it has a box, and no part of the page above it is with display
+    // none. A tool block folded away inside a thinking panel is the error this check was
+    // written for.
     function shown(node) {
       if (!node) { return false; }
       for (var n = node; n && n.nodeType === 1; n = n.parentNode) {
@@ -41,8 +39,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       return node.getClientRects().length > 0;
     }
 
-    // The thread is drawn as the page draws it, and the writer is brought up to
-    // the words the engine has given, so the words can be read back at once.
+    // The thread is drawn as the page draws it, and the writer is brought up to the text the
+    // engine has given, so the text can be read back at once.
     function look(state) {
       readChatting(state);
       drawThread(state);
@@ -68,9 +66,9 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
         reasoning_ms: 1200 })
     ];
 
-    // One: a call being written while the model thinks. The block must stand on
-    // the page, inside the panel of the thought that led to it. The panel stands
-    // open for this look; a folded panel is looked at last.
+    // One: a call being written while the model thinks. The block must be on the page, inside
+    // the panel of the thought that led to it. The panel is left open for this look; a folded
+    // panel is checked last.
     where = 'a call being written under the thoughts';
     var one = { messages: head, generating: true, summarising: false, live: '',
       reasoning: 'I must run a command first.', reasoning_ms: 900, reasoning_done: false,
@@ -84,11 +82,11 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (writes.length !== 1) { faults.push('the call being written is there ' + writes.length + ' times, ' + where); }
     if (writes.length === 1 && !shown(writes[0])) { faults.push('the call being written cannot be seen, ' + where); }
     if (writes.length === 1 && !writes[0].closest('.think')) {
-      faults.push('the call being written does not stand inside the thinking panel, ' + where);
+      faults.push('the call being written is not inside the thinking panel, ' + where);
     }
 
-    // Two: the tool ran, and the model thinks again. The thought of this step
-    // goes on in the panel of the thought that led to the run.
+    // Two: the tool ran, and the model thinks again. The thought of this step goes on in the
+    // panel of the thought that led to the run.
     where = 'the thought after a run';
     var two = { messages: head.concat([said('m3', 'Tool', 'uname -a', {
         tool: 'Linux natter 6.9', tool_name: 'run_terminal',
@@ -117,8 +115,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('the chat has ' + box.querySelectorAll('.think').length + ' panels, ' + where);
     }
 
-    // Three: two calls inside one thought. The second has no thinking of its
-    // own, for the model asked for both in one breath.
+    // Three: two calls inside one thought. The second has no thinking of its own, for the model
+    // requested both in one breath.
     where = 'two calls in one thought';
     var three = { messages: two.messages.concat([said('m4', 'Tool', 'ls notes', {
         tool: 'cat.md', tool_name: 'run_terminal' })]),
@@ -135,8 +133,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('the panel holds ' + group.querySelectorAll('.tool').length + ' runs, ' + where);
     }
 
-    // Four: the answer comes out of the thinking. It stands under the panel, in
-    // the same turn, and the panel is still one.
+    // Four: the answer comes out of the thinking. It is under the panel, in the same turn, and
+    // the panel is still one.
     where = 'the answer at the end of the thought';
     var four = { messages: three.messages, generating: true, summarising: false,
       live: 'The kernel is 6.9 and the notes hold one file.', reasoning: 'Both are read. I can answer now.',
@@ -148,20 +146,20 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('the answer left the thinking in ' + group.querySelectorAll('.think').length + ' panels, ' + where);
     }
     if (group.textContent.indexOf('The kernel is 6.9') < 0) {
-      faults.push('the words of the answer are not on the page, ' + where);
+      faults.push('the text of the answer is not on the page, ' + where);
     }
     var plains = group.querySelectorAll('.plain');
     var words = plains[plains.length - 1];
     if (!words || words.textContent.indexOf('The kernel is 6.9') < 0) {
-      faults.push('the words of the answer do not stand under the panel, ' + where);
+      faults.push('the text of the answer is not under the panel, ' + where);
     }
     if (words && words.querySelector('.tool')) {
-      faults.push('a run of a tool stands among the words of the answer, ' + where);
+      faults.push('a run of a tool is among the text of the answer, ' + where);
     }
 
-    // Five: the answer is over. The same train of thought, read again from the
-    // chat, must still stand in one panel.
-    where = 'the same talk read back from the chat';
+    // Five: the answer is over. The same train of thought, read again from the chat, must still
+    // are in one panel.
+    where = 'the same conversation read back from the chat';
     var five = { messages: three.messages.concat([said('m5', 'Assistant',
         'The kernel is 6.9 and the notes hold one file.', {
         reasoning: 'Both are read. I can answer now.', reasoning_ms: 400 })]),
@@ -170,22 +168,22 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     box = look(five);
     turns = box.querySelectorAll('.turn');
     if (turns.length !== 3) {
-      faults.push('the talk of five messages made ' + turns.length + ' turns, ' + where);
+      faults.push('the conversation of five messages made ' + turns.length + ' turns, ' + where);
     } else {
       var last = turns[2];
       if (last.querySelectorAll('.think').length !== 1) {
-        faults.push('the talk read back holds ' + last.querySelectorAll('.think').length + ' panels, ' + where);
+        faults.push('the conversation read back holds ' + last.querySelectorAll('.think').length + ' panels, ' + where);
       }
       if (last.querySelectorAll('.tool').length !== 2) {
-        faults.push('the talk read back holds ' + last.querySelectorAll('.tool').length + ' runs, ' + where);
+        faults.push('the conversation read back holds ' + last.querySelectorAll('.tool').length + ' runs, ' + where);
       }
       if (last.textContent.indexOf('The kernel is 6.9') < 0) {
-        faults.push('the answer of the talk read back is gone, ' + where);
+        faults.push('the answer of the conversation read back is removed, ' + where);
       }
     }
 
-    // Six: the setting off. The run stands under the panel again, and each
-    // thought keeps a panel of its own.
+    // Six: the setting off. The run is under the panel again, and each thought keeps a panel of
+    // its own.
     where = 'the setting off';
     var six = JSON.parse(JSON.stringify(five));
     six.chatting = { collapse_thinking: false, tools_in_thinking: false };
@@ -199,10 +197,10 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (allTools.length !== 0) {
       faults.push('with the setting off ' + allTools.length + ' runs still stand inside a thinking panel, ' + where);
     }
-    // Seven: the fold. A panel the user closed puts the whole of its body
-    // away: the thoughts, and the blocks of the runs that stand among them. A
-    // run that stayed to be seen under a closed head read as a fault of the
-    // fold. The head is all that is left, and it opens the panel again.
+    // Seven: the fold. A panel the user closed puts all of its body away: the thoughts, and the
+    // blocks of the runs that are among them. A run that stayed to be seen under a closed
+    // header read as an error in the fold. The header is all that is left, and it opens the
+    // panel again.
     where = 'a folded thinking panel';
     var seven = JSON.parse(JSON.stringify(two));
     seven.chatting = { collapse_thinking: true, tools_in_thinking: true };
@@ -212,9 +210,9 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var foldedTool = folded.querySelector('.tool');
     if (shown(foldedTool)) { faults.push('a run inside a folded thinking panel is to be seen, ' + where); }
     var foldedThought = folded.querySelector('.thought');
-    if (shown(foldedThought)) { faults.push('the thoughts of a folded panel stand open, ' + where); }
+    if (shown(foldedThought)) { faults.push('the thoughts of a folded panel are left open, ' + where); }
     var foldedHead = folded.querySelector('.think > .thead');
-    if (!shown(foldedHead)) { faults.push('the head of a folded panel cannot be seen, ' + where); }
+    if (!shown(foldedHead)) { faults.push('the header of a folded panel cannot be seen, ' + where); }
 
     return faults;
   });
@@ -223,7 +221,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     console.log(out.join('\n'));
     process.exit(1);
   }
-  console.log('a train of thought stands in one panel, the runs inside it are to'
+  console.log('a train of thought is in one panel, the runs inside it are to'
     + ' be seen while the panel is open and are put away when it is folded, and the'
     + ' setting off brings the old shape back');
 })().catch((e) => { console.error(e); process.exit(1); });

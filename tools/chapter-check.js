@@ -1,28 +1,24 @@
-// Check the line of chapter nodes beside the chat: a node takes the chat to the
-// place its chapter begins.
+// Check the line of chapter nodes beside the chat: a node takes the chat to the place its
+// chapter begins.
 //
-// The page is loaded as it stands, with no engine under it. The talk is written by
-// hand, with a train of thought that holds the runs of two tools in one row, for a
-// chapter may begin after a message that stands in the middle of such a row. The
-// moves are made instant, so the place the chat came to is read and not watched.
+// The page is loaded as it is now, with no engine under it. The conversation is written
+// manually, with a train of thought that holds the runs of two tools in one row, for a chapter
+// may begin after a message that is in the middle of such a row. The moves are created instant,
+// so the place the chat came to is read and not watched.
 //
-//   node chapter-check.js
-//   AN_PAGE=../web/page.html AN_FETCH=1 node chapter-check.js
+// node chapter-check.js AN_PAGE=../web/page.html AN_FETCH=1 node chapter-check.js
 //
-// Five things are looked at:
-//   * the line holds one node for one chapter, and the nodes stand in the order
-//     the chapters begin;
-//   * a node takes the chat to the answer that begins its chapter, when the
-//     message the chapter begins after stands in the middle of a row that holds a
-//     train of thought;
-//   * a node takes the chat to the answer that begins its chapter, when that
-//     message stands in a row of its own;
-//   * a node takes the chat to the row that holds its chapter, when the answer
-//     that begins the chapter stands inside a train of thought;
-//   * a chapter with no message before it takes the chat to the first turn;
-//   * the chat stops following the writing when the user goes looking, and the
-//     place it came to is the place of the chapter and not the place of the row
-//     after it.
+// Five items are checked:
+// * the line holds one node for one chapter, and the nodes are in the order the chapters begin;
+// * a node takes the chat to the answer that begins its chapter, when the message the chapter
+//    begins after is in the middle of a row that holds a train of thought;
+// * a node takes the chat to the answer that begins its chapter, when that message is in a row
+//    of its own;
+// * a node takes the chat to the row that holds its chapter, when the answer that begins the
+//    chapter is inside a train of thought;
+// * a chapter with no message before it takes the chat to the first turn;
+// * the chat stops following the writing when the user goes looking, and the place it came to
+//    is the place of the chapter and not the place of the row after it.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -36,30 +32,30 @@ const msg = (id, role, body, extra) => Object.assign({
   mono: false, failed: false, reasoning: '', reasoning_ms: 0, attachments: []
 }, extra || {});
 
-// A talk long enough to scroll, with two chapters in it. The first chapter begins
-// inside a row that holds a train of thought and the runs of two tools; the second
-// begins after a message that stands in a row of its own.
+// A conversation long enough to scroll, with two chapters in it. The first chapter begins
+// inside a row that holds a train of thought and the runs of two tools; the second begins after
+// a message that is in a row of its own.
 const TALK = [
   msg('q1', 'You', 'Set up the parser and test it.'),
-  msg('a1', 'Assistant', 'I will start with the shape of the reader.\n\n'
+  msg('a1', 'Assistant', 'I will start with the form of the user.\n\n'
     + Array.from({ length: 40 }, (x, n) => 'A line of the first answer, number ' + n + '.')
       .join('\n')),
-  msg('q2', 'You', 'Go on with the reader.'),
-  msg('t1', 'Assistant', '', { reasoning: 'The reader needs a token of the shape first.' }),
+  msg('q2', 'You', 'Go on with the user.'),
+  msg('t1', 'Assistant', '', { reasoning: 'The user needs a token of the form first.' }),
   msg('t2', 'Tool', 'notes/shape.rs', { tool_name: 'create_file', tool: '120 lines written' }),
   msg('t3', 'Tool', 'cargo build', { tool_name: 'run_command', tool: 'Finished in 4 s' }),
-  msg('a2', 'Assistant', '# The plan for the parser\n\nThe reader is the first part.\n\n'
+  msg('a2', 'Assistant', '# The plan for the parser\n\nThe user is the first part.\n\n'
     + Array.from({ length: 30 }, (x, n) => 'A line of the chapter, number ' + n + '.').join('\n')),
   msg('q3', 'You', 'Now the tests.'),
   msg('a3', 'Assistant', '# Running the tests\n\nThe suite runs whole.\n\n'
     + Array.from({ length: 30 }, (x, n) => 'A line of the second chapter, number ' + n + '.')
       .join('\n')),
-  msg('u1', 'Assistant', '', { reasoning: 'Now a last look at the whole of it.' }),
+  msg('u1', 'Assistant', '', { reasoning: 'Now a last look at all of it.' }),
   msg('u2', 'Tool', 'ls notes', { tool_name: 'run_command', tool: 'shape.rs plan.md' }),
   msg('u3', 'Assistant', '# The last look\n\nWords of the last look.\n\n'
     + Array.from({ length: 20 }, (x, n) => 'A line of the last look, number ' + n + '.')
-      .join('\n'), { reasoning: 'The look goes at the end of the talk.' }),
-  msg('a4', 'Assistant', 'Both chapters stand, and the work is at its end.')
+      .join('\n'), { reasoning: 'The look goes at the end of the conversation.' }),
+  msg('a4', 'Assistant', 'Both chapters remain, and the work is at its end.')
 ];
 
 const CHAPTERS = [
@@ -89,9 +85,9 @@ const CHAPTERS = [
   await wait(400);
 
   const trouble = [];
-  const note = (what) => { trouble.push(what); console.log('  FAULT: ' + what); };
+  const note = (what) => { trouble.push(what); console.log('  ERROR: ' + what); };
 
-  // The talk, the chapters, and the moves made instant.
+  // The conversation, the chapters, and the moves made instant.
   const built = await page.evaluate((talk, chapters) => {
     reduce = true;
     cur = { chatting: { send_anim: false, chapters: true, tools_in_thinking: true },
@@ -108,12 +104,12 @@ const CHAPTERS = [
     note('the line holds ' + built.nodes + ' nodes for ' + CHAPTERS.length + ' chapters');
   }
   if (!(built.height > built.view + 200)) {
-    note('the talk is not taller than the view, so the check proves nothing');
+    note('the conversation is not taller than the view, so the check proves nothing');
   }
   console.log('built:', JSON.stringify(built));
 
-  // Where the chat stands after a node was pressed: the turn at the top of the
-  // view, and the words it holds.
+  // Where the chat is after a node was pressed: the turn at the top of the view, and the text
+  // it holds.
   const look = () => `(() => {
     var view = el.thread.getBoundingClientRect();
     var turns = threadTurns(el.col);
@@ -135,9 +131,9 @@ const CHAPTERS = [
   })()`;
   const few = (words) => String(words || '').slice(0, 58);
 
-  // 1: the chapter that begins after a message standing in the middle of a row
-  // that holds a train of thought. The row was looked for by the first message of
-  // it alone, found nowhere, and the chat did not move at all.
+  // 1: the chapter that begins after a message remaining in the middle of a row that holds a
+  // train of thought. The row was searched for by the first message of it alone, found nowhere,
+  // and the chat did not move at all.
   await page.evaluate(() => {
     el.thread.scrollTop = 0;
     document.querySelectorAll('.chapter')[0].click();
@@ -149,14 +145,14 @@ const CHAPTERS = [
       + few(atFirst.words) + '"');
   }
   if (atFirst.above.includes('The plan for the parser')) {
-    note('the chapter was carried past its place: it stands above the top');
+    note('the chapter was carried past its place: it is above the top');
   }
   if (atFirst.scrolled <= 0) { note('the chat did not move at all'); }
   if (atFirst.stuck !== false) { note('the chat still follows the writing after the user went looking'); }
   console.log('first:', JSON.stringify({ at: atFirst.at, offset: atFirst.offset,
     scrolled: atFirst.scrolled, stuck: atFirst.stuck, words: few(atFirst.words) }));
 
-  // 2: the chapter that begins after a message standing in a row of its own.
+  // 2: the chapter that begins after a message remaining in a row of its own.
   await page.evaluate(() => { el.thread.scrollTop = 0; });
   await wait(60);
   await page.evaluate(() => { document.querySelectorAll('.chapter')[1].click(); });
@@ -171,9 +167,9 @@ const CHAPTERS = [
   console.log('second:', JSON.stringify({ at: atSecond.at, offset: atSecond.offset,
     scrolled: atSecond.scrolled, words: few(atSecond.words) }));
 
-  // 3: the chapter that begins in the middle of a row: its answer stands inside
-  // the train of thought it came out of. The row is the nearest place the chat can
-  // go to, and it must hold the words of the chapter.
+  // 3: the chapter that begins in the middle of a row: its answer is inside the train of
+  // thought it came out of. The row is the nearest place the chat can go to, and it must hold
+  // the text of the chapter.
   await page.evaluate(() => { el.thread.scrollTop = 0; });
   await wait(60);
   await page.evaluate(() => { document.querySelectorAll('.chapter')[2].click(); });
@@ -188,7 +184,7 @@ const CHAPTERS = [
   console.log('last:', JSON.stringify({ at: atLast.at, offset: atLast.offset,
     scrolled: atLast.scrolled, words: few(atLast.words) }));
 
-  // 4: the chapter with no message before it: the first turn of the talk.
+  // 4: the chapter with no message before it: the first turn of the conversation.
   await page.evaluate(() => { el.thread.scrollTop = el.thread.scrollHeight; });
   await wait(60);
   await page.evaluate(() => { document.querySelectorAll('.chapter')[3].click(); });
@@ -198,12 +194,12 @@ const CHAPTERS = [
     note('the chapter with nothing before it did not go to the first turn: at ' + atZero.at);
   }
   if (!atZero.words.includes('Set up the parser')) {
-    note('the first turn holds other words: "' + atZero.words + '"');
+    note('the first turn holds other text: "' + atZero.words + '"');
   }
   console.log('zero:', JSON.stringify(atZero));
 
-  // 4: the place a node asks for is the place of its own chapter and no other:
-  // the three nodes lead to three different places.
+  // 4: the place a node requests is the place of its own chapter and no other: the three nodes
+  // lead to three different places.
   const places = await page.evaluate(async (names) => {
     var out = [];
     var nodes = document.querySelectorAll('.chapter');
@@ -221,6 +217,6 @@ const CHAPTERS = [
   console.log('places:', JSON.stringify(places));
 
   await browser.close();
-  console.log(trouble.length ? 'FAIL ' + trouble.length + ' faults' : 'ok   the chapter line beside the chat');
+  console.log(trouble.length ? 'FAIL ' + trouble.length + ' errors' : 'ok   the chapter line beside the chat');
   process.exit(trouble.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

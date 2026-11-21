@@ -1,23 +1,21 @@
-// The words that stand before the talk: the prompt of the user's own, and the
-// pre-written prompts the user may put in with a mark.
+// The text that remains before the conversation: the prompt of the user's own, and the
+// pre-written prompts the user may put in with a marker.
 //
-// A chat goes with a system prompt: the block of words that stands first in the
-// history and says how the model is to behave. The user may write one of their
-// own in the Program settings, and may put one or two pre-written prompts in
-// front of it with a mark on each. The pre-written prompts are the words of
-// the wider community of users, kept here so that a user who does not want to
-// write a prompt of their own has a good one to start from.
+// A chat goes with a system prompt: the block of text that remains first in the history and
+// reports how the model is to behave. The user may write one of their own in the Program
+// settings, and may put one or two pre-written prompts in front of it with a marker on each.
+// The pre-written prompts are the text of the wider community of users, kept here so that a
+// user who does not want to write a prompt of their own has a good one to start from.
 //
-// The words of a prompt are kept out of the state that the page asks for on a
-// clock: only the marks and the short lines of the table go there. The page
-// asks for the words of one prompt when the user opens it to read, so the words
-// are not carried on every round of the poll.
+// The text of a prompt is kept out of the state that the page requests on a clock: only the
+// markers and the short lines of the table go there. The page requests the text of one prompt
+// when the user opens it to read, so the text is not carried on every round of the poll.
 
 use serde_json::{json, Value};
 
-// One pre-written prompt. The id is the word the settings keep, and it is the
-// word that stands in the list of marks: it never changes, so a setting of one
-// version of the program is read by the next.
+// One pre-written prompt. The id is the word the settings keep, and it is the word that is in
+// the list of markers: it never changes, so a setting of one version of the program is read by
+// the next.
 pub struct Prompt {
     pub id: &'static str,
     pub name: &'static str,
@@ -25,11 +23,10 @@ pub struct Prompt {
     pub words: &'static str,
 }
 
-// The pre-written prompts, in the order they are put in front of the words of
-// the user. A chat that marks both reads the engineer's rules first and the
-// rules for a short attention span after them, because the engineer's rules
-// shape the words of every kind of answer, and the short rules then put the
-// answers in the order the user can act on.
+// The pre-written prompts, in the order they are put in front of the text of the user. A chat
+// that markers both reads the engineer's rules first and the rules for a short attention span
+// after them, because the engineer's rules form the text of every type of answer, and the short
+// rules then put the answers in the order the user can act on.
 const PREWRITTEN: &[Prompt] = &[
     Prompt {
         id: "engineer",
@@ -40,14 +37,14 @@ const PREWRITTEN: &[Prompt] = &[
 LANGUAGE
 - Use standard technical terms. Never replace them with plain-word descriptions or invented phrases. Write "compress", "decompress", "context", "KV cache", "encoder", "codec", "corrupt", "incompressible", "interleave", "atomic rename", "throughput", "latency", "regression", "refactor", "dependency", "cache", "buffer", "thread". The user is a developer.
 - Use ordinary English word order and common phrasing. Do not use poetic, metaphorical, or literal-translated wording.
-- Use one term for one thing. Do not swap in synonyms for variety.
+- Use one term for one item. Do not swap in synonyms for variety.
 - Use active voice and the simple present tense where possible.
-- Keep sentences short, under about 25 words. Put one idea in each sentence.
+- Keep sentences short, under about 25 text. Put one idea in each sentence.
 - Put file names, function names, commands, and code identifiers in backticks.
 - Give numbers with units: "62 GB", "88 MB/s", "7 s".
 
 CONTENT
-- State only facts that come from the user's input, the code, or the task. Do not invent measurements, test results, or API behavior. If you are unsure, say so in one sentence.
+- State only facts that come from the user's input, the code, or the task. Do not invent measurements, test results, or API behavior. If you are unsure, record it in one sentence.
 - Explain intent and consequences, not just a restatement of the code.
 - Do not use filler such as "Certainly", "Moreover", or "It is worth noting that".
 - Use tables only for comparisons. Do not use emojis.
@@ -59,10 +56,10 @@ COMMIT MESSAGES
 
 EXAMPLES
 
-Poor: "The talk of a chat stands on the disk in its short shape."
+Poor: "The conversation of a chat is on the disk in its compressed form."
 Good: "Saved conversation contexts are stored on disk in compressed form."
 
-Poor: "A short shape that does not read out is left alone."
+Poor: "A compressed form that cannot be read is skipped."
 Good: "If a compressed file is corrupt, the program ignores it and loads the context as if it had never been saved."
 
 Poor: "The bytes are laid in two planes, those at the even places, then those at the odd ones."
@@ -107,14 +104,13 @@ pub fn find(id: &str) -> Option<&'static Prompt> {
     PREWRITTEN.iter().find(|p| p.id == id)
 }
 
-// The words of the prompt of the given id, for the page that shows one prompt
-// to be read.
+// The text of the prompt of the given id, for the page that shows one prompt to be read.
 pub fn words(id: &str) -> Option<&'static str> {
     find(id).map(|p| p.words)
 }
 
-// The lines of the table on the page: the id, the name and the short account of
-// each prompt, in the order of the table. The words are not in these lines.
+// The lines of the table on the page: the id, the name and the short account of each prompt, in
+// the order of the table. The text is not in these lines.
 pub fn lines() -> Vec<Value> {
     PREWRITTEN
         .iter()
@@ -128,10 +124,9 @@ pub fn lines() -> Vec<Value> {
         .collect()
 }
 
-// The words of the marked prompts as one block, in the order of the table. An
-// empty list gives nothing, and a list of ids the program does not know gives
-// nothing for each of them: the ids are made safe before this is called, so
-// only ids of this table come through in practice.
+// The text of the flagged prompts as one block, in the order of the table. An empty list gives
+// nothing, and a list of ids the program does not know gives nothing for each of them: the ids
+// are created safe before this is called, so only ids of this table come through in practice.
 pub fn front(ids: &[String]) -> String {
     let mut parts: Vec<&str> = Vec::new();
     for p in PREWRITTEN {
@@ -146,8 +141,8 @@ pub fn front(ids: &[String]) -> String {
 mod tests {
     use super::*;
 
-    // The table answers for itself: every prompt has an id, a name and words, no
-    // id stands twice, and a word that is no id of the table gives nothing.
+    // The table answers for itself: every prompt has an id, a name and text, no id remains
+    // twice, and a word that is no id of the table gives nothing.
     #[test]
     fn every_prompt_of_the_table_is_whole_and_known_by_its_id() {
         assert!(!PREWRITTEN.is_empty(), "the table holds prompts");
@@ -170,16 +165,16 @@ mod tests {
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted.len(), ids.len(), "no id stands twice");
-        // The lines of the table carry no words: the page asks for the words of
-        // one prompt when it is opened to read.
+        // The lines of the table carry no text: the page requests the text of one prompt when
+        // it is opened to read.
         for one in lines() {
-            assert!(one.get("words").is_none(), "a line of the table holds no words");
+            assert!(one.get("words").is_none(), "a line of the table holds no text");
         }
     }
 
-    // The words put in front of the talk follow the table, not the order the
-    // marks came in, and nothing at all comes of no mark or of a mark of a word
-    // the program does not know.
+    // The text put in front of the conversation follow the table, not the order the markers
+    // arrived, and nothing at all comes of no marker or of a marker of a word the program does
+    // not know.
     #[test]
     fn the_marked_prompts_are_put_in_front_in_the_order_of_the_table() {
         assert_eq!(front(&[]), "");

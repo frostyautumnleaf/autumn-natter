@@ -1,13 +1,11 @@
-// Check the switch of the default arguments of the Model tab: where it stands,
-// how it is filled from the settings of a model, what it does to the words the
-// tab sends when it asks for the command line, and how it is carried about with
-// the rest of the settings. The switch lets a server of another build, which
-// knows none of the arguments of this program, be started with a command line of
-// the user's own. The page is loaded as it stands, with no bridge and no engine,
-// so the two faces are checked the same way and neither engine is run.
+// Check the switch of the default arguments of the Model tab: where it is, how it is filled
+// from the settings of a model, what it does to the text the tab sends when it requests the
+// command line, and how it is carried about with the rest of the settings. The switch lets a
+// server of another build, which knows none of the arguments of this program, be started with a
+// command line of the user's own. The page is loaded as it is now, with no bridge and no
+// engine, so the two pages are checked the same way and neither engine is run.
 //
-//   node default-args-check.js
-//   AN_PAGE=../web/page.html node default-args-check.js
+// node default-args-check.js AN_PAGE=../web/page.html node default-args-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -33,9 +31,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       by(id).dispatchEvent(new Event('change', { bubbles: true }));
     };
 
-    // The settings of the model that stands in the bar. They hold no word for
-    // the switch, as the settings file of a model written before the switch
-    // existed holds none either.
+    // The settings of the model that is in the top bar. They hold no word for the switch, as
+    // the settings file of a model written before the switch existed holds none either.
     var settings = {
       ctx_size: 8192, kv_index: 1, load_index: 0, spec_index: 0, ctx_checkpoints: 32,
       cache_ram: 8192, cache_prompt: true, no_context_shift: false, temperature: 0.7,
@@ -49,8 +46,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var gpus = [{ name: 'A card', memory_text: '12 GiB', memory_mb: 12288, is_offload: true }];
     var previews = [];   // every settings object the tab sent for the command line
 
-    // The program, stood in for. The line the program would build is of no
-    // interest here; what the tab sends with the ask is.
+    // The program, was in for. The line the program would build is of no interest here; what
+    // the tab sends with the request is.
     var answer = function (name, body) {
       if (name === 'model_settings') {
         return {
@@ -68,8 +65,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     };
     var route = function (where, body) {
       var clean = String(where).split('?')[0].replace(/^\/api\//, '');
-      // The window asks for the settings of a model by the name of its bridge,
-      // the page of the remote mode by the name of its small server.
+      // The window requests the settings of a model by the name of its bridge, the page of the
+      // remote mode by the name of its small server.
       if (clean.indexOf('get_') === 0) { clean = clean.slice(4); }
       return answer(clean, body || {});
     };
@@ -87,33 +84,33 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     await wait(120);
     if (by('mForm').style.display === 'none') { faults.push('the form of the model was put away'); }
 
-    // The switch stands in the form of the model, under the field of the extra
-    // arguments, as a box of the sheet.
+    // The switch is in the form of the model, under the field of the extra arguments, as a box
+    // of the stylesheet.
     if (!by('mDefaultArgs')) {
       faults.push('the tab holds no switch of the default arguments');
       return faults;
     }
     if (!by('mDefaultArgs').closest('#mForm')) {
-      faults.push('the switch stands outside the form of the model');
+      faults.push('the switch is outside the form of the model');
     }
     if (by('mDefaultArgs').type !== 'checkbox') { faults.push('the switch is not a box'); }
     var under = by('mExtra').compareDocumentPosition(by('mDefaultArgs'));
     if (!(under & Node.DOCUMENT_POSITION_FOLLOWING)) {
-      faults.push('the switch does not stand under the field of the extra arguments');
+      faults.push('the switch is not under the field of the extra arguments');
     }
 
-    // A model that says nothing about the switch stands with it on, which is
-    // where a new set of settings stands, and the fields read it as on.
+    // A model that shows nothing about the switch is with it on, which is where a new set of
+    // settings remains, and the fields read it as on.
     if (by('mDefaultArgs').checked !== true) {
-      faults.push('the switch is off with a model that says nothing about it');
+      faults.push('the switch is off with a model that shows nothing about it');
     }
     if (readModel().send_default_args !== true) {
-      faults.push('the fields read the switch off with nothing said');
+      faults.push('the fields read the switch off with nothing stated');
     }
 
-    // The box is read back into the settings, and the ask for the command line
-    // carries what the box stands at. That is the whole of the way the switch
-    // reaches the engine: the engine builds the line from these words.
+    // The box is read back into the settings, and the request for the command line carries what
+    // the box is at. That is all of the way the switch reaches the engine: the engine builds
+    // the line from this text.
     by('mDefaultArgs').checked = false;
     move('mDefaultArgs');
     await wait(300);
@@ -122,31 +119,31 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     }
     var last = previews[previews.length - 1] || {};
     if (last.send_default_args !== false) {
-      faults.push('the ask for the command line did not carry the switch off: '
+      faults.push('the request for the command line did not carry the switch off: '
         + JSON.stringify(last.send_default_args));
     }
 
-    // The words of the tab hold the switch, so a copy of a whole model carries
-    // it, and words put in by hand move the box again.
+    // The text of the tab hold the switch, so a copy of a whole model carries it, and text put
+    // in manually move the box again.
     if (modelWords().indexOf('send_default_args') < 0) {
-      faults.push('the words of the tab do not carry the switch');
+      faults.push('the text of the tab does not carry the switch');
     }
     putInFields({ send_default_args: true });
     await wait(40);
     if (by('mDefaultArgs').checked !== true) {
-      faults.push('words that set the switch on left the box off');
+      faults.push('text that set the switch on left the box off');
     }
-    // Words that say nothing about the switch leave the box where it stands, for
-    // they are read over the settings of the model and not in the place of them.
+    // Text that shows nothing about the switch leave the box where it is, for they are read
+    // over the settings of the model and not in the place of them.
     putInFields({ ctx_size: 4096 });
     await wait(40);
     if (by('mDefaultArgs').checked !== true) {
-      faults.push('words that said nothing about the switch moved the box');
+      faults.push('text that stated nothing about the switch moved the box');
     }
-    if (by('mCtx').value !== '4096') { faults.push('the words of a paste did not move the context'); }
+    if (by('mCtx').value !== '4096') { faults.push('the text of a paste did not moves the context'); }
 
-    // The box is filled again from the settings of the model, and a model that
-    // says off stands off.
+    // The box is filled again from the settings of the model, and a model that shows off
+    // remains off.
     mdl.settings.send_default_args = false;
     fillModelForm({});
     if (by('mDefaultArgs').checked !== false) {

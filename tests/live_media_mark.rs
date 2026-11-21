@@ -1,15 +1,15 @@
-// A live check that a media mark quoted in words cannot stop a chat, and that a
-// picture still rides across. Not for the repository.
+// A live check that a media marker quoted in text cannot stop a chat, and that a
+// image still rides across. Not for the repository.
 //
-// llama.cpp marks the place of a picture in the words of a prompt with a string
-// of its own, counts those marks in the words it is sent, and refuses the whole
-// ask when a mark stands where no bitmap is. The fault the reader met came from a
-// tool receipt that carried the mark of the server it had just read the
+// llama.cpp markers the place of an image in the text of a prompt with a string
+// of its own, counts those markers in the text it is sent, and refuses the whole
+// ask when a marker is where no bitmap is. The error the user met came from a
+// tool result that carried the marker of the server it had just read the
 // properties of, and every later ask of that chat was refused with it.
 //
-// The server under test is `probe/mediamark/llama-server`: it counts the marks of
-// its own in the words it is sent and refuses an ask exactly as the real server
-// does, and it answers any other ask with the number of pictures it was sent. It
+// The server under test is `probe/mediamark/llama-server`: it counts the markers of
+// its own in the text it is sent and refuses a request exactly as the real server
+// does, and it answers any other ask with the number of images it was sent. It
 // writes every ask whole to `asks.jsonl`, so the test reads the bytes that left
 // the client.
 //
@@ -22,9 +22,8 @@ use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-// The mark of the server under test. It is made of pieces here so that the whole
-// of it never stands in one piece of this file, in the log of a run, or in the
-// talk of the one who reads it.
+// The marker of the server under test. It is made of parts here so that all of it never is in
+// one piece of this file, in the log of a run, or in the conversation of the one who reads it.
 fn the_mark() -> String {
     format!("{}{}{}", "<__", "media_", "TESTMARK00000000__>")
 }
@@ -49,15 +48,15 @@ fn wait_for<T>(what: &str, mut look: impl FnMut() -> Option<T>) -> T {
     }
 }
 
-// The messages the chat holds now, so the answer to the next send is found
-// after it and not read off the answer before it.
+// The messages the chat holds now, so the answer to the next send is found after it and not
+// read off the answer before it.
 fn held(engine: &Engine) -> usize {
     engine.snapshot().messages.len()
 }
 
-// The words of the answer to a send: the talk grows by the reader's message and
-// by the answer, so the answer is the newest message of the model after the
-// place the talk stood at when the send was made.
+// The text of the answer to a send: the conversation grows by the user's message and by the
+// answer, so the answer is the newest message of the model after the place the conversation was
+// at when the send was created.
 fn answer_after(engine: &Engine, before: usize) -> String {
     let snap = wait_for("the answer to end", || {
         let s = engine.snapshot();
@@ -74,8 +73,8 @@ fn answer_after(engine: &Engine, before: usize) -> String {
         .unwrap_or_default()
 }
 
-// One ask to a server of the same kind, sent straight over HTTP: the words it
-// carries are used as they stand, with nothing broken.
+// One ask to a server of the same type, sent straight over HTTP: the text it carries are used
+// as they are now, with nothing broken.
 fn post_words(port: u16, words: &str) -> u16 {
     let body = serde_json::json!({
         "model": "not a model",
@@ -126,33 +125,32 @@ fn a_quoted_media_mark_is_broken_before_the_ask_and_a_picture_still_rides() {
     cfg.model_settings.insert(model, ms);
 
     let engine = Engine::start(cfg);
-    wait_for("the server to stand ready", || {
+    wait_for("the server to remain ready", || {
         let s = engine.snapshot();
         (!s.generating && !s.busy && !s.model_name.is_empty()).then_some(())
     });
 
-    // The mark, as the server of the chat names it.
+    // The marker, as the server of the chat names it.
     let mark = the_mark();
 
-    // The first ask: words that quote the mark, and no picture. The mark is
-    // broken on the way out, so the server has no place to look for a bitmap and
-    // answers.
+    // The first ask: text that quote the marker, and no image. The marker is broken on the way
+    // out, so the server has no place to search for a bitmap and answers.
     engine.new_chat();
     let before = held(&engine);
     engine.prompt(
-        format!("The properties said media_marker is '{}'. Say the number of pictures.", mark),
+        format!("The properties stated media_marker is '{}'. Say the number of images.", mark),
         vec![],
     );
     let said = answer_after(&engine, before);
     println!("the server answered: {}", said.trim());
     assert!(said.contains("Pictures received: 0"), "no answer came: {}", said);
-    assert!(said.contains("Media mark present: no"), "a mark reached the server");
+    assert!(said.contains("Media mark present: no"), "a marker reached the server");
 
-    // The second ask: the same quoted mark, and a picture hung on the message.
-    // The picture is not a mark in the words and must ride across untouched.
+    // The second ask: the same quoted marker, and an image hung on the message. The image is
+    // not a marker in the text and must ride across untouched.
     let before = held(&engine);
     engine.prompt(
-        format!("Look at the picture. The properties said media_marker is '{}'.", mark),
+        format!("Look at the image. The properties stated media_marker is '{}'.", mark),
         vec![Incoming {
             name: "orange-swatch.png".to_string(),
             mime: "image/png".to_string(),
@@ -162,12 +160,12 @@ fn a_quoted_media_mark_is_broken_before_the_ask_and_a_picture_still_rides() {
     );
     let said = answer_after(&engine, before);
     println!("the server answered: {}", said.trim());
-    assert!(said.contains("Pictures received: 1"), "the picture did not ride across: {}", said);
+    assert!(said.contains("Pictures received: 1"), "the image did not ride across: {}", said);
 
-    // What left the client, read off the log of the server. The bytes of the
-    // picture stand there whole, and no whole mark stands anywhere.
+    // What left the client, read off the log of the server. The bytes of the image is there
+    // whole, and no whole marker remains anywhere.
     let written = std::fs::read_to_string(&asks).expect("the asks were written down");
-    assert!(!written.contains(&mark), "a whole mark went out to the server");
+    assert!(!written.contains(&mark), "a whole marker was sent to the server");
     assert!(written.contains("< __"), "no mark was broken, so nothing was quoted");
     let mut pictures = 0usize;
     let mut carries_the_bytes = false;
@@ -189,10 +187,10 @@ fn a_quoted_media_mark_is_broken_before_the_ask_and_a_picture_still_rides() {
         }
     }
     assert_eq!(pictures, 1, "the picture did not stand in the ask");
-    assert!(carries_the_bytes, "the bytes of the picture were changed");
+    assert!(carries_the_bytes, "the bytes of the image were changed");
 
-    // And the trap under the check: the same server refuses an ask that carries
-    // the mark unbroken. Without the breaking, this test would fail.
+    // And the trap under the check: the same server refuses a request that carries the marker
+    // unbroken. Without the breaking, this test would fail.
     let port: u16 = 8177;
     let mut child = std::process::Command::new(root.join("probe/mediamark/llama-server"))
         .arg("--port")
@@ -200,19 +198,19 @@ fn a_quoted_media_mark_is_broken_before_the_ask_and_a_picture_still_rides() {
         .spawn()
         .expect("the second server");
     let agent = ureq::AgentBuilder::new().timeout_read(Duration::from_secs(10)).build();
-    wait_for("the second server to stand ready", || {
+    wait_for("the second server to remain ready", || {
         agent
             .get(&format!("http://127.0.0.1:{}/health", port))
             .call()
             .ok()
             .map(|_| ())
     });
-    let broken = post_words(port, "nothing of a mark here");
+    let broken = post_words(port, "nothing of a marker here");
     let whole = post_words(port, &format!("media_marker is '{}'", mark));
     let mended = post_words(port, &format!("media_marker is '{}'", mark.replacen("<__", "< __", 1)));
     println!("plain: {} whole mark: {} broken mark: {}", broken, whole, mended);
     assert_eq!(broken, 200);
-    assert_eq!(whole, 400, "the server did not refuse a whole mark");
-    assert_eq!(mended, 200, "the broken mark was still read as one");
+    assert_eq!(whole, 400, "the server did not refuse a whole marker");
+    assert_eq!(mended, 200, "the broken marker was still read as one");
     let _ = child.kill();
 }

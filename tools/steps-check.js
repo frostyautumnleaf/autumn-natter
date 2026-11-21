@@ -1,31 +1,29 @@
-// The block of the steps of an answer: the room the two buttons of paging stand
-// in, and what a step longer than the one before it, or longer than the chat, does
-// to the room of the chat.
+// The block of the steps of an answer: the space the two buttons of paging are in, and what a
+// step longer than the one before it, or longer than the chat, does to the sandbox directory of
+// the chat.
 //
-// The buttons of going back and going on stand under the words of the step, in the
-// corners of the same area, and they used to lean on those words: 3px between the
-// last line and the top of the button, with 12px of ground under the button. They
-// now stand with the same room above them as below.
+// The buttons of going back and going on are under the text of the step, in the corners of the
+// same area, and they used to lean on that text: 3px between the last line and the top of the
+// button, with 12px of ground under the button. They now remain with the same space above them
+// as below.
 //
-// A step with more lines than the step before it takes its room above, out of the
-// answer, so the block keeps its bottom edge and the row of the step buttons stays
-// where it was. A step longer than the chat itself has no room above to take, and
-// holding the bottom edge then leaves the head of the block - the name of the list,
-// the count, and the first lines of the step - above the chat, out of reach of any
-// scroll. The chat therefore stands at the head of the block in that case, and the
-// rest of the step is read by scrolling down. The same holds when a long block is
-// drawn for the first time at the end of a chat that follows its end.
+// A step with more lines than the step before it takes its space above, out of the answer, so
+// the block keeps its bottom edge and the row of the step buttons stays where it was. A step
+// longer than the chat itself has no space above to take, and holding the bottom edge then
+// leaves the header of the block - the name of the list, the count, and the first lines of the
+// step - above the chat, out of reach of any scroll. The chat is therefore at the header of the
+// block in that case, and the rest of the step is read by scrolling down. The same holds when a
+// long block is drawn for the first time at the end of a chat that follows its end.
 //
-//   node steps-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node steps-check.js
+// node steps-check.js AN_PAGE=web/page.html AN_FETCH=1 node steps-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
 const PAGE = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const USE_FETCH = process.env.AN_FETCH === '1';
 
-// The words of a step, in so many lines. A line of the step is a line of the
-// block, so the height of a step is told by the lines it holds.
+// The text of a step, in so many lines. A line of the step is a line of the block, so the
+// height of a step is informed by the lines it holds.
 function lines(count) {
   var out = [];
   for (var n = 0; n < count; n++) { out.push('Say what changed, what the tests cost, and what is still open.'); }
@@ -46,15 +44,15 @@ function stateOf(steps) {
     messages: [
       { id: '1', role: 'You', body: 'Show the plan of the work as steps.', reasoning: '',
         reasoning_ms: 0, attachments: [], tool: '', mono: false, failed: false, when: '09:04' },
-      // The answer the steps stand under. It is long on purpose: the block of the
-      // steps must stand at the end of a chat that is longer than the window, for
-      // that is the only chat where a step has room to take above it.
+      // The answer the steps are under. It is long on purpose: the block of the steps must be
+      // at the end of a chat that is longer than the window, for that is the only chat where a
+      // step has space to take above it.
       { id: '2', role: 'Assistant', body: lines(26), reasoning: '', reasoning_ms: 0,
         attachments: [], tool: '', mono: false, failed: false, when: '09:05' },
-      { id: '3', role: 'Tool', body: 'The steps of the work stand under your answer.',
+      { id: '3', role: 'Tool', body: 'The steps of the work are under your answer.',
         tool: 'the steps of the work', tool_name: 'show_steps', steps: steps,
         mono: false, failed: false, when: '09:05' },
-      { id: '4', role: 'Assistant', body: 'The steps of the work stand under this answer.',
+      { id: '4', role: 'Assistant', body: 'The steps of the work are under this answer.',
         reasoning: '', reasoning_ms: 0, attachments: [], tool: '', mono: false,
         failed: false, when: '09:06' },
     ],
@@ -71,9 +69,9 @@ function stateOf(steps) {
   };
 }
 
-// The block of the steps, the room of the chat, and where the parts of the block
-// stand. Everything is read in the measures of the window, for the fault is a
-// fault of the room and not of the words.
+// The block of the steps, the sandbox directory of the chat, and where the parts of the block
+// remain. Everything is read in the measures of the window, for the error is an error in the
+// space and not of the text.
 const LOOK = `(function () {
   var room = el.thread;
   var box = room.querySelector('.steps');
@@ -114,24 +112,24 @@ async function main() {
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
   });
 
-  // The room of a short step, the room of a step of a dozen lines, and the room
-  // of a step longer than the chat. The three are the cases the block is asked to
-  // stand in the same chat, one after another.
+  // The space of a short step, the space of a step of a dozen lines, and the space
+  // of a step longer than the chat. The three are the cases the block is asked to handle in the
+  // same chat, one after another.
   const shortFirst = {
     title: 'The plan for the parser',
     steps: [
-      { label: 'Read the fault', content: 'Read the fault of the run and say which line of the parser gives it.' },
+      { label: 'Read the fault', content: 'Read the fault in the run and say which line of the parser gives it.' },
       { label: 'Write the parser', content: lines(12) },
       { label: 'Run the tests', content: lines(46) }
     ]
   };
-  // The long step first, so the block is drawn at the end of the chat with more
-  // lines in it than the chat has.
+  // The long step first, so the block is drawn at the end of the chat with more lines in it
+  // than the chat has.
   const longFirst = {
     title: 'The plan for the parser',
     steps: [
       { label: 'Write the parser', content: lines(46) },
-      { label: 'Read the fault', content: 'Read the fault of the run.' }
+      { label: 'Read the fault', content: 'Read the fault in the run.' }
     ]
   };
 
@@ -181,26 +179,25 @@ async function main() {
   };
 
   const first = await look(page);
-  if (first.none) { throw new Error('no block of the steps of the work stands in the chat'); }
-  // The room the buttons of paging stand in: the same ground above them as below,
-  // so neither the words of the step nor the line over the row of the steps is
-  // touched.
-  if (first.gapTextNav === null) { throw new Error('no button of paging stands over the step'); }
+  if (first.none) { throw new Error('no block of the steps of the work is in the chat'); }
+  // The space the buttons of paging are in: the same ground above them as below, so neither the
+  // text of the step nor the line over the row of the steps is touched.
+  if (first.gapTextNav === null) { throw new Error('no button of paging is above the step'); }
   if (first.gapTextNav < 10) {
-    throw new Error('the button of paging leans on the words of the step: ' + first.gapTextNav + 'px');
+    throw new Error('the button of paging leans on the text of the step: ' + first.gapTextNav + 'px');
   }
   if (first.gapNavRow < 10) {
     throw new Error('the button of paging leans on the line over the row of the steps: '
       + first.gapNavRow + 'px');
   }
   if (Math.abs(first.gapTextNav - first.gapNavRow) > 3) {
-    throw new Error('the button of paging does not stand between even ground: '
+    throw new Error('the button of paging is not between even ground: '
       + first.gapTextNav + 'px above, ' + first.gapNavRow + 'px below');
   }
 
-  // A step with more lines than the step before it takes its room above, out of
-  // the answer: the bottom edge of the block, and the row of the step buttons with
-  // it, stay where they stood.
+  // A step with more lines than the step before it takes its space above, out of the answer:
+  // the bottom edge of the block, and the row of the step buttons with it, stay where they
+  // were.
   await click(page, '.snext');
   const grown = await look(page);
   if (grown.at !== '1') { throw new Error('the block of the steps did not go on to the second step'); }
@@ -209,32 +206,32 @@ async function main() {
       + ' to ' + grown.rowBottom);
   }
   if (grown.rowBottom > grown.viewBottom) {
-    throw new Error('the row of the step buttons went out of the chat: ' + grown.rowBottom
+    throw new Error('the row of the step buttons was sent of the chat: ' + grown.rowBottom
       + ' against ' + grown.viewBottom);
   }
   if (grown.headTop < grown.viewTop) {
-    throw new Error('the head of the block went above the chat: ' + grown.headTop
+    throw new Error('the header of the block went above the chat: ' + grown.headTop
       + ' against ' + grown.viewTop);
   }
 
-  // A step longer than the chat has no room above to take. The chat stands at the
-  // head of the block, so the name of the list and the first lines of the step are
-  // read, and the rest of the step is come at by scrolling down.
+  // A step longer than the chat has no space above to take. The chat is at the header of the
+  // block, so the name of the list and the first lines of the step are read, and the rest of
+  // the step is reached by scrolling down.
   await click(page, '.snext');
   const tall = await look(page);
   if (tall.at !== '2') { throw new Error('the block of the steps did not go on to the long step'); }
   if (tall.headTop < tall.viewTop) {
-    throw new Error('the head of a step longer than the chat stands above the chat: '
+    throw new Error('the header of a step longer than the chat is above the chat: '
       + tall.headTop + ' against ' + tall.viewTop);
   }
   if (tall.rowBottom <= tall.viewBottom) {
     throw new Error('a step longer than the chat was taken in without the rest of it '
-      + 'standing below the fold, which says nothing grew');
+      + 'remaining below the fold, which shows nothing grew');
   }
   const rest = await page.evaluate(async function () {
-    // The scroll of a reader going down into the long step: the chat stops
-    // following its end the moment the hand of the user moves, and nothing of the
-    // page puts them back at the head of the block.
+    // The scroll of a user going down into the long step: the chat stops following its end the
+    // moment the user moving the pointer moves, and nothing of the page puts them back at the
+    // header of the block.
     stick = false;
     el.thread.scrollTop = el.thread.scrollHeight;
     await new Promise(function (r) { setTimeout(r, 120); });
@@ -245,28 +242,28 @@ async function main() {
   });
   if (rest.rowBottom > rest.viewBottom) {
     throw new Error('the rest of a long step cannot be read by scrolling down: the row of '
-      + 'the step buttons stands at ' + rest.rowBottom + ' against ' + rest.viewBottom);
+      + 'the step buttons is at ' + rest.rowBottom + ' against ' + rest.viewBottom);
   }
   await page.close();
 
-  // The same block drawn for the first time with a step longer than the chat: the
-  // chat follows its end, and the head of the block is kept in view rather than
-  // the last lines of that one step.
+  // The same block drawn for the first time with a step longer than the chat: the chat follows
+  // its end, and the header of the block is kept in view rather than the last lines of that one
+  // step.
   const fresh = await open(longFirst);
   const drawn = await look(fresh);
-  if (drawn.none) { throw new Error('no block of the steps of the work stands in the chat'); }
+  if (drawn.none) { throw new Error('no block of the steps of the work is in the chat'); }
   if (drawn.headTop < drawn.viewTop) {
-    throw new Error('a block drawn with a step longer than the chat hides its head: '
+    throw new Error('a block drawn with a step longer than the chat hides its header: '
       + drawn.headTop + ' against ' + drawn.viewTop);
   }
   await fresh.close();
 
   await browser.close();
-  console.log('the buttons of paging stand between even ground under the words of the '
+  console.log('the buttons of paging remain between even ground under the text of the '
     + 'step; a step with more lines takes its room above and keeps the row of the '
     + 'step buttons where it stood; a step longer than the chat stands at the head of '
     + 'the block, the rest of it is read by scrolling down, and a block drawn with '
-    + 'such a step shows its head too');
+    + 'such a step shows its header too');
 }
 
 main().catch(function (e) { console.error(String(e)); process.exit(1); });

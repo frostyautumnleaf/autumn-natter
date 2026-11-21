@@ -1,26 +1,26 @@
 // Check that the writing is followed while it is written, in a block of code and
-// in the block of a call. The page is loaded as it stands, with no bridge and no
-// engine: the writer of the live answer is driven by hand, and the wheel of the
+// in the block of a call. The page is loaded as it is now, with no bridge and no
+// engine: the writer of the live answer is driven manually, and the wheel of the
 // mouse is a wheel of the browser.
 //
-// Four things are looked at, in both faces:
+// Four items are checked, in both pages:
 //
 //   * a block of code that is being written is kept at its end, where the writing
-//     stands, once it is too long for the room it has;
+//     remains, once it is too long for the space it has;
 //   * a wheel turned over such a block, which the block could not take because it
-//     stood at its end already, does not stop the following of it. That used to
-//     mark the block as gone into, and the writing was followed no more for the
+//     was at its end already, does not stop the following of it. That used to
+//     marker the block as moved into, and the writing was followed no more for the
 //     rest of the answer;
 //   * a block the user puts a place of their own in is held where the user put it,
 //     and bringing it back down to its end takes the following up again;
 //   * the block of a call being written is followed in the same way, and a scroll
-//     the program asked for is never read as the hand of the user.
+//     the program requested is never read as the user moving the pointer.
 //
-// The writing only ever grows, as it does in an answer: a block that is made
-// again is a block that has come in, and the place of the user is not in it.
+// The writing only ever grows, as it does in an answer: a block that is created
+// again is a block that has arrive, and the place of the user is not in it.
 //
-//     node scroll-check.js                            both faces
-//     AN_PAGE=../web/page.html node scroll-check.js      one face
+//     node scroll-check.js                            both pages
+//     AN_PAGE=../web/page.html node scroll-check.js      one page
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -31,8 +31,8 @@ const PAGES = process.env.AN_PAGE
     { name: 'the browser page', file: path.join(__dirname, '..', 'web', 'page.html') }
   ];
 
-// A code fence long enough to go past the room a block of code has, and a command
-// long enough to go past the room the block of a call has.
+// A code fence long enough to go past the space a block of code has, and a command long enough
+// to go past the space the block of a call has.
 const CODE = '```rust\n' + Array.from({ length: 150 },
   (_, i) => 'fn line' + i + '() -> u32 { ' + i + ' }').join('\n') + '\n```';
 const COMMAND = '/bin/sh -c "' + Array.from({ length: 260 },
@@ -40,8 +40,8 @@ const COMMAND = '/bin/sh -c "' + Array.from({ length: 260 },
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// The hand of the user in a block that scrolls: the block is put so many points
-// above its end, and says so, which is what a drag of its scroll bar is.
+// The user moving the pointer in a block that scrolls: the block is put so many points above
+// its end, and records it, which is what a drag of its scroll bar is.
 function goAbove(back) {
   const one = window.__block;
   const most = one.scrollHeight - one.clientHeight;
@@ -50,7 +50,7 @@ function goAbove(back) {
   return Math.round(one.scrollTop);
 }
 
-// The user comes back down to the end of the block.
+// The user returns down to the end of the block.
 function goToEnd() {
   const one = window.__block;
   one.scrollTop = one.scrollHeight;
@@ -88,8 +88,8 @@ function readBlock(held) {
     const start = await page.evaluate(({ CODE, COMMAND }) => {
       const host = document.createElement('div');
       host.className = 'turn t-ai';
-      // The turn goes inside the chat, for the chat covers the page: a wheel
-      // turned over a block has to come to the block and not to the chat.
+      // The turn goes inside the chat, for the chat covers the page: a wheel turned over a
+      // block has to come to the block and not to the chat.
       document.getElementById('thread').appendChild(host);
       window.__host = host;
       window.__code = CODE;
@@ -102,8 +102,8 @@ function readBlock(held) {
         else { feedInk(m); }
         ink.shown = ink.said.length;
         writeSaid();
-        // A block that came in is made again, so the block is looked for again
-        // after every look of the writing.
+        // A block that arrived is rebuilt, so the block is searched for again after every look
+        // of the writing.
         window.__block = host.querySelector('pre.code');
       };
       window.__putCall = (upTo) => {
@@ -124,13 +124,13 @@ function readBlock(held) {
         looked: one ? one.dataset.looked === '1' : null
       };
     }, { CODE, COMMAND });
-    if (!start.made) { say('no block of code was made'); await page.close(); continue; }
-    if (!start.scrollable) { say('the block of code never went past the room it has'); await page.close(); continue; }
-    if (start.room > 4) { say('the block of code being written stands ' + start.room + ' from its end'); }
+    if (!start.made) { say('no block of code was created'); await page.close(); continue; }
+    if (!start.scrollable) { say('the block of code never went past the space it has'); await page.close(); continue; }
+    if (start.room > 4) { say('the block of code being written remains ' + start.room + ' from its end'); }
     if (start.looked) { say('the block of code was held with nothing of the user in it'); }
 
-    // A wheel turned over the block while it stands at its end: the block can take
-    // nothing of it, so the chat moves and nothing of the block is in it.
+    // A wheel turned over the block while it is at its end: the block can take nothing of it,
+    // so the chat moves and nothing of the block is in it.
     const box = await page.evaluate(() => {
       window.__block.scrollIntoView({ block: 'end' });
       const r = window.__block.getBoundingClientRect();
@@ -153,9 +153,9 @@ function readBlock(held) {
     });
     if (step > 4) { say('the block of code stopped following the writing after a wheel'); }
 
-    // A place of the user's in the block: the block is gone into to be read, and
-    // the following halts. The place is put in by hand, for what the block is
-    // asked for is the same scroll event a drag of its scroll bar gives.
+    // A place of the user's in the block: the block is moved into to be read, and the following
+    // halts. The place is put in manually, for what the block is requested is the same scroll
+    // event a drag of its scroll bar gives.
     const above = await page.evaluate(goAbove, 240);
     await sleep(40);
     step = await page.evaluate(() => {
@@ -168,7 +168,7 @@ function readBlock(held) {
     if (!step.looked) { say('a place of the user\'s in the block left the block unheld'); }
     if (step.after > step.at + 4) { say('the block was pulled down while the user read it'); }
 
-    // The user comes back down to the end of the block: it is followed again.
+    // The user returns down to the end of the block: it is followed again.
     await page.evaluate(goToEnd);
     await sleep(40);
     step = await page.evaluate(() => {
@@ -179,13 +179,13 @@ function readBlock(held) {
           (window.__block.scrollTop + window.__block.clientHeight))
       };
     });
-    if (step.looked) { say('the block stayed unheld after the user came back to its end'); }
+    if (step.looked) { say('the block stayed unheld after the user returned to its end'); }
     if (step.room > 4) { say('the block of code did not go back to following its end'); }
 
     // ------------------------------------------------- the block of a call
     step = await page.evaluate(() => {
-      // A turn of its own for the call, so the block of the code that was just
-      // written is left where it is.
+      // A turn of its own for the call, so the block of the code that was just written is left
+      // where it is.
       const host = document.createElement('div');
       host.className = 'turn t-ai';
       document.getElementById('thread').appendChild(host);
@@ -210,12 +210,12 @@ function readBlock(held) {
         held: writing ? !!writing.pinned : null
       };
     }, null);
-    if (!step.made) { say('no block of a call was made'); await page.close(); continue; }
-    if (!step.scrollable) { say('the block of the call never went past the room it has'); }
-    if (step.room > 4) { say('the block of the call stands ' + step.room + ' from its end'); }
+    if (!step.made) { say('no block of a call was created'); await page.close(); continue; }
+    if (!step.scrollable) { say('the block of the call never went past the space it has'); }
+    if (step.room > 4) { say('the block of the call remains ' + step.room + ' from its end'); }
     if (step.held) { say('the block of the call was held with no scroll of the user in it'); }
 
-    // The place the program asked for is never read as the hand of the user.
+    // The place the program requested is never read as the user moving the pointer.
     step = await page.evaluate(() => {
       window.__putCall(window.__command.length * 0.75 | 0);
       const writing = window.__writing();
@@ -225,11 +225,11 @@ function readBlock(held) {
           (window.__block.scrollTop + window.__block.clientHeight))
       };
     });
-    if (step.held) { say('a scroll the program asked for held the block of the call'); }
+    if (step.held) { say('a scroll the program requested held the block of the call'); }
     if (step.room > 4) { say('the block of the call stopped following its writing'); }
 
-    // A place of the user's in the block of the call: the following halts, and the
-    // block stands where the user left it.
+    // A place of the user's in the block of the call: the following halts, and the block is
+    // where the user left it.
     const callAbove = await page.evaluate(goAbove, 120);
     await sleep(40);
     step = await page.evaluate(() => {
@@ -243,7 +243,7 @@ function readBlock(held) {
     if (!step.held) { say('a place of the user\'s in the block of the call left it unheld'); }
     if (step.after > step.at + 4) { say('the block of the call was pulled down over the user'); }
 
-    // The user comes back down to the end of the block: it is followed again.
+    // The user returns down to the end of the block: it is followed again.
     await page.evaluate(goToEnd);
     await sleep(40);
     step = await page.evaluate(() => {
@@ -260,6 +260,6 @@ function readBlock(held) {
     await page.close();
   }
   await browser.close();
-  console.log(faults ? faults + ' faults' : 'the writing is followed in both faces');
+  console.log(faults ? faults + ' errors' : 'the writing is followed in both pages');
   process.exit(faults ? 1 : 0);
 })();

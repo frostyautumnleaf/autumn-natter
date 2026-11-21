@@ -1,10 +1,9 @@
 
-// Check that the mark of an answer that is coming in never ends up in the
-// middle of the words. The page is loaded as it is, with no bridge and no
-// engine: only the writer of the live answer is driven, a few characters at a
-// time, and after every look the words behind the mark are looked at. The words
-// of the answer hold a heading, a list, a rule and links, so the mark is looked
-// at behind every kind of block.
+// Check that the marker of an answer that is arriving never ends up in the middle of the text.
+// The page is loaded as it is, with no bridge and no engine: only the writer of the live answer
+// is driven, a few characters at a time, and after every look the text behind the marker are
+// checked. The text of the answer hold a heading, a list, a rule and links, so the marker is
+// checked behind every type of block.
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
@@ -43,22 +42,21 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
       writeSaid();
       var caret = ink.caret;
       if (!caret) { faults.push('the mark is gone at ' + shown); continue; }
-      if (!caret.parentNode) { faults.push('the mark stands in nothing at ' + shown); continue; }
-      // Nothing of the words may stand behind the mark.
+      if (!caret.parentNode) { faults.push('the marker is in nothing at ' + shown); continue; }
+      // Nothing of the text may be behind the marker.
       var after = caret.nextSibling;
       while (after) {
         var text = after.textContent || '';
         if (text.replace(/\s+$/g, '') !== '') {
-          faults.push('words stand behind the mark at ' + shown + ': ' + JSON.stringify(text.slice(0, 30)));
+          faults.push('text is behind the marker at ' + shown + ': ' + JSON.stringify(text.slice(0, 30)));
           break;
         }
         after = after.nextSibling;
       }
-      // The words before the mark are the words of the answer so far, and all
-      // of them: the blocks of the part written, joined.
-      // The words of the part written, as the user sees them: the blocks
-      // joined, with the marks of the writing taken out and the words of a link
-      // standing for the link.
+      // The text before the marker is the text of the answer so far, and all of it: the blocks
+      // of the part written, joined. The text of the part written, as the user sees it: the
+      // blocks joined, with the markers of the writing taken out and the text of a link
+      // remaining for the link.
       var made = blocks(story.slice(0, shown));
       var want = '';
       var said = function (list) {
@@ -78,12 +76,12 @@ const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
       said(made);
       var got = plain.textContent || '';
       if (got !== want) {
-        faults.push('the words of the page differ at ' + shown + ': ' + JSON.stringify(got.slice(-40)) + ' not ' + JSON.stringify(want.slice(-40)));
+        faults.push('the text of the page differ at ' + shown + ': ' + JSON.stringify(got.slice(-40)) + ' not ' + JSON.stringify(want.slice(-40)));
       }
     }
     return faults;
   });
   await browser.close();
   if (bad.length) { console.log('FAULTS\n' + bad.slice(0, 8).join('\n')); process.exit(1); }
-  console.log('the mark stayed behind the words at every look');
+  console.log('the marker stayed behind the text at every look');
 })();

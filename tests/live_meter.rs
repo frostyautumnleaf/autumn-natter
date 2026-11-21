@@ -1,18 +1,18 @@
-// A live check of the meter of the context when an ask is stopped, not for the
+// A live check of the context meter when a request is stopped, not for the
 // repository.
 //
 // The server here is not llama.cpp but `probe/meter/llama-server`: a script that
-// speaks a room of 91,000 words on every piece of a slow answer, out of an ask of
-// a line or two, and that speaks the number of the whole talk only if nobody has
-// gone away. The shape of a long working chat, in which the measure of the words
-// that stand reads at a hundredth of what the server counts of the same talk.
+// speaks a space of 91,000 text on every piece of a slow answer, out of a request of
+// a line or two, and that speaks the number of the whole context only if nobody has
+// removed away. The form of a long working chat, in which the measure of the text
+// that remain reads at a hundredth of what the server counts of the same conversation.
 //
-// The check is the fault of the meter that fell. Stop the answer in the middle and
-// the ask speaks no number at its end. The meter is then kept by `meter_after` on
-// the room of the words the server was sent, which the pieces of the answer spoke,
-// and it does not fall to the measure of the words -- which would read as a chat
-// that had the whole of the room to spare -- and it does not keep the number of the
-// writing that was stopped, for a stop takes words away.
+// The check is the error in the meter that fell. Stop the answer in the middle and
+// the request speaks no number at its end. The meter is then kept by `meter_after` on
+// the size of the text the server was sent, which the parts of the answer spoke,
+// and it does not fall to the measure of the text -- which would read as a chat
+// that had all of the space to spare -- and it does not keep the number of the
+// writing that was stopped, for a stop takes text away.
 //
 //     cargo test --test live_meter -- --nocapture --test-threads=1
 
@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-// The numbers the script stands at, which the check is weighed against.
+// The numbers the script is at, which the check is weighed against.
 const SENT: u64 = 91_000;
 
 // Wait until a look gives an answer, or until five minutes have passed.
@@ -46,8 +46,8 @@ fn a_stopped_ask_leaves_the_meter_on_the_words_the_server_was_sent() {
     std::fs::create_dir_all(&data).expect("a place for the program data");
     config::set_data_dir(data);
 
-    // The model file is only wanted so the engine has a model to choose: the
-    // server under test is the script, and it reads no model at all.
+    // The model file is only wanted so the engine has a model to choose: the server under test
+    // is the script, and it reads no model at all.
     let model = root
         .join("testing_model/Qwen3.5-9B-Q4_K_M.gguf")
         .canonicalize()
@@ -71,16 +71,16 @@ fn a_stopped_ask_leaves_the_meter_on_the_words_the_server_was_sent() {
     engine.new_chat();
     engine.prompt("Tell me a long story.".to_string(), Vec::new());
 
-    // The meter moves with the answer: the pieces of it speak the room of the talk,
-    // and the writing of the model climbs above the words that were sent.
+    // The meter moves with the answer: the parts of it speak the size of the context, and the
+    // writing of the model climbs above the text that was sent.
     let climbing = wait_for("the meter to move with the answer", || {
         let s = engine.snapshot();
         (s.generating && s.context_used > SENT + 200).then_some(s.context_used)
     });
     println!("the meter climbed to {} while the model wrote", climbing);
 
-    // The hand goes up. The way back to the server is closed before the last piece
-    // comes, so the ask speaks no number of the talk at its end.
+    // The pointer goes up. The way back to the server is closed before the last piece comes, so
+    // the request speaks no number of the conversation at its end.
     engine.cancel();
     let after = wait_for("the answer to come to an end", || {
         let s = engine.snapshot();
@@ -102,36 +102,36 @@ fn a_stopped_ask_leaves_the_meter_on_the_words_the_server_was_sent() {
         after.status
     );
 
-    // The meter stands on the room of the words the server was sent, and not on the
-    // measure of the words that stand: that measure would read as a chat with the
-    // whole of the room to spare, which was the fault.
+    // The meter is on the size of the text the server was sent, and not on the measure of the
+    // text that remains: that measure would read as a chat with all of the space to spare,
+    // which was the error.
     assert!(
         after.context_used > SENT / 2,
-        "the meter fell to the measure of the words: {}",
+        "the meter fell to the measure of the text: {}",
         after.context_used
     );
     assert_eq!(
         after.context_used, SENT,
         "the meter neither fell nor kept the writing that was stopped"
     );
-    // And the number of the stopped writing is not kept over the talk: a stop takes
-    // the words it had written away.
+    // And the number of the stopped writing is not kept over the conversation: a stop takes the
+    // text it had written away.
     assert!(
         after.context_used < climbing,
-        "the meter kept the number of a writing that is gone: {} against {}",
+        "the meter kept the number of a writing that is removed: {} against {}",
         after.context_used,
         climbing
     );
 
-    // The words the model had written stand in the chat, as they always have: the
-    // measure of them rides with the number of the words sent, and the next ask
-    // makes the server speak again and takes the meter where it stands.
+    // The text the model had written is in the chat, as it always has: the measure of it
+    // rides with the number of the text sent, and the next ask makes the server speak again and
+    // takes the meter where it is.
     let words = after
         .messages
         .last()
         .map(|m| m.body.clone())
         .unwrap_or_default();
-    println!("the stopped answer stands at {} characters", words.chars().count());
+    println!("the stopped answer is at {} characters", words.chars().count());
     assert!(!words.is_empty(), "the stopped answer left nothing behind");
 
     engine.shutdown();

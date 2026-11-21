@@ -1,12 +1,12 @@
-// A look at the Custom system prompt section of the Program tab, in both faces.
+// A look at the Custom system prompt section of the Program tab, in both pages.
 //
 // The section holds the prompt of the user and the table of the pre-written
-// prompts. The words of a prompt do not stand in the state of the page: the
-// table is asked for, and the words of one prompt are asked for when the user
+// prompts. The text of a prompt is not in the state of the page: the
+// table is requested, and the text of one prompt is requested when the user
 // opens it to read. This tool answers those two asks itself, so the section can
-// be looked at with no engine behind it: the bridge of the page is not used.
+// be checked with no engine behind it: the bridge of the page is not used.
 //
-//   node prompt-check.js            # both faces
+//   node prompt-check.js            # both pages
 'use strict';
 const path = require('path');
 const puppeteer = require('puppeteer');
@@ -16,8 +16,8 @@ const FACES = [
   { name: 'browser', file: path.resolve(__dirname, '..', 'web', 'page.html') }
 ];
 
-// What the check asks the page, with the two answers of the program standing in
-// for the bridge. The marks stand on the second prompt alone.
+// What the check asks the page, with the two answers of the program remaining in for the
+// bridge. The markers are on the second prompt alone.
 const LOOK = function () {
   const TABLE = [
     { id: 'engineer', name: 'Software Engineer Writing Style', summary: 'Plain terms.' },
@@ -47,8 +47,8 @@ const LOOK = function () {
           .filter(function (one) { return one !== ''; }),
         userWords: field.value
       };
-      // The marks are read back in the order of the table: the mark put on here
-      // stands first, and the mark the settings gave stands after it.
+      // The markers are read back in the order of the table: the marker put on here remains
+      // first, and the marker the settings gave is after it.
       const first = box.querySelector('input[data-prompt="engineer"]');
       first.checked = true;
       shown.ids = checkedPromptIds();

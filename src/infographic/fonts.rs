@@ -1,18 +1,17 @@
 // The letters of an infographic, and what they measure.
 //
-// The layout of a frame must know how wide a word is before the word is drawn.
-// If the guess and the picture disagree, the words run out of their box, and a
-// video of broken boxes is worse than no video. So the measure here is the same
-// reading the renderer takes: the fonts of the machine are found once with
-// `fontdb`, and each letter is measured with `ttf-parser` from the same face the
-// renderer will use.
+// The layout of a frame must know how wide a word is before the word is drawn. If the guess and
+// the image disagree, the text run out of their box, and a video of broken boxes is worse than
+// no video. So the measure here is the same reading the renderer takes: the fonts of the
+// computer are found once with `fontdb`, and each letter is measured with `ttf-parser` from the
+// same font the renderer will use.
 //
-// A machine with no fonts at all is still answered with a number, not with a
-// fault. The estimate is the width of a plain sans letter, and a frame built on
-// it is close enough to look at.
+// A computer with no fonts at all is still answered with a number, not with an error. The
+// estimate is the width of a plain sans letter, and a frame built on it is close enough to look
+// at.
 //
-// The database is kept behind an `Arc`, because the renderer takes it too. It is
-// read only, never changed after the fonts are made.
+// The database is kept behind an `Arc`, because the renderer takes it too. It is read only,
+// never changed after the fonts are created.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -21,8 +20,8 @@ use std::sync::Arc;
 use fontdb::{Database, Family, ID, Query, Style, Weight};
 use ttf_parser::Face;
 
-// The families the program asks for by name. The first one the machine has wins.
-// A name nothing has is answered by the generic family at the end of the list.
+// The families the program requests by name. The first one the computer has wins. A name
+// nothing has is answered by the generic family at the end of the list.
 const BODIES: &[&str] = &[
     "Inter",
     "DejaVu Sans",
@@ -46,28 +45,27 @@ const MONOS: &[&str] = &[
     "Courier New",
 ];
 
-// The width of a letter with no face behind it, as a share of the size.
+// The width of a letter with no font behind it, as a share of the size.
 const GUESSED: f64 = 0.54;
-// The height of one line with no face behind it, as a share of the size.
+// The height of one line with no font behind it, as a share of the size.
 const GUESSED_LINE: f64 = 1.22;
 
 // The fonts of one run of the renderer.
 pub struct Fonts {
-    // The fonts of the machine, read only.
+    // The fonts of the computer, read only.
     db: Arc<Database>,
-    // The family of the body of the frames, as the machine named it.
+    // The family of the body of the frames, as the computer named it.
     pub body: String,
-    // The family of the heads. Most machines have no separate head family, and
-    // then the head is the body at a heavier weight.
+    // The family of the headers. Most machines have no separate header family, and then the
+    // header is the body at a heavier weight.
     pub heading: String,
     // The family of the numbers and of the code.
     pub mono: String,
-    // Which face was chosen for one family, weight and slant. Nothing is
-    // searched twice.
+    // Which font was chosen for one family, weight and slant. Nothing is searched twice.
     chosen: RefCell<HashMap<(String, u16, bool), Option<ID>>>,
-    // The advance of one letter of one face, as a share of the size.
+    // The advance of one letter of one font, as a share of the size.
     advances: RefCell<HashMap<(ID, char), f64>>,
-    // The height of one face: the rise, the fall below the line, and the gap.
+    // The height of one font: the rise, the fall below the line, and the gap.
     heights: RefCell<HashMap<ID, (f64, f64, f64)>>,
 }
 
@@ -78,21 +76,19 @@ impl Default for Fonts {
 }
 
 impl Fonts {
-    // The fonts of this machine. Nothing is asked of the network and nothing is
-    // written.
+    // The fonts of this computer. Nothing is asked of the network and nothing is written.
     pub fn new() -> Self {
         let mut db = Database::new();
         db.load_system_fonts();
 
         let body = first_family(&db, BODIES).unwrap_or_else(|| "sans-serif".to_string());
         let mono = first_family(&db, MONOS).unwrap_or_else(|| "monospace".to_string());
-        // A head family is not looked for: a head is the body of the frame made
-        // heavier, which is what every skin of the program does too.
+        // A header family is not searched for: a header is the body of the frame made heavier,
+        // which is what every theme of the program does too.
         let heading = body.clone();
 
-        // The generic names are pointed at the families that were found, so a
-        // frame that asks for `sans-serif` gets the same letters as one that
-        // asks for the body by name.
+        // The generic names are pointed at the families that were found, so a frame that
+        // requests `sans-serif` gets the same letters as one that requests the body by name.
         if first_family(&db, BODIES).is_some() {
             db.set_sans_serif_family(&body);
             db.set_serif_family(&body);
@@ -112,14 +108,14 @@ impl Fonts {
         }
     }
 
-    // The fonts, for the renderer. The frames ask for a family by name, and the
-    // renderer finds it here.
+    // The fonts, for the renderer. The frames request a family by name, and the renderer finds
+    // it here.
     pub fn database(&self) -> Arc<Database> {
         self.db.clone()
     }
 
-    // The face for one family, weight and slant. The nearest weight of the
-    // family is taken when the asked weight is not on the machine.
+    // The font for one family, weight and slant. The nearest weight of the family is taken when
+    // the asked weight is not on the computer.
     fn face(&self, family: &str, weight: u16, italic: bool) -> Option<ID> {
         let key = (family.to_ascii_lowercase(), weight, italic);
         if let Some(found) = self.chosen.borrow().get(&key) {
@@ -136,9 +132,9 @@ impl Fonts {
             style: if italic { Style::Italic } else { Style::Normal },
             ..Query::default()
         };
-        // A family with no slant is often asked for an italic. When the machine
-        // has no slanted face, the upright one is used and the renderer slants
-        // it, so the measure of the two is close enough.
+        // A family with no slant is often requested an italic. When the computer has no slanted
+        // font, the upright one is used and the renderer slants it, so the measure of the two
+        // is close enough.
         let found = self.db.query(&asked).or_else(|| {
             let plain = Query {
                 style: Style::Normal,
@@ -150,7 +146,7 @@ impl Fonts {
         found
     }
 
-    // The rise, the fall and the gap of one face, as shares of the size.
+    // The rise, the fall and the gap of one font, as shares of the size.
     fn height(&self, id: ID) -> (f64, f64, f64) {
         if let Some(one) = self.heights.borrow().get(&id) {
             return *one;
@@ -173,7 +169,7 @@ impl Fonts {
         read
     }
 
-    // The width of one letter of one face, as a share of the size.
+    // The width of one letter of one font, as a share of the size.
     fn advance(&self, id: ID, letter: char) -> f64 {
         let key = (id, letter);
         if let Some(one) = self.advances.borrow().get(&key) {
@@ -186,8 +182,8 @@ impl Fonts {
                     let upm = face.units_per_em().max(1) as f64;
                     match face.glyph_index(letter).and_then(|g| face.glyph_hor_advance(g)) {
                         Some(wide) => wide as f64 / upm,
-                        // No letter of that shape: a space is still measured for
-                        // a space, and anything else takes the plain width.
+                        // No letter of that form: a space is still measured for a space, and
+                        // anything else takes the plain width.
                         None => {
                             if letter == ' ' {
                                 face.glyph_index(' ')
@@ -207,7 +203,7 @@ impl Fonts {
         read
     }
 
-    // How wide a word is, in the picture.
+    // How wide a word is, in the image.
     pub fn width(&self, text: &str, family: &str, weight: u16, italic: bool, size: f64) -> f64 {
         if text.is_empty() {
             return 0.0;
@@ -224,9 +220,9 @@ impl Fonts {
         total
     }
 
-    // The height of one line of a family, as a share of the size. The renderer
-    // puts the lines of a paragraph this far apart, and the layout must count
-    // the same space or the paragraph runs out of its box.
+    // The height of one line of a family, as a share of the size. The renderer puts the lines
+    // of a paragraph this far apart, and the layout must count the same space or the paragraph
+    // runs out of its box.
     pub fn line_em(&self, family: &str, weight: u16) -> f64 {
         match self.face(family, weight, false) {
             Some(id) => {
@@ -242,9 +238,9 @@ impl Fonts {
         }
     }
 
-    // The words of a text, cut into lines that fit a width. A new line in the
-    // words is kept. A single word wider than the width is cut in the middle of
-    // the letters, so nothing is ever drawn outside its box.
+    // The text of a text, cut into lines that fit a width. A new line in the text is kept. A
+    // single word wider than the width is cut in the middle of the letters, so nothing is ever
+    // drawn outside its box.
     pub fn wrap(
         &self,
         text: &str,
@@ -308,8 +304,8 @@ impl Fonts {
     }
 }
 
-// One word, cut into pieces that fit. The pieces are letters, not words, for a
-// word alone is what does not fit.
+// One word, cut into parts that fit. The parts are letters, not text, for a word alone is what
+// does not fit.
 fn cut(
     word: &str,
     family: &str,
@@ -336,7 +332,7 @@ fn cut(
     }
 }
 
-// The first of these family names the machine has, as the machine named it.
+// The first of these family names the computer has, as the computer named it.
 fn first_family(db: &Database, names: &[&str]) -> Option<String> {
     for want in names {
         let asked = Query {
@@ -347,8 +343,8 @@ fn first_family(db: &Database, names: &[&str]) -> Option<String> {
             return Some((*want).to_string());
         }
     }
-    // Nothing on the list. The first family the machine has at all is used, so
-    // the frames of a bare container still carry real letters.
+    // Nothing on the list. The first family the computer has at all is used, so the frames of a
+    // bare container still carry real letters.
     for info in db.faces() {
         if let Some((named, _)) = info.families.first() {
             return Some(named.clone());
@@ -357,8 +353,8 @@ fn first_family(db: &Database, names: &[&str]) -> Option<String> {
     None
 }
 
-// The weight a word of the script means. A number is taken as it is. An empty
-// word is the plain weight.
+// The weight a note about the script means. A number is taken as it is. An empty word is the
+// plain weight.
 pub fn weight_of(word: &str) -> u16 {
     match word.trim().to_ascii_lowercase().as_str() {
         "" | "regular" | "normal" | "book" => 400,
@@ -402,7 +398,7 @@ mod tests {
         for one in &lines {
             assert!(!one.trim().is_empty());
         }
-        // A new line in the words is kept.
+        // A new line in the text is kept.
         let kept = fonts.wrap("a\nb", "x", 400, false, 40.0, 4000.0);
         assert_eq!(kept, vec!["a".to_string(), "b".to_string()]);
     }

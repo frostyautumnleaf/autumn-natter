@@ -1,25 +1,23 @@
-// The badges that hold a drop-down answer two places of themselves. The right of
-// the badge, from its arrow to its edge, is the way into the menu; the rest of
-// the badge is the switch of the thing it stands for, and where that thing is a
-// group of switches with none of them on, the badge opens the menu instead of
-// switching nothing. The right button of the mouse opens the menu anywhere over
-// the badge. The jail is put on and off from its badge and is no line in the
+// The badges that hold a drop-down answer two places of themselves. The right of the badge,
+// from its arrow to its edge, is the way into the menu; the rest of the badge is the switch of
+// the item it means, and where that item is a group of switches with none of them on, the badge
+// opens the menu instead of switching nothing. The right button of the mouse opens the menu
+// anywhere over the badge. The sandbox is put on and off from its badge and is no line in the
 // menu of it, and the menu of the tools holds no line for the badge itself.
 //
-//   node badge-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node badge-check.js
+// node badge-check.js AN_PAGE=web/page.html AN_FETCH=1 node badge-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
 const PAGE = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const USE_FETCH = process.env.AN_FETCH === '1';
 
-// The state of the engine, as the record of web::state. `tools` says whether the
-// kinds of tool stand switched on, and `all` whether the badge of the tools is.
+// The state of the engine, as the record of web::state. `tools` reports whether the types of
+// tool remain switched on, and `all` whether the badge of the tools is.
 function stateOf(tools, all) {
   const held = {};
   ['commands', 'files', 'picture', 'hand_out', 'display', 'ask', 'suggest', 'steps',
-   'rerun', 'infographics'].forEach(function (part) {
+   'infographics', 'tasks'].forEach(function (part) {
     held[part] = tools;
   });
   return {
@@ -103,8 +101,8 @@ async function start(state) {
   return { browser: browser, page: page, errors: errors };
 }
 
-// Where the two places of a badge are: the left of it, over its mark, and the
-// right of it, over its arrow and the air to the edge of the badge.
+// Where the two places of a badge are: the left of it, over its marker, and the right of it,
+// over its arrow and the air to the edge of the badge.
 async function places(page, sel) {
   return page.evaluate(function (sel) {
     var badge = document.querySelector(sel);
@@ -130,8 +128,8 @@ const words = function (page, id) {
   }, id);
 };
 const posted = function (page) {
-  // The page asks for the lists of models and repositories when it comes up, so
-  // those are no answer to what a badge did.
+  // The page requests the lists of models and repositories when it appears, so those are no
+  // answer to what a badge did.
   return page.evaluate(function () {
     return window.__posted.filter(function (one) {
       return one.path !== '/api/lists' && one.path !== '/api/state';
@@ -140,7 +138,7 @@ const posted = function (page) {
 };
 
 async function main() {
-  // The chat that offers its tools: the badge has something to switch.
+  // The chat that proposes its tools: the badge has something to switch.
   let run = await start(stateOf(true, true));
   const where = await places(run.page, '#code');
   await run.page.mouse.click(where.left, where.y);
@@ -149,7 +147,7 @@ async function main() {
   if (went.length !== 1 || went[0].path !== '/api/code' || went[0].body.on !== false) {
     throw new Error('the badge of the tools did not switch all of them: ' + JSON.stringify(went));
   }
-  if (await open(run.page, 'codemenu')) { throw new Error('the menu came up over a switch'); }
+  if (await open(run.page, 'codemenu')) { throw new Error('the menu appeared over a switch'); }
 
   await run.page.mouse.click(where.arrow, where.y);
   await new Promise(function (r) { setTimeout(r, 120); });
@@ -158,15 +156,15 @@ async function main() {
   if (went.length !== 1) { throw new Error('the arrow switched as well as opened: ' + JSON.stringify(went)); }
   const lines = await words(run.page, 'codemenu');
   if (lines.indexOf('All the tools') >= 0) { throw new Error('the badge is a line of its own menu'); }
-  // Every kind of tool of the program is a line of the menu, in the order the
-  // list of the lines gives them. The line of the handoff summary stands only
-  // while a summary is chosen, so it is not looked for here. The steps of an
-  // answer and the running of a failed call again are kinds of their own, added
-  // after the menu was first drawn, and they stand between the offers of the
-  // next road and the making of an infographic.
+  // Every type of tool of the program is a line of the menu, in the order the list of the lines
+  // gives them. The line of the handoff summary remains only while a summary is chosen, so it
+  // is not searched for here. The steps of an answer and the running of a failed call again are
+  // types of their own, added after the menu was first drawn, and they remain between the
+  // proposes of the next path and the making of an infographic. The eight tools of the tasks of a
+  // working directory are a group of their own, and remain last.
   const named = ['Terminal commands', 'File management', 'View images', 'Offer files',
-    'Show files', 'Ask questions', 'Suggest next steps', 'Show steps', 'Rerun failed calls',
-    'Create infographics'];
+    'Show files', 'Ask questions', 'Suggest next steps', 'Show steps',
+    'Create infographics', 'Tasks suite'];
   if (lines.join('|') !== named.join('|')) {
     throw new Error('the menu of the tools is not named for what it lets through: ' + lines);
   }
@@ -194,15 +192,15 @@ async function main() {
   if (run.errors.length) { throw new Error('page faults: ' + run.errors.join(' | ')); }
   await run.browser.close();
 
-  // The jail: the badge puts it on and off whatever its three settings say, the
-  // right of the badge opens the settings, and the jail is no line in the menu.
+  // The sandbox: the badge puts it on and off whatever its three settings say, the right of the
+  // badge opens the settings, and the sandbox is no line in the menu.
   run = await start(stateOf(true, true));
   const sb = await places(run.page, '#sandbox');
   await run.page.mouse.click(sb.left, sb.y);
   await new Promise(function (r) { setTimeout(r, 120); });
   went = await posted(run.page);
   if (went.length !== 1 || went[0].path !== '/api/sandbox' || went[0].body.on !== true) {
-    throw new Error('the badge of the sandbox did not put the jail on: ' + JSON.stringify(went));
+    throw new Error('the badge of the sandbox did not put the sandbox on: ' + JSON.stringify(went));
   }
   if (await open(run.page, 'sandboxmenu')) {
     throw new Error('the badge of the sandbox opened its menu instead of switching');
@@ -211,13 +209,13 @@ async function main() {
   await new Promise(function (r) { setTimeout(r, 120); });
   if (!await open(run.page, 'sandboxmenu')) { throw new Error('the arrow of the sandbox lost its way'); }
   const sandboxLines = await words(run.page, 'sandboxmenu');
-  if (sandboxLines.indexOf('Sandbox') >= 0) { throw new Error('the jail is a line of its own menu'); }
-  if (sandboxLines.indexOf('Network access') < 0) { throw new Error('the gates are gone from the menu'); }
+  if (sandboxLines.indexOf('Sandbox') >= 0) { throw new Error('the sandbox is a line of its own menu'); }
+  if (sandboxLines.indexOf('Network access') < 0) { throw new Error('the gates are removed from the menu'); }
   if (run.errors.length) { throw new Error('page faults: ' + run.errors.join(' | ')); }
   await run.browser.close();
 
-  // The chat whose tools are all taken away: the badge has nothing to switch, so
-  // it opens the menu where the switches stand.
+  // The chat whose tools are all removed: the badge has nothing to switch, so it opens the menu
+  // where the switches remain.
   run = await start(stateOf(false, true));
   const none = await places(run.page, '#code');
   await run.page.mouse.click(none.left, none.y);
@@ -231,7 +229,7 @@ async function main() {
   await run.browser.close();
 
   console.log('the right of a badge opens its menu and the rest of it switches,'
-    + ' the right button opens the menu, the jail is switched from its badge and is'
+    + ' the right button opens the menu, the sandbox is switched from its badge and is'
     + ' no line of its menu, and a badge with nothing switched on opens the menu');
 }
 

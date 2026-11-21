@@ -1,9 +1,9 @@
-// Graphics devices of the machine.
+// Graphics devices of the computer.
 //
-// The best source is llama-server itself, because it lists the devices that
-// llama.cpp can really use. When that is not possible, the code reads
-// nvidia-smi or the /sys tree. A machine with no graphics device gets one CPU
-// entry, so the device list in the user interface is never empty.
+// The best source is llama-server itself, because it lists the devices that llama.cpp can
+// really use. When that is not possible, the code reads nvidia-smi or the /sys tree. A computer
+// with no graphics device gets one CPU entry, so the device list in the user interface is never
+// empty.
 
 use std::fs;
 use std::path::Path;
@@ -11,9 +11,9 @@ use std::time::Duration;
 
 use crate::util;
 
-// One device. The device field is the short name llama.cpp expects in
-// --device. The name field is what the user reads. A CPU row is not an
-// accelerator, so it never appears in a device list.
+// One device. The device field is the short name llama.cpp expects in --device. The name field
+// is what the user reads. A CPU row is not an accelerator, so it never appears in a device
+// list.
 #[derive(Clone, Debug)]
 pub struct Gpu {
     pub device: String,
@@ -38,7 +38,7 @@ impl Gpu {
     }
 }
 
-// Look for the devices llama.cpp sees. The path is the llama-server binary.
+// Search for the devices llama.cpp sees. The path is the llama-server binary.
 pub fn from_llama(server_path: &Path) -> Vec<Gpu> {
     let capture = util::capture(
         &server_path.display().to_string(),
@@ -51,7 +51,7 @@ pub fn from_llama(server_path: &Path) -> Vec<Gpu> {
     parse_list_devices(&capture.out)
 }
 
-// Read a line such as "  CUDA0: NVIDIA GeForce RTX 4090 (24564 MiB, 23000 MiB free)".
+// Read a line such as " CUDA0: NVIDIA GeForce RTX 4090 (24564 MiB, 23000 MiB free)".
 pub fn parse_list_devices(text: &str) -> Vec<Gpu> {
     let mut out: Vec<Gpu> = Vec::new();
     for line in text.lines() {
@@ -167,8 +167,8 @@ fn from_sysfs() -> Vec<Gpu> {
         };
         let number = card.trim_start_matches("card").to_string();
         out.push(Gpu {
-            // A sysfs card has no llama.cpp name, so the name is not usable in
-            // --device. llama.cpp is asked for the names before it matters.
+            // A sysfs card has no llama.cpp name, so the name is not usable in --device.
+            // llama.cpp is requested the names before it matters.
             device: format!("{}{}", if maker == "AMD" { "gfx" } else { "dev" }, number),
             name: format!("{} GPU {}", maker, number),
             memory_mb,
@@ -179,7 +179,7 @@ fn from_sysfs() -> Vec<Gpu> {
     out
 }
 
-// A machine without a graphics device still needs one row in the list.
+// A computer without a graphics device still needs one row in the list.
 fn cpu_only() -> Vec<Gpu> {
     let memory_mb = read_mem_total_kb().map(|kb| kb / 1024).unwrap_or(0);
     vec![Gpu {
@@ -206,8 +206,8 @@ fn read_mem_total_kb() -> Option<u64> {
     None
 }
 
-// All devices of the machine, in a stable order.
-// server_path is the llama-server binary, and may be missing.
+// All devices of the computer, in a stable order. server_path is the llama-server binary, and
+// may be missing.
 pub fn detect(server_path: Option<&Path>) -> Vec<Gpu> {
     let mut devices = Vec::new();
     if let Some(path) = server_path {
