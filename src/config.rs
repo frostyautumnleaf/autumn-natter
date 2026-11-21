@@ -426,6 +426,13 @@ pub struct Config {
     // splashes are placed anew each time, so the same spot is never splashed twice over.
     #[serde(default = "on_by_default")]
     pub chat_rain_splash: bool,
+    // Whether the cursor uncovers a field of random digits in the background of the chat. The
+    // digits stand in rows and columns, in the colour of the leaf mark, and the soft round aura
+    // about the pointer reveals them for as long as the pointer rests there: the edge of the
+    // aura is feathered, so the digits come in with no line drawn anywhere, and it breathes
+    // while the pointer stands still. All of it is on the screen, and nothing is stored.
+    #[serde(default = "on_by_default")]
+    pub chat_cursor_digits: bool,
     // Carry a message you sent into the chat with a little movement: the text leave the box, go
     // over the chat and unfold into the message itself. The movement is only on the screen.
     // Nothing about the sending waits for it, and a chat informed to stay still shows the
@@ -858,6 +865,7 @@ impl Default for Config {
             chat_userline: true,
             chat_background: String::from(BACKGROUND_NONE),
             chat_rain_splash: true,
+            chat_cursor_digits: true,
             chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,
@@ -1369,6 +1377,8 @@ mod tests {
         assert!(cfg.chat_userline);
         assert_eq!(cfg.chat_background, BACKGROUND_NONE);
         assert!(cfg.chat_rain_splash);
+        assert!(cfg.chat_cursor_digits);
+        assert!(cfg.chat_send_anim);
         assert!(cfg.chat_send_anim);
         assert!(cfg.chat_context_files);
         // The compressed form is requested, not given: a config that shows nothing keeps the
@@ -1811,5 +1821,6 @@ mod tests {
         assert_eq!(sanitize_background(""), BACKGROUND_NONE);
         assert_eq!(Config::default().chat_background, BACKGROUND_NONE);
         assert!(Config::default().chat_rain_splash);
+        assert!(Config::default().chat_cursor_digits);
     }
 }

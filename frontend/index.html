@@ -390,6 +390,17 @@ body.home .stage { display: none; }
   position: absolute; inset: 0; z-index: 6; width: 100%; height: 100%;
   pointer-events: none;
 }
+/*
+ * The field of random digits the cursor uncovers in the background of the chat. It is the
+ * deepest thing in the place the chat is in: under the rain and the leaves, under every
+ * message, and it never catches the pointer. Only the digits the aura of the cursor reaches
+ * are ever drawn, and the edge of that aura is feathered, so the numbers come in with no line
+ * drawn anywhere. */
+.digits {
+  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
+  pointer-events: none;
+}
+
 .thread {
   position: absolute; inset: 0; z-index: 1; overflow-y: auto; overscroll-behavior: contain;
   padding: 22px 0 26px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
@@ -3034,6 +3045,10 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
     <!--   What falls behind the text of the chat. The canvas covers all of the place the chat is in, is
       under every message, and is informed by the Chatting setting which way it falls. It never
       catches the pointer. -->
+    <!--   The field of random digits the cursor uncovers. It is the deepest thing in the chat, and
+      only the numbers the aura about the pointer reaches are drawn; the Chatting setting decides
+      whether there are any at all. -->
+    <canvas class="digits" id="digits" aria-hidden="true"></canvas>
     <canvas class="fall" id="fall" aria-hidden="true"></canvas>
     <!--   The chapters the model flagged. They remain out of the text, on a line at the left of the
       chat: one node for the start of one chapter. -->
@@ -3488,6 +3503,10 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
         <div class="fld hidden" id="fRainSplashRow"><span class="lbl">Rain splashes</span>
           <span class="sub">Where the rain meets the chat composer box, or a block of the chat, it breaks into a splash of squares - over the top edge of the block it hits, in a place drawn anew each time, so no two splashes are as well. The splash is only ever on the screen: nothing is heard, and nothing of a block moves with it. Turn this off to have the rain fall past the blocks untouched.</span>
           <div class="ctl"><input id="fRainSplash" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Digits under the cursor</span>
+          <span class="sub">While the cursor rests in the chat, a soft round aura about it uncovers a field of random digits in the background: rows and columns of numbers in the colour of the leaf mark, coming in and going out with no edge to them. The aura breathes in and out while the cursor stands still. Turn this off to keep the background plain. A system that asks for little movement gets none of this.</span>
+          <div class="ctl"><input id="fCursorDigits" type="checkbox"></div></div>
+
 
         <div class="sec">Custom system prompt</div>
         <div class="fld wide"><span class="lbl">System prompt</span>
@@ -3934,7 +3953,7 @@ var cur = null;        // the last state
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
   highlight: true, bold: true, colour: true, seamless: false, chapters: true, userline: true,
   send_anim: true, paste: 6000, width: 780, background: 'none',
-  rainSplash: true };
+  rainSplash: true, digits: true };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -4132,6 +4151,10 @@ function readChatting(s) {
   // The going is asked after again here, so a change of the setting is followed without the
   // page being opened afresh.
   rainSplashSetting(chat.rain_splash !== false);
+  // Whether the cursor uncovers a field of random digits in the background of the chat. The
+  // going is asked after again here, so a change of the setting is followed without the page
+  // being opened afresh.
+  digitsSetting(chat.cursor_digits !== false);
 }
 
 // ------------------------------------------------------------ the background
@@ -5451,6 +5474,266 @@ function fillRepos(s) {
   }
 }
 
+
+// ------------------------------------------------------- the digits under the cursor
+//
+// A field of random digits in the background of the chat, which the cursor uncovers.
+//
+// The Chatting setting is at "digits", and it remains on unless the user turns it off. The
+// digits stand in rows and columns over all of the place the chat is in, one to one square of
+// them, in the colour of the leaf mark of the program. Nothing of the field is seen at large:
+// the soft round aura about the pointer is what uncovers it. The edge of the aura is feathered
+// - the numbers fade out over the last half of its reach rather than stop at a circle - so the
+// reveal reads as light and not as a hole cut in the background. The aura comes up over a second
+// while the cursor is over the chat, and goes down again when the cursor has left it.
+//
+// While the cursor stands at one place the aura breathes: its edge moves in and out by a few per
+// cent of its reach, and the outline of the aura wanders with it, so the numbers are never
+// unwaveringly still. The breathing comes in over the first moment of standing still, and is
+// gone again the moment the cursor moves.
+//
+// The digits themselves are drawn anew every so often: a few squares of the field are given
+// another number between the frames, which is what makes the field read as a code that is being
+// written rather than as a picture of numbers.
+
+var DIGIT_CELL = 18;     // the square one digit stands in, in CSS pixels
+var DIGIT_TYPE = 13;     // the size of the type of the digits
+var DIGIT_REACH = 150;   // how far the aura reaches from the cursor
+var DIGIT_EDGE = 0.55;   // the share of the reach that is feather and nothing else
+var DIGIT_IN = 1000;     // the moment the reveal takes to come up, in milliseconds
+var DIGIT_OUT = 1400;    // and to go back down again
+var DIGIT_HOLD = 700;    // how long the cursor stands still before the aura begins to breathe
+var DIGIT_SWING = 0.085; // how far the edge of the aura moves in and out while it breathes
+var DIGIT_PACE = 2600;   // one whole breath of the aura, in milliseconds
+var DIGIT_WANDER = 9;    // how far the middle of the aura wanders while the cursor rests
+var DIGIT_MOST = 0.46;   // the most opaque a digit of the field is ever drawn
+var DIGIT_FRESH = 4;     // how many squares of the field are given another number per frame
+
+var digits = {
+  want: true,     // what the Chatting setting says
+  x: 0, y: 0,     // where the cursor stands in the place the chat is in
+  seen: false,    // whether the cursor is over the chat at all
+  born: 0,        // the moment the cursor came over the chat
+  gone: 0,        // and the moment it left
+  held: 0,        // and the moment it last moved
+  w: 0, h: 0, dpr: 1,
+  canvas: null, ctx: null,
+  cols: 0, rows: 0,
+  field: null,    // the digit of every square of the field, in the order of the squares
+  tone: [237, 116, 1],  // the colour of the leaf mark, read out of the theme
+  raf: 0, last: 0
+};
+
+// The colour of the digits is the leaf colour of the theme the page is drawn in, so a chat in
+// the silver skin or the corporate skin uncovers digits of grey with the rest of its screen.
+// The mark of the program is a separate matter: it keeps its own colours in every skin.
+function digitsTone() {
+  var look = getComputedStyle(document.body).getPropertyValue('--leaf');
+  var made = /^\s*#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\s*$/.exec(look || '');
+  if (!made) { return; }
+  var hex = made[1];
+  if (hex.length === 3) { hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2]; }
+  digits.tone = [
+    parseInt(hex.slice(0, 2), 16),
+    parseInt(hex.slice(2, 4), 16),
+    parseInt(hex.slice(4, 6), 16)
+  ];
+}
+
+// The field of digits, laid over all of the place the chat is in. It is written once and kept;
+// the squares of it are given another number here and there as the field goes on, and never all
+// at once.
+function digitsField() {
+  var cols = Math.max(1, Math.ceil(digits.w / DIGIT_CELL));
+  var rows = Math.max(1, Math.ceil(digits.h / DIGIT_CELL));
+  if (digits.field && cols === digits.cols && rows === digits.rows) { return; }
+  digits.cols = cols; digits.rows = rows;
+  var made = new Array(cols * rows);
+  for (var place = 0; place < made.length; place++) { made[place] = (Math.random() * 10) | 0; }
+  digits.field = made;
+}
+
+// The canvas of the field, at the size of the computer's own pixels and of the place the chat
+// is in. Nothing is drawn when there is no such place - a chat that is not open, a window that
+// is hidden.
+function digitsSize() {
+  var stage = document.getElementById('stage');
+  var canvas = digits.canvas || document.getElementById('digits');
+  if (!stage || !canvas) { return false; }
+  if (stage.offsetParent === null) { return false; }
+  var s = stage.getBoundingClientRect();
+  var wide = Math.max(0, Math.round(s.width));
+  var tall = Math.max(0, Math.round(s.height));
+  var dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  if (digits.ctx && wide === digits.w && tall === digits.h && dpr === digits.dpr) { return true; }
+  digits.w = wide; digits.h = tall; digits.dpr = dpr; digits.canvas = canvas;
+  canvas.width = Math.max(1, Math.round(wide * dpr));
+  canvas.height = Math.max(1, Math.round(tall * dpr));
+  digits.ctx = canvas.getContext('2d');
+  digits.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  digitsField();
+  return true;
+}
+
+// Whether the field may be uncovered at all: the setting asks for it, and the computer has not
+// been asked to make few moves.
+function digitsAsked() {
+  return !!digits.want && !reduce;
+}
+
+// Let the going on or off, as the setting and the place of the cursor now say. Nothing is
+// started twice, and the going stops itself when the field has been put away.
+function digitsGoOn() {
+  if (digits.raf || !digitsAsked()) { return; }
+  if (!digits.seen && digits.lit() <= 0.001) { return; }
+  digits.last = 0;
+  digits.raf = requestAnimationFrame(digitsStep);
+}
+
+// How far the reveal is now: nothing with the cursor away and the field put away, all of it with
+// the cursor resting in the chat.
+digits.lit = function () {
+  var now = window.performance ? performance.now() : Date.now();
+  if (this.seen) { return Math.min(1, (now - (this.born || now)) / DIGIT_IN); }
+  if (!this.gone) { return 0; }
+  return Math.max(0, 1 - (now - this.gone) / DIGIT_OUT);
+};
+
+// The cursor moved within the chat. The field is uncovered where it stands, and the breathing of
+// the aura begins again from the moment it stands still.
+function digitsMove(left, over) {
+  var now = window.performance ? performance.now() : Date.now();
+  var fresh = !digits.seen;
+  digits.seen = true;
+  digits.gone = 0;
+  if (fresh) {
+    digits.born = now;
+    digits.held = now;
+    digits.x = left; digits.y = over;
+  } else if (Math.abs(left - digits.x) > 0.5 || Math.abs(over - digits.y) > 0.5) {
+    digits.held = now;
+  }
+  digits.x = left; digits.y = over;
+  if (fresh) { digits.last = 0; }
+  digitsGoOn();
+}
+
+// The cursor left the chat. The field is put away over a second and the going stops with it.
+function digitsAway() {
+  if (!digits.seen) { return; }
+  digits.seen = false;
+  digits.gone = (window.performance ? performance.now() : Date.now());
+  digitsGoOn();
+}
+
+// One going of the field: the reveal is weighed, the aura is placed, and the digits it reaches
+// are drawn. The going stops itself when the reveal is come to nothing, so a chat the cursor is
+// not in costs no frame at all.
+function digitsStep(now) {
+  digits.raf = 0;
+  if (!digitsAsked()) {
+    if (digits.ctx) { digits.ctx.clearRect(0, 0, digits.w, digits.h); }
+    digits.last = 0;
+    return;
+  }
+  if (!digitsSize()) {
+    if (digits.ctx) { digits.ctx.clearRect(0, 0, digits.w, digits.h); }
+    digits.last = 0;
+    return;
+  }
+  var dt = digits.last ? (now - digits.last) : 16;
+  digits.last = now;
+  var open = digits.lit();
+  if (open <= 0.001) {
+    digits.ctx.clearRect(0, 0, digits.w, digits.h);
+    digits.last = 0;
+    return;
+  }
+  // The breathing of the aura: it comes in over the first moment the cursor stands still, and it
+  // goes out again with the moving of it. The edge moves in and out, and the middle of the aura
+  // wanders over a few pixels with it, so nothing of the reveal stands at a place of the screen.
+  var still = Math.max(0, Math.min(1, (now - (digits.held || now)) / DIGIT_HOLD));
+  var phase = ((now % DIGIT_PACE) / DIGIT_PACE) * Math.PI * 2;
+  var breath = 1 + (DIGIT_SWING * Math.sin(phase) + DIGIT_SWING * 0.4 * Math.sin(phase * 2.3)) * still;
+  var reach = DIGIT_REACH * breath;
+  var out = digits.x + Math.sin(phase * 0.7) * DIGIT_WANDER * still;
+  var over = digits.y + Math.cos(phase * 0.53) * DIGIT_WANDER * still;
+  // A few squares of the field are given another number, which is what makes the field read as a
+  // code that is being written.
+  if (digits.field) {
+    for (var fresh = 0; fresh < DIGIT_FRESH && digits.field.length; fresh++) {
+      digits.field[(Math.random() * digits.field.length) | 0] = (Math.random() * 10) | 0;
+    }
+  }
+  var ctx = digits.ctx;
+  ctx.clearRect(0, 0, digits.w, digits.h);
+  if (!digits.field) { return; }
+  var tint = 'rgba(' + digits.tone[0] + ',' + digits.tone[1] + ',' + digits.tone[2] + ',';
+  ctx.font = DIGIT_TYPE + 'px ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  var first = Math.max(0, Math.floor((out - reach) / DIGIT_CELL));
+  var last = Math.min(digits.cols - 1, Math.ceil((out + reach) / DIGIT_CELL));
+  var top = Math.max(0, Math.floor((over - reach) / DIGIT_CELL));
+  var end = Math.min(digits.rows - 1, Math.ceil((over + reach) / DIGIT_CELL));
+  var feather = reach * DIGIT_EDGE;
+  for (var col = first; col <= last; col++) {
+    for (var row = top; row <= end; row++) {
+      var cx = (col + 0.5) * DIGIT_CELL;
+      var cy = (row + 0.5) * DIGIT_CELL;
+      var dx = cx - out;
+      var dy = cy - over;
+      var near = Math.sqrt(dx * dx + dy * dy);
+      if (near >= reach) { continue; }
+      // The feather: the digit is at its fullest within the reach less the feather, and it fades
+      // out over the rest of it, smoothed so that no ring of the aura is ever seen.
+      var room = (reach - near) / feather;
+      if (room > 1) { room = 1; }
+      room = room * room * (3 - 2 * room);
+      var weight = DIGIT_MOST * open * room;
+      if (weight <= 0.01) { continue; }
+      ctx.fillStyle = tint + weight.toFixed(3) + ')';
+      ctx.fillText(String(digits.field[row * digits.cols + col]), cx, cy);
+    }
+  }
+  digits.raf = requestAnimationFrame(digitsStep);
+}
+
+// The setting stated whether there is a field of digits to uncover at all.
+function digitsSetting(on) {
+  var asked = !!on;
+  if (asked === digits.want) { return; }
+  digits.want = asked;
+  if (!asked) {
+    if (digits.ctx) { digits.ctx.clearRect(0, 0, digits.w, digits.h); }
+    digits.last = 0;
+    return;
+  }
+  digitsGoOn();
+}
+
+// The theme changed, so the colour of the digits has to be read again. The field itself keeps
+// its numbers: they are drawn out of the new colour from the next frame.
+function digitsSkin() {
+  digitsTone();
+  digitsGoOn();
+}
+
+// The cursor of the mouse, over the place the chat is in. It is asked after on the stage and not
+// on the window, so a cursor over the chat composer box or the side bar uncovers nothing - the
+// field is a thing of the chat.
+(function digitsWire() {
+  var stage = document.getElementById('stage');
+  if (!stage) { return; }
+  stage.addEventListener('pointermove', function (event) {
+    var s = stage.getBoundingClientRect();
+    digitsMove(event.clientX - s.left, event.clientY - s.top);
+  });
+  stage.addEventListener('pointerleave', digitsAway);
+  window.addEventListener('resize', function () {
+    if (digits.want) { digitsGoOn(); }
+  });
+})();
 // ---------------------------------------------------------------- first screen
 // With no chat open the marker, the line for this hour and the chat composer remain as one
 // group in the middle of the space. The box slides between the two places without a jump: the
@@ -14508,7 +14791,7 @@ function showTheme(word) {
   // requested when the theme really moved.
   if (was !== themeWord) { showThemeButtons(); }
   if (window.fallSkin
-    && (was !== themeWord || !(window.fall && window.fall.tones))) { fallSkin(); rainSkin(); }
+    && (was !== themeWord || !(window.fall && window.fall.tones))) { fallSkin(); rainSkin(); digitsSkin(); }
 }
 
 // The five markers of the settings panel, so the switch is at the theme in use.
@@ -14733,6 +15016,7 @@ function loadProgram() {
     byId('fUserline').checked = cfg.chat_userline !== false;
     showBackgroundButtons(cfg.chat_background);
     byId('fRainSplash').checked = cfg.chat_rain_splash !== false;
+    byId('fCursorDigits').checked = cfg.chat_cursor_digits !== false;
     byId('fSendAnim').checked = cfg.chat_send_anim !== false;
     // The note is what the program found when it asked its own sandbox whether it keeps what it
     // promises.
@@ -15336,6 +15620,7 @@ function readProgram() {
   cfg.chat_userline = byId('fUserline').checked;
   cfg.chat_background = backgroundWord();
   cfg.chat_rain_splash = byId('fRainSplash').checked;
+  cfg.chat_cursor_digits = byId('fCursorDigits').checked;
   cfg.chat_send_anim = byId('fSendAnim').checked;
   return cfg;
 }

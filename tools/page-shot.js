@@ -61,6 +61,9 @@
 //   AN_SUMMARIES, AN_NOTIMELINE, AN_BROKEN and AN_SUMMARISING mean the
 //   Compaction section.
 //   AN_PICK, AN_HOVER and AN_CLICK pick out parts of the page by their class.
+//   AN_CURSOR=0.4,0.45 node page-shot.js rich p.png   # the cursor resting in the chat, so the
+//     field of digits it uncovers is seen at full
+//   AN_NOCURSORDIGITS=1 node page-shot.js rich p.png  # the Chatting switch of those digits off
 //
 // The scenes: home, chat, rich, markdown, streaming, streaming-code, writing,
 // processing, previews, sheet-program, sheet-model, sheet-logs, sheet-mcp,
@@ -568,6 +571,9 @@ function scene(name, dark, theme) {
     ] },
     chatting: { collapse_thinking: true, grow_thinking: true,
                 tools_in_thinking: true, collapse_tools: true,
+                // The field of random digits the cursor uncovers in the background of the chat.
+                // It remains on unless the image is asked for with AN_NOCURSORDIGITS=1.
+                cursor_digits: process.env.AN_NOCURSORDIGITS !== '1',
                 highlight: true, chapters: true },
     context: { used: '0', total: '8,192', ratio: 0.0 },
     // The lines of the drop-down of the badge of the tools, as a chat has them from the
@@ -1767,6 +1773,26 @@ async function main() {
     if (over2) {
       await over2.hover();
       await new Promise(function (r) { setTimeout(r, 400); });
+    }
+  }
+  // AN_CURSOR=x,y puts the cursor at that share of the place the chat is in and lets it rest
+  // there, so the aura of digits the cursor uncovers is at full and is seen in the image. The two
+  // numbers are shares of the width and of the height, so the same request works at any size.
+  if (process.env.AN_CURSOR) {
+    const part = process.env.AN_CURSOR.split(',');
+    const place = await view.evaluate(function () {
+      const stage = document.getElementById('stage');
+      if (!stage) { return null; }
+      const box = stage.getBoundingClientRect();
+      return { left: box.left, top: box.top, width: box.width, height: box.height };
+    });
+    if (place) {
+      const wide = place.left + place.width * Number(part[0] || 0.4);
+      const over = place.top + place.height * Number(part[1] || 0.45);
+      await view.mouse.move(wide - 30, over - 20);
+      await view.mouse.move(wide, over);
+      // A second of the reveal, and a breath of the aura after it.
+      await new Promise(function (r) { setTimeout(r, 2200); });
     }
   }
   // AN_JS=text runs the text in the page and prints what they answer, so a question about the

@@ -163,15 +163,19 @@ async function main() {
     const notes = [];
     const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };
 
-    // Where the canvas remains.
+    // Where the canvas remains. It is one of the backgrounds of the place the chat is in: it
+    // must stand among the children that come before the thread of the chat, so it is under
+    // every message. The digits the cursor uncovers (tools/digits-check.js) are a deeper
+    // background than the leaves, so the leaves are no longer the first child of the stage.
     const placed = await page.evaluate(() => {
       const canvas = document.getElementById('fall');
       const stage = document.getElementById('stage');
       const thread = document.getElementById('thread');
       const look = getComputedStyle(canvas);
+      const kin = Array.prototype.slice.call(stage.children);
       return {
         inStage: canvas.parentNode === stage,
-        first: stage.firstElementChild === canvas,
+        first: kin.indexOf(canvas) >= 0 && kin.indexOf(canvas) < kin.indexOf(thread),
         overThread: Number(look.zIndex) < Number(getComputedStyle(thread).zIndex),
         clicks: look.pointerEvents,
         ground: getComputedStyle(document.body).getPropertyValue('--bg').trim(),

@@ -462,6 +462,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             // Whether the rain splashes where it meets the chat composer box and the blocks of
             // the chat. Only the page draws it.
             "rain_splash": snap.chat_rain_splash,
+            // Whether the cursor uncovers a field of random digits in the background of the
+            // chat. Only the page draws them.
+            "cursor_digits": snap.chat_cursor_digits,
             // Whether a message you sent is carried into the chat with a little movement. The
             // movement is all on the screen, so the engine only reports that the switch
             // remains.

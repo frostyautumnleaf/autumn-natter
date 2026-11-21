@@ -1444,6 +1444,9 @@ pub struct Snap {
     // Whether the rain splashes where it meets the chat composer box and the blocks of the
     // chat.
     pub chat_rain_splash: bool,
+    // Whether the cursor uncovers a field of random digits in the background of the chat. The
+    // page draws them; the engine only reports that the switch remains.
+    pub chat_cursor_digits: bool,
     // Whether a message the user sent is carried into the chat with a little movement. The
     // movement is only on the screen, so the engine only reports the page that the switch
     // remains.
@@ -4380,6 +4383,7 @@ impl State {
             chat_userline: self.cfg.chat_userline,
             chat_background: self.cfg.chat_background.clone(),
             chat_rain_splash: self.cfg.chat_rain_splash,
+            chat_cursor_digits: self.cfg.chat_cursor_digits,
             chat_send_anim: self.cfg.chat_send_anim,
             chat_context_files: self.cfg.chat_context_files,
             chat_context_compression: self.cfg.chat_context_compression,
@@ -6732,6 +6736,7 @@ impl Snap {
             chat_userline: true,
             chat_background: String::from(config::BACKGROUND_NONE),
             chat_rain_splash: true,
+            chat_cursor_digits: true,
             chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,
