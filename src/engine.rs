@@ -2437,6 +2437,18 @@ impl State {
         self.touch();
     }
 
+    // Say what the model is doing, unless the line already says it. The words of the line are
+    // written again at every step of an answer, and a piece of an answer arrives many times over;
+    // only a change of what is said is worth waking the pages for. What the model is doing is not
+    // what became of an answer: the lines that report the end of an answer - that the context ran
+    // over, that the model gave nothing - are written with `set_status`, and are left for the user
+    // to read.
+    fn say_status(&mut self, text: &str) {
+        if self.status != text {
+            self.set_status(text);
+        }
+    }
+
     // Say that the text of a chat could not be put down on the disk. The conversation goes on
     // where it is in the memory, and the file of the chat is the conversation as it was when it
     // was last read. The user is informed, and the log of the program records it too: a chat
@@ -9962,6 +9974,15 @@ fn run_turn(
             // to all of the answer, and the one block of the corporate display keeps it until
             // the answer is kept.
             guard.live_mut(chat).live_tools = Vec::new();
+            // The line under the chat says what the model is doing, and a request going out means
+            // it is thinking. Without this the line keeps the last thing said - "The model is
+            // reading the tool result" from the step before - through all of the thinking and the
+            // writing of the next step, which is the answer being reported as something it is not.
+            guard.say_status(if resuming || going_on {
+                "The model is going on with the answer"
+            } else {
+                "The model is thinking"
+            });
         }
         let progress_state = state.clone();
         let context_state = state.clone();
@@ -9975,6 +9996,9 @@ fn run_turn(
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
                     guard.live_mut(chat).live_text.push_str(piece);
+                    // Words of the answer are coming, so the model is writing: not thinking any
+                    // more, and not reading the result of a tool from the step before this one.
+                    guard.say_status("The model is writing the answer");
                     // The first word is here, so the text that was sent is worked through and
                     // the meter has nothing left to say.
                     if finish_progress(&mut guard, chat) {
@@ -10166,6 +10190,12 @@ fn run_turn(
                 if let Ok(mut guard) = tool_state.lock() {
                     if write_calls(&mut guard, made, chat) {
                         guard.touch();
+                    }
+                    // The model is writing out the text of a call, which for a large file may go
+                    // on for minutes. The line says that, rather than what the step before this
+                    // one was doing; once the call runs, the tool reports what it runs.
+                    if !guard.live_ref(chat).live_tools.is_empty() {
+                        guard.say_status("The model is writing a tool call");
                     }
                 }
             },
