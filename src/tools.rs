@@ -29,9 +29,6 @@ use crate::util;
 // Name the model uses to request a terminal run.
 pub const TOOL_NAME: &str = "run_terminal";
 
-// Longest output kept for one run.
-const MAX_OUTPUT: usize = 8000;
-
 // The shell a command is handed to, both inside the sandbox and outside it.
 const SHELL: &str = "/bin/sh";
 
@@ -941,7 +938,7 @@ fn finish(capture: util::Capture, sandboxed: bool) -> Outcome {
     if capture.timed_out {
         return Outcome {
             ok: false,
-            output: trim_output(&output),
+            output,
             sandboxed,
             timed_out: true,
         };
@@ -955,27 +952,10 @@ fn finish(capture: util::Capture, sandboxed: bool) -> Outcome {
     }
     Outcome {
         ok: capture.ok,
-        output: trim_output(&output),
+        output,
         sandboxed,
         timed_out: false,
     }
-}
-
-// Keep the output small enough for the chat window and for the model.
-fn trim_output(text: &str) -> String {
-    if text.chars().count() <= MAX_OUTPUT {
-        return text.to_string();
-    }
-    let head: String = text.chars().take(3000).collect();
-    let tail: String = text
-        .chars()
-        .rev()
-        .take(5000)
-        .collect::<Vec<char>>()
-        .iter()
-        .rev()
-        .collect();
-    format!("{}\n... output truncated in the middle ...\n{}", head, tail)
 }
 
 // A place put into a line of the shell. A marker of quoting inside a folder name is created
@@ -2298,5 +2278,41 @@ mod tests {
             partial_arguments("{\"command\":5}"),
             (String::new(), String::new())
         );
+    }
+
+    // A model that reads a large file with one command is given the whole of what the command
+    // printed. The output used to be cut to a few thousand characters, the start of it and the
+    // end of it with a line between saying the middle was gone, which left a model reading a
+    // file it believed it had read whole. Nothing of a result is cut now: the size of the
+    // conversation is dealt with by the handoff summary, which is what it is for.
+    #[test]
+    fn the_whole_output_of_a_command_comes_back() {
+        let workdir = room_of("whole-output");
+        // Four thousand lines is near 19 kB of text: twice what the cut kept, and more than the
+        // start of it and the end of it put together.
+        let made = run_watched(
+            "seq 1 4000",
+            &workdir,
+            false,
+            Access::default(),
+            &util::Watch::new(Duration::from_secs(30)),
+        );
+        assert!(made.ok, "the command did not run: {}", made.output);
+        assert!(
+            !made.output.contains("truncated"),
+            "the output was cut: {}",
+            made.output
+        );
+        let lines: Vec<&str> = made.output.lines().collect();
+        assert_eq!(lines.len(), 4000, "the output came back part of the way");
+        assert_eq!(lines.first().copied(), Some("1"));
+        assert_eq!(lines.last().copied(), Some("4000"));
+        // The end of a file is what a model is most likely to want after a read of it, so the
+        // tail of the output stands where the command put it.
+        assert!(
+            made.output.trim_end().ends_with("4000"),
+            "the end of the output is not there"
+        );
+        let _ = std::fs::remove_dir_all(&workdir);
     }
 }

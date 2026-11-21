@@ -8260,6 +8260,395 @@ fn ask_summary(
 // writing is stopped while a part of space is left and not after the server has nothing left to
 // answer with.
 
+// The share of the context window a request for a handoff summary may take with the
+// conversation, in tenths. A summary is asked with the whole of the conversation under it, so
+// a conversation that has outgrown the window leaves no room above it for the summary: such a
+// request is worked through to the last token of the window and comes back with nothing of the
+// summary in it, and the chat is then stopped for good at the size it grew to. Three tenths of
+// the window are left above the conversation for the summary itself.
+const PART_SHARE: u64 = 7;
+
+// The most fold asks one summary may make. Each of them reads a part of the conversation and
+// writes an account of it, and the summary is written of those accounts as of the conversation
+// itself. Four of them cover a conversation of near three windows, which is a great deal more
+// than a chat holds between one summarisation and the next; the bound is there so that a
+// summary never spends the model on nothing but its own preamble.
+const MOST_FOLD_PARTS: usize = 4;
+
+// The ceiling of one fold account, in words of the model. An account stands in the place of
+// part of a conversation, and it is read by the model that writes the summary: a long account
+// removes nothing.
+pub const FOLD_NOTE_CEILING: i64 = 900;
+
+// The ask of one fold. It is not the ask for the summary: what it writes is put into the
+// conversation again as one message of it, and only the last ask of a summarisation writes the
+// summary the chat keeps.
+pub const FOLD_REQUEST: &str = "The conversation above is the first part of a longer conversation, and it is too long to be sent whole. Write an account of THIS PART only, for another model that will not see it: what was asked for, what was done, what was decided, and the names, the files, the numbers and the places that came up in it. The part may itself hold an account of an earlier part, written the same way: keep what that account states. Write plain text and nothing else, never a call of a tool and never the marker of one, and keep it within three hundred words.";
+
+// The words before an account of a folded part, so that the model reading the summary ask
+// knows what it is looking at: an account of a part of its own conversation, and not a message
+// of the user's.
+pub const FOLD_NOTE_HEAD: &str = "[ The oldest part of this conversation was read on its own, before this summary was asked for, because the whole of it would not fit in the context window. What follows is the account written of that part. Nothing of it is a message of the user. ]\n\n";
+
+// The space the ask of one fold takes out of the room of a part: the words of FOLD_REQUEST and
+// the room of the account the model writes of the part.
+const FOLD_ASK_ROOM: u64 = 700;
+
+// The least text a message keeps when the middle of it is taken out for space. Below this a
+// message is a line or two, and taking more out of it saves nothing worth having.
+const LEAST_KEPT_CHARS: usize = 1_500;
+
+// A fold that saves less than the saying of what it saved is no fold at all.
+const LEAST_FOLD_SAVED: usize = 300;
+
+// The space a request for a handoff summary is kept within. Nothing is known of the window
+// before a server is started, and a window of nothing is a window with room for everything:
+// such a measure folds nothing at all.
+fn summary_budget(total: u64) -> u64 {
+    if total == 0 {
+        u64::MAX
+    } else {
+        total.saturating_mul(PART_SHARE) / 10
+    }
+}
+
+// The saying of what a fold left out of a message. The start and the end of the message remain,
+// for the two of them say what the message is, and the number of what stands between them is
+// stated so that no model takes the part for the whole.
+fn fold_saying(left: u64) -> String {
+    format!(
+        "\n\n[ ... the middle of this message is not in this request: {} of its characters are left out, because the conversation would not fit in the context window of the model. The whole of the message remains in the chat. Write the account of what you are shown, and say nothing of what you are not shown ... ]\n\n",
+        left
+    )
+}
+
+// The fold of one piece of text: the start of it, the end of it, and between them the saying of
+// what is not there. Text no longer than what is kept comes back as nothing, for there is
+// nothing to fold.
+fn fold_text(text: &str, keep: usize) -> Option<String> {
+    let count = text.chars().count();
+    if count <= keep.saturating_add(LEAST_FOLD_SAVED) {
+        return None;
+    }
+    let head = keep / 4 * 3;
+    let tail = keep - head;
+    let said: String = text.chars().take(head).collect();
+    let ended: String = text.chars().skip(count.saturating_sub(tail)).collect();
+    Some(format!(
+        "{}{}{}",
+        said,
+        fold_saying((count - keep) as u64),
+        ended
+    ))
+}
+
+// The characters of the text of one message of a conversation: what it says, and the thinking
+// it says it with.
+fn item_chars(item: &Value) -> usize {
+    let mut made = 0usize;
+    match item.get("content") {
+        Some(Value::String(text)) => made += text.chars().count(),
+        Some(Value::Array(parts)) => {
+            for part in parts {
+                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                    made += text.chars().count();
+                }
+            }
+        }
+        _ => {}
+    }
+    made += item
+        .get("reasoning_content")
+        .and_then(|t| t.as_str())
+        .map(|t| t.chars().count())
+        .unwrap_or_default();
+    made
+}
+
+// Fold one message of a conversation down to `keep` characters of its own. The thinking of a
+// turn goes first, for an account of a conversation is written of what happened and not of how
+// it was thought; the text of the turn goes next. The calls of a tool and their results are not
+// folded as text: a call whose arguments stop in the middle of them is a call the server cannot
+// read, and the result of a call is folded as the text of the message it is.
+fn fold_item(item: &mut Value, keep: usize) -> bool {
+    let mut made = false;
+    if let Some(thought) = item.get("reasoning_content").and_then(|t| t.as_str()) {
+        let held = thought.to_string();
+        if let Some(cut) = fold_text(&held, keep / 4) {
+            item["reasoning_content"] = json!(cut);
+            made = true;
+        }
+    }
+    match item.get_mut("content") {
+        Some(Value::String(text)) => {
+            let held = text.clone();
+            if let Some(cut) = fold_text(&held, keep) {
+                *text = cut;
+                made = true;
+            }
+        }
+        Some(Value::Array(parts)) => {
+            // The text of a message of the user is laid in parts beside the images of it, so
+            // the room is shared between the parts of one message.
+            let share = (keep / parts.len().max(1)).max(LEAST_KEPT_CHARS / 4);
+            for part in parts.iter_mut() {
+                if let Some(Value::String(text)) = part.get_mut("text") {
+                    let held = text.clone();
+                    if let Some(cut) = fold_text(&held, share) {
+                        *text = cut;
+                        made = true;
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    made
+}
+
+// Whether one message is a line of the program rather than a word of the talk: the lines at the
+// head of a conversation are never folded, for they say what the program is and what it is to
+// do, and they are short.
+fn program_line(item: &Value) -> bool {
+    item.get("role").and_then(|r| r.as_str()) == Some("system")
+}
+
+// Where a fold part may be cut off: never between a call of a tool and the result of it, for a
+// part that ends with a call and leaves its result behind is a conversation the server cannot
+// read. The place is moved back over the pair.
+fn fold_cut(items: &[Value], mut cut: usize) -> usize {
+    while cut > 0 && cut < items.len() {
+        let held = |place: usize| {
+            items
+                .get(place)
+                .and_then(|one| one.get("role").and_then(|r| r.as_str()))
+                .unwrap_or_default()
+                == "tool"
+        };
+        let called = items
+            .get(cut - 1)
+            .and_then(|one| one.get("tool_calls").and_then(|c| c.as_array()))
+            .is_some_and(|list| !list.is_empty());
+        if !called && !held(cut) {
+            break;
+        }
+        cut -= 1;
+    }
+    cut
+}
+
+// Ask the model for an account of one part of a conversation. None of it is shown, and the
+// meter of the chat is not moved by it: the fold is a step of the work of making the space and
+// not a writing over the conversation, and the number the chat stands at is set again by the
+// request for the summary that comes after it.
+fn ask_fold_part(
+    state: &Arc<Mutex<State>>,
+    base_url: &str,
+    part: &Value,
+    slot: Option<usize>,
+    cancel: &Arc<AtomicBool>,
+    chat: &str) -> String {
+    let mut items = part.as_array().cloned().unwrap_or_default();
+    items.push(json!({ "role": "user", "content": FOLD_REQUEST }));
+    let mut body = json!({
+        "messages": Value::Array(items),
+        "stream": true,
+        "stream_options": { "include_usage": true },
+        "timings_per_token": true,
+        "max_tokens": FOLD_NOTE_CEILING,
+    });
+    // The thinking of the chat rides on this ask as it rides on the summary, so that the same
+    // template is at work over the parts of one conversation as over the whole of it.
+    if let Ok(guard) = state.lock() {
+        let thought = guard.thinking_ask();
+        if !thought.is_null() {
+            body["chat_template_kwargs"] = thought;
+        }
+    }
+    if let Some(slot) = slot {
+        body["id_slot"] = json!(slot);
+    }
+    tell(
+        state,
+        "The oldest part of the conversation is being read on its own before the summary is written",
+    );
+    let hand = std::sync::atomic::AtomicBool::new(false);
+    let mut said = String::new();
+    let answer = llama::stream_chat(
+        base_url,
+        &body,
+        cancel,
+        &hand,
+        &mut |piece: &str| said.push_str(piece),
+        &mut |_piece: &str| {},
+        &mut |_made: llama::Progress| {},
+        &mut |_made: llama::Context| {},
+        // No tool is proposed on a fold ask, so nothing is here to be called: a model that
+        // writes the marker of a call after all has its account taken as it wrote it.
+        &mut |_made: &[ToolCall]| {},
+    );
+    // A fold ask that failed gives nothing back, and the fold of the messages by hand below
+    // takes it over. The chat is never the worse for a fold that failed.
+    if answer.error.is_some() || answer.stopped || cancel.load(Ordering::Relaxed) {
+        return String::new();
+    }
+    let _ = chat;
+    clean_summary(&said)
+}
+
+// Fold the conversation a handoff summary is written of, so that the request for it fits in
+// the context window at all.
+//
+// Two folds are made, and in this order:
+//
+// * the oldest part of the conversation that one ask can hold is read ahead of the summary, and
+//   what it writes stands in the conversation again in the place of the messages it was written
+//   of. This is the fold that keeps the account of the whole conversation, and it is made at
+//   `MOST_FOLD_PARTS` times at the most.
+// * the messages that are still too big for one request have the middle of them left out by
+//   hand, oldest first. This is the fold that makes certain of the request: a single tool
+//   receipt bigger than the window leaves nothing else to do, and the message says so where its
+//   middle was, so that no model reads the part as the whole. See `fold_saying`.
+//
+// Nothing of the conversation the user has is changed by any of it. The fold is of one request,
+// and the chat keeps every word of itself as it always did.
+//
+// The measure before the fold, the number of the fold asks and the number of the messages
+// folded by hand come back beside the conversation.
+#[allow(clippy::too_many_arguments)]
+fn fold_history_for_handoff(
+    state: &Arc<Mutex<State>>,
+    base_url: &str,
+    history: &Value,
+    slot: Option<usize>,
+    cancel: &Arc<AtomicBool>,
+    chat: &str,
+    budget: u64) -> (Value, u64, usize, usize) {
+    let before = estimate_tokens(history);
+    if before <= budget || cancel.load(Ordering::Relaxed) {
+        return (history.clone(), before, 0, 0);
+    }
+    let mut items: Vec<Value> = history.as_array().cloned().unwrap_or_default();
+    let head = items.iter().take_while(|one| program_line(one)).count();
+    let mut asked = 0usize;
+    let room = budget.saturating_sub(FOLD_ASK_ROOM);
+    while asked < MOST_FOLD_PARTS && !cancel.load(Ordering::Relaxed) {
+        let measure = estimate_tokens(&Value::Array(items.clone()));
+        if measure <= budget {
+            break;
+        }
+        // How far the oldest part reaches: as much of the conversation as one ask may hold,
+        // with the newest message of it always left out of the part, for that is the message
+        // the summary is most wanted for.
+        let mut cut = head;
+        let mut held = estimate_tokens(&Value::Array(items[..head].to_vec()));
+        // The part grows one message at a time from the oldest word of the talk, and it stops
+        // short of the newest message whatever happens: that message is what the summary is
+        // written of, and it is the one message the model must see whole.
+        while cut + 1 < items.len() {
+            let next = held + estimate_tokens(&json!([items[cut]]));
+            if next > room {
+                break;
+            }
+            held = next;
+            cut += 1;
+        }
+        let cut = fold_cut(items.as_slice(), cut);
+        if cut <= head {
+            // Nothing whole is left to read ahead: what remains is one message bigger than a
+            // whole request, and the fold by hand below is the only fold there is for it.
+            break;
+        }
+        let note = ask_fold_part(
+            state,
+            base_url,
+            &Value::Array(items[..cut].to_vec()),
+            slot,
+            cancel,
+            chat,
+        );
+        if note.trim().is_empty() {
+            break;
+        }
+        let mut said = String::from(FOLD_NOTE_HEAD);
+        said.push_str(note.trim());
+        let mut next: Vec<Value> = items[..head].to_vec();
+        next.push(json!({ "role": "user", "content": said }));
+        next.extend_from_slice(&items[cut..]);
+        let measure_after = estimate_tokens(&Value::Array(next.clone()));
+        let said_size = estimate_tokens(&json!([{ "role": "user", "content": said }]));
+        // An account that came back bigger than the part it was written of is not a fold, and
+        // the fold by hand below takes the message over instead.
+        if measure_after >= measure {
+            break;
+        }
+        proglog::note(
+            proglog::SUMMARY,
+            &format!(
+                "part of the conversation was read ahead of the summary: {} of its oldest messages became an account of {}, and the conversation the summary is written of measures {} now (fold {} of the {} allowed)",
+                cut - head,
+                said_size,
+                measure_after,
+                asked + 1,
+                MOST_FOLD_PARTS
+            ),
+        );
+        items = next;
+        asked += 1;
+    }
+    // The messages too big for the request still. The oldest go first: the newest message is
+    // what the summary is written of, and it is the last to be touched.
+    let folded = fold_messages_to_fit(items.as_mut_slice(), budget);
+    (
+        Value::Array(items),
+        before,
+        asked,
+        folded,
+    )
+}
+
+// A fold says what it left out, and the saying is text of its own: it is weighed against the
+// room a fold was set to win, so a fold that only just reached its target does not need saying
+// over a second time.
+const FOLD_SAYING_CHARS: usize = 320;
+
+// Take the middle out of the messages that are too big for the request, oldest first, until the
+// conversation measures `budget` or nothing is left that may be taken. The lines of the program
+// at the head of a conversation are folded with the rest, for they are short and never reach
+// the bound of a fold; the newest message is folded last, for it is the message a summary is
+// most written of. The number of the messages that had their middle taken is given back.
+fn fold_messages_to_fit(items: &mut [Value], budget: u64) -> usize {
+    let mut folded = 0usize;
+    while estimate_tokens(&Value::Array(items.to_vec())) > budget {
+        let over = estimate_tokens(&Value::Array(items.to_vec())).saturating_sub(budget);
+        let mut moved = false;
+        for item in items.iter_mut() {
+            let held = item_chars(item) as u64;
+            if held <= LEAST_KEPT_CHARS as u64 {
+                continue;
+            }
+            // What this message may keep, once the room it is to win and the saying of the fold
+            // are taken off it. A message with nothing left to give stands at the least it may
+            // hold, and the next message is the next to be asked.
+            let keep = held
+                .saturating_sub(over.saturating_mul(4) + FOLD_SAYING_CHARS as u64)
+                .max(LEAST_KEPT_CHARS as u64) as usize;
+            if fold_item(item, keep) {
+                moved = true;
+                folded += 1;
+                break;
+            }
+        }
+        if !moved {
+            // Every message of it is a line or two, and the request still will not fit: what is
+            // left is the shape of the conversation and not its text. The ask goes as it
+            // stands, and the server is the authority on that.
+            break;
+        }
+    }
+    folded
+}
+
 // Ask the model for the handoff summary of the chat that is open, and write it into the marker
 // of the summarisation. After this the text before the marker are not sent to the model again:
 // the first message of the user, the summary, and the text that come after the marker is all of
@@ -8376,8 +8765,34 @@ fn run_handoff(
     // chat was there last. The request of the summary names the slot, for the conversation
     // above the request is the conversation the server worked through in it.
     let slot = claim_slot(state, server);
-    // The conversation as it is now, with the request for the summary after it as a message of
-    // the user. The tools of the chat remain proposed as they are now for an answer, so that
+    // The conversation the summary is written of, brought within the window if it has outgrown
+    // it. A summary is asked with the whole of the conversation under it, so a conversation
+    // bigger than the window makes a request bigger than the window, which is worked through to
+    // the last token of the space and comes back with no summary in it: before this fold such a
+    // chat was stopped at the size it grew to, and every message after it was stopped again.
+    // See `fold_history_for_handoff`.
+    let room = state
+        .lock()
+        .map(|guard| guard.ctx_total)
+        .unwrap_or_default();
+    let budget = summary_budget(room);
+    let (history, before_fold, parts, cut_by_hand) =
+        fold_history_for_handoff(state, &base_url, &history, slot, cancel, chat, budget);
+    if parts > 0 || cut_by_hand > 0 {
+        proglog::note(
+            proglog::SUMMARY,
+            &format!(
+                "the conversation had outgrown the window of {}: it measured {} and a request for its summary is kept within {}. The oldest part of it was read on its own and written short {} time(s), and the middle of the text of {} message(s) was left out; the request now measures {}.",
+                room,
+                before_fold,
+                budget,
+                parts,
+                cut_by_hand,
+                estimate_tokens(&history)
+            ),
+        );
+    }
+    // The tools of the chat remain proposed as they are now for an answer, so that
     // the start of this ask is the start of the conversation word for word and the server keeps
     // every bit of work it has already done on it. A model that answers with a call instead of
     // with the summary has the call cancelled and is asked again.
@@ -14375,6 +14790,137 @@ mod tests {
         let marks = state.handoffs();
         assert_eq!(marks[1].state, "done");
         assert_eq!(marks[1].before, 7000);
+    }
+
+    // A conversation that has outgrown the window leaves no room above it for the summary of it,
+    // and a request that fills the window comes back with nothing of the summary in it. The fold
+    // takes the middle out of the biggest messages until the request fits, oldest first, and it
+    // keeps the start and the end of every message it touches.
+    #[test]
+    fn a_conversation_too_big_for_one_ask_is_folded_to_fit() {
+        let _guard = config::test_turn();
+        let mut items = vec![
+            json!({ "role": "system", "content": "the text of the program" }),
+            json!({
+                "role": "user",
+                "content": (0..9_000)
+                    .map(|n| format!("line {} of what the user wrote\n", n))
+                    .collect::<String>()
+            }),
+            json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{ "id": "call-1", "type": "function", "function": {
+                    "name": "run_terminal", "arguments": "{\"command\":\"cat big\"}"
+                } }]
+            }),
+            json!({
+                "role": "tool",
+                "tool_call_id": "call-1",
+                "content": "x".repeat(40_000)
+            }),
+        ];
+        let budget = summary_budget(16_384);
+        let before = estimate_tokens(&Value::Array(items.clone()));
+        assert!(
+            before > budget,
+            "the test conversation must be over the room of a summary ask: {} of {}",
+            before,
+            budget
+        );
+        let folded = fold_messages_to_fit(items.as_mut_slice(), budget);
+        let after = estimate_tokens(&Value::Array(items.clone()));
+        assert!(
+            after <= budget,
+            "the conversation was not brought within the room of a summary ask: {} of {}, {} message(s) folded",
+            after,
+            budget,
+            folded
+        );
+        // Every message of the conversation is still there, in its order and with its call and
+        // its result still joined: a fold takes text out and never shape.
+        assert_eq!(items.len(), 4);
+        assert_eq!(items[1]["role"], json!("user"));
+        assert_eq!(items[2]["tool_calls"][0]["id"], json!("call-1"));
+        assert_eq!(items[3]["tool_call_id"], json!("call-1"));
+        // The message of the user is the oldest thing in the conversation with text worth
+        // taking out of it, so it is the message the fold goes through: it keeps the start and
+        // the end of what it held, and says what stands between them. The receipt after it is
+        // not touched, for the room was won before the fold came to it.
+        let said = items[1]["content"].as_str().expect("the message is text");
+        assert!(
+            said.contains("line 0 of what the user wrote"),
+            "the start of the message is not there"
+        );
+        assert!(
+            said.contains("line 8999 of what the user wrote"),
+            "the end of the message is not there"
+        );
+        assert!(
+            said.contains("the middle of this message is not in this request"),
+            "the message was rewritten with no word of the fold in it"
+        );
+        assert_eq!(
+            items[3]["content"].as_str().unwrap_or_default().chars().count(),
+            40_000,
+            "the fold went on to a message it did not need"
+        );
+    }
+
+    // The fold of a message says how much of it is not there, so that no model reads the part
+    // for the whole. A message with little more in it than the fold would leave is not folded at
+    // all.
+    #[test]
+    fn a_fold_says_what_it_left_out() {
+        let _guard = config::test_turn();
+        let whole = "y".repeat(4_000);
+        let made = fold_text(&whole, 1_000).expect("a wall of text is folded");
+        assert!(made.starts_with('y'));
+        assert!(made.ends_with('y'));
+        assert!(made.contains("the middle of this message is not in this request"));
+        assert!(made.contains("3000 of its characters are left out"), "{}", made);
+        // A message that is already short, or barely longer than what a fold keeps, comes back
+        // as nothing.
+        assert!(fold_text(&"z".repeat(900), 1_000).is_none());
+        assert!(fold_text(&"z".repeat(1_100), 1_000).is_none());
+    }
+
+    // The place a fold part is cut at never stands between a call of a tool and the result of
+    // it. A part that ended with a call and left its result behind is a conversation no server
+    // can read, and the whole request is refused for it.
+    #[test]
+    fn a_fold_never_severs_a_tool_result_from_the_call_of_it() {
+        let _guard = config::test_turn();
+        let items = vec![
+            json!({ "role": "system", "content": "the text of the program" }),
+            json!({ "role": "user", "content": "what was asked" }),
+            json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{ "id": "call-1", "type": "function", "function": {
+                    "name": "run_terminal", "arguments": "{}"
+                } }]
+            }),
+            json!({ "role": "tool", "tool_call_id": "call-1", "content": "the receipt" }),
+            json!({ "role": "user", "content": "and the next thing" }),
+        ];
+        // A cut that stands between the call and its result is moved back over the pair of them.
+        assert_eq!(fold_cut(items.as_slice(), 3), 2);
+        // A cut at the end of the pair of them is a place a part may end at: what stands after
+        // it is a message of the user, and nothing is severed.
+        assert_eq!(fold_cut(items.as_slice(), 4), 4);
+        // A cut before a message of the user is a place a part may begin at.
+        assert_eq!(fold_cut(items.as_slice(), 1), 1);
+    }
+
+    // The room of a summary ask is a part of the window, and a window that is not known yet
+    // folds nothing at all.
+    #[test]
+    fn the_room_of_a_summary_ask_is_a_part_of_the_window() {
+        let _guard = config::test_turn();
+        assert_eq!(summary_budget(0), u64::MAX);
+        assert_eq!(summary_budget(16_384), 11_468);
+        assert_eq!(summary_budget(100), 70);
     }
 
     // The marker of a summarisation reports which of the two asks its text came from. The short

@@ -27,6 +27,8 @@
 //   AN_NOTIMELINE=1 node page-shot.js rich p.png  # the line turned off
 //   AN_BROKEN=1 node page-shot.js rich p.png      # the newest one never written
 //   AN_CUT=1 node page-shot.js rich p.png         # a tool call the user stopped
+//   AN_LONGTOOL=4000 node page-shot.js rich p.png # a run whose result is that many lines long,
+//     which is what reading a large file with one command brings back
 //   AN_RUNMARKS=1 node page-shot.js rich p.png    # a command at work with time to
 //     run out: the clock, the marker that adds five minutes, and the stop marker
 //   AN_QUEUE=1 node page-shot.js rich p.png       # the list of the messages
@@ -843,6 +845,24 @@ function scene(name, dark, theme) {
         attachments: []
       }]);
       start.running = { id: 471, timeout: 600, left: 287 };
+    }
+    // AN_LONGTOOL=4000 puts a run of the terminal tool in the chat whose result is that many
+    // lines long, which is what a model that read a large file with one command brings back.
+    // Nothing of the result is cut, so the block has to hold it: the check is that the page
+    // scrolls the result inside the block instead of growing the chat past the window.
+    if (process.env.AN_LONGTOOL) {
+      var longLines = Number(process.env.AN_LONGTOOL) || 4000;
+      var madeLines = '';
+      for (var l = 1; l <= longLines; l++) {
+        madeLines += 'line ' + l + ' of the file the command read\n';
+      }
+      start.messages = start.messages.concat([{
+        id: 472, role: 'Tool', body: 'cat notes/big.md',
+        reasoning: '', reasoning_ms: 0, tool: madeLines, mono: true, failed: false,
+        tool_name: 'run_terminal', tool_args: '{"command":"cat notes/big.md"}', when: '11:06',
+        when_full: '2026-10-21, 11:06', context_before: 5120, context_after: 0,
+        attachments: []
+      }]);
     }
     // AN_QUEUE=1 puts messages in the waiting list of the chat, as the program keeps them - the
     // next to go out first - with an answer still being written over them. AN_QUEUEHELD=1

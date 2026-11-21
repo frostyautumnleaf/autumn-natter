@@ -41,13 +41,11 @@ const MAX_MATCHES: usize = 10_000;
 
 // The bounds of the difference the result shows. The result is a word to the model about what
 // changed, and not a copy of the file: the difference is cut to a window about the first
-// change, and the window is cut again at a few bounds, so a file of a million lines costs the
-// same as one of ten.
+// change, and the window is kept about the first change so a file of a million lines costs no
+// more than one of ten. What the window holds is reported whole: the difference of a change is
+// never cut, for the model is told how the change landed or not told at all.
 const DIFF_WINDOW_LINES: usize = 120;
 const DIFF_CONTEXT: usize = 2;
-const DIFF_LINES: usize = 40;
-const DIFF_LINE_CHARS: usize = 200;
-const DIFF_CHARS: usize = 4000;
 // The most lines the window may hold. The difference is worked out by a table the size of the
 // window times itself, so a window of a million lines would hold the program for minutes. The
 // change is in the start of the window, so a cap this high keeps it whole for every change the
@@ -1239,28 +1237,11 @@ fn receipt(name: &str, before: &str, made: &Made) -> String {
     let first_line = before[..start].matches('\n').count() + 1;
     let before_lines: Vec<&str> = before_window.split('\n').collect();
     let after_lines: Vec<&str> = after_window.split('\n').collect();
-    let mut diff = difference(&before_lines, &after_lines, DIFF_CONTEXT, first_line - 1);
+    let diff = difference(&before_lines, &after_lines, DIFF_CONTEXT, first_line - 1);
     if diff.is_empty() {
         return head;
     }
-    if diff.len() > DIFF_LINES {
-        let mut cut: Vec<String> = diff[..DIFF_LINES].to_vec();
-        cut.push(String::from("... (more diff lines)"));
-        diff = cut;
-    }
-    for line in diff.iter_mut() {
-        let count = line.chars().count();
-        if count > DIFF_LINE_CHARS {
-            let mut kept: String = line.chars().take(DIFF_LINE_CHARS).collect();
-            kept.push_str(&format!("... (+{} chars)", count - DIFF_LINE_CHARS));
-            *line = kept;
-        }
-    }
-    let mut body = diff.join("\n");
-    if body.len() > DIFF_CHARS {
-        body.truncate(DIFF_CHARS);
-        body.push_str("\n... (result truncated)");
-    }
+    let body = diff.join("\n");
     format!("{}\n{}", head, body)
 }
 
@@ -1579,6 +1560,51 @@ mod tests {
     // Every change is matched against the file as it was before the call. A change that could
     // match what an earlier change of the same call brought in would land in text the model
     // never read.
+    // The difference a call reports is the whole of the change it made within the window about
+    // the first change. It was cut at forty lines, at two hundred characters of one line, and
+    // at four thousand characters in all, with a line saying so at the end: a model that wrote a
+    // large change was told the start of it and left to hope the rest landed. The window is
+    // still bounded, for a file of a million lines is to cost no more than one of ten; what the
+    // window holds is reported whole.
+    #[test]
+    fn the_difference_of_a_change_is_reported_whole() {
+        let taken = String::from("beta\n");
+        let put: String = (1..=200)
+            .map(|number| format!("line {} of what was written\n", number))
+            .collect();
+        let first = 1;
+        let before = String::from("alpha\nbeta\ngamma\n");
+        let made = Made {
+            after: before.replace(&taken, &put),
+            count: 1,
+            first,
+            taken,
+            put: put.clone(),
+            added: 200,
+            removed: 1,
+            spans: vec![(first, first + 5)],
+            puts: vec![put],
+        };
+        let told = receipt("notes/big.md", &before, &made);
+        assert!(
+            !told.contains("more diff lines"),
+            "the difference was cut short after {} characters",
+            told.chars().count()
+        );
+        assert!(
+            !told.contains("result truncated"),
+            "the difference was cut at the end of what it held"
+        );
+        assert!(
+            told.contains("line 1 of what was written"),
+            "the start of the change is not reported: {told}"
+        );
+        assert!(
+            told.contains("line 200 of what was written"),
+            "the end of the change is not reported"
+        );
+    }
+
     #[test]
     fn every_change_is_matched_against_the_file_as_it_stood() {
         let before = "one\ntwo\nthree\n";

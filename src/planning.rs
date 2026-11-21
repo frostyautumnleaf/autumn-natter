@@ -994,14 +994,6 @@ pub fn questions_of(raw: &str) -> Result<Vec<crate::engine::AskItem>, String> {
 
 pub const READ_NAME: &str = "read_plan";
 
-// The most characters one answer may carry. A read that ran past this records it, for a model
-// that was not informed might take the part for the whole.
-const GREATEST_READ_CHARS: usize = 12_000;
-
-// The most lines one answer may carry, so a search that found all of a long plan does not
-// answer with all of it.
-const GREATEST_READ_LINES: usize = 400;
-
 // The call the model is proposed. It takes no file: the plan of this chat is the only text it
 // can read, and it is never changed by reading it.
 pub fn read_definition() -> Value {
@@ -1228,28 +1220,7 @@ pub fn read_plan(name: &str, raw: &str) -> tools::Report {
             lines.len()
         );
     }
-    // The answer is kept to a size, and a read that ran past it records it.
-    let mut cut = false;
-    if held.len() > GREATEST_READ_LINES {
-        held.truncate(GREATEST_READ_LINES);
-        cut = true;
-    }
-    let made = numbered(&held, &groups);
-    let mut body = made;
-    if body.chars().count() > GREATEST_READ_CHARS {
-        let mut kept = String::new();
-        for line in body.split_inclusive('\n') {
-            if kept.chars().count() + line.chars().count() > GREATEST_READ_CHARS {
-                cut = true;
-                break;
-            }
-            kept.push_str(line);
-        }
-        body = kept;
-    }
-    if cut {
-        body.push_str("(the rest was left out: ask again for a part of the plan)\n");
-    }
+    let body = numbered(&held, &groups);
     tools::Report {
         ok: true,
         output: format!("{}{}", said, body),
@@ -1653,6 +1624,47 @@ mod tests {
             whole.output
         );
         drop_plan("7001002");
+    }
+
+    // A read of a long plan is not cut. It was kept to four hundred lines and twelve thousand
+    // characters, with a line at the end telling the model to ask again for a part, so a model
+    // that read a long plan through was given the start of it and had to ask again and again -
+    // and a model that did not ask again wrote from a plan it believed it had read whole. The
+    // whole of what was asked for comes back now; the size of the conversation is dealt with by
+    // the handoff summary.
+    #[test]
+    fn a_long_plan_is_read_back_whole() {
+        let _guard = config::test_turn();
+        let long: String = (1..=900)
+            .map(|number| format!("step {} of the plan, with a line of its own\n", number))
+            .collect();
+        let name = lay_down("7001004", &long);
+        let whole = read_plan(&name, "{}");
+        assert!(whole.ok, "{}", whole.output);
+        assert!(
+            !whole.output.contains("the rest was left out"),
+            "the read of the plan was cut after {} characters",
+            whole.output.chars().count()
+        );
+        let lines: Vec<&str> = whole
+            .output
+            .lines()
+            .filter(|one| one.chars().next().is_some_and(|c| c.is_ascii_digit()))
+            .collect();
+        assert_eq!(lines.len(), 900, "the read of the plan came back part of the way");
+        assert!(
+            whole.output.contains("900: step 900 of the plan"),
+            "the end of the plan is not there"
+        );
+        // A read that asked for a range of lines is not cut either, however long the range is.
+        let wide = read_plan(&name, r#"{"from_line":200,"to_line":799}"#);
+        assert!(
+            !wide.output.contains("the rest was left out"),
+            "the read of a range was cut"
+        );
+        assert!(wide.output.contains("200: step 200 of the plan"), "{}", wide.output);
+        assert!(wide.output.contains("799: step 799 of the plan"), "the range stopped short");
+        drop_plan("7001004");
     }
 
     // A search that found nothing records it plainly, for a model that was answered with
