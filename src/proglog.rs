@@ -48,6 +48,9 @@ pub const STORE: &str = "store";
 // The directories of the program: a data folder named in the settings that is no folder, and so
 // is not was for the next start of the program.
 pub const FOLDERS: &str = "folders";
+// The waiting list of a chat: a message that could not be sent and why, and a message given back
+// to the list because the turn it was taken out for never began.
+pub const QUEUE: &str = "queue";
 
 // Begin the log of this run of the program and give back its place. None returns when the
 // folder cannot be made, and the program then works as it did with no log of its own. The line

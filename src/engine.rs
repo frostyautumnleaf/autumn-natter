@@ -61,6 +61,11 @@ const LEAST_ANSWER_STEPS: usize = 2;
 struct SentMessage {
     text: String,
     files: Vec<attach::Incoming>,
+    // The row of the waiting list this send came out of, when it came out of one - the whole of
+    // it, for a programmed message carries the text it waits for, and a row put back into the
+    // list is put back as it was written. A turn that never began gives the message back into the
+    // list it was taken out of, rather than let it go with the turn.
+    queued: Option<Box<QueueItem>>,
 }
 
 // One message of the waiting list: the text, the files hung on them, and the number the page
@@ -2028,12 +2033,6 @@ impl State {
         }
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn queue_ready(&self) -> bool {
-        self.queue_ready_in(self.open_id().as_str())
-    }
-
     // The message the worker would send next out of the waiting list of the chat named, with
     // the number of its row, without taking it out. A programmed message that has found the
     // text it waited for goes before every message that is only waiting its turn; the row at
@@ -2054,14 +2053,9 @@ impl State {
             SentMessage {
                 text: one.text.clone(),
                 files: one.files.clone(),
+                queued: Some(Box::new(one.clone())),
             },
         ))
-    }
-
-    // The message the worker would send next out of the waiting list of the chat that is left
-    // open.
-    fn queue_next(&self) -> Option<(u64, SentMessage)> {
-        self.queue_next_in(self.open_id().as_str())
     }
 
     // Take one message out of the waiting list of the chat named, by the number the worker sent
@@ -2094,12 +2088,6 @@ impl State {
         self.touch();
     }
 
-    // Take one message out of the waiting list of the chat that is left open.
-    fn queue_take(&mut self, id: u64) {
-        let chat = self.open_id();
-        self.queue_take_in(&chat, id);
-    }
-
     // Hold the waiting list of the chat named back, because a message of it could not be sent.
     // The reason was stated by the sender of the message; the list is asked again once the user
     // touches it.
@@ -2110,10 +2098,59 @@ impl State {
         }
     }
 
-    // Hold the waiting list of the chat that is set back.
-    fn queue_hold(&mut self) {
-        let chat = self.open_id();
-        self.queue_hold_in(&chat);
+    // Whether a turn may be begun in the chat named, as a waiting list needs it said: the chat
+    // is there, a model is known for it, no handoff summary is owed for it, and llama-server is
+    // to be found. `prepare_message` weighs the chat the side bar has open, which need not be
+    // the chat of the list - and a message was lost between the two, when the chat of the list
+    // had no model to be answered by any more. The reason is given back, so that the list can
+    // say why it is held back.
+    fn sendable_in(&self, chat_id: &str) -> Option<&'static str> {
+        if self.chat_of(chat_id).is_none() {
+            return Some("that chat is not there any more");
+        }
+        if self.model_of(chat_id).is_none() {
+            return Some("no model stands chosen for that chat");
+        }
+        if self.handoff_owed_in(chat_id) {
+            return Some("the handoff summary of that chat was never written");
+        }
+        if self.server_binary().is_none() {
+            return Some("llama-server was not found. Set its directory in the settings");
+        }
+        None
+    }
+
+    // Put a message back at the head of the waiting list of the chat named, because the turn it
+    // was sent for never began and nothing of it reached the chat. The list is held with it:
+    // whatever was in the way of the message is in the way still, and a list that cannot be sent
+    // is not asked again of its own accord. A chat that is gone has nowhere for a message to
+    // wait, and nothing of it is kept for a chat that is not there.
+    fn queue_put_head_in(&mut self, chat_id: &str, item: QueueItem) {
+        if self.chat_of(chat_id).is_none() {
+            return;
+        }
+        let Some(list) = self.queue_mut(chat_id) else {
+            return;
+        };
+        // A row that is still in the list is not put in a second time.
+        if list
+            .items
+            .iter()
+            .chain(list.planned.iter())
+            .any(|one| one.id == item.id)
+        {
+            return;
+        }
+        // A programmed message goes back into the part of the list it was written in, which is
+        // where the text it waits for means anything; the rest go to the head of the row, for
+        // that is where their turn is.
+        if item.matches.trim().is_empty() {
+            list.items.insert(0, item);
+        } else {
+            list.planned.insert(0, item);
+        }
+        list.held = true;
+        self.touch();
     }
 
     // The chats whose waiting list has a message the worker may send now, in the order the
@@ -4206,11 +4243,17 @@ impl State {
         config::display_is_corporate(&self.cfg.chat_display)
     }
 
-    // Turn planning mode on for the open chat, and make the plan file it works in. A chat that
-    // is planning already keeps the plan it had written.
+    // Turn planning mode on for the open chat, and make the plan file it works in.
     pub fn start_planning(&mut self) -> bool {
+        let chat = self.open_id();
+        self.start_planning_in(&chat)
+    }
+
+    // Turn planning mode on for the chat named, and make the plan file it works in. A chat that
+    // is planning already keeps the plan it had written.
+    pub fn start_planning_in(&mut self, chat_id: &str) -> bool {
         let name = {
-            let Some(chat) = self.chat_mut() else {
+            let Some(chat) = self.chat_of_mut(chat_id) else {
                 return false;
             };
             if chat.meta.planning && !chat.meta.plan_file.is_empty() {
@@ -4225,7 +4268,7 @@ impl State {
         // The plan file is created, and the chat reports it holds it. An empty chat is no file
         // yet, and the text of the chat is what make it one.
         let _ = name;
-        if let Some(chat) = self.chat() {
+        if let Some(chat) = self.chat_of(chat_id) {
             if !chat.messages.is_empty() {
                 let snapshot = chat.clone();
                 if let Err(problem) = self.store.save_chat(&snapshot) {
@@ -4740,8 +4783,35 @@ impl Engine {
     // The worker takes this same path for a message of the waiting list, which is what lets a
     // list of them keep going after the page that wrote it is removed: a queued message is sent
     // as the user sent it, and no part of the rules of sending belongs to the page.
+    // Ready a message of the chat the side bar has open for the worker. The rules of sending are
+    // the rules of that chat, and the chat is settled here once: a message written from the first
+    // screen opens a chat of this place and belongs to it from then on.
     fn prepare_message(
         state: &mut State,
+        text: String,
+        files: Vec<attach::Incoming>,
+    ) -> Option<SentMessage> {
+        let chat = state.open_id();
+        Self::prepare_message_in(state, &chat, text, files)
+    }
+
+    // Ready a message written for the chat named, and say upon the status line what is in its
+    // way. The commands of the chat composer are taken off the start of the text, a chat that
+    // owes a handoff summary is answered where it is, and a chat with no model or no server of
+    // llama.cpp is not requested an answer at all. The message that returns is what the worker is
+    // given, and nothing returns when the text is not to go out.
+    //
+    // A message of the waiting list comes this way with the chat of the list named, which is not
+    // necessarily the chat the side bar has open by the time the worker takes the message up.
+    // Judged by the rules of the open chat - and taken out of the list of the chat named by a
+    // number that means nothing across two lists - a waiting message was answered in a chat the
+    // user never wrote it in, while a message of that chat's list went out of the list and into
+    // nothing. The worker takes this same path for a message of the waiting list, which is what
+    // lets a list of them keep going after the page that wrote it is removed: a queued message is
+    // sent as the user sent it, and no part of the rules of sending belongs to the page.
+    fn prepare_message_in(
+        state: &mut State,
+        chat: &str,
         text: String,
         files: Vec<attach::Incoming>,
     ) -> Option<SentMessage> {
@@ -4749,7 +4819,7 @@ impl Engine {
             state.set_status("Nothing was written");
             return None;
         }
-        if state.live().generating {
+        if state.live_ref(chat).generating {
             state.set_status("An answer is still being generated");
             return None;
         }
@@ -4764,10 +4834,12 @@ impl Engine {
             );
             return None;
         }
-        // A message sent from the first screen opens a chat of this place. The window grows the
-        // chat composer into a chat at the same time.
-        if state.current.is_none() {
+        // A message sent from the first screen opens a chat of this place, and the message belongs
+        // to that chat from then on. A message of a waiting list always names a chat that is there.
+        if chat.is_empty() {
             state.start_chat();
+            let opened = state.open_id();
+            return Self::prepare_message_in(state, &opened, text, files);
         }
         // The commands of the chat composer. `/plan` turns planning mode on for this chat and
         // makes its plan file; the text behind it are the request the plan is to be made of,
@@ -4777,7 +4849,7 @@ impl Engine {
         let (command, rest) = planning::split(&text);
         let text = match command {
             Some(planning::Command::Plan) => {
-                if state.start_planning() {
+                if state.start_planning_in(chat) {
                     state.set_status(
                         "Planning mode is on. The plan of this chat is kept in the chats database",
                     );
@@ -4798,13 +4870,13 @@ impl Engine {
         // is waiting to hear why the chat does not go on. The user starts the summary again,
         // and the chat goes on after it, so no word of the conversation is lost and no model is
         // asked to read a conversation it cannot hold.
-        if state.handoff_owed() {
+        if state.handoff_owed_in(chat) {
             state.set_status(
                 "The handoff summary of this chat was never written. Start it again from the summarisation timeline",
             );
             return None;
         }
-        if state.model().is_none() {
+        if state.model_of(chat).is_none() {
             state.set_status("Choose a model in the top bar first");
             return None;
         }
@@ -4812,7 +4884,7 @@ impl Engine {
             state.set_status("llama-server was not found. Set its directory in the settings");
             return None;
         }
-        Some(SentMessage { text, files })
+        Some(SentMessage { text, files, queued: None })
     }
 
     // Put a message at the end of the waiting list of the chat that is left open. The list
@@ -6848,6 +6920,7 @@ fn run_send(
             Turn::Sent(SentMessage {
                 text: plan,
                 files: Vec::new(),
+                queued: None,
             }),
             chat,
         );
@@ -6871,14 +6944,51 @@ fn run_send(
 // it is on the status line from the attempt, and the program does not ask again every moment:
 // touching the list starts it again.
 fn queue_step(state: &Arc<Mutex<State>>, chat: &str) -> Option<SentMessage> {
-    let (id, next) = state.lock().ok()?.queue_next()?;
-    let queued = next;
+    // The list of the chat named is the list the message comes out of, and the chat of the list
+    // is the chat it is answered in. The chat the side bar has open is nothing to do with either:
+    // the worker walks the lists of every chat, and the row numbers of two lists say nothing to
+    // each other. A message read out of one list, judged by the rules of the chat on the screen
+    // and taken out of the list of another chat by its number, is a message that went out of the
+    // queue and into nothing - which is the way the bug of a vanishing waiting message showed.
+    let (id, next) = state.lock().ok()?.queue_next_in(chat)?;
+    // The chat of the list is the chat the message is answered in, so the rules for beginning a
+    // turn are weighed against that chat. `prepare_message` below weighs the chat the side bar has
+    // open, which need not be the chat of the list; a message was lost between the two, when the
+    // chat of the list had nothing left to answer it with. A list that may not be sent is held
+    // back with the reason, and the message stays where the user can see it.
+    let barred = state
+        .lock()
+        .map(|guard| guard.sendable_in(chat))
+        .unwrap_or(Some("the program is busy"));
+    if let Some(reason) = barred {
+        if let Ok(mut guard) = state.lock() {
+            guard.queue_hold_in(chat);
+            guard.set_status(&format!(
+                "A message of the waiting list was not sent, because {}. It remains in the list, \
+                 which goes on again when that is dealt with",
+                reason
+            ));
+            proglog::note(
+                proglog::QUEUE,
+                &format!(
+                    "a waiting message stays in the list of the chat {}: {}",
+                    chat, reason
+                ),
+            );
+        }
+        return None;
+    }
     let ready = match state.lock() {
-        Ok(mut guard) => Engine::prepare_message(&mut guard, queued.text, queued.files),
+        Ok(mut guard) => {
+            Engine::prepare_message_in(&mut guard, chat, next.text.clone(), next.files.clone())
+        }
         Err(_) => return None,
     };
     match ready {
-        Some(sent) => {
+        Some(mut sent) => {
+            // The row of the list travels with the message from here on: the preparation writes a
+            // message of the chat composer, and the waiting list is what the message came out of.
+            sent.queued = next.queued;
             if let Ok(mut guard) = state.lock() {
                 guard.queue_take_in(chat, id);
             }
@@ -6891,6 +7001,36 @@ fn queue_step(state: &Arc<Mutex<State>>, chat: &str) -> Option<SentMessage> {
             None
         }
     }
+}
+
+// Give the message of a turn that never began back to the waiting list it came from, and say so
+// under the chat. The list had given the message up for the turn, and the chat never took it: a
+// message between the two is a message that vanished, which is what one of them was - hours after
+// it was written, when the chat of the list had no model left to answer it with. A send that came
+// from the chat composer and not from a list is answered with the plain words.
+fn queued_back(
+    state: &mut State,
+    chat: &str,
+    queued: Option<Box<QueueItem>>,
+    words: &str,
+) {
+    let Some(row) = queued else {
+        state.set_status(words);
+        return;
+    };
+    let id = row.id;
+    state.queue_put_head_in(chat, *row);
+    proglog::note(
+        proglog::QUEUE,
+        &format!(
+            "the waiting message {} of the chat {} went back into the list: the turn never began ({})",
+            id, chat, words
+        ),
+    );
+    state.set_status(&format!(
+        "{}. The message that was waiting went back into the waiting list",
+        words
+    ));
 }
 
 // Say that an answer finished, so the programmed messages of the chat that is left open are
@@ -8339,24 +8479,34 @@ fn fold_saying(left: u64) -> String {
     )
 }
 
+// The saying of what a fold left out is text of the fold's own, and it stands inside the room the
+// fold was given: `fold_text` keeps `keep` characters of the message in all, the saying with the
+// rest. Below this room there is nothing of the message left to keep once the saying has taken
+// its part, and a fold that keeps nothing of the message is no fold.
+const LEAST_KEPT_OF_A_FOLD: usize = 64;
+
 // The fold of one piece of text: the start of it, the end of it, and between them the saying of
 // what is not there. Text no longer than what is kept comes back as nothing, for there is
-// nothing to fold.
+// nothing to fold. The whole of the result, the saying with it, is `keep` characters or less --
+// which is what makes a message folded to a bound stay at that bound when it is folded again,
+// and not a little above it. See `fold_messages_to_fit`.
 fn fold_text(text: &str, keep: usize) -> Option<String> {
     let count = text.chars().count();
     if count <= keep.saturating_add(LEAST_FOLD_SAVED) {
         return None;
     }
-    let head = keep / 4 * 3;
-    let tail = keep - head;
+    // The number of what is left out is stated as the difference between the message and the room
+    // it was given, so the saying is written before the room of the two ends is known.
+    let saying = fold_saying((count - keep) as u64);
+    let room = keep.saturating_sub(saying.chars().count());
+    if room < LEAST_KEPT_OF_A_FOLD {
+        return None;
+    }
+    let head = room / 4 * 3;
+    let tail = room - head;
     let said: String = text.chars().take(head).collect();
     let ended: String = text.chars().skip(count.saturating_sub(tail)).collect();
-    Some(format!(
-        "{}{}{}",
-        said,
-        fold_saying((count - keep) as u64),
-        ended
-    ))
+    Some(format!("{}{}{}", said, saying, ended))
 }
 
 // The characters of the text of one message of a conversation: what it says, and the thinking
@@ -8630,14 +8780,22 @@ fn fold_history_for_handoff(
 const FOLD_SAYING_CHARS: usize = 320;
 
 // Take the middle out of the messages that are too big for the request, oldest first, until the
-// conversation measures `budget` or nothing is left that may be taken. The lines of the program
-// at the head of a conversation are folded with the rest, for they are short and never reach
-// the bound of a fold; the newest message is folded last, for it is the message a summary is
-// most written of. The number of the messages that had their middle taken is given back.
+// conversation measures `budget`, nothing is left that may be taken, or a round of taking wins no
+// room. The lines of the program at the head of a conversation are folded with the rest, for they
+// are short and never reach the bound of a fold; the newest message is folded last, for it is the
+// message a summary is most written of. The number of the messages that had their middle taken is
+// given back.
 fn fold_messages_to_fit(items: &mut [Value], budget: u64) -> usize {
     let mut folded = 0usize;
-    while estimate_tokens(&Value::Array(items.to_vec())) > budget {
-        let over = estimate_tokens(&Value::Array(items.to_vec())).saturating_sub(budget);
+    // The measure the conversation stood at before the last fold. Every fold has to win room, for
+    // a conversation that has reached the least it may hold is not made smaller by folding: while
+    // the saying of a fold stood outside the room it was given, a message at the floor of what may
+    // be kept came back a dozen characters longer than that floor every time it was folded, and
+    // this loop went through the same message for ever with one core of the computer busy to the
+    // full. The bound below is what stops such a round from starting another.
+    let mut last = estimate_tokens(&Value::Array(items.to_vec()));
+    while last > budget {
+        let over = last.saturating_sub(budget);
         let mut moved = false;
         for item in items.iter_mut() {
             let held = item_chars(item) as u64;
@@ -8662,6 +8820,14 @@ fn fold_messages_to_fit(items: &mut [Value], budget: u64) -> usize {
             // stands, and the server is the authority on that.
             break;
         }
+        let now = estimate_tokens(&Value::Array(items.to_vec()));
+        if now >= last {
+            // The fold was gone through and no room was won, so the messages that remain are
+            // already at the least they may hold. Asking them to fold again is a way of never
+            // coming to an end, and the ask goes as it stands.
+            break;
+        }
+        last = now;
     }
     folded
 }
@@ -9517,6 +9683,13 @@ fn run_turn(
     turn: Turn,
     chat: &str) -> Ended {
     let going_on = matches!(turn, Turn::Continue);
+    // The row of the waiting list this turn's message came out of, when it came out of one. A
+    // turn that never began gives the message back to that list, so that a waiting message is
+    // never left out of the list and out of the chat in the same moment.
+    let queued = match &turn {
+        Turn::Sent(one) => one.queued.clone(),
+        _ => None,
+    };
     // Whether this turn puts a message of the user into the chat. A turn that goes on after a
     // handoff summary adds nothing, and a turn that writes an answer again adds nothing either:
     // the message the user is going on from is in the conversation already.
@@ -9559,12 +9732,12 @@ fn run_turn(
         let Ok(mut state) = state.lock() else { return Ended::Halted };
         let Some(model) = state.model_of(chat) else {
             abandon_turn(&mut state, chat);
-            state.set_status("Choose a model first");
+            queued_back(&mut state, chat, queued, "Choose a model first");
             return Ended::Halted;
         };
         if state.chat_of_mut(chat).is_none() {
             abandon_turn(&mut state, chat);
-            state.set_status("Start a new chat first");
+            queued_back(&mut state, chat, queued, "Start a new chat first");
             return Ended::Halted;
         }
         // What the chat requests, and nothing else. Whether the sandbox really works on this
@@ -14920,6 +15093,86 @@ mod tests {
         assert!(fold_text(&"z".repeat(1_100), 1_000).is_none());
     }
 
+    // The whole of a fold, the saying of what it left out with, stands within the room the fold
+    // was given. This is what makes a fold settle: a message folded down to a bound and folded
+    // again at the same bound must come back at that bound, or at nothing, and a fold that wrote
+    // `keep` characters of the message and put the saying above them left the message a little
+    // longer than the bound every time. `fold_messages_to_fit` then asked for the same message
+    // again for ever, and a chat that had outgrown its window stopped the program with one core
+    // busy to the full instead of asking for the summary of it.
+    #[test]
+    fn a_fold_never_writes_more_than_the_room_it_was_given() {
+        let _guard = config::test_turn();
+        for keep in [400usize, 1_000, 1_500, 4_000] {
+            let whole = "y".repeat(keep * 4 + 900);
+            let made = fold_text(&whole, keep).expect("a wall of text is folded");
+            assert!(
+                made.chars().count() <= keep,
+                "a fold asked to keep {} characters wrote {} of them",
+                keep,
+                made.chars().count()
+            );
+            // The two ends of the message remain, and the saying of what stands between them.
+            assert!(made.starts_with('y') && made.ends_with('y'));
+            assert!(made.contains("the middle of this message is not in this request"));
+            // The same message folded again at the same room is no fold: it holds no more than it
+            // was given, and there is nothing left for a fold to win out of it.
+            assert!(
+                fold_text(&made, keep).is_none(),
+                "a message at the room it was given was folded a second time"
+            );
+        }
+        // A room smaller than the saying of what is left out keeps nothing of the message, so no
+        // fold is made of it at all.
+        assert!(fold_text(&"y".repeat(1_200), 300).is_none());
+    }
+
+    // A conversation that will not fit, whatever is taken out of it, is given up on. Every message
+    // of it comes to the least it may hold and the ask goes as it stands: the fold is not gone
+    // through again and again for room that is not there to be won. The fold runs on a thread of
+    // its own with an end to the waiting, so that a fold that does not stop is reported as the
+    // fault it is rather than hang the tests with it.
+    #[test]
+    fn a_conversation_that_will_never_fit_is_folded_to_the_least_and_given_up_on() {
+        let _guard = config::test_turn();
+        let items = vec![
+            json!({ "role": "system", "content": "the text of the program" }),
+            json!({ "role": "user", "content": "x".repeat(200_000) }),
+            json!({ "role": "assistant", "content": "a".repeat(1_900) }),
+        ];
+        // A room of ten tokens: less than the least of two messages, so the conversation cannot
+        // be brought within it and the fold has nothing to do but reach the floor and stop.
+        let budget = 10u64;
+        let (sender, waiter) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut held = items;
+            let folded = fold_messages_to_fit(held.as_mut_slice(), budget);
+            let _ = sender.send((folded, held));
+        });
+        let (folded, held) = waiter
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("the fold came to an end within the minute");
+        assert!(folded >= 2, "neither of the two big messages was folded: {}", folded);
+        // Both of the big messages came to the least they may hold, which is where a fold stops
+        // asking the same message for more.
+        let said = held[1]["content"].as_str().expect("the message is text");
+        assert!(
+            said.chars().count() <= LEAST_KEPT_CHARS,
+            "the message of the user was left at {} characters, above the least a message may hold",
+            said.chars().count()
+        );
+        let ended = held[2]["content"].as_str().expect("the answer is text");
+        assert!(
+            ended.chars().count() <= LEAST_KEPT_CHARS,
+            "the answer was left at {} characters, above the least a message may hold",
+            ended.chars().count()
+        );
+        assert!(
+            estimate_tokens(&Value::Array(held)) > budget,
+            "the fold brought the conversation within a room it cannot hold"
+        );
+    }
+
     // The place a fold part is cut at never stands between a call of a tool and the result of
     // it. A part that ended with a call and left its result behind is a conversation no server
     // can read, and the whole request is refused for it.
@@ -17985,8 +18238,8 @@ mod tests {
         // The chat is writing, so nothing is taken from the list, and nothing is sent.
         {
             let guard = state.lock().unwrap();
-            assert!(!guard.queue_ready(), "a writing chat is not idle");
-            assert!(guard.queue_next().is_none());
+            assert!(!guard.queue_ready_in(&chat), "a writing chat is not idle");
+            assert!(guard.queue_next_in(&chat).is_none());
         }
         assert!(queue_step(&state, &chat).is_none(), "nothing goes out while the chat writes");
         // The answer is over. The message is next, but no model remains chosen, so the sender
@@ -17994,10 +18247,10 @@ mod tests {
         state.lock().unwrap().live_write().generating = false;
         {
             let guard = state.lock().unwrap();
-            assert!(guard.queue_ready(), "an idle chat may go on with the list");
+            assert!(guard.queue_ready_in(&chat), "an idle chat may go on with the list");
             assert_eq!(
                 guard
-                    .queue_next()
+                    .queue_next_in(&guard.open_id())
                     .map(|(_, sent)| sent.text)
                     .expect("a message waits its turn"),
                 "queued"
@@ -18006,7 +18259,7 @@ mod tests {
         assert!(queue_step(&state, &chat).is_none(), "no model stands chosen");
         {
             let guard = state.lock().unwrap();
-            assert!(!guard.queue_ready(), "a held list is not asked again");
+            assert!(!guard.queue_ready_in(&chat), "a held list is not asked again");
             let list = guard.open_queue().expect("the message is not lost");
             assert!(list.held);
             assert_eq!(list.items.len(), 1);
@@ -18018,7 +18271,231 @@ mod tests {
             .expect("the second message stands");
         let guard = state.lock().unwrap();
         assert!(!guard.open_queue().expect("the list stands").held);
-        assert!(guard.queue_ready());
+        assert!(guard.queue_ready_in(&chat));
+    }
+
+    // A message that could not be sent stays where the user can see it, and the line under the
+    // chat says why. The rule is weighed against the chat the list belongs to, and not against
+    // the chat the side bar has open: the two need not be one, and a message was lost between
+    // them once - hours after it was written, when the chat of the list had no model left.
+    #[test]
+    fn a_waiting_message_that_cannot_be_sent_says_why_it_stays() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        let chat;
+        {
+            let mut guard = state.lock().unwrap();
+            guard.start_chat();
+            chat = guard.open_id();
+        }
+        engine
+            .queue_add(String::from("waiting"), Vec::new())
+            .expect("a message stands");
+        assert!(
+            queue_step(&state, &chat).is_none(),
+            "no model stands chosen for the chat"
+        );
+        let guard = state.lock().unwrap();
+        let list = guard.queue_of(&chat).expect("the message is not lost");
+        assert!(list.held, "a list that cannot be sent is held back");
+        assert_eq!(list.items.len(), 1);
+        assert_eq!(list.items[0].text, "waiting");
+        let said = guard.status.clone();
+        assert!(
+            said.contains("waiting list") && said.contains("was not sent"),
+            "the line says what became of the message: {}",
+            said
+        );
+        assert!(
+            said.contains("no model stands chosen"),
+            "the reason the message stays is in the line: {}",
+            said
+        );
+    }
+
+    // The waiting list of a chat is gone through on its own, whatever the side bar has open. The
+    // worker walks the lists of every chat, and the row numbers of two lists are counted each for
+    // itself. A message read out of the list of the chat on the screen, and the row of the list
+    // worked on then taken out by that number, left one message answered in a chat it was never
+    // written in and another gone out of the queue and into nothing - which is the way the bug of
+    // a waiting message that vanished showed itself, hours after the message was written.
+    #[test]
+    fn a_waiting_message_is_taken_from_the_list_of_its_own_chat() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        let (first, second);
+        {
+            let mut guard = state.lock().unwrap();
+            // A model is chosen for the place, and llama-server is to be found, so that nothing
+            // but the two lists stands in the way of the message.
+            guard.models = vec![ModelInfo {
+                path: PathBuf::from("/models/one.gguf"),
+                name: String::from("one"),
+                kind: "GGUF",
+            }];
+            guard.cfg.model_id = String::from("/models/one.gguf");
+            let place = std::env::temp_dir().join("autumn-natter-queue-step-server");
+            std::fs::create_dir_all(&place).expect("a folder to stand for the directory of the server");
+            let fake = place.join("llama-server");
+            if !fake.is_file() {
+                std::fs::write(&fake, "#! /bin/sh\n").expect("a file to stand for llama-server");
+            }
+            guard.cfg.llama_dir = place.display().to_string();
+            guard.start_chat();
+            first = guard.open_id();
+        }
+        engine
+            .queue_add(String::from("of the first chat"), Vec::new())
+            .expect("a message stands in the list of the first chat");
+        // The user goes on to another chat and writes a message there, and waits there too.
+        {
+            let mut guard = state.lock().unwrap();
+            guard.start_chat();
+            second = guard.open_id();
+        }
+        assert_ne!(first, second, "the side bar is on another chat now");
+        engine
+            .queue_add(String::from("of the second chat"), Vec::new())
+            .expect("a message stands in the list of the second chat");
+        // Both lists count their rows from one, which is what makes the numbers of the two lists
+        // mean nothing to each other.
+        {
+            let guard = state.lock().unwrap();
+            assert_eq!(
+                guard.queue_of(&first).expect("the first list stands").items[0].id,
+                1
+            );
+            assert_eq!(
+                guard.queue_of(&second).expect("the second list stands").items[0].id,
+                1
+            );
+        }
+        // The worker comes to the first chat while the second is the chat on the screen.
+        let sent = queue_step(&state, &first).expect("the message of the first chat goes out");
+        assert_eq!(
+            sent.text, "of the first chat",
+            "a waiting message was answered that the chat never held"
+        );
+        assert_eq!(
+            sent.queued.as_ref().map(|one| one.id),
+            Some(1),
+            "the row of the list travels with it"
+        );
+        {
+            let guard = state.lock().unwrap();
+            assert!(
+                guard
+                    .queue_of(&first)
+                    .is_none_or(|list| list.items.is_empty()),
+                "the message of the first chat went out of its list and into nothing"
+            );
+            let held = guard.queue_of(&second).expect("the second list stands");
+            assert_eq!(
+                held.items.len(),
+                1,
+                "a message of the second chat was taken out of its list for the turn of another"
+            );
+            assert_eq!(held.items[0].text, "of the second chat");
+        }
+        engine.shutdown();
+    }
+
+    // The row of the list travels with the message, so a turn that never began gives the message
+    // back to the list it came out of: a message that is out of the list and never in the chat is
+    // a message that vanished.
+    #[test]
+    fn a_message_of_a_turn_that_never_began_goes_back_into_its_list() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        let chat;
+        {
+            let mut guard = state.lock().unwrap();
+            guard.start_chat();
+            chat = guard.open_id();
+        }
+        engine
+            .queue_add(String::from("the first"), Vec::new())
+            .expect("the first message stands");
+        engine
+            .queue_add(String::from("the second"), Vec::new())
+            .expect("the second message stands");
+        let (first, sent) = state
+            .lock()
+            .unwrap()
+            .queue_next_in(&chat)
+            .expect("a message waits its turn");
+        assert_eq!(
+            sent.queued.as_ref().map(|one| one.id),
+            Some(first),
+            "the row the message came out of travels with it"
+        );
+        assert_eq!(
+            sent.queued.as_ref().map(|one| one.text.as_str()),
+            Some("the first"),
+            "the row travels as it was written"
+        );
+        {
+            let mut guard = state.lock().unwrap();
+            guard.queue_take_in(&chat, first);
+            assert_eq!(guard.queue_of(&chat).expect("one is left").items.len(), 1);
+            // The turn this message was sent for never began, for no model stands for the chat.
+            queued_back(
+                &mut guard,
+                &chat,
+                sent.queued,
+                "Choose a model first",
+            );
+        }
+        {
+            let guard = state.lock().unwrap();
+            let list = guard.queue_of(&chat).expect("the list stands");
+            assert_eq!(list.items.len(), 2, "the message is back where it was");
+            assert_eq!(
+                list.items[0].id, first,
+                "and at the head of the list, which is where its turn is"
+            );
+            assert_eq!(list.items[0].text, "the first");
+            assert!(list.held, "and the list is held, for what was in the way remains");
+            assert!(
+                guard.status.contains("went back into the waiting list"),
+                "the line says the message is not gone: {}",
+                guard.status
+            );
+        }
+        // A send that came from the chat composer and not out of a list is answered with the plain
+        // words, and nothing is put into a list that never held it.
+        {
+            let mut guard = state.lock().unwrap();
+            queued_back(&mut guard, &chat, None, "Choose a model first");
+            let list = guard.queue_of(&chat).expect("the list stands");
+            assert_eq!(list.items.len(), 2, "a send of no list adds nothing");
+            assert_eq!(guard.status, "Choose a model first");
+        }
+        // A chat that is gone has nowhere for a message to wait, and is not given a list for one.
+        engine.remove_chat(chat.clone());
+        {
+            let mut guard = state.lock().unwrap();
+            guard.queue_put_head_in(
+                &chat,
+                QueueItem {
+                    id: 1,
+                    text: String::from("nothing"),
+                    files: Vec::new(),
+                    matches: String::new(),
+                    ready: false,
+                },
+            );
+            assert!(
+                guard.queue_of(&chat).is_none(),
+                "a chat that is gone is not given a list for a message"
+            );
+        }
     }
 
     // A programmed message is sent when an answer of the chat holds the text it waits for, and
@@ -18064,7 +18541,7 @@ mod tests {
             assert!(guard.last_answer().is_none(), "the chat has answered nothing");
             assert_eq!(
                 guard
-                    .queue_next()
+                    .queue_next_in(&guard.open_id())
                     .map(|(_, sent)| sent.text)
                     .expect("a message waits its turn"),
                 "only waiting"
@@ -18086,7 +18563,9 @@ mod tests {
         {
             let mut guard = state.lock().unwrap();
             guard.answer_programmed("The work is ALL DONE now.");
-            let (id, sent) = guard.queue_next().expect("the programmed message is next");
+            let (id, sent) = guard
+                .queue_next_in(&guard.open_id())
+                .expect("the programmed message is next");
             assert_eq!(id, planned);
             assert_eq!(sent.text, "say it again");
         }
@@ -18096,7 +18575,11 @@ mod tests {
         assert!(!engine.queue_move(planned, 0));
         assert!(engine.queue_move(still.items[0].id, 0), "a plain row moves");
         // The message that found its text is sent, and the plain message is left where it was.
-        state.lock().unwrap().queue_take(planned);
+        {
+            let mut guard = state.lock().unwrap();
+            let chat = guard.open_id();
+            guard.queue_take_in(&chat, planned);
+        }
         let after = engine.snapshot().queue.expect("the plain message is left");
         assert!(after.planned.is_empty(), "the programmed row went out");
         assert_eq!(after.items.len(), 1);
