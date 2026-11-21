@@ -4034,8 +4034,10 @@ function draw(s) {
   // The clock of a call that is running is taken up here, so it moves with the state and not
   // with the block that happens to be on the screen.
   takeRunClock(s);
-  showTheme(s.theme || (s.dark ? 'dark' : 'light'));
-  showPixelArt(!!s.theme_pixel);
+  // The colours of the page come from the state, except while the user has just chosen others and
+  // the program has not agreed to them yet.
+  showTheme(themeFromState(s));
+  showPixelArt(artFromState(s));
   el.themebtn.setAttribute('data-tip', 'The colours the page is drawn in, now ' + themeWord
     + (pixelArt ? ' in the pixel-art form' : '') + '. Click for the next theme.');
   readChatting(s);
@@ -14773,6 +14775,57 @@ function themeOf(word) {
   return THEMES.indexOf(word) >= 0 ? word : 'light';
 }
 
+// A theme the user has just chosen, and the moment it was chosen.
+//
+// The state of the program is what decides the colours of the page, and it is read again with
+// every poll. That is where a theme change goes wrong: the poll that was on its way when the
+// theme was clicked carries the theme the user had left, and it can land after the click - so
+// the page is put back into the old colours for a moment and moved to the new ones again when
+// the next state comes. Chosen colours flicker back and forth for a second.
+//
+// So the choice of the user is held against the state: while a choice stands, the page keeps it
+// and no state may move the colours away from it. The choice is given up as soon as the state
+// agrees with it, which is the word that the page wrote to the program and which comes back in
+// the next state; and it is given up after ASK_AGED milliseconds whatever happens, so a page
+// whose choice the program never took still follows the program at last. The pixel-art form
+// travels with the theme, so it is held the same way.
+var ASK_AGED = 8000;
+var themeAsk = { theme: '', art: null, at: 0 };
+
+// The theme to draw the page in: what the state says, unless the user asked for another one that
+// the program has not agreed to yet.
+function themeFromState(s) {
+  var word = themeOf((s && s.theme) || (s && s.dark ? 'dark' : 'light'));
+  if (themeAsk.theme && themeAsk.theme !== word) {
+    var now = window.performance ? performance.now() : Date.now();
+    if (now - themeAsk.at < ASK_AGED) { return themeAsk.theme; }
+  }
+  themeAsk.theme = '';
+  return word;
+}
+
+// The same for the pixel-art form of the theme, which the state carries beside it. Nothing is
+// held while the form asked for is the form the page is already on, because then the ask has
+// nothing to protect.
+function artFromState(s) {
+  var on = !!(s && s.theme_pixel);
+  if (themeAsk.art !== null && themeAsk.art !== on) {
+    var now = window.performance ? performance.now() : Date.now();
+    if (now - themeAsk.at < ASK_AGED) { return themeAsk.art; }
+  }
+  themeAsk.art = null;
+  return on;
+}
+
+// Say that the user chose a theme, or the form of it, so that the page holds to the choice until
+// the program agrees. Either half may be asked for on its own: give the word of a theme, or null
+// when only the form moved.
+function askTheme(word, art) {
+  if (word) { themeAsk.theme = themeOf(word); }
+  if (art !== undefined) { themeAsk.art = (art === null) ? null : !!art; }
+  themeAsk.at = window.performance ? performance.now() : Date.now();
+}
+
 // Whether the theme that remains is drawn in its pixel-art form. The form is a note about its
 // own beside the theme, so every theme has a standard and a pixel-art look.
 var pixelArt = false;
@@ -14808,6 +14861,7 @@ function showThemeButtons() {
 function chooseTheme(word) {
   showTheme(word);
   showThemeButtons();
+  askTheme(themeWord, pixelArt);
   if (progCfg) { progCfg.theme = themeWord; progCfg.dark_mode = themeWord === 'dark'; }
   post('/api/theme', { theme: themeWord, pixel: pixelArt });
 }
@@ -14832,6 +14886,7 @@ function showArtButtons() {
 // written to the program beside.
 function chooseThemeArt(on) {
   showPixelArt(on);
+  askTheme(null, pixelArt);
   if (progCfg) { progCfg.theme_pixel = pixelArt; }
   post('/api/theme', { theme: themeWord, pixel: pixelArt });
 }
