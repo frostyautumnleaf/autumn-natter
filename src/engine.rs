@@ -1561,6 +1561,12 @@ pub struct ChatLive {
     // so no live answer is drawn while it remains; the heading of the summarisation and the
     // status line say that the program is at work.
     pub summarising: bool,
+    // True once a handoff summary has been written for the message that is being answered. The
+    // end of an answer asks for a summary only when this send has had none: a chat whose first
+    // summary did not bring the conversation under the limit would else ask for another after
+    // every step, each one a summary of the one before it, and the space the summarisation was
+    // meant to win would be spent on summaries.
+    pub summarised_send: bool,
     // Text the model is writing right now.
     pub live_text: String,
     // The model's reasoning, streamed while an answer arrives.
@@ -6785,6 +6791,11 @@ fn run_send(
     cancel: &Arc<AtomicBool>,
     sent: SentMessage,
     chat: &str) {
+    // A message of the user is weighed afresh for the space, whatever the message before it
+    // won by way of a summary.
+    if let Ok(mut guard) = state.lock() {
+        guard.live_mut(chat).summarised_send = false;
+    }
     let mut turn = Turn::Sent(sent);
     // How many times the model has been asked to go on with its work after a handoff summary of
     // this one send.
@@ -7011,6 +7022,10 @@ fn run_retry(
     cancel: &Arc<AtomicBool>,
     chat: &str,
 ) {
+    // The message is answered again, so the space of this answer is weighed afresh.
+    if let Ok(mut guard) = state.lock() {
+        guard.live_mut(chat).summarised_send = false;
+    }
     let mut turn = Turn::Retry;
     let mut goings_on = 0usize;
     loop {
@@ -7065,6 +7080,9 @@ fn spawn_turn(
                 // is the conversation as it is now and the model writes on from them. No second
                 // ask follows: an answer without a command is an answer at its end, and the
                 // size of the context is weighed afterwards as it is after every other answer.
+                if let Ok(mut guard) = st.lock() {
+                    guard.live_mut(&chat).summarised_send = false;
+                }
                 run_turn(&st, &srv, &cancel, Turn::Resume(id), &chat);
                 let _ = maybe_compact(&st, &srv, &cancel, Weigh::Talk, &chat);
                 // The text that came after the stopping is the answer of the chat, so they are
@@ -7726,15 +7744,18 @@ pub fn summary_ask(history: &Value, prompt: &str, tools: Option<&Value>) -> Valu
     body
 }
 
-// How many times the request for a summary is rebuilt when the model answers it with a call of
-// a tool instead of with the summary. Twice is the most: a model that asks a third time has
-// made its choice, and the text it wrote beside the calls is taken as the summary rather than
-// spending more of the space the summary was meant to free.
-const SUMMARY_CALL_TRIES: usize = 2;
+// How many calls of a tool one request for a summary may be given back as cancelled before the
+// text the model wrote beside them is taken as the summary. A call costs one ask on from where
+// the writing stood, and nothing of the conversation is worked over again, so the bound is wide:
+// it is there only so that a model which cannot stop calling does not go on for ever. Reaching it
+// is not an error - the pieces of text the model wrote between the calls are the summary, and they
+// are kept whole.
+const MOST_SUMMARY_CALLS: usize = 8;
 
 // The result given back to a call of a tool that arrived the middle of the writing of a handoff
-// summary. The call never ran, and this text reports why.
-pub const SUMMARY_NO_TOOL_WORDS: &str = "No tool may be called while a handoff summary is being written. The summary is read by another model in place of the conversation, and nothing of the conversation is worked on now. This call was cancelled and nothing of what it requested was done. Write the summary in plain text.";
+// summary. The call never ran, and this text reports why in the words a model has to obey: the
+// writing of the summary goes on from where it stood, and a call answers with nothing.
+pub const SUMMARY_NO_TOOL_WORDS: &str = "Tool calls are not allowed while writing a handoff summary. Do not call tools while writing this handoff summary. This call was cancelled instantly and nothing of what it asked was done. The tools are still listed in this request because the conversation above is full of them; the summary is read by another model in place of that conversation, and nothing of it is worked on now. Go on writing the summary in plain text.";
 
 // The entries that answer the calls a model made instead of writing a summary: the saying of
 // the model that held the calls, and one result for each of them saying it was cancelled and
@@ -7832,34 +7853,59 @@ fn ask_summary_for_handoff(
         body["id_slot"] = json!(slot);
     }
     let mut shot = ask_summary(state, base_url, &body, cancel, chat);
-    let mut tries = 0usize;
+    // The text a model wrote before it stopped to call a tool is part of the summary it was asked
+    // for, so the pieces are kept in the order they came and joined when the writing ends. A model
+    // that wrote half a summary, called a tool, and wrote the rest has said the whole of what it
+    // meant to, and none of it is to be lost because a call stood between two parts of it.
+    let mut pieces: Vec<String> = Vec::new();
+    let mut cancelled = 0usize;
     while !shot.calls.is_empty()
-        && tries < SUMMARY_CALL_TRIES
+        && cancelled < MOST_SUMMARY_CALLS
         && !shot.stopped
         && shot.error.is_none()
         && !cancel.load(Ordering::Relaxed)
     {
-        tries += 1;
-        // The request is rebuilt here because the model answered the request for a summary with
-        // a call. The number of the try is in the line, for the request is created at most
-        // `SUMMARY_CALL_TRIES` times over one summary.
+        cancelled += 1;
+        if !shot.text.trim().is_empty() {
+            pieces.push(shot.text.trim().to_string());
+        }
+        // The same request is asked on from: the body is not thrown away and built again, so the
+        // conversation the server has already worked through stays worked through, and the cost
+        // of the cancelled call is the few words of the answer. The number of the call is in the
+        // line, for at most `MOST_SUMMARY_CALLS` of them are answered over one summary.
         proglog::note(
             proglog::SUMMARY,
             &format!(
-                "the summary requested a tool instead of text, so the call was cancelled and the summary is requested again: attempt {} of the {} allowed for one summary",
-                tries, SUMMARY_CALL_TRIES
+                "a tool was called while the handoff summary was being written, so it was cancelled \
+                 instantly and the summary is gone on with: call {} of the {} allowed for one \
+                 summary, of the tool {}",
+                cancelled,
+                MOST_SUMMARY_CALLS,
+                shot.calls
+                    .first()
+                    .map(|one| one.name.as_str())
+                    .unwrap_or("that named itself nothing")
             ),
         );
         tell(
             state,
-            "The summary requested a tool. The call was cancelled and the summary is requested again",
+            "A tool call was cancelled: tool calls are not allowed while a handoff summary is being written. The summary is going on",
         );
         if let Some(items) = body.get_mut("messages").and_then(|m| m.as_array_mut()) {
             items.extend(summary_calls_answered(&shot.calls, &shot.text));
         }
-        // What the model gives after a cancelled call is the summary. The text of the request
-        // that was cancelled remains with it above, so nothing is reported twice.
+        // What the model gives after a cancelled call is the rest of the summary. The text of the
+        // request that was cancelled remains with it above, so nothing is reported twice.
         shot = ask_summary(state, base_url, &body, cancel, chat);
+    }
+    if !shot.text.trim().is_empty() {
+        pieces.push(shot.text.trim().to_string());
+    }
+    // The pieces are the summary, in the order they came. Reaching the bound of the calls is
+    // not a reason to lose what the model wrote: the last ask of all may still hold a call, and
+    // then its text is nothing while the pieces above it hold the summary.
+    if !pieces.is_empty() {
+        shot.text = pieces.join("\n\n");
     }
     shot
 }
@@ -8500,6 +8546,10 @@ fn run_handoff(
     }
     guard.summary_short(&id, asked_short);
     guard.finish_summary_in(chat, &id, &summary, before, after, &why);
+    // The message being answered has now had its space made. Whether that space holds under the
+    // limit is weighed again on the next number the server gives, and not by asking for another
+    // summary of the same conversation at the end of the answer.
+    guard.live_mut(chat).summarised_send = true;
     // The space the conversation takes now, read from the text that remains after the
     // summary: the first prompt, the summary, and the text that come after it. The number the
     // server gave with the request is not the number of the conversation that remains now, for
@@ -8600,6 +8650,17 @@ fn maybe_compact(
             proglog::note(
                 proglog::ROOM,
                 "no summary is requested: the newest item in the chat is already a summarisation, so nothing new remains that is worth a summary of its own",
+            );
+            false
+        } else if guard.live_ref(chat).summarised_send {
+            // The space was already made once for this message, in the middle of the answer.
+            // The conversation may well remain past the limit - a first prompt bigger than the
+            // limit is never summarised away - and asking again would spend the space on a
+            // summary of the summary that was just written. The next message of the user is
+            // weighed afresh.
+            proglog::note(
+                proglog::ROOM,
+                "no summary is requested: a handoff summary was already written for this message, so a second one would be a summary of the first",
             );
             false
         } else {
@@ -14988,11 +15049,16 @@ mod tests {
             assert_eq!(receipt["tool_call_id"], json!(id));
             let said = receipt["content"].as_str().expect("the reason");
             assert!(
-                said.contains("No tool may be called while a handoff summary is being written"),
+                said.contains("Tool calls are not allowed while writing a handoff summary"),
                 "{}",
                 said
             );
-            assert!(said.contains("cancelled"), "{}", said);
+            assert!(
+                said.contains("Do not call tools while writing this handoff summary"),
+                "the words a model has to obey are in the result: {}",
+                said
+            );
+            assert!(said.contains("cancelled instantly"), "{}", said);
         }
         // A model that asked without writing any text beside the call is given back as a saying
         // of nothing, as every other call of that form is.

@@ -194,11 +194,11 @@ fn two_turns_of_nothing_end_the_answer_and_tell_the_reader() {
     );
     let joined = said.join("\n");
     assert!(
-        joined.contains("no answer twice over"),
+        joined.contains("no answer twice"),
         "the user was not informed in the chat that the answer ended"
     );
     assert!(
-        engine.snapshot().status.contains("twice over"),
+        engine.snapshot().status.contains("no answer twice"),
         "the user was not informed under the top bar"
     );
 }
