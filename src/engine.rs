@@ -1832,6 +1832,15 @@ impl State {
         self.live.remove(chat);
     }
 
+    // Say that one chat is no longer being answered, and that the program is busy only while
+    // another chat is. Every path that ends an answer, a summary or a turn that gave up goes
+    // through here: the waiting lists, the handoff summary and the settings read `busy`, so a
+    // turn that cleared only its own marking would leave the program held busy for good.
+    fn finish_answer(&mut self, chat: &str) {
+        self.live_mut(chat).generating = false;
+        self.busy = self.any_generating();
+    }
+
     // The live state of the chat the side bar has open, when one is open.
     fn open_live(&self) -> Option<&ChatLive> {
         self.live_of(self.current.as_deref().unwrap_or(""))
@@ -4451,6 +4460,14 @@ fn begin_turn_cancel(state: &mut State, chat: &str) -> Arc<AtomicBool> {
 // own.
 fn end_turn_cancel(state: &mut State, chat: &str) {
     state.turn_cancel.remove(chat);
+}
+
+// Take back the word that a chat is at work. `spawn_turn` marks the chat as answering before
+// the thread of the turn has the state in hand, so a turn that gives up before it asks the
+// model anything has to unmark it again: otherwise the chat is held at work by a turn that will
+// never send a request, and no later message of that chat is accepted.
+fn abandon_turn(state: &mut State, chat: &str) {
+    state.finish_answer(chat);
 }
 
 // The running llama-server, shared by the turns that answer at the same time. The child process
@@ -8219,19 +8236,18 @@ fn run_handoff(
     cancel: &Arc<AtomicBool>,
     chat: &str) -> bool {
     // Take the order. An answer and a summary cannot both be on the way, for both write into
-    // the same chat.
+    // the same chat: the worker's own list of the chats at work keeps them apart.
     let (model, settings, prompt, short, before, history, id) = {
         let Ok(mut guard) = state.lock() else {
             return false;
         };
-        if guard.live_ref(chat).generating {
-            return false;
-        }
         let Some(model) = guard.model_of(chat).clone() else {
+            abandon_turn(&mut guard, chat);
             guard.set_status("Choose a model in the top bar first");
             return false;
         };
         if guard.chat_of(chat).is_none() {
+            abandon_turn(&mut guard, chat);
             return false;
         }
         let prompt = config::sanitize_handoff_prompt(&guard.cfg.chat_compact_prompt);
@@ -9042,17 +9058,19 @@ fn run_turn(
         None => Vec::new(),
     };
     let lost = files.len().saturating_sub(kept.len());
-    // Take the work order first, so two answers cannot mix.
+    // Take the work order first. Whether a chat is already answering is decided by the worker,
+    // which holds the list of the chats at work and marks this one at work in `spawn_turn`
+    // before this thread has the state in hand: being marked at work is therefore this turn's
+    // own doing, and not a second turn upon the chat.
     let (model, settings, workdir, sandbox_on, access) = {
         let Ok(mut state) = state.lock() else { return Ended::Halted };
-        if state.live_ref(chat).generating {
-            return Ended::Halted;
-        }
         let Some(model) = state.model_of(chat) else {
+            abandon_turn(&mut state, chat);
             state.set_status("Choose a model first");
             return Ended::Halted;
         };
         if state.chat_of_mut(chat).is_none() {
+            abandon_turn(&mut state, chat);
             state.set_status("Start a new chat first");
             return Ended::Halted;
         }
@@ -9831,7 +9849,7 @@ fn run_turn(
                     false,
                 );
                 guard.persist_in(chat);
-                guard.live_mut(chat).generating = false;
+                guard.finish_answer(chat);
                 let text = if room {
                     EMPTY_TURN_TWICE_WORDS
                 } else {
@@ -9932,7 +9950,7 @@ fn run_turn(
                 // or the space is still past the limit even with the report of the stopped call
                 // left out of it. Either way the answer ends here, rather than be stopped again
                 // at once on the first word of the next ask.
-                guard.live_mut(chat).generating = false;
+                guard.finish_answer(chat);
                 let text = if guard.handoff_owed_in(chat) {
                     "The handoff summary was not written. Start it again from the summarisation timeline"
                 } else if still_full {
@@ -10091,7 +10109,7 @@ fn run_turn(
                 if turn_of_nothing && empty_asks >= EMPTY_TURN_ROOF {
                     guard.push_note_in(chat, EMPTY_TURN_END_WORDS, false);
                     guard.persist_in(chat);
-                    guard.live_mut(chat).generating = false;
+                    guard.finish_answer(chat);
                     guard.set_status(EMPTY_TURN_END_WORDS);
                     break Ended::Halted;
                 }
@@ -10219,7 +10237,7 @@ fn run_turn(
         let finished = answer.stopped || answer.error.is_some();
         let nothing_left = step_runs.is_empty();
         if finished || !use_tools || nothing_left || no_room_left {
-            guard.live_mut(chat).generating = false;
+            guard.finish_answer(chat);
             // An answer the user stopped never finished of its own, so it carries the marker of
             // the stop, and the page puts the marker of going on with it under that answer
             // alone. A stop that came at a call keeps the block of the call instead, for a call
@@ -10421,7 +10439,7 @@ fn run_turn(
             let Ok(mut guard) = state.lock() else {
                 return Ended::Halted;
             };
-            guard.live_mut(chat).generating = false;
+            guard.finish_answer(chat);
             guard.clear_stopped_marks_in(chat, );
             guard.set_status("Ready");
             guard.persist_in(chat);
@@ -10434,7 +10452,7 @@ fn run_turn(
             let Ok(mut guard) = state.lock() else {
                 return Ended::Halted;
             };
-            guard.live_mut(chat).generating = false;
+            guard.finish_answer(chat);
             guard.clear_stopped_marks_in(chat, );
             guard.set_status("The plan is released. The work begins from the plan");
             break Ended::Done;
