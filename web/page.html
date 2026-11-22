@@ -5530,6 +5530,12 @@ function fillRepos(s) {
 // unwaveringly still. The breathing comes in over the first moment of standing still, and is
 // gone again the moment the cursor moves.
 //
+// The aura does not leap to the cursor when the hand moves, and the place it was at is not covered
+// up again in one step. The aura comes to the cursor over a few tens of milliseconds, and every so
+// often as it goes it leaves the place it was at behind it. A place left behind closes over half a
+// second, so the patch of numbers the cursor went over shuts smoothly and the few patches behind
+// the aura read as one movement rather than as a row of stamps.
+//
 // The digits themselves are drawn anew every so often: a few squares of the field are given
 // another number between the frames, which is what makes the field read as a code that is being
 // written rather than as a picture of numbers.
@@ -5546,14 +5552,24 @@ var DIGIT_PACE = 2600;   // one whole breath of the aura, in milliseconds
 var DIGIT_WANDER = 9;    // how far the middle of the aura wanders while the cursor rests
 var DIGIT_MOST = 0.46;   // the most opaque a digit of the field is ever drawn
 var DIGIT_FRESH = 4;     // how many squares of the field are given another number per frame
+var DIGIT_FOLLOW = 62;   // how long the aura takes to come to the cursor, in milliseconds
+var DIGIT_ECHO = 8;      // how many places the aura holds behind it as it goes
+var DIGIT_ECHO_STEP = 24; // how far the aura goes between one place it leaves behind and the next
+var DIGIT_ECHO_TIME = 56; // how long the aura goes without leaving a place behind, at the fastest
+var DIGIT_ECHO_DRIFT = 8; // and the least way it has to be going for time alone to leave a place
+var DIGIT_ECHO_LIFE = 560; // how long a place the aura left behind takes to close, in milliseconds
 
 var digits = {
   want: true,     // what the Chatting setting says
   x: 0, y: 0,     // where the cursor stands in the place the chat is in
+  fx: 0, fy: 0,   // where the aura is, which comes to the cursor rather than leaping to it
   seen: false,    // whether the cursor is over the chat at all
   born: 0,        // the moment the cursor came over the chat
   gone: 0,        // and the moment it left
   held: 0,        // and the moment it last moved
+  trail: null,    // the places the aura has left behind it, each with its moment
+  back: null,     // and the place the last of them was left from
+  left: 0,        // and the moment the last of them was left
   w: 0, h: 0, dpr: 1,
   canvas: null, ctx: null,
   cols: 0, rows: 0,
@@ -5647,7 +5663,14 @@ function digitsMove(left, over) {
   if (fresh) {
     digits.born = now;
     digits.held = now;
+    // The place a visit came in at is uncovered where the cursor stands, with no memory of the
+    // place the last visit was at. The aura is there already, so that place is not left behind as
+    // well as uncovered.
     digits.x = left; digits.y = over;
+    digits.fx = left; digits.fy = over;
+    digits.back = { x: left, y: over };
+    digits.left = now;
+    digits.trail = [];
   } else if (Math.abs(left - digits.x) > 0.5 || Math.abs(over - digits.y) > 0.5) {
     digits.held = now;
   }
@@ -5662,6 +5685,37 @@ function digitsAway() {
   digits.seen = false;
   digits.gone = (window.performance ? performance.now() : Date.now());
   digitsGoOn();
+}
+
+// The numbers one aura uncovers: the squares of the field within the reach of the place it is
+// given, each of them weighed by how far it stands from the middle of that aura. The weight is
+// feathered over the last share of the reach, smoothed so that no ring of the aura is ever seen,
+// and the whole of the aura is weighed by the strength it is given.
+function digitsPaint(ctx, tint, out, over, reach, weight) {
+  var feather = reach * DIGIT_EDGE;
+  var first = Math.max(0, Math.floor((out - reach) / DIGIT_CELL));
+  var last = Math.min(digits.cols - 1, Math.ceil((out + reach) / DIGIT_CELL));
+  var top = Math.max(0, Math.floor((over - reach) / DIGIT_CELL));
+  var end = Math.min(digits.rows - 1, Math.ceil((over + reach) / DIGIT_CELL));
+  for (var col = first; col <= last; col++) {
+    for (var row = top; row <= end; row++) {
+      var cx = (col + 0.5) * DIGIT_CELL;
+      var cy = (row + 0.5) * DIGIT_CELL;
+      var dx = cx - out;
+      var dy = cy - over;
+      var near = Math.sqrt(dx * dx + dy * dy);
+      if (near >= reach) { continue; }
+      // The feather: the digit is at its fullest within the reach less the feather, and it fades
+      // out over the rest of it, smoothed so that no ring of the aura is ever seen.
+      var room = (reach - near) / feather;
+      if (room > 1) { room = 1; }
+      room = room * room * (3 - 2 * room);
+      var seen = weight * room;
+      if (seen <= 0.01) { continue; }
+      ctx.fillStyle = tint + seen.toFixed(3) + ')';
+      ctx.fillText(String(digits.field[row * digits.cols + col]), cx, cy);
+    }
+  }
 }
 
 // One going of the field: the reveal is weighed, the aura is placed, and the digits it reaches
@@ -5684,9 +5738,41 @@ function digitsStep(now) {
   var open = digits.lit();
   if (open <= 0.001) {
     digits.ctx.clearRect(0, 0, digits.w, digits.h);
+    digits.trail = [];
     digits.last = 0;
     return;
   }
+  // The aura comes to the cursor rather than leaping to it, so the reveal runs after the hand for
+  // a few tens of milliseconds instead of stamping where the pointer events happen to have come
+  // to rest. It comes to the same place the cursor stands at, and holds there.
+  var toward = 1 - Math.exp(-dt / DIGIT_FOLLOW);
+  digits.fx += (digits.x - digits.fx) * toward;
+  digits.fy += (digits.y - digits.fy) * toward;
+  if (Math.abs(digits.x - digits.fx) < 0.25) { digits.fx = digits.x; }
+  if (Math.abs(digits.y - digits.fy) < 0.25) { digits.fy = digits.y; }
+  if (!digits.trail) { digits.trail = []; }
+  if (!digits.back) { digits.back = { x: digits.fx, y: digits.fy }; }
+  if (digits.seen) {
+    // A place is left behind every so far as the aura goes, and the place left behind is the one
+    // the aura stood at when the last was left, for the place under the aura is uncovered already.
+    // A sweep over the chat goes further in a frame than that measure, so a place is left behind
+    // when the clock says so as well, else the sweep would string its places up close behind the
+    // aura and cover up the whole of the way it came by at once.
+    var from = digits.fx - digits.back.x;
+    var apart = digits.fy - digits.back.y;
+    var gone = from * from + apart * apart;
+    if (gone >= DIGIT_ECHO_STEP * DIGIT_ECHO_STEP
+        || (gone >= DIGIT_ECHO_DRIFT * DIGIT_ECHO_DRIFT
+            && now - (digits.left || now) >= DIGIT_ECHO_TIME)) {
+      digits.trail.push({ x: digits.back.x, y: digits.back.y, born: now });
+      digits.back = { x: digits.fx, y: digits.fy };
+      digits.left = now;
+      while (digits.trail.length > DIGIT_ECHO) { digits.trail.shift(); }
+    }
+  }
+  // The places that are made an end of closing are forgotten, so the field does not carry the
+  // whole way the cursor has taken over the chat.
+  while (digits.trail.length && now - digits.trail[0].born >= DIGIT_ECHO_LIFE) { digits.trail.shift(); }
   // The breathing of the aura: it comes in over the first moment the cursor stands still, and it
   // goes out again with the moving of it. The edge moves in and out, and the middle of the aura
   // wanders over a few pixels with it, so nothing of the reveal stands at a place of the screen.
@@ -5694,8 +5780,8 @@ function digitsStep(now) {
   var phase = ((now % DIGIT_PACE) / DIGIT_PACE) * Math.PI * 2;
   var breath = 1 + (DIGIT_SWING * Math.sin(phase) + DIGIT_SWING * 0.4 * Math.sin(phase * 2.3)) * still;
   var reach = DIGIT_REACH * breath;
-  var out = digits.x + Math.sin(phase * 0.7) * DIGIT_WANDER * still;
-  var over = digits.y + Math.cos(phase * 0.53) * DIGIT_WANDER * still;
+  var out = digits.fx + Math.sin(phase * 0.7) * DIGIT_WANDER * still;
+  var over = digits.fy + Math.cos(phase * 0.53) * DIGIT_WANDER * still;
   // A few squares of the field are given another number, which is what makes the field read as a
   // code that is being written.
   if (digits.field) {
@@ -5710,30 +5796,21 @@ function digitsStep(now) {
   ctx.font = DIGIT_TYPE + 'px ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  var first = Math.max(0, Math.floor((out - reach) / DIGIT_CELL));
-  var last = Math.min(digits.cols - 1, Math.ceil((out + reach) / DIGIT_CELL));
-  var top = Math.max(0, Math.floor((over - reach) / DIGIT_CELL));
-  var end = Math.min(digits.rows - 1, Math.ceil((over + reach) / DIGIT_CELL));
-  var feather = reach * DIGIT_EDGE;
-  for (var col = first; col <= last; col++) {
-    for (var row = top; row <= end; row++) {
-      var cx = (col + 0.5) * DIGIT_CELL;
-      var cy = (row + 0.5) * DIGIT_CELL;
-      var dx = cx - out;
-      var dy = cy - over;
-      var near = Math.sqrt(dx * dx + dy * dy);
-      if (near >= reach) { continue; }
-      // The feather: the digit is at its fullest within the reach less the feather, and it fades
-      // out over the rest of it, smoothed so that no ring of the aura is ever seen.
-      var room = (reach - near) / feather;
-      if (room > 1) { room = 1; }
-      room = room * room * (3 - 2 * room);
-      var weight = DIGIT_MOST * open * room;
-      if (weight <= 0.01) { continue; }
-      ctx.fillStyle = tint + weight.toFixed(3) + ')';
-      ctx.fillText(String(digits.field[row * digits.cols + col]), cx, cy);
-    }
+  // The places the aura left behind are drawn first and the least, the oldest among them the least
+  // of all: the further a place has gone on closing, the smaller its aura and the fainter its
+  // numbers, which is what shuts a patch smoothly instead of cutting it out.
+  for (var behind = 0; behind < digits.trail.length; behind++) {
+    var place = digits.trail[behind];
+    var shut = 1 - (now - place.born) / DIGIT_ECHO_LIFE;
+    if (shut <= 0.001) { continue; }
+    if (shut > 1) { shut = 1; }
+    var power = DIGIT_MOST * open * shut * shut * 0.72;
+    // A place whose numbers are too faint to be seen is not drawn at all, for the field is drawn
+    // again at every frame and the cost of a place is the cost of the numbers in it.
+    if (power < 0.05) { continue; }
+    digitsPaint(ctx, tint, place.x, place.y, DIGIT_REACH * (0.55 + 0.45 * shut), power);
   }
+  digitsPaint(ctx, tint, out, over, reach, DIGIT_MOST * open);
   digits.raf = requestAnimationFrame(digitsStep);
 }
 
