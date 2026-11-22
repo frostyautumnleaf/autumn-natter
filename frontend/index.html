@@ -4123,6 +4123,24 @@ function setChatWidth() {
 }
 var CHAT_LEAST = 780;
 
+// The place the chat is in changes size when the side bar slides in or out, when it is dragged
+// wider or narrower, and at the first draw, before the side bar has been put in its place. The
+// slide is a transition, so a measure taken in the same breath as the class was changed reads the
+// place before the slide, and nothing asks again afterwards: the column of the chat was left too
+// wide after the side bar was hidden and shown again, until the window itself was resized. The
+// place is therefore watched, and the width of the column worked out again whenever it changes,
+// whatever moved it. Writing the width of the column does not change the place the chat is in -
+// the column is inside that place and never pushes at it - so the watching cannot feed itself.
+var areaWatch = null;
+
+function watchArea() {
+  if (areaWatch || !window.ResizeObserver) { return; }
+  var box = document.getElementById('area');
+  if (!box) { return; }
+  areaWatch = new ResizeObserver(function () { setChatWidth(); });
+  areaWatch.observe(box);
+}
+
 function draw(s) {
   cur = s;
   // The messages that were queued while the model was writing are kept by the program, and go
@@ -17845,6 +17863,9 @@ tipWatchOn();
 // changes form.
 watchBadges();
 fitBadgesSoon();
+
+// The width of the chat follows the place the chat is in, which the side bar changes.
+watchArea();
 
 sideLoad();
 sideApply();
