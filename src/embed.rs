@@ -130,9 +130,140 @@ const MODELS: &[Model] = &[Model {
 // sake of a search that already happened.
 const IDLE_SECS: u64 = 300;
 
-// The size of the context asked for. One chunk of a source is about 900 characters, so this is
-// far more than any one ask needs, and the server is not asked to hold a conversation.
-const SERVER_CTX: &str = "4096";
+// --------------------------------------------------------------- the running
+
+// How the server of the embeddings is run. All four words belong to the settings and the user may
+// change each of them in the section that holds the model.
+//
+// `cpu_only` is on by default. Counting the words of the sources is a background job, and it
+// should not take the card the answers come from; with the toggle off, every layer the model has
+// is put on the card instead. `batch` is how many tokens are counted at once, `threads` how many
+// threads of the computer the counting may use - zero leaves the choice to llama.cpp - and `ctx`
+// the length of one ask in tokens. One chunk of a source is about 900 characters, so the default
+// context is far more than any one ask needs, and the server is not asked to hold a conversation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Run {
+    pub cpu_only: bool,
+    pub batch: u32,
+    pub threads: u32,
+    pub ctx: u32,
+}
+
+// The running when nothing was chosen: the counting kept on the computer's own cores, the batch
+// and the context llama.cpp asks for itself.
+pub const RUN_CPU_ONLY: bool = true;
+pub const RUN_BATCH: u32 = 2048;
+pub const RUN_THREADS: u32 = 0;
+pub const RUN_CTX: u32 = 4096;
+
+// The bounds the three numbers may be put within. A batch below 64 spends the time of the server
+// on bookkeeping, and one over 16384 asks for room a laptop does not have; the context of an ask
+// of a source never reaches 4096, so the top of that bound is room for a change of mind rather
+// than a need; the count of threads is capped at what any machine of today offers.
+pub const BATCH_MIN: u32 = 64;
+pub const BATCH_MAX: u32 = 16384;
+pub const THREAD_MAX: u32 = 256;
+pub const CTX_MIN: u32 = 512;
+pub const CTX_MAX: u32 = 32768;
+
+// The batch llama.cpp takes as its physical batch when none is given. It is kept beside the
+// batch the user chose, and never above it, because a physical batch larger than the batch is
+// refused by the server.
+const U_BATCH: u32 = 512;
+
+// The layers asked to go to the card when the counting is not kept on the computer's own cores.
+// llama.cpp takes the ask down to the number of layers the model has.
+const FULL_OFFLOAD: u32 = 999;
+
+impl Default for Run {
+    fn default() -> Self {
+        Run {
+            cpu_only: RUN_CPU_ONLY,
+            batch: RUN_BATCH,
+            threads: RUN_THREADS,
+            ctx: RUN_CTX,
+        }
+    }
+}
+
+impl Run {
+    // Four words made sane. A number out of its bounds is read as the bound nearest to it, and a
+    // batch that is not a multiple of 8 is taken down to one, which is the form llama.cpp works
+    // in.
+    pub fn new(cpu_only: bool, batch: u32, threads: u32, ctx: u32) -> Run {
+        Run {
+            cpu_only,
+            batch: (batch.clamp(BATCH_MIN, BATCH_MAX) / 8) * 8,
+            threads: threads.min(THREAD_MAX),
+            ctx: (ctx.clamp(CTX_MIN, CTX_MAX) / 64) * 64,
+        }
+    }
+
+    // The running the settings of this run ask for.
+    pub fn of(cfg: &config::Config) -> Run {
+        Run::new(
+            cfg.embedding_cpu_only,
+            cfg.embedding_batch,
+            cfg.embedding_threads,
+            cfg.embedding_ctx,
+        )
+    }
+
+    // The words that name one running. They go into the key of the server, so a change of any of
+    // them is answered by a new server rather than by the one already loaded.
+    pub fn key(&self) -> String {
+        format!(
+            "cpu={} b={} t={} c={}",
+            if self.cpu_only { "on" } else { "off" },
+            self.batch,
+            self.threads,
+            self.ctx
+        )
+    }
+
+    // The four numbers, with the bounds they may be put within, for the settings panel.
+    pub fn value(&self) -> Value {
+        json!({
+            "cpu_only": self.cpu_only,
+            "batch": self.batch,
+            "threads": self.threads,
+            "ctx": self.ctx,
+            "limits": {
+                "batch_min": BATCH_MIN, "batch_max": BATCH_MAX,
+                "threads_max": THREAD_MAX,
+                "ctx_min": CTX_MIN, "ctx_max": CTX_MAX,
+            },
+        })
+    }
+
+    // The arguments this running puts on the command line of the server. The physical batch is
+    // kept at or below the batch, and no count of threads is given when the choice was zero, so
+    // that llama.cpp answers with the threads of the machine. A counting kept on the computer's
+    // own cores is asked for by no layer going to the card; with the toggle off, every layer the
+    // model has is asked for, and llama.cpp takes the ask down to what the model has.
+    pub fn args(&self) -> Vec<String> {
+        let mut out = vec![
+            String::from("-c"),
+            self.ctx.to_string(),
+            String::from("-b"),
+            self.batch.to_string(),
+            String::from("-ub"),
+            self.batch.clamp(8, U_BATCH).to_string(),
+        ];
+        if self.threads > 0 {
+            out.push(String::from("-t"));
+            out.push(self.threads.to_string());
+        }
+        out.push(String::from("-ngl"));
+        out.push(if self.cpu_only {
+            String::from("0")
+        } else {
+            FULL_OFFLOAD.to_string()
+        });
+        out
+    }
+}
+
 
 // ------------------------------------------------------------------ catalog
 
@@ -264,7 +395,7 @@ pub fn projector_in(folder: &Path, model_id: &str, chosen: &str) -> Option<PathB
 // What the settings panel and the badge need to know: which model and quantization are chosen,
 // which files are in the folder and how big they are, whether the server of the embeddings runs
 // now, and how the download that may be going on is going.
-pub fn state(model_id: &str, quant: &str, chosen_mmproj: &str) -> Value {
+pub fn state(model_id: &str, quant: &str, chosen_mmproj: &str, run: &Run) -> Value {
     let model = find(model_id);
     let folder = dir();
     let chosen = sanitize_quant(model_id, quant);
@@ -295,6 +426,7 @@ pub fn state(model_id: &str, quant: &str, chosen_mmproj: &str) -> Value {
         "path": model_file.as_ref().map(|one| one.display().to_string()).unwrap_or_default(),
         "projector_used": used_projector.map(|one| one.display().to_string()).unwrap_or_default(),
         "server": server_state(),
+        "run": run.value(),
         "job": job_value(),
         "dir": folder.display().to_string(),
     })
@@ -582,16 +714,18 @@ pub fn server_state() -> Value {
     }
 }
 
-// True when a server is running with the model and projector the settings ask for.
-pub fn running_with(model_id: &str, quant: &str, chosen_mmproj: &str) -> bool {
-    let key = key_of(model_id, quant, chosen_mmproj);
+// True when a server is running with the model, the projector and the running the settings ask
+// for.
+pub fn running_with(model_id: &str, quant: &str, chosen_mmproj: &str, run: &Run) -> bool {
+    let key = key_of(model_id, quant, chosen_mmproj, run);
     let held = runner_slot().lock().unwrap_or_else(|gone| gone.into_inner());
     held.as_ref().map(|one| one.key == key).unwrap_or(false)
 }
 
 // The words that name one server: the model file and the projector file, as they are on the
-// disk. They are taken from the settings, so a change of either is a new server.
-fn key_of(model_id: &str, quant: &str, chosen_mmproj: &str) -> String {
+// disk, and the running they are asked to go under. They are taken from the settings, so a change
+// of any of them is a new server.
+fn key_of(model_id: &str, quant: &str, chosen_mmproj: &str, run: &Run) -> String {
     let folder = dir();
     let model = model_file_in(&folder, model_id, quant)
         .map(|one| one.display().to_string())
@@ -599,7 +733,7 @@ fn key_of(model_id: &str, quant: &str, chosen_mmproj: &str) -> String {
     let projector = projector_in(&folder, model_id, &sanitize_mmproj(model_id, chosen_mmproj))
         .map(|one| one.display().to_string())
         .unwrap_or_default();
-    format!("{}|{}", model, projector)
+    format!("{}|{}|{}", model, projector, run.key())
 }
 
 // Ask for the address of the server, starting it when it is not up or when the settings ask for
@@ -610,9 +744,10 @@ fn server_for(
     quant: &str,
     chosen_mmproj: &str,
     binary: &Path,
+    run: &Run,
 ) -> Result<String, String> {
     let mut held = runner_slot().lock().unwrap_or_else(|gone| gone.into_inner());
-    let key = key_of(model_id, quant, chosen_mmproj);
+    let key = key_of(model_id, quant, chosen_mmproj, run);
     if let Some(one) = held.as_mut() {
         let idle = one.last.elapsed() > Duration::from_secs(IDLE_SECS);
         if one.key == key && !idle && one.child.try_wait().map(|one| one.is_none()).unwrap_or(false)
@@ -629,16 +764,22 @@ fn server_for(
         .filter(|one| one.is_file())
         .ok_or("No embedding model is installed. Choose one in the settings and install it.")?;
     let projector = projector_in(&folder, model_id, &sanitize_mmproj(model_id, chosen_mmproj));
-    let started = start(&model, projector.as_deref(), binary, key.clone())?;
+    let started = start(&model, projector.as_deref(), binary, key.clone(), run)?;
     let url = started.url.clone();
     *held = Some(started);
     Ok(url)
 }
 
 // Start llama-server with `--embeddings` and wait until it answers. Only the words the server
-// cannot do without are given to it, so a build of llama.cpp older than the last few months
-// still takes the command line.
-fn start(model: &Path, projector: Option<&Path>, binary: &Path, key: String) -> Result<Holder, String> {
+// cannot do without are given to it, together with the four of the running the settings ask for,
+// so a build of llama.cpp older than the last few months still takes the command line.
+fn start(
+    model: &Path,
+    projector: Option<&Path>,
+    binary: &Path,
+    key: String,
+    run: &Run,
+) -> Result<Holder, String> {
     let port = util::free_port().ok_or("No free port on this machine")?;
     let folder = dir();
     let log_place = folder.join("embedding-server.log");
@@ -654,9 +795,10 @@ fn start(model: &Path, projector: Option<&Path>, binary: &Path, key: String) -> 
         .arg("127.0.0.1")
         .arg("--port")
         .arg(port.to_string())
-        .arg("-c")
-        .arg(SERVER_CTX)
         .arg("--no-webui");
+    for word in run.args() {
+        command.arg(word);
+    }
     if let Some(extra) = projector {
         command.arg("--mmproj").arg(extra);
     }
@@ -814,13 +956,22 @@ fn first_words(words: &str, most: usize) -> String {
 }
 
 // The embedder the settings ask for. Nothing is started here: the server is only started when a
-// text is actually counted.
-pub fn server(binary: &Path, model_id: &str, quant: &str, chosen_mmproj: &str) -> Arc<dyn crate::rag::Embedder> {
+// text is actually counted. The running of the server - the batch, the threads, the context and
+// whether the card is used at all - comes with the settings too, so a chat counts the sources the
+// way the panel asks.
+pub fn server(
+    binary: &Path,
+    model_id: &str,
+    quant: &str,
+    chosen_mmproj: &str,
+    run: &Run,
+) -> Arc<dyn crate::rag::Embedder> {
     Arc::new(Runner {
         binary: binary.to_path_buf(),
         model: sanitize_model(model_id),
         quant: sanitize_quant(model_id, quant),
         mmproj: sanitize_mmproj(model_id, chosen_mmproj),
+        run: run.clone(),
     })
 }
 
@@ -830,11 +981,12 @@ struct Runner {
     model: String,
     quant: String,
     mmproj: String,
+    run: Run,
 }
 
 impl crate::rag::Embedder for Runner {
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
-        let url = server_for(&self.model, &self.quant, &self.mmproj, &self.binary)?;
+        let url = server_for(&self.model, &self.quant, &self.mmproj, &self.binary, &self.run)?;
         embed_at(&url, texts)
     }
 
@@ -857,7 +1009,7 @@ impl crate::rag::Embedder for Runner {
         if bytes.is_empty() {
             return Err(String::from("the picture has no bytes in it"));
         }
-        let url = server_for(&self.model, &self.quant, &self.mmproj, &self.binary)?;
+        let url = server_for(&self.model, &self.quant, &self.mmproj, &self.binary, &self.run)?;
         let agent = ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(5))
             .timeout_read(Duration::from_secs(300))
@@ -963,6 +1115,59 @@ mod checks {
         // A vector of nothing is left as it is, for there is no length to divide by.
         let none = normalise(vec![vec![0.0f32, 0.0]]);
         assert_eq!(none[0], vec![0.0f32, 0.0]);
+    }
+
+    // The four words of the running: the defaults keep the counting on the cores of the
+    // computer, and every number out of its bounds is read as the bound nearest to it. A batch
+    // is taken down to a multiple of 8 and a context to a multiple of 64, which are the forms
+    // llama.cpp works in.
+    #[test]
+    fn the_running_of_the_counting_is_made_sane() {
+        let fresh = Run::default();
+        assert!(fresh.cpu_only, "the counting is kept off the card by default");
+        assert_eq!(fresh.batch, RUN_BATCH);
+        assert_eq!(fresh.threads, RUN_THREADS, "zero leaves the threads to llama.cpp");
+        assert_eq!(fresh.ctx, RUN_CTX);
+        // A number above its bound is the top of it, and one below is the bottom.
+        let huge = Run::new(false, 9_000_000, 4000, 100_000);
+        assert_eq!(huge.batch, BATCH_MAX);
+        assert_eq!(huge.threads, THREAD_MAX);
+        assert_eq!(huge.ctx, CTX_MAX);
+        let small = Run::new(true, 1, 0, 1);
+        assert_eq!(small.batch, BATCH_MIN);
+        assert_eq!(small.threads, 0);
+        assert_eq!(small.ctx, CTX_MIN);
+        // The bounds themselves are kept, and an odd number is taken down to the form.
+        assert_eq!(Run::new(true, BATCH_MAX, 0, CTX_MAX).batch, BATCH_MAX);
+        assert_eq!(Run::new(true, 1000, 0, CTX_MIN).batch, 1000);
+        assert_eq!(Run::new(true, 1005, 0, CTX_MIN).batch, 1000, "a batch is a multiple of 8");
+        assert_eq!(Run::new(true, 1000, 0, 5100).ctx, 5056, "a context is a multiple of 64");
+    }
+
+    // The arguments of the running. The context and the batch are always given; the physical
+    // batch never rises above the batch; no thread count is given when the choice was zero; and
+    // the card is asked for no layer while the counting is kept on the computer's own cores.
+    #[test]
+    fn the_running_names_the_arguments_of_the_server() {
+        let on_card = Run::new(false, 512, 8, 4096);
+        let words = on_card.args().join(" ");
+        assert_eq!(words, "-c 4096 -b 512 -ub 512 -t 8 -ngl 999");
+        // A small batch takes its own size as the physical batch, so the server is not asked for
+        // a physical batch larger than the batch. Zero threads names no `-t` at all.
+        let small = Run::new(true, 64, 0, 1024);
+        assert_eq!(small.args().join(" "), "-c 1024 -b 64 -ub 64 -ngl 0");
+        // Every running of its own answers with a key of its own, so a change of any of the four
+        // words starts a new server rather than reusing the one already loaded.
+        let base = Run::default();
+        assert_eq!(base.key(), Run::default().key());
+        for other in [
+            Run::new(false, RUN_BATCH, RUN_THREADS, RUN_CTX),
+            Run::new(true, RUN_BATCH + 8, RUN_THREADS, RUN_CTX),
+            Run::new(true, RUN_BATCH, 4, RUN_CTX),
+            Run::new(true, RUN_BATCH, RUN_THREADS, RUN_CTX + 64),
+        ] {
+            assert_ne!(base.key(), other.key(), "{} names another running", other.key());
+        }
     }
 
     // Both of the forms the endpoint may answer with are read.

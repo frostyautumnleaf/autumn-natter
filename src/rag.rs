@@ -126,6 +126,7 @@ pub fn embedder_for(cfg: &config::Config) -> Option<Arc<dyn Embedder>> {
         &cfg.embedding_model,
         &cfg.embedding_quant,
         &cfg.embedding_mmproj,
+        &embed::Run::of(cfg),
     ))
 }
 

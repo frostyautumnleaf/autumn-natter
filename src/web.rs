@@ -1136,6 +1136,11 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             &text_field(&value, "mmproj"),
             false,
         ),
+        // How the counting is to be run: whether the card of the computer may be used at all, the
+        // batch of tokens, the threads and the length of one ask. The four words are written into
+        // the settings; a server that is running under the old words is left to finish what it is
+        // at and started again with the new ones when it is next asked for.
+        "/api/embed_run" | "embed_run" => engine.set_embedding_run(&value),
         // The sources of the open chat, for the pop-up of the sources: the files, their state, the
         // folder they are in, and the job that may be going on over them.
         "/api/sources_list" | "sources_list" => engine.sources_value(),

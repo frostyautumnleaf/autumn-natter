@@ -101,6 +101,8 @@ function embedOf() {
     quants: quants, mmprojs: mmprojs,
     installed: false, path: '', projector_used: '',
     server: { running: false, url: '', note: '' },
+    run: { cpu_only: true, batch: 2048, threads: 0, ctx: 4096,
+      limits: { batch_min: 64, batch_max: 16384, threads_max: 256, ctx_min: 512, ctx_max: 32768 } },
     job: { active: false, stage: '', file: '', done: 0, total: 0, note: '', failed: false, percent: 0 },
     dir: '/home/user/.config/autumn-natter/embedding',
   };
@@ -128,6 +130,33 @@ function sourcesOf() {
 // The three answers of the program the panels read, and the actions the page sends. The state is
 // kept where the check may change it between the items.
 function stubs(state, embed, sources) {
+  // The running of the counting as the program answers with it: the four words the page sent, taken
+  // back into their bounds, with the bounds themselves beside them. The helper lives inside `stubs`
+  // because the stubs are carried into the page on their own, without the rest of this file.
+  function runAfter(sent, before) {
+    const limits = ((before && before.limits) || {});
+    const low = (limits.batch_min || 64);
+    const high = (limits.batch_max || 16384);
+    const raw = Number(sent.batch);
+    let batch = Number.isFinite(raw) ? Math.min(Math.max(raw, low), high) : 2048;
+    batch = Math.floor(batch / 8) * 8;
+    const threads = Math.min(Number(sent.threads) || 0, limits.threads_max || 256);
+    const ctxLow = (limits.ctx_min || 512);
+    const ctx = Math.floor(Math.min(Math.max(Number(sent.ctx) || 4096, ctxLow),
+      limits.ctx_max || 32768) / 64) * 64;
+    return {
+      cpu_only: sent.cpu_only !== false,
+      batch: batch,
+      threads: threads,
+      ctx: ctx,
+      limits: {
+        batch_min: low, batch_max: high,
+        threads_max: limits.threads_max || 256,
+        ctx_min: ctxLow, ctx_max: limits.ctx_max || 32768,
+      },
+    };
+  }
+
   window.__rag = {
     state: state,
     embed: embed,
@@ -155,15 +184,20 @@ function stubs(state, embed, sources) {
     if (name.indexOf('state') === 0) { return Promise.resolve({ json: () => Promise.resolve(window.__rag.state) }); }
     if (name === 'embed_state') { return Promise.resolve({ json: () => Promise.resolve(window.__rag.embed) }); }
     if (name === 'sources_list') { return Promise.resolve({ json: () => Promise.resolve(window.__rag.sources) }); }
-    if (name === 'embed_choose' || name === 'embed_install') {
+    if (name === 'embed_choose' || name === 'embed_install' || name === 'embed_run') {
       // The program writes the choice into its settings, and the section is read again from there.
       if (name === 'embed_choose') {
         if (body.model) { window.__rag.embed.model = body.model; }
         if (body.quant) { window.__rag.embed.quant = body.quant; }
         if (body.mmproj) { window.__rag.embed.mmproj = body.mmproj; }
       }
-      window.__rag.embed.installed = true;
-      window.__rag.embed.path = '/home/user/.config/autumn-natter/embedding/model.gguf';
+      // The running of the counting is written into the settings the same way, and the answer
+      // carries it back within its bounds.
+      if (name === 'embed_run') { window.__rag.embed.run = runAfter(body, window.__rag.embed.run); }
+      if (name !== 'embed_run') {
+        window.__rag.embed.installed = true;
+        window.__rag.embed.path = '/home/user/.config/autumn-natter/embedding/model.gguf';
+      }
     }
     return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
   };
@@ -185,6 +219,9 @@ function stubs(state, embed, sources) {
           if (args && args.path === 'embed_install') {
             window.__rag.embed.installed = true;
             window.__rag.embed.path = '/home/user/.config/autumn-natter/embedding/model.gguf';
+          }
+          if (args && args.path === 'embed_run') {
+            window.__rag.embed.run = runAfter(body, window.__rag.embed.run);
           }
         }
         return Promise.resolve({ ok: true });
@@ -364,6 +401,116 @@ async function main() {
       note('the folder of the embedding model is not reported: "' + lists.folder + '"');
     }
     await page.screenshot({ path: path.join(__dirname, 'rag-' + one.tag + '-2-embedding.png') });
+
+    // 5b. the running of the counting: the four fields are in the section, they hold the words the
+    // program answered with, the bounds of the program are on them, and the line of the state says
+    // what the counting was given.
+    const running = await page.evaluate(function () {
+      const field = function (id) {
+        const node = document.getElementById(id);
+        if (!node) { return null; }
+        return node.type === 'checkbox'
+          ? { checked: node.checked, shown: node.getBoundingClientRect().width > 0 }
+          : { value: node.value, min: node.min, max: node.max,
+              shown: node.getBoundingClientRect().width > 0 };
+      };
+      return {
+        cpu: field('fEmbedCpu'), batch: field('fEmbedBatch'), threads: field('fEmbedThreads'),
+        ctx: field('fEmbedCtx'),
+        state: (document.getElementById('fEmbedState') || {}).textContent,
+      };
+    });
+    if (!running.cpu || !running.batch || !running.threads || !running.ctx) {
+      note('the section of the embedding model does not hold the four fields of the running');
+    } else {
+      if (!running.cpu.shown || !running.batch.shown || !running.threads.shown
+          || !running.ctx.shown) {
+        note('a field of the running is not drawn');
+      }
+      if (!running.cpu.checked) {
+        note('the counting is not kept on the cores of the computer by default');
+      }
+      if (running.batch.value !== '2048' || running.batch.min !== '64'
+          || running.batch.max !== '16384') {
+        note('the batch of the counting is "' + running.batch.value + '" with the bounds '
+          + running.batch.min + ' and ' + running.batch.max);
+      }
+      if (running.threads.value !== '0' || running.threads.max !== '256') {
+        note('the threads of the counting are "' + running.threads.value + '" with the top '
+          + running.threads.max);
+      }
+      if (running.ctx.value !== '4096' || running.ctx.min !== '512' || running.ctx.max !== '32768') {
+        note('the length of one ask is "' + running.ctx.value + '" with the bounds '
+          + running.ctx.min + ' and ' + running.ctx.max);
+      }
+      if (!running.state || running.state.indexOf('batch of 2048') < 0) {
+        note('the line of the state says nothing of the running: "' + running.state + '"');
+      }
+    }
+
+    // A change of one of the four numbers is written at once, and the answer of the program is read
+    // back into the fields. The field being typed in is left alone, so the number is not written
+    // over the typing.
+    await page.evaluate(function () {
+      const node = document.getElementById('fEmbedBatch');
+      if (node) { node.focus(); node.value = '512'; }
+    });
+    await page.evaluate(function () {
+      const node = document.getElementById('fEmbedBatch');
+      if (node) { node.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+    await sleep(220);
+    actions = await page.evaluate('window.__take()');
+    let ran = actions.filter((one) => one.name === 'embed_run');
+    if (ran.length !== 1) {
+      note('a change of the batch sent ' + ran.length + ' actions of the running');
+    } else if (ran[0].body.batch !== 512 || ran[0].body.cpu_only !== true
+        || ran[0].body.ctx !== 4096) {
+      note('the running sent was "' + JSON.stringify(ran[0].body) + '"');
+    }
+    // The toggle of the card is written the same way, and the line of the state answers with the
+    // card once it is off.
+    await page.evaluate(function () {
+      const node = document.getElementById('fEmbedCpu');
+      if (node) { node.checked = false; node.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+    await sleep(220);
+    actions = await page.evaluate('window.__take()');
+    ran = actions.filter((one) => one.name === 'embed_run');
+    if (ran.length !== 1 || ran[0].body.cpu_only !== false || ran[0].body.batch !== 512) {
+      note('the toggle of the card sent "' + JSON.stringify((ran[0] || {}).body) + '"');
+    }
+    const told = await page.evaluate(function () {
+      const state = (document.getElementById('fEmbedState') || {}).textContent || '';
+      const cpu = document.getElementById('fEmbedCpu');
+      return { state: state, cpu: cpu ? cpu.checked : null,
+        batch: (document.getElementById('fEmbedBatch') || {}).value };
+    });
+    if (told.cpu !== false) {
+      note('the toggle of the card was put back on when the program answered with it off');
+    }
+    if (told.batch !== '512') {
+      note('the batch of the counting reads "' + told.batch + '" after the program answered');
+    }
+    if (told.state.indexOf('the card') < 0 || told.state.indexOf('batch of 512') < 0) {
+      note('the line of the state does not follow the running: "' + told.state + '"');
+    }
+    await page.evaluate(function () {
+      const node = document.getElementById('fEmbedCtx');
+      if (node) { node.scrollIntoView({ block: 'center' }); }
+    });
+    await sleep(150);
+    await page.screenshot({ path: path.join(__dirname, 'rag-' + one.tag + '-6-run.png') });
+    // The four words are put back as the program settled them, so the items after this one read the
+    // state they were written for.
+    await page.evaluate(function () {
+      const batch = document.getElementById('fEmbedBatch');
+      if (batch) { batch.blur(); batch.value = '2048'; batch.dispatchEvent(new Event('change', { bubbles: true })); }
+      const cpu = document.getElementById('fEmbedCpu');
+      if (cpu) { cpu.checked = true; cpu.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+    await sleep(220);
+    await page.evaluate('window.__take()');
 
     // 6. a choice of the list is written at once, and the download is a press of its own.
     await page.select('#fEmbedQuant', 'Q8_0');

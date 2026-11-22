@@ -44,6 +44,26 @@ fn default_embedding_mmproj() -> String {
     String::from(crate::embed::DEFAULT_MMPROJ)
 }
 
+// How the server of the embeddings is run: whether the card is used at all, how many tokens are
+// counted at once, how many threads of the computer the counting may use, and the length of one
+// ask in tokens. The counting of the sources is a background job, so it is kept on the computer's
+// own cores until the user says otherwise. See `crate::embed::Run`.
+fn default_embedding_cpu_only() -> bool {
+    crate::embed::RUN_CPU_ONLY
+}
+
+fn default_embedding_batch() -> u32 {
+    crate::embed::RUN_BATCH
+}
+
+fn default_embedding_threads() -> u32 {
+    crate::embed::RUN_THREADS
+}
+
+fn default_embedding_ctx() -> u32 {
+    crate::embed::RUN_CTX
+}
+
 // ------------------------------------------------------------ compaction
 //
 // A chat goes on for ever once the size of the context is rebuilt on the way. The compaction
@@ -294,6 +314,19 @@ pub struct Config {
     // not wanted. A projector that is in the folder anyway is used, whatever is written here.
     #[serde(default = "default_embedding_mmproj")]
     pub embedding_mmproj: String,
+    // How the server of the counting is run. On by default, the toggle keeps the counting on the
+    // cores of the computer, so a search of the sources never takes the card the answers come
+    // from. The three numbers are the batch of tokens counted at once, the threads the counting
+    // may use - zero leaves the choice to llama.cpp - and the length of one ask in tokens. Each
+    // is taken back into its bounds when the file is read; see `crate::embed::Run`.
+    #[serde(default = "default_embedding_cpu_only")]
+    pub embedding_cpu_only: bool,
+    #[serde(default = "default_embedding_batch")]
+    pub embedding_batch: u32,
+    #[serde(default = "default_embedding_threads")]
+    pub embedding_threads: u32,
+    #[serde(default = "default_embedding_ctx")]
+    pub embedding_ctx: u32,
     // Directory that holds the repositories. Empty means the default place.
     pub repositories_dir: String,
     // Another place for the settings, the conversations, the logs and the records of this
@@ -850,6 +883,10 @@ impl Default for Config {
             embedding_model: default_embedding_model(),
             embedding_quant: default_embedding_quant(),
             embedding_mmproj: default_embedding_mmproj(),
+            embedding_cpu_only: default_embedding_cpu_only(),
+            embedding_batch: default_embedding_batch(),
+            embedding_threads: default_embedding_threads(),
+            embedding_ctx: default_embedding_ctx(),
             repositories_dir: String::new(),
             // Both folders answer for themselves when the settings say nothing: the usual place
             // for the files of the program, and the `contexts` folder inside it for the
@@ -1151,6 +1188,18 @@ pub fn load() -> Config {
     cfg.embedding_model = crate::embed::sanitize_model(&cfg.embedding_model);
     cfg.embedding_quant = crate::embed::sanitize_quant(&cfg.embedding_model, &cfg.embedding_quant);
     cfg.embedding_mmproj = crate::embed::sanitize_mmproj(&cfg.embedding_model, &cfg.embedding_mmproj);
+    // The running of the counting is taken back into its bounds in the same breath: a file that
+    // says a batch of nine million, or a thread count of four thousand, is read as the bound
+    // nearest to what was written rather than as a server that will not start.
+    let run = crate::embed::Run::new(
+        cfg.embedding_cpu_only,
+        cfg.embedding_batch,
+        cfg.embedding_threads,
+        cfg.embedding_ctx,
+    );
+    cfg.embedding_batch = run.batch;
+    cfg.embedding_threads = run.threads;
+    cfg.embedding_ctx = run.ctx;
     cfg
 }
 
@@ -1326,6 +1375,50 @@ mod tests {
         let older: Config = serde_json::from_value(written).unwrap_or_default();
         assert_eq!(older.theme, THEME_NEON, "the theme of the file is read");
         assert!(!older.theme_pixel);
+    }
+
+    // How the counting of the sources runs. A new set of settings keeps it on the cores of the
+    // computer; a settings file written before these four words existed is read as those
+    // defaults; and a file that names numbers out of their bounds is taken back into them, so
+    // the server is never started with arguments it would refuse.
+    #[test]
+    fn the_running_of_the_counting_is_kept_in_the_settings() {
+        let fresh = Config::default();
+        assert!(fresh.embedding_cpu_only, "the card is left to the answers by default");
+        assert_eq!(fresh.embedding_batch, crate::embed::RUN_BATCH);
+        assert_eq!(fresh.embedding_threads, crate::embed::RUN_THREADS);
+        assert_eq!(fresh.embedding_ctx, crate::embed::RUN_CTX);
+        // A file of the program written before the running could be chosen holds no word of it.
+        let mut written = serde_json::to_value(&fresh).unwrap_or(serde_json::Value::Null);
+        if let Some(map) = written.as_object_mut() {
+            for word in [
+                "embedding_cpu_only",
+                "embedding_batch",
+                "embedding_threads",
+                "embedding_ctx",
+            ] {
+                map.remove(word);
+            }
+        }
+        let older: Config = serde_json::from_value(written).unwrap_or_default();
+        assert!(older.embedding_cpu_only, "an older file keeps the counting off the card");
+        assert_eq!(older.embedding_batch, crate::embed::RUN_BATCH);
+        assert_eq!(older.embedding_threads, crate::embed::RUN_THREADS);
+        assert_eq!(older.embedding_ctx, crate::embed::RUN_CTX);
+        // The four numbers read out of the settings are the bounds clamped, which is what
+        // `load` does to every settings file it reads.
+        let wild = Config {
+            embedding_cpu_only: false,
+            embedding_batch: 9_000_000,
+            embedding_threads: 4000,
+            embedding_ctx: 100_000,
+            ..Config::default()
+        };
+        let run = crate::embed::Run::of(&wild);
+        assert!(!run.cpu_only, "the choice of the card is kept as it was written");
+        assert_eq!(run.batch, crate::embed::BATCH_MAX);
+        assert_eq!(run.threads, crate::embed::THREAD_MAX);
+        assert_eq!(run.ctx, crate::embed::CTX_MAX);
     }
 
     // The word `corporate` meant the ladder of grey before the near-black theme took the name.

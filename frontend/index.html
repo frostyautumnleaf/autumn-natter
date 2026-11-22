@@ -3635,6 +3635,18 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
         <div class="fld"><span class="lbl">Vision projector</span>
           <span class="sub">The projector that lets the counting model reach pictures as well as words. It is optional: with none chosen, a picture is searched by its name alone. A projector that is in the folder is used at once.</span>
           <div class="ctl"><select id="fEmbedMmproj"></select></div></div>
+        <div class="fld"><span class="lbl">CPU only</span>
+          <span class="sub">Keep the counting of the sources on the cores of the computer, so that a search never takes the card the answers come from. Turn it off when a folder of files must be counted as fast as the card can manage.</span>
+          <div class="ctl"><input id="fEmbedCpu" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Batch size</span>
+          <span class="sub">How many tokens the counting model takes at once. A larger batch counts a folder of files more quickly and asks for more room.</span>
+          <div class="ctl"><input id="fEmbedBatch" type="number" min="64" max="16384" step="64" placeholder="2048"></div></div>
+        <div class="fld"><span class="lbl">Threads</span>
+          <span class="sub">How many threads of the computer the counting may use. Zero leaves the choice to llama.cpp.</span>
+          <div class="ctl"><input id="fEmbedThreads" type="number" min="0" max="256" step="1" placeholder="0"></div></div>
+        <div class="fld"><span class="lbl">Ask length</span>
+          <span class="sub">The context the counting server is given, in tokens. One piece of a source is about 900 characters, so the default is far more than any one ask needs.</span>
+          <div class="ctl"><input id="fEmbedCtx" type="number" min="512" max="32768" step="512" placeholder="4096"></div></div>
         <div class="fld wide"><span class="lbl">State</span>
           <span class="sub" id="fEmbedState">Nothing of the embedding model has been read yet.</span></div>
         <div class="fld wide"><span class="lbl">Folder in use</span>
@@ -15115,7 +15127,7 @@ function drawEmbed(v) {
   embedHeld = v;
   var job = v.job || {};
   var fresh = !job.active;
-  if (fresh) { drawEmbedChoices(v); }
+  if (fresh) { drawEmbedChoices(v); drawEmbedRun(v.run || {}); }
   var state = byId('fEmbedState');
   if (state) {
     var said = [];
@@ -15129,6 +15141,7 @@ function drawEmbed(v) {
     } else {
       said.push('no vision projector is chosen, so a picture is searched by its name alone');
     }
+    said.push(embedRunWords(v.run || {}));
     said.push(job.active
       ? ('downloading ' + (job.file || 'the model') + (job.total ? ', ' + embedWords(job) : ''))
       : (job.note || ''));
@@ -15152,6 +15165,62 @@ function drawEmbed(v) {
 // Whether a projector was chosen and is not in the folder. The name of the projector the program
 // settled on is empty when nothing was found.
 function wantProjector(v) { return v.mmproj && v.mmproj !== 'none'; }
+
+// The running of the counting, in the words of the line of the state: where the counting goes and
+// what it was given. An answer with no running in it says nothing, so the line keeps the length it
+// had before these fields existed.
+function embedRunWords(run) {
+  if (run.batch === undefined) { return ''; }
+  return 'the counting runs on '
+    + (run.cpu_only === false ? 'the card of the computer' : 'the cores of the computer')
+    + ', with a batch of ' + run.batch
+    + (run.threads ? ' and ' + run.threads + ' threads' : '')
+    + ', and an ask of ' + run.ctx + ' tokens';
+}
+
+// The four fields of the running. A field the pointer is in is left alone, so a number being typed
+// is not written back over the typing, and the bounds the server accepts are put on the field so a
+// keypress outside them is shown as wrong before it is sent.
+function drawEmbedRun(run) {
+  var cpu = byId('fEmbedCpu');
+  if (cpu && document.activeElement !== cpu) { cpu.checked = run.cpu_only !== false; }
+  var limits = run.limits || {};
+  embedFill('fEmbedBatch', run.batch, limits.batch_min, limits.batch_max);
+  embedFill('fEmbedThreads', run.threads, 0, limits.threads_max);
+  embedFill('fEmbedCtx', run.ctx, limits.ctx_min, limits.ctx_max);
+}
+
+function embedFill(name, value, low, high) {
+  var field = byId(name);
+  if (!field || document.activeElement === field) { return; }
+  if (low) { field.min = String(low); }
+  if (high) { field.max = String(high); }
+  field.value = (value === undefined || value === null) ? '' : String(value);
+}
+
+// The running the four fields ask for. The words are written into the settings as soon as one of
+// them moves. A server that is counting at the moment is not stopped: it finishes what it is at and
+// is started again under the new words, because the key of it has moved.
+function embedRun(event) {
+  if (event) { event.stopPropagation(); }
+  post('/api/embed_run', {
+    cpu_only: !!(byId('fEmbedCpu') || {}).checked,
+    batch: embedRead('fEmbedBatch', 2048),
+    threads: embedRead('fEmbedThreads', 0),
+    ctx: embedRead('fEmbedCtx', 4096)
+  });
+  loadEmbed();
+}
+
+// One number of the running. What is written is taken as it stands when it is a count at all, and
+// as the default of that number when it is not, so a field left empty is never sent as nothing.
+function embedRead(name, at) {
+  var field = byId(name);
+  var made = parseInt((field || {}).value, 10);
+  if (!(made >= 0)) { made = at; }
+  if (field) { field.value = String(made); }
+  return made;
+}
 
 // A piece of the line of the state, begun with a capital, for the pieces are joined into
 // sentences and the program writes some of them in the middle of a sentence.
@@ -15335,6 +15404,10 @@ if (byId('srcOverlay')) {
 if (byId('fEmbedModel')) {
   ['fEmbedModel', 'fEmbedQuant', 'fEmbedMmproj'].forEach(function (name) {
     byId(name).addEventListener('change', embedChosen);
+  });
+  // The running of the counting is written the same way, as soon as one of its four fields moves.
+  ['fEmbedCpu', 'fEmbedBatch', 'fEmbedThreads', 'fEmbedCtx'].forEach(function (name) {
+    if (byId(name)) { byId(name).addEventListener('change', embedRun); }
   });
   byId('embedInstall').addEventListener('click', function (event) {
     event.stopPropagation();

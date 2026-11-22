@@ -5236,7 +5236,77 @@ impl Engine {
     // on is going.
     pub fn embedding_state(&self) -> Value {
         let cfg = self.config();
-        embed::state(&cfg.embedding_model, &cfg.embedding_quant, &cfg.embedding_mmproj)
+        let run = embed::Run::of(&cfg);
+        embed::state(
+            &cfg.embedding_model,
+            &cfg.embedding_quant,
+            &cfg.embedding_mmproj,
+            &run,
+        )
+    }
+
+    // Say how the server of the counting is to be run: whether it may use the card of the
+    // computer at all, how many tokens it counts at once, how many threads it may use, and the
+    // length of one ask. The four words are written into the settings and taken back into their
+    // bounds there. A server that is running under the old words is not stopped here - it is
+    // asked again for the next count, and answers that the key of it has moved, so a counting in
+    // the middle of a batch of files is not cut short.
+    pub fn set_embedding_run(&self, body: &Value) -> Value {
+        let run = {
+            let Ok(mut state) = self.state.lock() else {
+                return crate::web::refused("The program state is removed");
+            };
+            let made = embed::Run::new(
+                body
+                    .get("cpu_only")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(crate::embed::RUN_CPU_ONLY),
+                body
+                    .get("batch")
+                    .and_then(Value::as_u64)
+                    .map(|one| one as u32)
+                    .unwrap_or(crate::embed::RUN_BATCH),
+                body
+                    .get("threads")
+                    .and_then(Value::as_u64)
+                    .map(|one| one as u32)
+                    .unwrap_or(crate::embed::RUN_THREADS),
+                body
+                    .get("ctx")
+                    .and_then(Value::as_u64)
+                    .map(|one| one as u32)
+                    .unwrap_or(crate::embed::RUN_CTX),
+            );
+            state.cfg.embedding_cpu_only = made.cpu_only;
+            state.cfg.embedding_batch = made.batch;
+            state.cfg.embedding_threads = made.threads;
+            state.cfg.embedding_ctx = made.ctx;
+            if let Err(problem) = config::save(&state.cfg) {
+                return crate::web::refused(&format!(
+                    "The settings could not be written: {}",
+                    problem
+                ));
+            }
+            state.set_status(&format!(
+                "The counting of the sources runs on {} - a batch of {}, {} threads, an ask of {} tokens",
+                if made.cpu_only {
+                    "the cores of the computer"
+                } else {
+                    "the card"
+                },
+                made.batch,
+                if made.threads == 0 {
+                    String::from("as many as the machine has")
+                } else {
+                    made.threads.to_string()
+                },
+                made.ctx
+            ));
+            made
+        };
+        let mut answer = self.embedding_state();
+        answer["ok"] = json!(true);
+        answer
     }
 
     // Choose the embedding model, its quantization and its vision projector, write the choice
