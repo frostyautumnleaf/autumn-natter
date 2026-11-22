@@ -4015,6 +4015,31 @@ var touch = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches
 var reduce = !!(window.matchMedia
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
+// The ask for few movements is read once, when the page is created, and the setting of the system
+// can move while the program is running: the ask is turned on, or turned off again. Everything
+// that moves behind the chat is therefore asked after again when the ask moves. Taken on, it stops
+// the movement of itself, because the going answers for it; taken off, the movement begins again,
+// which nothing else would do before the next change of a setting or of a theme - and a background
+// that stands still until the theme is changed reads as broken.
+(function reduceWatch() {
+  if (!window.matchMedia) { return; }
+  var way = window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (!way) { return; }
+  var follow = function () {
+    var asked = !!way.matches;
+    if (asked === reduce) { return; }
+    reduce = asked;
+    fallGoOn();
+    rainGoOn();
+    gridGoOn();
+    digitsGoOn();
+  };
+  // The ask is listened to the way the computer offers it, and `addListener` is the older of the
+  // two ways.
+  if (typeof way.addEventListener === 'function') { way.addEventListener('change', follow); }
+  else if (typeof way.addListener === 'function') { way.addListener(follow); }
+})();
+
 var rev = -1;          // what the page has seen last
 var timer = null;      // the next poll
 var pending = false;   // only one poll at a time
@@ -4148,6 +4173,12 @@ function draw(s) {
   // created bigger, is followed at once.
   fallBusy(!!s.generating);
   fallGoOn();
+  // The rain is asked after at the same moment, and for the same reason. It falls whether an
+  // answer is being written or not, but it is drawn over the place the chat is in, and that place
+  // is folded away while the home screen is shown: a setting turned to rain while no chat was open
+  // found nothing to start over, and the going has to be asked again when a chat comes. `rainGoOn`
+  // answers for itself while the rain is going, so asking again at every look costs nothing.
+  rainGoOn();
   drawRate(s);
   el.send.title = sendTitle(s);
   // A new chat is started, and another chat opened, while an answer is being written: the model
