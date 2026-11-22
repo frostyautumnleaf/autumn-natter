@@ -2099,18 +2099,43 @@ img.pic { animation: plate-in 180ms ease-out; }
 .badges { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
   gap: 8px; min-width: 0; }
 .badges .b-left, .badges .b-right { display: flex; align-items: center; gap: 6px;
-  min-width: 0; }
+  min-width: 0; flex-wrap: wrap; row-gap: 4px; }
 .badges .b-left { justify-self: start; }
 .badges .b-mid { justify-self: center; }
 .badges .b-right { justify-self: end; justify-content: flex-end; gap: 8px; }
 /*
- * A box no wider than this cannot hold the three parts in one line at all. The row then bends
- * under itself, and the sandbox badge goes with the rest, for a badge over the middle of
- * nothing reports nothing. */
-@media (max-width: 620px) {
-  .badges { display: flex; flex-wrap: wrap; }
-  .badges .b-mid { order: 3; }
-}
+ * The parts of the row want the breadth of their whole words, which is more than a narrow box
+ * has, and the box is narrower than the window: it changes with the lines at the sides of the chat
+ * and with the width the chat is set to. The face the row wears is therefore measured against the
+ * breadth of the box, which no look at the breadth of the window could tell. Two faces are there
+ * to wear. The row of columns is the face of the design: the two sides have the breadth the
+ * sandbox badge leaves, shared equally so that the middle of the row is the middle of the box, and
+ * a side that has not room for all of its badges bends under itself and lays them over as many
+ * lines as it needs. A part is never narrowed under its widest badge, so a side may want more than
+ * the column it is given, and a badge laid over another badge is an error in the page: where a
+ * column no longer holds the widest badge, every part takes its place in one line of the box that
+ * runs over as many lines as it needs, the sandbox last of them, for a badge above the middle of
+ * nothing reports nothing. Of the two faces the one of the fewest lines is worn, and where both
+ * take the same number of lines the row keeps its columns and the sandbox its middle. Only where
+ * the box is narrower than the word of a badge is that word cut short with the mark of ellipsis. */
+.badges.stack { display: flex; flex-wrap: wrap; }
+.badges.stack > div { display: flex; flex-wrap: wrap; max-width: 100%; }
+/* The place a part is given in its column of the grid says nothing about a line that runs over,
+ * and in the row of that face the same words would mean a place up and down instead. They are
+ * left to the row, which sets them for all of its parts alike. */
+.badges.stack .b-left, .badges.stack .b-mid, .badges.stack .b-right { justify-self: auto; }
+.badges.stack > div > * { min-width: 0; }
+.badges.stack .b-mid { order: 3; }
+.badges.stack .badge { min-width: 0; max-width: 100%; overflow: hidden; }
+.badges.stack .badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/*
+ * While the row is measured it is laid out on one line with the whole word of every badge shown,
+ * and no part of it gives way to another, so that the breadth each part wants is the breadth the
+ * part is read as. The row is never seen in this face: it is measured, tried against the other
+ * faces and laid out again in the same turn of the page. */
+.badges.measure { display: flex; flex-wrap: nowrap; }
+.badges.measure > div { flex: 0 0 auto; flex-wrap: nowrap; width: auto; max-width: none; }
+.badges.measure .badge { max-width: none; }
 .badge {
   display: inline-flex; align-items: center; gap: 6px; height: 27px; padding: 0 10px;
   border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2);
@@ -2129,14 +2154,22 @@ img.pic { animation: plate-in 180ms ease-out; }
  * each item the user may choose, with a marker against the item chosen now. The box is as wide
  * as the longest of its lines, so a setting with a long name is read on one line rather than
  * broken in two; it is never wider than the window, and only a line too long for what is left
- * of the window is wrapped. */
+ * of the window is wrapped.
+ *
+ * `--menu-room` is the breadth the window leaves the box on the side it is opened to. It is
+ * written by the page as a box is brought up, and it holds a box that grows afterwards - a longer
+ * name written over one of its lines - within the window. The face of `.flip` opens the box to
+ * the left of the badge, for the badge of a row that bends may stand at the edge of the window.
+ * The least breadth of a box is kept, so where a room narrower than that is what is left, the
+ * box is moved back into the window whole rather than cut. */
 .menuwrap { position: relative; display: inline-flex; }
 .menu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 40;
   width: max-content; min-width: 176px; max-width: 340px;
-  max-width: min(340px, calc(100vw - 24px)); padding: 4px;
+  max-width: min(340px, calc(100vw - 24px), var(--menu-room, 10000px)); padding: 4px;
   background: var(--surface-2);
   border: 1px solid var(--line-strong); border-radius: 10px;
   box-shadow: var(--shadow); }
+.menu.flip { left: auto; right: 0; }
 .menu button { display: flex; align-items: center; gap: 7px; width: 100%;
   padding: 6px 8px; border: 0; border-radius: 7px; background: none;
   color: var(--text-2); font-size: 12.5px; text-align: left; }
@@ -3197,8 +3230,8 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
       <textarea id="draft" rows="1" spellcheck="false"
         placeholder="Write a message for the model"></textarea>
       <div class="dock-row">
-        <div class="badges">
-          <div class="b-left">
+        <div class="badges" id="badges">
+          <div class="b-left" id="bleft">
             <div class="menuwrap" id="pluswrap">
               <button class="badge only" id="plus" title="Add a file to this message, or add sources the model may search.">
                 <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
@@ -3234,7 +3267,7 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
               <div class="menu hidden" id="mcpmenu"></div>
             </div>
           </div>
-          <div class="b-mid">
+          <div class="b-mid" id="bmid">
             <div class="menuwrap" id="sandboxwrap">
               <button class="badge" id="sandbox" title="What a command of this chat may reach. Click to open the settings of the sandbox.">
                 <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.9 13.3 4v4.3c0 3.1-2 5-5.3 5.9-3.3-.9-5.3-2.8-5.3-5.9V4z"/></svg>
@@ -3244,7 +3277,7 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
               <div class="menu hidden" id="sandboxmenu"></div>
             </div>
           </div>
-          <div class="b-right">
+          <div class="b-right" id="bright">
             <div class="menuwrap" id="thinkwrap">
               <button class="badge" id="think" title="The thinking shown by the model before its answer. Click to choose a different mode.">
                 <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a4 4 0 0 1 2.4 7.2v1.3H5.6V9.4A4 4 0 0 1 8 2.2zM6.3 13.3h3.4"/></svg>
@@ -3926,6 +3959,7 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'rag', 'ragtext',
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts', 'queue', 'queuehead', 'queuecount', 'queuelist',
+  'badges', 'bleft', 'bmid', 'bright',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
   'viewer', 'lookname', 'lookkind', 'lookturn', 'lookprev', 'lookcount', 'looknext',
   'lookraw', 'lookclose', 'lookbody',
@@ -5030,6 +5064,7 @@ function openThinkMenu() {
   if (!cur.thinking.available && !cur.thinking.preserve_available) { return; }
   fillThinkMenu(cur);
   el.thinkmenu.classList.remove('hidden');
+  menuFitOpen();
 }
 
 function closeThinkMenu() {
@@ -5081,6 +5116,7 @@ function openSandboxMenu() {
   if (!cur) { return; }
   fillSandboxMenu(cur);
   el.sandboxmenu.classList.remove('hidden');
+  menuFitOpen();
 }
 
 function closeSandboxMenu() {
@@ -5204,6 +5240,7 @@ function openMcpMenu() {
   if (!cur) { return; }
   fillMcpMenu(cur);
   el.mcpmenu.classList.remove('hidden');
+  menuFitOpen();
 }
 
 function closeMcpMenu() {
@@ -5330,6 +5367,7 @@ function openToolMenu() {
   if (!cur) { return; }
   fillToolMenu(cur);
   el.codemenu.classList.remove('hidden');
+  menuFitOpen();
 }
 
 function closeToolMenu() {
@@ -5400,6 +5438,9 @@ function drawBadges(s) {
   if (el.sandboxmenu && !el.sandboxmenu.classList.contains('hidden')) { fillSandboxMenu(s); }
   drawMcp(s);
   drawRag(s);
+  // A longer word was written on a badge, and a longer word wants more breadth: 'Thinking:
+  // Disabled' does not fit the row that 'Thinking: Low' fitted.
+  fitBadgesSoon();
 }
 
 // The speed of the work, put next to the text of the state. Two types of work are at hand while
@@ -13140,6 +13181,141 @@ el.newrepo.addEventListener('click', function () {
 });
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
 el.modelbtn.addEventListener('click', function () { openSettings('model'); });
+// The row of badges in a box that is narrower than its words.
+//
+// A new chat makes the composer a box of a breadth of its own, the lines at the sides of the chat
+// come and go, and the width of the chat is a setting of its own, so the row is measured against
+// the box and never against the window. The two faces there are to wear, and why one is worn
+// before the other, are written over the style of the row.
+var badgesFace = '';
+var badgesRoom = -1;
+var badgesWords = '';
+var badgesSoon = 0;
+var badgesWatch = null;
+
+// The words that stand on the badges. The state is drawn again many times while an answer
+// arrives, and only a change of these few words can change the breadth the row wants.
+function badgeWords() {
+  var one = function (node) { return node ? node.textContent : ''; };
+  return one(el.codetext) + '|' + one(el.ragtext) + '|' + one(el.searchtext) + '|'
+    + one(el.mcptext) + '|' + one(el.sandboxtext) + '|' + one(el.thinktext);
+}
+
+function fitBadges() {
+  var row = el.badges;
+  if (!row) { return; }
+  var room = row.clientWidth;
+  if (room <= 0) { return; }
+  var words = badgeWords();
+  if (badgesFace && room === badgesRoom && words === badgesWords) { return; }
+  // The breadth each part wants is read with the row laid out on one line, for in the face the
+  // row wears now a part that has bent under itself reports only the breadth of its longest line.
+  // The widest badge of the two sides is read among them, for a part is never narrowed under its
+  // widest badge and so tells nothing of itself once it has bent.
+  row.classList.add('measure');
+  var gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+  var middle = 0;
+  var widest = 0;
+  // The wider of the two sides, which is what the columns of the row are tried against: the two
+  // sides share the breadth the middle leaves equally, so the wider of them is the side that
+  // first wants more than its column.
+  var side = 0;
+  for (var i = 0; i < row.children.length; i++) {
+    var part = row.children[i];
+    var breadth = part.getBoundingClientRect().width;
+    // The sandbox badge has a place of its own above the middle, and is not one of the badges
+    // that must fit in a column beside it.
+    if (part.classList.contains('b-mid')) { middle = breadth; continue; }
+    if (breadth > side) { side = breadth; }
+    for (var j = 0; j < part.children.length; j++) {
+      var badge = part.children[j].getBoundingClientRect().width;
+      if (badge > widest) { widest = badge; }
+    }
+  }
+  row.classList.remove('measure');
+  // The two sides of a row that bends have the breadth the sandbox badge leaves, shared equally,
+  // for the middle of the row must stay the middle of the box. A side that cannot hold the widest
+  // badge cannot hold the badges of its own either, and the row may not lay a badge over another
+  // badge to find that out: only the face of the parts is left. A row whose two sides both hold
+  // their badges in one column wears the columns without being tried - and it wears them however
+  // much room is left over, for a row of badges that takes the whole breadth of the box is read
+  // as a mistake. Otherwise both faces are laid out and their heights read, and the face of the
+  // fewest lines is worn, so that the box under the chat does not grow a line it does not need.
+  // Where the two take the same number of lines, the row keeps its columns and the sandbox keeps
+  // the middle.
+  var face = 'columns';
+  var column = (room - middle - gap * 2) / 2;
+  if (column + 0.5 < widest) {
+    face = 'parts';
+  } else if (side + 0.5 > column) {
+    row.classList.add('stack');
+    var stacked = row.offsetHeight;
+    row.classList.remove('stack');
+    face = (stacked + 1 < row.offsetHeight) ? 'parts' : 'columns';
+  }
+  if (face === badgesFace && room === badgesRoom) { return; }
+  badgesFace = face;
+  badgesRoom = room;
+  badgesWords = words;
+  row.classList.toggle('stack', face === 'parts');
+  // The badges moved, so the room a box opened from one of them has is another room now.
+  menuFitOpen();
+}
+
+// The row is measured at the next frame, so a change that comes in pieces - the state drawn, and
+// then the words of the badges written over again - is measured once.
+function fitBadgesSoon() {
+  if (badgesSoon) { return; }
+  var later = window.requestAnimationFrame || function (run) { return setTimeout(run, 16); };
+  badgesSoon = later(function () { badgesSoon = 0; fitBadges(); });
+}
+
+// The box changes form when the window does, when a line at the side of the chat comes or goes,
+// and when the width of the chat is moved in the settings. The row is measured again at each of
+// those, for no one look at the layout could catch them.
+function watchBadges() {
+  if (badgesWatch || !window.ResizeObserver || !el.box) { return; }
+  badgesWatch = new ResizeObserver(function () { fitBadgesSoon(); });
+  badgesWatch.observe(el.box);
+}
+
+// The box of a drop-down is kept within the window. A box is above the badge that opened it and
+// grows to the right of it as far as the longest of its lines wants, so a badge near the right
+// edge of the window - which the row of badges comes to when it bends under itself, and when the
+// sandbox badge is laid last of the line - would have its box painted beyond the edge. Such a box
+// is turned about its badge and opened to the left, where the window holds the whole of it. The
+// breadth the window leaves on the side chosen is written as `--menu-room`, so that a box which
+// grows afterwards, when a longer name is written over one of its lines, is kept within the
+// window as well. Where the window is narrower than the least breadth of a box, the box is moved
+// back into the window whole.
+var MENUS = ['plusmenu', 'codemenu', 'mcpmenu', 'sandboxmenu', 'thinkmenu'];
+var MENU_LEAST = 176;
+
+function menuFitOpen() {
+  var wide = window.innerWidth || 640;
+  for (var i = 0; i < MENUS.length; i++) {
+    var menu = el[MENUS[i]];
+    if (!menu || menu.classList.contains('hidden') || !menu.parentElement) { continue; }
+    var badge = menu.parentElement.getBoundingClientRect();
+    menu.classList.remove('flip');
+    menu.style.removeProperty('--menu-room');
+    menu.style.removeProperty('right');
+    var roomRight = Math.round(wide - 8 - badge.left);
+    var roomLeft = Math.round(badge.right - 8);
+    if (badge.left + menu.getBoundingClientRect().width > wide - 7 && roomLeft >= roomRight) {
+      menu.classList.add('flip');
+    }
+    var room = menu.classList.contains('flip') ? roomLeft : roomRight;
+    menu.style.setProperty('--menu-room', Math.max(MENU_LEAST, room) + 'px');
+    var box = menu.getBoundingClientRect();
+    if (box.right > wide - 6) { menu.style.right = Math.round(badge.right - (wide - 8)) + 'px'; }
+    else if (box.left < 6) {
+      menu.classList.add('flip');
+      menu.style.right = Math.round(badge.right - MENU_LEAST - 8) + 'px';
+    }
+  }
+}
+
 // Bring one drop-down up and every other one down, for two menus over one row of badges read as
 // an error in the page.
 function showOnly(opener) {
@@ -14056,7 +14232,10 @@ function aimEmbedding() {
 // -------------------------------------------------------------------- wiring
 
 function openPlusMenu() {
-  if (el.plusmenu) { el.plusmenu.classList.remove('hidden'); }
+  if (el.plusmenu) {
+    el.plusmenu.classList.remove('hidden');
+    menuFitOpen();
+  }
 }
 
 function closePlusMenu() {
@@ -17090,6 +17269,11 @@ document.addEventListener('keydown', tipPutBack, true);
 // has to know that the browser tooltip is not used here.
 tipTakeAll(document);
 tipWatchOn();
+
+// The row of badges is measured before it is seen, and again whenever the box it stands in
+// changes form.
+watchBadges();
+fitBadgesSoon();
 
 sideLoad();
 sideApply();
