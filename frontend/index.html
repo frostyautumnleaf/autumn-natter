@@ -2538,16 +2538,23 @@ body.sideopen .main { left: var(--side-w); }
  * rounded: the boundary leaves the hairline under the bar, curves, and joins the hairline of the
  * side bar. The pixel-art forms set the radius to nothing, and the corner comes back square. */
 .side::after {
-  content: ''; position: absolute; left: calc(100% - 1px); bottom: 0;
+  content: ''; position: absolute; left: 100%; bottom: 0;
   top: calc(var(--bar-h) + var(--r-m) - 1px); width: 1px; background: var(--line);
 }
 .side::before {
-  content: ''; position: absolute; left: 100%; top: var(--bar-h);
+  content: ''; position: absolute; left: 100%; top: calc(var(--bar-h) - 1px);
   width: var(--r-m); height: var(--r-m); pointer-events: none;
   background: radial-gradient(circle at 100% 100%,
     transparent calc(var(--r-m) - 1px), var(--line) calc(var(--r-m) - 1px) var(--r-m),
     var(--surface) calc(var(--r-m) + 1px));
 }
+/*
+ * The corner, the hairline and the grip reach past the edge of the side bar, and the side bar
+ * slides out to the left with its edge as the last of it. What reaches past that edge would be
+ * left behind over the chat at the edge of the window, so it goes with the side bar: with the side
+ * bar gone, nothing of it is left in the window. */
+body:not(.sideopen) .side::before, body:not(.sideopen) .side::after,
+body:not(.sideopen) .side-grip { display: none; }
 body.sideopen .side { transform: none; }
 .side-grip {
   position: absolute; top: 0; right: -4px; width: 9px; height: 100%;
