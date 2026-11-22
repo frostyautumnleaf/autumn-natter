@@ -236,15 +236,33 @@ textarea, input { font: inherit; color: inherit; }
 
 /* ------------------------------------------------- icon hover animation */
 /*
- * Every icon of the program animates when the pointer enters it and when the pointer leaves. On
- * entry the icon lifts, rotates slightly and scales past its resting size, which gives the
- * movement its overshoot; on leave it dips and returns, so an icon never snaps back. Only the
- * icon moves, never the control around it, so no text shifts under the pointer and no row
+ * Every icon of the program answers the pointer when it arrives and when it leaves. The answer is
+ * never the same movement twice: the style sheet carries eighteen movements, and script gives each
+ * kind of icon the one it answers with, together with how far that movement reaches, how long it
+ * takes, which way it goes and the point it turns about (see markAssign and markDress). The
+ * movement is written into the custom properties --mk-in, --mk-out, --mk-din, --mk-dout, --mk-ein,
+ * --mk-eout, --mk-o, --mk-k and --mk-dir, and the two rules below read them; an icon with no
+ * properties of its own answers with mark-in and mark-out, which is how the program icon moves.
+ * Only the icon moves, never the control around it, so no text shifts under the pointer and no row
  * changes width. The two classes are applied and removed in script (see markFind and markRest),
  * because CSS starts no animation at the moment the rule that requested it stops applying, and
- * leaving an icon has an animation of its own. The program icon in the top bar and above the
- * first screen animates as well: it is an icon of the program like any other. */
-.svg, img.mark { transform-origin: 50% 55%; }
+ * leaving an icon has an animation of its own. Markers that only indicate - the arrow of a field of
+ * choices, the caret of a badge, the caret that turns a block - answer with nothing at all, for
+ * they already move of their own when the thing they indicate opens, and a marker that is part of
+ * another marker's answer would read as two answers. */
+.svg, img.mark { transform-origin: var(--mk-o, 50% 55%); }
+.mark-in {
+  animation: var(--mk-in, mark-in) var(--mk-din, 420ms) var(--mk-ein, cubic-bezier(.2, .9, .3, 1.2)) both;
+}
+.mark-out {
+  animation: var(--mk-out, mark-out) var(--mk-dout, 320ms) var(--mk-eout, cubic-bezier(.4, 0, .2, 1)) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mark-in, .mark-out { animation: none; }
+}
+
+/* The movement of the program icon, which stays as it was: the leaf lifts, turns a little and
+ * scales past its resting size, then dips and settles as the pointer goes. */
 @keyframes mark-in {
   0% { transform: none; }
   30% { transform: translateY(-2.4px) scale(1.22) rotate(-9deg); }
@@ -257,10 +275,238 @@ textarea, input { font: inherit; color: inherit; }
   40% { transform: translateY(1.3px) scale(0.9); }
   100% { transform: none; }
 }
-.mark-in { animation: mark-in 420ms cubic-bezier(.2, .9, .3, 1.2) both; }
-.mark-out { animation: mark-out 320ms cubic-bezier(.4, 0, .2, 1) both; }
-@media (prefers-reduced-motion: reduce) {
-  .mark-in, .mark-out { animation: none; }
+
+/*
+ * The eighteen movements. A pair of keyframes each: one for the pointer arriving, which ends in the
+ * state the icon is held in while the pointer rests on it, and one for the pointer leaving, which
+ * begins from that state and returns the icon to where it was drawn. --mk-k is how far the movement
+ * reaches, and --mk-dir turns it left for right, so a movement seen twice in a list of icons is not
+ * the same movement. Each has a transform of its own kind - travel, turn, skew, squash, a turn in
+ * three dimensions - and they are all small: the largest is a little under a third of the icon.
+ */
+/* lift: travel up and settle above where it was drawn. */
+@keyframes mk-lift-in {
+  0% { transform: none; }
+  30% { transform: translateY(calc(-2.6px * var(--mk-k, 1))); }
+  55% { transform: translateY(calc(0.5px * var(--mk-k, 1))); }
+  78% { transform: translateY(calc(-0.9px * var(--mk-k, 1))); }
+  100% { transform: translateY(calc(-1.2px * var(--mk-k, 1))); }
+}
+@keyframes mk-lift-out {
+  0% { transform: translateY(calc(-1.2px * var(--mk-k, 1))); }
+  45% { transform: translateY(calc(1.5px * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* tilt: turn over to one side and come back, holding a lean. */
+@keyframes mk-tilt-in {
+  0% { transform: none; }
+  32% { transform: rotate(calc(var(--mk-dir, 1) * -7.5deg * var(--mk-k, 1))); }
+  58% { transform: rotate(calc(var(--mk-dir, 1) * 3.4deg * var(--mk-k, 1))); }
+  100% { transform: rotate(calc(var(--mk-dir, 1) * 2.2deg * var(--mk-k, 1))); }
+}
+@keyframes mk-tilt-out {
+  0% { transform: rotate(calc(var(--mk-dir, 1) * 2.2deg * var(--mk-k, 1))); }
+  45% { transform: rotate(calc(var(--mk-dir, 1) * -1.8deg * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* swing: hang from a corner and settle as a sign does. */
+@keyframes mk-swing-in {
+  0% { transform: none; }
+  30% { transform: rotate(calc(var(--mk-dir, 1) * 9deg * var(--mk-k, 1))); }
+  60% { transform: rotate(calc(var(--mk-dir, 1) * -4deg * var(--mk-k, 1))); }
+  82% { transform: rotate(calc(var(--mk-dir, 1) * 1.8deg * var(--mk-k, 1))); }
+  100% { transform: rotate(calc(var(--mk-dir, 1) * -2.6deg * var(--mk-k, 1))); }
+}
+@keyframes mk-swing-out {
+  0% { transform: rotate(calc(var(--mk-dir, 1) * -2.6deg * var(--mk-k, 1))); }
+  40% { transform: rotate(calc(var(--mk-dir, 1) * 2.2deg * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* bob: bounce twice without changing size. */
+@keyframes mk-bob-in {
+  0% { transform: none; }
+  22% { transform: translateY(calc(-2.3px * var(--mk-k, 1))); }
+  45% { transform: translateY(calc(0.6px * var(--mk-k, 1))); }
+  68% { transform: translateY(calc(-1.4px * var(--mk-k, 1))); }
+  86% { transform: translateY(calc(0.3px * var(--mk-k, 1))); }
+  100% { transform: translateY(calc(-0.7px * var(--mk-k, 1))); }
+}
+@keyframes mk-bob-out {
+  0% { transform: translateY(calc(-0.7px * var(--mk-k, 1))); }
+  50% { transform: translateY(calc(1px * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* nudge: step aside and come back past where it was drawn. */
+@keyframes mk-nudge-in {
+  0% { transform: none; }
+  30% { transform: translateX(calc(var(--mk-dir, 1) * 2.4px * var(--mk-k, 1))); }
+  55% { transform: translateX(calc(var(--mk-dir, 1) * -0.8px * var(--mk-k, 1))); }
+  100% { transform: translateX(calc(var(--mk-dir, 1) * 1.1px * var(--mk-k, 1))); }
+}
+@keyframes mk-nudge-out {
+  0% { transform: translateX(calc(var(--mk-dir, 1) * 1.1px * var(--mk-k, 1))); }
+  45% { transform: translateX(calc(var(--mk-dir, 1) * -1.2px * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* slide: go off along the diagonal, drawing in a little on the way. */
+@keyframes mk-slide-in {
+  0% { transform: none; }
+  35% { transform: translate(calc(var(--mk-dir, 1) * 1.8px * var(--mk-k, 1)), calc(-1.8px * var(--mk-k, 1))) scale(calc(1 - .07 * var(--mk-k, 1))); }
+  65% { transform: translate(calc(var(--mk-dir, 1) * -0.4px * var(--mk-k, 1)), calc(0.4px * var(--mk-k, 1))) scale(calc(1 + .03 * var(--mk-k, 1))); }
+  100% { transform: translate(calc(var(--mk-dir, 1) * 0.9px * var(--mk-k, 1)), calc(-0.9px * var(--mk-k, 1))); }
+}
+@keyframes mk-slide-out {
+  0% { transform: translate(calc(var(--mk-dir, 1) * 0.9px * var(--mk-k, 1)), calc(-0.9px * var(--mk-k, 1))); }
+  45% { transform: translate(calc(var(--mk-dir, 1) * -1px * var(--mk-k, 1)), calc(1px * var(--mk-k, 1))) scale(calc(1 - .04 * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* squash: press down on its base and spring back up. */
+@keyframes mk-squash-in {
+  0% { transform: none; }
+  28% { transform: scale(calc(1 + .16 * var(--mk-k, 1)), calc(1 - .16 * var(--mk-k, 1))); }
+  55% { transform: scale(calc(1 - .1 * var(--mk-k, 1)), calc(1 + .14 * var(--mk-k, 1))); }
+  78% { transform: scale(calc(1 + .06 * var(--mk-k, 1)), calc(1 - .04 * var(--mk-k, 1))); }
+  100% { transform: scale(calc(1 + .04 * var(--mk-k, 1)), calc(1 - .02 * var(--mk-k, 1))); }
+}
+@keyframes mk-squash-out {
+  0% { transform: scale(calc(1 + .04 * var(--mk-k, 1)), calc(1 - .02 * var(--mk-k, 1))); }
+  45% { transform: scale(calc(1 - .06 * var(--mk-k, 1)), calc(1 + .06 * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* flip: turn once about the vertical, in three dimensions. */
+@keyframes mk-flip-in {
+  0% { transform: perspective(320px) rotateY(0deg); }
+  45% { transform: perspective(320px) rotateY(calc(var(--mk-dir, 1) * 150deg)) scale(calc(1 + .05 * var(--mk-k, 1))); }
+  100% { transform: perspective(320px) rotateY(calc(var(--mk-dir, 1) * 360deg)); }
+}
+@keyframes mk-flip-out {
+  0% { transform: perspective(320px) rotateY(calc(var(--mk-dir, 1) * 360deg)); }
+  100% { transform: perspective(320px) rotateY(calc(var(--mk-dir, 1) * 720deg)); }
+}
+/* flick: flick the top over sideways and let it snap back straight. */
+@keyframes mk-flick-in {
+  0% { transform: none; }
+  30% { transform: skewX(calc(var(--mk-dir, 1) * 9deg * var(--mk-k, 1))) translateX(calc(var(--mk-dir, 1) * 0.6px * var(--mk-k, 1))); }
+  60% { transform: skewX(calc(var(--mk-dir, 1) * -4.5deg * var(--mk-k, 1))); }
+  100% { transform: skewX(calc(var(--mk-dir, 1) * 3deg * var(--mk-k, 1))); }
+}
+@keyframes mk-flick-out {
+  0% { transform: skewX(calc(var(--mk-dir, 1) * 3deg * var(--mk-k, 1))); }
+  40% { transform: skewX(calc(var(--mk-dir, 1) * -2.2deg * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* drift: float away up and to the side, turning a little, and stay there. */
+@keyframes mk-drift-in {
+  0% { transform: none; }
+  40% { transform: translate(calc(var(--mk-dir, 1) * -1.4px * var(--mk-k, 1)), calc(-1.7px * var(--mk-k, 1))) rotate(calc(var(--mk-dir, 1) * -2deg * var(--mk-k, 1))); }
+  100% { transform: translate(calc(var(--mk-dir, 1) * -0.8px * var(--mk-k, 1)), calc(-1px * var(--mk-k, 1))) rotate(calc(var(--mk-dir, 1) * -1.2deg * var(--mk-k, 1))); }
+}
+@keyframes mk-drift-out {
+  0% { transform: translate(calc(var(--mk-dir, 1) * -0.8px * var(--mk-k, 1)), calc(-1px * var(--mk-k, 1))) rotate(calc(var(--mk-dir, 1) * -1.2deg * var(--mk-k, 1))); }
+  55% { transform: translate(calc(var(--mk-dir, 1) * 0.9px * var(--mk-k, 1)), calc(1.1px * var(--mk-k, 1))) rotate(calc(var(--mk-dir, 1) * 0.8deg * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* pop: grow quickly past the size it holds, and spring back to it. */
+@keyframes mk-pop-in {
+  0% { transform: scale(1); }
+  18% { transform: scale(calc(1 + .3 * var(--mk-k, 1))); }
+  38% { transform: scale(calc(1 - .1 * var(--mk-k, 1))); }
+  60% { transform: scale(calc(1 + .12 * var(--mk-k, 1))); }
+  100% { transform: scale(calc(1 + .06 * var(--mk-k, 1))); }
+}
+@keyframes mk-pop-out {
+  0% { transform: scale(calc(1 + .06 * var(--mk-k, 1))); }
+  40% { transform: scale(calc(1 - .08 * var(--mk-k, 1))); }
+  100% { transform: scale(1); }
+}
+/* rock: rock on its foot, left, right, less and less. */
+@keyframes mk-rock-in {
+  0% { transform: none; }
+  25% { transform: rotate(calc(var(--mk-dir, 1) * 5.5deg * var(--mk-k, 1))); }
+  50% { transform: rotate(calc(var(--mk-dir, 1) * -3.5deg * var(--mk-k, 1))); }
+  72% { transform: rotate(calc(var(--mk-dir, 1) * 1.8deg * var(--mk-k, 1))); }
+  100% { transform: rotate(calc(var(--mk-dir, 1) * -1.1deg * var(--mk-k, 1))); }
+}
+@keyframes mk-rock-out {
+  0% { transform: rotate(calc(var(--mk-dir, 1) * -1.1deg * var(--mk-k, 1))); }
+  45% { transform: rotate(calc(var(--mk-dir, 1) * 1.4deg * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* nod: bow from the top edge, and hold the bow a little. */
+@keyframes mk-nod-in {
+  0% { transform: scale(1, 1); }
+  35% { transform: scale(calc(1 + .06 * var(--mk-k, 1)), calc(1 - .14 * var(--mk-k, 1))); }
+  65% { transform: scale(calc(1 + .02 * var(--mk-k, 1)), calc(1 + .04 * var(--mk-k, 1))); }
+  100% { transform: scale(calc(1 + .03 * var(--mk-k, 1)), calc(1 - .05 * var(--mk-k, 1))); }
+}
+@keyframes mk-nod-out {
+  0% { transform: scale(calc(1 + .03 * var(--mk-k, 1)), calc(1 - .05 * var(--mk-k, 1))); }
+  50% { transform: scale(calc(1 - .04 * var(--mk-k, 1)), calc(1 + .06 * var(--mk-k, 1))); }
+  100% { transform: scale(1, 1); }
+}
+/* wipe: draw out from the left edge as a line is drawn. */
+@keyframes mk-wipe-in {
+  0% { transform: scale(1, 1); }
+  40% { transform: scale(calc(1 + .2 * var(--mk-k, 1)), calc(1 - .06 * var(--mk-k, 1))); }
+  70% { transform: scale(calc(1 + .04 * var(--mk-k, 1)), calc(1 + .02 * var(--mk-k, 1))); }
+  100% { transform: scale(calc(1 + .09 * var(--mk-k, 1)), calc(1 - .03 * var(--mk-k, 1))); }
+}
+@keyframes mk-wipe-out {
+  0% { transform: scale(calc(1 + .09 * var(--mk-k, 1)), calc(1 - .03 * var(--mk-k, 1))); }
+  45% { transform: scale(calc(1 - .05 * var(--mk-k, 1)), calc(1 + .03 * var(--mk-k, 1))); }
+  100% { transform: scale(1, 1); }
+}
+/* peek: duck down and come up again, and rest above the line. */
+@keyframes mk-peek-in {
+  0% { transform: none; }
+  35% { transform: translateY(calc(1.6px * var(--mk-k, 1))) scale(1, calc(1 - .1 * var(--mk-k, 1))); }
+  60% { transform: translateY(calc(-1.2px * var(--mk-k, 1))) scale(1, calc(1 + .04 * var(--mk-k, 1))); }
+  100% { transform: translateY(calc(-0.6px * var(--mk-k, 1))) scale(1, calc(1 + .01 * var(--mk-k, 1))); }
+}
+@keyframes mk-peek-out {
+  0% { transform: translateY(calc(-0.6px * var(--mk-k, 1))) scale(1, calc(1 + .01 * var(--mk-k, 1))); }
+  45% { transform: translateY(calc(1px * var(--mk-k, 1))) scale(1, calc(1 - .05 * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* shiver: a fast shudder in both directions that settles off-centre. */
+@keyframes mk-shiver-in {
+  0% { transform: none; }
+  15% { transform: translate(calc(var(--mk-dir, 1) * 1.1px * var(--mk-k, 1)), calc(-0.9px * var(--mk-k, 1))); }
+  30% { transform: translate(calc(var(--mk-dir, 1) * -0.9px * var(--mk-k, 1)), calc(0.8px * var(--mk-k, 1))); }
+  45% { transform: translate(calc(var(--mk-dir, 1) * 0.7px * var(--mk-k, 1)), calc(-0.6px * var(--mk-k, 1))); }
+  60% { transform: translate(calc(var(--mk-dir, 1) * -0.5px * var(--mk-k, 1)), calc(0.4px * var(--mk-k, 1))); }
+  75% { transform: translate(calc(var(--mk-dir, 1) * 0.4px * var(--mk-k, 1)), calc(-0.3px * var(--mk-k, 1))); }
+  100% { transform: translate(calc(var(--mk-dir, 1) * 0.35px * var(--mk-k, 1)), calc(-0.35px * var(--mk-k, 1))); }
+}
+@keyframes mk-shiver-out {
+  0% { transform: translate(calc(var(--mk-dir, 1) * 0.35px * var(--mk-k, 1)), calc(-0.35px * var(--mk-k, 1))); }
+  40% { transform: translate(calc(var(--mk-dir, 1) * -0.5px * var(--mk-k, 1)), calc(0.5px * var(--mk-k, 1))); }
+  70% { transform: translate(calc(var(--mk-dir, 1) * 0.3px * var(--mk-k, 1)), calc(-0.3px * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* lean: throw itself against a corner, leaning on it. */
+@keyframes mk-lean-in {
+  0% { transform: none; }
+  35% { transform: rotate(calc(var(--mk-dir, 1) * 6deg * var(--mk-k, 1))) skewX(calc(var(--mk-dir, 1) * -2.4deg * var(--mk-k, 1))); }
+  70% { transform: rotate(calc(var(--mk-dir, 1) * 1.2deg * var(--mk-k, 1))); }
+  100% { transform: rotate(calc(var(--mk-dir, 1) * 2.6deg * var(--mk-k, 1))); }
+}
+@keyframes mk-lean-out {
+  0% { transform: rotate(calc(var(--mk-dir, 1) * 2.6deg * var(--mk-k, 1))); }
+  45% { transform: rotate(calc(var(--mk-dir, 1) * -1.4deg * var(--mk-k, 1))); }
+  100% { transform: none; }
+}
+/* unfurl: unroll downwards from the top edge and settle. */
+@keyframes mk-unfurl-in {
+  0% { transform: scale(1, 1); }
+  40% { transform: scale(calc(1 - .05 * var(--mk-k, 1)), calc(1 + .14 * var(--mk-k, 1))); }
+  72% { transform: scale(calc(1 + .02 * var(--mk-k, 1)), calc(1 - .03 * var(--mk-k, 1))); }
+  100% { transform: scale(calc(1 - .02 * var(--mk-k, 1)), calc(1 + .05 * var(--mk-k, 1))); }
+}
+@keyframes mk-unfurl-out {
+  0% { transform: scale(calc(1 - .02 * var(--mk-k, 1)), calc(1 + .05 * var(--mk-k, 1))); }
+  50% { transform: scale(calc(1 + .04 * var(--mk-k, 1)), calc(1 - .05 * var(--mk-k, 1))); }
+  100% { transform: scale(1, 1); }
 }
 
 /* ------------------------------------------------------------------ bar */
@@ -13961,11 +14207,11 @@ document.addEventListener('click', function () {
 //
 // Every icon of the program animates when the pointer enters it and when the pointer leaves: the
 // classes mark-in and mark-out in the style carry the two movements, and these lines decide which
-// icons the pointer is over. When the pointer stands on an icon, that icon answers. When it stands
-// anywhere else on a control - the text of a badge, a field of choices, the header of a tool
-// block - every mark of that control answers together, so the marks of one control read as one
-// thing. The program icon in the top bar answers too. Plain text selects nothing, so an icon
-// never moves for a hover the user cannot see.
+// icons the pointer is over and which movement each icon answers with. When the pointer stands on an
+// icon, that icon answers. When it stands anywhere else on a control - the text of a badge, a field
+// of choices, the header of a tool block - every mark of that control answers together, so the marks
+// of one control read as one thing. The program icon in the top bar answers too. Plain text selects
+// nothing, so an icon never moves for a hover the user cannot see.
 //
 // The classes are applied here instead of by :hover because the leave movement is a separate
 // animation, and CSS starts no animation at the moment the rule that requested it stops applying.
@@ -13978,9 +14224,22 @@ var markUnder = [];
 var MARK_ICON = 'svg, .svg, img.mark';
 var MARK_CONTROL = 'button, a[href], label, summary, [role="button"], [role="menuitem"]';
 var MARK_MAX = 28;
+// The markers that only indicate, and the arrows of drop-downs and of foldable headers among them.
+// They answer to no pointer: the arrow of a field of choices and the caret of a badge say only that
+// there is a list behind the control, the caret of a header turns when the header is clicked, and
+// each of them already moves of its own when the thing it indicates opens. A hover over one of them
+// asks nothing of the program, so the hover of the control the marker stands in is asked of the
+// marks that are not markers: the head of a badge answers for the badge, its caret answers for
+// nothing.
+var MARK_SILENT = '.arrow, .down, .qcaret, .chev, .fold, .sarrow > .svg, .sarrow > svg';
+
+function markSilent(el) {
+  return !!(el.matches && el.matches(MARK_SILENT));
+}
 
 function isMark(el) {
   if (!el || el.nodeType !== 1) { return false; }
+  if (markSilent(el)) { return false; }
   if (el.matches('img.mark') || el.matches('.svg')) { return true; }
   if (!el.matches('svg')) { return false; }
   var box = el.getBoundingClientRect();
@@ -13989,7 +14248,8 @@ function isMark(el) {
 
 // Every mark of a control: the direct children first, then those nested deeper, and never one
 // that belongs to a control nested inside it. The field of a choice holds two marks, the one at
-// its head and the arrow of the drop-down, and both answer with the field.
+// its head and the arrow of the drop-down, and only the one at its head answers, for the arrow is
+// a marker.
 function controlMarks(control) {
   var out = [];
   var n;
@@ -14010,13 +14270,15 @@ function controlMarks(control) {
 }
 
 // The marks the pointer is over, which are none when it is over none. A control is anything the
-// pointer may press: the selector MARK_CONTROL, or a cursor of pointer, which is how the headers
-// of tool blocks and thinking blocks answer without being buttons. A disabled control animates
-// nothing. A clickable item with no mark of its own keeps searching upwards, because the mark the
-// user means usually stands one level higher.
+// pointer may press: the selector MARK_CONTROL, or a cursor of pointer, which is how the headers of
+// tool blocks and thinking blocks answer without being buttons. A disabled control animates
+// nothing, and a marker that only indicates animates nothing either. A clickable item with no mark
+// of its own keeps searching upwards, because the mark the user means usually stands one level
+// higher.
 function markFind(node) {
   for (var at = node && node.nodeType === 1 ? node : null; at && at !== document.body;
        at = at.parentElement) {
+    if (markSilent(at)) { return []; }
     if (isMark(at)) { return [at]; }
     var clickable = (at.matches && at.matches(MARK_CONTROL))
       || getComputedStyle(at).cursor === 'pointer';
@@ -14033,6 +14295,144 @@ function sameMarks(one, two) {
   if (one.length !== two.length) { return false; }
   for (var n = 0; n < one.length; n++) { if (one[n] !== two[n]) { return false; } }
   return true;
+}
+
+// The movements an icon may answer with. Each is a pair of keyframes in the style - mk-<name>-in
+// and mk-<name>-out - and each turns about its own point and arrives on its own curve, so a
+// pendulum swings and a thing that squashes lands on its base. The kind of an icon decides which
+// one it gets; see markAssign.
+var MARK_MOTIONS = {
+  lift: { ein: 'cubic-bezier(.2, .9, .3, 1.15)', eout: 'cubic-bezier(.4, 0, .2, 1)', o: '50% 60%' },
+  tilt: { ein: 'cubic-bezier(.34, 1.3, .64, 1)', eout: 'cubic-bezier(.5, 0, .3, 1)', o: '50% 55%' },
+  swing: { ein: 'cubic-bezier(.2, 1.1, .4, 1)', eout: 'cubic-bezier(.45, 0, .25, 1)', o: '12% 6%' },
+  bob: { ein: 'cubic-bezier(.3, .8, .3, 1.1)', eout: 'ease-in-out', o: '50% 50%' },
+  nudge: { ein: 'cubic-bezier(.2, 1.4, .5, 1)', eout: 'cubic-bezier(.4, .1, .2, 1)', o: '50% 50%' },
+  slide: { ein: 'cubic-bezier(.25, .9, .3, 1.05)', eout: 'cubic-bezier(.5, 0, .2, 1)', o: '50% 50%' },
+  squash: { ein: 'cubic-bezier(.3, 1, .4, 1.2)', eout: 'cubic-bezier(.4, 0, .2, 1.1)', o: '50% 94%' },
+  flip: { ein: 'cubic-bezier(.3, .8, .3, 1)', eout: 'cubic-bezier(.45, .05, .25, 1)', o: '50% 50%' },
+  flick: { ein: 'cubic-bezier(.15, 1.5, .5, 1)', eout: 'cubic-bezier(.4, 0, .3, 1)', o: '85% 85%' },
+  drift: { ein: 'cubic-bezier(.2, .8, .2, 1)', eout: 'ease-in-out', o: '50% 50%' },
+  pop: { ein: 'cubic-bezier(.1, 1.6, .4, 1)', eout: 'cubic-bezier(.35, 0, .2, 1)', o: '50% 50%' },
+  rock: { ein: 'cubic-bezier(.3, 1.1, .5, 1)', eout: 'cubic-bezier(.4, .05, .2, 1)', o: '50% 96%' },
+  nod: { ein: 'cubic-bezier(.4, 1.4, .6, 1)', eout: 'ease-in-out', o: '50% 4%' },
+  wipe: { ein: 'cubic-bezier(.2, 1.2, .35, 1)', eout: 'cubic-bezier(.5, 0, .3, 1)', o: '6% 50%' },
+  peek: { ein: 'cubic-bezier(.25, 1.35, .5, 1)', eout: 'cubic-bezier(.45, 0, .25, 1)', o: '50% 100%' },
+  shiver: { ein: 'linear', eout: 'cubic-bezier(.4, 0, .3, 1)', o: '50% 50%' },
+  lean: { ein: 'cubic-bezier(.2, 1.3, .45, 1)', eout: 'cubic-bezier(.4, .05, .25, 1)', o: '96% 96%' },
+  unfurl: { ein: 'cubic-bezier(.3, 1.15, .4, 1)', eout: 'ease-in-out', o: '50% 4%' }
+};
+var MARK_MOTION_NAMES = Object.keys(MARK_MOTIONS);
+// How a movement is scaled: how long it comes and goes, how far it reaches, and which way it
+// turns. Two icons that would otherwise answer with the same movement answer differently when their
+// kind asks for another of these.
+var MARK_VARIANTS = [
+  [380, 300, 1, 1], [300, 240, .8, -1], [460, 360, 1.22, 1], [340, 420, .9, -1],
+  [520, 280, 1.1, 1], [260, 340, .7, -1], [420, 500, 1.16, 1], [320, 360, .86, -1]
+];
+
+// The sum of a string, used to choose the movement of a kind of icon. FNV-1a: it is short, and it
+// spreads unlike strings over its whole range.
+function markHash(text) {
+  var h = 2166136261;
+  for (var n = 0; n < text.length; n++) {
+    h ^= text.charCodeAt(n);
+    h = (h * 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
+// What an icon's own drawing is: the lines and shapes it is made of, in the words they are written
+// with. Two icons that are drawn the same way are the same icon, and two that are not, are not -
+// which is what decides that they answer differently.
+function markShape(el) {
+  var parts = el.querySelectorAll('path, line, circle, rect, polyline, polygon, ellipse');
+  var out = '';
+  for (var n = 0; n < parts.length && out.length < 42; n++) {
+    var one = parts[n];
+    out += one.tagName.charAt(0) + (one.getAttribute('d')
+      || (one.getAttribute('cx') || '') + (one.getAttribute('cy') || '')
+        + (one.getAttribute('r') || '')
+      || (one.getAttribute('x1') || '') + (one.getAttribute('y1') || '')
+        + (one.getAttribute('x2') || '') + (one.getAttribute('y2') || '')
+      || (one.getAttribute('x') || '') + (one.getAttribute('y') || '') || 'x');
+  }
+  return out || el.tagName.toLowerCase();
+}
+
+// The kind of an icon: what it is drawn as, what it stands in, and where within that. Two copies of
+// the same mark in the same kind of place are one kind, and answer alike; a mark of another shape,
+// or the same shape in the service of another control, is another kind. The words of the control
+// are taken from its title when it has one and from its first word otherwise, so the head of a tool
+// block of one command is told from the head of a block of another.
+function markKind(el) {
+  var ctl = el.closest ? el.closest(MARK_CONTROL) : null;
+  var where = ctl ? ctl.tagName.toLowerCase() + (ctl.id ? '#' + ctl.id : '')
+    + (String(ctl.getAttribute('class') || '').split(' ')[0]
+      ? '.' + String(ctl.getAttribute('class') || '').split(' ')[0] : '') : '';
+  if (ctl) {
+    var said = (ctl.getAttribute('title') || ctl.getAttribute('aria-label')
+      || String(ctl.textContent || '').replace(/\s+/g, ' ')).replace(/\s+/g, ' ');
+    where += '[' + said.slice(0, 18) + ']';
+  } else {
+    where = String(el.parentElement ? el.parentElement.tagName : '?').toLowerCase();
+  }
+  var at = 0;
+  var kids = el.parentElement ? el.parentElement.children : [];
+  for (var n = 0; n < kids.length; n++) {
+    if (kids[n] === el) { break; }
+    if (kids[n].tagName === el.tagName) { at = at + 1; }
+  }
+  return el.tagName.toLowerCase() + '|' + String(el.getAttribute('class') || '') + '|'
+    + markShape(el) + '|' + where + '|' + at;
+}
+
+var markKinds = Object.create(null);   // the kind of an icon -> the movement it answers with
+var markTaken = Object.create(null);   // a movement, scaled -> the kind that took it
+
+// The movement a kind of icon answers with, chosen once for that kind. The kind is summed and the
+// sum points at one of the movements with its scaling; where another kind has already taken that
+// one, the next free is taken instead, so no two kinds of icon of the program answer alike. There
+// are movements and scalings enough for every icon of the program with room to spare; should they
+// ever all be taken, kinds share out from the beginning again.
+function markAssign(kind) {
+  if (markKinds[kind]) { return markKinds[kind]; }
+  var total = MARK_MOTION_NAMES.length * MARK_VARIANTS.length;
+  var start = markHash(kind) % total;
+  for (var n = 0; n < total; n++) {
+    var sum = (start + n) % total;
+    var key = MARK_MOTION_NAMES[Math.floor(sum / MARK_VARIANTS.length)]
+      + '#' + (sum % MARK_VARIANTS.length);
+    if (!markTaken[key]) {
+      markTaken[key] = kind;
+      markKinds[kind] = key;
+      return key;
+    }
+  }
+  markKinds[kind] = MARK_MOTION_NAMES[start % MARK_MOTION_NAMES.length] + '#0';
+  return markKinds[kind];
+}
+
+// The movement an icon answers with, put on the icon itself: the style reads it out of the custom
+// properties the animation is written with. It is asked for the first time a pointer comes near,
+// and asked once: the name it was answered with stays on the icon as a mark of the answer, and the
+// program icon is left with none, for its movement is the one the style carries as it stands.
+function markDress(el) {
+  if (el.getAttribute('data-mk')) { return; }
+  if (el.matches('img.mark')) { el.setAttribute('data-mk', 'leaf'); return; }
+  var key = markAssign(markKind(el));
+  var cut = key.split('#');
+  var motion = MARK_MOTIONS[cut[0]];
+  var variant = MARK_VARIANTS[Number(cut[1])];
+  el.style.setProperty('--mk-in', 'mk-' + cut[0] + '-in');
+  el.style.setProperty('--mk-out', 'mk-' + cut[0] + '-out');
+  el.style.setProperty('--mk-ein', motion.ein);
+  el.style.setProperty('--mk-eout', motion.eout);
+  el.style.setProperty('--mk-o', motion.o);
+  el.style.setProperty('--mk-din', variant[0] + 'ms');
+  el.style.setProperty('--mk-dout', variant[1] + 'ms');
+  el.style.setProperty('--mk-k', String(variant[2]));
+  el.style.setProperty('--mk-dir', String(variant[3]));
+  el.setAttribute('data-mk', key);
 }
 
 // The pointer has left the marks: they settle, and mark-out is removed when the settling ends,
@@ -14055,6 +14455,7 @@ document.addEventListener('pointerover', function (event) {
   if (!marks.length) { return; }
   markUnder = marks;
   for (var n = 0; n < marks.length; n++) {
+    markDress(marks[n]);
     marks[n].classList.remove('mark-out');
     marks[n].classList.add('mark-in');
   }

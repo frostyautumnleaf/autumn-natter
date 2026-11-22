@@ -6,12 +6,15 @@
 //   AN_PAGE=../web/page.html node hover-face-check.js   # one page only
 //
 // Six items are checked:
-//   * an icon animates - the class that animates it is on it, and it is drawn larger than at
-//     rest - when the control it stands in is hovered and when the icon itself is hovered;
+//   * an icon animates - the class that animates it is on it, its keyframes are running, and it
+//     is drawn somewhere it is not drawn at rest - further off, turned, widened, squeezed or
+//     skewed - when the control it stands in is hovered and when the icon itself is hovered. How
+//     an icon moves is its own (see markAssign), so the measure is the distance from the place
+//     it was drawn at and not one movement such as growing;
 //   * the program icon in the top bar, which is an image rather than one of the icons the
 //     buttons carry, animates as well;
 //   * leaving an icon is answered: the settle class is on it, and once that animation ends no
-//     class is left and the icon is as it was drawn;
+//     class is left and the icon is back where it was drawn;
 //   * hovering the text of a control animates the icon of that control, so text and icon answer
 //     as one;
 //   * plain text starts no animation;
@@ -31,10 +34,23 @@ const PAGES = process.env.AN_PAGE
 const shell = process.env.AN_SHELL_BIN || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// How an icon stands now: animating, settling or at rest, and how large it is drawn. `box` is
-// the box of the control it stands in, so that the movement of an icon is not mistaken for a
-// movement of the page.
+// How an icon stands now: animating, settling or at rest, and how far it is drawn from where it
+// was drawn. `mat` is its transform as a 4x4 matrix in column order, which carries every kind of
+// movement the style gives an icon - travel, turn, scale on one axis, skew and a turn in three
+// dimensions - so a movement is not mistaken for one kind only. `box` is the box of the control
+// it stands in, so that the movement of an icon is not mistaken for a movement of the page.
 const LOOK = `
+// A transform as a 4x4 matrix in column order, so a transform of either kind - 2d, which the
+// style writes, or 3d - can be compared with the same numbers. An icon with no transform is the
+// identity: it is drawn exactly where it was drawn.
+window.__mat = function (tr) {
+  if (!tr || tr === 'none') { return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; }
+  var n = tr.slice(tr.indexOf('(') + 1, tr.lastIndexOf(')')).split(',')
+    .map(function (t) { return parseFloat(t) || 0; });
+  if (tr.indexOf('matrix3d') === 0) { return n; }
+  return [n[0], n[1], 0, 0, n[2], n[3], 0, 0, 0, 0, 1, 0, n[4], n[5], 0, 1];
+};
+
 window.__look = function (sel) {
   var one = document.querySelector(sel);
   if (!one) { return { gone: true }; }
@@ -45,10 +61,9 @@ window.__look = function (sel) {
   var style = getComputedStyle(one);
   var host = one.closest('button, label, .bar, .hello') || one.parentElement;
   var box = host ? host.getBoundingClientRect() : null;
+  // The resting size of an icon, for the report. A movement that is not a widening leaves it at 1.
   var scale = 1;
   if (style.transform !== 'none') {
-    // The transform of an animating icon is a matrix. Its first two numbers give the width it
-    // is drawn at, which is what is compared here.
     var nums = style.transform.slice(style.transform.indexOf('(') + 1).split(',');
     var a = parseFloat(nums[0]) || 0;
     var b = parseFloat(nums[1]) || 0;
@@ -58,12 +73,29 @@ window.__look = function (sel) {
     woke: one.classList.contains('mark-in'),
     set: one.classList.contains('mark-out'),
     scale: scale,
+    mat: window.__mat(style.transform),
     animation: style.animationName,
     box: box ? [Math.round(box.left), Math.round(box.top), Math.round(box.width),
         Math.round(box.height)] : null,
   };
 };
 `;
+
+// The greatest distance between two transforms, in one number: the linear parts are ratios and
+// the last column is in pixels, so a travel of 2 px, a turn of a few degrees, a widening of 2%
+// and a skew all read here. Anything under a hundredth is the same place.
+function shift(from, to) {
+  if (!from || !to) { return null; }
+  let far = 0;
+  for (let n = 0; n < Math.max(from.length, to.length); n++) {
+    const a = from[n] === undefined ? 0 : from[n];
+    const b = to[n] === undefined ? 0 : to[n];
+    far = Math.max(far, Math.abs(a - b));
+  }
+  return Math.round(far * 100) / 100;
+}
+
+const MOVED = 0.02;
 
 // The places the check puts the pointer on. Each stands for a type of control in the program: a
 // badge of the top bar, a button of the top bar, a field of the top bar with its icon at the
@@ -140,7 +172,10 @@ async function main() {
       await sleep(60);
       const woke = await page.evaluate((sel) => window.__look(sel), place.sel);
       if (!woke.woke) { note(place.what + ' did not animate on hover'); }
-      if (!(woke.scale > 1.02)) { note(place.what + ' has the class but does not move: ' + woke.scale); }
+      if (woke.animation === 'none') { note(place.what + ' has the class but no keyframes run'); }
+      // The icon is drawn somewhere it is not drawn at rest, by whatever movement its kind takes.
+      const moved = shift(rest.mat, woke.mat);
+      if (!(moved > MOVED)) { note(place.what + ' has the class but does not move: ' + moved); }
       if (rest.box && woke.box && String(rest.box) !== String(woke.box)) {
         note(place.what + ' moved the control it stands in: ' + rest.box + ' -> ' + woke.box);
       }
@@ -152,9 +187,11 @@ async function main() {
       await sleep(420);
       const back = await page.evaluate((sel) => window.__look(sel), place.sel);
       if (back.woke || back.set) { note(place.what + ' kept an animation class after the animation ended'); }
-      if (Math.abs(back.scale - 1) > 0.02) { note(place.what + ' did not return to its resting size: ' + back.scale); }
+      const left = shift(rest.mat, back.mat);
+      if (left > MOVED) { note(place.what + ' did not return to where it was drawn: ' + left); }
       console.log('  ' + one.name + ' ' + place.what + ': ' + JSON.stringify({
-        woke: woke.woke, scale: woke.scale, set: settling.set, back: back.scale,
+        woke: woke.woke, move: moved, animation: woke.animation, scale: woke.scale,
+        set: settling.set, back: left,
       }));
     }
 

@@ -1,10 +1,18 @@
 // Every icon of the program animates when the pointer enters it and when the pointer leaves.
 // This check walks every icon that is visible on the page, moves a real pointer onto it, and
 // requires:
-//   * on entry the animation starts (class mark-in) and the icon is drawn larger than at rest;
+//   * on entry the animation starts (class mark-in) and it is one of the eighteen movements the
+//     style carries, named mk-<movement>-in. Only the program icon answers with the movement the
+//     style names mark-in, which is the movement the leaf has always had;
+//   * no two kinds of icon answer with the same movement. The movement and its scaling are read off
+//     the icon itself and compared across every kind of icon the walk met;
 //   * on leave the settle animation starts (class mark-out) and the class is removed when the
 //     animation ends, so nothing is left on the element;
 //   * the control the icon stands in does not move or change size while the icon moves.
+//
+// The markers that only indicate - the arrow of a field of choices, the caret of a badge, the caret
+// that turns a block - must start nothing at all, and they are asserted rather than skipped: the
+// pointer goes onto every one of them the page can reach, and no icon of the page may animate.
 //
 // Icons are found by the rule the page uses: an svg element, an element carrying the svg class,
 // or the program image. Elements that are hidden, too big to be icons (illustrations), covered
@@ -183,6 +191,17 @@ function describeIcon(el) {
   return tag + (cls ? '.' + cls : '') + (name ? ' in ' + String(name).split(' ')[0] : '');
 }
 
+// The movement an icon was given: the name the page assigned to it, the kind of icon it is, and the
+// point the movement turns about. This is what is compared between icons, so that a kind of icon
+// that answers as another kind does is a fault and not a matter of taste.
+function answerOf(el) {
+  return {
+    mk: el.getAttribute('data-mk') || '',
+    kind: markKind(el),
+    origin: getComputedStyle(el).transformOrigin
+  };
+}
+
 // Tag every icon that is in the page now, and return the count.
 window.__ic.collect = function () {
   var all = document.querySelectorAll(MARK_ICON);
@@ -224,8 +243,9 @@ window.__ic.at = function (index, block) {
     width: Math.round(box.width), height: Math.round(box.height),
     inView: box.top >= 0 && box.bottom <= window.innerHeight,
     covered: !reach,
+    silent: markSilent(el),
     disabled: !!(el.closest && el.closest('[disabled], [aria-disabled="true"]')),
-    illustration: !isMark(el),
+    illustration: !isMark(el) && !markSilent(el),
     rest: getComputedStyle(el).transform,
     controlWidth: (function () {
       var c = controlOf(el);
@@ -265,6 +285,16 @@ window.__ic.opener = function (index) {
 
 // Why no point answers for this icon: the places tried, what the page found at each, and what
 // the page's rule answered there. For the report of a fault only.
+// A marker that only indicates answers to no pointer: the page must find no mark for the point on
+// the marker, and no icon of the page may be animating. The answer is asked twice - before the
+// pointer comes and after - because a mark left settling by the hover before it would else be
+// counted against the marker.
+window.__ic.silent = function (at) {
+  var hit = document.elementFromPoint(at.x, at.y);
+  var marks = hit ? markFind(hit) : [];
+  return { found: marks.length, waking: window.__ic.waking() };
+};
+
 window.__ic.why = function (index) {
   var el = document.querySelector('[data-ic="' + index + '"]');
   if (!el) { return { gone: true }; }
@@ -339,9 +369,10 @@ window.__ic.enter = function (x, y) {
   var target = window.__ic.target;
   var one = marks.indexOf(target) >= 0 ? target : (marks[0] || null);
   window.__ic.hold = marks;
-  if (!one) { return { found: false, marks: 0 }; }
+  if (!one) { return { found: false, marks: 0, waking: window.__ic.waking() }; }
   var c = controlOf(one);
   var box = c ? c.getBoundingClientRect() : null;
+  var answer = answerOf(one);
   return {
     found: true,
     marks: marks.length,
@@ -351,6 +382,9 @@ window.__ic.enter = function (x, y) {
     out: one.classList.contains('mark-out'),
     transform: getComputedStyle(one).transform,
     animations: namesOf(one),
+    mk: answer.mk,
+    kind: answer.kind,
+    origin: answer.origin,
     width: box ? Math.round(box.width) : 0,
     height: box ? Math.round(box.height) : 0
   };
@@ -378,7 +412,8 @@ window.__ic.now = function () {
   return {
     count: list.length, in: ins, out: outs,
     transform: getComputedStyle(list[0]).transform,
-    animations: namesOf(list[0])
+    animations: namesOf(list[0]),
+    mk: list[0].getAttribute('data-mk') || ''
   };
 };
 
@@ -418,7 +453,7 @@ window.__ic.waking = function () {
 // Walk the icons of one view. Each icon gets the pointer, and the pointer then goes to plain
 // text, so the entry and the leave of the animation are both seen. `counts` gathers what the
 // walk found, and `notes` collects what is wrong.
-async function sweep(page, label, neutral, notes, counts) {
+async function sweep(page, label, neutral, notes, counts, answers) {
   const total = await page.evaluate(() => window.__ic.collect());
   for (let index = 0; index < total; index++) {
     const scroll = async (block) => page.evaluate((a) => window.__ic.at(a.i, a.block),
@@ -427,6 +462,26 @@ async function sweep(page, label, neutral, notes, counts) {
     if (at.gone) { notes.push(label + ': icon ' + index + ' went out of the page'); continue; }
     if (at.illustration) { counts.illustration++; continue; }
     if (!at.inView) { counts.offscreen++; continue; }
+
+    if (at.silent) {
+      // A marker that only indicates must start nothing at all. The pointer is first put on plain
+      // text, so that a mark of the hover before this one has done settling and is not counted
+      // against the marker, and then on the marker itself.
+      if (at.covered) { counts.silentCovered++; continue; }
+      if (neutral) { await page.mouse.move(neutral.x, neutral.y); }
+      await sleep(560);
+      await page.mouse.move(at.x, at.y);
+      await sleep(90);
+      const still = await page.evaluate((q) => window.__ic.silent(q), at);
+      if (still.found || still.waking) {
+        notes.push(label + ': ' + at.name + ' is a marker that only indicates, yet the page '
+          + 'answered its hover with ' + still.found + ' mark(s) and ' + still.waking
+          + ' icon(s) animating');
+      } else {
+        counts.silent++;
+      }
+      continue;
+    }
 
     let aim = await page.evaluate((i) => window.__ic.vantage(i), index);
     if (aim && aim.gone) { notes.push(label + ': icon ' + index + ' went out of the page'); continue; }
@@ -492,11 +547,39 @@ async function sweep(page, label, neutral, notes, counts) {
       notes.push(label + ': ' + woke.name + ' at ' + point.x + ',' + point.y
         + ' does not start an animation on hover'
         + (woke.marks ? ' (' + woke.marks + ' marks answered)' : ''));
-    } else if (woke.animations.indexOf('mark-in') < 0 && woke.transform === at.rest) {
-      notes.push(label + ': ' + woke.name + ' has the class but does not move ('
+    } else if (woke.mk === 'leaf' && woke.animations.indexOf('mark-in') < 0) {
+      notes.push(label + ': the program icon ' + woke.name + ' has the class but does not move ('
         + woke.transform + ')');
-    } else {
+    } else if (woke.mk === 'leaf') {
       counts.animated++;
+    } else {
+      // One of the eighteen movements of the style, named for the icon by the page itself. The
+      // movement of the program icon is not among the answers an ordinary icon may give.
+      const running = woke.animations.filter((n) => /^mk-[a-z]+-in$/.test(n));
+      if (!woke.mk) {
+        notes.push(label + ': ' + woke.name + ' animates but was given no movement of its own');
+      } else if (!running.length) {
+        notes.push(label + ': ' + woke.name + ' answers with ' + (woke.animations.join('+')
+          || 'nothing') + ' instead of the movement ' + woke.mk + ' it was given');
+      } else if (running[0] !== 'mk-' + woke.mk.split('#')[0] + '-in') {
+        notes.push(label + ': ' + woke.name + ' was given ' + woke.mk + ' but runs '
+          + running[0]);
+      } else if (woke.transform === at.rest) {
+        notes.push(label + ': ' + woke.name + ' has the movement but does not move ('
+          + woke.transform + ')');
+      } else {
+        counts.animated++;
+        // The same kind of icon must always answer with the same movement, and no two kinds of
+        // icon may answer with the same one. The map is kept across the views of one page.
+        const kind = woke.kind;
+        const had = answers.get(kind);
+        if (had && had.mk !== woke.mk) {
+          notes.push(label + ': ' + woke.name + ' answered twice with two movements, ' + had.mk
+            + ' and ' + woke.mk);
+        } else if (!had) {
+          answers.set(kind, { mk: woke.mk, name: woke.name });
+        }
+      }
     }
     // An icon may move itself, but it may not push the control it stands in: the width and the
     // height of that control are the same while the icon is hovered as at rest. Where the icon
@@ -521,7 +604,7 @@ async function sweep(page, label, neutral, notes, counts) {
     } else {
       counts.settled += settling.count;
     }
-    await sleep(420);
+    await sleep(560);
     const rest = await page.evaluate(() => window.__ic.now());
     if (!rest.gone && (rest.in || rest.out)) {
       notes.push(label + ': ' + woke.name + ' kept ' + (rest.in ? 'mark-in' : 'mark-out')
@@ -541,7 +624,10 @@ async function main() {
   for (const one of PAGES) {
     const notes = [];
     const counts = { animated: 0, settled: 0, skipped: 0, offscreen: 0, covered: 0,
-      illustration: 0, disabled: 0, revealed: 0 };
+      illustration: 0, disabled: 0, revealed: 0, silent: 0, silentCovered: 0 };
+    // The kinds of icon the walk met, and the movement each of them answered with. Kept across the
+    // views of one page, so that a kind seen in the chat and again in the settings is one kind.
+    const answers = new Map();
     const faults = [];
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 900 });
@@ -635,7 +721,7 @@ async function main() {
         continue;
       }
       const before = counts.animated;
-      await sweep(page, one.name + ' ' + phase.name, neutral, notes, counts);
+      await sweep(page, one.name + ' ' + phase.name, neutral, notes, counts, answers);
       // The pointer goes to plain text: nothing may be animating there, and what animated must
       // settle back to the size it was drawn at.
       if (neutral) {
@@ -652,6 +738,20 @@ async function main() {
         + (counts.animated - before) + ' icons animated\n');
     }
 
+    // No two kinds of icon may answer with the same movement. The map is whole now, so a movement
+    // given to two kinds is seen here and not before.
+    const given = new Map();
+    answers.forEach((one, kind) => {
+      if (!one.mk || one.mk === 'leaf') { return; }
+      const had = given.get(one.mk);
+      if (had) {
+        notes.push(one.name + ': answers with ' + one.mk + ', which ' + had.name
+          + ' answers with too');
+      } else {
+        given.set(one.mk, one);
+      }
+    });
+
     // The program image in the top bar is an icon of the program and must animate as one.
     const mark = await page.evaluate(() => {
       const one = document.querySelector('img.mark');
@@ -667,9 +767,14 @@ async function main() {
       await move(mark.x, mark.y);
       const woke = await page.evaluate(() => {
         const one = document.querySelector('img.mark');
-        return { in: one.classList.contains('mark-in'), transform: getComputedStyle(one).transform };
+        return { in: one.classList.contains('mark-in'), mk: one.getAttribute('data-mk') || '',
+          transform: getComputedStyle(one).transform };
       });
       if (!woke.in) { notes.push(one.name + ': the program image does not animate'); }
+      if (woke.mk !== 'leaf') {
+        notes.push(one.name + ': the program image was given a movement of the ordinary icons '
+          + '(it answers with "' + woke.mk + '")');
+      }
       if (woke.transform === 'none') { notes.push(one.name + ': the program image does not move'); }
       if (neutral) {
         await move(neutral.x, neutral.y);
@@ -681,8 +786,11 @@ async function main() {
 
     await page.close();
     console.log('  ' + one.name + ': animated ' + counts.animated + ', settled ' + counts.settled
+      + ', markers left still ' + counts.silent + ', kinds of icon ' + answers.size
+      + ', movements used ' + given.size
       + ', disabled ' + counts.disabled + ', illustrations ' + counts.illustration
       + ', off screen ' + counts.offscreen + ', covered ' + counts.covered
+      + ', markers covered ' + counts.silentCovered
       + ', revealed by hover ' + counts.revealed);
     if (!notes.length) { console.log('  ok ' + one.name); }
     else {
@@ -693,7 +801,8 @@ async function main() {
   }
   await browser.close();
   if (trouble) { throw new Error(trouble + ' fault(s) across ' + PAGES.length + ' pages'); }
-  console.log('every icon of the program animates on hover in and on hover out, in both pages');
+  console.log('every icon of the program answers the pointer with a movement of its own, every '
+    + 'kind with another, and the markers that only indicate answer with nothing');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
