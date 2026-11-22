@@ -102,16 +102,20 @@ function stateOf() {
 
 function stubs(state) {
   window.__held = state;
+  window.__sent = [];
   const answer = function (body) {
     return Promise.resolve({ json: function () { return Promise.resolve(body); } });
   };
-  window.fetch = function (url) {
+  window.fetch = function (url, init) {
+    window.__sent.push({ url: String(url), body: init && init.body ? String(init.body) : '' });
     if (String(url).indexOf('state') >= 0) { return answer(window.__held); }
     return answer({ ok: true });
   };
   window.__TAURI__ = {
     core: {
-      invoke: function (command) {
+      invoke: function (command, args) {
+        window.__sent.push({ url: 'invoke:' + command,
+          body: JSON.stringify(args || {}) });
         if (command === 'get_state') { return Promise.resolve(window.__held); }
         return Promise.resolve({});
       }
@@ -119,6 +123,27 @@ function stubs(state) {
     event: { listen: function () { return Promise.resolve(function () {}); } }
   };
 }
+
+// One reading of the line of the tasks suite: how the switch of the line is drawn from the state
+// given, and what the click on the line sends.
+const TOGGLE = function (on) {
+  var held = {};
+  var seen = window.__held.tool_switches || {};
+  for (var k in seen) { held[k] = seen[k]; }
+  held.tasks = on;
+  window.__held.tool_switches = held;
+  window.__sent = [];
+  window.fillToolMenu(window.__held);
+  var lines = document.querySelectorAll('#codemenu button.toggle');
+  for (var n = 0; n < lines.length; n++) {
+    var word = lines[n].querySelector('.word');
+    if (!word || String(word.textContent || '').indexOf('Tasks suite') < 0) { continue; }
+    var drawn = lines[n].classList.contains('on');
+    lines[n].click();
+    return { drawn: drawn, sent: window.__sent.slice() };
+  }
+  return { missing: true };
+};
 
 // The blocks of the runs, in the order they stand in the chat.
 const LOOK = function () {
@@ -217,6 +242,40 @@ async function main() {
     });
     await sleep(180);
     await page.screenshot({ path: path.join(__dirname, 'tasks-' + one.tag + '-2-changed.png') });
+    // The line of the badge is a switch of both ways: it is drawn from what the state says, and
+    // the click sends the other way of that. It was once drawn on whatever the state said, for
+    // the state of the page carried no word of the line and a switch nothing reports is taken for
+    // on - so the click that was meant to turn the suite on sent it off, the engine answered that
+    // it was off, and nothing of the suite was ever offered to the model.
+    for (const asked of [false, true]) {
+      const said = await page.evaluate('(' + TOGGLE.toString() + ')(' + asked + ')');
+      const of = one.name + ', the line of the tasks suite with the state ' + (asked ? 'on' : 'off');
+      if (said.missing) {
+        note(of + ': the menu of the badge holds no line for it');
+        continue;
+      }
+      if (said.drawn !== asked) {
+        note(of + ': the switch of the line is drawn ' + (said.drawn ? 'on' : 'off'));
+      }
+      const sent = (said.sent || []).filter(function (a) {
+        // The page of the window goes by the command `action` with the name of the route in the
+        // body, while the page of the remote mode posts to the route itself.
+        return (a.url + ' ' + a.body).indexOf('tool_switch') >= 0;
+      });
+      if (sent.length !== 1) {
+        note(of + ': the click sent ' + sent.length + ' actions of the switch');
+        continue;
+      }
+      const body = String(sent[0].body || '').replace(/\\/g, '');
+      if (body.indexOf('"part":"tasks"') < 0) {
+        note(of + ': the click did not name the line: ' + body);
+      }
+      const meant = body.match(/"on":(true|false)/);
+      if (!meant || (meant[1] === 'true') !== !asked) {
+        note(of + ': the click sent ' + (meant ? meant[0] : 'no switch at all')
+          + ' against the state ' + (asked ? 'on' : 'off'));
+      }
+    }
     if (faults.length) { note('page faults at the end: ' + faults.join(' | ')); }
     if (!notes.length) { console.log('  ok ' + one.name); } else { trouble += notes.length; }
     await page.close();
@@ -225,8 +284,8 @@ async function main() {
   if (trouble) { throw new Error(trouble + ' fault(s) across ' + PAGES.length + ' pages'); }
   console.log('the eight tools of the tasks suite are shapes of both pages, each with a marker of '
     + 'its own, every block of a run is headed by the words of its tool and the task it was '
-    + 'pointed at, the read of the list names the list, and the line of the badge speaks of '
-    + 'changing a task and of adding to one');
+    + 'pointed at, the read of the list names the list, the line of the badge speaks of changing '
+    + 'a task and of adding to one, and that line is a switch of both ways');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

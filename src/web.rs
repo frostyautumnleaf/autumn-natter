@@ -373,23 +373,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "code": snap.code_enabled,
         // The lines of the drop-down of the badge of the tools. The badge itself is the switch
         // over all of them, so a tool that is switched on here is proposed only while the badge
-        // is on.
-        "tool_switches": {
-            "commands": snap.tool_switches.commands,
-            "files": snap.tool_switches.files,
-            "picture": snap.tool_switches.picture,
-            "hand_out": snap.tool_switches.hand_out,
-            "display": snap.tool_switches.display,
-            "ask": snap.tool_switches.ask,
-            "suggest": snap.tool_switches.suggest,
-            // The list of the steps of the work. It is on until the user takes it out.
-            "steps": snap.tool_switches.steps,
-            "infographics": snap.tool_switches.infographics,
-            // The line of the handoff summary is in the drop-down only while `compaction.type`
-            // below reports that the space is freed by a summary; the page hides the line when
-            // it does not.
-            "summarise": snap.tool_switches.summarise,
-        },
+        // is on. The map is made from the same list the window of the program reads, so a line
+        // cannot be in one and not the other: a line the page does not read is drawn as switched
+        // on, for a switch nothing reports is taken for on, and a click on it then sends it off.
+        "tool_switches": tool_switches_value(&snap.tool_switches),
         "search": snap.search_enabled,
         // Retrieval: the badge of the chat, and what the `.sources` folder of its working
         // directory holds. The badge is drawn from these: a folder with nothing in it, or files
@@ -490,6 +477,17 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // The folder the contexts the model has processed are in.
         "contexts_dir": snap.contexts_dir,
     })
+}
+
+// The lines of the badge of the tools as the page reads them: one entry for every line of the
+// drop-down, from `store::ToolSwitches::words`, which is the list the window of the program is
+// given too. The order of the lines is the order of the drop-down.
+fn tool_switches_value(switches: &store::ToolSwitches) -> Value {
+    let mut held = serde_json::Map::new();
+    for (part, on) in switches.words() {
+        held.insert(part.to_string(), json!(on));
+    }
+    Value::Object(held)
 }
 
 // Part of the context meter, between 0 and 1.
@@ -1352,4 +1350,85 @@ fn text_field(value: &Value, key: &str) -> String {
 // One switch of the JSON body. A missing switch is off.
 fn flag(value: &Value, key: &str) -> bool {
     value.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Every line of the drop-down of the badge of the tools stands in the state the page reads,
+    // and the state says the same of each as the switch of the tools says. The list is taken from
+    // `store::ToolSwitches::words`, which is the list the window of the program reads too, so a
+    // line added to the tools cannot be left out of the JSON of the page unmarked. It matters
+    // that no line is left out: a line the page cannot read is drawn as switched on, for a switch
+    // nothing reports is taken for on, and the click that was meant to turn such a line on sends
+    // it off - the line of the tasks suite stood in that state for a while, and nothing but the
+    // engine had it off.
+    #[test]
+    fn every_line_of_the_badge_of_the_tools_reaches_the_page() {
+        let _guard = config::test_turn();
+        config::set_data_dir(std::path::PathBuf::from("uidata/web-tests"));
+        let _ = config::ensure_dirs();
+        let engine = crate::engine::Engine::start(Config::default());
+        let snap = engine.snapshot();
+        let held = state(&snap, None)["tool_switches"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        let lines = snap.tool_switches.words();
+        assert_eq!(
+            held.len(),
+            lines.len(),
+            "the state holds one entry for every line of the drop-down"
+        );
+        for (part, on) in &lines {
+            assert_eq!(
+                held.get(*part).and_then(|v| v.as_bool()),
+                Some(*on),
+                "{part} stands in the state as the switch of the tools has it"
+            );
+        }
+        assert_eq!(
+            held.get("tasks").and_then(|v| v.as_bool()),
+            Some(false),
+            "the tasks suite is off at first, and the state says so rather than saying nothing"
+        );
+    }
+
+    // The line of the tasks suite is turned on by the post the page sends, and the state tells
+    // the page so afterwards. The line was once unturnable: it stood among the tools of the
+    // engine but not in the JSON of the state, so the page drew it as switched on and the click
+    // that meant to turn it on sent `on: false` - the engine turned it off and said so on the
+    // line, and nothing of the suite was ever offered to the model.
+    #[test]
+    fn the_line_of_the_tasks_suite_is_turned_on_by_a_post_of_the_page() {
+        let _guard = config::test_turn();
+        config::set_data_dir(std::path::PathBuf::from("uidata/web-tests"));
+        let _ = config::ensure_dirs();
+        let engine = crate::engine::Engine::start(Config::default());
+        engine.new_chat();
+        assert!(!engine.snapshot().tool_switches.tasks, "off at first");
+        action(&engine, "/api/tool_switch", "{\"part\":\"tasks\",\"on\":true}");
+        let snap = engine.snapshot();
+        assert!(snap.tool_switches.tasks, "the tasks suite is on");
+        assert_eq!(
+            state(&snap, None)["tool_switches"]["tasks"].as_bool(),
+            Some(true),
+            "the page is told that the line is on, so the next click means off and not on again"
+        );
+        assert!(
+            snap.status.contains("Tasks suite"),
+            "the line under the chat says what was opened: {}",
+            snap.status
+        );
+        // And back off again, so that the line of the drop-down is a switch of both ways.
+        action(&engine, "/api/tool_switch", "{\"part\":\"tasks\",\"on\":false}");
+        let shut = engine.snapshot();
+        assert!(!shut.tool_switches.tasks, "the tasks suite is off again");
+        assert_eq!(
+            state(&shut, None)["tool_switches"]["tasks"].as_bool(),
+            Some(false),
+            "and the page is told that too"
+        );
+    }
 }
