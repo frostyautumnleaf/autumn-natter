@@ -443,6 +443,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "chapters": snap.chat_chapters,
             // The line of the user's own messages at the right of the chat.
             "userline": snap.chat_userline,
+            // Whether the background of the chat is a faint grid. Only the page draws it.
+            "grid": snap.chat_grid,
             // What falls behind the text of the chat. The page draws it, and stops again when
             // the drawing is turned off.
             "background": &snap.chat_background,

@@ -192,6 +192,19 @@ body.silver, body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
 body.dark { color-scheme: dark; }
 body.silver, body.corporate { color-scheme: dark; }
 
+/*
+ * The two steps of colour the grid of the background is drawn with. The first is the hairline of
+ * every line that stands at rest, and the second the stronger step a line is drawn in while it is
+ * in its slow oscillation. Both are one step off the background of the theme - enough to be seen
+ * as a field of lines, never enough to be read beside the writing of the chat, and neither of
+ * them ever competes with a hairline of the interface, which is a stronger line than either.
+ */
+:root { --grid: rgba(124, 84, 44, .085); --grid-mark: rgba(124, 84, 44, .2); }
+body.dark { --grid: rgba(255, 198, 148, .055); --grid-mark: rgba(255, 198, 148, .15); }
+body.silver { --grid: rgba(255, 255, 255, .05); --grid-mark: rgba(255, 255, 255, .13); }
+body.corporate { --grid: rgba(255, 255, 255, .045); --grid-mark: rgba(255, 255, 255, .12); }
+body.neon { --grid: rgba(34, 200, 255, .055); --grid-mark: rgba(34, 200, 255, .16); }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -389,6 +402,18 @@ body.home .stage { display: none; }
  * pointer events. */
 .splash {
   position: absolute; inset: 0; z-index: 6; width: 100%; height: 100%;
+  pointer-events: none;
+}
+/*
+ * The grid the background of the chat is drawn with. It is the deepest thing in the place the
+ * chat is in - under the digits the cursor uncovers, under the rain and the leaves, under every
+ * message - and it never catches the pointer. The Chatting setting decides whether it is drawn at
+ * all: with the setting off the canvas is emptied and the background is the solid colour of the
+ * theme again. The pixel-art form of a theme lays a check of squares of its own down over the
+ * whole page, so the grid stands down while that form is on.
+ */
+.gridbg {
+  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
   pointer-events: none;
 }
 /*
@@ -3086,6 +3111,10 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
     <!--   The field of random digits the cursor uncovers. It is the deepest thing in the chat, and
       only the numbers the aura about the pointer reaches are drawn; the Chatting setting decides
       whether there are any at all. -->
+    <!--   The grid the background of the chat is drawn with: hairlines in the colour of the theme, in
+      the place of the solid colour, while the Chatting setting asks for it. It is under the
+      digits, and it is the deepest thing here. -->
+    <canvas class="gridbg" id="gridbg" aria-hidden="true"></canvas>
     <canvas class="digits" id="digits" aria-hidden="true"></canvas>
     <canvas class="fall" id="fall" aria-hidden="true"></canvas>
     <!--   The chapters the model flagged. They remain out of the text, on a line at the left of the
@@ -3542,8 +3571,11 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
           <span class="sub">Where the rain meets the chat composer box, or a block of the chat, it breaks into a splash of squares - over the top edge of the block it hits, in a place drawn anew each time, so no two splashes are as well. The splash is only ever on the screen: nothing is heard, and nothing of a block moves with it. Turn this off to have the rain fall past the blocks untouched.</span>
           <div class="ctl"><input id="fRainSplash" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Digits under the cursor</span>
-          <span class="sub">While the cursor rests in the chat, a soft round aura about it uncovers a field of random digits in the background: rows and columns of numbers in the colour of the leaf mark, coming in and going out with no edge to them. The aura breathes in and out while the cursor stands still. Turn this off to keep the background plain. A system that asks for little movement gets none of this.</span>
+          <span class="sub">While the cursor rests in the chat, a soft round aura about it uncovers a field of random digits in the background: rows and columns of numbers in the colour of the leaf mark, coming in and going out with no edge to them. The aura breathes in and out while the cursor stands still. This is off until you turn it on. A system that asks for little movement gets none of this.</span>
           <div class="ctl"><input id="fCursorDigits" type="checkbox"></div></div>
+        <div class="fld"><span class="lbl">Grid background</span>
+          <span class="sub">The background of the chat is a faint grid of hairlines in the colour of the theme, instead of a solid colour. Now and then one line of the grid swings slowly into a wave and comes back to straight again, at a place and a time drawn at random, so no two times at a chat show the same movement. Turn this off to have the plain solid colour back. The pixel-art form of a theme has a background of its own and keeps it.</span>
+          <div class="ctl"><input id="fChatGrid" type="checkbox"></div></div>
 
 
         <div class="sec">Custom system prompt</div>
@@ -3995,7 +4027,7 @@ var cur = null;        // the last state
 var chatting = { thinking: true, grow: true, inThink: true, tools: true,
   highlight: true, bold: true, colour: true, seamless: false, chapters: true, userline: true,
   send_anim: true, paste: 6000, width: 780, background: 'none',
-  rainSplash: true, digits: true };
+  rainSplash: true, digits: false, grid: true };
 var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
@@ -4190,9 +4222,13 @@ function readChatting(s) {
   // page being opened afresh.
   rainSplashSetting(chat.rain_splash !== false);
   // Whether the cursor uncovers a field of random digits in the background of the chat. The
+  // field is off until the user asks for it, so the setting is read as an exact yes. The
   // going is asked after again here, so a change of the setting is followed without the page
   // being opened afresh.
-  digitsSetting(chat.cursor_digits !== false);
+  digitsSetting(chat.cursor_digits === true);
+  // Whether the background of the chat is drawn as a faint grid. The grid is there unless the
+  // setting took it away, and it is drawn under everything else that is behind the text.
+  gridSetting(chat.grid !== false);
 }
 
 // ------------------------------------------------------------ the background
@@ -5520,11 +5556,307 @@ function fillRepos(s) {
 }
 
 
+// ---------------------------------------------------------- the grid of the background
+//
+// The background of the chat drawn as a grid of hairlines, which is what the Chatting setting
+// puts in the place of the solid colour of the theme. With the setting off the canvas is emptied
+// and the solid colour is what there is again, exactly as it was before this was ever drawn. The
+// grid is the deepest thing in the place the chat is in: under the digits the cursor uncovers,
+// under the rain and the leaves, under every message - and it never catches the pointer. The
+// pixel-art form of a theme lays a check of squares of its own down over the whole page, so while
+// that form is on the grid stands down and the theme keeps the background it has there.
+//
+// Every line at rest is drawn at one strength, a step off the background of the theme in use, so
+// the field reads as graph paper rather than as a drawing with lines in it, and the writing of
+// the chat stays legible over all of it. The lines are not laid down once and left: now and then
+// one whole line goes into a slow oscillation and comes back to straight again. It is drawn as a
+// wave across the chat whose height out of straight grows from nothing, holds a little, and
+// returns to nothing; the wave travels along the line while it goes, and the two ends of the line
+// keep to their places, so a line reads as one swinging rather than as one moved and put back.
+//
+// Which line is taken next, the time it is taken at, how far it goes, how long it takes, how
+// crowded its wave is and which way the wave runs are all drawn at random, so no two times at a
+// chat show the same movement. Nothing is cheap enough to be drawn all the time, so the going
+// stops while nothing moves and starts again when the next line is due. A system that is asked to
+// make few movements gets the grid with none of the oscillation in it.
+
+var GRID_CELL = 44;           // the square of the grid, in CSS pixels
+var GRID_MOST = 4;            // how many lines may be oscillating at one time
+var GRID_EVERY = 30;          // the least time between two drawings of the grid, in milliseconds
+var GRID_AMPL = [2.4, 5.6];   // how far a line goes out of straight at the widest, in CSS pixels
+var GRID_SWAY = [150, 340];   // the length of one sway of the wave, in CSS pixels
+var GRID_LIFE = [5200, 9200]; // how long one line takes to go out of straight and back again
+var GRID_NEXT = [1500, 3800]; // how long between one line being taken and the next
+var GRID_TRIP = [0.35, 0.85]; // how many whole sways the wave runs over in a second
+var GRID_DRAW = 7;            // how far apart the points of a waving line are, in CSS pixels
+var GRID_TURN = 6.283185;     // one whole turning, for the two sine curves of a wave
+
+var grid = {
+  want: true,    // what the Chatting setting says, which is for the grid until it is turned off
+  w: 0, h: 0, dpr: 1,
+  canvas: null, ctx: null,
+  line: null, mark: null,  // the two steps of colour of the theme, each four numbers long
+  waves: null,   // the lines that are in their oscillation, each with its own drawn numbers
+  next: 0,       // the moment the next line may be taken
+  last: 0,       // the moment the grid was drawn last
+  hoop: 0,       // the wait for the next line, taken while nothing at all is moving
+  raf: 0
+};
+
+// One colour of the theme taken to pieces. Three or six hexadecimal digits, or `rgb()` and
+// `rgba()`, all come back as the four numbers of them with the strength last; nothing else is a
+// colour, and is answered for by the caller.
+function gridRead(text) {
+  var look = String(text === null || text === undefined ? '' : text).trim();
+  var made = /^rgba?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*[,\s]\s*([\d.]+)(?:\s*[,\s\/]\s*([\d.]+))?\s*\)$/i
+    .exec(look);
+  if (made) {
+    return [Number(made[1]), Number(made[2]), Number(made[3]),
+      made[4] === undefined ? 1 : Number(made[4])];
+  }
+  made = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(look);
+  if (!made) { return null; }
+  var hex = made[1];
+  if (hex.length === 3) { hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2]; }
+  return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16),
+    parseInt(hex.slice(4, 6), 16), 1];
+}
+
+// The two colours of the grid, read out of the theme in use. A theme that names neither of the
+// two tokens is drawn with a neutral, one step off grey, so a background is never left without a
+// grid because a colour could not be read.
+function gridSkin() {
+  var look = window.getComputedStyle ? getComputedStyle(document.body) : null;
+  var asked = function (name) {
+    return look ? look.getPropertyValue(name) : '';
+  };
+  grid.line = gridRead(asked('--grid')) || [128, 128, 128, 0.07];
+  grid.mark = gridRead(asked('--grid-mark')) || [128, 128, 128, 0.16];
+  gridGoOn();
+}
+
+// One step between the two colours of the grid, so a line takes on the stronger colour of the
+// theme as it goes out of straight and lays the plain one down again as it comes back.
+function gridMix(from, to, at) {
+  return [from[0] + (to[0] - from[0]) * at, from[1] + (to[1] - from[1]) * at,
+    from[2] + (to[2] - from[2]) * at, from[3] + (to[3] - from[3]) * at];
+}
+
+// A colour of the grid, written the way a canvas is asked for one.
+function gridRgba(one) {
+  return 'rgba(' + Math.round(one[0]) + ',' + Math.round(one[1]) + ',' + Math.round(one[2])
+    + ',' + (Math.round(one[3] * 1000) / 1000) + ')';
+}
+
+// The canvas of the grid, at the size of the computer's own pixels and of the place the chat is
+// in. Nothing is drawn where there is no such place: a chat that is not open, a window that is
+// hidden, or a stage that has been folded away.
+function gridSize() {
+  var stage = document.getElementById('stage');
+  var canvas = grid.canvas || document.getElementById('gridbg');
+  if (!stage || !canvas) { return false; }
+  if (stage.offsetParent === null) { return false; }
+  var s = stage.getBoundingClientRect();
+  var wide = Math.max(0, Math.round(s.width));
+  var tall = Math.max(0, Math.round(s.height));
+  var dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  if (grid.ctx && wide === grid.w && tall === grid.h && dpr === grid.dpr) { return true; }
+  if (wide <= 0 || tall <= 0) { return false; }
+  grid.w = wide; grid.h = tall; grid.dpr = dpr; grid.canvas = canvas;
+  canvas.width = Math.round(wide * dpr);
+  canvas.height = Math.round(tall * dpr);
+  grid.ctx = canvas.getContext('2d');
+  grid.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return true;
+}
+
+// Whether the grid may be drawn at all: the Chatting setting asks for it, and the page is not in
+// the pixel-art form of a theme, which has a background of its own and wants nothing laid under
+// it.
+function gridAsked() {
+  return !!grid.want && !pixelArt;
+}
+
+// Whether the grid may move: the grid itself, and a system that has not asked for few movements.
+function gridMoves() {
+  return gridAsked() && !reduce;
+}
+
+// Let the going on. Nothing is started twice, and the going is stopped again when the setting or
+// the form of the theme has taken the grid away - in which case the canvas is emptied, which is
+// what puts the solid colour back.
+function gridGoOn() {
+  clearTimeout(grid.hoop);
+  grid.hoop = 0;
+  if (!gridAsked()) { gridStop(true); return; }
+  if (grid.raf || !gridSize()) { return; }
+  grid.last = 0;
+  grid.raf = requestAnimationFrame(gridFrame);
+}
+
+// Put the grid away, and stop the going with it. The lines that were oscillating are forgotten,
+// so a grid that comes back starts with nothing moving in it and takes its next line afresh.
+function gridStop(clear) {
+  if (grid.raf) { cancelAnimationFrame(grid.raf); grid.raf = 0; }
+  clearTimeout(grid.hoop);
+  grid.hoop = 0;
+  grid.waves = null;
+  grid.next = 0;
+  if (clear && grid.ctx) { grid.ctx.clearRect(0, 0, grid.w, grid.h); }
+}
+
+// One of the two places a range of drawn numbers is taken from.
+function gridPair(range) {
+  return range[0] + Math.random() * (range[1] - range[0]);
+}
+
+// Take the next line into its oscillation, when the time has come and there is room for another
+// line. Which line it is and every number of its wave are drawn here, so no two times at a chat
+// show the same movement. A line already swinging is left where it is: two waves on one line
+// would read as a line broken and not as a line swinging.
+function gridTake(now, waves) {
+  if (waves.length >= GRID_MOST || now < grid.next) { return; }
+  grid.next = now + gridPair(GRID_NEXT);
+  var up = Math.random() < 0.5;                       // a line standing up, or one lying down
+  var span = up ? grid.w : grid.h;                    // the length it stands over
+  var most = Math.floor(span / GRID_CELL) - 1;        // the last line clear of the further edge
+  if (most < 1) { return; }
+  var at = 1 + Math.floor(Math.random() * most);
+  for (var was = 0; was < waves.length; was++) {
+    if (waves[was].at === at && waves[was].axis === (up ? 'v' : 'h')) { return; }
+  }
+  waves.push({
+    axis: up ? 'v' : 'h',
+    at: at,
+    born: now,
+    life: gridPair(GRID_LIFE),
+    amp: gridPair(GRID_AMPL),
+    sway: gridPair(GRID_SWAY),
+    trip: up ? gridPair(GRID_TRIP) : -gridPair(GRID_TRIP),
+    phase: Math.random() * GRID_TURN
+  });
+}
+
+// Draw the grid once: every line that stands at rest in one stroke of each way, and then each
+// line that is oscillating in its stronger colour. A line at rest is put on the middle of its
+// pixel, for a hairline laid across two is a blurred line and not a hairline. A line whose time
+// is up is dropped here, which is why the whole business of a background costs one clearing and
+// a handful of strokes.
+function gridDraw(now) {
+  var ctx = grid.ctx;
+  var waves = grid.waves || [];
+  var base = grid.line || [128, 128, 128, 0.07];
+  var mark = grid.mark || [128, 128, 128, 0.16];
+  ctx.clearRect(0, 0, grid.w, grid.h);
+  // The lines that are swinging are left out of the field at rest, or the straight line of a
+  // place would be seen beside the swinging one.
+  var busyV = Object.create(null);
+  var busyH = Object.create(null);
+  var at;
+  for (at = 0; at < waves.length; at++) {
+    if (waves[at].axis === 'v') { busyV[waves[at].at] = 1; } else { busyH[waves[at].at] = 1; }
+  }
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = gridRgba(base);
+  ctx.beginPath();
+  for (var x = 1; x * GRID_CELL < grid.w; x++) {
+    if (busyV[x]) { continue; }
+    ctx.moveTo(x * GRID_CELL + 0.5, 0);
+    ctx.lineTo(x * GRID_CELL + 0.5, grid.h);
+  }
+  for (var y = 1; y * GRID_CELL < grid.h; y++) {
+    if (busyH[y]) { continue; }
+    ctx.moveTo(0, y * GRID_CELL + 0.5);
+    ctx.lineTo(grid.w, y * GRID_CELL + 0.5);
+  }
+  ctx.stroke();
+  var kept = [];
+  for (at = 0; at < waves.length; at++) {
+    var one = waves[at];
+    var age = (now - one.born) / one.life;
+    if (age >= 1) { continue; }
+    kept.push(one);
+    // The height out of straight grows from nothing and returns to nothing, and it does so
+    // smoothly: the sine of the whole going is squared, so no step is to be seen where the wave
+    // begins and where it ends.
+    var ease = Math.sin(Math.PI * age);
+    var far = one.amp * ease * ease;
+    var upright = one.axis === 'v';
+    var over = upright ? grid.h : grid.w;
+    var place = one.at * GRID_CELL + 0.5;
+    var gone = (now - one.born) / 1000 * one.trip * GRID_TURN;
+    ctx.strokeStyle = gridRgba(gridMix(base, mark, ease));
+    ctx.beginPath();
+    for (var step = 0; step <= over; step += GRID_DRAW) {
+      // The two ends of the line keep to their places, so the wave is biggest in the middle of
+      // the chat and nothing at all where the line meets the edges of the place it is in.
+      var hold = Math.sin(Math.PI * (over > 0 ? step / over : 0));
+      var out = far * hold * Math.sin((step / one.sway) * GRID_TURN + one.phase + gone);
+      if (step === 0) { ctx.moveTo(upright ? place + out : step, upright ? step : place + out); }
+      else { ctx.lineTo(upright ? place + out : step, upright ? step : place + out); }
+    }
+    ctx.stroke();
+  }
+  grid.waves = kept;
+}
+
+// The grid, once per frame, at a pace slow enough for a background and no faster. Nothing is
+// drawn twice in the same moment of the computer's clock, and the going gives up the frame when
+// there is nothing left moving in the field.
+function gridFrame(now) {
+  grid.raf = 0;
+  if (!gridAsked()) { gridStop(true); return; }
+  if (!gridSize()) { return; }
+  if (!grid.waves) { grid.waves = []; }
+  if (gridMoves()) {
+    if (!grid.last || now - grid.last >= GRID_EVERY) {
+      gridTake(now, grid.waves);
+      gridDraw(now);
+      grid.last = now;
+    }
+  } else if (!grid.last) {
+    // A system asked for few movements is drawn once, plainly, and is left alone after that.
+    gridDraw(now);
+    grid.last = now;
+    return;
+  }
+  if (grid.waves.length) {
+    grid.raf = requestAnimationFrame(gridFrame);
+    return;
+  }
+  // Nothing is moving, so nothing is drawn. The next line has its moment already: it is waited
+  // for with a timer of its own, which costs nothing while it stands.
+  var clock = window.performance && performance.now ? performance.now() : Date.now();
+  clearTimeout(grid.hoop);
+  grid.hoop = setTimeout(gridGoOn, Math.max(120, grid.next - clock));
+}
+
+// What the Chatting setting says about the grid. With the setting off the canvas is emptied and
+// the solid colour of the theme is what there is again; with it on the going starts, or goes on
+// as it was. The setting is asked after whenever the state is looked at, so a change in the
+// settings panel is followed without the page being opened afresh.
+function gridSetting(on) {
+  var asked = !!on;
+  if (asked !== grid.want) {
+    grid.want = asked;
+    if (!asked) { gridStop(true); return; }
+  }
+  gridGoOn();
+}
+
+// The place the chat is in is the only thing the grid is sized to, so a window that changes
+// shape is asked after and nothing else is.
+(function gridWire() {
+  window.addEventListener('resize', function () {
+    if (grid.want) { gridGoOn(); }
+  });
+})();
+
 // ------------------------------------------------------- the digits under the cursor
 //
 // A field of random digits in the background of the chat, which the cursor uncovers.
 //
-// The Chatting setting is at "digits", and it remains on unless the user turns it off. The
+// The Chatting setting is at "digits", and the field is there only when the user asks for it.
 // digits stand in rows and columns over all of the place the chat is in, one to one square of
 // them, in the colour of the leaf mark of the program. Nothing of the field is seen at large:
 // the soft round aura about the pointer is what uncovers it. The edge of the aura is feathered
@@ -5567,7 +5899,7 @@ var DIGIT_ECHO_DRIFT = 8; // and the least way it has to be going for time alone
 var DIGIT_ECHO_LIFE = 560; // how long a place the aura left behind takes to close, in milliseconds
 
 var digits = {
-  want: true,     // what the Chatting setting says
+  want: false,    // what the Chatting setting says; off until the user asks for the field
   x: 0, y: 0,     // where the cursor stands in the place the chat is in
   fx: 0, fy: 0,   // where the aura is, which comes to the cursor rather than leaping to it
   seen: false,    // whether the cursor is over the chat at all
@@ -14991,7 +15323,7 @@ function showTheme(word) {
   // requested when the theme really moved.
   if (was !== themeWord) { showThemeButtons(); }
   if (window.fallSkin
-    && (was !== themeWord || !(window.fall && window.fall.tones))) { fallSkin(); rainSkin(); digitsSkin(); }
+    && (was !== themeWord || !(window.fall && window.fall.tones))) { fallSkin(); rainSkin(); digitsSkin(); gridSkin(); }
 }
 
 // The five markers of the settings panel, so the switch is at the theme in use.
@@ -15019,6 +15351,9 @@ function showPixelArt(on) {
   pixelArt = !!on;
   document.body.classList.toggle('pixel', pixelArt);
   showArtButtons();
+  // The grid of the background stands down while the pixel-art form has a check of squares of
+  // its own laid over the page, and comes back when that form is taken off again.
+  if (window.gridGoOn) { gridGoOn(); }
 }
 
 // The two markers of the settings panel, so the switch is at the form in use.
@@ -15218,7 +15553,8 @@ function loadProgram() {
     byId('fUserline').checked = cfg.chat_userline !== false;
     showBackgroundButtons(cfg.chat_background);
     byId('fRainSplash').checked = cfg.chat_rain_splash !== false;
-    byId('fCursorDigits').checked = cfg.chat_cursor_digits !== false;
+    byId('fCursorDigits').checked = cfg.chat_cursor_digits === true;
+    byId('fChatGrid').checked = cfg.chat_grid !== false;
     byId('fSendAnim').checked = cfg.chat_send_anim !== false;
     // The note is what the program found when it asked its own sandbox whether it keeps what it
     // promises.
@@ -15825,6 +16161,7 @@ function readProgram() {
   cfg.chat_background = backgroundWord();
   cfg.chat_rain_splash = byId('fRainSplash').checked;
   cfg.chat_cursor_digits = byId('fCursorDigits').checked;
+  cfg.chat_grid = byId('fChatGrid').checked;
   cfg.chat_send_anim = byId('fSendAnim').checked;
   return cfg;
 }

@@ -1443,6 +1443,9 @@ pub struct Snap {
     pub chat_chapters: bool,
     // The line of the user's own messages, at the right of the chat.
     pub chat_userline: bool,
+    // Whether the background of the chat is drawn as a faint grid. The page draws it; the engine
+    // only carries the switch out of the settings.
+    pub chat_grid: bool,
     // What falls behind the text of a chat: "none", "leaves" or "rain". The page draws it; the
     // engine only carries the word out of the settings.
     pub chat_background: String,
@@ -4436,6 +4439,7 @@ impl State {
             chat_silent_retries: self.cfg.chat_silent_retries,
             chat_chapters: self.cfg.chat_chapters,
             chat_userline: self.cfg.chat_userline,
+            chat_grid: self.cfg.chat_grid,
             chat_background: self.cfg.chat_background.clone(),
             chat_rain_splash: self.cfg.chat_rain_splash,
             chat_cursor_digits: self.cfg.chat_cursor_digits,
@@ -6818,9 +6822,10 @@ impl Snap {
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_userline: true,
+            chat_grid: true,
             chat_background: String::from(config::BACKGROUND_NONE),
             chat_rain_splash: true,
-            chat_cursor_digits: true,
+            chat_cursor_digits: false,
             chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,

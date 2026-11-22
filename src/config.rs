@@ -25,6 +25,11 @@ fn on_by_default() -> bool {
     true
 }
 
+// A switch of the Chatting section that stays off until the user turns it on.
+fn off_by_default() -> bool {
+    false
+}
+
 // The embedding model of a set of settings that names none: the model of the program, at its
 // biggest quantization, with its vision projector. See `crate::embed`.
 fn default_embedding_model() -> String {
@@ -416,6 +421,16 @@ pub struct Config {
     // back to an item they asked without scrolling all of the conversation over.
     #[serde(default = "on_by_default")]
     pub chat_userline: bool,
+    // Draw the background of the chat as a faint grid of hairlines instead of as a solid colour.
+    // The grid is the plain form of the background - the pixel-art appearance has its own check
+    // of squares - and it is drawn in the colours of the theme, so it is legible in every skin
+    // and never fights the rain, the leaves or the digits the cursor uncovers. Now and then one
+    // line of the grid goes into a slow wavy oscillation and comes back to straight again, at a
+    // place and a time drawn at random. All of it is on the screen: nothing of a chat is stored
+    // the different for the grid, and a chat that is asked to stay still shows the grid with no
+    // movement in it at all.
+    #[serde(default = "on_by_default")]
+    pub chat_grid: bool,
     // What falls behind the text of a chat: "none", or "leaves" for autumn leaves drawn from
     // the leaf of the program icon, which fall only while a model is answering. The leaves are
     // drawn by the page, and they never catch the pointer.
@@ -431,7 +446,8 @@ pub struct Config {
     // about the pointer reveals them for as long as the pointer rests there: the edge of the
     // aura is feathered, so the digits come in with no line drawn anywhere, and it breathes
     // while the pointer stands still. All of it is on the screen, and nothing is stored.
-    #[serde(default = "on_by_default")]
+    // The field is off until the user asks for it.
+    #[serde(default = "off_by_default")]
     pub chat_cursor_digits: bool,
     // Carry a message you sent into the chat with a little movement: the text leave the box, go
     // over the chat and unfold into the message itself. The movement is only on the screen.
@@ -863,9 +879,10 @@ impl Default for Config {
             chat_silent_retries: 2,
             chat_chapters: true,
             chat_userline: true,
+            chat_grid: true,
             chat_background: String::from(BACKGROUND_NONE),
             chat_rain_splash: true,
-            chat_cursor_digits: true,
+            chat_cursor_digits: false,
             chat_send_anim: true,
             chat_context_files: true,
             chat_context_compression: false,
@@ -1375,9 +1392,10 @@ mod tests {
         assert!(cfg.chat_colour_text);
         assert!(cfg.chat_chapters);
         assert!(cfg.chat_userline);
+        assert!(cfg.chat_grid);
         assert_eq!(cfg.chat_background, BACKGROUND_NONE);
         assert!(cfg.chat_rain_splash);
-        assert!(cfg.chat_cursor_digits);
+        assert!(!cfg.chat_cursor_digits);
         assert!(cfg.chat_send_anim);
         assert!(cfg.chat_send_anim);
         assert!(cfg.chat_context_files);
@@ -1821,6 +1839,7 @@ mod tests {
         assert_eq!(sanitize_background(""), BACKGROUND_NONE);
         assert_eq!(Config::default().chat_background, BACKGROUND_NONE);
         assert!(Config::default().chat_rain_splash);
-        assert!(Config::default().chat_cursor_digits);
+        assert!(!Config::default().chat_cursor_digits);
+        assert!(Config::default().chat_grid);
     }
 }
