@@ -1305,6 +1305,28 @@ fn default_llama_dir() -> String {
     String::new()
 }
 
+// Return the tokenizer of the same build as the server, if it is there. The words of a tool
+// result are counted with the vocabulary of the model that is asked, and `llama-tokenize` is the
+// only thing beside the server that reads them as the server reads them; it loads the vocabulary
+// of the file and nothing else, so it costs the program a moment and no space on the card.
+pub fn tokenize_in(dir: &Path) -> Option<PathBuf> {
+    let names = [
+        "llama-tokenize",
+        "llama-tokenize.exe",
+        "bin/llama/llama-tokenize",
+        "bin/llama/llama-tokenize.exe",
+        "bin/llama-tokenize",
+        "bin/llama-tokenize.exe",
+    ];
+    for name in names {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 // Return the llama-server binary inside a directory, if it is there.
 pub fn server_in(dir: &Path) -> Option<PathBuf> {
     let names = [

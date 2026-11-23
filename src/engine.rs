@@ -8763,6 +8763,47 @@ fn fold_text(text: &str, keep: usize) -> Option<String> {
     Some(format!("{}{}{}", said, saying, ended))
 }
 
+// What is written into the middle of a tool result that was cut to fit in the space the chat
+// has. The whole of a result is not text of the talk: it is what a tool answered, and the model
+// is told plainly that the middle of it is not there, so that a part of a log is never read for
+// the whole of one. Nothing is said of what the model is to do about it, and the call is not
+// reported as cancelled, for the tool ran and what it printed stands in the chat as far as the
+// space let it in.
+pub const RESULT_TELL_HEAD: &str = "[ The whole of the result of this call is not here. The \
+                                     conversation had reached the limit set for the \
+                                     summarisation, and the result was bigger than the space left \
+                                     for it, so the middle of it was taken out and the start and \
+                                     the end were kept. ";
+pub const RESULT_TELL_TAIL: &str = " characters of it are left out. ]";
+
+// The cut of a tool result: the start of it, the saying of what is not there, and the end of it.
+// The room is shared even between the two ends, for what a command printed at its end -- the line
+// it failed on, the count it came to -- is the part a model most wants, beside the line it began
+// with. The whole of the result, the saying with it, is `keep` characters or less. Nothing is
+// given back when there is nothing worth taking out, or when the room would leave nothing of the
+// result between the two ends of the saying.
+fn cut_middle(text: &str, keep: usize) -> Option<String> {
+    let count = text.chars().count();
+    let saying = RESULT_TELL_HEAD.chars().count() + RESULT_TELL_TAIL.chars().count() + 24;
+    if count <= keep.saturating_add(LEAST_FOLD_SAVED) || keep <= saying + LEAST_KEPT_OF_A_FOLD {
+        return None;
+    }
+    let room = keep - saying;
+    let head = room / 2;
+    let tail = room - head;
+    let begun: String = text.chars().take(head).collect();
+    let ended: String = text.chars().skip(count.saturating_sub(tail)).collect();
+    let left = count.saturating_sub(room);
+    Some(format!(
+        "{}{}{}{}{}",
+        begun,
+        RESULT_TELL_HEAD,
+        left,
+        RESULT_TELL_TAIL,
+        ended
+    ))
+}
+
 // The characters of the text of one message of a conversation: what it says, and the thinking
 // it says it with.
 fn item_chars(item: &Value) -> usize {
@@ -9621,6 +9662,178 @@ impl Drop for MakingRoom {
     }
 }
 
+// A little room over the limit, so that a result measured to fit is not a result that fills the
+// window to its last token: the server counts the markers of the conversation as well, and the
+// counting of the tokenizer is of the text alone.
+const RESULT_ROOM_MARGIN: u64 = 64;
+
+// One result of a step that has not been asked about, held aside while the counting of the model
+// goes on with no hold on the state. The id is what the message is looked up by again afterwards,
+// for a chat may have changed in the moment the counting takes.
+struct ResultBody {
+    index: usize,
+    id: String,
+    said: String,
+    est: u64,
+}
+
+// The whole of a tool result that will not fit in the space the chat has is cut before the
+// conversation is weighed and the request goes out. The counting is the model's own: the result is
+// counted with `llama-tokenize` on the vocabulary of the model that is being asked, and the part
+// kept is measured on the same ratio. The cut is from the middle outwards, for a command begins by
+// saying what it was asked to do and ends by saying what it came to, and what is left out is
+// stated where it was. The call is not said to be cancelled: the tool ran, and what it printed
+// stands in the chat as far as the space let it in. Only the results of the step that the model
+// has not been asked about are touched, which is the run of tool messages at the end of the
+// conversation, so what the server has already been shown goes back to it as it was shown. True is
+// given back when a result was cut, and the request is then weighed again -- and a conversation
+// that is still past the limit behind the cut has its space made as it always has.
+fn keep_results_inside_the_space(state: &Arc<Mutex<State>>, chat: &str, history: &Value) -> bool {
+    // The results of the step that has not been asked about are gathered once, with the measure of
+    // their text, so that the counting of the model below is done with no hold on the state: the
+    // counting is a moment of the clock, and a moment held over the state is the whole program
+    // standing still for it.
+    let (limit, llama_dir, model_id, bodies, rest) = {
+        let Ok(guard) = state.lock() else { return false };
+        let total = guard.ctx_total;
+        if total == 0 || !guard.compaction_on() {
+            return false;
+        }
+        // The vocabulary of the model that is to be asked is the one the counting has to be
+        // taken from. A model with no file to count by, or a build with no tokenizer beside the
+        // server, is counted on the measure of the text.
+        let model_id = guard
+            .model()
+            .map(|one| one.path.display().to_string())
+            .unwrap_or_default();
+        let limit = config::compaction_room(&guard.cfg, total);
+        // The run of tool messages at the end of the conversation is the result of the step that
+        // has not been asked about. A call stopped before the model had written it whole is not a
+        // result, and a run with no id to answer is not a call.
+        let mut found: Vec<ResultBody> = Vec::new();
+        if let Some(held) = guard.chat_of(chat) {
+            let messages = &held.messages;
+            let mut place = messages.len();
+            while place > 0 {
+                let one = &messages[place - 1];
+                if one.role != "Tool" || one.cancelled || one.call_id.is_empty() {
+                    break;
+                }
+                found.push(ResultBody {
+                    index: place - 1,
+                    id: one.id.clone(),
+                    said: one.tool.clone(),
+                    est: estimate_tokens(&json!([{ "content": one.tool.clone() }])),
+                });
+                place -= 1;
+            }
+        }
+        found.reverse();
+        if found.is_empty() || model_id.is_empty() {
+            return false;
+        }
+        // The conversation with the results of this step left out of it, read the two ways the
+        // program reads a conversation before a request: the measure of the text, and the number
+        // the server reported for the ask it has already done. The results come off the measure of
+        // the text, for they are counted by the tokenizer of the model below; the number of the
+        // server is left whole, for it is of the ask before them, and it is the larger of the two
+        // that a request is weighed on when the text of code and of results reads under what a
+        // server counts of it.
+        let of_results: u64 = found.iter().map(|one| one.est).sum();
+        let rest = estimate_tokens(history)
+            .saturating_sub(of_results)
+            .max(guard.live_ref(chat).ctx_used);
+        (limit, guard.cfg.llama_dir.clone(), model_id, found, rest)
+    };
+    let budget = limit.saturating_sub(rest.saturating_add(RESULT_ROOM_MARGIN));
+    // The counting of the model, the results of this step together, in a moment of the clock that
+    // does not grow with the number of them. A build with no tokenizer beside the server is
+    // counted on the measure of the text, which is what the program did before this.
+    let texts: Vec<String> = bodies.iter().map(|one| one.said.clone()).collect();
+    let counted = llama::token_counts(&llama_dir, &model_id, &texts)
+        .map(|told| told.into_iter().map(|one| one as u64).collect::<Vec<u64>>())
+        .unwrap_or_else(|| bodies.iter().map(|one| one.est).collect());
+    let asked: u64 = counted.iter().sum();
+    if asked <= budget {
+        return false;
+    }
+    // The room is spent from the newest result backwards, for the result of the last call is the
+    // thing the model is being asked about. A result with nothing left of its share keeps the
+    // saying of it alone.
+    let mut left = budget;
+    let mut shares: Vec<u64> = vec![0; bodies.len()];
+    for n in (0..bodies.len()).rev() {
+        let want = counted[n].min(left);
+        shares[n] = want;
+        left = left.saturating_sub(want);
+    }
+    let mut cut = 0usize;
+    let Ok(mut guard) = state.lock() else { return false };
+    let Some(held) = guard.chat_of_mut(chat) else {
+        return false;
+    };
+    for (n, one) in bodies.iter().enumerate() {
+        if held
+            .messages
+            .get(one.index)
+            .map(|m| m.id.as_str())
+            != Some(one.id.as_str())
+        {
+            // The message is not the one that was measured: the user took it out, or something
+            // else was written into the chat while the counting went on. What stands in the chat
+            // is left as it stands.
+            continue;
+        }
+        let share = shares[n];
+        // The tokens of this result are turned back into characters on the measure of the result
+        // itself, which is the ratio the tokenizer just gave for it, with a little off for what a
+        // model counts thicker than it read.
+        let keep = if share == 0 || counted[n] == 0 {
+            0usize
+        } else {
+            let per = one.said.chars().count() as f64 / counted[n] as f64;
+            ((share as f64) * per * 0.95) as usize
+        };
+        let made = match cut_middle(&one.said, keep) {
+            Some(short) => short,
+            // The room was too little for a part of the result and the saying of it both: the
+            // saying stands on its own, with the whole of the result left out.
+            None => {
+                format!("{}{}{}", RESULT_TELL_HEAD, one.said.chars().count(), RESULT_TELL_TAIL)
+            }
+        };
+        if made == one.said {
+            continue;
+        }
+        held.messages[one.index].tool = made;
+        cut += 1;
+        proglog::note(
+            proglog::ROOM,
+            &format!(
+                "the result of a call was cut before it was sent: the conversation measured {} with \
+                 the results of this step and the limit set for the summarisation is {}, so the \
+                 result of {} tokens was kept to {}; the middle of it is left out and the start and \
+                 the end stand in its place, and the space is weighed again behind the cut",
+                rest + asked,
+                limit,
+                counted[n],
+                share,
+            ),
+        );
+    }
+    if cut == 0 {
+        return false;
+    }
+    guard.persist_in(chat);
+    guard.touch();
+    drop(guard);
+    tell(
+        state,
+        "The result of the call was bigger than the space the chat has left, so the middle of it is left out",
+    );
+    true
+}
+
 fn maybe_compact(
     state: &Arc<Mutex<State>>,
     server: &ServerSlot,
@@ -9777,8 +9990,28 @@ fn make_room(
     }
     let _making = MakingRoom::held(state, chat);
     let _ = maybe_compact(state, server, cancel, Weigh::Room, chat);
+    // Whether the space came to under the limit again is weighed on the conversation the next ask
+    // carries, and not on the context meter. The meter is the number of the ask that was last
+    // made, and a conversation can be past the limit with the meter standing well under it --
+    // which is what a result of a tool does, for it is written into the chat after the last number
+    // the server spoke. Weighed on the meter, the making of the space answered that it had made it
+    // when it had written no summary at all, the request the caller had held back went out over the
+    // limit, the writing was stopped under its first piece, and the answer came to an end with
+    // nothing said of why. The report of a call that was stopped is left out of the measure, as it
+    // is at the end of an answer: a chat past the limit only because of that telling could never
+    // be got under it again.
     let Ok(guard) = state.lock() else { return false };
-    !guard.handoff_owed_in(chat) && !config::compaction_wanted(&guard.cfg, guard.live_ref(chat).ctx_used, guard.ctx_total)
+    if guard.handoff_owed_in(chat) {
+        return false;
+    }
+    let history = guard.build_history_in(chat);
+    let told = carrying_the_cut(&history);
+    let used = if cut_telling_stands(&history) {
+        told
+    } else {
+        told.max(guard.live_ref(chat).ctx_used)
+    };
+    !config::compaction_wanted(&guard.cfg, used, guard.ctx_total)
 }
 
 // The most the model is asked to go on with its work after a handoff summary of one send of the
@@ -10397,6 +10630,20 @@ fn run_turn(
                 guard.compaction_on(),
             )
         };
+        // The result of a tool is the one text of a conversation that no measure of the
+        // conversation can promise the size of: a command prints what it prints, and a file read
+        // is as long as the file. So the newest result is counted with the vocabulary of the model
+        // that is to be asked, and what will not fit in the space the chat has left is cut from the
+        // middle outwards, with the saying of what is not there written where it stood. A request
+        // is never sent with a result in it that fills the window to the last token, and the model
+        // is never left reading the start and the end of a log as though they were the whole of it.
+        if keep_results_inside_the_space(state, chat, &history) {
+            // The conversation the request is asked with is another conversation now: the space is
+            // weighed on the cut, and not on what the tool printed.
+            if let Ok(guard) = state.lock() {
+                history = go_on_words(&guard, carried_prompt);
+            }
+        }
         // The size of the context is weighed before the request is sent, and the space is freed
         // out of a handoff summary when the conversation remains past the limit. It cannot wait
         // for the request, as the hand over an answer does: a conversation that is sent past
@@ -12567,6 +12814,187 @@ mod tests {
         // the older format and never brings a chat of the computer into the place a check works
         // in.
         migrate::mark_ran(&config::paths().data);
+    }
+
+    // The cut of a tool result that will not fit in the space the chat has: the start and the end
+    // of what the tool printed stand with the saying of what is not there between them. The saying
+    // states what was left out and nothing else: the tool ran, so the call is not reported as
+    // cancelled, and the model is not told what to do about it.
+    #[test]
+    fn a_tool_result_too_big_is_cut_from_the_middle_with_the_saying_of_it() {
+        let head = "the command began by naming what it was asked to do";
+        let tail = "and it ended by stating what it came to";
+        let mut text = String::from(head);
+        while text.chars().count() < 20_000 {
+            text.push_str("the log went on over the lines of the file it read. ");
+        }
+        text.push_str(tail);
+        let count = text.chars().count();
+        let keep = 1_200usize;
+        let cut = cut_middle(&text, keep).expect("a cut of the result");
+        assert!(
+            cut.chars().count() <= keep,
+            "the cut came to {} when it was kept to {}",
+            cut.chars().count(),
+            keep
+        );
+        assert!(
+            cut.starts_with(head),
+            "the start of the result is not in the cut: {}",
+            cut.chars().take(80).collect::<String>()
+        );
+        assert!(
+            cut.ends_with(tail),
+            "the end of the result is not in the cut: {}",
+            cut.chars().rev().take(80).collect::<String>()
+        );
+        assert!(
+            cut.contains(RESULT_TELL_HEAD.trim_start_matches("[ ").trim_end()),
+            "the cut says nothing of what it left out: {}",
+            cut.chars().take(300).collect::<String>()
+        );
+        assert!(
+            cut.contains("characters of it are left out"),
+            "the cut does not state the number it left out: {}",
+            cut.chars().take(300).collect::<String>()
+        );
+        // What the model is to do about a result it cannot hold is not the program's business, and
+        // was taken out of the saying on purpose.
+        for forbidden in ["smaller parts", "read the file again", "ask for"] {
+            assert!(
+                !cut.to_lowercase().contains(forbidden),
+                "the telling tells the model what to do ({})",
+                forbidden
+            );
+        }
+        // A result with nothing worth taking out is not cut at all, and a room too little for a
+        // part of the result and the saying of it both gives nothing back.
+        assert!(
+            cut_middle("a line or two of output", keep).is_none(),
+            "a short result was cut"
+        );
+        assert!(
+            cut_middle(&text, 200).is_none(),
+            "a room of 200 characters was cut out of a result and a saying both"
+        );
+        assert!(count > 10_000, "the result of the check is too small");
+    }
+
+    // The whole of a tool result that will not fit in the space the chat has is cut before the
+    // request is weighed and sent, on the counting of the model itself. Here the counting falls
+    // back on the measure of the text, for the folder of the server has no tokenizer in it, which
+    // is how a build of the user's own may stand.
+    #[test]
+    fn a_result_bigger_than_the_space_is_cut_before_it_is_sent() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        let chat = {
+            let mut guard = state.lock().unwrap();
+            guard.start_chat();
+            guard.models = vec![ModelInfo {
+                path: PathBuf::from("/models/one.gguf"),
+                name: String::from("one"),
+                kind: "GGUF",
+            }];
+            guard.cfg.model_id = String::from("/models/one.gguf");
+            let place = std::env::temp_dir().join("autumn-natter-result-cut");
+            std::fs::create_dir_all(&place).expect("a folder to stand for the directory of the server");
+            guard.cfg.llama_dir = place.display().to_string();
+            // A window with a limit of the summarisation well under it, so that one result of a
+            // call fills all that was left.
+            guard.ctx_total = 4096;
+            guard.cfg.chat_compact_by = config::COMPACT_BY_TOKENS.to_string();
+            guard.cfg.chat_compact_reserve = 1000;
+            guard.live_write().ctx_used = 300;
+            add_message(&mut guard, "You", "read the log of the build and tell me what failed");
+            let id = store::new_id();
+            let whole = {
+                let mut said = String::from("build began: 4000 files read\n");
+                while said.chars().count() < 20_000 {
+                    said.push_str("a line of the log about a file that did not compile. ");
+                }
+                said.push_str("the build failed with 12 errors");
+                said
+            };
+            let open = guard.open_id();
+            if let Some(held) = guard.chat_of_mut(&open) {
+                held.messages.push(Message {
+                    id,
+                    role: String::from("Tool"),
+                    body: String::from("Running a command"),
+                    tool: whole.clone(),
+                    tool_name: String::from("run_command"),
+                    call_id: String::from("call-one"),
+                    mono: true,
+                    when: store::now_secs(),
+                    ..Default::default()
+                });
+            }
+            guard.open_id()
+        };
+        let limit = config::compaction_room(&state.lock().unwrap().cfg, 4096);
+        let before = estimate_tokens(&state.lock().unwrap().build_history_in(&chat));
+        assert!(
+            before > limit,
+            "the conversation of the check does not pass the limit: {} of {}",
+            before,
+            limit
+        );
+        let history = state.lock().unwrap().build_history_in(&chat);
+        assert!(
+            keep_results_inside_the_space(&state, &chat, &history),
+            "a result bigger than the space was left as it was"
+        );
+        let held = state.lock().unwrap();
+        let made = held
+            .chat_of(&chat)
+            .map(|one| {
+                one.messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.role == "Tool")
+                    .map(|m| m.tool.clone())
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        // The two ends of the cut, and the saying between them, in a form short enough to read
+        // from the line of a failed check.
+        let shown = format!(
+            "[{}] ... [{}]",
+            made.chars().take(120).collect::<String>(),
+            made.chars().rev().take(60).collect::<String>()
+        );
+        assert!(
+            made.contains("whole of the result of this call is not here"),
+            "the cut result says nothing of what it left out: {}",
+            shown
+        );
+        assert!(
+            made.starts_with("build began"),
+            "the start of the result is gone: {}",
+            shown
+        );
+        assert!(
+            made.ends_with("the build failed with 12 errors"),
+            "the end of the result is gone: {}",
+            shown
+        );
+        assert!(
+            !held
+                .chat_of(&chat)
+                .map(|one| one.messages.iter().any(|m| m.cancelled))
+                .unwrap_or(true),
+            "a call that ran was reported as cancelled"
+        );
+        let after = estimate_tokens(&held.build_history_in(&chat));
+        assert!(
+            after <= limit,
+            "the request still goes out past the limit: {} of {}",
+            after,
+            limit
+        );
     }
 
     // A line of the drop-down of the badge of the tools takes its type of tool out of the chat,

@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1077,6 +1077,53 @@ pub fn slot_working(base_url: &str, slot: usize) -> Option<bool> {
                 .and_then(|items| items.iter().find_map(at_work))
         }),
     }
+}
+
+// The tokens of a set of texts, counted with the vocabulary of the model that is to be asked, in
+// the order they were given. The counting is done by `llama-tokenize` of the same build as the
+// server, which is what reads the words as the server reads them: it loads the vocabulary of the
+// model file and nothing else, so it costs no space on the card. The load of the vocabulary is
+// what the moment costs, and it is a moment of the clock for the whole set and not for each of
+// them: every text is given to a tool of its own at once, and the tools are waited for together.
+// Nothing is given back for a build with no tokenizer beside the server, which is how a server of
+// the user's own may stand; the caller takes nothing given back as a counting it has to do
+// without.
+pub fn token_counts(llama_dir: &str, model: &str, texts: &[String]) -> Option<Vec<usize>> {
+    let tool = crate::config::tokenize_in(Path::new(llama_dir))?;
+    let mut waits: Vec<Child> = Vec::with_capacity(texts.len());
+    for text in texts {
+        let mut child = Command::new(&tool)
+            .arg("--model")
+            .arg(model)
+            .arg("--stdin")
+            .arg("--show-count")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        {
+            let mut hand = child.stdin.take()?;
+            hand.write_all(text.as_bytes()).ok()?;
+            // The writing is let go of here: the tool reads all of the stdin it is given before it
+            // answers, and a handle held past that is a tool waited for with nothing left to say.
+        }
+        waits.push(child);
+    }
+    let mut told: Vec<usize> = Vec::with_capacity(waits.len());
+    for child in waits {
+        let out = child.wait_with_output().ok()?;
+        let said = String::from_utf8_lossy(&out.stdout);
+        let counted = said
+            .lines()
+            .rev()
+            .find_map(|one| one.trim_start().strip_prefix("Total number of tokens: "))?
+            .trim()
+            .parse::<usize>()
+            .ok()?;
+        told.push(counted);
+    }
+    Some(told)
 }
 
 // One tool call the model requested.
