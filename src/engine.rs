@@ -5048,6 +5048,15 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return Err(String::from("The program is busy"));
         };
+        // A programmed message written on the first screen has no chat to wait in yet. A message
+        // sent from there opens a chat of this place and belongs to it from then on, so a
+        // programmed one is answered the same way: the chat it belongs to is opened here, and the
+        // row waits in that list for an answer of it that holds the text. Refusing the message
+        // instead - which is what used to happen, because there was no list to put it in - left
+        // the user with a chat composer that answered nothing at all.
+        if state.open_id().is_empty() {
+            state.start_chat();
+        }
         let Some(list) = state.open_queue_mut() else {
             return Err(String::from("Start a chat first"));
         };
@@ -5062,6 +5071,10 @@ impl Engine {
             matches: matches.trim().to_string(),
             ready: false,
         });
+        // The row over the chat composer is the word that the message is held; the line under it
+        // says so too, because a programmed message that is put in the list is not sent, and a
+        // user who sees nothing at all has no way of telling that the program took it.
+        state.set_status("The message waits in the list, for an answer that holds those words");
         state.touch();
         Ok(())
     }
@@ -5359,7 +5372,10 @@ impl Engine {
     // asked again for the next count, and answers that the key of it has moved, so a counting in
     // the middle of a batch of files is not cut short.
     pub fn set_embedding_run(&self, body: &Value) -> Value {
-        let run = {
+        // The block writes the four words, saves the settings and says them on the line of the
+        // state. The counting that is running is not stopped: it is asked again for the next
+        // count, and answers then that the words of the server it runs under have moved.
+        let _run = {
             let Ok(mut state) = self.state.lock() else {
                 return crate::web::refused("The program state is removed");
             };
@@ -18900,6 +18916,79 @@ mod tests {
                 guard.queue_of(&chat).is_none(),
                 "a chat that is gone is not given a list for a message"
             );
+        }
+    }
+
+    // A programmed message written on the first screen has no chat to wait in yet. The chat of
+    // this place is opened for it, as it is for a message sent from there, and the row stands in
+    // the list of that chat until an answer of it holds the text. Nothing is sent because the
+    // chat is idle - only the words written say when the message goes - and nothing is refused
+    // because the list was not made yet, which is what used to answer the first programmed
+    // message of a run with a chat composer that did nothing at all.
+    #[test]
+    fn a_programmed_message_of_the_first_screen_opens_its_chat_and_waits() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        {
+            let guard = state.lock().unwrap();
+            assert!(
+                guard.current.is_none(),
+                "the first screen is open, with no chat left open on it"
+            );
+            assert!(guard.open_id().is_empty(), "no chat is named");
+        }
+        engine
+            .queue_plan(
+                String::from("start the build"),
+                Vec::new(),
+                String::from("READY"),
+            )
+            .expect("a programmed message of the first screen stands");
+        let snap = engine.snapshot();
+        assert!(!snap.chat_id.is_empty(), "a chat of this place was opened");
+        let list = snap.queue.expect("the chat has a waiting list");
+        assert_eq!(
+            list.chat, snap.chat_id,
+            "the row belongs to the chat that was opened, and to no other"
+        );
+        assert_eq!(list.planned.len(), 1, "the programmed row stands");
+        assert_eq!(list.planned[0].text, "start the build");
+        assert_eq!(list.planned[0].matches, "READY");
+        assert!(list.items.is_empty(), "no message waits its turn");
+        assert!(
+            snap.status.contains("waits in the list"),
+            "the line under the chat says the message was taken, not sent: {}",
+            snap.status
+        );
+        // An idle chat with a programmed message in its list sends nothing of its own accord.
+        let chat = snap.chat_id.clone();
+        {
+            let guard = state.lock().unwrap();
+            assert!(
+                !guard.queue_ready_in(&chat),
+                "the words were not written in an answer yet"
+            );
+            assert!(
+                guard.queue_next_in(&chat).is_none(),
+                "nothing is next to send"
+            );
+        }
+        // The answer that holds the words lets the message out, and the chat is then asked for it.
+        {
+            let mut guard = state.lock().unwrap();
+            add_message(&mut guard, "You", "is it built?");
+            add_message(&mut guard, "Assistant", "It is READY now.");
+        }
+        note_answer(&state, &chat);
+        {
+            let guard = state.lock().unwrap();
+            let (id, sent) = guard
+                .queue_next_in(&chat)
+                .expect("the programmed message is next now the words were written");
+            assert_eq!(id, list.planned[0].id);
+            assert_eq!(sent.text, "start the build");
         }
     }
 

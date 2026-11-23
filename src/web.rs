@@ -307,16 +307,25 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // belongs to the chat, so a page that is shut and opened again finds the rows as they
         // were left, and the messages go out when the answer each of them waited for is over
         // with no page watching it. The next message to go out is at the start of `items`; the
-        // rows are written newest first, which is the other way about.
-        "queue": snap.queue.as_ref().map(|one| json!({
-            "chat": one.chat,
-            "held": one.held,
-            "items": one.items.iter().map(|row| json!({
-                "id": row.id,
-                "text": row.text,
-                "files": row.files,
-            })).collect::<Vec<Value>>(),
-        })),
+        // rows are written newest first, which is the other way about. The programmed messages
+        // are a list of their own, under the same header, and each carries the text it waits for
+        // so that its row can say what it is waiting for. A row left out of this JSON is a row
+        // the page never draws: the programmed messages once stood in that state, added to the
+        // list by the engine and unseen by the user.
+        "queue": snap.queue.as_ref().map(|one| {
+            let row = |one: &crate::engine::QueuedRow| json!({
+                "id": one.id,
+                "text": one.text,
+                "files": one.files,
+                "matches": one.matches,
+            });
+            json!({
+                "chat": one.chat,
+                "held": one.held,
+                "items": one.items.iter().map(row).collect::<Vec<Value>>(),
+                "planned": one.planned.iter().map(row).collect::<Vec<Value>>(),
+            })
+        }),
         // The thinking that comes with a live answer, how long it lasted and whether it has
         // stopped. The page writes the last two on the header of the panel.
         "reasoning": snap.live_reasoning,
@@ -1436,6 +1445,52 @@ mod tests {
             state(&shut, None)["tool_switches"]["tasks"].as_bool(),
             Some(false),
             "and the page is told that too"
+        );
+    }
+
+    // A programmed message reaches the page it was written in. The rows of the programmed part
+    // of the waiting list are a list of their own in the state, and each row carries the text it
+    // waits for: the page draws its section of the waiting block out of these, and a part left
+    // out of this JSON is a message the program holds and the user never sees - which is how the
+    // programmed message once stood, taken into the list by the engine and drawn nowhere.
+    #[test]
+    fn the_programmed_messages_of_the_list_reach_the_page() {
+        let _guard = config::test_turn();
+        config::set_data_dir(std::path::PathBuf::from("uidata/web-tests"));
+        let _ = config::ensure_dirs();
+        let engine = crate::engine::Engine::start(Config::default());
+        engine.new_chat();
+        action(
+            &engine,
+            "/api/queue_plan",
+            "{\"text\":\"start the build\",\"match\":\"READY\"}",
+        );
+        action(
+            &engine,
+            "/api/queue_add",
+            "{\"text\":\"an ordinary message\"}",
+        );
+        let held = state(&engine.snapshot(), None)["queue"].clone();
+        assert_eq!(
+            held["planned"].as_array().map(|rows| rows.len()),
+            Some(1),
+            "the page is told of the programmed row, so its section of the waiting block is drawn"
+        );
+        assert_eq!(held["planned"][0]["text"].as_str(), Some("start the build"));
+        assert_eq!(
+            held["planned"][0]["matches"].as_str(),
+            Some("READY"),
+            "the row says what it waits for, which is the only words a programmed row has to show"
+        );
+        assert_eq!(
+            held["items"].as_array().map(|rows| rows.len()),
+            Some(1),
+            "the messages that are only waiting their turn ride along as they always did"
+        );
+        assert_eq!(
+            held["items"][0]["matches"].as_str(),
+            Some(""),
+            "a plain row carries nothing to wait for"
         );
     }
 }

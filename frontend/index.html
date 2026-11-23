@@ -10742,6 +10742,10 @@ function drawProgram() {
   if (el.draft) { el.draft.classList.toggle('programming', on); }
   if (el.progmatch) {
     el.progmatch.classList.remove('miss');
+    // The text to search for belongs to the message being written. The command goes, and what
+    // was written in the field goes with it: a message sent while leaves nothing over, and the
+    // next /program begins with a field of its own.
+    if (!on) { el.progmatch.value = ''; }
     if (on) { el.progmatch.focus(); }
   }
   sendLook();
@@ -14520,6 +14524,16 @@ el.planopen.addEventListener('click', openPlan);
 byId('planClose').addEventListener('click', closePlan);
 byId('planOverlay').addEventListener('click', function (e) {
   if (e.target === byId('planOverlay')) { closePlan(); }
+});
+
+// Enter in the field of the text to search for asks for the next part of the message, which is
+// the message itself. Nothing is sent from here: a programmed message goes when an answer of the
+// chat holds the text written in this field, and not when a marker is pressed.
+el.progmatch.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    el.draft.focus();
+  }
 });
 
 el.draft.addEventListener('keydown', function (e) {

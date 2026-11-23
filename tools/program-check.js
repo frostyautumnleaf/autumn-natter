@@ -1,7 +1,7 @@
 // The programmed message of the chat composer, checked in both pages of the program with no
 // engine behind it.
 //
-// Seven items are checked, in each page:
+// Nine items are checked, in each page:
 // * the list that appears over the box names both commands and reports what the keys of the
 //    list do;
 // * Tab picks the command that remains out, and the word /program changes the form of the box:
@@ -10,8 +10,10 @@
 // * the block over the field reports, word for word, what the field is for;
 // * a message whose text to search for were left unwritten is not posted, and the block and the
 //    field are flagged instead;
-// * Enter with the text written posts queue_plan with the message and the text beside it, and
-//    puts the box back as it was;
+// * Enter with the text written posts queue_plan with the message and the text beside it, puts
+//    the box back as it was, and takes the text to search for out of its field again;
+// * Enter in the field of the text to search for puts the pointer in the message box, and sends
+//    nothing, because a programmed message goes when an answer holds its text;
 // * the waiting list keeps the programmed messages in a section of their own: the row reports
 //    what it waits for, is flagged apart, and is not taken hold of, while an ordinary row keeps
 //    its marker to take hold of; and the count of the header counts both types;
@@ -234,13 +236,31 @@ async function main() {
       note('the message was deleted instead of being left for the pointer to finish');
     }
 
-    // The text written, and the message goes into the list with them beside it.
+    // Enter in the field of the text to search for asks for the next part of the message, which
+    // is the message itself. Nothing is sent from the field: a programmed message goes when an
+    // answer holds the words, and not when a marker is pressed.
     await page.evaluate(() => {
       const field = document.getElementById('progmatch');
       field.value = 'All done';
       field.dispatchEvent(new Event('input', { bubbles: true }));
+      field.focus();
     });
     await sleep(120);
+    await key(page, 'Enter', 'progmatch');
+    await sleep(200);
+    const stepped = await page.evaluate(() => ({
+      on: document.activeElement && document.activeElement.id,
+      programming: programming(),
+      posts: window.__posts.filter(function (p) {
+        return p.name === 'queue_plan' || p.name === 'queue_add' || p.name === 'send';
+      }).length,
+    }));
+    if (stepped.on !== 'draft') {
+      note('the field of the text to search for does not ask for the message on Enter: ' + stepped.on);
+    }
+    if (!stepped.programming) { note('the message stopped being a programmed one'); }
+    if (stepped.posts !== 0) { note('a programmed message went out of the field of its own accord'); }
+    // The pointer is now in the box, so the same stroke sends the message into the list.
     await key(page, 'Enter', 'draft');
     await sleep(300);
     const posted = await page.evaluate(() => {
@@ -268,6 +288,10 @@ async function main() {
       note('the box was not put back as it was: ' + JSON.stringify(posted));
     }
     if (posted.miss) { note('the marker of the missing text was left on the block'); }
+    if (posted.field !== '') {
+      note('the text to search for was left in the field after its message went into the list: '
+        + JSON.stringify(posted.field));
+    }
     await page.evaluate(() => { window.__posts.length = 0; });
 
     // The list over the box: two types of message in two sections.
