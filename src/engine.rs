@@ -19282,6 +19282,156 @@ mod tests {
         assert!(guard.queue_ready_in(&chat));
     }
 
+    // A chat whose answer ran out of space in the middle of it is idle in one way and busy in
+    // another: the writing is laid aside, so `generating` is off, but the space is still being
+    // made and the answer is owed its rest. Such a chat took a message of its waiting list and
+    // answered it between the two - the note about the summarisation limit came first, then the
+    // queued message, then a short answer to that, then the note again - and the continuation
+    // the stopped answer was owed never happened where the user could see it. The marker that
+    // the space is being made is held from the moment the answer is laid aside to the moment the
+    // summary is written, under the one lock that lays the answer aside, and the list waits for
+    // it: nothing of the list is spent, held back, or reordered while it stands, and the list
+    // goes on by itself afterwards, in the order it was written in.
+    #[test]
+    fn a_waiting_list_waits_while_the_space_of_its_chat_is_made() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let state = engine.state.clone();
+        let chat;
+        {
+            let mut guard = state.lock().unwrap();
+            // A model is chosen and llama-server is to be found, so that the making of the space
+            // is the only thing in the way of the list. Without both, the check below would say
+            // nothing, as any other reason would keep the message back as well.
+            guard.models = vec![ModelInfo {
+                path: PathBuf::from("/models/one.gguf"),
+                name: String::from("one"),
+                kind: "GGUF",
+            }];
+            guard.cfg.model_id = String::from("/models/one.gguf");
+            let place = std::env::temp_dir().join("autumn-natter-queue-making-room");
+            std::fs::create_dir_all(&place).expect("a folder to stand for the directory of the server");
+            let fake = place.join("llama-server");
+            if !fake.is_file() {
+                std::fs::write(&fake, "#! /bin/sh\n").expect("a file to stand for llama-server");
+            }
+            guard.cfg.llama_dir = place.display().to_string();
+            guard.start_chat();
+            chat = guard.open_id();
+        }
+        engine
+            .queue_add(String::from("the first of the list"), Vec::new())
+            .expect("a message stands");
+        engine
+            .queue_add(String::from("the second of the list"), Vec::new())
+            .expect("a second message stands");
+        // The answer of the chat filled the space while it was being written, so the making of
+        // the space takes the chat: the marker that the space is being made goes on, and the
+        // answer is laid aside with it. `make_room` does both under one lock, and the marker
+        // stands until the summary is written - which is the moment the list used to slip
+        // through, because a chat with its answer laid aside looks idle.
+        state.lock().unwrap().live_write().generating = true;
+        let making = MakingRoom::new(&state, &chat);
+        state.lock().unwrap().live_mut(&chat).generating = false;
+        {
+            let guard = state.lock().unwrap();
+            // Nothing else stands in the way: the chat is there, it has a model, it owes no
+            // handoff summary, and llama-server is to be found. Were any of those the reason,
+            // the check below would say nothing, as the message would be kept back anyway.
+            assert!(
+                guard.sendable_in(&chat).is_none(),
+                "the message was kept back for {} and not for the making of the space",
+                guard.sendable_in(&chat).unwrap_or("nothing")
+            );
+            assert!(
+                guard.live_ref(&chat).making_room,
+                "the space of the chat is being made"
+            );
+            assert!(
+                !guard.live_ref(&chat).generating,
+                "the stopped answer is laid aside, so the chat looks idle"
+            );
+            assert!(
+                !guard.queue_ready_in(&chat),
+                "a chat whose space is being made has nothing to send"
+            );
+            assert!(
+                guard.queue_next_in(&chat).is_none(),
+                "no row of the list is given out while the space is being made"
+            );
+            assert!(
+                guard.ready_queues().iter().all(|one| one != &chat),
+                "the worker is sent to a chat that is having its space made"
+            );
+        }
+        assert!(
+            queue_step(&state, &chat).is_none(),
+            "a waiting message went out while the space of its chat was being made"
+        );
+        {
+            let guard = state.lock().unwrap();
+            let list = guard.queue_of(&chat).expect("the list is not lost");
+            assert!(!list.held, "the making of the space is no reason to hold a list back");
+            assert_eq!(list.items.len(), 2, "the list kept both of its messages");
+            assert_eq!(list.items[0].text, "the first of the list");
+            assert_eq!(list.items[1].text, "the second of the list");
+        }
+        // The summary is written and the marker taken off again, which is where the answer that
+        // stopped is owed its rest and the chat is idle in earnest. The list is asked again of
+        // its own accord - and what comes out of it is what stands at its head, in the order the
+        // messages were written in.
+        let mark = state.lock().unwrap().begin_summary_in(&chat);
+        state.lock().unwrap().finish_summary_in(
+            &chat,
+            &mark,
+            "Done: the work before the space was made. Next: the rest of the stopped answer.",
+            7_616,
+            1_900,
+            "",
+        );
+        drop(making);
+        {
+            let guard = state.lock().unwrap();
+            assert!(
+                !guard.live_ref(&chat).making_room,
+                "the marker stood after the making of the space was over"
+            );
+            assert!(
+                guard.queue_ready_in(&chat),
+                "the list was not kept back by the making of the space"
+            );
+        }
+        let sent = queue_step(&state, &chat).expect("the list went on after the summary");
+        assert_eq!(
+            sent.text, "the first of the list",
+            "a message of the list was answered out of its order"
+        );
+        assert_eq!(
+            sent.queued.as_ref().map(|one| one.id),
+            Some(1),
+            "the row of the list travels with the message"
+        );
+        // The rest a chat takes between two messages of its list is not spent yet, so the second
+        // message waits its turn. What matters for the order is that it stands at the head of a
+        // list that was neither emptied nor held back by the making of the space.
+        {
+            let guard = state.lock().unwrap();
+            let list = guard.queue_of(&chat).expect("the list is not emptied");
+            assert!(!list.held, "the list goes on of its own accord");
+            assert_eq!(list.items.len(), 1, "one message is left in the list");
+            assert_eq!(
+                list.items[0].text, "the second of the list",
+                "the message written second is the one left to go second"
+            );
+            assert!(
+                guard.queue_next_in(&chat).is_none(),
+                "the rest of a moment between two messages is not spent yet"
+            );
+        }
+        engine.shutdown();
+    }
+
     // A message that could not be sent stays where the user can see it, and the line under the
     // chat says why. The rule is weighed against the chat the list belongs to, and not against
     // the chat the side bar has open: the two need not be one, and a message was lost between
