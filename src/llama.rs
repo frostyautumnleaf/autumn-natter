@@ -1054,6 +1054,31 @@ pub fn get_json(url: &str) -> Result<Value, u16> {
     }
 }
 
+// Whether one slot of the server is at work on a request right now. The endpoint of the slots is
+// there only for a server started with `--slots`, which is how the program starts its own, and
+// nothing is given back for a server that has it not - a server of the user's own, reached over
+// the network. The caller takes nothing given back as a slot it may send to: the wait for an
+// answer is then all the guard there is.
+pub fn slot_working(base_url: &str, slot: usize) -> Option<bool> {
+    let told = get_json(&format!("{}/slots", base_url)).ok()?;
+    let at_work = |one: &Value| -> Option<bool> {
+        one.get("id")
+            .and_then(|id| id.as_i64())
+            .filter(|id| *id as usize == slot)
+            .and_then(|_| one.get("is_processing"))
+            .and_then(Value::as_bool)
+    };
+    match told {
+        Value::Array(items) => items.iter().find_map(at_work),
+        // A server that answers the endpoint with one object answers the slot named in it.
+        one => at_work(&one).or_else(|| {
+            one.get("slots")
+                .and_then(Value::as_array)
+                .and_then(|items| items.iter().find_map(at_work))
+        }),
+    }
+}
+
 // One tool call the model requested.
 #[derive(Clone, Debug, Default)]
 pub struct ToolCall {
@@ -1191,6 +1216,16 @@ impl Answer {
     }
 }
 
+// How long one ask of the server is waited out. The wait is of the silence and not of the work:
+// it is the time the server may go without saying a word of anything, measured between one piece
+// of the stream and the next, so a long conversation being worked through is never cut off in
+// the middle of it. It is never without an end: an ask the server takes and never answers has to
+// come back with a word about itself, because the chat it belongs to remains held while the ask
+// is out. A request the server holds back because it is still at work in the slot named is the
+// silence this waits out; see `wait_for_slot` in the engine, which waits for the slot before the
+// ask goes out at all.
+pub const ASK_WAIT: Duration = Duration::from_secs(1800);
+
 // Send one chat request and stream the answer. on_text gets every piece of new text as it
 // arrives, so the window can show it. on_progress gets the state of the prompt work, as the
 // server reports it while the prompt goes through. on_context gets how full the size of the
@@ -1218,11 +1253,80 @@ pub fn stream_chat(
     on_context: &mut dyn FnMut(Context),
     on_tool: &mut dyn FnMut(&[ToolCall]),
 ) -> Answer {
+    stream_chat_wait(
+        base_url,
+        body,
+        cancel,
+        interrupt,
+        ASK_WAIT,
+        on_text,
+        on_reasoning,
+        on_progress,
+        on_context,
+        on_tool,
+    )
+}
+
+// The same ask with the wait of the server named. The making of the space for a handoff summary
+// asks with this: an ask that the server never takes up is ended at the wait, reported on the
+// line, and the summarisation goes on without it. See `ask_fold_part` and `ask_summary` in the
+// engine.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_chat_within(
+    base_url: &str,
+    body: &Value,
+    cancel: &AtomicBool,
+    interrupt: &AtomicBool,
+    wait: Duration,
+    on_text: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
+    on_progress: &mut dyn FnMut(Progress),
+    on_context: &mut dyn FnMut(Context),
+    on_tool: &mut dyn FnMut(&[ToolCall]),
+) -> Answer {
+    stream_chat_wait(
+        base_url,
+        body,
+        cancel,
+        interrupt,
+        wait,
+        on_text,
+        on_reasoning,
+        on_progress,
+        on_context,
+        on_tool,
+    )
+}
+
+// Whether the words of a failed ask say that the server was waited out, rather than that the
+// stream was broken. The two are told apart because one of them is the server being slow and
+// the other is the connection going.
+fn waited_for(problem: &str, wait: Duration) -> bool {
+    let said = problem.to_lowercase();
+    wait.as_secs() > 0
+        && (said.contains("timed out") || said.contains("timeout") || said.contains("would block"))
+}
+
+// The ask of the server, with the wait for the answer named. `stream_chat` is the ask of an
+// answer and `stream_chat_within` the ask of the space being made; both come here.
+#[allow(clippy::too_many_arguments)]
+fn stream_chat_wait(
+    base_url: &str,
+    body: &Value,
+    cancel: &AtomicBool,
+    interrupt: &AtomicBool,
+    wait: Duration,
+    on_text: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
+    on_progress: &mut dyn FnMut(Progress),
+    on_context: &mut dyn FnMut(Context),
+    on_tool: &mut dyn FnMut(&[ToolCall]),
+) -> Answer {
     let mut answer = Answer::default();
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(10))
         // A long prompt can keep the server busy for many minutes.
-        .timeout_read(Duration::from_secs(1800))
+        .timeout_read(wait)
         .build();
     let url = format!("{}/v1/chat/completions", base_url);
     let response = match agent.post(&url).send_json(body) {
@@ -1234,7 +1338,12 @@ pub fn stream_chat(
             return answer;
         }
         Err(other) => {
-            answer.error = Some(format!("Cannot reach the model: {}", other));
+            let said = format!("{}", other);
+            answer.error = Some(if waited_for(&said, wait) {
+                waited_words(wait)
+            } else {
+                format!("Cannot reach the model: {}", other)
+            });
             return answer;
         }
     };
@@ -1289,13 +1398,36 @@ pub fn stream_chat(
             }
             Err(e) => {
                 if !answer.stopped {
-                    answer.error = Some(format!("The stream stopped: {}", e));
+                    let said = format!("{}", e);
+                    answer.error = Some(if waited_for(&said, wait) {
+                        waited_words(wait)
+                    } else {
+                        format!("The stream stopped: {}", e)
+                    });
                 }
                 break;
             }
         }
     }
     answer
+}
+
+// What the line says when the server was waited out. The wait is named, so a user knows whether
+// the server was slow and the conversation big, or the server was gone.
+fn waited_words(wait: Duration) -> String {
+    let secs = wait.as_secs();
+    let said = if secs >= 60 && secs.is_multiple_of(60) {
+        format!("{} minutes", secs / 60)
+    } else if secs >= 60 {
+        format!("{:.1} minutes", secs as f64 / 60.0)
+    } else {
+        format!("{} seconds", secs)
+    };
+    format!(
+        "The server was sent the request and answered nothing within {} of being asked. \
+         It is at work on another request of the same slot, or it is not answering",
+        said
+    )
 }
 
 // The text of an item the server stated. Text remains as one string, or as a list of parts, of

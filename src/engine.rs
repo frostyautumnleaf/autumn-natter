@@ -1572,6 +1572,13 @@ pub struct ChatLive {
     // so no live answer is drawn while it remains; the heading of the summarisation and the
     // status line say that the program is at work.
     pub summarising: bool,
+    // True while this chat is having its space made: the handoff summary is being written, or is
+    // just about to be. The waiting list and the starting of a turn read it, so that no message
+    // is sent into a chat that is making space for itself. A turn started there takes the slot
+    // of the chat for its own ask, and the ask of the summary -- which names that same slot --
+    // is then held back by the server until the answer is done with it, which is a summarisation
+    // stood still with nothing on the line to say why.
+    pub making_room: bool,
     // True once a handoff summary has been written for the message that is being answered. The
     // end of an answer asks for a summary only when this send has had none: a chat whose first
     // summary did not bring the conversation under the limit would else ask for another after
@@ -2022,7 +2029,11 @@ impl State {
         let Some(list) = self.queue_of(chat_id) else {
             return false;
         };
-        if list.held || self.live_ref(chat_id).generating || self.busy {
+        if list.held
+            || self.live_ref(chat_id).generating
+            || self.live_ref(chat_id).making_room
+            || self.busy
+        {
             return false;
         }
         let next = !list.items.is_empty()
@@ -4563,12 +4574,108 @@ fn server_url(server: &ServerSlot) -> String {
     server_held(server).map(|(url, _)| url).unwrap_or_default()
 }
 
-// The slot of the chat named in the run that is in the slot: the conversation of the chat is
+// The slot of the chat named, in the run that is in the slot: the conversation of the chat is
 // written as the slot again when another chat was there last. Nothing when no server runs, or
 // when no slot is free.
-fn claim_slot(state: &Arc<Mutex<State>>, server: &ServerSlot) -> Option<usize> {
+fn claim_slot(state: &Arc<Mutex<State>>, server: &ServerSlot, chat: &str) -> Option<usize> {
     let (url, model_id) = server_held(server)?;
-    context_claim(state, &url, &model_id)
+    context_claim(state, &url, &model_id, chat)
+}
+
+// How long the making of the space waits for a slot that the server is still working in. The
+// server holds a request that names a slot it has not done with until that work is at an end,
+// and it sends nothing of itself while it holds it: an ask that went out to such a slot reads
+// as a summarisation stood still. The minute is the time the last request of the same chat takes
+// to let go of the slot after the program stopped reading from it.
+const SLOT_FREE_WAIT: Duration = Duration::from_secs(60);
+
+// The time a request of the making of the space waits for the server to answer it. A fold reads
+// the oldest part of a conversation and writes it short, and a summary is written of the rest of
+// it; both are asked with no more than the share of the window the budget gives, so the wait is
+// for a server that has the request and answers nothing -- for a slot still busy, or for a
+// server gone away. Nothing of the making of the space may wait for ever: the chat is held while
+// its space is made, and a chat held for ever is a chat lost.
+const FOLD_ASK_WAIT: Duration = Duration::from_secs(600);
+const SUMMARY_ASK_WAIT: Duration = Duration::from_secs(900);
+
+// The two waits above, in seconds, for a check that needs a server that never answers. Nothing
+// sets them in the program of a user, and the waits above stand as they are.
+fn ask_wait_from_env(named: &str, stood: Duration) -> Duration {
+    std::env::var(named)
+        .ok()
+        .and_then(|said| said.trim().parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(stood)
+}
+
+fn fold_ask_wait() -> Duration {
+    ask_wait_from_env("AUTUMN_NATTER_FOLD_WAIT_SECS", FOLD_ASK_WAIT)
+}
+
+fn summary_ask_wait() -> Duration {
+    ask_wait_from_env("AUTUMN_NATTER_SUMMARY_WAIT_SECS", SUMMARY_ASK_WAIT)
+}
+
+
+// Wait for the server to come off the slot the next ask is to be made in, so the ask is not laid
+// behind the request the slot has. A server holds a request that names a slot it is working in,
+// and it sends nothing of itself while it holds it: an ask of the making of the space that went
+// out to such a slot is read as a summarisation stood still, with no word on the line to say
+// what it is at. `words` is the line put up while the waiting is on, once the waiting has come
+// past a moment; nothing is said for a slot that is asked for and let go again in a tenth of a
+// second, for the line of the chat is read by a person.
+// A server that does not answer the endpoint of the slots is sent to at once: the wait of the
+// ask is then all the guard there is.
+fn wait_for_slot(
+    state: &Arc<Mutex<State>>,
+    base_url: &str,
+    slot: Option<usize>,
+    cancel: &Arc<AtomicBool>,
+    chat: &str,
+    ceiling: Duration,
+    words: Option<&'static str>,
+) {
+    let Some(slot) = slot else { return };
+    if base_url.is_empty() || cancel.load(Ordering::Relaxed) {
+        return;
+    }
+    if llama::slot_working(base_url, slot) != Some(true) {
+        return;
+    }
+    let every = Duration::from_millis(200);
+    // The word on the line comes after a moment of it, so that a slot that lets go at once is
+    // not reported at all.
+    const LEAST_TOLD: Duration = Duration::from_secs(2);
+    let began = Instant::now();
+    let last = began
+        .checked_add(ceiling)
+        .unwrap_or_else(Instant::now);
+    let mut told = false;
+    while Instant::now() < last && !cancel.load(Ordering::Relaxed) {
+        std::thread::sleep(every);
+        if llama::slot_working(base_url, slot) != Some(true) {
+            return;
+        }
+        if !told && began.elapsed() >= LEAST_TOLD {
+            if let Some(words) = words {
+                tell(state, words);
+            }
+            told = true;
+        }
+    }
+    // The slot remains at work when the ceiling is come to. The ask goes out for all that and
+    // is waited out at the wait of the ask, which reports it: nothing here waits beyond the
+    // ceiling. The line of the log says which chat was held up, for a server that will not let
+    // go of a slot is a thing a user has to be able to find out.
+    proglog::note(
+        proglog::ROOM,
+        &format!(
+            "the slot asked for by the chat {} was still at work when the {} seconds of waiting for it were come to; the ask goes out for all that, and is waited out at the wait of the ask itself",
+            chat,
+            ceiling.as_secs(),
+        ),
+    );
 }
 
 // One of the three settings of the sandbox, named as the pages name it.
@@ -7171,6 +7278,18 @@ fn room_for(
     busy: &std::collections::BTreeSet<String>,
     chat: &str,
 ) -> bool {
+    // A chat that is having its space made is not begun again until the summary is at its end.
+    // The ask of the summary names the slot of the chat, and the server holds a request that
+    // names a slot it is working in: an answer begun between the two is a summarisation held up
+    // behind it.
+    if state
+        .lock()
+        .ok()
+        .map(|guard| guard.live_ref(chat).making_room || guard.live_ref(chat).summarising)
+        .unwrap_or(false)
+    {
+        return false;
+    }
     if busy.len() >= slots_of(state, chat) {
         return false;
     }
@@ -7617,23 +7736,36 @@ fn read_talk(base_url: &str, slot: usize, name: &str, shorten: bool, dir: &Path)
 // conversation written out to its own file before the slot is removed over, so nothing of it is
 // lost and it is read back in its turn.
 //
-// None is given back when the keeping is switched off, when no chat is left open, or when the
-// state is removed: the request then is sent with no slot named, exactly as it always did.
-fn context_claim(state: &Arc<Mutex<State>>, base_url: &str, model_id: &str) -> Option<usize> {
+// The chat is named by the caller and is not taken from the chat the side bar has open. Two
+// chats answer at the same time, and a turn of one of them is not held by what the other is at:
+// a slot taken from the open chat for a request of another chat puts the two chats in the one
+// slot, and a server that is asked for a slot it is still working in holds the request back
+// until that work is done -- which is where a summarisation of one chat came to stand still in
+// the middle of making space for itself.
+//
+// None is given back when the keeping is switched off, when the chat named is no chat, or when
+// the state is removed: the request then is sent with no slot named, exactly as it always did.
+fn context_claim(
+    state: &Arc<Mutex<State>>,
+    base_url: &str,
+    model_id: &str,
+    chat: &str,
+) -> Option<usize> {
     let (chat_id, slots) = {
         let Ok(guard) = state.lock() else { return None };
         if !guard.cfg.chat_context_files {
             return None;
         }
-        // A chat that is not open has no sends requests to keep, and no id to name its file by.
-        let chat_id = match guard.current.as_ref() {
-            Some(id) if !id.is_empty() => id.clone(),
-            _ => return None,
-        };
+        // A chat that is not there has no sends requests to keep, and no id to name its file by.
+        if chat.is_empty() {
+            return None;
+        }
+        let chat_id = String::from(chat);
         // The server has one slot for each path it may work a conversation through at a time,
-        // and the slots are named from zero.
+        // and the slots are named from zero. The number is the setting of the model this chat
+        // wears, which is not always the model of the chat the side bar has open.
         let slots = guard
-            .model()
+            .model_of(chat)
             .map(|m| guard.settings_for(&m).parallel)
             .unwrap_or(1)
             .max(1) as usize;
@@ -8084,7 +8216,10 @@ fn ask_summary_for_handoff(
     if let Some(slot) = slot {
         body["id_slot"] = json!(slot);
     }
-    let mut shot = ask_summary(state, base_url, &body, cancel, chat);
+    // The wait of the ask is read once for the whole of the summary, the cancelled calls and
+    // all, so that a server that has stopped answering is come back from at a stated time.
+    let wait = summary_ask_wait();
+    let mut shot = ask_summary(state, base_url, &body, cancel, chat, wait);
     // The text a model wrote before it stopped to call a tool is part of the summary it was asked
     // for, so the pieces are kept in the order they came and joined when the writing ends. A model
     // that wrote half a summary, called a tool, and wrote the rest has said the whole of what it
@@ -8128,7 +8263,7 @@ fn ask_summary_for_handoff(
         }
         // What the model gives after a cancelled call is the rest of the summary. The text of the
         // request that was cancelled remains with it above, so nothing is reported twice.
-        shot = ask_summary(state, base_url, &body, cancel, chat);
+        shot = ask_summary(state, base_url, &body, cancel, chat, wait);
     }
     if !shot.text.trim().is_empty() {
         pieces.push(shot.text.trim().to_string());
@@ -8206,7 +8341,14 @@ fn count_stored_sources(state: &Arc<Mutex<State>>) {
 // answer of this chat is asked with. The list of the tools is rendered into the start of the
 // conversation, so a request that carried another list -- or none, as this ask used to -- is a
 // conversation worked through again from its first word.
-fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
+// The tools of the request for a summary: the same list, in the same format, as the list an
+// answer of this chat is asked with. The list of the tools is rendered into the start of the
+// conversation, so a request that carried another list -- or none, as this ask used to -- is a
+// conversation worked through again from its first word. The list is made of the chat the
+// summary is written of and not of the chat the side bar has open, for two chats may wear
+// different badges and a summary of one asked with the tools of the other is a summary written
+// over the wrong conversation.
+fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
     let (
         sandbox_on,
         code_on,
@@ -8220,16 +8362,16 @@ fn summary_tools(state: &Arc<Mutex<State>>) -> Option<Value> {
         compaction_on,
     ) = {
         let Ok(guard) = state.lock() else { return None };
-        let chat = guard.chat();
+        let held = guard.chat_of(chat);
         (
-            chat.as_ref().map(|c| c.meta.sandbox_enabled).unwrap_or(false),
-            chat.as_ref().map(|c| c.meta.code_enabled).unwrap_or(false),
-            chat.as_ref().map(|c| c.meta.search_enabled).unwrap_or(false),
-            chat.as_ref().map(|c| c.meta.rag_enabled).unwrap_or(false),
-            guard.planning_open(),
+            held.as_ref().map(|c| c.meta.sandbox_enabled).unwrap_or(false),
+            held.as_ref().map(|c| c.meta.code_enabled).unwrap_or(false),
+            held.as_ref().map(|c| c.meta.search_enabled).unwrap_or(false),
+            held.as_ref().map(|c| c.meta.rag_enabled).unwrap_or(false),
+            held.as_ref().map(|c| c.meta.planning).unwrap_or(false),
             guard.corporate_open(),
-            chat.as_ref().map(|c| access_of(&c.meta)).unwrap_or_default(),
-            chat.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
+            held.as_ref().map(|c| access_of(&c.meta)).unwrap_or_default(),
+            held.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
             guard.mcp_definitions(),
             guard.compaction_on(),
         )
@@ -8270,15 +8412,27 @@ struct SummaryShot {
 
 // The marker that shows the program is writing a handoff summary. It is taken off on the way
 // out of the request, whichever way out that is, so no error of a server leaves the window
-// waiting for text that is never shown.
+// waiting for text that is never shown. The marker belongs to the chat the summary is written
+// of: taken off from the chat the side bar has open, it leaves the chat that was summarised
+// saying that its summary is being written for good.
 struct SummaryWriting {
     state: Arc<Mutex<State>>,
+    chat: String,
+}
+
+impl SummaryWriting {
+    fn new(state: &Arc<Mutex<State>>, chat: &str) -> Self {
+        Self {
+            state: state.clone(),
+            chat: String::from(chat),
+        }
+    }
 }
 
 impl Drop for SummaryWriting {
     fn drop(&mut self) {
         if let Ok(mut guard) = self.state.lock() {
-            guard.live_write().summarising = false;
+            guard.live_mut(&self.chat).summarising = false;
             guard.touch();
         }
     }
@@ -8316,12 +8470,17 @@ const LEAST_SUMMARY_ROOM: u64 = 64;
 // nothing goes into the live text the window draws. The meter above the chat composer and the
 // context meter still move, for they say that the program is at work without saying a note
 // about what it wrote.
+//
+// `wait` is how long the server has to answer this one ask. The making of the space is held by
+// nothing else and holds its chat with it, so an ask of it is waited out at a stated time and
+// the words of it come to the line, rather than being waited for without an end.
 fn ask_summary(
     state: &Arc<Mutex<State>>,
     base_url: &str,
     body: &Value,
     cancel: &Arc<AtomicBool>,
-    chat: &str) -> SummaryShot {
+    chat: &str,
+    wait: Duration) -> SummaryShot {
     {
         let Ok(mut guard) = state.lock() else {
             return SummaryShot {
@@ -8373,11 +8532,12 @@ fn ask_summary(
     let mut said = String::new();
     let gauge_state = state.clone();
     let context_state = state.clone();
-    let answer = llama::stream_chat(
+    let answer = llama::stream_chat_within(
         base_url,
         body,
         cancel,
         &hand,
+        wait,
         &mut |piece: &str| {
             said.push_str(piece);
             // The first word is here, so the text that was sent is worked through and the meter
@@ -8532,6 +8692,9 @@ const LEAST_KEPT_CHARS: usize = 1_500;
 
 // A fold that saves less than the saying of what it saved is no fold at all.
 const LEAST_FOLD_SAVED: usize = 300;
+
+// The rounds of the fold by hand, of one conversation. See `fold_messages_to_fit`.
+const MOST_FOLD_ROUNDS: usize = 50;
 
 // The space a request for a handoff summary is kept within. Nothing is known of the window
 // before a server is started, and a window of nothing is a window with room for everything:
@@ -8697,6 +8860,16 @@ fn ask_fold_part(
         "stream": true,
         "stream_options": { "include_usage": true },
         "timings_per_token": true,
+        // The state of the prompt work is asked for, as it is on an answer and on the request for
+        // the summary. Without it the server says nothing at all while it works the part of the
+        // conversation through: not one word of the stream, from the moment the request is taken
+        // until the first word of the account is written. The read of a part of a conversation is
+        // the longest prompt of the making of the space, and a stream with no word in it for the
+        // whole of that work is the same to read as a server that took the request and is gone --
+        // which is what the wait of this ask is for, and what it was wrongly blamed on. With the
+        // progress asked for, the words of the server come all the way through the work, and the
+        // wait is left to mean the silence of a server that is not answering.
+        "return_progress": true,
         "max_tokens": FOLD_NOTE_CEILING,
     });
     // The thinking of the chat rides on this ask as it rides on the summary, so that the same
@@ -8716,11 +8889,12 @@ fn ask_fold_part(
     );
     let hand = std::sync::atomic::AtomicBool::new(false);
     let mut said = String::new();
-    let answer = llama::stream_chat(
+    let answer = llama::stream_chat_within(
         base_url,
         &body,
         cancel,
         &hand,
+        fold_ask_wait(),
         &mut |piece: &str| said.push_str(piece),
         &mut |_piece: &str| {},
         &mut |_made: llama::Progress| {},
@@ -8730,11 +8904,30 @@ fn ask_fold_part(
         &mut |_made: &[ToolCall]| {},
     );
     // A fold ask that failed gives nothing back, and the fold of the messages by hand below
-    // takes it over. The chat is never the worse for a fold that failed.
-    if answer.error.is_some() || answer.stopped || cancel.load(Ordering::Relaxed) {
+    // takes it over. The chat is never the worse for a fold that failed. It is said all the
+    // same, and the ask is waited out rather than waited for without an end: this one line is
+    // the whole of what the user sees of the making of the space for minutes together, and a
+    // server that takes the request and answers nothing was read as the summarisation stood
+    // still in the middle of it, with nothing to say about why.
+    if let Some(problem) = answer.error.as_ref() {
+        proglog::note(
+            proglog::SUMMARY,
+            &format!(
+                "the oldest part of the conversation was not read on its own: the ask of it did not \
+                 come back ({}). The chat is {}, and the fold of the messages by hand takes the \
+                 part over, so the summary is written without that read.",
+                problem, chat,
+            ),
+        );
+        tell(
+            state,
+            "The oldest part of the conversation could not be read on its own. The summary is written from the rest of it",
+        );
         return String::new();
     }
-    let _ = chat;
+    if answer.stopped || cancel.load(Ordering::Relaxed) {
+        return String::new();
+    }
     clean_summary(&said)
 }
 
@@ -8798,7 +8991,31 @@ fn fold_history_for_handoff(
         let cut = fold_cut(items.as_slice(), cut);
         if cut <= head {
             // Nothing whole is left to read ahead: what remains is one message bigger than a
-            // whole request, and the fold by hand below is the only fold there is for it.
+            // whole request, and the fold by hand below is the only fold there is for it. This
+            // is said, because the read of the oldest part is else missed out without a word:
+            // the lines of the program at the head of a conversation carry the list of the tools
+            // as well as the part of the talk, and at a small window of the model they can fill
+            // all of what one read may carry by themselves. Nothing of the conversation is then
+            // read on its own, and what is left out of the request is only what the folding of
+            // the messages by hand leaves out of them.
+            if asked == 0 && items.len() > head {
+                proglog::note(
+                    proglog::SUMMARY,
+                    &format!(
+                        "the oldest part of the conversation was not read on its own at all: the {} \
+                         lines of the program at its head measure {} and the first message of the \
+                         talk {}, while one read of it is kept within {} of the budget of {} (the \
+                         request for the account and the account itself take the rest). The middle \
+                         of the messages is left out by hand instead, and the summary is written of \
+                         what is left of the conversation itself",
+                        head,
+                        estimate_tokens(&Value::Array(items[..head].to_vec())),
+                        estimate_tokens(&json!([items[head]])),
+                        room,
+                        budget,
+                    ),
+                );
+            }
             break;
         }
         let note = ask_fold_part(
@@ -8862,17 +9079,32 @@ const FOLD_SAYING_CHARS: usize = 320;
 // given back.
 fn fold_messages_to_fit(items: &mut [Value], budget: u64) -> usize {
     let mut folded = 0usize;
-    // The measure the conversation stood at before the last fold. Every fold has to win room, for
+    // The rounds of the fold by hand. A round is a go through the messages, and the whole of the
+    // conversation is weighed once at the end of it.
+    let mut rounds = 0usize;
+    // The measure the conversation stood at before the last round. Every fold has to win room, for
     // a conversation that has reached the least it may hold is not made smaller by folding: while
     // the saying of a fold stood outside the room it was given, a message at the floor of what may
     // be kept came back a dozen characters longer than that floor every time it was folded, and
     // this loop went through the same message for ever with one core of the computer busy to the
     // full. The bound below is what stops such a round from starting another.
+    //
+    // The number is moved on by the room each message wins, and the conversation is not weighed
+    // again between two of its messages: weighing it there made the fold of a long conversation
+    // read the whole of it over once for every message of it, which is minutes of the clock with
+    // nothing to say what it was at. The weighing at the end of the round is kept, for the room
+    // won by one message is read from the text of that message alone and may drift a little.
     let mut last = estimate_tokens(&Value::Array(items.to_vec()));
     while last > budget {
-        let over = last.saturating_sub(budget);
+        rounds += 1;
+        if rounds > MOST_FOLD_ROUNDS {
+            break;
+        }
         let mut moved = false;
         for item in items.iter_mut() {
+            if last <= budget {
+                break;
+            }
             let held = item_chars(item) as u64;
             if held <= LEAST_KEPT_CHARS as u64 {
                 continue;
@@ -8880,13 +9112,18 @@ fn fold_messages_to_fit(items: &mut [Value], budget: u64) -> usize {
             // What this message may keep, once the room it is to win and the saying of the fold
             // are taken off it. A message with nothing left to give stands at the least it may
             // hold, and the next message is the next to be asked.
+            let over = last.saturating_sub(budget);
             let keep = held
                 .saturating_sub(over.saturating_mul(4) + FOLD_SAYING_CHARS as u64)
                 .max(LEAST_KEPT_CHARS as u64) as usize;
             if fold_item(item, keep) {
                 moved = true;
                 folded += 1;
-                break;
+                // The measure is of characters and the tokens of it are the quarter of them, so
+                // the room this message won comes off the number of the conversation as the
+                // quarter of the text it gave up.
+                let after = item_chars(item) as u64;
+                last = last.saturating_sub(held.saturating_sub(after) / 4);
             }
         }
         if !moved {
@@ -8897,7 +9134,7 @@ fn fold_messages_to_fit(items: &mut [Value], budget: u64) -> usize {
         }
         let now = estimate_tokens(&Value::Array(items.to_vec()));
         if now >= last {
-            // The fold was gone through and no room was won, so the messages that remain are
+            // The round was gone through and no room was won, so the messages that remain are
             // already at the least they may hold. Asking them to fold again is a way of never
             // coming to an end, and the ask goes as it stands.
             break;
@@ -8973,9 +9210,7 @@ fn run_handoff(
     };
     // From here to the end of the request the window is informed that a summary is being
     // written, and it draws no live answer.
-    let _writing = SummaryWriting {
-        state: state.clone(),
-    };
+    let _writing = SummaryWriting::new(state, chat);
     // The request that is created now is all of the conversation as it is now, so the two
     // numbers of it say what the server is about to be given: the meter the user is shown, and
     // the measure of the text that go out.
@@ -9021,8 +9256,19 @@ fn run_handoff(
     let base_url = server_url(server);
     // The slot of this chat, with the conversation of it written as the slot again when another
     // chat was there last. The request of the summary names the slot, for the conversation
-    // above the request is the conversation the server worked through in it.
-    let slot = claim_slot(state, server);
+    // above the request is the conversation the server worked through in it. The wait for the
+    // slot comes first: a server holds a request that names a slot it is working in, and holds
+    // it without a word, which is else read as a summarisation stood still for ever.
+    let slot = claim_slot(state, server, chat);
+    wait_for_slot(
+        state,
+        &base_url,
+        slot,
+        cancel,
+        chat,
+        SLOT_FREE_WAIT,
+        Some("The model has not finished the request before this one. The space is waited for"),
+    );
     // The conversation the summary is written of, brought within the window if it has outgrown
     // it. A summary is asked with the whole of the conversation under it, so a conversation
     // bigger than the window makes a request bigger than the window, which is worked through to
@@ -9054,7 +9300,7 @@ fn run_handoff(
     // the start of this ask is the start of the conversation word for word and the server keeps
     // every bit of work it has already done on it. A model that answers with a call instead of
     // with the summary has the call cancelled and is asked again.
-    let tools = summary_tools(state);
+    let tools = summary_tools(state, chat);
     let mut shot =
         ask_summary_for_handoff(state, &base_url, &history, &prompt, tools.as_ref(), slot, cancel, chat);
     // A long conversation can trip the server over one ask and not over the next, so an error
@@ -9299,12 +9545,75 @@ enum Weigh {
     Talk,
 }
 
+// The marker that this chat is having its space made, put on the way into the making of it and
+// taken off on the way out, however out that is. The waiting list of the chat and the starting
+// of a turn of it read the marker, so a chat between the answer that filled the space and the
+// summary that frees it is not filled with another answer: the ask of the summary names the slot
+// of the chat, and a server that is asked for a slot it is working in holds the request back
+// without a word. Nothing about the chat is changed while the marker is on but that no turn of
+// it is begun.
+struct MakingRoom {
+    state: Arc<Mutex<State>>,
+    chat: String,
+    // Only the guard that put the marker on takes it off again. The making of the space goes
+    // through the weighing of it (`maybe_compact`) from within the making itself (`make_room`),
+    // so two of these guards are some time over one chat; the inner one leaves the marker where
+    // it found it, and the chat is freed of it only when the outer one goes.
+    owned: bool,
+}
+
+impl MakingRoom {
+    // Put the marker on, when it is not on already. The guard of the weighing comes here.
+    fn new(state: &Arc<Mutex<State>>, chat: &str) -> Self {
+        let mut owned = false;
+        if let Ok(mut guard) = state.lock() {
+            owned = !guard.live_ref(chat).making_room;
+            if owned {
+                guard.live_mut(chat).making_room = true;
+                guard.touch();
+            }
+        }
+        Self {
+            state: state.clone(),
+            chat: String::from(chat),
+            owned,
+        }
+    }
+
+    // Take the marker off when this guard comes to an end, where the marker was put on by the
+    // caller under the one lock that decided the making. The making of the space in the middle
+    // of an answer comes here, so that the marker stands from the moment the answer is laid
+    // aside to the moment the space is made, and not only over the weighing inside it.
+    fn held(state: &Arc<Mutex<State>>, chat: &str) -> Self {
+        Self {
+            state: state.clone(),
+            chat: String::from(chat),
+            owned: true,
+        }
+    }
+}
+
+impl Drop for MakingRoom {
+    fn drop(&mut self) {
+        if !self.owned {
+            return;
+        }
+        if let Ok(mut guard) = self.state.lock() {
+            guard.live_mut(&self.chat).making_room = false;
+            guard.touch();
+        }
+    }
+}
+
 fn maybe_compact(
     state: &Arc<Mutex<State>>,
     server: &ServerSlot,
     cancel: &Arc<AtomicBool>,
     weigh: Weigh,
     chat: &str) -> bool {
+    // The chat is having its space made from here to the end of the weighing, whether a summary
+    // comes of it or not.
+    let _making = MakingRoom::new(state, chat);
     let wanted = {
         let Ok(guard) = state.lock() else { return false };
         if guard.live_ref(chat).generating || guard.busy || guard.chat_of(chat).is_none() {
@@ -9442,10 +9751,15 @@ fn make_room(
             // again, as ever, for the program does not put a model to work behind their back.
             return false;
         }
-        // The answer is laid aside while the summary takes the chat.
+        // The answer is laid aside while the summary takes the chat. The marker that the space is
+        // being made goes on at the same moment, under the one lock, so that the waiting list of
+        // the chat does not take the chance to start an answer between the two. The guard below
+        // takes the marker off again, at the end of the making.
+        guard.live_mut(chat).making_room = true;
         guard.live_mut(chat).generating = false;
         guard.busy = guard.any_generating();
     }
+    let _making = MakingRoom::held(state, chat);
     let _ = maybe_compact(state, server, cancel, Weigh::Room, chat);
     let Ok(guard) = state.lock() else { return false };
     !guard.handoff_owed_in(chat) && !config::compaction_wanted(&guard.cfg, guard.live_ref(chat).ctx_used, guard.ctx_total)
@@ -9954,7 +10268,19 @@ fn run_turn(
     // every step of this answer is asked of the same slot and none of the work is done twice.
     // None when the keeping of the conversations is switched off, and the request then is sent
     // with no slot named, as it always did.
-    let slot = claim_slot(state, server);
+    // The slot may be at work on the request that was stopped a moment ago, and a server that is
+    // asked for such a slot holds the new request back without a word. The turn waits for the
+    // slot to let go, and it waits for the ceiling of it only.
+    let slot = claim_slot(state, server, chat);
+    wait_for_slot(
+        state,
+        &base_url,
+        slot,
+        cancel,
+        chat,
+        SLOT_FREE_WAIT,
+        Some("The model has not finished the request before this one. The turn is waited for"),
+    );
     // The two spaces of the Chatting settings, read once for this answer. None means no
     // ceiling, which is how both mean a new set of settings: the answer then ends when the
     // model stops by itself, and a model may run as many commands as it wants. A marker of a
@@ -18113,7 +18439,7 @@ mod tests {
         };
         // The current chat takes the only slot the server has.
         state.lock().unwrap().current = Some(first.clone());
-        let slot = context_claim(&state, nowhere, model).expect("a slot for the current chat");
+        let slot = context_claim(&state, nowhere, model, &first).expect("a slot for the chat asked for");
         assert_eq!(slot, 0, "the slots are named from zero");
         assert_eq!(
             state.lock().unwrap().context_holds.get(&slot).map(|one| one.as_str()),
@@ -18123,7 +18449,7 @@ mod tests {
         // The second chat takes that same slot, and the first chat is written down against it
         // no longer -- but not forgotten: it still wants it.
         state.lock().unwrap().current = Some(second.clone());
-        let taken = context_claim(&state, nowhere, model).expect("a slot for the current chat");
+        let taken = context_claim(&state, nowhere, model, &second).expect("a slot for the chat asked for");
         assert_eq!(taken, slot, "one slot, so both chats are in it in turn");
         {
             let guard = state.lock().unwrap();
@@ -18140,7 +18466,7 @@ mod tests {
         }
         // Back it goes, when the first chat is asked again.
         state.lock().unwrap().current = Some(first.clone());
-        let back = context_claim(&state, nowhere, model).expect("the slot of the current chat");
+        let back = context_claim(&state, nowhere, model, &first).expect("the slot of the chat asked for");
         assert_eq!(back, slot, "the chat that returned found the slot it left");
         assert_eq!(
             state.lock().unwrap().context_holds.get(&slot).map(|one| one.as_str()),
@@ -18178,7 +18504,7 @@ mod tests {
             "a chat that was never asked has no sends requests to write"
         );
         // Asked, the chat is in a slot, and its conversation can be written.
-        let slot = context_claim(&state, nowhere, model).expect("a slot for the current chat");
+        let slot = context_claim(&state, nowhere, model, &second).expect("a slot for the chat asked for");
         let name = save_chat_context(&state, nowhere, model).expect("the conversation of the current chat");
         assert_eq!(
             name,
@@ -18189,9 +18515,9 @@ mod tests {
         // is in it now is the conversation of the second, so nothing of the first may be
         // written there.
         state.lock().unwrap().current = Some(first.clone());
-        context_claim(&state, nowhere, model).expect("the slot for the first chat");
+        context_claim(&state, nowhere, model, &first).expect("the slot for the first chat");
         state.lock().unwrap().current = Some(second.clone());
-        context_claim(&state, nowhere, model).expect("and the slot for the second");
+        context_claim(&state, nowhere, model, &second).expect("and the slot for the second");
         assert_eq!(
             state.lock().unwrap().context_holds.get(&slot).map(|one| one.as_str()),
             Some(second.as_str()),
@@ -18227,8 +18553,12 @@ mod tests {
             guard.start_chat();
             assert!(guard.current.is_some());
         }
+        let asked = {
+            let guard = state.lock().unwrap();
+            guard.current.clone().expect("a chat is open")
+        };
         assert!(
-            context_claim(&state, "http://127.0.0.1:1", "/models/one.gguf").is_none(),
+            context_claim(&state, "http://127.0.0.1:1", "/models/one.gguf", &asked).is_none(),
             "a switched-off keeping keeps nothing"
         );
         let guard = state.lock().unwrap();
