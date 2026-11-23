@@ -17,10 +17,14 @@
 //
 // What the check is of:
 //
-//   * the result of the call is counted and cut before it goes out, and the ask that carries it
-//     is weighed under the limit set for the summarisation - the doomed request go out no more;
-//   * the result the model is given keeps its beginning and its end, and states between them
-//     how much of it is not there. The call is not reported as cancelled: the command ran;
+//   * the result of the call is counted and fitted to the space before it goes out, and the ask
+//     that carries it is weighed under the limit set for the summarisation - the doomed request
+//     go out no more;
+//   * the copy of the result the model is given keeps its beginning and its end, and states
+//     between them how much of it is not there. The call is not reported as cancelled: the
+//     command ran;
+//   * the chat keeps the whole of what the command printed, so the shortening of a request is
+//     never a loss of the transcript shown to the user;
 //   * the handoff summary of the turn is written, and the answer goes on behind it;
 //   * nothing on the line says that no space could be made.
 //
@@ -200,7 +204,9 @@ fn a_tool_result_bigger_than_the_space_is_cut_before_it_is_sent() {
         snap.status,
     );
 
-    // The call ran, so it is not reported as cancelled: only its result was cut.
+    // The call ran, so it is not reported as cancelled, and the whole of what it printed stands
+    // in the chat: only the copy of the result that goes out with the request is fitted to the
+    // space, and that is what the server was asked with below.
     assert!(
         !snap.messages.iter().any(|one| one.cancelled),
         "a call that ran was reported as cancelled"
@@ -212,13 +218,19 @@ fn a_tool_result_bigger_than_the_space_is_cut_before_it_is_sent() {
         .find(|one| one.role == "Tool" && one.call_id == "call-count")
         .expect("the result of the call stands in the chat");
     assert!(
-        kept.tool.contains("whole of the result of this call is not here"),
-        "the result in the chat says nothing of what it left out: {}...",
+        !kept.tool.contains("whole of the result of this call is not here"),
+        "the shortening of the request reached the chat: the result shown to the user is {}...",
         kept.tool.chars().take(200).collect::<String>(),
     );
     assert!(
-        kept.tool.contains("characters of it are left out"),
-        "the result in the chat does not state the number it left out"
+        kept.tool.contains("5999\n6000"),
+        "the end of what the command printed is not in the chat: {}...",
+        kept.tool.chars().rev().take(60).collect::<String>().chars().rev().collect::<String>(),
+    );
+    assert!(
+        kept.tool.starts_with("1\n2\n3"),
+        "the beginning of what the command printed is not in the chat: {}...",
+        kept.tool.chars().take(60).collect::<String>(),
     );
 
     // What the server was really asked with. The ask that carries the result of the call is the

@@ -1910,6 +1910,17 @@ mod tests {
         // The space left over is the limit on this path: 32 768 with 10 240 kept.
         assert_eq!(compaction_room(&by_tokens, 32768), 22528);
 
+        // The reported test configuration is calculated correctly: a 24,000-token context
+        // reserving 16,384 tokens starts handoff compaction at 7,616 tokens.
+        let reported_case = Config {
+            chat_compact_by: String::from(COMPACT_BY_TOKENS),
+            chat_compact_reserve: 16_384,
+            ..Config::default()
+        };
+        assert_eq!(compaction_room(&reported_case, 24_000), 7_616);
+        assert!(!compaction_wanted(&reported_case, 7_615, 24_000));
+        assert!(compaction_wanted(&reported_case, 7_616, 24_000));
+
         // No compaction at all, whatever the conversation.
         let off = Config {
             chat_compaction: String::from(COMPACTION_OFF),
