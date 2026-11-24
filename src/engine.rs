@@ -10980,6 +10980,10 @@ fn run_turn(
             },
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
+                    // Thinking is also model output: it means the preceding tool result has
+                    // been read, even when the answer begins with a private reasoning block.
+                    let read_finished = guard.corporate_on_in(chat)
+                        && corporate::finish_reads(&mut guard.live_mut(chat).live_work);
                     let now = Instant::now();
                     if guard.live_ref(chat).thought_start.is_none() {
                         guard.live_mut(chat).thought_start = Some(now);
@@ -11004,7 +11008,7 @@ fn run_turn(
                     if end_writing_calls(&mut guard, chat) {
                         guard.touch();
                     }
-                    if reason_update.elapsed() > Duration::from_millis(60) {
+                    if read_finished || reason_update.elapsed() > Duration::from_millis(60) {
                         reason_update = Instant::now();
                         guard.touch();
                     }
@@ -11128,7 +11132,11 @@ fn run_turn(
                 // away, so a model that requests a command before it has stated anything does
                 // not leave it remaining over the chat for all of the run.
                 if let Ok(mut guard) = tool_state.lock() {
-                    if write_calls(&mut guard, made, chat) {
+                    // A newly streamed call is the next model output after the previous tool
+                    // result, so finish any standalone reads before this call is shown.
+                    let read_finished = guard.corporate_on_in(chat)
+                        && corporate::finish_reads(&mut guard.live_mut(chat).live_work);
+                    if write_calls(&mut guard, made, chat) || read_finished {
                         guard.touch();
                     }
                     // The model is writing out the text of a call, which for a large file may go
