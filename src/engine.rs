@@ -9872,10 +9872,34 @@ fn keep_results_inside_the_space(
         // line or two in it.
         return false;
     }
-    let texts: Vec<String> = bodies.iter().map(|one| one.said.clone()).collect();
-    let counted = llama::token_counts(&llama_dir, &model_id, &texts)
-        .map(|told| told.into_iter().map(|one| one as u64).collect::<Vec<u64>>())
-        .unwrap_or_else(|| bodies.iter().map(|one| one.est).collect());
+    // Count the complete model-facing tool output in one tokenizer process. Joining the bodies
+    // also avoids loading the model vocabulary once for every result in the conversation.
+    let all_results = bodies
+        .iter()
+        .map(|one| one.said.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let estimated: Vec<u64> = bodies.iter().map(|one| one.est).collect();
+    let estimated_total: u64 = estimated.iter().sum();
+    let counted_total = llama::token_count(&llama_dir, &model_id, &all_results)
+        .map(|tokens| tokens as u64)
+        .unwrap_or(estimated_total);
+    // The exact count belongs to the joined text. Apportion it by each result's estimate so the
+    // existing newest-first fitting can still preserve more detail from recent results.
+    let mut counted: Vec<u64> = if estimated_total == 0 {
+        estimated
+    } else {
+        estimated
+            .iter()
+            .map(|tokens| counted_total.saturating_mul(*tokens) / estimated_total)
+            .collect()
+    };
+    if estimated_total != 0 {
+        let apportioned: u64 = counted.iter().sum();
+        if let Some(last) = counted.last_mut() {
+            *last += counted_total.saturating_sub(apportioned);
+        }
+    }
     let asked: u64 = counted.iter().sum();
     if asked <= budget {
         return false;

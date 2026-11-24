@@ -1121,42 +1121,27 @@ pub fn slot_working(base_url: &str, slot: usize) -> Option<bool> {
 // Nothing is given back for a build with no tokenizer beside the server, which is how a server of
 // the user's own may stand; the caller takes nothing given back as a counting it has to do
 // without.
-pub fn token_counts(llama_dir: &str, model: &str, texts: &[String]) -> Option<Vec<usize>> {
+pub fn token_count(llama_dir: &str, model: &str, text: &str) -> Option<usize> {
     let tool = crate::config::tokenize_in(Path::new(llama_dir))?;
-    let mut waits: Vec<Child> = Vec::with_capacity(texts.len());
-    for text in texts {
-        let mut child = Command::new(&tool)
-            .arg("--model")
-            .arg(model)
-            .arg("--stdin")
-            .arg("--show-count")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .ok()?;
-        {
-            let mut hand = child.stdin.take()?;
-            hand.write_all(text.as_bytes()).ok()?;
-            // The writing is let go of here: the tool reads all of the stdin it is given before it
-            // answers, and a handle held past that is a tool waited for with nothing left to say.
-        }
-        waits.push(child);
-    }
-    let mut told: Vec<usize> = Vec::with_capacity(waits.len());
-    for child in waits {
-        let out = child.wait_with_output().ok()?;
-        let said = String::from_utf8_lossy(&out.stdout);
-        let counted = said
-            .lines()
-            .rev()
-            .find_map(|one| one.trim_start().strip_prefix("Total number of tokens: "))?
-            .trim()
-            .parse::<usize>()
-            .ok()?;
-        told.push(counted);
-    }
-    Some(told)
+    let mut child = Command::new(&tool)
+        .arg("--model")
+        .arg(model)
+        .arg("--stdin")
+        .arg("--show-count")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(text.as_bytes()).ok()?;
+    let out = child.wait_with_output().ok()?;
+    let said = String::from_utf8_lossy(&out.stdout);
+    said.lines()
+        .rev()
+        .find_map(|one| one.trim_start().strip_prefix("Total number of tokens: "))?
+        .trim()
+        .parse::<usize>()
+        .ok()
 }
 
 // One tool call the model requested.
