@@ -2836,24 +2836,29 @@ body.sideopen .side { transform: none; }
 .side-grip:hover::after, .side-grip.drag::after { background: var(--accent); }
 
 /* The two buttons at the header of the top bar. */
-.side-top { padding: 10px 10px 6px; display: grid; gap: 6px; flex: 0 0 auto; }
+.side-top { padding: 10px 6px 4px; display: grid; gap: 2px; flex: 0 0 auto; }
 /*
- * The text of the two buttons is in the middle of the block, and in the colour of any other
- * text: the accent is left to the background under them. */
+ * The two buttons are rows of the side bar, not blocks laid over it: they carry no filling and
+ * no border of their own, and their mark and their word stand at the left, where the name of a
+ * chat stands. A button that is filled and bordered is the one thing the eye comes to first, and
+ * these two are not what the user comes to the side bar for. The pointer is answered with the
+ * same faint wash a chat row answers with, and the press with a movement of a pixel. The
+ * archived button, while the archive is what is looked at, is known by the colour of its own
+ * theme and by nothing else: a marking of its own would put the box back. The colour of the
+ * accent itself is not taken, for against the bar it reads too low in the pale and the silver
+ * skins; the colour of the emphasis is, which each skin keeps legible on its own surfaces. */
 .side-new, .side-arch {
-  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
-  padding: 9px 11px; border-radius: var(--r-m); cursor: pointer;
-  font: inherit; font-size: 13.5px; font-weight: 600; text-align: center;
-  border: 1px solid var(--line); background: var(--surface-3); color: var(--text);
-  transition: background var(--t-move), border-color var(--t-move), color var(--t-move),
-    transform 80ms ease;
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 7px; margin: 1px 0; border-radius: var(--r-s); cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; text-align: left;
+  border: 0; background: none; color: var(--text);
+  transition: background var(--t-move), color var(--t-move), transform 80ms ease;
 }
-.side-new { border-color: var(--accent-line); background: var(--accent-soft); }
 .side-new:hover, .side-arch:hover { background: var(--hover); color: var(--ink); }
 .side-new:active, .side-arch:active { transform: translateY(1px); }
 .side-new svg, .side-arch svg { width: 15px; height: 15px; flex: 0 0 auto;
   fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
-body.archmode .side-arch { border-color: var(--accent-line); background: var(--accent-soft); }
+body.archmode .side-arch { color: var(--ink); }
 
 /* The list itself. */
 .side-body { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding: 2px 6px 14px; scrollbar-gutter: stable; }
@@ -3259,7 +3264,7 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       <span>Create new chat</span>
     </button>
-    <button class="side-arch" id="sideArch" title="Archived chats">
+    <button class="side-arch" id="sideArch" title="Archived chats" aria-pressed="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v4H3zM5 10v9h14v-9M10 14h4"/></svg>
       <span>Archived chats</span>
     </button>
@@ -17315,6 +17320,11 @@ function sideSave() {
 function sideApply() {
   document.body.classList.toggle('sideopen', side.open);
   document.body.classList.toggle('archmode', side.arch);
+  // The archive button stands out no more than the rows about it, so what it is switched to is
+  // said beside the colour: the bar itself is what tells the eye, and the marker is what tells
+  // whatever reads the page without one.
+  var arch = sEl('sideArch');
+  if (arch) { arch.setAttribute('aria-pressed', side.arch ? 'true' : 'false'); }
   document.documentElement.style.setProperty('--side-w', side.w + 'px');
   var btn = sEl('sidebtn');
   if (btn) { btn.classList.toggle('on', side.open); }
