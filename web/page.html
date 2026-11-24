@@ -190,7 +190,7 @@ body.silver, body.corporate { --hunk-add: #a9d3a4; --hunk-cut: #e8a79f; }
  * usual pale grey. */
 :root { color-scheme: light; }
 body.dark { color-scheme: dark; }
-body.silver, body.corporate, body.neon, body.glass { color-scheme: dark; }
+body.silver, body.corporate, body.neon { color-scheme: dark; }
 
 /*
  * The two steps of colour the grid of the background is drawn with. The first is the hairline of
@@ -1240,7 +1240,7 @@ body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: n
 body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
 .work { margin: 14px 0; }
 .work { --work-text: var(--ink-leaf); }
-body:not(.dark):not(.silver):not(.corporate):not(.neon):not(.glass) .work { --work-text: #242424; }
+body:not(.dark):not(.silver):not(.corporate):not(.neon) .work { --work-text: #242424; }
 body.dark .work { --work-text: #ffffff; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
   cursor: pointer; color: var(--work-text); font-weight: 600; }
@@ -3213,23 +3213,6 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
   100% { color: inherit; background: none; }
 }
 
-/* The Glass skin lifts controls and bars above the page with a translucent, blurred surface. */
-body.glass { --bg: #17202a; --surface: rgba(38, 49, 62, .72); --surface-2: rgba(44, 57, 72, .62); --surface-3: rgba(60, 75, 92, .68); --line: rgba(255,255,255,.12); --line-strong: rgba(255,255,255,.2); --text: #f5f8fc; --text-2: #d6e0eb; --strong: #fff; --accent: #0a84ff; --hover: rgba(255,255,255,.1); --grid: rgba(125,190,255,.055); --grid-mark: rgba(125,190,255,.16); --shadow: 0 14px 38px rgba(0,0,0,.26); color-scheme: dark; }
-body.glass .menu, body.glass .sheet, body.glass .dock-row, body.glass #box, body.glass header, body.glass .timeline, body.glass .field, body.glass .btn { backdrop-filter: blur(14px) saturate(180%); -webkit-backdrop-filter: blur(14px) saturate(180%); border-color: transparent; box-shadow: inset 0 1px rgba(255,255,255,.22), inset 0 -1px rgba(255,255,255,.08), 0 8px 28px rgba(0,0,0,.2); }
-body.glass .field-menu { backdrop-filter: blur(14px) saturate(180%); -webkit-backdrop-filter: blur(14px) saturate(180%); background: rgba(40,52,67,.72); border-color: transparent; border-radius: 24px; box-shadow: inset 0 1px rgba(255,255,255,.22), inset 0 -1px rgba(255,255,255,.08), 0 8px 28px rgba(0,0,0,.2); }
-body.glass .field-menu button { border-radius: 999px; }
-body.glass .field-menu button[aria-selected="true"] { color: var(--text); background: rgba(255,255,255,.16); box-shadow: inset 0 1px rgba(255,255,255,.24), 0 4px 14px rgba(0,0,0,.14); }
-body.glass .badge, body.glass .btn, body.glass .menu button { border-radius: 999px; transition: transform .22s cubic-bezier(.2,.8,.2,1), background .18s ease; }
-body.glass .badge:hover, body.glass .btn:hover, body.glass .menu button:hover { transform: scale(1.025); }
-body.glass .badge:active, body.glass .btn:active, body.glass .menu button:active { transform: scale(.97); }
-body.glass header, body.glass .dock-row { margin: 6px 10px; border-radius: 24px; background: rgba(37,48,61,.72); }
-body.glass #box { border-radius: 28px; background: rgba(37,48,61,.48); }
-body.glass .badge { border-color: transparent; background: transparent; box-shadow: none; }
-body.glass .badge:hover { background: rgba(255,255,255,.12); }
-body.glass .seg button.on, body.glass .menu button.now { color: var(--text); background: rgba(255,255,255,.16); box-shadow: inset 0 1px rgba(255,255,255,.24), 0 4px 14px rgba(0,0,0,.14); }
-body.glass .seg button.on { border-radius: 999px; }
-body.glass .send, body.glass #send { color: #fff; background: rgba(10,132,255,.84); border-color: transparent; }
-body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-radius: 24px; }
 </style>
 </head>
 <body>
@@ -3693,14 +3676,13 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
 
         <div class="sec">Appearance</div>
         <div class="fld wide"><span class="lbl">Theme</span>
-          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the warm near-black, Silver and Corporate the two neutral ladders, Neon a blue-black with lit hairlines, and Glass a translucent material raised above the page. The theme changes at once.</span>
+          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the warm near-black, Silver and Corporate the two neutral ladders, and Neon a blue-black with lit hairlines. The theme changes at once.</span>
           <div class="ctl"><div class="seg" id="fTheme" role="group" aria-label="Which theme to draw the page in">
               <button class="on" id="fThemeLight" type="button">Light</button>
               <button id="fThemeDark" type="button">Dark</button>
               <button id="fThemeSilver" type="button">Silver</button>
               <button id="fThemeCorporate" type="button">Corporate</button>
               <button id="fThemeNeon" type="button">Neon</button>
-              <button id="fThemeGlass" type="button">Glass</button>
             </div></div></div>
         <div class="fld wide"><span class="lbl">Pixel-art look</span>
           <span class="sub">Draw the theme in pixel-art form: no rounded corner, no blur, every shadow a flat block, and the text in a fixed-width font. The colours are the colours of the theme, so each theme has a standard look and a pixel-art one. The look changes at once.</span>
@@ -9511,8 +9493,8 @@ function welcomeMock(kind) {
     return box;
   }
   // The themes: the background of the page and the text upon it.
-  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', silver: '#2b2b2b', corporate: '#0d0d0d', neon: '#0a0c1c', glass: 'rgba(43, 56, 72, .78)' };
-  var inks = { light: '#232323', dark: '#e8e8e8', silver: '#dcdcdc', corporate: '#e6e6e6', neon: '#cfe4ff', glass: '#eff5fb' };
+  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', silver: '#2b2b2b', corporate: '#0d0d0d', neon: '#0a0c1c' };
+  var inks = { light: '#232323', dark: '#e8e8e8', silver: '#dcdcdc', corporate: '#e6e6e6', neon: '#cfe4ff' };
   var box2 = document.createElement('div');
   box2.innerHTML = '<span class="wswatch" style="background:' + grounds[kind] + '">'
     + '<svg viewBox="0 0 62 40" width="62" height="40" xmlns="http://www.w3.org/2000/svg">'
@@ -9606,14 +9588,13 @@ function drawWelcome() {
   long.appendChild(longOpts);
   screen.appendChild(long);
 
-  var themePart = welcomePart('The theme of the pages', 'Pale, dark, the grey and white of the silver theme, the near black of the corporate one, the lit blue-black of the neon one, or a translucent glass surface.');
+  var themePart = welcomePart('The theme of the pages', 'Pale, dark, the grey and white of the silver theme, the near black of the corporate one, or the lit blue-black of the neon one.');
   var themeCards = make('div', 'wcards');
   themeCards.appendChild(welcomeCard('theme', 'light', 'light', 'Light', ''));
   themeCards.appendChild(welcomeCard('theme', 'dark', 'dark', 'Dark', ''));
   themeCards.appendChild(welcomeCard('theme', 'silver', 'silver', 'Silver', ''));
   themeCards.appendChild(welcomeCard('theme', 'corporate', 'corporate', 'Corporate', ''));
   themeCards.appendChild(welcomeCard('theme', 'neon', 'neon', 'Neon', ''));
-  themeCards.appendChild(welcomeCard('theme', 'glass', 'glass', 'Glass', ''));
   themePart.appendChild(themeCards);
   var artOpts = make('div', 'wopts');
   artOpts.appendChild(welcomeTick('theme_pixel', 'Pixel-art look',
@@ -15776,7 +15757,7 @@ function showSetTab(tab) {
 var themeWord = 'light';   // the theme the page is in
 
 // The five themes, in the order the settings panel and the marker of the browser page step through them.
-var THEMES = ['light', 'dark', 'silver', 'corporate', 'neon', 'glass'];
+var THEMES = ['light', 'dark', 'silver', 'corporate', 'neon'];
 
 // The word of a theme out of any text: one of the five remains, and anything else is the pale
 // theme, which is the one a new set of settings is on.
@@ -15848,7 +15829,6 @@ function showTheme(word) {
   document.body.classList.toggle('silver', themeWord === 'silver');
   document.body.classList.toggle('corporate', themeWord === 'corporate');
   document.body.classList.toggle('neon', themeWord === 'neon');
-  document.body.classList.toggle('glass', themeWord === 'glass');
   // The colour of what falls behind the text is extracted from the theme, so a new theme is
   // given new leaves. The state is read again and again while the program runs, so this is only
   // requested when the theme really moved.
@@ -17220,7 +17200,6 @@ byId('fThemeDark').addEventListener('click', function () { chooseTheme('dark'); 
 byId('fThemeSilver').addEventListener('click', function () { chooseTheme('silver'); });
 byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('corporate'); });
 byId('fThemeNeon').addEventListener('click', function () { chooseTheme('neon'); });
-byId('fThemeGlass').addEventListener('click', function () { chooseTheme('glass'); });
 byId('fThemeStandard').addEventListener('click', function () { chooseThemeArt(false); });
 byId('fThemePixel').addEventListener('click', function () { chooseThemeArt(true); });
 byId('fBackgroundNone').addEventListener('click', function () { chooseBackground('none'); });

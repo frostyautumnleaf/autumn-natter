@@ -400,7 +400,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "sandbox_fetch": snap.sandbox_access.fetch,
         "status": snap.status,
         "dark": snap.dark_mode,
-        // The theme of the pages: `light`, `dark`, `silver`, `corporate`, `neon` or `glass`. The word of
+        // The theme of the pages: `light`, `dark`, `silver`, `corporate` or `neon`. The word of
         // the theme travels beside the switch of the two that was before the third, so a page
         // written for the two of them still reads a theme.
         "theme": snap.theme,
