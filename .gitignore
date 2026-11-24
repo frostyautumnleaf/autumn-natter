@@ -40,6 +40,8 @@ src-tauri/gen/
 tools/node_modules/
 tools/package.json
 tools/package-lock.json
+.toolchains/
+.npm-cache/
 
 # Build outputs kept beside the tree by the scripts of this machine.
 target-*/

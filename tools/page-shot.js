@@ -1342,8 +1342,9 @@ async function main() {
   else if (name.endsWith('-silver')) { theme = 'silver'; name = name.slice(0, -7); }
   else if (name.endsWith('-corporate')) { theme = 'corporate'; name = name.slice(0, -10); }
   else if (name.endsWith('-neon')) { theme = 'neon'; name = name.slice(0, -5); }
+  else if (name.endsWith('-glass')) { theme = 'glass'; name = name.slice(0, -6); }
   else if (name.endsWith('-pale')) { theme = 'light'; name = name.slice(0, -5); }
-  if (theme && ['light', 'dark', 'silver', 'corporate', 'neon'].indexOf(theme) < 0) { theme = 'light'; }
+  if (theme && ['light', 'dark', 'silver', 'corporate', 'neon', 'glass'].indexOf(theme) < 0) { theme = 'light'; }
   const isSheet = name === 'sheet-program' || name === 'sheet-model' || name === 'sheet-logs' || name === 'sheet-mcp';
   const state = scene(isSheet ? 'chat' : name, dark, theme);
   CONFIG.theme = theme || 'light';
@@ -1387,15 +1388,15 @@ async function main() {
   if (process.env.AN_WHAT) { state.progress.what = process.env.AN_WHAT; }
 
   const puppeteer = require('puppeteer');
-  let shell = '';
+  let shell = process.env.AN_CHROME || '';
   try {
-    shell = execSync('find "' + (process.env.PUPPETEER_CACHE_DIR
+    if (!shell) { shell = execSync('find "' + (process.env.PUPPETEER_CACHE_DIR
       || process.env.HOME + '/.cache/puppeteer') + '" '
-      + '-name chrome-headless-shell -type f | head -1').toString().trim();
+      + '-name chrome-headless-shell -type f | head -1').toString().trim(); }
   } catch (e) { shell = ''; }
 
   const browser = await puppeteer.launch({
-    headless: shell ? 'shell' : true,
+    headless: process.env.AN_CHROME ? true : (shell ? 'shell' : true),
     executablePath: shell || undefined,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu',
       '--font-render-hinting=none', '--force-color-profile=srgb']
@@ -1561,7 +1562,9 @@ async function main() {
     };
   }, useFetch, state, CONFIG, MODEL, LOGS, LOGS_PROGRAM, LOG_ONE, ATT_PIC, ATT_TALL, lists(state), MCP_HELD, PROMPT_LINES);
 
-  await view.goto('file://' + path.resolve(page), { waitUntil: 'networkidle0' });
+  await view.goto(process.env.AN_PAGE_URL || ('file://' + path.resolve(page)), {
+    waitUntil: 'networkidle0'
+  });
   // The page face asks for the program mark at "/autumn-natter.svg", which the served page
   // answers. Under file:// nothing answers an address from the root of the disk, so the mark is
   // pointed at the file of the asset in this repository.

@@ -3255,6 +3255,15 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
   25% { color: var(--accent); background: var(--accent-soft); }
   100% { color: inherit; background: none; }
 }
+
+/* The Glass skin lifts controls and bars above the page with a translucent, blurred surface. */
+body.glass { --bg: #17202a; --surface: rgba(38, 49, 62, .72); --surface-2: rgba(44, 57, 72, .62); --surface-3: rgba(60, 75, 92, .68); --line: rgba(255,255,255,.12); --line-strong: rgba(255,255,255,.2); --text: #f5f8fc; --text-2: #d6e0eb; --strong: #fff; --accent: #0a84ff; --hover: rgba(255,255,255,.1); --shadow: 0 14px 38px rgba(0,0,0,.26); color-scheme: dark; }
+body.glass .menu, body.glass .sheet, body.glass .dock-row, body.glass header, body.glass .timeline, body.glass .badge, body.glass .btn { backdrop-filter: blur(14px) saturate(180%); -webkit-backdrop-filter: blur(14px) saturate(180%); border-color: transparent; box-shadow: inset 0 1px rgba(255,255,255,.22), inset 0 -1px rgba(255,255,255,.08), 0 8px 28px rgba(0,0,0,.2); }
+body.glass .badge, body.glass .btn, body.glass .menu button { border-radius: 999px; transition: transform .22s cubic-bezier(.2,.8,.2,1), background .18s ease; }
+body.glass .badge:hover, body.glass .btn:hover, body.glass .menu button:hover { transform: scale(1.025); }
+body.glass .badge:active, body.glass .btn:active, body.glass .menu button:active { transform: scale(.97); }
+body.glass header, body.glass .dock-row { margin: 6px 10px; border-radius: 24px; background: rgba(37,48,61,.72); }
+body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-radius: 24px; }
 </style>
 </head>
 <body>
@@ -3724,6 +3733,7 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
               <button id="fThemeSilver" type="button">Silver</button>
               <button id="fThemeCorporate" type="button">Corporate</button>
               <button id="fThemeNeon" type="button">Neon</button>
+              <button id="fThemeGlass" type="button">Glass</button>
             </div></div></div>
         <div class="fld wide"><span class="lbl">Pixel-art look</span>
           <span class="sub">Draw the theme in pixel-art form: no rounded corner, no blur, every shadow a flat block, and the text in a fixed-width font. The colours are the colours of the theme, so each of the five has a standard look and a pixel-art one. The look changes at once.</span>
@@ -15825,7 +15835,7 @@ function showSetTab(tab) {
 var themeWord = 'light';   // the theme the page is in
 
 // The five themes, in the order the settings panel and the marker of the browser page step through them.
-var THEMES = ['light', 'dark', 'silver', 'corporate', 'neon'];
+var THEMES = ['light', 'dark', 'silver', 'corporate', 'neon', 'glass'];
 
 // The word of a theme out of any text: one of the five remains, and anything else is the pale
 // theme, which is the one a new set of settings is on.
@@ -15897,6 +15907,7 @@ function showTheme(word) {
   document.body.classList.toggle('silver', themeWord === 'silver');
   document.body.classList.toggle('corporate', themeWord === 'corporate');
   document.body.classList.toggle('neon', themeWord === 'neon');
+  document.body.classList.toggle('glass', themeWord === 'glass');
   // The colour of what falls behind the text is extracted from the theme, so a new theme is
   // given new leaves. The state is read again and again while the program runs, so this is only
   // requested when the theme really moved.
@@ -17258,6 +17269,7 @@ byId('fThemeDark').addEventListener('click', function () { chooseTheme('dark'); 
 byId('fThemeSilver').addEventListener('click', function () { chooseTheme('silver'); });
 byId('fThemeCorporate').addEventListener('click', function () { chooseTheme('corporate'); });
 byId('fThemeNeon').addEventListener('click', function () { chooseTheme('neon'); });
+byId('fThemeGlass').addEventListener('click', function () { chooseTheme('glass'); });
 byId('fThemeStandard').addEventListener('click', function () { chooseThemeArt(false); });
 byId('fThemePixel').addEventListener('click', function () { chooseThemeArt(true); });
 byId('fBackgroundNone').addEventListener('click', function () { chooseBackground('none'); });

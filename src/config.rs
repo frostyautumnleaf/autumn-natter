@@ -687,6 +687,7 @@ pub const THEME_DARK: &str = "dark";
 pub const THEME_SILVER: &str = "silver";
 pub const THEME_CORPORATE: &str = "corporate";
 pub const THEME_NEON: &str = "neon";
+pub const THEME_GLASS: &str = "glass";
 
 // The skin a set of settings opens in when the user has chosen none: the dark one, because the
 // program is looked at in the evening as often as in the day, and a pale page sent into a dark
@@ -698,12 +699,13 @@ pub const THEME_DEFAULT: &str = THEME_DARK;
 
 // The text of the five themes, in the order the settings panel and the marker of the browser
 // page step through them.
-pub const THEMES: [&str; 5] = [
+pub const THEMES: [&str; 6] = [
     THEME_LIGHT,
     THEME_DARK,
     THEME_SILVER,
     THEME_CORPORATE,
     THEME_NEON,
+    THEME_GLASS,
 ];
 
 // The word of a theme. A word that is none of the five answers as the pale theme, which is the
@@ -718,6 +720,7 @@ pub fn theme_word(value: &str, dark: bool) -> String {
         THEME_SILVER => THEME_SILVER,
         THEME_CORPORATE => THEME_CORPORATE,
         THEME_NEON => THEME_NEON,
+        THEME_GLASS => THEME_GLASS,
         "" if dark => THEME_DARK,
         _ => THEME_LIGHT,
     }
@@ -1376,6 +1379,7 @@ mod tests {
         assert_eq!(theme_word(THEME_CORPORATE, true), "corporate");
         assert_eq!(theme_word(THEME_SILVER, false), "silver");
         assert_eq!(theme_word(THEME_NEON, false), "neon");
+        assert_eq!(theme_word(THEME_GLASS, false), "glass");
         assert_eq!(theme_word("", true), "dark");
         assert_eq!(theme_word("", false), "light");
         assert_eq!(theme_word("shiny_and_blue", true), "light");
@@ -1386,13 +1390,13 @@ mod tests {
         // the same skin as it does here.
         assert_eq!(THEME_DEFAULT, THEME_DARK);
         assert!(fresh.dark_mode, "the old switch is in step with the skin of a first run");
-        // The five themes are stepped through from the pale one, whatever the skin of a first run
+        // The six themes are stepped through from the pale one, whatever the skin of a first run
         // is: the menu of the settings panel and the marker of the browser page turn in the same
         // order they always have.
         assert_eq!(THEMES[0], THEME_LIGHT);
         // The list the pages step through holds every theme the program knows, once each, and
         // all of them is a word the settings panel can put on the page.
-        assert_eq!(THEMES.len(), 5);
+        assert_eq!(THEMES.len(), 6);
         for word in THEMES {
             assert_eq!(theme_word(word, false), word, "{} is a theme", word);
         }
