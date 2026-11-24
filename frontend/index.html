@@ -2462,6 +2462,7 @@ img.pic { animation: plate-in 180ms ease-out; }
  * A line of the menu that turns one item on or off, rather than being chosen from a set. A rule
  * keeps it apart from the lines one may choose, and the switch is at the end of the line. */
 .menu .sep { height: 1px; margin: 4px 6px; background: var(--line-strong); }
+.menu .badge { display: flex; width: 100%; justify-content: flex-start; }
 .menu button.toggle { color: var(--text-2); }
 .menu button.toggle:hover { color: var(--ink); }
 .menu button.toggle.on { color: var(--ink); }
@@ -4287,6 +4288,14 @@ var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxus
   'planhead', 'planlabel', 'planopen', 'commands', 'cmdchip', 'prog', 'progmatch'];
 var el = {};
 for (var i = 0; i < ids.length; i++) { el[ids[i]] = document.getElementById(ids[i]); }
+// Retrieval and MCP are choices about the tools available to this chat, so they live below the
+// file choices in the plus menu rather than taking space beside the composer.
+if (el.plusmenu && el.rag) {
+  var plusTools = make('div', 'sep');
+  el.plusmenu.appendChild(plusTools);
+  el.plusmenu.appendChild(el.rag);
+  if (el.mcpwrap) { el.plusmenu.appendChild(el.mcpwrap); }
+}
 
 // A touch screen leans on the round marker for send and for stop. A keyboard screen leans on
 // Enter, and sees the marker too, because a marker that is not drawn cannot be found.
@@ -15343,6 +15352,12 @@ function aimEmbedding() {
 
 function openPlusMenu() {
   if (el.plusmenu) {
+    if (el.rag && el.rag.parentNode !== el.plusmenu) {
+      var separator = make('div', 'sep');
+      el.plusmenu.appendChild(separator);
+      el.plusmenu.appendChild(el.rag);
+      if (el.mcpwrap) { el.plusmenu.appendChild(el.mcpwrap); }
+    }
     el.plusmenu.classList.remove('hidden');
     menuFitOpen();
   }
