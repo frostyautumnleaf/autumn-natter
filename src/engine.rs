@@ -4265,6 +4265,12 @@ impl State {
             .unwrap_or(false)
     }
 
+    fn planning_open_in(&self, chat: &str) -> bool {
+        self.chat_of(chat)
+            .map(|one| one.meta.planning)
+            .unwrap_or(false)
+    }
+
     // True when the settings request the corporate way of showing the work. The way means the
     // whole program, and not for one chat, for it is a way of laying the pages out and not a
     // state of the work.
@@ -10557,12 +10563,12 @@ fn run_turn(
         // be had. A chat that wants the sandbox is never served a plain run because the sandbox
         // is broken.
         let sandbox_on = state
-            .chat()
+            .chat_of(chat)
             .map(|c| c.meta.sandbox_enabled)
             .unwrap_or(false);
         let access = state.access_of_chat(chat);
         let workdir = state
-            .chat()
+            .chat_of(chat)
             .map(|c| state.workdir_for(&c.clone()))
             .unwrap_or_else(|| config::paths().data);
         // The question goes into the chat at once, with its attachments hanging on it in the
@@ -10572,7 +10578,7 @@ fn run_turn(
         // and the side bar has to hear that it came: the first message gives it its name and
         // puts it in the list of its place.
         let fresh = state
-            .chat()
+            .chat_of(chat)
             .map(|c| c.messages.is_empty())
             .unwrap_or(false);
         if let Some(chat) = state.chat_of_mut(chat) {
@@ -10800,17 +10806,17 @@ fn run_turn(
                 go_on_words(&guard, carried_prompt),
                 guard.chat_of(chat).map(|c| c.meta.code_enabled).unwrap_or(false),
                 guard
-                    .chat()
+                    .chat_of(chat)
                     .map(|c| c.meta.search_enabled)
                     .unwrap_or(false),
                 guard
-                    .chat()
+                    .chat_of(chat)
                     .map(|c| c.meta.rag_enabled)
                     .unwrap_or(false),
-                guard.planning_open(),
+                guard.planning_open_in(chat),
                 guard.corporate_open(),
                 guard
-                    .chat()
+                    .chat_of(chat)
                     .map(|c| c.meta.tools.clone())
                     .unwrap_or_default(),
                 guard.thinking_ask(),
@@ -11918,7 +11924,7 @@ fn run_turn(
             // A tool the user took out of the drop-down of the badge is never proposed, but a
             // model that names it anyway is answered rather than run: the badge of the tools is
             // the entry point to all of them, and a call of the model cannot open it.
-            if !tool_allowed(state, &call.name) {
+            if !tool_allowed_in(state, chat, &call.name) {
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
@@ -12045,12 +12051,19 @@ fn group_of(name: &str) -> Option<&'static str> {
 // where the tools are proposed; this is the same rule laid over the call itself, for a model
 // can name a tool it was never proposed.
 fn tool_allowed(state: &Arc<Mutex<State>>, name: &str) -> bool {
+    let Ok(guard) = state.lock() else { return false };
+    let chat = guard.open_id();
+    drop(guard);
+    tool_allowed_in(state, &chat, name)
+}
+
+fn tool_allowed_in(state: &Arc<Mutex<State>>, chat: &str, name: &str) -> bool {
     // The search of the sources is on the badge of retrieval and not behind the badge of the
     // tools, so it is gated by its own switch.
     if name == rag::NAME {
         let Ok(guard) = state.lock() else { return false };
         return guard
-            .chat()
+            .chat_of(chat)
             .map(|chat| chat.meta.rag_enabled)
             .unwrap_or(false);
     }
@@ -12062,7 +12075,7 @@ fn tool_allowed(state: &Arc<Mutex<State>>, name: &str) -> bool {
         return false;
     }
     guard
-        .chat()
+        .chat_of(chat)
         .map(|c| c.meta.tools.value_of(part))
         .unwrap_or(true)
 }
