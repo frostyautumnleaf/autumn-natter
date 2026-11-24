@@ -688,6 +688,14 @@ pub const THEME_SILVER: &str = "silver";
 pub const THEME_CORPORATE: &str = "corporate";
 pub const THEME_NEON: &str = "neon";
 
+// The skin a set of settings opens in when the user has chosen none: the dark one, because the
+// program is looked at in the evening as often as in the day, and a pale page sent into a dark
+// room costs the eye more than the other way about. It is the skin of a first run only - the
+// word is written into the settings with the first save, and a theme the user chose is kept
+// through every later read of them. It says nothing of the skin a settings file falls back to
+// when its word of a theme is none of the five: that remains the pale one, see `theme_word`.
+pub const THEME_DEFAULT: &str = THEME_DARK;
+
 // The text of the five themes, in the order the settings panel and the marker of the browser
 // page step through them.
 pub const THEMES: [&str; 5] = [
@@ -699,9 +707,11 @@ pub const THEMES: [&str; 5] = [
 ];
 
 // The word of a theme. A word that is none of the five answers as the pale theme, which is the
-// one a new set of settings is on. An empty word is the marker of a settings file written
-// before there were four themes, and the switch of the two that such a file holds answers for
-// it.
+// skin the pages are drawn in when nothing of a theme is written down. An empty word is the
+// marker of a settings file written before there were four themes, and the switch of the two
+// that such a file holds answers for it - so a file of the two-theme program that was on the
+// pale skin does not open dark, and does not change the answer a new set of settings gives
+// either, which is `config::THEME_DEFAULT`.
 pub fn theme_word(value: &str, dark: bool) -> String {
     match value {
         THEME_DARK => THEME_DARK,
@@ -893,10 +903,13 @@ impl Default for Config {
             // conversations of the model.
             data_dir: String::new(),
             contexts_dir: String::new(),
-            theme: String::new(),
+            theme: THEME_DEFAULT.to_string(),
             theme_pixel: false,
             skins_v2: true,
-            dark_mode: false,
+            // The switch of the two themes that was before the third is kept in step with the
+            // skin above, so a settings file of this program is read as the same skin by a
+            // program written when there were two.
+            dark_mode: THEME_DEFAULT == THEME_DARK,
             remote_port: DEFAULT_REMOTE_PORT,
             upnp_enabled: false,
             model_id: String::new(),
@@ -1350,11 +1363,12 @@ pub fn server_in(dir: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
-    // The word of a theme: the three words remain, a word that is none of them is read as the
+    // The word of a theme: the five words remain, a word that is none of them is read as the
     // pale theme, and an empty word -- the marker of a settings file written before there were
     // three -- answers with the switch of the two that such a file holds, so a chat that was on
-    // the dark theme does not start up pale. A new set of settings holds no word of its own,
-    // which is read as the pale theme.
+    // the pale theme of that program does not start up dark, nor one that was on the dark theme
+    // start up pale. A new set of settings holds the skin of a first run, and the old switch is
+    // in step with it.
     #[test]
     fn the_word_of_a_skin_is_kept_or_read_as_the_pale_one() {
         assert_eq!(theme_word(THEME_LIGHT, false), "light");
@@ -1366,7 +1380,16 @@ mod tests {
         assert_eq!(theme_word("", false), "light");
         assert_eq!(theme_word("shiny_and_blue", true), "light");
         let fresh = Config::default();
-        assert_eq!(theme_word(&fresh.theme, fresh.dark_mode), THEME_LIGHT);
+        assert_eq!(theme_word(&fresh.theme, fresh.dark_mode), THEME_DEFAULT);
+        // The skin of a first run is the dark one, and the switch of the two that was before the
+        // third says the same: a settings file of this program read by an older program opens in
+        // the same skin as it does here.
+        assert_eq!(THEME_DEFAULT, THEME_DARK);
+        assert!(fresh.dark_mode, "the old switch is in step with the skin of a first run");
+        // The five themes are stepped through from the pale one, whatever the skin of a first run
+        // is: the menu of the settings panel and the marker of the browser page turn in the same
+        // order they always have.
+        assert_eq!(THEMES[0], THEME_LIGHT);
         // The list the pages step through holds every theme the program knows, once each, and
         // all of them is a word the settings panel can put on the page.
         assert_eq!(THEMES.len(), 5);

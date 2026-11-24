@@ -17653,15 +17653,16 @@ mod tests {
     // The theme of the pages. The word of the theme is what the page is informed, and the
     // switch of the two themes that was before the third is kept in step with it, so that a
     // settings file of this program can still be read by a program written when there were two.
-    // A word that is none of the three is read as the pale theme, and a settings file with no
-    // word of one answers with the switch it holds.
+    // A settings file with no word of one answers with the switch it holds, and a word that is
+    // none of the five is read as the pale theme. A program with no settings at all - a first
+    // run - opens in the skin of `config::THEME_DEFAULT`.
     #[test]
     fn the_skin_of_the_pages_keeps_the_old_switch_in_step() {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
-        assert_eq!(engine.snapshot().theme, "light");
-        assert!(!engine.snapshot().dark_mode);
+        assert_eq!(engine.snapshot().theme, config::THEME_DEFAULT);
+        assert!(engine.snapshot().dark_mode, "the old switch is in step with it");
         // The third theme is on a dark ground, but it is not the dark theme, so the old switch
         // stays off: a program written for two themes reads the pale one, which is an honest
         // fall back.
@@ -17686,13 +17687,22 @@ mod tests {
         assert_eq!(engine.snapshot().theme, "light");
         assert!(!engine.snapshot().dark_mode);
         // A settings file written before there were three themes holds no word, and the switch
-        // it holds answers for it.
+        // it holds answers for it: such a file that was on the dark theme does not start up
+        // pale, and one that was on the pale theme of that program does not start up dark.
         let before = Config {
+            theme: String::new(),
             dark_mode: true,
             ..Default::default()
         };
         let engine = Engine::start(before);
         assert_eq!(engine.snapshot().theme, "dark");
+        let before = Config {
+            theme: String::new(),
+            dark_mode: false,
+            ..Default::default()
+        };
+        let engine = Engine::start(before);
+        assert_eq!(engine.snapshot().theme, "light");
     }
 
     // The pixel-art form of a theme is a note about its own: a user may be on any of the five
@@ -17706,7 +17716,8 @@ mod tests {
         assert!(!engine.snapshot().theme_pixel, "the pages are drawn as usual");
         engine.set_theme_pixel(true);
         assert!(engine.snapshot().theme_pixel);
-        assert_eq!(engine.snapshot().theme, "light", "the theme is untouched");
+        assert_eq!(engine.snapshot().theme, config::THEME_DEFAULT,
+            "the theme is untouched");
         // The form is with whichever theme is put on, and the theme is with it.
         engine.set_theme("neon");
         assert!(engine.snapshot().theme_pixel, "the form is kept across a theme");
