@@ -6929,6 +6929,37 @@ function boldAt(words, at) {
   }
 }
 
+// One run held between single markers of italics. Double markers belong to bold, and
+// underscores inside a word are left alone as part of a name or identifier.
+function italicAt(words, at) {
+  var mark = words.charAt(at);
+  if ((mark !== '*' && mark !== '_') || words.charAt(at + 1) === mark) { return null; }
+  var before = at > 0 ? words.charAt(at - 1) : '';
+  if (mark === '_' && before && /[A-Za-z0-9_]/.test(before)) { return null; }
+  var close = at + 1;
+  while ((close = words.indexOf(mark, close)) >= 0) {
+    if (words.charAt(close + 1) !== mark) {
+      var said = words.slice(at + 1, close), after = words.charAt(close + 1);
+      if (said && !/^\s/.test(said) && !/[\s\\]$/.test(said)
+          && (mark !== '_' || !after || !/[A-Za-z0-9_]/.test(after))) {
+        return { words: said, italic: true, end: close + 1 };
+      }
+    }
+    close++;
+  }
+  return null;
+}
+
+// A run held between two tildes. A lone tilde remains ordinary text.
+function strikeAt(words, at) {
+  if (words.slice(at, at + 2) !== '~~') { return null; }
+  var close = words.indexOf('~~', at + 2);
+  if (close < 0) { return null; }
+  var said = words.slice(at + 2, close);
+  if (!said || /^\s/.test(said) || /\s$/.test(said)) { return null; }
+  return { words: said, strike: true, end: close + 2 };
+}
+
 // A run between matching backtick markers. Code spans keep their contents literally: links,
 // emphasis and colour markers inside them are text, not formatting.
 function codeAt(words, at) {
@@ -6998,6 +7029,15 @@ function lineParts(line, out) {
         continue;
       }
     }
+    if (ch === '~' && words.charAt(n + 1) === '~') {
+      var strike = strikeAt(words, n);
+      if (strike) {
+        if (run) { out.push({ words: plain(run) }); run = ''; }
+        out.push(strike);
+        n = strike.end;
+        continue;
+      }
+    }
     if (ch === '[' && back !== '\\' && back !== '!') {
       var link = linkAt(words, n);
       if (link) {
@@ -7013,6 +7053,13 @@ function lineParts(line, out) {
         if (run) { out.push({ words: plain(run) }); run = ''; }
         out.push({ words: plain(held.words), bold: true });
         n = held.end;
+        continue;
+      }
+      var italic = italicAt(words, n);
+      if (italic) {
+        if (run) { out.push({ words: plain(run) }); run = ''; }
+        out.push(italic);
+        n = italic.end;
         continue;
       }
     }
@@ -7115,6 +7162,13 @@ function inlineCodeNode(words, fade) {
   return held;
 }
 
+function emphasisNode(words, tag, fade) {
+  var held = make(tag);
+  if (fade) { fresh(held, words); }
+  else { held.textContent = words; }
+  return held;
+}
+
 // The parts of a run of text put into a node. `fade` puts the text behind a
 // fade, as the new text of an answer is.
 function inlineInto(node, parts, fade) {
@@ -7123,6 +7177,8 @@ function inlineInto(node, parts, fade) {
     if (!part.words) { continue; }
     if (part.code) { putLast(node, inlineCodeNode(part.words, fade)); }
     else if (part.bold) { putLast(node, boldNode(part.words, part.href, fade)); }
+    else if (part.italic) { putLast(node, emphasisNode(part.words, 'em', fade)); }
+    else if (part.strike) { putLast(node, emphasisNode(part.words, 'del', fade)); }
     else if (part.colour) { putLast(node, colourNode(part.words, part.colour, fade)); }
     else if (part.href) { putLast(node, linkNode(part.words, part.href, fade)); }
     else if (fade) { fresh(node, part.words); }
