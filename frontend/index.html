@@ -1047,6 +1047,7 @@ body.home .stage { display: none; }
 .turn.landed { animation: unfold 190ms ease-out; }
 @keyframes unfold { from { transform: scale(.94); opacity: .5; } to { transform: none; opacity: 1; } }
 .plain { min-width: 0; }
+.plain.corp-held-words { display: none; }
 /*
  * The time of a message. It takes no space of its own until the user hovers over the message;
  * then it opens out below the text. Only what hangs under the message moves, so the message the
@@ -8898,6 +8899,9 @@ function feedInk(m) {
   ink.musing = String(m.reasoning || '');
   ink.ms = ink.base + (Number(m.reasoning_ms) || 0);
   ink.done = !!m.reasoning_done;
+  if (ink.words) {
+    ink.words.classList.toggle('corp-held-words', chatting.corporate && !m.work_closed);
+  }
   // The one block of the corporate display reports what the model is at, and that moves while
   // the answer arrives: a heading the model wrote, a call that began, a call that returned. The
   // row is not rebuilt for these, for the text of the answer is the writer's own, so the block
@@ -8975,6 +8979,7 @@ function fillLive(turn, m, group) {
   thought.dataset.live = '1';
   body.appendChild(thought);
   var plain = make('div', 'plain');
+  plain.classList.toggle('corp-held-words', chatting.corporate && !m.work_closed);
   turn.appendChild(plain);
   ink.turn = turn; ink.panel = panel; ink.panelWords = body; ink.thought = thought;
   ink.words = plain; ink.caret = make('span', 'caret');
@@ -9315,11 +9320,14 @@ function cardParts(m, thoughtDone, saidLast) {
 }
 
 // True when the text of a message is outside the one block of the answer, in the plain text of
-// the chat. Two items make them do so: the message is the last one of the answer that stated
-// anything, which is the answer the user came for; or the model wrote them after it closed the
-// block with its own tool, which is the same saying in the text of the model. The text of any
-// other message was stated while the model worked, and are inside the block.
+// the chat. A completed answer is the answer the user came for; text written after the model
+// closed the block with its own tool is also outside. While it is live, the text is held in the
+// card until the work block closes or the answer is saved as complete.
 function wordsOutside(m, saidLast) {
+  // The live writer is still composing this text, even if it is the last thing in the answer
+  // so far. Keep it in the progress card until the model closes its work block. Stored final
+  // answers still use `saidLast` to put the answer the user came for in the chat.
+  if (m && m.id === 'live') { return m.work_closed === true; }
   return m.work_closed === true || !!saidLast;
 }
 

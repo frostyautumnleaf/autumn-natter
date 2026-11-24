@@ -291,10 +291,11 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     }
 
     // Four: an answer arriving is held by the card at the header of its turn, and the rows of
-    // its parts written before is offset. The text arriving are outside the card.
+    // its parts written before is offset. Live text is a sub-block in the card while it is
+    // being written, and becomes the final answer outside only when the work block is closed.
     where = 'an answer coming in';
     box = look(state(talk.slice(0, 4), CHAT, {
-      generating: true, live: 'The tests pass.', reasoning: 'Say what changed.',
+      generating: true, live: 'Still writing this response.', reasoning: 'Say what changed.',
       reasoning_ms: 900, live_work: SHORT, live_work_head: 'Creating files (3)'
     }));
     var liveRow = box.querySelector('.turn:last-child');
@@ -306,7 +307,9 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       if (!/Creating files \(3\)/.test(liveHead)) {
         faults.push('the header of the card of an answer arriving reports "' + liveHead + '" ' + where);
       }
-      if (!liveCard.querySelector('.wthink') || !liveCard.querySelector('.wwords')) {
+      var liveSub = liveCard.querySelector('.wwords[data-said="live"]');
+      if (!liveCard.querySelector('.wthink') || !liveSub
+          || !/Still writing this response/.test(liveSub.textContent)) {
         faults.push('the thought or the text of the work is not in the card of an '
           + 'answer coming in ' + where);
       }
@@ -314,10 +317,10 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     if (box.querySelector('.turn[data-mid="2"]').classList.contains('t-hush') === false) {
       faults.push('a part of the answer arriving is put on the page as well ' + where);
     }
-    // More text of the same answer arrive: the card is put again, and remains once, and the
-    // text of the answer stay outside it.
+    // More text of the same answer arrives: the card is put again, and remains once, and the
+    // live text stays hidden from the chat while it is shown as a sub-block.
     box = look(state(talk.slice(0, 4), CHAT, {
-      generating: true, live: 'The tests pass. Two items changed.',
+      generating: true, live: 'Still writing this response. More detail follows.',
       reasoning: 'Say what changed.', reasoning_ms: 1400, live_work: SHORT,
       live_work_head: 'Creating files (3)'
     }));
@@ -326,8 +329,13 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       faults.push('an answer arriving is behind more than one card ' + where);
     }
     var flowing = again.querySelector('.plain');
-    if (!flowing || !/Two items changed/.test(flowing.textContent)) {
-      faults.push('the text of an answer arriving is not outside the card ' + where);
+    if (!flowing || !flowing.classList.contains('corp-held-words')
+        || getComputedStyle(flowing).display !== 'none') {
+      faults.push('the text of an answer arriving is visible in the chat before it is complete ' + where);
+    }
+    var liveWords = again.querySelector(':scope > .work .wwords[data-said="live"]');
+    if (!liveWords || !/More detail follows/.test(liveWords.textContent)) {
+      faults.push('the live answer is not shown as a sub-block while it is being written ' + where);
     }
 
     // When the model moves from thinking to a tool call, the live answer is grouped with the
@@ -390,6 +398,11 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     if (!shut || !/Ran a command/.test(shut.textContent)) {
       faults.push('the header of the card of a closed block reports nothing of the work ' + where);
     }
+    var closedRow = box.querySelector('.turn:last-child');
+    if (!closedRow || !/The tests pass/.test((closedRow.querySelector('.plain') || {}).textContent || '')
+        || closedRow.querySelector(':scope > .work .wwords[data-said="live"]')) {
+      faults.push('text after the work block closes is not shown as the final answer ' + where);
+    }
 
     // Six: with the corporate display off nothing of this remains: no card, and no row of an
     // answer away.
@@ -430,8 +443,9 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     process.exit(1);
   }
   console.log('one card means an answer, at the header of the row that carries its last '
-    + 'message; the thoughts, the words of the work and the short of the work stand inside '
-    + 'it, the answer itself outside; a run of calls of one tool is one block in the plural; '
+    + 'message; live answer text stays in a card sub-block until it is complete; the thoughts, '
+    + 'the words of the work and the short of the work stand inside it, the finished answer '
+    + 'outside; a run of calls of one tool is one block in the plural; '
     + 'a line of the short with nothing under it is a plain line; an answer coming in is '
     + 'held by one card and puts it again as it grows; direct answers keep their card; file '
     + 'edits keep line counts; the card survives live-to-saved and handoff transitions and '
