@@ -9294,11 +9294,19 @@ function corporateCard(head, parts) {
 function cardParts(m, thoughtDone, saidLast) {
   var out = [];
   if (!m || (m.role && m.role !== 'Assistant')) { return out; }
+  var short = m.work || [];
+  // Stored work was completed between the preceding assistant step and this one, so it comes
+  // before this message's thoughts. Work on the live message belongs to the step being written
+  // now, so its thoughts come first.
+  if (m.id !== 'live') {
+    for (var n = 0; n < short.length; n++) { out.push(workBlock(short[n], false)); }
+  }
   if (m.reasoning) { out.push(thinkingBlock(m.reasoning, m.reasoning_ms, !!thoughtDone)); }
   var said = String(m.body || '').trim();
   if (said && !wordsOutside(m, saidLast)) { out.push(wordsBlock(said, m.id)); }
-  var short = m.work || [];
-  for (var n = 0; n < short.length; n++) { out.push(workBlock(short[n], false)); }
+  if (m.id === 'live') {
+    for (var k = 0; k < short.length; k++) { out.push(workBlock(short[k], false)); }
+  }
   return out;
 }
 

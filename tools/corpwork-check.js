@@ -347,6 +347,37 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       faults.push('the thinking/tool group hid its live corporate card ' + where);
     }
 
+    // Work from a completed tool step must appear between the thought before that tool and
+    // the next thought, in the order the steps actually happened.
+    where = 'work sub-blocks in creation order';
+    var ordered = [
+      said(70, 'You', 'Check the project.'),
+      said(71, 'Assistant', 'Checking the project before the tool.', {
+        reasoning: 'First thought before the tool.' }),
+      said(72, 'Tool', 'search output', { tool: 'Search returned' }),
+      said(73, 'Assistant', '', { reasoning: 'Second thought after the tool.',
+        work: [heading('Check the test suite', [line('Running the checks.', [
+          call('run_terminal', 'ordered-call', 'Ran a command pytest')
+        ])])], work_head: 'Ran a command' }),
+      said(74, 'Assistant', 'The checks passed.', { reasoning: 'Final thought.',
+        work_head: 'Searched the web, Ran a command' })
+    ];
+    box = look(state(ordered, CHAT));
+    var orderedCards = cards(box);
+    var orderedCard = orderedCards.length ? orderedCards[orderedCards.length - 1] : null;
+    var orderedWords = orderedCard ? orderedCard.textContent : '';
+    var firstThought = orderedWords.indexOf('First thought before the tool.');
+    var firstSaid = orderedWords.indexOf('Checking the project before the tool.');
+    var workStep = orderedWords.indexOf('Check the test suite');
+    var secondThought = orderedWords.indexOf('Second thought after the tool.');
+    if (!orderedCard || firstThought < 0 || firstSaid < 0 || workStep < 0
+        || secondThought < 0 || firstThought >= firstSaid || firstSaid >= workStep
+        || workStep >= secondThought) {
+      faults.push('the work sub-blocks are out of creation order ' + where + ': '
+        + firstThought + '/' + firstSaid + '/' + workStep + '/' + secondThought
+        + ' ' + orderedWords);
+    }
+
     // Five: the block closed by the model's own tool. The text written after the marker are
     // outside the card, and the header of the card is done.
     where = 'the block closed by the model';
@@ -404,5 +435,6 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     + 'a line of the short with nothing under it is a plain line; an answer coming in is '
     + 'held by one card and puts it again as it grows; direct answers keep their card; file '
     + 'edits keep line counts; the card survives live-to-saved and handoff transitions and '
-    + 'stays visible while tools run; with the display off nothing of this stands');
+    + 'stays visible while tools run; work sub-blocks remain in creation order; with the '
+    + 'display off nothing of this stands');
 })().catch(function (e) { console.error(e); process.exit(1); });

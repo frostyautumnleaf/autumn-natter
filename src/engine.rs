@@ -2710,26 +2710,7 @@ impl State {
         // the one block can be drawn again when the chat is read after, and not only while the
         // answer arrives.
         let work = if role == "Assistant" && self.corporate_on_in(chat) {
-            let mut held = std::mem::take(&mut self.live_mut(chat).live_work);
-            // An answer that worked with a tool is in more than one message: the text of a
-            // turn, the runs of the calls, and the text after them. The short belongs to all of
-            // the answer, so what an earlier message of it holds comes over to this one. The
-            // one block is therefore with the last message of the answer, and not with the
-            // first message the work was written beside.
-            if let Some(chat) = self.chat_of_mut(chat) {
-                for one in chat.messages.iter_mut().rev() {
-                    if one.role == "You" {
-                        break;
-                    }
-                    if one.role != "Assistant" || one.work.is_empty() {
-                        continue;
-                    }
-                    let mut older = std::mem::take(&mut one.work);
-                    older.extend(std::mem::take(&mut held));
-                    held = older;
-                    one.work_head.clear();
-                }
-            }
+            let held = std::mem::take(&mut self.live_mut(chat).live_work);
             // Calls of one tool made one after another remain together in a block of their own,
             // so ten files made in a row read as one block of the summary with ten under it.
             corporate::grouped(&held)
@@ -2741,7 +2722,26 @@ impl State {
         // work at all the block still remains: when the answer did nothing but think, the
         // header reports how long it thought.
         let head = if role == "Assistant" && self.corporate_on_in(chat) {
-            corporate::head_of_answer(&work, reasoning_ms)
+            // Keep each part of the work on the assistant message that follows it, so the page
+            // can interleave tool work with the model's thoughts in their original order. The
+            // title still summarizes the whole answer by gathering earlier work here.
+            let mut all_work = work.clone();
+            let mut all_thought_ms = reasoning_ms;
+            if let Some(saved) = self.chat_of(chat) {
+                for one in saved.messages.iter().rev() {
+                    if one.role == "You" {
+                        break;
+                    }
+                    if one.role != "Assistant" {
+                        continue;
+                    }
+                    let mut earlier = one.work.clone();
+                    earlier.extend(all_work);
+                    all_work = earlier;
+                    all_thought_ms = all_thought_ms.saturating_add(one.reasoning_ms);
+                }
+            }
+            corporate::head_of_answer(&corporate::grouped(&all_work), all_thought_ms)
         } else {
             String::new()
         };
@@ -13051,6 +13051,61 @@ mod tests {
         // the older format and never brings a chat of the computer into the place a check works
         // in.
         migrate::mark_ran(&config::paths().data);
+    }
+
+    #[test]
+    fn corporate_work_stays_on_the_step_that_follows_it() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config {
+            chat_display: String::from(config::CORPORATE_DISPLAY),
+            ..Config::default()
+        });
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        let chat = state.open_id();
+        state.push_message_in(&chat, "You", "Check the project", "", 0, false);
+        state.push_message_in(&chat, "Assistant", "", "First thought", 100, false);
+
+        let first = ToolCall {
+            id: String::from("call-search-order"),
+            name: String::from(search::NAME),
+            arguments: String::from("{\"query\":\"the tests\"}"),
+        };
+        corporate::begin(
+            &mut state.live_mut(&chat).live_work,
+            &first.name,
+            &first.id,
+            &serde_json::from_str(&first.arguments).unwrap(),
+        );
+        let found = corporate::find_mut(&mut state.live_mut(&chat).live_work, &first.id)
+            .expect("the search block");
+        corporate::came_back(found, "Found the test suite", true, 0, 0);
+        state.push_message_in(&chat, "Assistant", "", "Second thought", 200, false);
+
+        let second = ToolCall {
+            id: String::from("call-command-order"),
+            name: String::from(tools::TOOL_NAME),
+            arguments: String::from("{\"command\":\"pytest\"}"),
+        };
+        corporate::begin(
+            &mut state.live_mut(&chat).live_work,
+            &second.name,
+            &second.id,
+            &serde_json::from_str(&second.arguments).unwrap(),
+        );
+        let found = corporate::find_mut(&mut state.live_mut(&chat).live_work, &second.id)
+            .expect("the command block");
+        corporate::came_back(found, "All tests passed", true, 0, 0);
+        state.push_message_in(&chat, "Assistant", "Finished", "Final thought", 300, false);
+
+        let saved = state.chat_of(&chat).expect("the chat remains open");
+        assert!(saved.messages[1].work.is_empty(), "the first thought has no later work");
+        assert_eq!(saved.messages[2].work.len(), 1, "the search stays on the next step");
+        assert_eq!(saved.messages[2].work[0].id, first.id);
+        assert_eq!(saved.messages[3].work.len(), 1, "the command stays on its next step");
+        assert_eq!(saved.messages[3].work[0].id, second.id);
+        assert_eq!(saved.messages[3].work_head, "Searched the web, Ran a command");
     }
 
     // The cut of a tool result that will not fit in the space the chat has: the start and the end
