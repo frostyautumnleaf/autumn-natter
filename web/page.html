@@ -9345,11 +9345,68 @@ function putCard(turn, items, at) {
   turn.classList.toggle('corp-card-only', !answerFinal(items, at));
   var old = turn.querySelector(':scope > .work');
   if (old) {
-    if (old.classList.contains('shut')) { made.classList.add('shut'); }
-    turn.replaceChild(made, old);
+    reconcileCorporateNode(old, made);
   } else {
     turn.insertBefore(made, turn.firstChild);
   }
+}
+
+// Bring an already displayed corporate node in line with the latest snapshot while keeping
+// nodes with stable fold keys in place. Rebuilding the card on every streamed update made all
+// of its sub-blocks flash, and a freshly appended block could briefly land before an older one
+// while the next snapshot replaced the whole card. This reconciles the final order in one DOM
+// pass and only creates the nodes that are actually new.
+function reconcileCorporateNode(here, wanted) {
+  if (here.nodeType !== wanted.nodeType || here.nodeName !== wanted.nodeName) {
+    if (here.parentNode) { here.parentNode.replaceChild(wanted, here); }
+    return wanted;
+  }
+  if (here.nodeType === 3) {
+    if (here.nodeValue !== wanted.nodeValue) { here.nodeValue = wanted.nodeValue; }
+    return here;
+  }
+  var oldFold = here.dataset && here.dataset.foldKey
+    ? here.dataset.foldKey : '';
+  var wantedFold = wanted.dataset && wanted.dataset.foldKey
+    ? wanted.dataset.foldKey : '';
+  // The fold map is the source of truth, but preserve the current choice on the main card too
+  // in case it was opened before its key was first recorded.
+  var preserveOpen = oldFold && wantedFold && oldFold === wantedFold
+    && corporateFolds[oldFold] === undefined && !here.classList.contains('shut');
+  while (here.attributes.length) { here.removeAttribute(here.attributes[0].name); }
+  for (var a = 0; a < wanted.attributes.length; a++) {
+    var attr = wanted.attributes[a];
+    here.setAttribute(attr.name, attr.value);
+  }
+  if (preserveOpen) { here.classList.remove('shut'); }
+
+  var previous = Array.prototype.slice.call(here.childNodes);
+  var keyed = Object.create(null);
+  for (var p = 0; p < previous.length; p++) {
+    var key = previous[p].dataset && previous[p].dataset.foldKey;
+    if (key) { keyed[key] = previous[p]; }
+  }
+  var used = [];
+  for (var n = 0; n < wanted.childNodes.length; n++) {
+    var next = wanted.childNodes[n];
+    var nextKey = next.dataset && next.dataset.foldKey;
+    var match = nextKey ? keyed[nextKey] : null;
+    if (!match && !nextKey) {
+      var candidate = previous[n];
+      if (candidate && !used.includes(candidate) && candidate.nodeType === next.nodeType
+          && candidate.nodeName === next.nodeName
+          && !(candidate.dataset && candidate.dataset.foldKey)) { match = candidate; }
+    }
+    if (match && used.includes(match)) { match = null; }
+    var child = match ? reconcileCorporateNode(match, next) : next;
+    used.push(child);
+    var before = here.childNodes[n] || null;
+    if (before !== child) { here.insertBefore(child, before); }
+  }
+  while (here.childNodes.length > wanted.childNodes.length) {
+    here.removeChild(here.lastChild);
+  }
+  return here;
 }
 
 // The place of a message in the thread, or -1 when it is in none. The one block of an answer is
