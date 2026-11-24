@@ -211,6 +211,10 @@ enum Job {
     Tick,
     // Leave the process, after the model is unloaded.
     Shutdown,
+    // The user sent the loaded model away to free the memory it holds. The choice of the model is
+    // kept, so the next message loads the same model again. Like a changed model, the run goes
+    // only when no chat is being answered on it.
+    UnloadModel,
 }
 
 
@@ -1356,6 +1360,10 @@ pub struct Snap {
     // user.
     pub summarising: bool,
     pub busy: bool,
+    // True while the model of the settings stands loaded in a run, and the memory it takes is not
+    // yet given back to the computer. The button that sends the model away shows on this word
+    // alone.
+    pub model_loaded: bool,
     // The chats that are being answered, by their id. The side bar puts a marker on the row of
     // these chats, so the user sees where the model is at work while another chat is left open.
     pub working: Vec<String>,
@@ -1710,6 +1718,11 @@ pub struct State {
     queues: Vec<WaitingList>,
     // The model is loading, so the window shows a spinner.
     pub busy: bool,
+    // True while a llama-server run holds the model in the memory of the computer. The worker
+    // sets it when a run is taken up and clears it when the run is let go of, so the pages can
+    // show what is loaded rather than what the settings name -- the two differ between the
+    // sending away of a model and the next message.
+    pub model_loaded: bool,
     pub status: String,
     pub ctx_total: u64,
     pub sandbox_available: bool,
@@ -4411,6 +4424,7 @@ impl State {
             working: self.generating_chats(),
             summarising: self.live().summarising,
             busy: self.busy,
+            model_loaded: self.model_loaded,
             code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(self.new_code),
             tool_switches: chat
                 .map(|c| c.meta.tools.clone())
@@ -4792,6 +4806,8 @@ impl Engine {
             turn_cancel: std::collections::BTreeMap::new(),
             queues: Vec::new(),
             busy: false,
+            // Nothing has been loaded yet: the first message starts the run.
+            model_loaded: false,
             status: String::from("Ready"),
             ctx_total: 0,
             sandbox_available,
@@ -6724,6 +6740,42 @@ impl Engine {
         let _ = self.jobs.send(Job::ModelChanged);
     }
 
+    // Send the loaded model away, so the memory it holds goes back to the computer. What the user
+    // chose is kept where it is: the model stays the model of the program, and the next message
+    // loads it again -- which is the point of the call, since a session of pauses between two
+    // long answers should not cost the choice of the model or the settings of it.
+    //
+    // A run that chats are being answered on is left where it is, as it is for a changed model:
+    // the answers come to their end, and the run goes with the last of them. Nothing is done at
+    // all when no model stands loaded, so a second click costs no turn of the worker. The word
+    // that a model is loaded is left to the worker, which clears it when the memory is truly
+    // given back: a button that disappeared while an answer was still being written would say
+    // the memory was free when it was not.
+    //
+    // The conversations of the chats are written out before the run goes, as they always are when
+    // a run is let go of, so an unloading costs nothing of a conversation.
+    pub fn unload_model(&self) {
+        let want = {
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            if !state.model_loaded {
+                false
+            } else {
+                let words = if state.any_generating() {
+                    "The model is unloaded when the answer is done"
+                } else {
+                    "The model is unloaded. It loads again with the next message"
+                };
+                state.set_status(words);
+                true
+            }
+        };
+        if want {
+            let _ = self.jobs.send(Job::UnloadModel);
+        }
+    }
+
     // Store new settings, and refresh what depends on them. A run that chats are being answered
     // on keeps the values it was started with until they are done, which is what makes a
     // setting changed mid-answer take hold on a new turn.
@@ -6985,6 +7037,7 @@ impl Snap {
             generating: false,
             working: Vec::new(),
             busy: false,
+            model_loaded: false,
             code_enabled: false,
             tool_switches: store::ToolSwitches::default(),
             search_enabled: false,
@@ -7578,7 +7631,7 @@ fn worker(
                 idle_out(&state, &server, &jobs, &mut busy);
                 return;
             }
-            Job::ModelChanged | Job::SettingsChanged => {
+            Job::ModelChanged | Job::SettingsChanged | Job::UnloadModel => {
                 // A run that chats are being answered on is left where it is: the new model, or
                 // the new settings, take effect on the next turn, which is what the user is
                 // informed. The chats themselves are asked as well as the list of turns, for a
@@ -7951,6 +8004,9 @@ fn stop_run(state: &Arc<Mutex<State>>, old: &mut Option<Server>) {
     }
     if let Ok(mut guard) = state.lock() {
         guard.context_lost();
+        // The memory of the computer is given back here, so the pages stop saying that a model
+        // stands loaded. The next message starts a run again and sets the word back.
+        guard.model_loaded = false;
     }
     if let Some(mut one) = old.take() {
         one.stop();
@@ -12774,6 +12830,9 @@ fn ensure_server(
             .as_ref()
             .map(|s| s.ctx_total)
             .unwrap_or(settings.ctx_size as u64);
+        if let Ok(mut guard) = state.lock() {
+            guard.model_loaded = true;
+        }
         return Ok(total);
     }
     stop_run(state, &mut held);
@@ -12790,6 +12849,7 @@ fn ensure_server(
             *held = Some(started);
             drop(held);
             if let Ok(mut state) = state.lock() {
+                state.model_loaded = true;
                 for note in notes {
                     let text = note;
                     state.set_status(&text);
@@ -20484,5 +20544,54 @@ mod tests {
             assert_eq!(stopped, Some(true), "the stopped chat carries its own marker");
             assert_eq!(going, Some(false), "the other chat is in its call as it was");
         }
+    }
+
+    // The word that a model stands loaded follows the run and not the settings, and the call that
+    // sends the model away costs nothing while nothing is loaded. The button of the page shows on
+    // this word alone, so the two ways it can be wrong are worth closing: a program that went on
+    // saying a model was loaded after its run was gone would keep a button on that could ask for
+    // nothing, and a program that said the model was sent away while an answer was still being
+    // written on it would promise the memory of the computer was free when it was not.
+    #[test]
+    fn the_word_of_a_loaded_model_follows_the_run() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let ready = engine.snapshot().status.clone();
+        assert!(
+            !engine.snapshot().model_loaded,
+            "no run stands before the first message"
+        );
+        // Nothing to send away, so the call refuses: a second click costs no turn of the worker,
+        // and the line of state says nothing the user did.
+        engine.unload_model();
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        let refused = engine.snapshot();
+        assert!(!refused.model_loaded, "a refusal loads nothing");
+        assert_eq!(refused.status, ready, "a refusal says nothing on the line of state");
+        // A run that holds the model. The slot of the worker stays empty, for no llama-server is
+        // asked for here; the word of the state is what the button and the page go by.
+        {
+            let mut guard = engine.state.lock().unwrap();
+            guard.model_loaded = true;
+        }
+        engine.unload_model();
+        let told = engine.snapshot().status.clone();
+        assert!(
+            told.contains("unloaded"),
+            "the line of state says the model is sent away, and it says: {told}"
+        );
+        let mut given_back = false;
+        for _ in 0..200 {
+            if !engine.snapshot().model_loaded {
+                given_back = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            given_back,
+            "the word of the model is given back by the worker, with the run it stops"
+        );
     }
 }

@@ -2,15 +2,14 @@
 // it.
 //
 // Five items are checked, in each page:
-// * the marker of a new chat remains, and the side bar lets another chat be opened, while an
-//    answer is being written: the program answers as many chats at once as the model was
-//    started with space for;
+// * the side bar lets another chat be opened, and a new one be started, while an answer is being
+//    written: the program answers as many chats at once as the model was started with space for;
 // * every chat that is being answered wears a pulsing marker in the side bar, whether the
 //    window checks it or not, and an idle chat wears none;
-// * the marker is sent of the top bar when the answer is over, which means the top bar is
-//    created anew when the list of chats at work moves;
-// * opening another chat, and starting a new one, while an answer arrives post what they always
-//    posted, and nothing else;
+// * the marker is sent of the top bar when the answer is over, which means the top bar is created
+//    anew when the list of chats at work moves;
+// * the button that sends the loaded model away shows while a model stands loaded - during an
+//    answer as much as at rest - and asks for nothing but the unloading of it;
 // * the text the program reports when a model setting is changed during an answer are shown on
 //    the line of state, and the settings still was sent.
 //
@@ -53,11 +52,13 @@ function said(id, role, body) {
 
 // The state of the window. `working` holds the ids of the chats that are being answered, and
 // `generating` reports whether the chat the window checks is one of them. `status` is what the
-// program stated last.
-function stateOf(theme, rev, generating, working, status) {
+// program stated last. `loaded` reports whether the model stands in a run; it is on unless the
+// check says otherwise, and it is a word of its own because the settings name a model even after
+// that model was sent away.
+function stateOf(theme, rev, generating, working, status, loaded) {
   return {
     rev: rev, unchanged: false, theme: theme || 'light',
-    model: { id: 'm1', name: 'Qwen3.5-0.8B-Q6_K_XL', kind: 'GGUF' },
+    model: { id: 'm1', name: 'Qwen3.5-0.8B-Q6_K_XL', kind: 'GGUF', loaded: loaded !== false },
     models: [{ id: 'm1', name: 'Qwen3.5-0.8B-Q6_K_XL', kind: 'GGUF' }],
     repository: { id: '', name: 'No repository' },
     repositories: [],
@@ -225,12 +226,13 @@ async function main() {
 
     console.log('\n== ' + one.name);
 
-    // A new chat is started, and another chat opened, while an answer arrives.
-    if (await shown(page, 'newchat') !== 'shown') {
-      note('the mark of a new chat is hidden while an answer arrives');
-    }
+    // A new chat is started from the head of the side bar while an answer arrives, and the
+    // button that sends the model away is on the line of state all the while.
     if (await shown(page, 'sideNew') !== 'shown') {
       note('the mark of a new chat in the side bar is hidden while an answer arrives');
+    }
+    if (await shown(page, 'unloadmodel') !== 'shown') {
+      note('the button that sends the model away is hidden while an answer arrives');
     }
 
     const marked = await rows(page);
@@ -251,8 +253,8 @@ async function main() {
     {
       const okRow = await pressRow(page, 'c2');
       if (!okRow) { note('the row of the idle chat could not be pressed'); }
-      const okNew = await press(page, 'newchat');
-      if (!okNew) { note('the mark of a new chat could not be pressed'); }
+      const okNew = await press(page, 'sideNew');
+      if (!okNew) { note('the mark of a new chat in the side bar could not be pressed'); }
       await sleep(200);
       const gone = await asked(page);
       const names = gone.map((p) => p.name);
@@ -284,8 +286,40 @@ async function main() {
       if (rest[id] && rest[id].work) { note('the mark of ' + id + ' stayed on after the answer'); }
     }
 
-    if (await shown(page, 'newchat') !== 'shown') {
-      note('the mark of a new chat is not with the chat at rest');
+    if (await shown(page, 'unloadmodel') !== 'shown') {
+      note('the button that sends the model away is not with the chat at rest');
+    }
+
+    // Sending the loaded model away, and the button going off with the model.
+    {
+      await page.evaluate(function () { window.__posts.length = 0; });
+      const okUnload = await press(page, 'unloadmodel');
+      if (!okUnload) {
+        note('the button that sends the model away could not be pressed');
+      } else {
+        await sleep(200);
+        const asked2 = await asked(page);
+        const names2 = asked2.map((p) => p.name);
+        if (names2.indexOf('unload_model') < 0) {
+          note('sending the model away asked for nothing');
+        }
+        if (names2.length !== 1) {
+          note('sending the model away asked for more than the unloading: ' + names2.join(', '));
+        }
+      }
+      // The program says the memory is given back by leaving the word of the model out of the
+      // run. The button follows that word and not the name of the model, for the settings keep
+      // naming a model that is nowhere in the memory.
+      await replaceState(page, stateOf('light', 4, false, [], 'ready', false));
+      await sleep(250);
+      if (await shown(page, 'unloadmodel') !== 'hidden') {
+        note('the button that sends the model away stands with no model loaded');
+      }
+      await replaceState(page, stateOf('light', 5, false, [], 'ready', true));
+      await sleep(250);
+      if (await shown(page, 'unloadmodel') !== 'shown') {
+        note('the button that sends the model away did not come back with the model');
+      }
     }
 
     if (faults.length) {

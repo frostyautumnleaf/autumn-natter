@@ -3603,9 +3603,15 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
         it is doing it. -->
       <span class="rate hidden" id="rate"></span>
       <span class="grow"></span>
-      <button class="quiet" id="newchat" title="Start a new chat here">
-        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
-        New chat
+      <!--   The model goes away here, and only the memory it holds goes with it: the choice of the
+        model is kept, and the next message loads the same model again. The button stands on the
+        line of state and shows while a model is loaded, which is not the same question as which
+        model the settings name. A new chat is started from the head of the side bar, and this row
+        has room for the one thing that costs the computer something to undo. -->
+      <button class="quiet hidden" id="unloadmodel"
+        title="Send the loaded model away. Its memory goes back to the computer, and it loads again with the next message.">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.4v6.4M5.2 6 8 8.8 10.8 6M3.2 12.8h9.6"/></svg>
+        Unload model
       </button>
     </div>
   </div>
@@ -4266,7 +4272,7 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 // The parts of the page that stay in place. Their text is written again on every draw.
 var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
-  'newchat', 'settingsbtn', 'modelbtn', 'themebtn', 'chapters', 'timeline', 'userline',
+  'unloadmodel', 'settingsbtn', 'modelbtn', 'themebtn', 'chapters', 'timeline', 'userline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'plus', 'pluswrap', 'plusmenu', 'plusattach', 'plussources', 'pickfiles',
@@ -4464,6 +4470,10 @@ function draw(s) {
   el.dot.className = 'pulse' + (busy ? ' busy' : '') + (s.generating ? ' stop' : '');
   el.status.textContent = s.status;
   el.status.className = 'status' + (s.generating ? ' hot' : '');
+  // The button that sends the model away shows while a model stands loaded in a run. The word
+  // comes from the program and not from the settings, so a model that is still being sent away
+  // while an answer is on the way keeps the button on until the memory is truly given back.
+  el.unloadmodel.classList.toggle('hidden', !s.model.loaded);
   // The leaves of the background fall only while an answer is being written. The going is asked
   // after again with every look at the state, so a chat that returned, or a window that was
   // created bigger, is followed at once.
@@ -13996,7 +14006,9 @@ el.send.addEventListener('click', function () {
   if (cur && cur.generating) { post('/api/cancel'); return; }
   send();
 });
-el.newchat.addEventListener('click', function () { post('/api/new_chat'); });
+// Send the loaded model away. The model of the choice is kept, so the button is not a way of
+// un-choosing a model: it only gives the memory back until the next message needs it.
+el.unloadmodel.addEventListener('click', function () { post('/api/unload_model'); });
 // A new window size changes the form of the top bar, the width of the row, and the space the
 // chat has for itself.
 window.addEventListener('resize', function () {

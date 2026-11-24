@@ -209,6 +209,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             "id": snap.model_id,
             "name": if snap.model_name.is_empty() { "no model" } else { &snap.model_name },
             "kind": snap.model_kind,
+            // Whether the model stands loaded in a run right now, which is not the same question
+            // as which model the settings name: between the sending away of a model and the next
+            // message the settings still name one and nothing of it is in the memory.
+            "loaded": snap.model_loaded,
         },
         "models": models,
         "repository": { "id": snap.repository_id, "name": snap.repository_name },
@@ -1315,6 +1319,14 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.select_model(text_field(&value, "id"));
             done()
         }
+        // Send the loaded model away, so the memory it holds goes back to the computer. The model
+        // of the settings is kept, so the next message loads the same model again. A run that a
+        // chat is being answered on is let come to its end first, and the state carries the word
+        // that the model is loaded until the run is truly gone.
+        "/api/unload_model" | "unload_model" => {
+            engine.unload_model();
+            done()
+        }
         "/api/select_repository" | "select_repository" => {
             engine.select_repository(text_field(&value, "id"));
             done()
@@ -1491,6 +1503,48 @@ mod tests {
             held["items"][0]["matches"].as_str(),
             Some(""),
             "a plain row carries nothing to wait for"
+        );
+    }
+
+    // The page is told whether the model stands loaded, which is not the same question as which
+    // model the settings name: after a model was sent away, and before the next message, the
+    // settings still name one and nothing of it is in the memory of the computer. The button that
+    // sends the model away shows on this word alone, so a state that said nothing of it would
+    // leave the button hidden for ever.
+    #[test]
+    fn the_page_is_told_whether_the_model_stands_loaded() {
+        let _guard = config::test_turn();
+        config::set_data_dir(std::path::PathBuf::from("uidata/web-tests"));
+        let _ = config::ensure_dirs();
+        let engine = crate::engine::Engine::start(Config::default());
+        assert_eq!(
+            state(&engine.snapshot(), None)["model"]["loaded"].as_bool(),
+            Some(false),
+            "nothing stands loaded before the first message"
+        );
+        {
+            let mut guard = engine.state.lock().unwrap();
+            guard.model_loaded = true;
+        }
+        assert_eq!(
+            state(&engine.snapshot(), None)["model"]["loaded"].as_bool(),
+            Some(true),
+            "a run that holds the model says so, though no setting moved"
+        );
+        action(&engine, "/api/unload_model", "{}");
+        let mut given_back = false;
+        for _ in 0..200 {
+            if !engine.snapshot().model_loaded {
+                given_back = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(given_back, "the post of the page sends the model away");
+        assert_eq!(
+            state(&engine.snapshot(), None)["model"]["loaded"].as_bool(),
+            Some(false),
+            "the page is told the memory is given back, so its button goes off with the model"
         );
     }
 }
