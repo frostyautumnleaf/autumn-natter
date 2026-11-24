@@ -2602,6 +2602,21 @@ img.pic { animation: plate-in 180ms ease-out; }
                     linear-gradient(135deg, var(--faint) 50%, transparent 50%);
   background-position: right 12px center, right 7px center;
   background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+.sheet select.settings-choice-source { display: none !important; }
+.sheet .setting-picker { position: relative; width: 100%; min-width: 0; }
+.sheet .setting-picker .field-choice {
+  width: 100%; min-height: 38px; padding: 8px 30px 8px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-s);
+  background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px;
+}
+.sheet .setting-picker > .arrow {
+  position: absolute; right: 10px; top: 50%; width: 13px; height: 13px;
+  transform: translateY(-50%); stroke: var(--faint); pointer-events: none;
+}
+.sheet .setting-picker .field-choice:hover { background: var(--surface-3); }
+.sheet .setting-picker .field-choice:focus-visible { border-color: var(--accent); box-shadow: var(--ring); }
+.setting-menu { position: fixed; top: 0; left: 0; z-index: 90; min-width: 0; max-width: none; }
+.setting-menu button:disabled { opacity: .5; cursor: default; }
 .sheet textarea { min-height: 84px; resize: vertical; line-height: 1.5; }
 .sheet input[type="number"] { width: 130px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .sheet input[type="checkbox"] { width: 19px; height: 19px; accent-color: var(--accent); }
@@ -3096,6 +3111,7 @@ body.pixel img, body.pixel canvas { image-rendering: pixelated; }
 body.pixel .btn, body.pixel select, body.pixel input[type="text"], body.pixel input[type="number"],
 body.pixel input[type="password"], body.pixel textarea, body.pixel .txt,
 body.pixel .seg, body.pixel .wcard, body.pixel .ask-card, body.pixel .side-menu, body.pixel .field-menu,
+body.pixel .setting-picker .field-choice,
 body.pixel .side-menu .sub, body.pixel .menu, body.pixel .sheet {
   box-shadow: inset 0 0 0 1px var(--pix-edge), var(--shadow-1);
 }
@@ -4391,6 +4407,7 @@ function draw(s) {
   el.themebtn.setAttribute('data-tip', 'The colours the page is drawn in, now ' + themeWord
     + (pixelArt ? ' in the pixel-art form' : '') + '. Click for the next theme.');
   readChatting(s);
+  refreshSettingsPickers();
   drawHome(s);
   // The form of the lists is carried in `structure_rev`. A chat that came, went, was named,
   // pinned, moved, put away or opened moves it, and the top bar is read again when it moves.
@@ -5925,6 +5942,188 @@ function wireBarChoice(trigger, menu) {
     }
   });
 }
+
+// Settings selects keep their source values for the existing settings code, but draw the open
+// list as a themed menu just like the choices in the top bar.
+var settingsPickers = [];
+var settingsPickerId = 0;
+
+function selectedSettingsOption(select) {
+  return select.options[select.selectedIndex] || null;
+}
+
+function settingsPickerKey(select) {
+  return Array.prototype.map.call(select.options, function (option) {
+    return option.value + '\u0001' + option.textContent + '\u0001' + (option.disabled ? '1' : '0');
+  }).join('\u0002');
+}
+
+function syncSettingsPicker(picker) {
+  var selected = selectedSettingsOption(picker.select);
+  picker.text.textContent = selected ? selected.textContent : 'No choices available';
+  var choices = picker.menu.querySelectorAll('[role="option"]');
+  for (var n = 0; n < choices.length; n++) {
+    choices[n].setAttribute('aria-selected', selected && choices[n].dataset.value === selected.value
+      ? 'true' : 'false');
+  }
+}
+
+function drawSettingsPicker(picker) {
+  var key = settingsPickerKey(picker.select);
+  if (key !== picker.key) {
+    picker.key = key;
+    picker.menu.innerHTML = '';
+    Array.prototype.forEach.call(picker.select.options, function (option) {
+      var choice = make('button');
+      choice.type = 'button';
+      choice.setAttribute('role', 'option');
+      choice.dataset.value = option.value;
+      choice.textContent = option.textContent;
+      choice.disabled = option.disabled;
+      choice.addEventListener('click', function () {
+        if (choice.disabled) { return; }
+        picker.select.value = option.value;
+        closeSettingsPickers();
+        picker.select.dispatchEvent(new Event('change', { bubbles: true }));
+        picker.trigger.focus();
+      });
+      picker.menu.appendChild(choice);
+    });
+  }
+  syncSettingsPicker(picker);
+}
+
+function positionSettingsPicker(picker) {
+  var rect = picker.trigger.getBoundingClientRect();
+  var width = Math.min(rect.width, window.innerWidth - 24);
+  var left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+  var below = window.innerHeight - rect.bottom - 12;
+  var above = rect.top - 12;
+  var room = Math.max(80, Math.min(360, Math.max(above, below)));
+  picker.menu.style.width = width + 'px';
+  picker.menu.style.left = left + 'px';
+  picker.menu.style.maxHeight = room + 'px';
+  var height = Math.min(picker.menu.scrollHeight, room);
+  picker.menu.style.top = below >= height + 6 || below >= above
+    ? (rect.bottom + 6) + 'px'
+    : Math.max(8, rect.top - height - 6) + 'px';
+}
+
+function closeSettingsPickers() {
+  settingsPickers.forEach(function (picker) {
+    picker.menu.classList.remove('on');
+    picker.trigger.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function openSettingsPicker(picker) {
+  var opening = !picker.menu.classList.contains('on');
+  closeSettingsPickers();
+  if (!opening) { return; }
+  drawSettingsPicker(picker);
+  picker.menu.classList.add('on');
+  positionSettingsPicker(picker);
+  picker.trigger.setAttribute('aria-expanded', 'true');
+  var selected = picker.menu.querySelector('[aria-selected="true"]');
+  var first = picker.menu.querySelector('[role="option"]:not(:disabled)');
+  (selected && !selected.disabled ? selected : first || picker.trigger).focus();
+}
+
+function wireSettingsPicker(picker) {
+  picker.trigger.addEventListener('click', function () { openSettingsPicker(picker); });
+  picker.trigger.addEventListener('keydown', function (event) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter'
+        || event.key === ' ') {
+      event.preventDefault();
+      if (!picker.menu.classList.contains('on')) { openSettingsPicker(picker); }
+    }
+  });
+  picker.menu.addEventListener('keydown', function (event) {
+    var choices = Array.prototype.slice.call(picker.menu.querySelectorAll('[role="option"]:not(:disabled)'));
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeSettingsPickers();
+      picker.trigger.focus();
+      return;
+    }
+    if (!choices.length) { return; }
+    var at = choices.indexOf(document.activeElement);
+    var next = event.key === 'ArrowDown' ? at + 1
+      : (event.key === 'ArrowUp' ? at - 1
+        : (event.key === 'Home' ? 0 : (event.key === 'End' ? choices.length - 1 : -1)));
+    if (next >= 0) {
+      event.preventDefault();
+      choices[Math.max(0, Math.min(choices.length - 1, next))].focus();
+    }
+  });
+  picker.select.addEventListener('change', function () { drawSettingsPicker(picker); });
+  picker.menu.addEventListener('focusout', function (event) {
+    if (event.relatedTarget !== picker.trigger && !picker.menu.contains(event.relatedTarget)) {
+      closeSettingsPickers();
+    }
+  });
+  new MutationObserver(function () { drawSettingsPicker(picker); })
+    .observe(picker.select, { childList: true, subtree: true, characterData: true });
+  drawSettingsPicker(picker);
+}
+
+function enhanceSettingsSelects() {
+  document.querySelectorAll('.sheet select:not(.settings-choice-source)').forEach(function (select) {
+    select.classList.add('settings-choice-source');
+    select.tabIndex = -1;
+    select.setAttribute('aria-hidden', 'true');
+    var picker = make('div', 'setting-picker');
+    var trigger = make('button', 'field-choice');
+    trigger.type = 'button';
+    trigger.setAttribute('role', 'combobox');
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.id = 'settingChoice' + (++settingsPickerId);
+    var name = select.closest('.fld');
+    var label = name && name.querySelector('.lbl');
+    if (label) { trigger.setAttribute('aria-label', label.textContent); }
+    var text = make('span', 'field-choice-text');
+    trigger.appendChild(text);
+    var arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    arrow.setAttribute('class', 'svg arrow');
+    arrow.setAttribute('viewBox', '0 0 16 16');
+    arrow.setAttribute('aria-hidden', 'true');
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M4 6.4 8 10.4 12 6.4');
+    arrow.appendChild(path);
+    picker.appendChild(trigger);
+    picker.appendChild(arrow);
+    select.parentNode.insertBefore(picker, select.nextSibling);
+    var menu = make('div', 'field-menu setting-menu');
+    menu.id = 'settingMenu' + settingsPickerId;
+    menu.setAttribute('role', 'listbox');
+    menu.setAttribute('aria-label', label ? label.textContent : 'Settings choices');
+    trigger.setAttribute('aria-controls', menu.id);
+    document.body.appendChild(menu);
+    var entry = { select: select, picker: picker, trigger: trigger, text: text, menu: menu, key: '' };
+    settingsPickers.push(entry);
+    wireSettingsPicker(entry);
+  });
+}
+
+function refreshSettingsPickers() {
+  settingsPickers.forEach(drawSettingsPicker);
+}
+
+document.addEventListener('pointerdown', function (event) {
+  if (!event.target.closest('.setting-picker') && !event.target.closest('.setting-menu')) {
+    closeSettingsPickers();
+  }
+});
+window.addEventListener('scroll', function (event) {
+  if (!event.target || !event.target.closest || !event.target.closest('.setting-menu')) {
+    closeSettingsPickers();
+  }
+}, true);
+window.addEventListener('resize', closeSettingsPickers);
+enhanceSettingsSelects();
+new MutationObserver(enhanceSettingsSelects).observe(document.querySelector('.sheet'),
+  { childList: true, subtree: true });
 
 wireBarChoice(el.modelChoice, el.modelMenu);
 wireBarChoice(el.repoChoice, el.repoMenu);
