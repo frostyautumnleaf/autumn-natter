@@ -67,7 +67,7 @@
 //
 // The scenes: home, chat, rich, markdown, streaming, streaming-code, writing,
 // processing, previews, sheet-program, sheet-model, sheet-logs, sheet-mcp,
-// mcp-menu, corp, corplive. The last two mean the corporate display: one
+// mcp-menu, corp, corplive and corptools. The last three mean the corporate display: one
 // block for an answer, holding thoughts, progress updates, and tool outcomes,
 // with the final answer outside the card.
 // AN_CORP=1 puts that display over any other scene. AN_NOKIND=1 leaves the type of the editor of the MCP tab as it
@@ -1078,7 +1078,7 @@ function scene(name, dark, theme) {
   // reports how long the model thought for. The fixture `corplive` is in the middle of the first
   // answer: the card is being written, its header reports the current action, and live text is
   // held inside until generation ends. AN_CORP=1 puts the display over any other fixture.
-  if (name === 'corp' || name === 'corplive') {
+  if (name === 'corp' || name === 'corplive' || name === 'corptools') {
     start.home = false;
     start.chat = { id: 'c1', title: 'Order of the blocks' };
     start.chatting.corporate = true;
@@ -1090,6 +1090,22 @@ function scene(name, dark, theme) {
     if (name === 'corp') {
       start.messages = CORP;
       start.status = 'Ready';
+    } else if (name === 'corptools') {
+      start.messages = [said(80, 'You', 'Read and update these files.')];
+      start.generating = true;
+      start.live = '';
+      start.reasoning = '';
+      start.live_work = [];
+      start.live_work_head = 'Reading src/main.rs';
+      start.live_tools = [
+        { call_id: 'tool-read', index: 0, name: 'run_terminal',
+          command: 'cat src/main.rs', purpose: '', target: '', done: false },
+        { call_id: 'tool-edit', index: 1, name: 'edit_file',
+          command: '', purpose: '', target: 'src/parser.rs', done: false },
+        { call_id: 'tool-create', index: 2, name: 'create_file',
+          command: '', purpose: '', target: 'notes/summary.md', done: false }
+      ];
+      start.status = 'Writing a tool call';
     } else {
       start.messages = CORP.slice(0, 4);
       start.generating = true;

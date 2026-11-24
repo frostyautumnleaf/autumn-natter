@@ -9272,7 +9272,7 @@ function workBlock(one, path) {
   head.appendChild(fold);
   if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
     var icon = one.reading
-      ? 'M1.6 6h4.2a2 2 0 0 1 0 4H3.6a2 2 0 0 1-2-2V6zm12.8 0h-4.2a2 2 0 0 0 0 4h2.2a2 2 0 0 0 2-2V6zM7.8 7h.4'
+      ? 'M2 3h4.2A2.8 2.8 0 0 1 9 5.8V13a2.2 2.2 0 0 0-2.2-2H2zM14 3H9.8A2.8 2.8 0 0 0 7 5.8V13a2.2 2.2 0 0 1 2.2-2H14zM9 5.8V13'
       : toolShape(one.tool).mark;
     head.appendChild(mark(icon, 'wtoolmark'));
   }
@@ -9345,8 +9345,8 @@ function corporateCard(head, parts, foldKey, busy) {
   dots.appendChild(make('i'));
   var title = make('span');
   title.textContent = head || 'Working';
-  top.appendChild(fold);
   top.appendChild(dots);
+  top.appendChild(fold);
   top.appendChild(title);
   box.appendChild(top);
   var body = make('div', 'wbody');
@@ -9357,6 +9357,32 @@ function corporateCard(head, parts, foldKey, busy) {
 }
 
 // The parts of an answer message: its assistant text sub-block and completed tool work.
+function workHasCall(blocks, callId) {
+  for (var n = 0; n < blocks.length; n++) {
+    if (blocks[n].call_id === callId || workHasCall(blocks[n].sub || [], callId)) { return true; }
+  }
+  return false;
+}
+
+function liveToolBlock(call, mainHead) {
+  var name = String(call.name || '');
+  var command = String(call.command || '').trim();
+  var file = String(call.target || '').trim();
+  var reading = name === 'run_terminal' && /^Reading\b/.test(mainHead || '');
+  var head;
+  if (reading) { head = mainHead; }
+  else if (name === 'run_terminal') { head = 'Running' + (command ? ' ' + command.split('\n')[0] : ''); }
+  else if (name === 'edit_file') { head = 'Editing file' + (file ? ' ' + file : ''); }
+  else if (name === 'create_file') { head = 'Creating file' + (file ? ' ' + file : ''); }
+  else { head = name.replace(/_/g, ' '); }
+  return {
+    head: head, tool: name,
+    id: call.call_id ? 'stream:' + call.call_id : 'stream:' + call.index,
+    call_id: call.call_id || '', done: false, reading: reading,
+    command: name === 'run_terminal' ? command : '', file: file
+  };
+}
+
 function cardParts(m, excludeWords, answerKey, wordIndex) {
   var out = [];
   if (!m || (m.role && m.role !== 'Assistant')) { return out; }
@@ -9371,6 +9397,14 @@ function cardParts(m, excludeWords, answerKey, wordIndex) {
   if (said && !excludeWords) { out.push(wordsBlock(said, m.id, answerKey + ':words:' + wordIndex)); }
   if (m.id === 'live') {
     for (var k = 0; k < short.length; k++) { out.push(workBlock(short[k], answerKey + ':work:' + wordIndex + ':' + k)); }
+    var calls = m.tools || [];
+    for (var c = 0; c < calls.length; c++) {
+      var callId = calls[c].call_id || '';
+      if (!callId || !workHasCall(short, callId)) {
+        out.push(workBlock(liveToolBlock(calls[c], m.work_head),
+          answerKey + ':stream:' + (callId || calls[c].index)));
+      }
+    }
   }
   return out;
 }

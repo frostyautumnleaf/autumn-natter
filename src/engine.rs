@@ -10156,7 +10156,7 @@ fn write_calls(state: &mut State, calls: &[ToolCall], chat: &str) -> bool {
             } else {
                 format!("stream:{}", one.call_id)
             };
-            let heading = corporate::streaming_block(
+            corporate::streaming_block(
                 &one.name,
                 &id,
                 &one.call_id,
@@ -15719,6 +15719,32 @@ mod tests {
         assert!(state.live().live_tools[0].done);
         // The same word again is nothing to tell.
         assert!(!end_writing_calls(&mut state, &chat));
+    }
+
+    #[test]
+    fn an_empty_tool_stream_clears_its_stale_corporate_heading() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config {
+            chat_display: String::from(config::CORPORATE_DISPLAY),
+            ..Config::default()
+        });
+        open_a_chat(&engine);
+        let mut state = engine.state.lock().unwrap();
+        let chat = state.open_id();
+        let read = ToolCall {
+            id: String::from("read-call"),
+            name: String::from(tools::TOOL_NAME),
+            arguments: String::from(r#"{"command":"cat src/main.rs"}"#),
+        };
+
+        assert!(write_calls(&mut state, std::slice::from_ref(&read), &chat));
+        assert_eq!(state.live().live_work_head, "Reading main.rs");
+        assert!(state.live().live_tools.iter().any(|one| !one.done));
+
+        assert!(write_calls(&mut state, &[], &chat));
+        assert_eq!(state.live().live_work_head, corporate::THINKING);
+        assert!(state.live().live_tools.is_empty());
     }
 
     // The meter above the chat composer was while the server worked the text it was sent
