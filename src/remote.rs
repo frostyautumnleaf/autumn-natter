@@ -191,7 +191,7 @@ fn handle(engine: &Engine, mut request: Request) {
         }
         ("GET", "/api/logs") => {
             let kind = crate::logs::Kind::of_word(&query_value(&query, "kind"));
-            let _ = request.respond(json_response(&web::logs_value(kind)));
+            let _ = request.respond(log_json_response(&web::logs_value(kind)));
         }
         ("GET", "/api/log") => {
             let kind = crate::logs::Kind::of_word(&query_value(&query, "kind"));
@@ -199,7 +199,7 @@ fn handle(engine: &Engine, mut request: Request) {
             let value = web::log_value(kind, &id, query_u64(&query, "tail"));
             // A log that is not here answers with the text of an error, and with the number
             // that records it as well.
-            let answer = json_response(&value);
+            let answer = log_json_response(&value);
             let _ = request.respond(
                 if value.get("ok").and_then(|v| v.as_bool()) == Some(false) {
                     answer.with_status_code(404)
@@ -346,6 +346,12 @@ fn query_u64(query: &str, key: &str) -> Option<u64> {
 fn json_response(value: &serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_string(value.to_string())
         .with_header(content_type("application/json; charset=utf-8"))
+}
+
+// The log list and its text change while the browser keeps the tab open. Do not let a browser
+// or a proxy reuse an earlier empty list or an older read of a log for the next request.
+fn log_json_response(value: &serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
+    json_response(value).with_header(header("cache-control", "no-store"))
 }
 
 // The bytes of a file the user was proposed. The name goes into the answer as an attachment, so

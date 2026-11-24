@@ -33,6 +33,7 @@ function stateOf(tools, all) {
     messages: [], live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
     progress: { percent: 0, active: false, what: 'text' },
     chapters: [], live_tools: [],
+    rag: { enabled: false, ready: false, files: 3 },
     mcp: { servers: [{ id: 's1', slug: 'one', name: 'One server', icon: 2, on: false,
       shown: true, tools: ['read_a_thing'] }] },
     thinking: { mode: 'off', available: true, modes: ['off', 'low'] },
@@ -202,10 +203,21 @@ async function main() {
     throw new Error('the retrieval badges are not in their own section of the plus menu: '
       + JSON.stringify(retrieval));
   }
+  await run.page.click('#rag');
+  await new Promise(function (r) { setTimeout(r, 120); });
+  if (!await open(run.page, 'plusmenu')) {
+    throw new Error('the plus menu closed when the RAG switch was clicked');
+  }
+  await run.page.evaluate(function () { closeSettings(); });
+  await new Promise(function (r) { setTimeout(r, 120); });
   const servers = await places(run.page, '#mcp');
   await run.page.mouse.click(servers.left, servers.y);
   await new Promise(function (r) { setTimeout(r, 120); });
-  if (!await open(run.page, 'mcpmenu')) { throw new Error('the badge of the servers lost its way'); }
+  const mcpOpen = await open(run.page, 'mcpmenu');
+  const plusOpen = await open(run.page, 'plusmenu');
+  if (!mcpOpen || !plusOpen) {
+    throw new Error('the MCP click left menus open=' + mcpOpen + ', plus=' + plusOpen);
+  }
   if (run.errors.length) { throw new Error('page faults: ' + run.errors.join(' | ')); }
   await run.browser.close();
 

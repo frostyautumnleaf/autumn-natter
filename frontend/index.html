@@ -14208,7 +14208,10 @@ function wireRightClick(badge, opener) {
     event.preventDefault();
     event.stopPropagation();
     if (badge.disabled) { return; }
-    showOnly(opener);
+    if (el.plusmenu && el.plusmenu.contains(badge)) {
+      closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu();
+      opener();
+    } else { showOnly(opener); }
   });
 }
 
@@ -14226,7 +14229,14 @@ function wireMenuBadge(badge, menu, open, onMain, switchedOn) {
   // A click on a badge whose menu is left open puts the menu away; any other brings it up over
   // the badge.
   var turn = function () {
-    if (menu.classList.contains('hidden')) { showOnly(open); }
+    if (menu.classList.contains('hidden')) {
+      // RAG and MCP live inside the plus menu. Their own choices open beside them without
+      // putting away the menu that contains them.
+      if (el.plusmenu && el.plusmenu.contains(badge)) {
+        closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu();
+        open();
+      } else { showOnly(open); }
+    }
     else { menu.classList.add('hidden'); }
   };
   badge.addEventListener('click', function (event) {
@@ -14268,6 +14278,11 @@ wireMenuBadge(el.think, el.thinkmenu, openThinkMenu);
 // The badge of the servers of the user's own opens the list of them, for every server is
 // switched on its own and there is nothing to switch as a whole.
 wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
+// Choices inside the plus menu do not make it an outside click. The attachment and source
+// entries put it away explicitly when they are chosen; the RAG switch and MCP list leave it up.
+if (el.plusmenu) {
+  el.plusmenu.addEventListener('click', function (event) { event.stopPropagation(); });
+}
 // A click anywhere else in the page puts the menus away.
 document.addEventListener('click', function () {
   closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closePlusMenu();
