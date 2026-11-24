@@ -997,6 +997,11 @@ body.home .stage { display: none; }
 .turn.landed { animation: unfold 190ms ease-out; }
 @keyframes unfold { from { transform: scale(.94); opacity: .5; } to { transform: none; opacity: 1; } }
 .plain { min-width: 0; }
+.inline-code {
+  padding: .08em .32em; border: 1px solid var(--code-line); border-radius: 4px;
+  background: var(--code-bg); font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono",
+    Menlo, Consolas, monospace; font-size: .9em; overflow-wrap: anywhere;
+}
 .plain.corp-held-words { display: none; }
 .turn.corp-card-only > .plain, .turn.corp-card-only > .answer-words { display: none; }
 /*
@@ -6733,6 +6738,32 @@ function boldAt(words, at) {
   }
 }
 
+// A run between matching backtick markers. Code spans keep their contents literally: links,
+// emphasis and colour markers inside them are text, not formatting.
+function codeAt(words, at) {
+  var ticks = 1;
+  while (words.charAt(at + ticks) === '`') { ticks++; }
+  var marker = new Array(ticks + 1).join('`');
+  var before = at - 1, slashes = 0;
+  while (before >= 0 && words.charAt(before--) === '\\') { slashes++; }
+  if (slashes % 2) { return null; }
+  var close = at + ticks;
+  while (close < words.length) {
+    close = words.indexOf(marker, close);
+    if (close < 0) { return null; }
+    var left = close > 0 ? words.charAt(close - 1) : '';
+    var right = words.charAt(close + ticks);
+    if (left !== '`' && right !== '`') {
+      var said = words.slice(at + ticks, close).replace(/\n/g, ' ');
+      if (said.length > 1 && said.charAt(0) === ' ' && said.charAt(said.length - 1) === ' '
+          && /[^ ]/.test(said)) { said = said.slice(1, -1); }
+      return { words: said, code: true, end: close + ticks };
+    }
+    close += ticks;
+  }
+  return null;
+}
+
 // The four colours a model may put on its text, and the class that paints each
 // of them. The names and the markers are the same in the engine, which takes them
 // out of the conversation that goes back to the model, and in the stylesheet, which shows
@@ -6767,6 +6798,15 @@ function lineParts(line, out) {
   while (n < words.length) {
     var ch = words.charAt(n);
     var back = n > 0 ? words.charAt(n - 1) : '';
+    if (ch === '`') {
+      var code = codeAt(words, n);
+      if (code) {
+        if (run) { out.push({ words: plain(run) }); run = ''; }
+        out.push(code);
+        n = code.end;
+        continue;
+      }
+    }
     if (ch === '[' && back !== '\\' && back !== '!') {
       var link = linkAt(words, n);
       if (link) {
@@ -6837,6 +6877,7 @@ function linkShape(text) {
   for (var n = 0; n < parts.length; n++) {
     if (parts[n].href) { shape += ' link' + parts[n].href; }
     if (parts[n].colour) { shape += ' colour' + parts[n].colour; }
+    if (parts[n].code) { shape += ' inline-code'; }
   }
   return shape;
 }
@@ -6876,13 +6917,21 @@ function colourNode(words, colour, fade) {
   return held;
 }
 
+function inlineCodeNode(words, fade) {
+  var held = make('code', 'inline-code');
+  if (fade) { fresh(held, words); }
+  else { held.textContent = words; }
+  return held;
+}
+
 // The parts of a run of text put into a node. `fade` puts the text behind a
 // fade, as the new text of an answer is.
 function inlineInto(node, parts, fade) {
   for (var n = 0; n < parts.length; n++) {
     var part = parts[n];
     if (!part.words) { continue; }
-    if (part.bold) { putLast(node, boldNode(part.words, part.href, fade)); }
+    if (part.code) { putLast(node, inlineCodeNode(part.words, fade)); }
+    else if (part.bold) { putLast(node, boldNode(part.words, part.href, fade)); }
     else if (part.colour) { putLast(node, colourNode(part.words, part.colour, fade)); }
     else if (part.href) { putLast(node, linkNode(part.words, part.href, fade)); }
     else if (fade) { fresh(node, part.words); }
@@ -9216,7 +9265,10 @@ function workBlock(one, path) {
   title.textContent = one.head || 'Working';
   head.appendChild(fold);
   if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
-    head.appendChild(mark(toolShape(one.tool).mark, 'wtoolmark'));
+    var icon = one.reading
+      ? 'M1.6 6h4.2a2 2 0 0 1 0 4H3.6a2 2 0 0 1-2-2V6zm12.8 0h-4.2a2 2 0 0 0 0 4h2.2a2 2 0 0 0 2-2V6zM7.8 7h.4'
+      : toolShape(one.tool).mark;
+    head.appendChild(mark(icon, 'wtoolmark'));
   }
   head.appendChild(title);
   if (typeof one.adds === 'number' && (one.adds || one.cuts)) {

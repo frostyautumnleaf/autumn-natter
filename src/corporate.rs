@@ -53,6 +53,10 @@ pub struct WorkBlock {
     pub adds: i64,
     #[serde(default)]
     pub cuts: i64,
+    // True when a terminal call only reads files with cat. It stays in the reading state until
+    // the model has processed the output, then the card reports the read as complete.
+    #[serde(default)]
+    pub reading: bool,
     // The command a run of the terminal ran. The corporate display hides the block of the call,
     // so this is the only place a user can read what ran.
     #[serde(default)]
@@ -129,6 +133,84 @@ fn doing_word(name: &str) -> &'static str {
         summarise::NAME => "Summarising the conversation",
         NAME => "Writing the short",
         _ => WORKING,
+    }
+}
+
+// The files named by a standalone cat command, or nothing if it contains another shell command.
+// Quotes and escaped spaces are read, but shell operators and expansions are rejected so a
+// pipeline, command list or substituted path is never mistaken for a simple file read.
+fn cat_files(command: &str) -> Option<Vec<String>> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut started = false;
+    for ch in command.chars() {
+        if ch == '\n' || ch == '\r' { return None; }
+        if escaped {
+            word.push(ch);
+            started = true;
+            escaped = false;
+            continue;
+        }
+        match quote {
+            Some('\'') => {
+                if ch == '\'' { quote = None; } else { word.push(ch); }
+                started = true;
+            }
+            Some('"') => {
+                if ch == '"' { quote = None; }
+                else if ch == '\\' { escaped = true; }
+                else if matches!(ch, '$' | '`') { return None; }
+                else { word.push(ch); }
+                started = true;
+            }
+            Some(_) => unreachable!(),
+            None => match ch {
+                '\'' | '"' => { quote = Some(ch); started = true; }
+                '\\' => { escaped = true; started = true; }
+                ch if ch.is_whitespace() => {
+                    if started { words.push(std::mem::take(&mut word)); started = false; }
+                }
+                '|' | '&' | ';' | '<' | '>' | '$' | '`' | '(' | ')' | '{' | '}' => return None,
+                '*' | '?' | '[' | ']' => return None,
+                _ => { word.push(ch); started = true; }
+            },
+        }
+    }
+    if quote.is_some() || escaped { return None; }
+    if started { words.push(word); }
+    let executable = words.first()?.rsplit(['/', '\\']).next()?;
+    if executable != "cat" { return None; }
+
+    let mut files = Vec::new();
+    let mut options = true;
+    for arg in words.into_iter().skip(1) {
+        if options && arg == "--" { options = false; continue; }
+        if options && arg.starts_with('-') {
+            if arg == "-" { return None; }
+            continue;
+        }
+        let name = arg.rsplit(['/', '\\']).next().filter(|part| !part.is_empty())?;
+        files.push(String::from(name));
+    }
+    (!files.is_empty()).then_some(files)
+}
+
+fn reading_head(files: &[String], done: bool) -> String {
+    format!("{} {}", if done { "Read" } else { "Reading" }, files.join(", "))
+}
+
+// Once the model has answered after a tool result, the contents have been processed and a
+// reading card can move from its live wording to its completed wording.
+pub fn finish_reads(blocks: &mut [WorkBlock]) {
+    for block in blocks {
+        if block.reading {
+            if let Some(files) = cat_files(&block.command) {
+                block.head = reading_head(&files, true);
+            }
+        }
+        finish_reads(&mut block.sub);
     }
 }
 
@@ -218,6 +300,11 @@ pub fn head_of(name: &str, args: &Value) -> String {
             tool
         };
     }
+    if name == tools::TOOL_NAME {
+        if let Some(files) = cat_files(&command_of(name, args)) {
+            return reading_head(&files, false);
+        }
+    }
     let word = doing_word(name);
     let what = short_of(name, args);
     if what.is_empty() {
@@ -261,13 +348,21 @@ fn one_line(text: String) -> String {
 
 // The block of a call, as it is now in the summary of the work.
 pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {
+    let command = command_of(name, args);
+    let read_files = (name == tools::TOOL_NAME)
+        .then(|| cat_files(&command))
+        .flatten();
     let head = if known(name) {
-        let word = doing_word(name);
-        let what = short_of(name, args);
-        if what.is_empty() {
-            String::from(word)
+        if let Some(files) = &read_files {
+            reading_head(files, false)
         } else {
-            format!("{} {}", word, what)
+            let word = doing_word(name);
+            let what = short_of(name, args);
+            if what.is_empty() {
+                String::from(word)
+            } else {
+                format!("{} {}", word, what)
+            }
         }
     } else {
         name.replace('_', " ")
@@ -282,12 +377,13 @@ pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {
         failed: false,
         adds: 0,
         cuts: 0,
-        command: command_of(name, args),
+        command,
         file: file_of(name, args),
         output: String::new(),
         sub: Vec::new(),
         line: false,
         group: false,
+        reading: read_files.is_some(),
     }
 }
 
@@ -301,6 +397,9 @@ pub fn streaming_block(
     command: &str,
     target: &str,
 ) -> WorkBlock {
+    let read_files = (name == tools::TOOL_NAME)
+        .then(|| cat_files(command))
+        .flatten();
     let what = if name == tools::TOOL_NAME {
         command
     } else {
@@ -308,11 +407,15 @@ pub fn streaming_block(
     }
     .trim();
     let head = if known(name) {
-        let doing = doing_word(name);
-        if what.is_empty() {
-            String::from(doing)
+        if let Some(files) = &read_files {
+            reading_head(files, false)
         } else {
-            format!("{} {}", doing, one_line(String::from(what)))
+            let doing = doing_word(name);
+            if what.is_empty() {
+                String::from(doing)
+            } else {
+                format!("{} {}", doing, one_line(String::from(what)))
+            }
         }
     } else {
         let doing = name.replace('_', " ");
@@ -344,6 +447,7 @@ pub fn streaming_block(
         } else {
             String::new()
         },
+        reading: read_files.is_some(),
         ..Default::default()
     }
 }
@@ -433,6 +537,9 @@ pub fn settle(block: &mut WorkBlock) {
         return;
     }
     block.done = true;
+    if block.reading && cat_files(&block.command).is_some() {
+        return;
+    }
     if known(&block.tool) {
         let was = doing_word(&block.tool);
         block.head = block.head.replace(was, done_word(&block.tool));

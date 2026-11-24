@@ -2558,7 +2558,8 @@ impl State {
         // the one block can be drawn again when the chat is read after, and not only while the
         // answer arrives.
         let work = if role == "Assistant" && self.corporate_on_in(chat) {
-            let held = std::mem::take(&mut self.live_mut(chat).live_work);
+            let mut held = std::mem::take(&mut self.live_mut(chat).live_work);
+            corporate::finish_reads(&mut held);
             // Calls of one tool made one after another remain together in a block of their own,
             // so ten files made in a row read as one block of the summary with ten under it.
             corporate::grouped(&held)
@@ -2622,7 +2623,9 @@ impl State {
         // from, so the one block of the corporate display holds all of the work and not only
         // the last part of it.
         let more = if self.corporate_on() {
-            std::mem::take(&mut self.live_write().live_work)
+            let mut held = std::mem::take(&mut self.live_write().live_work);
+            corporate::finish_reads(&mut held);
+            held
         } else {
             Vec::new()
         };
