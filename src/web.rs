@@ -750,12 +750,7 @@ pub fn preview_line(engine: &crate::engine::Engine, id: &str, settings: Value) -
     };
     // The switches of the form win over the switches the model was saved with.
     let (_, devices) = engine.model_settings(id);
-    let mut cards = devices;
-    for (place, on) in held.gpu_enabled.iter().enumerate() {
-        if let Some(card) = cards.get_mut(place) {
-            card.enabled = *on;
-        }
-    }
+    let cards = crate::gpu::selected(&devices, &held.gpu_enabled);
     let mut notes = Vec::new();
     let args = llama::build_args(
         std::path::Path::new(""),

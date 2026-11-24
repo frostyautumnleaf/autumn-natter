@@ -395,6 +395,8 @@ impl Server {
         cancel: Option<&AtomicBool>,
     ) -> Result<Server, String> {
         let port = util::free_port().ok_or("No free port on this machine")?;
+        let gpus = crate::gpu::selected(gpus, &settings.gpu_enabled);
+        let gpus = gpus.as_slice();
         let mut notes = Vec::new();
         // The folder has to remain before it is named to the server, for the server throws out
         // an argument that names no folder of the disk, and the keeping of every conversation
@@ -769,19 +771,16 @@ pub fn build_args(
     // conversation, and a model loaded with such a margin would have nowhere to put it.
     const LEAST_FIT_TARGET: u64 = 256;
     let share = crate::config::sanitize_vram_budget(settings.vram_budget);
-    let total: u64 = gpus
+    let used_cards = offload
         .iter()
-        .filter(|g| g.is_offload)
-        .map(|g| g.memory_mb)
-        .sum();
+        .take(if settings.tensor_parallel { offload.len() } else { 1 });
+    let total: u64 = used_cards.clone().map(|g| g.memory_mb).sum();
     if total > 0 && share < 100.0 {
         args.push("--fit".into());
         args.push("on".into());
         args.push("--fit-ctx".into());
         args.push(settings.ctx_size.to_string());
-        let margins: Vec<String> = gpus
-            .iter()
-            .filter(|g| g.is_offload)
+        let margins: Vec<String> = used_cards
             .map(|g| {
                 let left = g.memory_mb as f64 * (100.0 - share) / 100.0;
                 let margin = (left.round() as u64).max(LEAST_FIT_TARGET);

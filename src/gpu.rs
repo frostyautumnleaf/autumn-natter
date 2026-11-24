@@ -38,6 +38,16 @@ impl Gpu {
     }
 }
 
+// Apply the model's saved device choices to the detected devices. Older settings
+// without a choice for a device keep that device's detected default.
+pub fn selected(devices: &[Gpu], choices: &[bool]) -> Vec<Gpu> {
+    let mut selected = devices.to_vec();
+    for (device, enabled) in selected.iter_mut().zip(choices) {
+        device.enabled = *enabled;
+    }
+    selected
+}
+
 // Search for the devices llama.cpp sees. The path is the llama-server binary.
 pub fn from_llama(server_path: &Path) -> Vec<Gpu> {
     let capture = util::capture(
