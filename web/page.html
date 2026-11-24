@@ -9609,6 +9609,20 @@ function wordsBlock(text, mid, foldKey) {
   return block;
 }
 
+// Repeated calls of one tool are grouped in the saved work data. Keep each call as its own
+// ordered sub-block in the corporate card, so adding a new call never replaces a completed one
+// with a temporary group heading.
+function appendCardWork(before, after, one, path, live) {
+  var under = one && one.sub || [];
+  if (one && one.group && under.length) {
+    for (var n = 0; n < under.length; n++) {
+      appendCardWork(before, after, under[n], path + ':' + n, live);
+    }
+    return;
+  }
+  (live && !one.done ? after : before).push(workBlock(one, path));
+}
+
 // One block of the summary of the work.
 function workHeading(one) {
   var head = one.head || 'Working';
@@ -9733,43 +9747,14 @@ function corporateCard(head, parts, foldKey, busy) {
 }
 
 // The parts of an answer message: its assistant text sub-block and completed tool work.
-var corporateWorkHistory = Object.create(null);
-var corporateWorkHistoryKeys = [];
-
-function rememberCardWork(history, one, path, wordIndex) {
-  var under = one && one.sub || [];
-  if (one && one.group && under.length) {
-    for (var n = 0; n < under.length; n++) {
-      rememberCardWork(history, under[n], path + ':' + n, wordIndex);
-    }
-    return;
-  }
-  var key = one && one.call_id ? 'tool:' + one.call_id
-    : (one && one.id ? 'work:' + one.id : path);
-  var found = null;
-  for (var k = 0; k < history.length; k++) {
-    if (history[k].key === key) { found = history[k]; break; }
-  }
-  if (!found) {
-    found = { key: key, order: history.length, wordIndex: wordIndex, path: path, one: one };
-    history.push(found);
-  }
-  // The same tool moves from the live list to a saved message. Refresh its contents without
-  // changing its place in the card.
-  found.wordIndex = wordIndex;
-  found.path = path;
-  found.one = JSON.parse(JSON.stringify(one));
-}
-
-function cardParts(m, excludeWords, answerKey, wordIndex, remembered) {
+function cardParts(m, excludeWords, answerKey, wordIndex) {
   var out = [];
   if (!m || (m.role && m.role !== 'Assistant')) { return out; }
+  var short = m.work || [];
   var before = [], after = [];
-  var work = remembered || [];
-  for (var n = 0; n < work.length; n++) {
-    var one = work[n].one;
-    (m.id === 'live' && !one.done ? after : before)
-      .push(workBlock(one, work[n].path));
+  for (var n = 0; n < short.length; n++) {
+    var path = answerKey + ':work:' + wordIndex + ':' + n;
+    appendCardWork(before, after, short[n], path, m.id === 'live');
   }
   out = out.concat(before);
   var said = String(m.body || '').trim();
@@ -9836,35 +9821,12 @@ function answerCard(items, at) {
   var final = answerFinal(items, at);
   var parts = [], head = '', foundAssistant = false, wordIndex = 0;
   var foldKey = answerFoldKey(items, at);
-  var history = corporateWorkHistory[foldKey];
-  if (!history) {
-    history = [];
-    corporateWorkHistory[foldKey] = history;
-    corporateWorkHistoryKeys.push(foldKey);
-    while (corporateWorkHistoryKeys.length > 128) {
-      delete corporateWorkHistory[corporateWorkHistoryKeys.shift()];
-    }
-  }
-  for (var w = 0, step = 0; w < run.length; w++) {
-    var entry = run[w];
-    if (entry.role !== 'Assistant') { continue; }
-    var savedWork = entry.work || [];
-    for (var x = 0; x < savedWork.length; x++) {
-      rememberCardWork(history, savedWork[x], foldKey + ':work:' + step + ':' + x, step);
-    }
-    step++;
-  }
   for (var k = 0; k < run.length; k++) {
     var m = run[k];
     if (m.role !== 'Assistant') { continue; }
     foundAssistant = true;
-    var remembered = history.filter(function (work) { return work.wordIndex === wordIndex; })
-      .sort(function (a, b) { return a.order - b.order; });
-    parts = parts.concat(cardParts(m, m === final, foldKey, wordIndex, remembered));
-    if ((m.work || []).length || m.work_head || remembered.length) {
-      head = m.work_head || 'Done';
-    }
-    wordIndex++;
+    parts = parts.concat(cardParts(m, m === final, foldKey, wordIndex++));
+    if ((m.work || []).length || m.work_head) { head = m.work_head || 'Done'; }
   }
   if (!foundAssistant) { return null; }
   var busy = run.some(function (m) { return m.id === 'live'; });
