@@ -1253,9 +1253,9 @@ body.dark .work { --work-text: #ffffff; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
   cursor: pointer; color: var(--work-text); font-weight: 600; }
 .work > .whead .wfold { color: var(--work-text); font-size: 10px; flex: 0 0 auto; }
-.work > .whead .dots { display: none; gap: 3px; align-items: center;
-  justify-content: center; width: 12px; height: 12px; }
-.work > .whead.busy .dots { display: inline-flex; }
+.work > .whead .dots { display: inline-flex; visibility: hidden; gap: 3px;
+  align-items: center; justify-content: center; width: 12px; height: 12px; flex: 0 0 auto; }
+.work > .whead.busy .dots { visibility: visible; }
 .work > .whead .dots i { width: 3.5px; height: 3.5px; border-radius: 50%;
   background: var(--ink); animation: nod 1.1s ease-in-out infinite; }
 .work > .whead .dots i:nth-child(2) { animation-delay: .15s; }
@@ -1265,10 +1265,11 @@ body.dark .work { --work-text: #ffffff; }
 .work.shut > .wbody { display: none; }
 .work.shut > .whead .wfold { transform: rotate(-90deg); }
 .work .wline, .work .wbhead, .work .wfile, .work .wout { color: var(--work-text); }
-.wbody { padding: 4px 12px; }
+.wbody { padding: 4px 12px 4px 37px; }
 .wblock { border: 0; border-left: 1px solid var(--line); }
 .wblock > .wbhead { display: flex; align-items: center; gap: 8px; padding: 7px 12px;
   cursor: pointer; }
+.wblock > .wbhead .wbtitle { min-width: 0; overflow-wrap: anywhere; }
 .wblock > .wbhead .wfold { color: var(--work-text); font-size: 9px; flex: 0 0 auto; }
 .wblock > .wbhead .wtoolmark { width: 13px; height: 13px; stroke: var(--dim); flex: 0 0 auto; }
 .wblock.shut > .wbbody { display: none; }
@@ -9373,8 +9374,7 @@ function putCard(turn, items, at) {
     else if (found !== old && found.parentNode) { found.parentNode.removeChild(found); }
   }
   if (old) {
-    var busy = run.some(function (one) { return one.id === 'live'; });
-    reconcileCorporateNode(old, made, busy);
+    reconcileCorporateNode(old, made);
     if (old.parentNode !== owner) { owner.insertBefore(old, owner.firstChild); }
   } else {
     owner.insertBefore(made, owner.firstChild);
@@ -9395,7 +9395,7 @@ function clearTurn(turn) {
 // of its sub-blocks flash, and a freshly appended block could briefly land before an older one
 // while the next snapshot replaced the whole card. This reconciles the final order in one DOM
 // pass and only creates the nodes that are actually new.
-function reconcileCorporateNode(here, wanted, keepLiveParts) {
+function reconcileCorporateNode(here, wanted) {
   if (here.nodeType !== wanted.nodeType || here.nodeName !== wanted.nodeName) {
     if (here.parentNode) { here.parentNode.replaceChild(wanted, here); }
     return wanted;
@@ -9404,46 +9404,13 @@ function reconcileCorporateNode(here, wanted, keepLiveParts) {
     if (here.nodeValue !== wanted.nodeValue) { here.nodeValue = wanted.nodeValue; }
     return here;
   }
-  var oldFold = here.dataset && here.dataset.foldKey
-    ? here.dataset.foldKey : '';
-  var wantedFold = wanted.dataset && wanted.dataset.foldKey
-    ? wanted.dataset.foldKey : '';
-  // The fold map is the source of truth, but preserve the current choice on the main card too
-  // in case it was opened before its key was first recorded.
-  var preserveOpen = oldFold && wantedFold && oldFold === wantedFold
-    && corporateFolds[oldFold] === undefined && !here.classList.contains('shut');
-  while (here.attributes.length) { here.removeAttribute(here.attributes[0].name); }
+  for (var a = here.attributes.length - 1; a >= 0; a--) {
+    var name = here.attributes[a].name;
+    if (!wanted.hasAttribute(name)) { here.removeAttribute(name); }
+  }
   for (var a = 0; a < wanted.attributes.length; a++) {
     var attr = wanted.attributes[a];
-    here.setAttribute(attr.name, attr.value);
-  }
-  if (preserveOpen) { here.classList.remove('shut'); }
-
-  // A streamed assistant message can change how the answer is parsed for a snapshot. Preserve
-  // completed tool blocks that were already shown, and retain earlier assistant updates while
-  // the answer is active, so a new narration block cannot replace the sub-block before it.
-  if (here.classList.contains('wbody')) {
-    var current = Array.prototype.slice.call(here.childNodes);
-    var wantedKeys = Object.create(null);
-    for (var w = 0; w < wanted.childNodes.length; w++) {
-      var wantedKey = wanted.childNodes[w].dataset && wanted.childNodes[w].dataset.foldKey;
-      if (wantedKey) { wantedKeys[wantedKey] = true; }
-    }
-    for (var c = 0; c < current.length; c++) {
-      var prior = current[c];
-      var priorKey = prior.dataset && prior.dataset.foldKey;
-      if (!priorKey || wantedKeys[priorKey] || !prior.classList) { continue; }
-      var toolPart = prior.classList.contains('wblock')
-        && !prior.classList.contains('wwords');
-      var liveWords = keepLiveParts && prior.classList.contains('wwords');
-      if (!toolPart && !liveWords) {
-        continue;
-      }
-      var copy = prior.cloneNode(true);
-      var place = Math.min(c, wanted.childNodes.length);
-      wanted.insertBefore(copy, wanted.childNodes[place] || null);
-      wantedKeys[priorKey] = true;
-    }
+    if (here.getAttribute(attr.name) !== attr.value) { here.setAttribute(attr.name, attr.value); }
   }
 
   var previous = Array.prototype.slice.call(here.childNodes);
@@ -9467,7 +9434,7 @@ function reconcileCorporateNode(here, wanted, keepLiveParts) {
           && !(candidate.dataset && candidate.dataset.foldKey)) { match = candidate; }
     }
     if (match && used.includes(match)) { match = null; }
-    var child = match ? reconcileCorporateNode(match, next, keepLiveParts) : next;
+    var child = match ? reconcileCorporateNode(match, next) : next;
     used.push(child);
     var before = here.childNodes[n] || null;
     if (before !== child) { here.insertBefore(child, before); }
@@ -9549,14 +9516,13 @@ function hasSavedWorkCard(items) {
 // The text of one message, put into a turn. The turn is created once, and the text of an answer
 // that is arriving is put again by the writer above.
 
-// The header of an assistant output sub-block: its first line, truncated for the
-// header is read in a glance.
+// The first nonempty line is the heading of the progress message.
 function headOfWords(text) {
   var lines = String(text || '').split('\n');
   for (var n = 0; n < lines.length; n++) {
     var one = lines[n].trim();
     if (!one) { continue; }
-    return one.length > 90 ? one.slice(0, 90) + '\u2026' : one;
+    return one;
   }
   return '';
 }
@@ -9588,7 +9554,8 @@ function keepCorporateFold(block, key, collapsed) {
   }
   var head = block.querySelector(':scope > .wbhead, :scope > .whead');
   if (!head) { return; }
-  head.addEventListener('click', function () {
+  head.addEventListener('click', function (ev) {
+    if (ev.target.closest('a') || !block.querySelector(':scope > .wbody, :scope > .wbbody')) { return; }
     var shut = !block.classList.contains('shut');
     block.classList.toggle('shut', shut);
     if (key) { corporateFolds[key] = shut; }
@@ -9601,8 +9568,8 @@ function wordsBlock(text, mid, foldKey) {
   var head = make('div', 'wbhead');
   var fold = make('span', 'wfold');
   fold.textContent = '\u25BE';
-  var title = make('span');
-  title.textContent = headOfWords(text);
+  var title = make('span', 'wbtitle');
+  inlineInto(title, inlineParts(headOfWords(text)), false);
   head.appendChild(fold);
   head.appendChild(title);
   block.appendChild(head);
@@ -9622,51 +9589,6 @@ function wordsBlock(text, mid, foldKey) {
   return block;
 }
 
-// Repeated calls of one tool are grouped in the saved work data. Keep each call as its own
-// ordered sub-block in the corporate card, so adding a new call never replaces a completed one
-// with a temporary group heading.
-function appendCardWork(before, after, one, path, live) {
-  var under = one && one.sub || [];
-  if (one && one.group && under.length) {
-    for (var n = 0; n < under.length; n++) {
-      appendCardWork(before, after, under[n], path + ':' + n, live);
-    }
-    return;
-  }
-  (live && !one.done ? after : before).push(workBlock(one, path));
-}
-
-// A live tool call is also carried separately from the work tree. Keep it as a card sub-block
-// even if the snapshot was taken between the stream update and rebuilding that tree.
-function workHasCall(blocks, callId) {
-  for (var n = 0; n < blocks.length; n++) {
-    if (blocks[n].call_id === callId || workHasCall(blocks[n].sub || [], callId)) { return true; }
-  }
-  return false;
-}
-
-function liveCatCall(call) {
-  return String(call.name || '') === 'run_terminal'
-    && /^cat(?:\s|$)/.test(String(call.command || '').trim());
-}
-
-function liveToolBlock(call) {
-  var name = String(call.name || '');
-  var command = String(call.command || '').trim();
-  var file = String(call.target || '').trim();
-  var head;
-  if (name === 'run_terminal') { head = 'Running' + (command ? ' ' + command.split('\n')[0] : ''); }
-  else if (name === 'edit_file') { head = 'Editing file' + (file ? ' ' + file : ''); }
-  else if (name === 'create_file') { head = 'Creating file' + (file ? ' ' + file : ''); }
-  else { head = name.replace(/_/g, ' '); }
-  return {
-    head: head, tool: name,
-    id: call.call_id ? 'stream:' + call.call_id : 'stream:' + call.index,
-    call_id: call.call_id || '', done: false, reading: false,
-    command: name === 'run_terminal' ? command : '', file: file
-  };
-}
-
 // One block of the summary of the work.
 function workHeading(one) {
   var head = one.head || 'Working';
@@ -9679,7 +9601,7 @@ function workHeading(one) {
   return head;
 }
 
-function workBlock(one, path) {
+function workBlock(one, path, answerKey) {
   path = path || 'work';
   var lines = one.lines || [];
   var under = one.sub || [];
@@ -9692,15 +9614,15 @@ function workBlock(one, path) {
     return plain;
   }
   var block = make('div', 'wblock shut');
-  var foldKey = one.call_id ? 'tool:' + one.call_id
-    : (one.id ? 'work:' + one.id
+  var foldKey = one.call_id ? answerKey + ':tool:' + one.call_id
+    : (one.id ? answerKey + ':work:' + one.id
       : (one.group && under.length
         ? 'group:' + (under[0].call_id || under[0].id || path)
         : path));
   var head = make('div', 'wbhead');
   var fold = make('span', 'wfold');
   fold.textContent = '\u25BE';
-  var title = make('span');
+  var title = make('span', 'wbtitle');
   title.textContent = workHeading(one);
   head.appendChild(fold);
   if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
@@ -9756,7 +9678,7 @@ function workBlock(one, path) {
   }
   // The calls made under this heading are inside it, each a block of its own, so a heading of
   // the work and the work of that heading are read together.
-  for (var k = 0; k < under.length; k++) { put(workBlock(under[k], foldKey + ':' + k)); }
+  for (var k = 0; k < under.length; k++) { put(workBlock(under[k], foldKey + ':' + k, answerKey)); }
   if (!body) {
     block.className = 'wblock';
     head.style.cursor = 'default';
@@ -9790,34 +9712,59 @@ function corporateCard(head, parts, foldKey, busy) {
   return box;
 }
 
-// The parts of an answer message: its assistant text sub-block and completed tool work.
-function cardParts(m, excludeWords, answerKey, wordIndex) {
-  var out = [];
-  if (!m || (m.role && m.role !== 'Assistant')) { return out; }
-  var short = m.work || [];
-  var before = [], after = [];
-  for (var n = 0; n < short.length; n++) {
-    var path = answerKey + ':work:' + wordIndex + ':' + n;
-    appendCardWork(before, after, short[n], path, m.id === 'live');
+// Project each snapshot into one ordered list. Work records can be saved on the
+// following assistant message, so use the matching Tool message to place them when available.
+function corporateParts(run, final, key) {
+  var rows = run.map(function () { return []; });
+  var toolRows = new Map();
+  var recorded = new Set();
+  var liveCalls = new Set();
+  for (var n = 0; n < run.length; n++) {
+    if (run[n].role === 'Tool') { toolRows.set(run[n].id, n); }
   }
-  if (m.id === 'live') {
-    var calls = m.tools || [];
-    for (var c = 0; c < calls.length; c++) {
-      var callId = calls[c].call_id || '';
-      // A standalone cat call becomes a read block when the tool starts. Its path is still
-      // changing while the model writes it, so do not turn that stream into a progress row.
-      if (liveCatCall(calls[c])) { continue; }
-      if (!callId || !workHasCall(short, callId)) {
-        after.push(workBlock(liveToolBlock(calls[c]),
-          answerKey + ':stream:' + (callId || calls[c].index)));
-      }
+  function visit(work, add) {
+    for (var i = 0; i < work.length; i++) {
+      var one = work[i];
+      if (one.group && (one.sub || []).length) { visit(one.sub, add); }
+      else { add(one); }
     }
   }
-  out = out.concat(before);
-  var said = String(m.body || '').trim();
-  if (said && !excludeWords) { out.push(wordsBlock(said, m.id, answerKey + ':words:' + wordIndex)); }
-  out = out.concat(after);
-  return out;
+  for (var n = 0; n < run.length; n++) {
+    var m = run[n];
+    if (m.role !== 'Assistant') { continue; }
+    var previews = [];
+    visit(m.work || [], function (one) {
+      if (m.id === 'live' && String(one.id || '').startsWith('stream:')) {
+        previews.push(one);
+        return;
+      }
+      if (one.id && recorded.has(one.id)) { return; }
+      if (one.id) { recorded.add(one.id); }
+      if (one.call_id && (m.id === 'live' || m.id === 'live-work')) { liveCalls.add(one.call_id); }
+      rows[toolRows.has(one.id) ? toolRows.get(one.id) : n].push({ work: one });
+    });
+    if (m !== final && String(m.body || '').trim()) {
+      rows[n].push({ text: m.body, id: m.id });
+    }
+    for (var p = 0; p < previews.length; p++) {
+      var one = previews[p];
+      if (one.call_id && liveCalls.has(one.call_id)) { continue; }
+      if (one.call_id) { liveCalls.add(one.call_id); }
+      rows[n].push({ work: one });
+    }
+  }
+  for (var n = 0; n < run.length; n++) {
+    var m = run[n];
+    if (m.role === 'Tool' && m.cancelled && !recorded.has(m.id)) {
+      rows[n].push({ work: { id: m.id, call_id: m.call_id, tool: m.tool_name,
+        head: m.tool, output: m.body } });
+    }
+  }
+  var wordIndex = 0;
+  return rows.flat().map(function (one, n) {
+    return one.work ? workBlock(one.work, key + ':work:' + n, key)
+      : wordsBlock(one.text, one.id, key + ':words:' + wordIndex++);
+  });
 }
 
 // True of the messages an answer is made of: the text of the model, and the runs of the calls
@@ -9876,16 +9823,17 @@ function answerCard(items, at) {
   if (!items || at < 0 || at >= items.length) { return null; }
   var run = answerFrom(items, at);
   var final = answerFinal(items, at);
-  var parts = [], head = '', foundAssistant = false, wordIndex = 0;
+  var head = '';
   var foldKey = answerFoldKey(items, at);
   for (var k = 0; k < run.length; k++) {
     var m = run[k];
     if (m.role !== 'Assistant') { continue; }
-    foundAssistant = true;
-    parts = parts.concat(cardParts(m, m === final, foldKey, wordIndex++));
     if ((m.work || []).length || m.work_head) { head = m.work_head || 'Done'; }
   }
-  if (!foundAssistant) { return null; }
+  var parts = corporateParts(run, final, foldKey);
+  if (!parts.length && !head && !run.some(function (m) { return m.role === 'Assistant'; })) {
+    return null;
+  }
   var busy = run.some(function (m) { return m.id === 'live'; });
   var made = corporateCard(head || 'Done', parts, foldKey + ':main', busy);
   return made;

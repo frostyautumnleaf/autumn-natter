@@ -15,112 +15,109 @@ const puppeteer = require('puppeteer');
   try {
     const page = await browser.newPage();
     await page.goto(process.env.AN_PAGE_URL, { waitUntil: 'networkidle0' });
-    const result = await page.evaluate(() => {
+    await page.evaluate(() => {
+      function check(condition, message) {
+        if (!condition) { throw new Error(message); }
+      }
+      function work(id, callId, head, command, extra) {
+        return Object.assign({ id: id, call_id: callId, head: head,
+          tool: 'run_terminal', command: command }, extra);
+      }
+      function message(id, role, body, extra) {
+        return Object.assign({ id: id, role: role, body: body }, extra);
+      }
+      var preview = work('stream:check', 'check', 'Running wc -c test.txt', 'wc -c test.txt');
+      var reading = work('read-result', 'read', 'Read test.txt', 'cat test.txt',
+        { reading: true, done: true, output: 'shop' });
+      var narration = message('progress', 'Assistant', 'I read **shop**. Now I will check the file.');
       var state = {
-        messages: [{ id: 'user-1', role: 'You', body: 'Read and update these files.',
-          when: '', attachments: [] }],
-        live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
+        messages: [message('user-1', 'You', 'Read and update the file.'),
+          message('read-result', 'Tool', 'cat test.txt')],
+        live: narration.body,
+        // This is the raw stream shape served to both pages. It also contains the cat draft,
+        // which has no corresponding work record until it runs.
         live_tools: [
-          { call_id: 'tool-read', index: 0, name: 'run_terminal',
-            command: 'cat src/main.rs', target: '', done: false },
-          { call_id: 'tool-edit', index: 1, name: 'edit_file',
-            command: '', target: 'src/parser.rs', done: false },
-          { call_id: 'tool-create', index: 2, name: 'create_file',
-            command: '', target: 'notes/summary.md', done: false }
+          { name: 'run_terminal', command: 'wc -c test.txt', done: false },
+          { name: 'run_terminal', command: 'cat another/', done: false }
         ],
-        live_work: [], live_work_head: 'Thinking',
+        live_work: [reading, preview], live_work_head: 'Thinking',
         generating: true, summarising: false,
-        chat: { id: 'synthetic', title: 'Live tool blocks' },
+        chat: { id: 'synthetic', title: 'Corporate live tools' },
         chatting: { collapse_thinking: true, grow_thinking: true,
           tools_in_thinking: true, corporate: true }
       };
-      readChatting(state);
-      function readCard() {
-        return el.col.querySelector('.turn:last-child > .work');
+      function card() {
+        var cards = el.col.querySelectorAll('.turn > .work');
+        check(cards.length === 1, 'expected one card, found ' + cards.length);
+        return cards[0];
       }
+      function rows() { return Array.from(card().querySelectorAll(':scope > .wbody > .wblock')); }
+      function headings() {
+        return rows().map(function (row) { return row.querySelector('.wbtitle').textContent; });
+      }
+      function expectHeadings(expected) {
+        var actual = headings();
+        check(JSON.stringify(actual) === JSON.stringify(expected), JSON.stringify(actual));
+      }
+      readChatting(state);
       drawThread(state);
-      var card = readCard();
-      if (!card) { return { error: 'no live progress card was rendered' }; }
-      var header = card.querySelector(':scope > .whead');
-      var direct = Array.prototype.slice.call(
-        card.querySelectorAll(':scope > .wbody > .wblock'));
-      var partial = {
-        main: header ? header.textContent : '',
-        headings: direct.map(function (block) {
-          return block.querySelector(':scope > .wbhead').textContent;
-        }),
-        rowsCollapsed: direct.every(function (block) {
-          return block.classList.contains('shut');
-        }),
-        headerOrder: Array.prototype.map.call(header.children, function (child) {
-          return child.className;
-        })
-      };
-
-      // Once the call has left the stream and its tool work begins, the completed read row is
-      // added to the work tree. The main title stays on the answer phase.
-      state.live_tools[0].done = true;
-      state.live_work = [
-        { head: 'Reading main.rs', tool: 'run_terminal', id: 'read-message',
-          call_id: 'tool-read', command: 'cat src/main.rs', file: '',
-          reading: true, done: false, sub: [], lines: [] }
-      ];
-      state.live_work_head = 'Reading main.rs';
+      var words = 'I read shop. Now I will check the file.';
+      expectHeadings(['Read test.txt', words, 'Running wc -c test.txt']);
+      check(card().classList.contains('shut') && rows().every(function (row) {
+        return row.classList.contains('shut');
+      }), 'card and rows should start closed');
+      check(rows()[1].querySelector('strong').textContent === 'shop', 'progress markdown was lost');
+      card().querySelector('.whead').click();
+      rows()[2].querySelector('.wbhead').click();
+      var originalRow = rows()[2];
+      var arrow = card().querySelector('.whead .wfold').getBoundingClientRect();
+      check(Math.abs(rows()[0].getBoundingClientRect().left - (arrow.left + arrow.width / 2)) < 1,
+        'the sub-block border must sit below the card arrow');
       drawThread(state);
-      card = readCard();
-      direct = Array.prototype.slice.call(
-        card.querySelectorAll(':scope > .wbody > .wblock'));
-      var headings = direct.map(function (block) {
-        return block.querySelector(':scope > .wbhead').textContent;
-      });
-      var readingPath = direct[0] && direct[0].querySelector('.wtoolmark path');
-      partial.finalizedMain = card.querySelector(':scope > .whead').textContent;
-      partial.finalizedHeadings = headings;
-      partial.readingIcon = readingPath ? readingPath.getAttribute('d') : '';
+      check(rows()[2] === originalRow, 'an unchanged snapshot replaced the tool row');
 
-      // The main title remains on the finalized read when the stream item is replaced by work.
+      var completed = work('check-result', 'check', 'Ran wc -c test.txt', 'wc -c test.txt',
+        { done: true, output: '4 test.txt' });
+      state.messages.push(narration, message('check-result', 'Tool', 'wc -c test.txt'));
+      state.live = '';
+      state.live_work = [{ group: true, sub: [reading, completed, preview] }];
+      state.live_work_head = completed.head;
+      drawThread(state);
+      expectHeadings(['Read test.txt', words, 'Ran wc -c test.txt']);
+      check(!card().classList.contains('shut') && !rows()[2].classList.contains('shut'),
+        'the fold choice was lost while a call completed');
+      check(rows()[2].querySelector('.wout').textContent === '4 test.txt',
+        'the tool output is missing');
+
+      // A later call can run the exact same command. Keep both real calls.
+      var repeated = work('stream:repeat', 'repeat', preview.head, preview.command);
+      state.live = 'I will check again.';
+      state.live_work.push(repeated);
+      drawThread(state);
+      expectHeadings(['Read test.txt', words, 'Ran wc -c test.txt', state.live, repeated.head]);
+      check(!rows()[2].classList.contains('shut'), 'a new row reset the earlier tool fold');
+      check(rows()[2].dataset.foldKey === originalRow.dataset.foldKey, 'tool identity changed');
+
+      state.messages.push(message('next-progress', 'Assistant', state.live,
+        { work: [reading, completed] }),
+        message('repeat-result', 'Tool', repeated.command),
+        message('final', 'Assistant', 'The file contains four bytes.', {
+          work: [work('repeat-result', 'repeat', completed.head, completed.command,
+            { done: true, output: '4 test.txt' })],
+          work_head: 'Read 1 file, Ran 2 commands'
+        }));
+      state.live_work = [];
       state.live_tools = [];
+      state.generating = false;
       drawThread(state);
-      var next = el.col.querySelector('.turn:last-child > .work > .whead');
-      partial.nextHeading = next ? next.textContent : '';
-      return partial;
+      expectHeadings(['Read test.txt', words, 'Ran wc -c test.txt', state.live, completed.head]);
+      check(card().querySelector('.whead').textContent.includes('Ran 2 commands'),
+        'the main heading did not use the completed summary');
+      check(!card().textContent.includes('The file contains four bytes.')
+        && el.col.textContent.includes('The file contains four bytes.'),
+        'the final response must appear outside the card');
     });
-
-    if (result.error) { throw new Error(result.error); }
-    const problems = [];
-    if (!result.main.includes('Thinking')
-        || result.headings.some(function (head) { return head.includes('Reading'); })) {
-      problems.push('main title or a read row changed while path arguments were streaming');
-    }
-    if (result.headings.length !== 2
-        || !result.headings[0].includes('Editing file src/parser.rs')
-        || !result.headings[1].includes('Creating file notes/summary.md')) {
-      problems.push('partial cat command was shown, or other live tool blocks are missing');
-    }
-    if (!result.rowsCollapsed) { problems.push('live tool sub-blocks are not collapsed initially'); }
-    if (!result.finalizedMain.includes('Reading main.rs')) {
-      problems.push('main title did not move to the read after the call was finalized');
-    }
-    if (result.finalizedHeadings.length !== 3
-        || !result.finalizedHeadings[0].includes('Reading main.rs')
-        || !result.finalizedHeadings[1].includes('Editing file src/parser.rs')
-        || !result.finalizedHeadings[2].includes('Creating file notes/summary.md')) {
-      problems.push('the finalized read/edit/create sub-blocks are missing or out of order');
-    }
-    if (!result.readingIcon || !result.readingIcon.includes('M2 3h4.2')) {
-      problems.push('the read sub-block does not use the book icon');
-    }
-    if (result.headerOrder.indexOf('dots') < 0
-        || result.headerOrder.indexOf('wfold') < 0
-        || result.headerOrder.indexOf('dots') > result.headerOrder.indexOf('wfold')) {
-      problems.push('the main card dots are not before the dropdown arrow');
-    }
-    if (!result.nextHeading.includes('Reading main.rs')) {
-      problems.push('the main heading changed when live arguments were replaced by work');
-    }
-    if (problems.length) { throw new Error(problems.join('; ') + '\n' + JSON.stringify(result)); }
-    console.log('partial cat calls stay hidden, finalized reads render in order with the book icon, '
-      + 'and the main title stays stable; header dots precede the fold arrow');
+    console.log('Corporate card keeps each call once, in order, and preserves its fold');
   } finally {
     await browser.close();
   }

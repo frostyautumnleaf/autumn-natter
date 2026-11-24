@@ -1098,7 +1098,11 @@ function scene(name, dark, theme) {
       start.live_work = [
         { head: 'Reading main.rs', tool: 'run_terminal', id: 'read-message',
           call_id: 'tool-read', command: 'cat src/main.rs', file: '',
-          reading: true, done: false, sub: [], lines: [] }
+          reading: true, done: false, sub: [], lines: [] },
+        { head: 'Editing file src/parser.rs', tool: 'edit_file', id: 'stream:tool-edit',
+          call_id: 'tool-edit', file: 'src/parser.rs', done: false },
+        { head: 'Creating file notes/summary.md', tool: 'create_file', id: 'stream:tool-create',
+          call_id: 'tool-create', file: 'notes/summary.md', done: false }
       ];
       start.live_work_head = 'Reading main.rs';
       start.live_tools = [
