@@ -579,51 +579,51 @@ pub fn head_of_answer(blocks: &[WorkBlock], thought_ms: u64) -> String {
 
 // The header of the one block when an answer is over: what the answer did, in the text of items
 // that has happened. A search that returned is reported as a search that was created, and a
-// command that returned as a command that ran. File calls are counted across the answer.
+// command that returned as a command that ran. Repeated calls are counted across the answer.
 pub fn head_after(blocks: &[WorkBlock]) -> String {
-    let mut words: Vec<String> = Vec::new();
-    let mut failed = false;
-    let mut file_counts = FileCounts::default();
-    count_files(blocks, &mut file_counts);
-    gather(blocks, &mut words, &mut failed, &file_counts);
+    let mut actions = Vec::new();
+    gather_actions(blocks, &mut actions);
+    let words: Vec<String> = actions.iter().map(action_summary).collect();
     if words.is_empty() {
-        if failed {
-            return String::from("Work failed");
-        }
         return String::from(DONE);
     }
-    // The three last say what the answer ended with. A header that carried every type of work
-    // would be longer than the answer.
-    const ROOM: usize = 3;
-    let from = words.len().saturating_sub(ROOM);
-    let mut text = words[from..].join(", ");
-    if from > 0 {
-        text = format!("\u{2026} {}", text);
-    }
-    if failed {
-        text.push_str(", it failed");
-    }
-    text
+    words.join(", ")
 }
 
-// The text of the calls of a short, in the order they were created, with each type named once.
-// `failed` reports whether any call returned with an error.
+// A completed answer is summarized across all of its calls, in the order each tool first ran.
+// Failed calls stay attached to their tool so an early error cannot make a later successful
+// answer sound as if it failed overall.
 #[derive(Default)]
-struct FileCounts {
-    edited: usize,
-    created: usize,
+struct ActionCounts {
+    tool: String,
+    succeeded: usize,
+    failed: usize,
 }
 
-fn count_files(blocks: &[WorkBlock], counts: &mut FileCounts) {
+fn gather_actions(blocks: &[WorkBlock], actions: &mut Vec<ActionCounts>) {
     for one in blocks {
-        if !one.id.is_empty() && one.done && !one.failed {
-            if one.tool == editfile::EDIT_NAME {
-                counts.edited += 1;
-            } else if one.tool == editfile::CREATE_NAME {
-                counts.created += 1;
+        if !one.id.is_empty()
+            && !one.tool.is_empty()
+            && one.tool != NAME
+            && one.tool != FINISH_NAME
+        {
+            let index = actions
+                .iter()
+                .position(|action| action.tool == one.tool)
+                .unwrap_or_else(|| {
+                    actions.push(ActionCounts {
+                        tool: one.tool.clone(),
+                        ..ActionCounts::default()
+                    });
+                    actions.len() - 1
+                });
+            if one.failed {
+                actions[index].failed += 1;
+            } else if one.done {
+                actions[index].succeeded += 1;
             }
         }
-        count_files(&one.sub, counts);
+        gather_actions(&one.sub, actions);
     }
 }
 
@@ -636,43 +636,54 @@ fn file_count_word(verb: &str, count: usize) -> String {
     )
 }
 
-fn gather(
-    blocks: &[WorkBlock],
-    words: &mut Vec<String>,
-    failed: &mut bool,
-    file_counts: &FileCounts,
-) {
-    for one in blocks.iter() {
-        if one.tool.is_empty() {
-            gather(&one.sub, words, failed, file_counts);
-            continue;
+fn action_summary(action: &ActionCounts) -> String {
+    let total = action.succeeded + action.failed;
+    let summary = if action.tool == editfile::CREATE_NAME {
+        let mut parts = Vec::new();
+        if action.succeeded > 0 {
+            parts.push(file_count_word("Created", action.succeeded));
         }
-        if one.tool != NAME && one.tool != FINISH_NAME {
-            let word = if one.tool == editfile::EDIT_NAME {
-                if file_counts.edited == 0 || words.iter().any(|one| one.starts_with("Edited ")) {
-                    String::new()
-                } else {
-                    file_count_word("Edited", file_counts.edited)
-                }
-            } else if one.tool == editfile::CREATE_NAME {
-                if file_counts.created == 0 || words.iter().any(|one| one.starts_with("Created ")) {
-                    String::new()
-                } else {
-                    file_count_word("Created", file_counts.created)
-                }
-            } else if one.tool == tools::TOOL_NAME {
-                String::from("Ran a command")
-            } else if known(&one.tool) {
-                String::from(done_word(&one.tool))
-            } else {
-                one.head.clone()
-            };
-            if !word.is_empty() && !words.contains(&word) {
-                words.push(word);
-            }
-            *failed |= one.failed;
+        if action.failed > 0 {
+            parts.push(format!(
+                "{} file {} failed",
+                action.failed,
+                if action.failed == 1 { "creation" } else { "creations" }
+            ));
         }
-        gather(&one.sub, words, failed, file_counts);
+        return parts.join(", ");
+    } else if action.tool == editfile::EDIT_NAME {
+        let mut parts = Vec::new();
+        if action.succeeded > 0 {
+            parts.push(file_count_word("Edited", action.succeeded));
+        }
+        if action.failed > 0 {
+            parts.push(format!(
+                "{} file {} failed",
+                action.failed,
+                if action.failed == 1 { "edit" } else { "edits" }
+            ));
+        }
+        return parts.join(", ");
+    } else if action.tool == tools::TOOL_NAME {
+        if total == 1 {
+            String::from("Ran a command")
+        } else {
+            format!("Ran {} commands", total)
+        }
+    } else if known(&action.tool) {
+        if action.succeeded > 1 {
+            format!("{} ({} calls)", done_plural(&action.tool), action.succeeded)
+        } else {
+            String::from(done_word(&action.tool))
+        }
+    } else {
+        action.tool.replace('_', " ")
+    };
+
+    if action.failed == 0 {
+        summary
+    } else {
+        format!("{} ({} failed)", summary, action.failed)
     }
 }
 
@@ -862,7 +873,7 @@ mod tests {
         came_back(&mut second, "/workspace", true, 0, 0);
         assert_eq!(
             head_after(&[first, second]),
-            "Searched the web, Ran a command, it failed"
+            "Searched the web (1 failed), Ran a command"
         );
     }
 
@@ -877,7 +888,7 @@ mod tests {
         );
         let call = find_mut(&mut blocks, "c1").expect("the file operation");
         came_back(call, "That file already exists.", false, 0, 0);
-        assert_eq!(head_after(&grouped(&blocks)), "Work failed");
+        assert_eq!(head_after(&grouped(&blocks)), "1 file creation failed");
     }
 
     // A group is done only when every call of it returned, so a run that is still going on is
