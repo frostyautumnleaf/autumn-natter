@@ -491,6 +491,8 @@ fn gather(
                 } else {
                     file_count_word("Created", file_counts.created)
                 }
+            } else if one.tool == tools::TOOL_NAME {
+                String::from("Ran a command")
             } else if known(&one.tool) {
                 String::from(done_word(&one.tool))
             } else {
@@ -651,7 +653,7 @@ mod tests {
         assert_eq!(made[1].head, "Ran ls");
         assert!(!made[2].group, "one call of a kind is no run");
         // The answer header summarizes all file calls, including the one after another tool.
-        assert_eq!(head_after(&made), "Created 3 files, Ran");
+        assert_eq!(head_after(&made), "Created 3 files, Ran a command");
     }
 
     #[test]
@@ -690,7 +692,7 @@ mod tests {
         came_back(&mut second, "/workspace", true, 0, 0);
         assert_eq!(
             head_after(&[first, second]),
-            "Searched the web, Ran, it failed"
+            "Searched the web, Ran a command, it failed"
         );
     }
 
@@ -751,7 +753,7 @@ mod tests {
             done: true,
             ..Default::default()
         });
-        assert_eq!(head_after(&blocks), "Ran");
+        assert_eq!(head_after(&blocks), "Ran a command");
         let made = grouped(&blocks);
         assert_eq!(made.len(), 2, "the closing marker is no call of a run");
     }

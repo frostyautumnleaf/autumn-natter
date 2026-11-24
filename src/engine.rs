@@ -13032,7 +13032,7 @@ mod tests {
         assert_eq!(saved.messages[2].work[0].id, first.id);
         assert_eq!(saved.messages[3].work.len(), 1, "the command stays on its next step");
         assert_eq!(saved.messages[3].work[0].id, second.id);
-        assert_eq!(saved.messages[3].work_head, "Searched the web, Ran");
+        assert_eq!(saved.messages[3].work_head, "Searched the web, Ran a command");
     }
 
     // The cut of a tool result that will not fit in the space the chat has: the start and the end

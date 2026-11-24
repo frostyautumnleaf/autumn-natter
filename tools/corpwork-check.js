@@ -100,7 +100,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       said(3, 'Tool', 'cargo test', { tool: '6 tests passed' }),
       said(4, 'Assistant', 'The tests pass. Two items changed.',
         { reasoning: 'Say what changed.', reasoning_ms: 2600, work: SHORT,
-          work_head: 'Ran, Created files (3)' }),
+          work_head: 'Ran a command, Created files (3)' }),
       said(5, 'You', 'And the bar?'),
       said(6, 'Assistant', 'The top bar takes its height from the text beside it.',
         { reasoning: 'The answer is already known.', reasoning_ms: 11800,
@@ -135,7 +135,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     var heads = made.map(function (one) {
       return (one.querySelector('.whead') || {}).textContent || '';
     });
-    if (heads.join(' / ') !== '▾Ran, Created files (3) / ▾Thought for 12 seconds') {
+    if (heads.join(' / ') !== '▾Ran a command, Created files (3) / ▾Thought for 12 seconds') {
       faults.push('the headers of the two cards read "' + heads.join(' / ') + '" ' + where);
     }
     // The card is at the header of its row, and the row that carries it is the row of the last
@@ -371,9 +371,9 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       said(73, 'Assistant', '', { reasoning: 'Second thought after the tool.',
         work: [heading('Check the test suite', [line('Running the checks.', [
           call('run_terminal', 'ordered-call', 'Ran pytest')
-        ])])], work_head: 'Ran' }),
+        ])])], work_head: 'Ran a command' }),
       said(74, 'Assistant', 'The checks passed.', { reasoning: 'Final thought.',
-        work_head: 'Searched the web, Ran' })
+        work_head: 'Searched the web, Ran a command' })
     ];
     box = look(state(ordered, CHAT));
     var orderedCards = cards(box);
@@ -402,7 +402,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     where = 'a streaming answer sub-block';
     box = look(state(talk.slice(0, 4), CHAT, {
       generating: true, live: 'The tests pass.', reasoning: 'Say what changed.',
-      reasoning_ms: 900, live_work: SHORT, live_work_head: 'Ran',
+      reasoning_ms: 900, live_work: SHORT, live_work_head: 'Ran a command',
     }));
     var shut = box.querySelector('.turn:last-child > .work .whead');
     if (!shut || !/Ran/.test(shut.textContent)) {
