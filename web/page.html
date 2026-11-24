@@ -1295,6 +1295,7 @@ body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
 .wblock > .wbhead { display: flex; align-items: baseline; gap: 8px; padding: 7px 12px;
   cursor: pointer; }
 .wblock > .wbhead .wfold { color: var(--ink-leaf); font-size: 9px; flex: 0 0 auto; }
+.wblock > .wbhead .wtoolmark { width: 13px; height: 13px; stroke: var(--dim); flex: 0 0 auto; }
 .wblock.shut > .wbbody { display: none; }
 .wblock.shut > .wbhead .wfold { transform: rotate(-90deg); }
 .wbbody { padding: 0 12px 8px 30px; }
@@ -9153,6 +9154,9 @@ function workBlock(one) {
   var title = make('span');
   title.textContent = one.head || 'Working';
   head.appendChild(fold);
+  if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
+    head.appendChild(mark(toolShape(one.tool).mark, 'wtoolmark'));
+  }
   head.appendChild(title);
   if (typeof one.adds === 'number' && (one.adds || one.cuts)) {
     var plus = make('span', 'wplus');

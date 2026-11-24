@@ -161,6 +161,12 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     if (made[0].querySelector('.wthink')) {
       faults.push('the card shows a thought sub-block ' + where);
     }
+    var commandSub = Array.prototype.slice.call(made[0].querySelectorAll('.wblock'))
+      .find(function (one) { return /Ran cargo test/.test(one.textContent || ''); });
+    var commandIcon = commandSub && commandSub.querySelector(':scope > .wbhead .wtoolmark');
+    if (!commandIcon || !commandIcon.querySelector('path[d]')) {
+      faults.push('the command sub-block has no tool icon ' + where);
+    }
     var expandable = Array.prototype.slice.call(made[0].querySelectorAll('.wblock'))
       .filter(function (one) { return one.querySelector(':scope > .wbbody'); });
     if (expandable.some(function (one) { return !one.classList.contains('shut'); })) {
