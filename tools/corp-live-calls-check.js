@@ -1,5 +1,5 @@
-// Verify that streamed Corporate tool calls appear as their own sub-blocks before the
-// work tree catches up, and that the main heading follows the active call.
+// Verify that streamed Corporate tool calls appear as sub-blocks, while a cat command stays
+// hidden until the tool starts and the main heading does not follow streamed arguments.
 //
 // Run with AN_PAGE_URL pointing at frontend/index.html, for example through screenshot.sh's
 // local HTTP server.
@@ -28,56 +28,85 @@ const puppeteer = require('puppeteer');
           { call_id: 'tool-create', index: 2, name: 'create_file',
             command: '', target: 'notes/summary.md', done: false }
         ],
-        live_work: [], live_work_head: 'Reading src/main.rs',
+        live_work: [], live_work_head: 'Thinking',
         generating: true, summarising: false,
         chat: { id: 'synthetic', title: 'Live tool blocks' },
         chatting: { collapse_thinking: true, grow_thinking: true,
           tools_in_thinking: true, corporate: true }
       };
       readChatting(state);
+      function readCard() {
+        return el.col.querySelector('.turn:last-child > .work');
+      }
       drawThread(state);
-      var card = el.col.querySelector('.turn:last-child > .work');
+      var card = readCard();
       if (!card) { return { error: 'no live progress card was rendered' }; }
-
       var header = card.querySelector(':scope > .whead');
-      var main = header ? header.textContent : '';
       var direct = Array.prototype.slice.call(
+        card.querySelectorAll(':scope > .wbody > .wblock'));
+      var partial = {
+        main: header ? header.textContent : '',
+        headings: direct.map(function (block) {
+          return block.querySelector(':scope > .wbhead').textContent;
+        }),
+        rowsCollapsed: direct.every(function (block) {
+          return block.classList.contains('shut');
+        }),
+        headerOrder: Array.prototype.map.call(header.children, function (child) {
+          return child.className;
+        })
+      };
+
+      // Once the call has left the stream and its tool work begins, the completed read row is
+      // added to the work tree. The main title stays on the answer phase.
+      state.live_tools[0].done = true;
+      state.live_work = [
+        { head: 'Reading main.rs', tool: 'run_terminal', id: 'read-message',
+          call_id: 'tool-read', command: 'cat src/main.rs', file: '',
+          reading: true, done: false, sub: [], lines: [] }
+      ];
+      state.live_work_head = 'Reading main.rs';
+      drawThread(state);
+      card = readCard();
+      direct = Array.prototype.slice.call(
         card.querySelectorAll(':scope > .wbody > .wblock'));
       var headings = direct.map(function (block) {
         return block.querySelector(':scope > .wbhead').textContent;
       });
-      var rowsCollapsed = direct.every(function (block) {
-        return block.classList.contains('shut');
-      });
       var readingPath = direct[0] && direct[0].querySelector('.wtoolmark path');
-      var headerOrder = Array.prototype.map.call(header.children, function (child) {
-        return child.className;
-      });
-      var reading = { main: main, headings: headings, rowsCollapsed: rowsCollapsed,
-        readingIcon: readingPath ? readingPath.getAttribute('d') : '',
-        headerOrder: headerOrder };
+      partial.finalizedMain = card.querySelector(':scope > .whead').textContent;
+      partial.finalizedHeadings = headings;
+      partial.readingIcon = readingPath ? readingPath.getAttribute('d') : '';
 
-      // A subsequent snapshot with no active tool must replace the stale action heading.
+      // The main title remains on the finalized read when the stream item is replaced by work.
       state.live_tools = [];
-      state.live_work_head = 'Thinking';
       drawThread(state);
       var next = el.col.querySelector('.turn:last-child > .work > .whead');
-      reading.nextHeading = next ? next.textContent : '';
-      return reading;
+      partial.nextHeading = next ? next.textContent : '';
+      return partial;
     });
 
     if (result.error) { throw new Error(result.error); }
     const problems = [];
-    if (!result.main.includes('Reading src/main.rs')) {
-      problems.push('main title does not name the active read');
+    if (!result.main.includes('Thinking')
+        || result.headings.some(function (head) { return head.includes('Reading'); })) {
+      problems.push('main title or a read row changed while path arguments were streaming');
     }
-    if (result.headings.length !== 3
-        || !result.headings[0].includes('Reading src/main.rs')
-        || !result.headings[1].includes('Editing file src/parser.rs')
-        || !result.headings[2].includes('Creating file notes/summary.md')) {
-      problems.push('live read/edit/create sub-blocks are missing or out of order');
+    if (result.headings.length !== 2
+        || !result.headings[0].includes('Editing file src/parser.rs')
+        || !result.headings[1].includes('Creating file notes/summary.md')) {
+      problems.push('partial cat command was shown, or other live tool blocks are missing');
     }
     if (!result.rowsCollapsed) { problems.push('live tool sub-blocks are not collapsed initially'); }
+    if (!result.finalizedMain.includes('Reading main.rs')) {
+      problems.push('main title did not move to the read after the call was finalized');
+    }
+    if (result.finalizedHeadings.length !== 3
+        || !result.finalizedHeadings[0].includes('Reading main.rs')
+        || !result.finalizedHeadings[1].includes('Editing file src/parser.rs')
+        || !result.finalizedHeadings[2].includes('Creating file notes/summary.md')) {
+      problems.push('the finalized read/edit/create sub-blocks are missing or out of order');
+    }
     if (!result.readingIcon || !result.readingIcon.includes('M2 3h4.2')) {
       problems.push('the read sub-block does not use the book icon');
     }
@@ -86,12 +115,12 @@ const puppeteer = require('puppeteer');
         || result.headerOrder.indexOf('dots') > result.headerOrder.indexOf('wfold')) {
       problems.push('the main card dots are not before the dropdown arrow');
     }
-    if (result.nextHeading.includes('Reading')) {
-      problems.push('the main heading stayed on Reading after its live call disappeared');
+    if (!result.nextHeading.includes('Reading main.rs')) {
+      problems.push('the main heading changed when live arguments were replaced by work');
     }
     if (problems.length) { throw new Error(problems.join('; ') + '\n' + JSON.stringify(result)); }
-    console.log('live read/edit/create blocks render in order, stay collapsed, use the book icon, '
-      + 'and the main title follows the active action; header dots precede the fold arrow');
+    console.log('partial cat calls stay hidden, finalized reads render in order with the book icon, '
+      + 'and the main title stays stable; header dots precede the fold arrow');
   } finally {
     await browser.close();
   }

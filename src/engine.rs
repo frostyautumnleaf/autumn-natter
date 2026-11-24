@@ -4402,25 +4402,30 @@ impl State {
             answer_rate: self.live().answer_rate,
             live_tools: self.live().live_tools.clone(),
             // What the user is shown: calls of one tool made one after another remain together
-            // in a block of their own. A call being written is drawn from the same information
-            // as the live tool line, so it is already in the corporate card before the server
-            // has finished writing its arguments or started running it.
+            // in a block of their own. A standalone cat command only becomes a read block once
+            // it is run, so an unfinished path never appears as a changing "Reading" heading.
             live_work: {
                 let mut work = self.live().live_work.clone();
                 if self.corporate_on() {
                     for one in &self.live().live_tools {
-                        let id = if one.call_id.is_empty() {
-                            format!("stream:{}", one.index)
-                        } else {
-                            format!("stream:{}", one.call_id)
-                        };
-                        work.push(corporate::streaming_block(
+                        let mut block = corporate::streaming_block(
                             &one.name,
-                            &id,
+                            &if one.call_id.is_empty() {
+                                format!("stream:{}", one.index)
+                            } else {
+                                format!("stream:{}", one.call_id)
+                            },
                             &one.call_id,
                             &one.command,
                             &one.target,
-                        ));
+                        );
+                        // A standalone cat command is a read only once it starts running. Keep
+                        // the partial command out of the card until that point.
+                        if block.reading {
+                            continue;
+                        }
+                        block.done = one.done;
+                        work.push(block);
                     }
                 }
                 corporate::grouped(&work)
@@ -10148,38 +10153,7 @@ fn write_calls(state: &mut State, calls: &[ToolCall], chat: &str) -> bool {
     if grew {
         state.live_mut(chat).live_tools = made;
     }
-    let mut heading_changed = false;
-    if state.corporate_on_in(chat) {
-        let heading = if let Some(one) = state.live_ref(chat).live_tools.iter().find(|one| !one.done) {
-            let id = if one.call_id.is_empty() {
-                format!("stream:{}", one.index)
-            } else {
-                format!("stream:{}", one.call_id)
-            };
-            corporate::streaming_block(
-                &one.name,
-                &id,
-                &one.call_id,
-                &one.command,
-                &one.target,
-            )
-            .head
-        } else if !state.live_ref(chat).live_reasoning.is_empty() {
-            String::from(corporate::THINKING)
-        } else {
-            let words = corporate::live_head_from_text(&state.live_ref(chat).live_text);
-            if words.is_empty() {
-                String::from(corporate::THINKING)
-            } else {
-                words
-            }
-        };
-        if state.live_ref(chat).live_work_head != heading {
-            state.live_mut(chat).live_work_head = heading;
-            heading_changed = true;
-        }
-    }
-    gauge || grew || heading_changed
+    gauge || grew
 }
 
 impl LiveTool {
@@ -10936,16 +10910,6 @@ fn run_turn(
                     // answer streams, rather than waiting for its final message to be saved.
                     let read_finished = guard.corporate_on_in(chat)
                         && corporate::finish_reads(&mut guard.live_mut(chat).live_work);
-                    if guard.corporate_on_in(chat)
-                        && guard.live_ref(chat).running.is_none()
-                    {
-                        let heading = corporate::live_head_from_text(
-                            &guard.live_ref(chat).live_text,
-                        );
-                        if !heading.is_empty() {
-                            guard.live_mut(chat).live_work_head = heading;
-                        }
-                    }
                     // Words of the answer are coming, so the model is writing: not thinking any
                     // more, and not reading the result of a tool from the step before this one.
                     guard.say_status("The model is writing the answer");
@@ -11006,9 +10970,6 @@ fn run_turn(
                         guard.live_mut(chat).live_thought_ms = now.duration_since(begun).as_millis() as u64;
                     }
                     guard.live_mut(chat).live_thought_done = false;
-                    if guard.corporate_on_in(chat) && guard.live_ref(chat).running.is_none() {
-                        guard.live_mut(chat).live_work_head = String::from(corporate::THINKING);
-                    }
                     guard.live_mut(chat).live_reasoning.push_str(piece);
                     // A thought is a note about the answer as well: the text that was sent is
                     // worked through by now.
@@ -15722,7 +15683,7 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_tool_stream_clears_its_stale_corporate_heading() {
+    fn a_streamed_read_stays_hidden_until_the_tool_starts() {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config {
@@ -15732,6 +15693,7 @@ mod tests {
         open_a_chat(&engine);
         let mut state = engine.state.lock().unwrap();
         let chat = state.open_id();
+        state.live_mut(&chat).live_work_head = String::from(corporate::THINKING);
         let read = ToolCall {
             id: String::from("read-call"),
             name: String::from(tools::TOOL_NAME),
@@ -15739,12 +15701,34 @@ mod tests {
         };
 
         assert!(write_calls(&mut state, std::slice::from_ref(&read), &chat));
-        assert_eq!(state.live().live_work_head, "Reading main.rs");
+        assert_eq!(state.live().live_work_head, corporate::THINKING);
         assert!(state.live().live_tools.iter().any(|one| !one.done));
+        drop(state);
 
+        let streaming = engine.snapshot();
+        assert!(
+            !streaming.live_work.iter().any(|one| one.reading),
+            "a partial cat path was shown as a read"
+        );
+
+        let mut state = engine.state.lock().unwrap();
+        assert!(end_writing_calls(&mut state, &chat));
+        assert!(state.live().live_tools[0].done);
+        drop(state);
+        let finalized = engine.snapshot();
+        assert!(
+            !finalized.live_work.iter().any(|one| one.reading),
+            "a finalized call was shown as a read before the tool started"
+        );
+
+        let mut state = engine.state.lock().unwrap();
         assert!(write_calls(&mut state, &[], &chat));
         assert_eq!(state.live().live_work_head, corporate::THINKING);
         assert!(state.live().live_tools.is_empty());
+
+        state.begin_tool_in(&chat, &read, "cat src/main.rs", "", 0);
+        assert_eq!(state.live().live_work_head, "Reading main.rs");
+        assert!(state.live().live_work.iter().any(|one| one.reading));
     }
 
     // The meter above the chat composer was while the server worked the text it was sent

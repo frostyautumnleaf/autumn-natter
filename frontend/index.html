@@ -8967,8 +8967,8 @@ function feedInk(m) {
   if (ink.words) {
     ink.words.classList.toggle('corp-held-words', chatting.corporate);
   }
-  // The card title follows the live update or tool action. Assistant text is the writer's own,
-  // so the card is put again here whenever the stream changes.
+  // The card body follows assistant text as it arrives; its title stays on the current phase
+  // until a tool starts or the answer is saved.
   drawWork(ink.turn, m);
   if (ink.panel && ink.musing) { ink.panel.classList.remove('hidden'); }
   // Text of the answer has come, so the model has moved on from the thought above, and every
@@ -9364,21 +9364,24 @@ function workHasCall(blocks, callId) {
   return false;
 }
 
-function liveToolBlock(call, mainHead) {
+function liveCatCall(call) {
+  return String(call.name || '') === 'run_terminal'
+    && /^cat(?:\s|$)/.test(String(call.command || '').trim());
+}
+
+function liveToolBlock(call) {
   var name = String(call.name || '');
   var command = String(call.command || '').trim();
   var file = String(call.target || '').trim();
-  var reading = name === 'run_terminal' && /^Reading\b/.test(mainHead || '');
   var head;
-  if (reading) { head = mainHead; }
-  else if (name === 'run_terminal') { head = 'Running' + (command ? ' ' + command.split('\n')[0] : ''); }
+  if (name === 'run_terminal') { head = 'Running' + (command ? ' ' + command.split('\n')[0] : ''); }
   else if (name === 'edit_file') { head = 'Editing file' + (file ? ' ' + file : ''); }
   else if (name === 'create_file') { head = 'Creating file' + (file ? ' ' + file : ''); }
   else { head = name.replace(/_/g, ' '); }
   return {
     head: head, tool: name,
     id: call.call_id ? 'stream:' + call.call_id : 'stream:' + call.index,
-    call_id: call.call_id || '', done: false, reading: reading,
+    call_id: call.call_id || '', done: false, reading: false,
     command: name === 'run_terminal' ? command : '', file: file
   };
 }
@@ -9400,8 +9403,11 @@ function cardParts(m, excludeWords, answerKey, wordIndex) {
     var calls = m.tools || [];
     for (var c = 0; c < calls.length; c++) {
       var callId = calls[c].call_id || '';
+      // A standalone cat call becomes a read block when the tool starts. Its path is still
+      // changing while the model writes it, so do not turn that stream into a progress row.
+      if (liveCatCall(calls[c])) { continue; }
       if (!callId || !workHasCall(short, callId)) {
-        out.push(workBlock(liveToolBlock(calls[c], m.work_head),
+        out.push(workBlock(liveToolBlock(calls[c]),
           answerKey + ':stream:' + (callId || calls[c].index)));
       }
     }

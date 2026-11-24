@@ -1095,11 +1095,15 @@ function scene(name, dark, theme) {
       start.generating = true;
       start.live = '';
       start.reasoning = '';
-      start.live_work = [];
-      start.live_work_head = 'Reading src/main.rs';
+      start.live_work = [
+        { head: 'Reading main.rs', tool: 'run_terminal', id: 'read-message',
+          call_id: 'tool-read', command: 'cat src/main.rs', file: '',
+          reading: true, done: false, sub: [], lines: [] }
+      ];
+      start.live_work_head = 'Reading main.rs';
       start.live_tools = [
         { call_id: 'tool-read', index: 0, name: 'run_terminal',
-          command: 'cat src/main.rs', purpose: '', target: '', done: false },
+          command: 'cat src/main.rs', purpose: '', target: '', done: true },
         { call_id: 'tool-edit', index: 1, name: 'edit_file',
           command: '', purpose: '', target: 'src/parser.rs', done: false },
         { call_id: 'tool-create', index: 2, name: 'create_file',
