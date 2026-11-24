@@ -330,6 +330,23 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       faults.push('the text of an answer arriving is not outside the card ' + where);
     }
 
+    // When the model moves from thinking to a tool call, the live answer is grouped with the
+    // tool's thought row. That row must stay visible because it now carries the live card.
+    where = 'a live answer while its tool call runs';
+    box = look(state([
+      said(60, 'You', 'Run the tests.'),
+      said(61, 'Tool', 'cargo test', { reasoning: 'I will run the focused tests now.',
+        tool: 'Running ...' })
+    ], CHAT, { generating: true, live: '', reasoning: '', live_work: SHORT,
+      live_work_head: 'Running a command cargo test' }));
+    var runningTurn = box.querySelector('.turn[data-mid="61"]');
+    if (!runningTurn || !runningTurn.querySelector(':scope > .work')) {
+      faults.push('the live card is missing while the tool call runs ' + where);
+    }
+    if (runningTurn && runningTurn.classList.contains('t-hush')) {
+      faults.push('the thinking/tool group hid its live corporate card ' + where);
+    }
+
     // Five: the block closed by the model's own tool. The text written after the marker are
     // outside the card, and the header of the card is done.
     where = 'the block closed by the model';
@@ -386,6 +403,6 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     + 'it, the answer itself outside; a run of calls of one tool is one block in the plural; '
     + 'a line of the short with nothing under it is a plain line; an answer coming in is '
     + 'held by one card and puts it again as it grows; direct answers keep their card; file '
-    + 'edits keep line counts; the card survives live-to-saved and handoff transitions; and '
-    + 'with the display off nothing of this stands');
+    + 'edits keep line counts; the card survives live-to-saved and handoff transitions and '
+    + 'stays visible while tools run; with the display off nothing of this stands');
 })().catch(function (e) { console.error(e); process.exit(1); });

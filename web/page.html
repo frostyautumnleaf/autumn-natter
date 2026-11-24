@@ -10187,7 +10187,13 @@ function drawRow(turn, items, row) {
     // among the turns.
     turn.dataset.mid = items[row.from].id;
     markTurnRange(turn, row);
-    if (row.live) { fillLive(turn, items[row.to - 1], made); }
+    if (row.live) {
+      fillLive(turn, items[row.to - 1], made);
+      // The earlier tool/thought part of a live group is normally hushed while its answer is
+      // still ahead. This same row now holds the live corporate card, so hiding the group would
+      // hide the card until the answer ends.
+      if (chatting.corporate) { turn.classList.remove('t-hush'); }
+    }
     return;
   }
   var m = items[row.from];
