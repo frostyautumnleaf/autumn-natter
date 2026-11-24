@@ -278,6 +278,12 @@ pub struct Chapter {
 // run. The text is those the user is given: the command, and the reason the model gave for it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LiveTool {
+    // The id the model gave this call, to keep its live corporate block with the one that
+    // replaces it when the call starts running.
+    pub call_id: String,
+    // The place of this call in the response. This remains stable before the server has sent an
+    // id for it.
+    pub index: usize,
     // The name of the tool, as the model wrote it.
     pub name: String,
     // The text of the call so far, as the user is shown it. For a run of the terminal tool it
@@ -541,12 +547,14 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
 // out, for the name arrives parts and a few letters of it are not yet the name of a tool.
 fn watched(calls: &[ToolCall]) -> Vec<LiveTool> {
     let mut out: Vec<LiveTool> = Vec::new();
-    for call in calls {
+    for (index, call) in calls.iter().enumerate() {
         if call.name.is_empty() {
             continue;
         }
         let (command, purpose, target) = words_of(&call.name, &call.arguments);
         out.push(LiveTool {
+            call_id: call.id.clone(),
+            index,
             name: call.name.clone(),
             command,
             purpose,
@@ -3110,10 +3118,18 @@ impl State {
         let head = corporate::head_of(&call.name, &args);
         self.live_mut(chat_id).live_work_head = head.clone();
         match corporate::find_mut(&mut self.live_mut(chat_id).live_work, id) {
-            Some(place) => place.head = head,
+            Some(place) => {
+                place.head = head;
+                place.call_id = call.id.clone();
+            }
             // The call is under the heading the model opened last, when it opened one, and on
             // its own else.
-            None => corporate::begin(&mut self.live_mut(chat_id).live_work, &call.name, id, &args),
+            None => {
+                corporate::begin(&mut self.live_mut(chat_id).live_work, &call.name, id, &args);
+                if let Some(place) = corporate::find_mut(&mut self.live_mut(chat_id).live_work, id) {
+                    place.call_id = call.id.clone();
+                }
+            }
         }
     }
 
@@ -4520,8 +4536,29 @@ impl State {
             answer_rate: self.live().answer_rate,
             live_tools: self.live().live_tools.clone(),
             // What the user is shown: calls of one tool made one after another remain together
-            // in a block of their own.
-            live_work: corporate::grouped(&self.live().live_work),
+            // in a block of their own. A call being written is drawn from the same information
+            // as the live tool line, so it is already in the corporate card before the server
+            // has finished writing its arguments or started running it.
+            live_work: {
+                let mut work = self.live().live_work.clone();
+                if self.corporate_on() {
+                    for one in &self.live().live_tools {
+                        let id = if one.call_id.is_empty() {
+                            format!("stream:{}", one.index)
+                        } else {
+                            format!("stream:{}", one.call_id)
+                        };
+                        work.push(corporate::streaming_block(
+                            &one.name,
+                            &id,
+                            &one.call_id,
+                            &one.command,
+                            &one.target,
+                        ));
+                    }
+                }
+                corporate::grouped(&work)
+            },
             live_work_head: self.live().live_work_head.clone(),
             ask: self.live().asking.clone(),
             running: self.live().running.as_ref().map(|one| RunningTool {
@@ -10246,6 +10283,24 @@ fn write_calls(state: &mut State, calls: &[ToolCall], chat: &str) -> bool {
     let grew = made != state.live_ref(chat).live_tools;
     if grew {
         state.live_mut(chat).live_tools = made;
+    }
+    if state.corporate_on_in(chat) {
+        if let Some(one) = state.live_ref(chat).live_tools.iter().find(|one| !one.done) {
+            let id = if one.call_id.is_empty() {
+                format!("stream:{}", one.index)
+            } else {
+                format!("stream:{}", one.call_id)
+            };
+            let heading = corporate::streaming_block(
+                &one.name,
+                &id,
+                &one.call_id,
+                &one.command,
+                &one.target,
+            )
+            .head;
+            state.live_mut(chat).live_work_head = heading;
+        }
     }
     gauge || grew
 }

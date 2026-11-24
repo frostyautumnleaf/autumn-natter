@@ -38,6 +38,10 @@ pub struct WorkBlock {
     // answer arrives.
     #[serde(default)]
     pub id: String,
+    // The id the model gave the call. It connects the block shown while the call is being
+    // written to the block that remains while the tool runs and after it returns.
+    #[serde(default)]
+    pub call_id: String,
     // True when the call returned, and true then only when it returned without remaining for an
     // error.
     #[serde(default)]
@@ -273,6 +277,7 @@ pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {
         lines: Vec::new(),
         tool: String::from(name),
         id: String::from(id),
+        call_id: String::new(),
         done: false,
         failed: false,
         adds: 0,
@@ -283,6 +288,63 @@ pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {
         sub: Vec::new(),
         line: false,
         group: false,
+    }
+}
+
+// The live part of a call, before its arguments are complete. The name and the useful part of
+// the arguments are already read from the stream, so the card can show what the model is doing
+// while it writes the call. `call_id` keeps this block attached to the same work once it runs.
+pub fn streaming_block(
+    name: &str,
+    id: &str,
+    call_id: &str,
+    command: &str,
+    target: &str,
+) -> WorkBlock {
+    let what = if name == tools::TOOL_NAME {
+        command
+    } else {
+        target
+    }
+    .trim();
+    let head = if known(name) {
+        let doing = doing_word(name);
+        if what.is_empty() {
+            String::from(doing)
+        } else {
+            format!("{} {}", doing, one_line(String::from(what)))
+        }
+    } else {
+        let doing = name.replace('_', " ");
+        if what.is_empty() {
+            doing
+        } else {
+            format!("{} {}", doing, one_line(String::from(what)))
+        }
+    };
+    WorkBlock {
+        head,
+        tool: String::from(name),
+        id: String::from(id),
+        call_id: String::from(call_id),
+        command: if name == tools::TOOL_NAME {
+            cut(command, ROOM_COMMAND)
+        } else {
+            String::new()
+        },
+        file: if matches!(
+            name,
+            editfile::EDIT_NAME
+                | editfile::CREATE_NAME
+                | viewimage::NAME
+                | display::NAME
+                | download::NAME
+        ) {
+            cut(target, ROOM_FILE)
+        } else {
+            String::new()
+        },
+        ..Default::default()
     }
 }
 

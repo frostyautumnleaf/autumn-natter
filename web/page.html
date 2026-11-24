@@ -1314,7 +1314,7 @@ body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
 .work.shut > .wbody { display: none; }
 .work.shut > .whead .wfold { transform: rotate(-90deg); }
 .work .wline, .work .wbhead { color: var(--ink-leaf); }
-.wbody { padding: 4px 0; }
+.wbody { padding: 4px 12px; }
 .wblock { border: 0; border-left: 1px solid var(--line); }
 .wblock > .wbhead { display: flex; align-items: baseline; gap: 8px; padding: 7px 12px;
   cursor: pointer; }
@@ -9227,7 +9227,28 @@ function restOfWords(text) {
 
 // One assistant message becomes one sub-block in the answer card. Its first line is the
 // heading, and the rest of its text stays under that heading.
-function wordsBlock(text, mid) {
+var corporateFolds = Object.create(null);
+
+// The fold of a block belongs to the work it names, not to the DOM node that happened to be
+// there before the next streamed update. Keep it by a stable key while cards are rebuilt.
+function keepCorporateFold(block, key, collapsed) {
+  if (key) {
+    block.dataset.foldKey = key;
+    var known = Object.prototype.hasOwnProperty.call(corporateFolds, key);
+    block.classList.toggle('shut', known ? corporateFolds[key] : !!collapsed);
+  } else {
+    block.classList.toggle('shut', !!collapsed);
+  }
+  var head = block.querySelector(':scope > .wbhead, :scope > .whead');
+  if (!head) { return; }
+  head.addEventListener('click', function () {
+    var shut = !block.classList.contains('shut');
+    block.classList.toggle('shut', shut);
+    if (key) { corporateFolds[key] = shut; }
+  });
+}
+
+function wordsBlock(text, mid, foldKey) {
   var block = make('div', 'wblock wwords shut');
   if (mid) { block.dataset.said = mid; }
   var head = make('div', 'wbhead');
@@ -9250,12 +9271,13 @@ function wordsBlock(text, mid) {
     fold.style.visibility = 'hidden';
     head.style.cursor = 'default';
   }
-  head.addEventListener('click', function () { block.classList.toggle('shut'); });
+  keepCorporateFold(block, foldKey || (mid ? 'words:' + mid : ''), true);
   return block;
 }
 
 // One block of the summary of the work.
-function workBlock(one) {
+function workBlock(one, path) {
+  path = path || 'work';
   var lines = one.lines || [];
   var under = one.sub || [];
   // A line of the summary with nothing under it is drawn as a plain line. The calls that fall
@@ -9267,6 +9289,11 @@ function workBlock(one) {
     return plain;
   }
   var block = make('div', 'wblock shut');
+  var foldKey = one.call_id ? 'tool:' + one.call_id
+    : (one.id ? 'work:' + one.id
+      : (one.group && under.length
+        ? 'group:' + (under[0].call_id || under[0].id || path)
+        : path));
   var head = make('div', 'wbhead');
   var fold = make('span', 'wfold');
   fold.textContent = '\u25BE';
@@ -9322,19 +9349,19 @@ function workBlock(one) {
   }
   // The calls made under this heading are inside it, each a block of its own, so a heading of
   // the work and the work of that heading are read together.
-  for (var k = 0; k < under.length; k++) { put(workBlock(under[k])); }
+  for (var k = 0; k < under.length; k++) { put(workBlock(under[k], foldKey + ':' + k)); }
   if (!body) {
     block.className = 'wblock';
     head.style.cursor = 'default';
   }
-  head.addEventListener('click', function () { block.classList.toggle('shut'); });
+  keepCorporateFold(block, foldKey, true);
   return block;
 }
 
 // The one block of an answer: `head` is the current action, and `parts` are progress messages
 // and tool outcomes. Expandable sub-blocks start closed.
-function corporateCard(head, parts) {
-  var box = make('div', 'work');
+function corporateCard(head, parts, foldKey) {
+  var box = make('div', 'work shut');
   var top = make('div', 'whead');
   var fold = make('span', 'wfold');
   fold.textContent = '\u25BE';
@@ -9346,12 +9373,12 @@ function corporateCard(head, parts) {
   var body = make('div', 'wbody');
   for (var n = 0; n < parts.length; n++) { body.appendChild(parts[n]); }
   box.appendChild(body);
-  top.addEventListener('click', function () { box.classList.toggle('shut'); });
+  keepCorporateFold(box, foldKey, true);
   return box;
 }
 
 // The parts of an answer message: its assistant text sub-block and completed tool work.
-function cardParts(m, excludeWords) {
+function cardParts(m, excludeWords, answerKey, wordIndex) {
   var out = [];
   if (!m || (m.role && m.role !== 'Assistant')) { return out; }
   var short = m.work || [];
@@ -9359,12 +9386,12 @@ function cardParts(m, excludeWords) {
   // before this assistant update. Work on the live message belongs to the step being written
   // now, so it follows that update.
   if (m.id !== 'live') {
-    for (var n = 0; n < short.length; n++) { out.push(workBlock(short[n])); }
+    for (var n = 0; n < short.length; n++) { out.push(workBlock(short[n], answerKey + ':work:' + wordIndex + ':' + n)); }
   }
   var said = String(m.body || '').trim();
-  if (said && !excludeWords) { out.push(wordsBlock(said, m.id)); }
+  if (said && !excludeWords) { out.push(wordsBlock(said, m.id, answerKey + ':words:' + wordIndex)); }
   if (m.id === 'live') {
-    for (var k = 0; k < short.length; k++) { out.push(workBlock(short[k])); }
+    for (var k = 0; k < short.length; k++) { out.push(workBlock(short[k], answerKey + ':work:' + wordIndex + ':' + k)); }
   }
   return out;
 }
@@ -9405,22 +9432,32 @@ function answerFinal(items, at) {
       && last.role === 'Assistant' && String(last.body || '').trim() ? last : null;
 }
 
+// The user message before this answer is its stable key while the live message changes into a
+// saved one and tool blocks are added around it.
+function answerFoldKey(items, at) {
+  var from = at;
+  while (from > 0 && ofAnswer(items[from - 1])) { from--; }
+  var anchor = from > 0 ? items[from - 1] : items[from];
+  return 'answer:' + (anchor && anchor.id ? anchor.id : 'first');
+}
+
 // The progress card for the answer the message at this place belongs to. Progress messages
 // appear as ordered sub-blocks; the final assistant message is shown once outside the card.
 function answerCard(items, at) {
   if (!items || at < 0 || at >= items.length) { return null; }
   var run = answerFrom(items, at);
   var final = answerFinal(items, at);
-  var parts = [], head = '', foundAssistant = false;
+  var parts = [], head = '', foundAssistant = false, wordIndex = 0;
+  var foldKey = answerFoldKey(items, at);
   for (var k = 0; k < run.length; k++) {
     var m = run[k];
     if (m.role !== 'Assistant') { continue; }
     foundAssistant = true;
-    parts = parts.concat(cardParts(m, m === final));
+    parts = parts.concat(cardParts(m, m === final, foldKey, wordIndex++));
     if ((m.work || []).length || m.work_head) { head = m.work_head || 'Done'; }
   }
   if (!foundAssistant) { return null; }
-  var made = corporateCard(head || 'Done', parts);
+  var made = corporateCard(head || 'Done', parts, foldKey + ':main');
   return made;
 }
 
