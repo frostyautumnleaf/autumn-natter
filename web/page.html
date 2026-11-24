@@ -9056,7 +9056,7 @@ function placeCode(holder) {
 // The new text of the block that can still grow. They are given as they were written, and put
 // on the page as parts. A block of code is painted again whole, so its colours stay right while
 // the text arrive; a block of text takes the new text at its end, behind a fade.
-function putTail(holder, written, rebuilt) {
+function putTail(holder, written, rebuilt, fadeRebuilt) {
   if (holder.classList.contains('code')) {
     // The place the block was at is kept across the painting, for a block of code the user was
     // reading in the middle must not be sent back to its first line because a colour was put on
@@ -9070,10 +9070,10 @@ function putTail(holder, written, rebuilt) {
   var parts = inlineParts(written);
   var want = inlineWords(parts);
   if (rebuilt) {
-    // The block arrived, so its text is put on again and fade in. A link is put on whole, for
-    // the text of it must remains as a link and not as text.
+    // A changed Markdown shape may rebuild text the user has already read.
+    // Only fade the first rendering, so completed inline formatting does not flash it again.
     holder.textContent = '';
-    inlineInto(holder, parts, true);
+    inlineInto(holder, parts, fadeRebuilt);
     return;
   }
   var have = holder.textContent;
@@ -9099,6 +9099,7 @@ function writeBlocks(node, state, text) {
   var tail = tailText(made);
   var holder = null;
   var rebuilt = false;
+  var fadeRebuilt = !state.shape;
   if (shape !== state.shape) {
     state.shape = shape;
     node.innerHTML = '';
@@ -9108,7 +9109,7 @@ function writeBlocks(node, state, text) {
   } else if (made.length) {
     holder = holderOf(lastBlock(node));
   }
-  if (holder) { putTail(holder, tail, rebuilt); }
+  if (holder) { putTail(holder, tail, rebuilt, fadeRebuilt); }
   settle(node);
   return holder;
 }
