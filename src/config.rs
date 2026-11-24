@@ -358,6 +358,9 @@ pub struct Config {
     // pixel-art form.
     #[serde(default)]
     pub theme_pixel: bool,
+    // Draw the top and side bars with the page background instead of the raised surface.
+    #[serde(default)]
+    pub bars_match_background: bool,
     // True when this file was written by a program that knows the four themes. A file without
     // the word holds `corporate` for the ladder of grey, which now answers to `silver`: the
     // near-black theme took the older name. The marker is placed on when the settings are read,
@@ -900,6 +903,7 @@ impl Default for Config {
             contexts_dir: String::new(),
             theme: THEME_DEFAULT.to_string(),
             theme_pixel: false,
+            bars_match_background: false,
             skins_v2: true,
             // The switch of the two themes that was before the third is kept in step with the
             // skin above, so a settings file of this program is read as the same skin by a

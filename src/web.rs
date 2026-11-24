@@ -408,6 +408,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "theme_pixel": snap.theme_pixel,
         // Chatting. How the page shows a thinking panel, a tool panel and a block of code.
         "chatting": {
+            "bars_match_background": snap.bars_match_background,
             "collapse_thinking": snap.chat_collapse_thinking,
             "grow_thinking": snap.chat_grow_thinking,
             "tools_in_thinking": snap.chat_tools_in_thinking,

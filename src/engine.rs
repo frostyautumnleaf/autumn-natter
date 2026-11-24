@@ -1273,6 +1273,8 @@ pub struct Snap {
     // True when that theme is drawn in its pixel-art form: the colours of the theme above, the
     // interface out of squares.
     pub theme_pixel: bool,
+    // Whether the top and side bars use the page background instead of the raised surface.
+    pub bars_match_background: bool,
     pub data_dir: String,
     // The folder the contexts the model has processed are in, which the settings window reads
     // out beside the field that chooses another place.
@@ -4326,6 +4328,7 @@ impl State {
             dark_mode: self.cfg.dark_mode,
             theme: config::theme_word(&self.cfg.theme, self.cfg.dark_mode),
             theme_pixel: self.cfg.theme_pixel,
+            bars_match_background: self.cfg.bars_match_background,
             data_dir: config::paths().data.display().to_string(),
             contexts_dir: config::contexts_dir(&self.cfg).display().to_string(),
             sandbox_note: self.sandbox_note.clone(),
@@ -6947,6 +6950,7 @@ impl Snap {
             dark_mode: false,
             theme: String::new(),
             theme_pixel: false,
+            bars_match_background: false,
             data_dir: String::new(),
             contexts_dir: String::new(),
             sandbox_note: String::new(),

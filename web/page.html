@@ -2758,7 +2758,8 @@ body.sideopen .main { left: var(--side-w); }
 .side {
   position: absolute; top: 0; bottom: 0; left: 0; width: var(--side-w);
   display: flex; flex-direction: column; min-width: 0;
-  background: var(--surface);
+  --side-background: var(--surface);
+  background: var(--side-background);
   z-index: 40;
   transform: translateX(-100%);
   transition: transform var(--t-move);
@@ -2778,8 +2779,10 @@ body.sideopen .main { left: var(--side-w); }
   width: var(--r-m); height: var(--r-m); pointer-events: none;
   background: radial-gradient(circle at 100% 100%,
     transparent calc(var(--r-m) - 1px), var(--line) calc(var(--r-m) - 1px) var(--r-m),
-    var(--surface) calc(var(--r-m) + 1px));
+    var(--side-background) calc(var(--r-m) + 1px));
 }
+body.match-bars-background header.bar { background: var(--bg); }
+body.match-bars-background .side { --side-background: var(--bg); }
 /*
  * The corner, the hairline and the grip reach past the edge of the side bar, and the side bar
  * slides out to the left with its edge as the last of it. What reaches past that edge would be
@@ -3684,6 +3687,9 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
               <button id="fThemeCorporate" type="button">Corporate</button>
               <button id="fThemeNeon" type="button">Neon</button>
             </div></div></div>
+        <div class="fld"><span class="lbl">Bars match the background</span>
+          <span class="sub">Use the page background for the top bar and side bar instead of their raised surface colour.</span>
+          <div class="ctl"><input id="fBarsBackground" type="checkbox"></div></div>
         <div class="fld wide"><span class="lbl">Pixel-art look</span>
           <span class="sub">Draw the theme in pixel-art form: no rounded corner, no blur, every shadow a flat block, and the text in a fixed-width font. The colours are the colours of the theme, so each theme has a standard look and a pixel-art one. The look changes at once.</span>
           <div class="ctl"><div class="seg" id="fThemeArt" role="group" aria-label="Whether to draw the theme out of squares">
@@ -4458,6 +4464,7 @@ function draw(s) {
 // then both are on.
 function readChatting(s) {
   var chat = s.chatting || {};
+  document.body.classList.toggle('match-bars-background', !!chat.bars_match_background);
   chatting.thinking = chat.collapse_thinking !== false;
   chatting.grow = chat.grow_thinking !== false;
   chatting.inThink = chat.tools_in_thinking !== false;
@@ -16024,6 +16031,7 @@ function loadProgram() {
     // switch of its form.
     showThemeButtons();
     showArtButtons();
+    byId('fBarsBackground').checked = cfg.bars_match_background === true;
     byId('fFoldThink').checked = cfg.chat_collapse_thinking !== false;
     byId('fFoldTools').checked = cfg.chat_collapse_tools !== false;
     byId('fGrowThink').checked = cfg.chat_grow_thinking !== false;
@@ -16634,6 +16642,7 @@ function readProgram() {
   cfg.upnp_enabled = byId('fUpnp').checked;
   cfg.theme = themeWord;
   cfg.theme_pixel = pixelArt;
+  cfg.bars_match_background = byId('fBarsBackground').checked;
   cfg.dark_mode = themeWord === 'dark';
   cfg.chat_collapse_thinking = byId('fFoldThink').checked;
   cfg.chat_collapse_tools = byId('fFoldTools').checked;
