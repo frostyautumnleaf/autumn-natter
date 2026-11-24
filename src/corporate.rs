@@ -113,7 +113,7 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": String::from(
-                "Write the short of your work into the one block the user sees. The user is reading the corporate display: the thoughts and the tool blocks are hidden, and all of your work shows as a single block whose head says what you are at. This tool puts blocks inside that block. Give the heading of the area, the task or the topic you are working on -- not the tool, and not a file name -- and one to three lines under it, each a very short summary of a thing you did or are doing: 'Comparing the two attention methods.', 'Checking which version the feature needs.' No more than a sentence to a line, and never the answer itself, which the user reads in the chat. Call it again with the same heading to add lines to the same block, and with another heading to open a new one. Call it before a call that takes time, and again when that call comes back, so a user who watches sees the work move: a block nothing has been written into for a minute reads as a program that has stopped. It is not needed for a short answer that asks for nothing, and it is not needed twice for one small thing."
+                "Update the progress card for this answer. The user cannot see your reasoning or tool calls. Set topic to a short, specific heading for the workstream, and lines to one or two very short updates. Call before every tool call with the action you are starting, and after each result with what happened; do this for consecutive calls too. Reuse topic only to continue that same workstream. When work moves to a different workstream, use a new topic so it becomes a separate heading and preserves the earlier heading. Every line becomes its own progress sub-block, and later updates append rather than replace earlier ones. Keep each line concrete and brief, such as 'Searching for the release notes.' or 'Found the November release date.' Never put the final answer in this card. The card title follows your latest progress while you work; tool blocks show file paths and added or removed line counts. Short direct answers without meaningful work do not need this tool."
             ),
             "parameters": {
                 "type": "object",
@@ -259,6 +259,22 @@ fn doing_plural(name: &str) -> &'static str {
 // `crate::tools::partial_text`, which reads a part of a call as far as it has been written.
 pub fn partial_words(raw: &str) -> String {
     tools::partial_text(raw, "topic")
+}
+
+// The latest short line is the most useful header while the model is still working. The topic
+// remains a fallback for a call that has not supplied a progress line yet.
+pub fn live_head(entry: &Entry) -> String {
+    let latest = entry
+        .lines
+        .iter()
+        .rev()
+        .map(|one| one.trim())
+        .find(|one| !one.is_empty())
+        .unwrap_or_else(|| entry.topic.trim());
+    if latest.is_empty() {
+        return String::from(WORKING);
+    }
+    one_line(String::from(latest))
 }
 
 // True when a name is one of the tools of the program, rather than one a server of tools added.
@@ -516,13 +532,17 @@ pub fn head_of_answer(blocks: &[WorkBlock], thought_ms: u64) -> String {
 
 // The header of the one block when an answer is over: what the answer did, in the text of items
 // that has happened. A search that returned is reported as a search that was created, and a
-// command that returned as a command that ran. Several types of work are named one after
-// another, in the order they were done; several runs of one type are named once.
+// command that returned as a command that ran. File calls are counted across the answer.
 pub fn head_after(blocks: &[WorkBlock]) -> String {
     let mut words: Vec<String> = Vec::new();
     let mut failed = false;
-    gather(blocks, &mut words, &mut failed);
+    let mut file_counts = FileCounts::default();
+    count_files(blocks, &mut file_counts);
+    gather(blocks, &mut words, &mut failed, &file_counts);
     if words.is_empty() {
+        if failed {
+            return String::from("Work failed");
+        }
         return String::from(DONE);
     }
     // The three last say what the answer ended with. A header that carried every type of work
@@ -540,26 +560,70 @@ pub fn head_after(blocks: &[WorkBlock]) -> String {
 }
 
 // The text of the calls of a short, in the order they were created, with each type named once.
-// `failed` reports whether the last call of all returned with an error, which is the error the
-// header means.
-fn gather(blocks: &[WorkBlock], words: &mut Vec<String>, failed: &mut bool) {
+// `failed` reports whether any call returned with an error.
+#[derive(Default)]
+struct FileCounts {
+    edited: usize,
+    created: usize,
+}
+
+fn count_files(blocks: &[WorkBlock], counts: &mut FileCounts) {
+    for one in blocks {
+        if !one.id.is_empty() && one.done && !one.failed {
+            if one.tool == editfile::EDIT_NAME {
+                counts.edited += 1;
+            } else if one.tool == editfile::CREATE_NAME {
+                counts.created += 1;
+            }
+        }
+        count_files(&one.sub, counts);
+    }
+}
+
+fn file_count_word(verb: &str, count: usize) -> String {
+    format!(
+        "{} {} {}",
+        verb,
+        count,
+        if count == 1 { "file" } else { "files" }
+    )
+}
+
+fn gather(
+    blocks: &[WorkBlock],
+    words: &mut Vec<String>,
+    failed: &mut bool,
+    file_counts: &FileCounts,
+) {
     for one in blocks.iter() {
         if one.tool.is_empty() {
-            gather(&one.sub, words, failed);
+            gather(&one.sub, words, failed, file_counts);
             continue;
         }
         if one.tool != NAME && one.tool != FINISH_NAME {
-            let word = if known(&one.tool) {
+            let word = if one.tool == editfile::EDIT_NAME {
+                if file_counts.edited == 0 || words.iter().any(|one| one.starts_with("Edited ")) {
+                    String::new()
+                } else {
+                    file_count_word("Edited", file_counts.edited)
+                }
+            } else if one.tool == editfile::CREATE_NAME {
+                if file_counts.created == 0 || words.iter().any(|one| one.starts_with("Created ")) {
+                    String::new()
+                } else {
+                    file_count_word("Created", file_counts.created)
+                }
+            } else if known(&one.tool) {
                 String::from(done_word(&one.tool))
             } else {
                 one.head.clone()
             };
-            if !words.contains(&word) {
+            if !word.is_empty() && !words.contains(&word) {
                 words.push(word);
             }
-            *failed = one.failed;
+            *failed |= one.failed;
         }
-        gather(&one.sub, words, failed);
+        gather(&one.sub, words, failed, file_counts);
     }
 }
 
@@ -701,13 +765,12 @@ pub fn note(blocks: &mut Vec<WorkBlock>, entry: &Entry) -> bool {
 // reads.
 pub fn system_prompt() -> String {
     String::from(
-        "The chat stands in the corporate display. The user does not see your thoughts, and does not see the blocks of the calls you make: those are hidden whole. One block stands for each of your answers. Its head says what you are at, and the writing inside it is the short of your work.\n\
-         You write that short yourself with work_log. The user reads it while you work, so keep it moving: write to it before a call that takes time, and again when that call comes back. Two calls in a row are two writings, and not one writing after both. A block nothing has been written into for a minute reads as a program that has stopped. A short answer that asks for nothing needs no writing, and one small thing needs no writing of its own.\n\
-         Give the heading of the area you are working in, and one to three very short lines under it. Call it again with the same heading to add lines to that heading, and with another heading to open another one. A heading is the area or the task, never a tool name and never a file name.\n\
-         The calls you make stand under the last line you wrote, so the user reads the words of the work and the work itself together. When you take the next step of that work, write a new line first and make the calls after it: the new line then holds the calls that follow. A line that stands for a step of the work is a step of the work, and not a saying about it.\n\
-         When a call comes back, say in one line what it gave you, or what went wrong, so the user learns of a fault as you read it.\n\
-         Do not put the answer into those lines. The user reads the answer in the chat, and the short only says what you did to get it.\n\
-         When the work is over, close the block with finish_answer. Call it once, at the moment you have done everything you meant to do and will call no more tools. The block ends there, and everything you write after it is read as the answer the user came for, outside the block and in the plain words of the chat. Do not call it while work is left, and call no tool after it.",
+        "Corporate display is on. The user cannot see your reasoning or tool-call messages. One progress card belongs to each answer; its title shows your current action, and its contents show short progress headings with their updates and the tool calls made for them. The final assistant reply stays in the chat below the card.\n\
+         Use work_log throughout any answer that involves research, tools, file changes, or multiple steps. Before each tool call, write one short progress line saying what you are about to do. After the call returns, write one short line saying what it returned or what failed. Do this for each call, including consecutive calls; do not wait until a group of calls is complete. A short direct answer with no meaningful work needs no progress lines.\n\
+         Each work_log call names a workstream in topic and gives one or two concise progress lines in lines. Use a clear, specific heading such as 'Research the release' or 'Create the findings file'. Reuse the same topic only to add progress to that same workstream. Start a new topic when you begin a different workstream; never rename or replace an earlier topic to describe later work. Each topic becomes its own heading block, and each progress line becomes its own sub-block. Keep earlier headings and lines intact.\n\
+         Progress lines describe one concrete step or result in a few words. For example: 'Searching the web for the release date.' and then 'Found the November release notes.' Do not repeat the user request, write a generic status, or put your final answer in a progress line. Calls you make after a progress line appear under that line, so write a fresh line before moving to the next step.\n\
+         The title of the card follows your latest progress or action while you work. Keep work_log updates frequent enough that it never looks stalled. For file edits, the tool call block also shows the file and added and removed line counts; do not duplicate those counts in progress text.\n\
+         When all work and tool calls are complete, call finish_answer exactly once immediately before your final assistant reply. Do not call any tool after finish_answer. The final reply is shown outside the progress card.",
     )
 }
 
@@ -878,9 +941,62 @@ mod tests {
         assert!(!made[1].group, "one run of a kind is no run of its kind");
         assert_eq!(made[1].head, "Ran a command ls");
         assert!(!made[2].group, "one call of a kind is no run");
-        // The header of the answer reports the types of the work once each, as it did before
-        // the calls were put together.
-        assert_eq!(head_after(&made), "Created a file, Ran a command");
+        // The answer header summarizes all file calls, including the one after another tool.
+        assert_eq!(head_after(&made), "Created 3 files, Ran a command");
+    }
+
+    #[test]
+    fn the_final_heading_counts_created_and_edited_files() {
+        let mut blocks = Vec::new();
+        for (name, id, path, output) in [
+            (
+                editfile::CREATE_NAME,
+                "c1",
+                "new-a.md",
+                "Created 'new-a.md'.",
+            ),
+            (editfile::EDIT_NAME, "e1", "old-a.md", "Edited 'old-a.md'."),
+            (
+                editfile::CREATE_NAME,
+                "c2",
+                "new-b.md",
+                "Created 'new-b.md'.",
+            ),
+        ] {
+            begin(&mut blocks, name, id, &json!({"path": path}));
+            let call = find_mut(&mut blocks, id).expect("the file operation");
+            came_back(call, output, true, 1, 0);
+        }
+        assert_eq!(
+            head_after(&grouped(&blocks)),
+            "Created 2 files, Edited 1 file"
+        );
+    }
+
+    #[test]
+    fn a_failure_remains_in_the_final_heading_after_later_success() {
+        let mut first = block_for(search::NAME, "s1", &json!({"query": "first"}));
+        came_back(&mut first, "network error", false, 0, 0);
+        let mut second = block_for(tools::TOOL_NAME, "t1", &json!({"command": "pwd"}));
+        came_back(&mut second, "/workspace", true, 0, 0);
+        assert_eq!(
+            head_after(&[first, second]),
+            "Searched the web, Ran a command, it failed"
+        );
+    }
+
+    #[test]
+    fn failed_file_operations_are_not_counted_as_changed_files() {
+        let mut blocks = Vec::new();
+        begin(
+            &mut blocks,
+            editfile::CREATE_NAME,
+            "c1",
+            &json!({"path": "already-there.md"}),
+        );
+        let call = find_mut(&mut blocks, "c1").expect("the file operation");
+        came_back(call, "That file already exists.", false, 0, 0);
+        assert_eq!(head_after(&grouped(&blocks)), "Work failed");
     }
 
     // A group is done only when every call of it returned, so a run that is still going on is

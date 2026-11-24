@@ -3163,14 +3163,17 @@ impl State {
         if !self.corporate_on_in(chat_id) {
             return;
         }
-        let Some(place) = corporate::find_mut(&mut self.live_mut(chat_id).live_work, id) else {
-            return;
+        let head = {
+            let Some(place) = corporate::find_mut(&mut self.live_mut(chat_id).live_work, id) else {
+                return;
+            };
+            let (adds, cuts) = plus_minus(output);
+            corporate::came_back(place, output, ok, adds, cuts);
+            place.head.clone()
         };
-        let (adds, cuts) = plus_minus(output);
-        corporate::came_back(place, output, ok, adds, cuts);
-        // The header of the one block is reported again as an event, so a search that returned
-        // is not still left at the header as a search on its way.
-        self.live_mut(chat_id).live_work_head = corporate::head_after(&self.live_mut(chat_id).live_work);
+        // Keep the one card on the action that just returned until the model names its next
+        // step, rather than replacing the live heading with a summary of all earlier work.
+        self.live_mut(chat_id).live_work_head = head;
     }
 
     // The same work for the chat the side bar has open, which is what the window and the page
@@ -10654,7 +10657,7 @@ fn run_turn(
         state.live_mut(chat).live_reasoning = String::new();
         state.live_mut(chat).live_tools = Vec::new();
         state.live_mut(chat).live_work = Vec::new();
-        state.live_mut(chat).live_work_head = String::new();
+        state.live_mut(chat).live_work_head = String::from(corporate::THINKING);
         state.live_mut(chat).live_work_closed = false;
         // A question the model had put to the user before this answer began is removed with the
         // answer that asked it: the popup that was over the chat composer was asked by a run
@@ -11001,6 +11004,9 @@ fn run_turn(
             guard.live_mut(chat).progress = 0;
             guard.live_mut(chat).progress_images = pending_images(&history);
             guard.live_mut(chat).progress_on = true;
+            if guard.corporate_on_in(chat) {
+                guard.live_mut(chat).live_work_head = String::from(corporate::THINKING);
+            }
             // Neither speed is known until the server reports something of it, and the clocks
             // of the program have nothing to measure until a note about the answer arrives.
             guard.live_mut(chat).prompt_rate = 0.0;
@@ -11869,7 +11875,14 @@ fn run_turn(
                 let entry = serde_json::from_str::<corporate::Entry>(&call.arguments)
                     .unwrap_or_default();
                 let written = match state.lock() {
-                    Ok(mut guard) => corporate::note(&mut guard.live_mut(chat).live_work, &entry),
+                    Ok(mut guard) => {
+                        let live = guard.live_mut(chat);
+                        let written = corporate::note(&mut live.live_work, &entry);
+                        if written {
+                            live.live_work_head = corporate::live_head(&entry);
+                        }
+                        written
+                    }
                     Err(_) => continue,
                 };
                 let note = corporate::receipt(written);

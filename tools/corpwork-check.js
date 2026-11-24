@@ -12,7 +12,9 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 
 const PAGE = path.join(__dirname, '..', 'frontend', 'index.html');
-const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
+const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
+  ? 'file://' + path.resolve(process.env.AN_PAGE)
+  : 'file://' + PAGE);
 
 (async () => {
   const shell = process.env.AN_SHELL_BIN;
@@ -22,7 +24,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
   });
   const page = await browser.newPage();
-  await page.goto('file://' + REMOTE);
+  await page.goto(REMOTE);
   const out = await page.evaluate(async () => {
     var faults = [];
     var where = 'at the start';
@@ -146,8 +148,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     }
     // The text the model stated while it worked are inside the card, and the answer it ended
     // with is outside it.
-    var said = box.querySelector('.turn[data-mid="4"] .answer-words');
-    if (!said) {
+    var answerText = box.querySelector('.turn[data-mid="4"] .answer-words');
+    if (!answerText) {
       faults.push('the answer the model ended with is not in the chat ' + where);
     }
     if (made[0].querySelector('.answer-words')) {
@@ -172,6 +174,26 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     }
     if (box.querySelector('.turn[data-mid="5"]').classList.contains('t-hush')) {
       faults.push('the second question of the user is offset ' + where);
+    }
+
+    // Even a direct answer with no reasoning or logged work keeps its progress card after
+    // generation ends; its answer text remains in the chat and the empty card reports Done.
+    where = 'a direct answer with no logged work';
+    box = look(state([
+      said(20, 'You', 'What is 2 + 2?'),
+      said(21, 'Assistant', '4.', { work_head: 'Done', work_closed: true })
+    ], CHAT));
+    var direct = box.querySelector('.turn[data-mid="21"] > .work');
+    if (!direct) {
+      faults.push('a direct answer with no logged work has no card ' + where);
+    } else {
+      var directHead = (direct.querySelector('.whead') || {}).textContent || '';
+      if (!/Done/.test(directHead) || direct.querySelector('.wbbody > *')) {
+        faults.push('the direct answer card is not empty and Done ' + where);
+      }
+    }
+    if (!box.querySelector('.turn[data-mid="21"] .answer-words')) {
+      faults.push('the direct answer text is missing from the chat ' + where);
     }
 
     // Two: a run of calls of one tool is one block, stated in the plural with the count, and
@@ -276,6 +298,22 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('the thought of the model is hidden with the corporate display off ' + where);
     }
 
+    // File call blocks retain the line-change markers in each nested sub-block.
+    where = 'a file edit sub-block';
+    var changed = [heading('Update the parser', [line('Applying the fix.', [
+      call('edit_file', 'e1', 'Edited file src/parser.rs', { adds: 3, cuts: 1,
+        file: 'src/parser.rs' })
+    ])])];
+    box = look(state([said(30, 'You', 'Fix the parser.'), said(31, 'Assistant', 'Done.', {
+      work: changed, work_head: 'Edited 1 file', work_closed: true
+    })], CHAT));
+    var editCard = box.querySelector('.turn[data-mid="31"] > .work');
+    var plus = editCard && editCard.querySelector('.wplus');
+    var minus = editCard && editCard.querySelector('.wminus');
+    if (!plus || plus.textContent !== '+3' || !minus || minus.textContent !== '-1') {
+      faults.push('the edit sub-block does not show its added and removed line counts ' + where);
+    }
+
     return faults;
   });
   await browser.close();
@@ -287,6 +325,6 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     + 'message; the thoughts, the words of the work and the short of the work stand inside '
     + 'it, the answer itself outside; a run of calls of one tool is one block in the plural; '
     + 'a line of the short with nothing under it is a plain line; an answer coming in is '
-    + 'held by one card and puts it again as it grows; and with the display off nothing of '
-    + 'this stands');
+    + 'held by one card and puts it again as it grows; direct answers keep their card; file '
+    + 'edits keep line counts; and with the display off nothing of this stands');
 })().catch(function (e) { console.error(e); process.exit(1); });

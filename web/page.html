@@ -9313,8 +9313,9 @@ function answerEnd(items, at) {
   return end;
 }
 
-// The one block of the answer the message at this place belongs to, or nothing at all when the
-// answer has no thought, no text inside the block, and no short of the work.
+// The one progress card for the answer the message at this place belongs to. A short direct
+// answer still gets an empty card: the card identifies each answer and its final heading says
+// what the answer did, even when there were no inner work blocks to show.
 function answerCard(items, at) {
   if (!items || at < 0 || at >= items.length) { return null; }
   var run = answerFrom(items, at);
@@ -9324,14 +9325,15 @@ function answerCard(items, at) {
   for (var n = 0; n < run.length; n++) {
     if (run[n].role === 'Assistant' && String(run[n].body || '').trim()) { said = n; }
   }
-  var parts = [], head = '';
+  var parts = [], head = '', foundAssistant = false;
   for (var k = 0; k < run.length; k++) {
     var m = run[k];
     if (m.role !== 'Assistant') { continue; }
+    foundAssistant = true;
     parts = parts.concat(cardParts(m, m.id === 'live' ? !!m.reasoning_done : true, k === said));
     if ((m.work || []).length || m.work_head) { head = m.work_head || 'Done'; }
   }
-  if (!parts.length) { return null; }
+  if (!foundAssistant) { return null; }
   var made = corporateCard(head || 'Done', parts);
   // A thought that is all of what an answer did needs no second saying of itself. The header of
   // the block reports it already; the thought under it remains as text, and not as a block that
@@ -10420,25 +10422,11 @@ function roleStamp(m) {
     workStamp(m)].join('#');
 }
 
-// What the summary of the work is made of: the header of the block, the headers of the blocks
-// under it, the lines under those, and the two numbers of a file. A row is rebuilt when this
-// changes, for the block of the work is part of the row.
+// The whole work tree is included so edits to text, state, or nested calls redraw the card.
 function workStamp(m) {
   var list = m.work || [];
   if (!list.length && !m.work_head) { return ''; }
-  var parts = [m.work_head || ''];
-  for (var n = 0; n < list.length; n++) { parts.push(workMark(list[n])); }
-  return 'work:' + parts.join('/');
-}
-
-function workMark(one) {
-  var parts = [one.head || '', String((one.lines || []).length),
-    String((one.command || '').length), String((one.file || '').length),
-    String((one.output || '').length), one.failed ? 'x' : '',
-    (one.adds || 0) + '/' + (one.cuts || 0)];
-  var under = one.sub || [];
-  for (var n = 0; n < under.length; n++) { parts.push(workMark(under[n])); }
-  return parts.join('~');
+  return 'work:' + JSON.stringify([m.work_head || '', list]);
 }
 
 // The chat composer holds one turn for every message. A turn is created once and then only the
