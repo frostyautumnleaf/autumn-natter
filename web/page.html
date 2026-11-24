@@ -9243,6 +9243,17 @@ function wordsBlock(text, mid, foldKey) {
 }
 
 // One block of the summary of the work.
+function workHeading(one) {
+  var head = one.head || 'Working';
+  if (one.tool === 'view_image' || one.tool === 'view_images') {
+    var many = one.group || Number(one.image_count) > 1
+      || (one.file && one.file.indexOf(', ') >= 0) || head.indexOf('Looked at pictures') === 0;
+    head = head.replace(/^Looked at a picture/, many ? 'Viewed images' : 'Viewed image');
+    head = head.replace(/^Looked at pictures/, 'Viewed images');
+  }
+  return head;
+}
+
 function workBlock(one, path) {
   path = path || 'work';
   var lines = one.lines || [];
@@ -9265,7 +9276,7 @@ function workBlock(one, path) {
   var fold = make('span', 'wfold');
   fold.textContent = '\u25BE';
   var title = make('span');
-  title.textContent = one.head || 'Working';
+  title.textContent = workHeading(one);
   head.appendChild(fold);
   if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
     var icon = one.reading
@@ -9274,7 +9285,8 @@ function workBlock(one, path) {
     head.appendChild(mark(icon, 'wtoolmark'));
   }
   head.appendChild(title);
-  if (typeof one.adds === 'number' && (one.adds || one.cuts)) {
+  if ((one.tool === 'edit_file' || one.tool === 'create_file')
+    && typeof one.adds === 'number' && (one.adds || one.cuts)) {
     var plus = make('span', 'wplus');
     plus.textContent = '+' + one.adds;
     var minus = make('span', 'wminus');

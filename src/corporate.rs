@@ -65,6 +65,9 @@ pub struct WorkBlock {
     // reaches.
     #[serde(default)]
     pub file: String,
+    // The number of images in a call, for singular and plural completed headings.
+    #[serde(default)]
+    pub image_count: usize,
     // The text that returned, short. An error is extracted from these, for no other block of
     // the call remains while the mode is on.
     #[serde(default)]
@@ -129,7 +132,7 @@ fn doing_word(name: &str) -> &'static str {
         suggest::NAME => "Offering a next step",
         steps::NAME => "Writing the steps",
         download::NAME => "Offering files",
-        viewimage::NAME => "Looking at a picture",
+        viewimage::NAME | viewimage::ONE_NAME => "Looking at a picture",
         summarise::NAME => "Summarising the conversation",
         NAME => "Writing the short",
         _ => WORKING,
@@ -225,7 +228,7 @@ fn done_word(name: &str) -> &'static str {
         suggest::NAME => "Offered a next step",
         steps::NAME => "Wrote the steps",
         download::NAME => "Offered files",
-        viewimage::NAME => "Looked at a picture",
+        viewimage::NAME | viewimage::ONE_NAME => "Viewed image",
         summarise::NAME => "Summarised the conversation",
         NAME => "Wrote the short",
         _ => "Worked",
@@ -244,7 +247,7 @@ fn done_plural(name: &str) -> &'static str {
         suggest::NAME => "Offered next steps",
         steps::NAME => "Wrote the steps",
         download::NAME => "Offered files",
-        viewimage::NAME => "Looked at pictures",
+        viewimage::NAME | viewimage::ONE_NAME => "Viewed images",
         summarise::NAME => "Summarised the conversation",
         NAME => "Wrote the short",
         _ => "Worked",
@@ -262,7 +265,7 @@ fn doing_plural(name: &str) -> &'static str {
         suggest::NAME => "Offering next steps",
         steps::NAME => "Writing the steps",
         download::NAME => "Offering files",
-        viewimage::NAME => "Looking at pictures",
+        viewimage::NAME | viewimage::ONE_NAME => "Looking at pictures",
         summarise::NAME => "Summarising the conversation",
         NAME => "Writing the short",
         _ => "Working",
@@ -282,6 +285,7 @@ fn known(name: &str) -> bool {
             | steps::NAME
             | download::NAME
             | viewimage::NAME
+            | viewimage::ONE_NAME
             | summarise::NAME
             | NAME
             | FINISH_NAME
@@ -328,7 +332,7 @@ fn short_of(name: &str, args: &Value) -> String {
         tools::TOOL_NAME => one_line(text("command")),
         editfile::EDIT_NAME | editfile::CREATE_NAME => text("path"),
         search::NAME => one_line(text("query")),
-        viewimage::NAME | display::NAME => text("path"),
+        viewimage::NAME | viewimage::ONE_NAME | display::NAME => text("path"),
         _ => String::new(),
     }
 }
@@ -379,6 +383,7 @@ pub fn block_for(name: &str, id: &str, args: &Value) -> WorkBlock {
         cuts: 0,
         command,
         file: file_of(name, args),
+        image_count: image_count(name, args),
         output: String::new(),
         sub: Vec::new(),
         line: false,
@@ -440,6 +445,7 @@ pub fn streaming_block(
             editfile::EDIT_NAME
                 | editfile::CREATE_NAME
                 | viewimage::NAME
+                | viewimage::ONE_NAME
                 | display::NAME
                 | download::NAME
         ) {
@@ -447,6 +453,7 @@ pub fn streaming_block(
         } else {
             String::new()
         },
+        image_count: 0,
         reading: read_files.is_some(),
         ..Default::default()
     }
@@ -472,7 +479,11 @@ fn command_of(name: &str, args: &Value) -> String {
 // takes a list are read the same way here.
 fn file_of(name: &str, args: &Value) -> String {
     match name {
-        editfile::EDIT_NAME | editfile::CREATE_NAME | viewimage::NAME | display::NAME
+        editfile::EDIT_NAME
+        | editfile::CREATE_NAME
+        | viewimage::NAME
+        | viewimage::ONE_NAME
+        | display::NAME
         | download::NAME => {
             let mut held: Vec<String> = Vec::new();
             for key in ["path", "paths"] {
@@ -497,6 +508,14 @@ fn file_of(name: &str, args: &Value) -> String {
         }
         _ => String::new(),
     }
+}
+
+fn image_count(name: &str, args: &Value) -> usize {
+    if !viewimage::is_look(name) {
+        return 0;
+    }
+    let (paths, urls) = viewimage::parts_of(&args.to_string());
+    paths.len() + urls.len()
 }
 
 // Text cut to the space a part of the block has, with a marker that more text came after it.
@@ -538,6 +557,15 @@ pub fn settle(block: &mut WorkBlock) {
     }
     block.done = true;
     if block.reading && cat_files(&block.command).is_some() {
+        return;
+    }
+    if viewimage::is_look(&block.tool) {
+        let word = if block.image_count > 1 {
+            "Viewed images"
+        } else {
+            "Viewed image"
+        };
+        block.head = block.head.replacen(doing_word(&block.tool), word, 1);
         return;
     }
     if known(&block.tool) {
@@ -598,6 +626,7 @@ struct ActionCounts {
     tool: String,
     succeeded: usize,
     failed: usize,
+    images: usize,
 }
 
 fn gather_actions(blocks: &[WorkBlock], actions: &mut Vec<ActionCounts>) {
@@ -621,6 +650,7 @@ fn gather_actions(blocks: &[WorkBlock], actions: &mut Vec<ActionCounts>) {
                 actions[index].failed += 1;
             } else if one.done {
                 actions[index].succeeded += 1;
+                actions[index].images += one.image_count;
             }
         }
         gather_actions(&one.sub, actions);
@@ -669,6 +699,12 @@ fn action_summary(action: &ActionCounts) -> String {
             String::from("Ran a command")
         } else {
             format!("Ran {} commands", total)
+        }
+    } else if viewimage::is_look(&action.tool) {
+        if action.images.max(action.succeeded) > 1 {
+            String::from("Viewed images")
+        } else {
+            String::from("Viewed image")
         }
     } else if known(&action.tool) {
         if action.succeeded > 1 {

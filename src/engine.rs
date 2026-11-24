@@ -2986,6 +2986,10 @@ impl State {
             Some(place) => {
                 place.head = head;
                 place.call_id = call.id.clone();
+                if viewimage::is_look(&call.name) {
+                    let (paths, urls) = viewimage::parts_of(&call.arguments);
+                    place.image_count = paths.len() + urls.len();
+                }
             }
             // The call is under the heading the model opened last, when it opened one, and on
             // its own else.
@@ -3017,7 +3021,14 @@ impl State {
             let Some(place) = corporate::find_mut(&mut self.live_mut(chat_id).live_work, id) else {
                 return;
             };
-            let (adds, cuts) = plus_minus(output);
+            let (adds, cuts) = if matches!(
+                place.tool.as_str(),
+                editfile::EDIT_NAME | editfile::CREATE_NAME
+            ) {
+                plus_minus(output)
+            } else {
+                (0, 0)
+            };
             corporate::came_back(place, output, ok, adds, cuts);
             place.head.clone()
         };
