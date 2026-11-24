@@ -222,6 +222,7 @@ select {
   appearance: none; -webkit-appearance: none; text-align: left;
 }
 select option { color: var(--text); background: var(--surface-2); }
+.choice-source { display: none !important; }
 textarea, input { font: inherit; color: inherit; }
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
@@ -554,6 +555,29 @@ textarea, input { font: inherit; color: inherit; }
   text-overflow: ellipsis; white-space: nowrap; font-size: 13px;
   text-align: left; cursor: pointer;
 }
+.field-choice {
+  display: flex; align-items: center; flex: 1 1 auto; min-width: 0; height: 100%;
+  padding: 0 26px 0 30px; border: 0; background: none; color: inherit;
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.field-choice-text { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field.tagged .field-choice { padding-right: 70px; }
+.field-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+  display: none; min-width: max(100%, 220px); max-width: min(320px, calc(100vw - 24px));
+  max-height: min(360px, 70vh); overflow: auto; padding: 5px;
+  color: var(--text); background: var(--surface-3); border: 1px solid var(--line-strong);
+  border-radius: var(--r-m); box-shadow: var(--shadow-2);
+}
+.field-menu.on { display: block; }
+.field-menu button {
+  display: block; width: 100%; padding: 7px 9px; overflow: hidden;
+  border: 0; border-radius: var(--r-s); background: none; color: var(--text-2);
+  font: inherit; font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer; transition: background var(--t-move), color var(--t-move);
+}
+.field-menu button:hover, .field-menu button:focus-visible { background: var(--hover); color: var(--ink); }
+.field-menu button[aria-selected="true"] { color: var(--ink); font-weight: 650; }
 .field.tagged select { padding-right: 70px; }
 .tag {
   flex: 0 0 auto; font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
@@ -3125,7 +3149,7 @@ body.pixel img, body.pixel canvas { image-rendering: pixelated; }
  * drawn inside the box, so that nothing of the layout moves with it. */
 body.pixel .btn, body.pixel select, body.pixel input[type="text"], body.pixel input[type="number"],
 body.pixel input[type="password"], body.pixel textarea, body.pixel .txt,
-body.pixel .seg, body.pixel .wcard, body.pixel .ask-card, body.pixel .side-menu,
+body.pixel .seg, body.pixel .wcard, body.pixel .ask-card, body.pixel .side-menu, body.pixel .field-menu,
 body.pixel .side-menu .sub, body.pixel .menu, body.pixel .sheet {
   box-shadow: inset 0 0 0 1px var(--pix-edge), var(--shadow-1);
 }
@@ -3249,6 +3273,9 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
 /* The Glass skin lifts controls and bars above the page with a translucent, blurred surface. */
 body.glass { --bg: #17202a; --surface: rgba(38, 49, 62, .72); --surface-2: rgba(44, 57, 72, .62); --surface-3: rgba(60, 75, 92, .68); --line: rgba(255,255,255,.12); --line-strong: rgba(255,255,255,.2); --text: #f5f8fc; --text-2: #d6e0eb; --strong: #fff; --accent: #0a84ff; --hover: rgba(255,255,255,.1); --grid: rgba(125,190,255,.055); --grid-mark: rgba(125,190,255,.16); --shadow: 0 14px 38px rgba(0,0,0,.26); color-scheme: dark; }
 body.glass .menu, body.glass .sheet, body.glass .dock-row, body.glass #box, body.glass header, body.glass .timeline, body.glass .field, body.glass .btn { backdrop-filter: blur(14px) saturate(180%); -webkit-backdrop-filter: blur(14px) saturate(180%); border-color: transparent; box-shadow: inset 0 1px rgba(255,255,255,.22), inset 0 -1px rgba(255,255,255,.08), 0 8px 28px rgba(0,0,0,.2); }
+body.glass .field-menu { backdrop-filter: blur(14px) saturate(180%); -webkit-backdrop-filter: blur(14px) saturate(180%); background: rgba(40,52,67,.72); border-color: transparent; border-radius: 24px; box-shadow: inset 0 1px rgba(255,255,255,.22), inset 0 -1px rgba(255,255,255,.08), 0 8px 28px rgba(0,0,0,.2); }
+body.glass .field-menu button { border-radius: 999px; }
+body.glass .field-menu button[aria-selected="true"] { color: var(--text); background: rgba(255,255,255,.16); box-shadow: inset 0 1px rgba(255,255,255,.24), 0 4px 14px rgba(0,0,0,.14); }
 body.glass .badge, body.glass .btn, body.glass .menu button { border-radius: 999px; transition: transform .22s cubic-bezier(.2,.8,.2,1), background .18s ease; }
 body.glass .badge:hover, body.glass .btn:hover, body.glass .menu button:hover { transform: scale(1.025); }
 body.glass .badge:active, body.glass .btn:active, body.glass .menu button:active { transform: scale(.97); }
@@ -3314,18 +3341,22 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
   </div>
   <span class="rule"></span>
 
-  <label class="field tagged" title="The model that answers. The chip on the right shows what type of file it was loaded from.">
+  <div class="field tagged" title="The model that answers. The chip on the right shows what type of file it was loaded from.">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="2"/><path d="M6.4 1.9v2.3M9.6 1.9v2.3M6.4 11.8v2.3M9.6 11.8v2.3M1.9 6.4h2.3M1.9 9.6h2.3M11.8 6.4h2.3M11.8 9.6h2.3"/></svg>
-    <select id="model" aria-label="Model"></select>
+    <button class="field-choice" id="modelChoice" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="modelMenu"><span class="field-choice-text" id="modelChoiceText"></span></button>
+    <select class="choice-source" id="model" tabindex="-1" aria-hidden="true"></select>
     <span class="tag" id="kind"></span>
     <svg class="svg arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
-  </label>
+    <div class="field-menu" id="modelMenu" role="listbox" aria-label="Models"></div>
+  </div>
 
-  <label class="field" title="The repository the chats of this window belong to. A tool command runs in that directory.">
+  <div class="field" title="The repository the chats of this window belong to. A tool command runs in that directory.">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.9 4.4c0-.6.4-1 1-1h3.3l1.4 1.8h5.5c.6 0 1 .4 1 1v5.3c0 .6-.4 1-1 1H2.9c-.6 0-1-.4-1-1z"/></svg>
-    <select id="repo" aria-label="Repository"></select>
+    <button class="field-choice" id="repoChoice" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="repoMenu"><span class="field-choice-text" id="repoChoiceText"></span></button>
+    <select class="choice-source" id="repo" tabindex="-1" aria-hidden="true"></select>
     <svg class="svg arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
-  </label>
+    <div class="field-menu" id="repoMenu" role="listbox" aria-label="Repositories"></div>
+  </div>
   <button class="mark-btn" id="newrepo" title="New repository" aria-label="New repository">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>
   </button>
@@ -4274,7 +4305,7 @@ function post(path, body) {
 }
 
 // The parts of the page that stay in place. Their text is written again on every draw.
-var ids = ['model', 'kind', 'repo', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
+var ids = ['model', 'modelChoice', 'modelChoiceText', 'modelMenu', 'kind', 'repo', 'repoChoice', 'repoChoiceText', 'repoMenu', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
   'unloadmodel', 'settingsbtn', 'modelbtn', 'themebtn', 'chapters', 'timeline', 'userline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
@@ -5873,34 +5904,122 @@ function sendTitle(s) {
 // A list is built again only when its content changed. This keeps an open choice list of the
 // browser from closing on every poll.
 function fillSelect(sel, items, active, label) {
-  var key = items.map(function (m) { return m.id; }).join('|') + '#' + active;
+  var key = items.map(function (m) { return m.id + ':' + label(m); }).join('|') + '#' + active;
   if (sel.dataset.key === key) { return; }
   sel.dataset.key = key;
   sel.innerHTML = '';
+  var selected = null;
   for (var n = 0; n < items.length; n++) {
     var option = document.createElement('option');
     option.value = items[n].id;
     // The type is on its own in the top bar, so it is not put in the list too.
     option.textContent = label(items[n]);
-    if (items[n].id === active) { option.selected = true; }
+    if (items[n].id === active) { option.selected = true; selected = items[n]; }
     sel.appendChild(option);
   }
+  fillBarChoice(sel, el.modelChoice, el.modelChoiceText, el.modelMenu, items, selected, label);
 }
 
 function fillRepos(s) {
   var items = [{ id: '', name: 'No repository' }].concat(s.repositories);
-  var key = items.map(function (r) { return r.id; }).join('|') + '#' + s.repository.id;
+  var key = items.map(function (r) { return r.id + ':' + r.name; }).join('|') + '#' + s.repository.id;
   if (el.repo.dataset.key === key) { return; }
   el.repo.dataset.key = key;
   el.repo.innerHTML = '';
+  var selected = null;
   for (var n = 0; n < items.length; n++) {
     var option = document.createElement('option');
     option.value = items[n].id;
     option.textContent = items[n].name;
-    if (items[n].id === s.repository.id) { option.selected = true; }
+    if (items[n].id === s.repository.id) { option.selected = true; selected = items[n]; }
     el.repo.appendChild(option);
   }
+  fillBarChoice(el.repo, el.repoChoice, el.repoChoiceText, el.repoMenu, items, selected,
+    function (one) { return one.name; });
 }
+
+// A top-bar choice keeps a hidden select as the source of its value, and draws its open list in
+// the page so the colours and hover states follow the current theme in every web view.
+function fillBarChoice(select, trigger, text, menu, items, selected, label) {
+  selected = selected || items[0] || null;
+  text.textContent = selected ? label(selected) : (items.length ? label(items[0]) : 'No model');
+  menu.innerHTML = '';
+  for (var n = 0; n < items.length; n++) {
+    (function (item) {
+      var choice = make('button');
+      choice.type = 'button';
+      choice.tabIndex = item === selected ? 0 : -1;
+      choice.setAttribute('role', 'option');
+      choice.setAttribute('aria-selected', item === selected ? 'true' : 'false');
+      choice.textContent = label(item);
+      choice.addEventListener('click', function () {
+        select.value = item.id;
+        text.textContent = label(item);
+        closeBarChoices();
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        trigger.focus();
+      });
+      menu.appendChild(choice);
+    })(items[n]);
+  }
+}
+
+function closeBarChoices() {
+  [[el.modelChoice, el.modelMenu], [el.repoChoice, el.repoMenu]].forEach(function (pair) {
+    pair[1].classList.remove('on');
+    pair[0].setAttribute('aria-expanded', 'false');
+  });
+}
+
+function openBarChoice(trigger, menu) {
+  var opening = !menu.classList.contains('on');
+  closeBarChoices();
+  if (!opening) { return; }
+  menu.classList.add('on');
+  trigger.setAttribute('aria-expanded', 'true');
+  var selected = menu.querySelector('[aria-selected="true"]');
+  if (selected) { selected.focus(); }
+}
+
+function wireBarChoice(trigger, menu) {
+  trigger.addEventListener('click', function () { openBarChoice(trigger, menu); });
+  trigger.addEventListener('keydown', function (event) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter'
+        || event.key === ' ') {
+      event.preventDefault();
+      if (!menu.classList.contains('on')) { openBarChoice(trigger, menu); }
+    }
+  });
+  trigger.parentNode.addEventListener('focusout', function (event) {
+    if (!trigger.parentNode.contains(event.relatedTarget)) { closeBarChoices(); }
+  });
+  menu.addEventListener('keydown', function (event) {
+    var choices = Array.prototype.slice.call(menu.querySelectorAll('[role="option"]'));
+    if (!choices.length) { return; }
+    var at = choices.indexOf(document.activeElement);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeBarChoices();
+      trigger.focus();
+      return;
+    }
+    var next = event.key === 'ArrowDown' ? at + 1
+      : (event.key === 'ArrowUp' ? at - 1
+         : (event.key === 'Home' ? 0 : (event.key === 'End' ? choices.length - 1 : -1)));
+    if (next >= 0) {
+      event.preventDefault();
+      choices[Math.min(choices.length - 1, Math.max(0, next))].focus();
+    }
+  });
+}
+
+wireBarChoice(el.modelChoice, el.modelMenu);
+wireBarChoice(el.repoChoice, el.repoMenu);
+document.addEventListener('pointerdown', function (event) {
+  if (!event.target.closest('.field-menu') && !event.target.closest('.field-choice')) {
+    closeBarChoices();
+  }
+});
 
 
 // ---------------------------------------------------------- the grid of the background
