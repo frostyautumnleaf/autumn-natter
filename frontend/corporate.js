@@ -3,6 +3,9 @@
 'use strict';
 
 const corporateOpen = new Set();
+const READ_MARK = 'M8 4.75C6.45 3.35 4.35 2.95 1.75 3.5V12'
+  + 'c2.6-.55 4.7-.15 6.25 1.25 1.55-1.4 3.65-1.8 6.25-1.25V3.5'
+  + 'c-2.6-.55-4.7-.15-6.25 1.25zM8 4.75v8.5';
 
 function corporateDisclosure(key, main) {
   const node = make('div', main ? 'work' : 'wblock');
@@ -64,8 +67,7 @@ function corporateEntry(node, item) {
   } else {
     const one = item.work;
     if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
-      const book = 'M2 3h4.2A2.8 2.8 0 0 1 9 5.8V13a2.2 2.2 0 0 0-2.2-2H2zM14 3H9.8A2.8 2.8 0 0 0 7 5.8V13a2.2 2.2 0 0 1 2.2-2H14zM9 5.8V13';
-      header.append(mark(one.reading ? book : toolShape(one.tool).mark, 'wtoolmark'));
+      header.append(mark(one.reading ? READ_MARK : toolShape(one.tool).mark, 'wtoolmark'));
     }
     title.textContent = (one.head || 'Working').replace(/^Looked at (a picture|pictures)/,
       one.image_count > 1 || /^Looked at pictures/.test(one.head) ? 'Viewed images' : 'Viewed image');
