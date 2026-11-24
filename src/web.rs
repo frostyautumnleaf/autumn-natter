@@ -107,13 +107,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "reasoning": m.reasoning,
                 // How long that thinking took, in milliseconds.
                 "reasoning_ms": m.reasoning_ms,
-                // The summary of the work, as the corporate display shows it, and the header
-                // the one block of the answer was at.
+                // Tool outcomes and the current card title in corporate display.
                 "work": &m.work,
                 "work_head": &m.work_head,
-                // True when the model had closed the block of the work before this text: they
-                // are outside the block.
-                "work_closed": m.work_closed,
                 "tool": m.tool,
                 // Which tool this run was: the page puts the marker and the text of that tool
                 // on the header of the block.
@@ -267,14 +263,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // window shows them as blocks of a command being written, so the user sees the text of
         // it and does not wait for the run.
         "live_tools": live_tools,
-        // The summary of the work, as the corporate display shows it: the blocks that are
-        // inside the one block of the answer that is arriving, and the header the one block is
-        // at.
+        // Tool outcomes and the current card title in corporate display.
         "live_work": snap.live_work,
         "live_work_head": snap.live_work_head,
-        // True when the model closed the block of the work with its own tool: the text of the
-        // answer that come after that marker is outside the block.
-        "live_work_closed": snap.live_work_closed,
         // The question the model has put to the user and is waiting on, when it has put one.
         // The popup of the request is above the chat composer, and the user answers it there:
         // by choosing one of the answers the model proposed, or by writing an answer of their

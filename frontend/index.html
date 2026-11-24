@@ -1048,6 +1048,7 @@ body.home .stage { display: none; }
 @keyframes unfold { from { transform: scale(.94); opacity: .5; } to { transform: none; opacity: 1; } }
 .plain { min-width: 0; }
 .plain.corp-held-words { display: none; }
+.turn.corp-card-only > .plain, .turn.corp-card-only > .answer-words { display: none; }
 /*
  * The time of a message. It takes no space of its own until the user hovers over the message;
  * then it opens out below the text. Only what hangs under the message moves, so the message the
@@ -1273,9 +1274,8 @@ pre.code .t-p { color: var(--t-pun); }
   display: block; }
 .wgo { margin: 6px 0 0; }
 /*
- * The corporate display. The thoughts and the calls are hidden whole, and one block means an
- * answer: its header reports what the model is at, and the summary of the work is under it, in
- * blocks of its own. */
+ * The corporate display. Private thoughts and ordinary call bubbles are hidden. One card means
+ * an answer: its title reports the current action and each assistant message is a sub-block. */
 body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: none !important; }
 /*
  * A row that has nothing to show while the corporate display remains: a run of a tool whose
@@ -3775,7 +3775,7 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
           <span class="sub">The model can colour a few words of its answer: green, light green, red or light red. Turn this off to read the answer with no colour. The markers stay in the conversation that goes back to the model, and the model is informed nothing about the colours.</span>
           <div class="ctl"><input id="fColourText" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Show the work</span>
-          <span class="sub">How the work of the model is presented. The plain way shows the thinking in its panels and every call the model made in a block of its own. The compact way hides all of that: one block is one answer, its header reports what the model is doing, and a summary of the work is written inside it by the model. The settings below that lay the panels out have no effect while the compact way is on.</span>
+          <span class="sub">How the model's work is presented. Plain mode shows thinking panels and each tool call in its own block. Corporate mode hides private thinking and shows one card per answer; its title follows the current action and each progress message appears inside as its own ordered sub-block. The final answer appears as a normal chat message outside the card.</span>
           <div class="ctl"><select id="fDisplay">
             <option value="plain">Plain</option>
             <option value="corporate">Corporate</option>
@@ -7435,15 +7435,6 @@ var TOOL_SHAPES = {
     head: '', done: '', word: 'parts', end: 'result',
     empty: 'the sources', begun: 'the sources'
   },
-  // The summary of the work the model writes for the corporate display. The header
-  // names the heading of the area of work, and the body carries that heading and
-  // the lines under it as they are written. The block of the run is the result,
-  // for the text themselves go into the one block of the answer.
-  work_log: {
-    mark: 'M4.2 2.6h7.6v10.8H4.2zM6.4 5.8h3.2M6.4 8h3.2M6.4 10.2h2',
-    head: 'Writing the short: ', done: 'Wrote the short: ', word: 'parts', end: 'result',
-    empty: 'the short of the work', begun: 'the short being written'
-  },
   // The eight tools of the tasks suite. The list of tasks belongs to the working
   // directory and not to the chat, so the header of a block names the task the call
   // works on: the name of the task being made, or the index of the task being
@@ -8900,12 +8891,10 @@ function feedInk(m) {
   ink.ms = ink.base + (Number(m.reasoning_ms) || 0);
   ink.done = !!m.reasoning_done;
   if (ink.words) {
-    ink.words.classList.toggle('corp-held-words', chatting.corporate && !m.work_closed);
+    ink.words.classList.toggle('corp-held-words', chatting.corporate);
   }
-  // The one block of the corporate display reports what the model is at, and that moves while
-  // the answer arrives: a heading the model wrote, a call that began, a call that returned. The
-  // row is not rebuilt for these, for the text of the answer is the writer's own, so the block
-  // is put again here.
+  // The card title follows the live update or tool action. Assistant text is the writer's own,
+  // so the card is put again here whenever the stream changes.
   drawWork(ink.turn, m);
   if (ink.panel && ink.musing) { ink.panel.classList.remove('hidden'); }
   // Text of the answer has come, so the model has moved on from the thought above, and every
@@ -8979,7 +8968,7 @@ function fillLive(turn, m, group) {
   thought.dataset.live = '1';
   body.appendChild(thought);
   var plain = make('div', 'plain');
-  plain.classList.toggle('corp-held-words', chatting.corporate && !m.work_closed);
+  plain.classList.toggle('corp-held-words', chatting.corporate);
   turn.appendChild(plain);
   ink.turn = turn; ink.panel = panel; ink.panelWords = body; ink.thought = thought;
   ink.words = plain; ink.caret = make('span', 'caret');
@@ -9038,6 +9027,7 @@ function putCard(turn, items, at) {
   if (answerEnd(items, at) !== at) { return; }
   var made = answerCard(items, at);
   if (!made) { return; }
+  turn.classList.toggle('corp-card-only', !answerFinal(items, at));
   var old = turn.querySelector(':scope > .work');
   if (old) {
     if (old.classList.contains('shut')) { made.classList.add('shut'); }
@@ -9069,7 +9059,6 @@ function liveMessage(s) {
     reasoning_ms: s.reasoning_ms || 0, reasoning_done: !!s.reasoning_done,
     tool: '', tools: s.live_tools || [], mono: false, failed: false, when: '',
     work: s.live_work || [], work_head: s.live_work_head || '',
-    work_closed: !!s.live_work_closed
   };
 }
 
@@ -9090,7 +9079,6 @@ function threadItems() {
     held.body = '';
     held.reasoning = '';
     held.tools = [];
-    held.work_closed = false;
     var place = items.length;
     while (place > 0 && items[place - 1].role === 'Summary') { place--; }
     items.splice(place, 0, held);
@@ -9111,9 +9099,8 @@ function hasSavedWorkCard(items) {
 // The text of one message, put into a turn. The turn is created once, and the text of an answer
 // that is arriving is put again by the writer above.
 
-// The corporate display: one block for an answer, and the summary of the work in it. The header
-// of the block reports what the model is at, and the blocks under it carry the headings the
-// model wrote for its own, together with the blocks of the calls it made. The thoughts and the
+// The corporate display: one block for an answer. The header reports the current action; the
+// blocks under it carry each assistant output and the outcomes of calls. The thoughts and the
 // calls are hidden whole, so this block is the only way in. The text for the time the model
 // took thinking, for the header of a thought that is inside the one block of the answer. The
 // block reports the time in whole seconds, where the panel of the thoughts in the plain display
@@ -9124,7 +9111,7 @@ function thoughtSaidWords(ms) {
   return 'Thought for ' + secs + (secs === 1 ? ' second' : ' seconds');
 }
 
-// The header of a block of the model's own text: the first line of them, truncated for the
+// The header of an assistant output sub-block: its first line, truncated for the
 // header is read in a glance.
 function headOfWords(text) {
   var lines = String(text || '').split('\n');
@@ -9171,10 +9158,8 @@ function thinkingBlock(text, ms, done) {
   return block;
 }
 
-// The text the model wrote to the user while it worked, inside the one block of the answer. The
-// first line of them is at the header of the block, and the rest are inside it. Text written
-// after the model closed the block of the work are outside the block whole, under no header of
-// their own.
+// One assistant message becomes one sub-block in the answer card. Its first line is the
+// heading, and the rest of its text stays under that heading.
 function wordsBlock(text, mid) {
   var block = make('div', 'wblock wwords');
   if (mid) { block.dataset.said = mid; }
@@ -9296,11 +9281,9 @@ function corporateCard(head, parts) {
   return box;
 }
 
-// The parts of the one block that one message of an answer brings: the thought of it, the text
-// of it that is inside the block, and the summary of the work. A message of a tool run brings
-// nothing of its own, for the text of a run is in the short, under the line of it the model
-// wrote before the call.
-function cardParts(m, thoughtDone, saidLast) {
+// The parts of an answer message: its private thought, its assistant text sub-block, and any
+// completed tool work that belongs before it. Tool messages have their own outcome blocks.
+function cardParts(m, thoughtDone, excludeWords) {
   var out = [];
   if (!m || (m.role && m.role !== 'Assistant')) { return out; }
   var short = m.work || [];
@@ -9312,23 +9295,11 @@ function cardParts(m, thoughtDone, saidLast) {
   }
   if (m.reasoning) { out.push(thinkingBlock(m.reasoning, m.reasoning_ms, !!thoughtDone)); }
   var said = String(m.body || '').trim();
-  if (said && !wordsOutside(m, saidLast)) { out.push(wordsBlock(said, m.id)); }
+  if (said && !excludeWords) { out.push(wordsBlock(said, m.id)); }
   if (m.id === 'live') {
     for (var k = 0; k < short.length; k++) { out.push(workBlock(short[k], false)); }
   }
   return out;
-}
-
-// True when the text of a message is outside the one block of the answer, in the plain text of
-// the chat. A completed answer is the answer the user came for; text written after the model
-// closed the block with its own tool is also outside. While it is live, the text is held in the
-// card until the work block closes or the answer is saved as complete.
-function wordsOutside(m, saidLast) {
-  // The live writer is still composing this text, even if it is the last thing in the answer
-  // so far. Keep it in the progress card until the model closes its work block. Stored final
-  // answers still use `saidLast` to put the answer the user came for in the chat.
-  if (m && m.id === 'live') { return m.work_closed === true; }
-  return m.work_closed === true || !!saidLast;
 }
 
 // True of the messages an answer is made of: the text of the model, and the runs of the calls
@@ -9359,24 +9330,26 @@ function answerEnd(items, at) {
   return end;
 }
 
-// The one progress card for the answer the message at this place belongs to. A short direct
-// answer still gets an empty card: the card identifies each answer and its final heading says
-// what the answer did, even when there were no inner work blocks to show.
+// The final assistant message of a completed answer remains outside its progress card.
+function answerFinal(items, at) {
+  var run = answerFrom(items, at);
+  var last = run.length ? run[run.length - 1] : null;
+  return last && last.id !== 'live' && last.id !== 'live-work'
+      && last.role === 'Assistant' && String(last.body || '').trim() ? last : null;
+}
+
+// The progress card for the answer the message at this place belongs to. Progress messages
+// appear as ordered sub-blocks; the final assistant message is shown once outside the card.
 function answerCard(items, at) {
   if (!items || at < 0 || at >= items.length) { return null; }
   var run = answerFrom(items, at);
-  // The answer the user came for is the last message of the run that stated anything. What was
-  // stated before it was stated while the model worked.
-  var said = -1;
-  for (var n = 0; n < run.length; n++) {
-    if (run[n].role === 'Assistant' && String(run[n].body || '').trim()) { said = n; }
-  }
+  var final = answerFinal(items, at);
   var parts = [], head = '', foundAssistant = false;
   for (var k = 0; k < run.length; k++) {
     var m = run[k];
     if (m.role !== 'Assistant') { continue; }
     foundAssistant = true;
-    parts = parts.concat(cardParts(m, m.id === 'live' ? !!m.reasoning_done : true, k === said));
+    parts = parts.concat(cardParts(m, m.id === 'live' ? !!m.reasoning_done : true, m === final));
     if ((m.work || []).length || m.work_head) { head = m.work_head || 'Done'; }
   }
   if (!foundAssistant) { return null; }
@@ -9395,17 +9368,11 @@ function answerCard(items, at) {
 }
 
 // True when the row of the messages from `from` to `to` is offset while the corporate display
-// remains. The one block of the answer holds all of the row -- the thoughts, the text stated
-// while the model worked, and an account of every call it made -- and that block is with the
-// row which ends the answer alone. A row whose own text is outside the block keeps its place,
-// for nothing else on the page would show them.
+// remains. The progress card holds the thoughts, progress messages, and an account of every
+// call. The final assistant message stays visible as a normal chat message.
 function rowHushed(items, from, to) {
   if (!chatting.corporate || !items || from < 0 || to > items.length) { return false; }
   if (answerEnd(items, to - 1) <= to - 1) { return false; }
-  for (var n = from; n < to; n++) {
-    if (items[n].role === 'Assistant' && String(items[n].body || '').trim()
-        && items[n].work_closed === true) { return false; }
-  }
   return true;
 }
 
@@ -9519,10 +9486,10 @@ function drawWelcome() {
   screen.appendChild(word);
 
   var modes = welcomePart('How the work is shown',
-    'The plain way shows what the model thinks in a panel, and every command, search and edit in a block of its own. The corporate way hides all of that behind one block that says what the model is at.');
+    'The plain way shows the model thoughts and each command, search and edit in its own block. The corporate way keeps each progress update in an ordered sub-block inside one card, then shows the final answer as a normal chat message.');
   var modeCards = make('div', 'wcards');
   modeCards.appendChild(welcomeCard('display', 'plain', 'plain', 'Plain', 'The thoughts and the calls, all of them, in the open.'));
-  modeCards.appendChild(welcomeCard('display', 'corporate', 'corporate', 'Corporate', 'One block per answer, with a short of the work inside.'));
+  modeCards.appendChild(welcomeCard('display', 'corporate', 'corporate', 'Corporate', 'One card per answer, with each assistant update inside.'));
   modes.appendChild(modeCards);
   screen.appendChild(modes);
 
@@ -9638,8 +9605,8 @@ function fill(turn, m) {
   turn.className = 'turn ' + roleClass(m) + (m.failed ? ' bad' : '');
   turn.innerHTML = '';
   if (chatting.corporate) {
-    // The corporate display: one block for the answer, and the text of the answer under it. The
-    // thoughts and the calls are hidden whole.
+    // The corporate display: one card for progress, with the final assistant message left as
+    // ordinary chat text. Private thoughts and ordinary call bubbles stay hidden.
     var items = threadItems();
     var at = threadPlace(items, m);
     if (at >= 0) { putCard(turn, items, at); }
@@ -10327,10 +10294,13 @@ function fillGroup(turn, items, from, to) {
   if (chatting.corporate && answerEnd(items, to - 1) === to - 1) {
     short = answerCard(items, to - 1);
   }
-  if (short) { turn.appendChild(short); }
+  if (short) {
+    turn.appendChild(short);
+  }
   // While the corporate display remains the row reads as the answer it led to, for nothing else
   // in it is seen.
   if (chatting.corporate && items[to - 1].role === 'Assistant') { turn.className = 'turn t-ai'; }
+  if (short) { turn.classList.toggle('corp-card-only', !answerFinal(items, to - 1)); }
   var made = thinkPanel();
   var ms = 0;
   var parts = groupParts(items, from, to);

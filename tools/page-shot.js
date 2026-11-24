@@ -68,8 +68,8 @@
 // The scenes: home, chat, rich, markdown, streaming, streaming-code, writing,
 // processing, previews, sheet-program, sheet-model, sheet-logs, sheet-mcp,
 // mcp-menu, corp, corplive. The last two mean the corporate display: one
-// block for an answer, holding its thoughts, the text stated while the model
-// worked and the summary of the work, with the answer itself outside the block.
+// block for an answer, holding thoughts, progress updates, and tool outcomes,
+// with the final answer outside the card.
 // AN_CORP=1 puts that display over any other scene. AN_NOKIND=1 leaves the type of the editor of the MCP tab as it
 // remains, so the empty field of the code can be checked. A name that ends in -dark draws the dark theme, and
 // a name that ends in -pale draws the pale one. AN_SCROLL=top puts the conversation at
@@ -350,32 +350,15 @@ function chats(count, open) {
 
 // ------------------------------------------------------- the corporate display
 //
-// The corporate display hides the thoughts and the calls, and gives one block for an answer.
-// That block holds the thoughts of the model, the text it wrote while it worked, and the
-// summary of the work it wrote itself; the answer it ended with is outside the block, in the
-// plain text of the chat. The forms below are the forms `corporate::WorkBlock` returns, so an
-// image of the corporate display is an image of what the engine sends.
-
-// The parts every block of the summary carries, so a form of one is written by naming what is
-// in it and nothing else.
+// Corporate mode keeps each assistant message inside one progress card as an ordered sub-block.
+// Tool outcomes are recorded between those messages; the last assistant message is the final
+// answer sub-block.
 function corpBase(extra) {
   return Object.assign({
     head: '', lines: [], tool: '', id: '', done: false, failed: false,
     adds: 0, cuts: 0, command: '', file: '', output: '', sub: [],
     line: false, group: false
   }, extra || {});
-}
-
-// A heading the model wrote for its own. The lines of the summary and the calls that belong
-// under it are inside it.
-function corpHead(head, sub) {
-  return corpBase({ head: head, tool: 'work_log', sub: sub || [] });
-}
-
-// A line of the summary. With calls under it the line is a block the user opens; with none it
-// is drawn as a plain line, for there is nothing to open.
-function corpLine(head, sub) {
-  return corpBase({ head: head, tool: 'work_log', line: true, sub: sub || [] });
 }
 
 // One call of one tool, return or not.
@@ -389,45 +372,38 @@ function corpGroup(tool, head, run) {
   return corpBase({ head: head, tool: tool, group: true, done: true, sub: run });
 }
 
-// The summary of the work of the first answer of the fixture below. A heading of the model
-// holds two lines and the calls that fell under them: the first line was written with no call
-// after it, and the second holds a command, an edit, and a run of three files made one after
-// another.
-const CORP_WORK = [corpHead('Mending the order of the blocks', [
-  corpLine('Reading the parser to find where a list is closed.'),
-  corpLine('Running the tests of the parser.', [
-    corpCall('run_terminal', 'call-1', 'Ran a command cargo test --release markdown', {
-      command: 'cargo test --release markdown',
-      output: 'running 6 tests\ntest markdown::tests::list_after_paragraph ... ok\n' +
-        'all 6 tests passed'
+// Tool outcome blocks from the first answer of the fixture below. Assistant narration is
+// supplied by the messages themselves, just as it is in the live conversation.
+const CORP_WORK = [
+  corpCall('run_terminal', 'call-1', 'Ran a command cargo test --release markdown', {
+    command: 'cargo test --release markdown',
+    output: 'running 6 tests\ntest markdown::tests::list_after_paragraph ... ok\n' +
+      'all 6 tests passed'
+  }),
+  corpCall('edit_file', 'call-2', 'Edited a file notes/plan.md', {
+    file: 'notes/plan.md', adds: 2, cuts: 1,
+    output: 'Edited notes/plan.md (2 replacements)'
+  }),
+  corpGroup('create_file', 'Created files (3)', [
+    corpCall('create_file', 'call-3', 'Created a file notes/a.md', { file: 'notes/a.md' }),
+    corpCall('create_file', 'call-4', 'Created a file notes/b.md', { file: 'notes/b.md' }),
+    corpCall('create_file', 'call-5', 'Created a file notes/c.md', {
+      file: 'notes/c.md', done: false, failed: true,
+      output: 'Error: an error came between the file and the disk.'
     })
-  ]),
-  corpLine('Writing the plan down, and the notes that came with it.', [
-    corpCall('edit_file', 'call-2', 'Edited a file notes/plan.md', {
-      file: 'notes/plan.md', adds: 2, cuts: 1,
-      output: 'Edited notes/plan.md (2 replacements)'
-    }),
-    corpGroup('create_file', 'Created files (3)', [
-      corpCall('create_file', 'call-3', 'Created a file notes/a.md', { file: 'notes/a.md' }),
-      corpCall('create_file', 'call-4', 'Created a file notes/b.md', { file: 'notes/b.md' }),
-      corpCall('create_file', 'call-5', 'Created a file notes/c.md', {
-        file: 'notes/c.md', done: false, failed: true,
-        output: 'Error: an error came between the file and the disk.'
-      })
-    ])
   ])
-])];
+];
 
 // A context of two answers of the model, in the forms the corporate display is made of. The
-// first answer worked: it stated a word before the calls, ran a command, changed a file and
-// made three more, and ended with the text the user came for outside the block. The second
-// answer is a short question with nothing but a thought in it, and its header reports how long
-// the model thought for.
+// first answer has assistant progress updates and tool outcomes in the card, with its final
+// response outside. The
+// second answer is a short question with nothing but a thought in it, and its header reports
+// how long the model thought for.
 const CORP = [
   said(1, 'You', 'Fix the order the blocks come out in, run the tests, and tell me what changed.'),
   said(2, 'Assistant', 'I will read the parser first, then run the tests of it.', {
     reasoning: 'The error is in the order the blocks come out in, so read the parser before touching it.',
-    reasoning_ms: 4200, work: [], work_head: '', work_closed: false
+    reasoning_ms: 4200, work: [], work_head: ''
   }),
   said(3, 'Tool', 'cargo test --release markdown', {
     tool_name: 'run_terminal',
@@ -446,12 +422,11 @@ const CORP = [
     reasoning_ms: 2600,
     work: CORP_WORK,
     work_head: 'Ran a command, Edited a file, Created files (3)',
-    work_closed: true
   }),
   said(6, 'You', 'And the height of the bar?'),
   said(7, 'Assistant', 'The top bar takes its height from the text beside it, and never from the block under it.', {
     reasoning: 'A short question, and the answer of it is already known from the reading above.',
-    reasoning_ms: 11800, work: [], work_head: 'Thought for 12 seconds', work_closed: true
+    reasoning_ms: 11800, work: [], work_head: 'Thought for 12 seconds'
   })
 ];
 
@@ -1098,15 +1073,11 @@ function scene(name, dark, theme) {
     start.context = { used: '2,040', total: '8,192', ratio: 0.25 };
   }
   // The corporate display. The fixture `corp` is a context of two answers of the model, both
-  // come to their end. The one worked: its block holds the thoughts, the text the model stated
-  // while it worked, and the summary of the work it wrote, and the answer it ended with is
-  // outside the block. The other is nothing but a thought, and the header of its block reports
-  // how long the model thought for. The fixture `corplive` is in the middle of the first
-  // answer: the block is being written, its header reports what the model is at, the rows of
-  // the parts written before it is offset, and the text of the answer arrive outside it.
-  // AN_CORPCLOSED=1 reports the model closed the block with its own tool, so the header remains
-  // done and the text of the answer remains after that marker. AN_CORP=1 puts the display over
-  // any other fixture, which is how a plain conversation is read behind the one block.
+  // come to their end. The first card holds thoughts, progress updates, and tool outcomes;
+  // its final response is outside. The other card is nothing but a thought, and its header
+  // reports how long the model thought for. The fixture `corplive` is in the middle of the first
+  // answer: the card is being written, its header reports the current action, and live text is
+  // held inside until generation ends. AN_CORP=1 puts the display over any other fixture.
   if (name === 'corp' || name === 'corplive') {
     start.home = false;
     start.chat = { id: 'c1', title: 'Order of the blocks' };
@@ -1130,11 +1101,9 @@ function scene(name, dark, theme) {
       start.reasoning_done = true;
       start.live_work = CORP_WORK;
       start.live_work_head = 'Creating files (3)';
-      start.live_work_closed = false;
       start.status = 'Answering';
       if (process.env.AN_CORPCLOSED === '1') {
         start.live_work_head = 'Ran a command, Edited a file, Created files (3)';
-        start.live_work_closed = true;
       }
     }
   }

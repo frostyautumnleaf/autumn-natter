@@ -524,19 +524,6 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
                 named(tasks::partial_words(name, raw), "a task")
             },
         ),
-        // The summary of the work the model writes for the corporate display is named by the
-        // heading of the area of work it is under.
-        corporate::NAME => (
-            tools::live_arguments(raw),
-            String::new(),
-            named(corporate::partial_words(raw), "the short of the work"),
-        ),
-        // The call that closes the block of the answer is named for what it does.
-        corporate::FINISH_NAME => (
-            tools::live_arguments(raw),
-            String::new(),
-            String::from("the end of the work"),
-        ),
         // A tool of a server of the user's own is named by the tool itself, and the parts the
         // model is writing are the text of the block.
         name if mcp::is_tool(name) => (
@@ -1541,15 +1528,10 @@ pub struct Snap {
     // The calls of a tool the model is writing right now, in the order it writes them. A block
     // of a command being written is made of these.
     pub live_tools: Vec<LiveTool>,
-    // The summary of the work, as the corporate display shows it, while an answer arrives: the
-    // blocks that are inside the one block of the answer.
+    // Tool outcomes shown in the corporate card while an answer arrives.
     pub live_work: Vec<corporate::WorkBlock>,
     // The header the one block of the corporate display is at right now.
     pub live_work_head: String,
-    // True once the model stated with its own tool that the work of this answer is over. The
-    // one block of the answer is closed at that marker, and the text the model writes after it
-    // are outside it, as the answer the user came for.
-    pub live_work_closed: bool,
     // The question the model has put to the user and is waiting on, when it has put one. The
     // popup of the request is above the chat composer.
     pub ask: Option<Asking>,
@@ -1618,16 +1600,12 @@ pub struct ChatLive {
     // The calls of a tool the model is writing right now, in the order it writes them. The user
     // sees a command as it is written.
     pub live_tools: Vec<LiveTool>,
-    // The summary of the work of the answer that is arriving, for the corporate display. It is
-    // made of the blocks the model wrote with its own tool and of the blocks of the calls it
-    // made, and it is emptied when an answer begins.
+    // Tool outcome blocks for the corporate display. Assistant narration is kept in message
+    // text and rendered as one sub-block per assistant message.
     pub live_work: Vec<corporate::WorkBlock>,
     // The header the one block of the corporate display is at right now: what the model is at,
     // in the text of the item that is going on.
     pub live_work_head: String,
-    // True when the model closed the one block of the answer with its own tool. The text of the
-    // answer that come after that marker is outside the block.
-    pub live_work_closed: bool,
     // All of a plan the model let go, waiting to become the first message of the work. It
     // remains only between the call that let the plan go and the turn that begins the work,
     // which follows it at once.
@@ -2745,12 +2723,7 @@ impl State {
         } else {
             String::new()
         };
-        // The text of this message is inside the one block of the answer, unless the model had
-        // already closed it with its own tool.
-        let closed = self
-            .live_of(chat)
-            .map(|one| one.live_work_closed)
-            .unwrap_or(false);
+        // The page renders every assistant message in its own corporate card sub-block.
         if let Some(chat) = self.chat_of_mut(chat) {
             chat.messages.push(Message {
                 id: store::new_id(),
@@ -2761,7 +2734,6 @@ impl State {
                 mono,
                 work,
                 work_head: head,
-                work_closed: closed,
                 when: store::now_secs(),
                 ..Default::default()
             });
@@ -3131,10 +3103,7 @@ impl State {
         // The tool of the summary writes text, not a run: the heading it names is in the short,
         // and no block of a call means it. The tool that closes the block of the answer is
         // drawn nowhere either.
-        if !self.corporate_on_in(chat_id)
-            || call.name == corporate::NAME
-            || call.name == corporate::FINISH_NAME
-        {
+        if !self.corporate_on_in(chat_id) {
             return;
         }
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(json!({}));
@@ -4554,7 +4523,6 @@ impl State {
             // in a block of their own.
             live_work: corporate::grouped(&self.live().live_work),
             live_work_head: self.live().live_work_head.clone(),
-            live_work_closed: self.live().live_work_closed,
             ask: self.live().asking.clone(),
             running: self.live().running.as_ref().map(|one| RunningTool {
                 id: one.id.clone(),
@@ -7137,7 +7105,6 @@ impl Snap {
             live_tools: Vec::new(),
             live_work: Vec::new(),
             live_work_head: String::new(),
-            live_work_closed: false,
             planning: false,
             planned: false,
             ask: None,
@@ -8456,7 +8423,6 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
         search_on,
         rag_on,
         planning_on,
-        corporate_on,
         access,
         switches,
         mcp_tools,
@@ -8470,7 +8436,6 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
             held.as_ref().map(|c| c.meta.search_enabled).unwrap_or(false),
             held.as_ref().map(|c| c.meta.rag_enabled).unwrap_or(false),
             held.as_ref().map(|c| c.meta.planning).unwrap_or(false),
-            guard.corporate_open(),
             held.as_ref().map(|c| access_of(&c.meta)).unwrap_or_default(),
             held.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
             guard.mcp_definitions(),
@@ -8480,7 +8445,6 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
     offered_with_planning(
         sandbox_on,
         planning_on,
-        corporate_on,
         code_on,
         search_on,
         rag_on,
@@ -10658,7 +10622,6 @@ fn run_turn(
         state.live_mut(chat).live_tools = Vec::new();
         state.live_mut(chat).live_work = Vec::new();
         state.live_mut(chat).live_work_head = String::from(corporate::THINKING);
-        state.live_mut(chat).live_work_closed = false;
         // A question the model had put to the user before this answer began is removed with the
         // answer that asked it: the popup that was over the chat composer was asked by a run
         // that is no more.
@@ -10819,7 +10782,7 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, rag_on, planning_on, corporate_on, switches, thought,
+        let (mut history, code_on, search_on, rag_on, planning_on, switches, thought,
          compaction_on) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
@@ -10834,7 +10797,6 @@ fn run_turn(
                     .map(|c| c.meta.rag_enabled)
                     .unwrap_or(false),
                 guard.planning_open_in(chat),
-                guard.corporate_open(),
                 guard
                     .chat_of(chat)
                     .map(|c| c.meta.tools.clone())
@@ -10965,7 +10927,6 @@ fn run_turn(
             if let Some(list) = offered_with_planning(
                 sandbox_on,
                 planning_on,
-                corporate_on,
                 code_on,
                 search_on,
                 rag_on,
@@ -11039,6 +11000,16 @@ fn run_turn(
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
                     guard.live_mut(chat).live_text.push_str(piece);
+                    if guard.corporate_on_in(chat)
+                        && guard.live_ref(chat).running.is_none()
+                    {
+                        let heading = corporate::live_head_from_text(
+                            &guard.live_ref(chat).live_text,
+                        );
+                        if !heading.is_empty() {
+                            guard.live_mut(chat).live_work_head = heading;
+                        }
+                    }
                     // Words of the answer are coming, so the model is writing: not thinking any
                     // more, and not reading the result of a tool from the step before this one.
                     guard.say_status("The model is writing the answer");
@@ -11856,43 +11827,6 @@ fn run_turn(
         // True when the model let the plan go in this step of the answer.
         let mut letting = false;
         for call in step_runs.iter() {
-            // The model reports the work of the answer is over, and that its last text come
-            // next. Nothing of the computer runs for such a call: the one block of the answer
-            // is closed, and the text the model writes after it are outside it.
-            if call.name == corporate::FINISH_NAME {
-                let Ok(mut guard) = state.lock() else {
-                    continue;
-                };
-                guard.live_mut(chat).live_work_closed = true;
-                let id = guard.begin_tool_in(chat, call, corporate::FINISH_WORDS, "", 0);
-                guard.finish_tool_in(chat, &id, corporate::FINISH_WORDS, true);
-                continue;
-            }
-            // The summary of the work goes into the one block the corporate display shows.
-            // Nothing of the computer runs for such a call: the text is extracted from it, put
-            // under the heading the model gave, and the model is answered in a word.
-            if call.name == corporate::NAME {
-                let entry = serde_json::from_str::<corporate::Entry>(&call.arguments)
-                    .unwrap_or_default();
-                let written = match state.lock() {
-                    Ok(mut guard) => {
-                        let live = guard.live_mut(chat);
-                        let written = corporate::note(&mut live.live_work, &entry);
-                        if written {
-                            live.live_work_head = corporate::live_head(&entry);
-                        }
-                        written
-                    }
-                    Err(_) => continue,
-                };
-                let note = corporate::receipt(written);
-                let Ok(mut guard) = state.lock() else {
-                    continue;
-                };
-                let id = guard.begin_tool_in(chat, call, &note, "", 0);
-                guard.finish_tool_in(chat, &id, &note, true);
-                continue;
-            }
             // The model requests the size of the context to be made now. The summary is written
             // here, in the middle of the answer, as it is when the writing is stopped under the
             // weight of the conversation: the answer remains aside while the text is written,
@@ -12161,7 +12095,6 @@ fn plus_minus(words: &str) -> (i64, i64) {
 fn offered_with_planning(
     sandbox: bool,
     planning_on: bool,
-    corporate_on: bool,
     code_on: bool,
     search_on: bool,
     rag_on: bool,
@@ -12189,13 +12122,7 @@ fn offered_with_planning(
         list.push(planning::ask_definition());
         list.push(planning::end_definition());
     }
-    // The corporate display remains or falls as a setting of the whole program, and the tool of
-    // the summary of the work is with it and nowhere else. It holds no switch of the user, for
-    // the mode is nothing without it.
-    if corporate_on {
-        list.push(corporate::definition());
-        list.push(corporate::finish_definition());
-    }
+    // Corporate mode uses normal assistant messages as progress sub-blocks and adds no tools.
     if list.is_empty() {
         return None;
     }
@@ -13436,7 +13363,6 @@ mod tests {
             offered_with_planning(
                 false,
                 on,
-                false,
                 false,
                 false,
                 false,
@@ -15015,19 +14941,6 @@ mod tests {
             made[0].command,
             "project: launch\nlayer: {\"id\":\"head\",\"kind\":\"text\"}"
         );
-        // The summary of the work for the corporate display is named by the heading of the area
-        // of work, and the lines are in the body.
-        let short = ToolCall {
-            id: String::from("call-short-parts"),
-            name: String::from(corporate::NAME),
-            arguments: String::from("{\"topic\":\"The parser\",\"lines\":[\"Found the fault\"]}"),
-        };
-        let made = watched(std::slice::from_ref(&short));
-        assert_eq!(made[0].target, "The parser");
-        assert_eq!(
-            made[0].command,
-            "topic: The parser\nlines: [\"Found the fault\"]"
-        );
         // A call that has named nothing yet has no name to put in the header, so the header
         // reports what the tool is pointed at. The body still shows the part the model is
         // writing.
@@ -15068,7 +14981,6 @@ mod tests {
             infographic::CUTOUT_NAME,
             infographic::CHECK_NAME,
             infographic::RENDER_NAME,
-            corporate::NAME,
             tasks::CREATE_NAME,
             tasks::VIEW_ALL_NAME,
             tasks::VIEW_ONE_NAME,

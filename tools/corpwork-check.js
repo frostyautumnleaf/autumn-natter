@@ -1,11 +1,9 @@
 // Check the one card an answer is behind in the corporate display.
 //
-// The corporate display hides the thoughts and the calls whole. One card means an answer: its
-// header reports what the model is at, and inside it remain the thoughts of the model, the text
-// it wrote while it worked, and the summary of the work it wrote itself. The answer the model
-// ended with is outside the card, in the plain text of the chat, and the rows of the parts
-// written before the answer is offset, for the card holds them. This drives the thread manually
-// with the states the engine pointers out, and checks what the page made.
+// The corporate display hides private thoughts and ordinary tool messages. One card means an
+// answer; progress messages are ordered sub-blocks and the final response stays outside.
+// This drives the thread manually with the states the engine points out and checks what the page
+// made.
 //
 // node corpwork-check.js AN_PAGE=../web/page.html node corpwork-check.js
 const path = require('path');
@@ -44,7 +42,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     function said(id, role, body, extra) {
       var m = { id: id, role: role, body: body, when: '10:' + (id % 10), tool: '',
         mono: false, failed: false, reasoning: '', reasoning_ms: 0, attachments: [],
-        work: [], work_head: '', work_closed: false };
+        work: [], work_head: '' };
       for (var k in extra) { m[k] = extra[k]; }
       return m;
     }
@@ -93,8 +91,8 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       ])])
     ])];
 
-    // A context of two answers: the one worked, and ended with its text outside the card; the
-    // other is nothing but a thought.
+    // A context of two answers: progress stays in the first card, its final output sits outside,
+    // and the other answer is nothing but a thought.
     var talk = [
       said(1, 'You', 'Fix the order and run the tests.'),
       said(2, 'Assistant', 'I will read the parser first.',
@@ -102,17 +100,17 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       said(3, 'Tool', 'cargo test', { tool: '6 tests passed' }),
       said(4, 'Assistant', 'The tests pass. Two items changed.',
         { reasoning: 'Say what changed.', reasoning_ms: 2600, work: SHORT,
-          work_head: 'Ran a command, Created files (3)', work_closed: true }),
+          work_head: 'Ran a command, Created files (3)' }),
       said(5, 'You', 'And the bar?'),
       said(6, 'Assistant', 'The top bar takes its height from the text beside it.',
         { reasoning: 'The answer is already known.', reasoning_ms: 11800,
-          work_head: 'Thought for 12 seconds', work_closed: true })
+          work_head: 'Thought for 12 seconds' })
     ];
 
     function state(messages, chatting, extra) {
       var s = { messages: messages, live: '', reasoning: '', reasoning_ms: 0,
         reasoning_done: false, live_tools: [], live_work: [], live_work_head: '',
-        live_work_closed: false, generating: false, summarising: false, chapters: [],
+ generating: false, summarising: false, chapters: [],
         handoffs: [], chat: { id: 'c1', title: 'Probe' }, chatting: chatting };
       for (var k in extra) { s[k] = extra[k]; }
       return s;
@@ -146,14 +144,16 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     if (!lastRow || !lastRow.firstElementChild || !lastRow.firstElementChild.classList.contains('work')) {
       faults.push('the card of an answer is not at the header of its row ' + where);
     }
-    // The text the model stated while it worked are inside the card, and the answer it ended
-    // with is outside it.
-    var answerText = box.querySelector('.turn[data-mid="4"] .answer-words');
+    // Progress stays in the card while the final answer is a normal, visible chat message.
+    var answerText = box.querySelector('.turn[data-mid="4"] > .work .wwords[data-said="2"]');
     if (!answerText) {
-      faults.push('the answer the model ended with is not in the chat ' + where);
+      faults.push('the progress update is not a sub-block in the card ' + where);
     }
-    if (made[0].querySelector('.answer-words')) {
-      faults.push('the text of the answer is inside the card as well ' + where);
+    var finalPlain = lastRow && lastRow.querySelector(':scope > .plain');
+    if (!finalPlain || getComputedStyle(finalPlain).display === 'none'
+        || !/The tests pass\. Two items changed\./.test(finalPlain.textContent || '')
+        || lastRow.querySelector(':scope > .work .wwords[data-said="4"]')) {
+      faults.push('the final answer is not shown once outside the card ' + where);
     }
     if (!made[0].querySelector('.wwords')) {
       faults.push('the text the model stated while it worked are not in the card ' + where);
@@ -176,24 +176,25 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       faults.push('the second question of the user is offset ' + where);
     }
 
-    // Even a direct answer with no reasoning or logged work keeps its progress card after
-    // generation ends; its answer text remains in the chat and the empty card reports Done.
-    where = 'a direct answer with no logged work';
+    // A direct answer with no reasoning or tool work still has a card, with its answer inside.
+    where = 'a direct answer with no tool work';
     box = look(state([
       said(20, 'You', 'What is 2 + 2?'),
-      said(21, 'Assistant', '4.', { work_head: 'Done', work_closed: true })
+      said(21, 'Assistant', '4.', { work_head: 'Done' })
     ], CHAT));
     var direct = box.querySelector('.turn[data-mid="21"] > .work');
     if (!direct) {
       faults.push('a direct answer with no logged work has no card ' + where);
     } else {
       var directHead = (direct.querySelector('.whead') || {}).textContent || '';
-      if (!/Done/.test(directHead) || direct.querySelector('.wbbody > *')) {
-        faults.push('the direct answer card is not empty and Done ' + where);
+      if (!/Done/.test(directHead)
+          || !/4\./.test((direct.querySelector('.wwords') || {}).textContent || '')) {
+        faults.push('the direct answer is not in its Done card ' + where);
       }
     }
-    if (!box.querySelector('.turn[data-mid="21"] .answer-words')) {
-      faults.push('the direct answer text is missing from the chat ' + where);
+    var directPlain = box.querySelector('.turn[data-mid="21"] > .plain');
+    if (!directPlain || getComputedStyle(directPlain).display !== 'none') {
+      faults.push('the direct answer is duplicated outside its card ' + where);
     }
 
     // The most important state change is the handoff from the live row to the saved answer.
@@ -209,7 +210,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     }
     var saved = start.concat([said(41, 'Assistant', 'Here is the explanation.', {
       reasoning: 'Thinking through the explanation.', reasoning_ms: 700,
-      work_head: 'Done', work_closed: true
+      work_head: 'Done'
     })]);
     box = look(state(saved, CHAT));
     if (!box.querySelector('.turn[data-mid="41"] > .work')) {
@@ -292,7 +293,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
 
     // Four: an answer arriving is held by the card at the header of its turn, and the rows of
     // its parts written before is offset. Live text is a sub-block in the card while it is
-    // being written, and becomes the final answer outside only when the work block is closed.
+    // being written, and the final assistant output stays in the card as its own sub-block.
     where = 'an answer coming in';
     box = look(state(talk.slice(0, 4), CHAT, {
       generating: true, live: 'Still writing this response.', reasoning: 'Say what changed.',
@@ -378,30 +379,37 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     var firstSaid = orderedWords.indexOf('Checking the project before the tool.');
     var workStep = orderedWords.indexOf('Check the test suite');
     var secondThought = orderedWords.indexOf('Second thought after the tool.');
+    var orderedOutputs = orderedCard ? orderedCard.querySelectorAll('.wwords') : [];
     if (!orderedCard || firstThought < 0 || firstSaid < 0 || workStep < 0
         || secondThought < 0 || firstThought >= firstSaid || firstSaid >= workStep
-        || workStep >= secondThought) {
+        || workStep >= secondThought || orderedOutputs.length !== 1) {
       faults.push('the work sub-blocks are out of creation order ' + where + ': '
         + firstThought + '/' + firstSaid + '/' + workStep + '/' + secondThought
-        + ' ' + orderedWords);
+        + ', assistant outputs=' + orderedOutputs.length + ' ' + orderedWords);
+    }
+    var finalRow = box.querySelector('.turn[data-mid="74"]');
+    var finalText = finalRow && finalRow.querySelector(':scope > .plain');
+    if (!finalText || getComputedStyle(finalText).display === 'none'
+        || !/The checks passed/.test(finalText.textContent || '')) {
+      faults.push('the last assistant message is not outside the card ' + where);
     }
 
-    // Five: the block closed by the model's own tool. The text written after the marker are
-    // outside the card, and the header of the card is done.
-    where = 'the block closed by the model';
+    // A live assistant output remains in the card until generation ends.
+    where = 'a streaming answer sub-block';
     box = look(state(talk.slice(0, 4), CHAT, {
       generating: true, live: 'The tests pass.', reasoning: 'Say what changed.',
       reasoning_ms: 900, live_work: SHORT, live_work_head: 'Ran a command',
-      live_work_closed: true
     }));
     var shut = box.querySelector('.turn:last-child > .work .whead');
     if (!shut || !/Ran a command/.test(shut.textContent)) {
       faults.push('the header of the card of a closed block reports nothing of the work ' + where);
     }
     var closedRow = box.querySelector('.turn:last-child');
-    if (!closedRow || !/The tests pass/.test((closedRow.querySelector('.plain') || {}).textContent || '')
-        || closedRow.querySelector(':scope > .work .wwords[data-said="live"]')) {
-      faults.push('text after the work block closes is not shown as the final answer ' + where);
+    var finalWords = closedRow && closedRow.querySelector(':scope > .work .wwords[data-said="live"]');
+    var duplicate = closedRow && closedRow.querySelector(':scope > .plain');
+    if (!finalWords || !/The tests pass/.test(finalWords.textContent)
+        || !duplicate || getComputedStyle(duplicate).display !== 'none') {
+      faults.push('the streaming answer is missing from the card or shown in the chat ' + where);
     }
 
     // Six: with the corporate display off nothing of this remains: no card, and no row of an
@@ -426,7 +434,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
         file: 'src/parser.rs' })
     ])])];
     box = look(state([said(30, 'You', 'Fix the parser.'), said(31, 'Assistant', 'Done.', {
-      work: changed, work_head: 'Edited 1 file', work_closed: true
+      work: changed, work_head: 'Edited 1 file'
     })], CHAT));
     var editCard = box.querySelector('.turn[data-mid="31"] > .work');
     var plus = editCard && editCard.querySelector('.wplus');
@@ -443,9 +451,9 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     process.exit(1);
   }
   console.log('one card means an answer, at the header of the row that carries its last '
-    + 'message; live answer text stays in a card sub-block until it is complete; the thoughts, '
-    + 'the words of the work and the short of the work stand inside it, the finished answer '
-    + 'outside; a run of calls of one tool is one block in the plural; '
+    + 'message; progress outputs stay in ordered card sub-blocks while the final answer is '
+    + 'outside; thoughts and tool outcomes are also inside it; a run of calls of one tool is '
+    + 'one block in the plural; '
     + 'a line of the short with nothing under it is a plain line; an answer coming in is '
     + 'held by one card and puts it again as it grows; direct answers keep their card; file '
     + 'edits keep line counts; the card survives live-to-saved and handoff transitions and '

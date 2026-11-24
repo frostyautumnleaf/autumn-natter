@@ -603,13 +603,6 @@ pub struct Message {
     // The header the one block of the corporate display was at when the answer came to its end.
     #[serde(default)]
     pub work_head: String,
-    // True when the model had already closed the one block of the answer with its own tool
-    // before these text was written. The text of a message that carries the marker is outside
-    // the block of the work, as the answer the user came for; the text of a message without it
-    // is inside the block, in a sub -block of their own. A chat written before the marker
-    // existed carries it nowhere, so its text keeps remaining outside, as they did.
-    #[serde(default)]
-    pub work_closed: bool,
     // True of a tool call the context window filled under, before the model had written all of
     // it. Such a call never ran, and its text is not whole, so they go back to the model as the
     // text of a turn and never as a call: a server that read the broken text as arguments would

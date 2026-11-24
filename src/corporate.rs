@@ -1,24 +1,10 @@
-// Corporate display: one block for an answer, and the summary of the work in it.
-//
-// The chat can be decompressed in two ways. The plain way is the chat as it has always was: the
-// thoughts of the model in their panels, and every call it made in a block of its own. The
-// corporate way hides all of that. One block means an answer, its header saying what the model
-// is at -- Thinking, Searching the web, Searched the web, Editing file, Running command -- and
-// when the block is opened the work is there, in blocks of its own, each with the heading of
-// the area the model is working in and a line or two under it saying what it did.
-//
-// The model writes those lines itself, with a tool of its own. The tool remains only while the
-// corporate display is on, and it holds no switch: like the tools of planning, it is proposed
-// beside the others and cannot be removed by the user, because the mode is nothing without it.
-// The tool has no place and no file: what it writes goes into the answer the model is writing,
-// and into the message once the answer is kept.
-//
-// The header of the one block is not written by the model. It comes from what the model is
-// doing at the moment, which the program knows better than the model does: a search that is on
-// its way is "Searching the web", and a search that returned is "Searched the web".
+// Corporate display: one block for an answer, with private reasoning hidden and each assistant
+// message shown as its own sub-block. The title follows the current assistant update or tool
+// action; completed tool results are summarized in the block and the final assistant message
+// remains outside the card. The strings below also let older saved cards keep their shape.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::display;
 use crate::download;
@@ -30,26 +16,14 @@ use crate::summarise;
 use crate::tools;
 use crate::viewimage;
 
-// The name the model uses to write the summary of its work.
+// Legacy marker retained to display saved cards created by earlier versions.
 pub const NAME: &str = "work_log";
 
-// The name the model uses to say that the work is over and its last text come next. The block
-// of the answer is closed at that marker, and the text after it are outside it.
+// Legacy marker retained to display saved cards created by earlier versions.
 pub const FINISH_NAME: &str = "finish_answer";
 
-// What one call of the tool writes: the heading of the area of work, and the short lines to put
-// under it.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Entry {
-    #[serde(default)]
-    pub topic: String,
-    #[serde(default)]
-    pub lines: Vec<String>,
-}
-
-// One block of the summary of the work. A block made by the model carries the heading it gave;
-// a block made by the program for a call carries the text of the call, so that a search or an
-// edit is in the short even when the model reports nothing of it.
+// One block of work made by a real tool call. Fields for model-written headings and nested
+// progress lines remain so saved cards from earlier versions can still be read.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct WorkBlock {
     // The header of the block, as it is shown.
@@ -57,7 +31,7 @@ pub struct WorkBlock {
     // The short lines under the header.
     #[serde(default)]
     pub lines: Vec<String>,
-    // The tool the block means, empty for a block the model wrote.
+    // The tool the block means.
     #[serde(default)]
     pub tool: String,
     // The call the block means, so that a block is put right and not added twice while an
@@ -87,15 +61,10 @@ pub struct WorkBlock {
     // the call remains while the mode is on.
     #[serde(default)]
     pub output: String,
-    // The blocks inside this one. A heading the model wrote holds the calls that belong under
-    // it, so the summary of the work reads as a heading and the work of that heading, and not
-    // as one long flat list.
+    // Nested blocks in legacy saved cards.
     #[serde(default)]
     pub sub: Vec<WorkBlock>,
-    // True when the block means one line of the summary the model wrote. Such a block holds the
-    // calls the model made while that line was last, so the text of the summary and the work
-    // they mean are read together. A line with no calls of its own is drawn as a plain line,
-    // with nothing to open.
+    // True when this is a progress line from a legacy saved card.
     #[serde(default)]
     pub line: bool,
     // True when the block means several calls of one tool made one after another with nothing
@@ -103,60 +72,6 @@ pub struct WorkBlock {
     // plural.
     #[serde(default)]
     pub group: bool,
-}
-
-// The text of the tool the model has. It cannot be switched off, and it is proposed only while
-// the corporate display remains.
-pub fn definition() -> Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": NAME,
-            "description": String::from(
-                "Update the progress card for this answer. The user cannot see your reasoning or tool calls. Set topic to a short, specific heading for the workstream, and lines to one or two very short updates. Call before every tool call with the action you are starting, and after each result with what happened; do this for consecutive calls too. Reuse topic only to continue that same workstream. When work moves to a different workstream, use a new topic so it becomes a separate heading and preserves the earlier heading. Every line becomes its own progress sub-block, and later updates append rather than replace earlier ones. Keep each line concrete and brief, such as 'Searching for the release notes.' or 'Found the November release date.' Never put the final answer in this card. The card title follows your latest progress while you work; tool blocks show file paths and added or removed line counts. Short direct answers without meaningful work do not need this tool."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "topic": {
-                        "type": "string",
-                        "description": "The heading of the block: the general area, task or topic of the work these lines belong to. A few words, and the same text for the lines of one piece of work."
-                    },
-                    "lines": {
-                        "type": "array",
-                        "description": "The short lines to put under the heading: one to three, each a very short summary of what you are doing or have just done.",
-                        "items": { "type": "string" }
-                    }
-                },
-                "required": ["topic", "lines"]
-            }
-        }
-    })
-}
-
-// The tool that shows the work of the answer is over. It is beside the tool of the summary,
-// holds no switch of the user, and is drawn nowhere. What it does is to close the one block of
-// the answer: the text the model writes after it is the text the user came for, and it is
-// outside the block whole.
-pub fn finish_definition() -> Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": FINISH_NAME,
-            "description": String::from(
-                "Close the work block of this answer and give your last words to the user. Call it once, at the moment you have done everything you meant to do and will call no more tools. The block the user watches stands for your work; this tool ends it, and everything you write afterwards is read as the answer, outside the block, in the plain words of the chat. Do not call it before the work is really over, and do not call a tool after it.",
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {},
-            }
-        }
-    })
-}
-
-// True when a name is the tool that closes the block of the answer.
-pub fn is_finish(name: &str) -> bool {
-    name == FINISH_NAME
 }
 
 // The header of the one block while the model is thinking.
@@ -176,6 +91,20 @@ pub fn thought_head(ms: u64) -> String {
 
 // The header of the one block when nothing of the work is going on.
 pub const WORKING: &str = "Working";
+
+// A short live heading for the first user-visible line of a progress update.
+pub fn live_head_from_text(text: &str) -> String {
+    let line = text
+        .lines()
+        .find(|one| !one.trim().is_empty())
+        .unwrap_or_default()
+        .trim();
+    if line.is_empty() {
+        String::new()
+    } else {
+        one_line(String::from(line))
+    }
+}
 
 // The header of the one block of an answer that came to its end with nothing of the work in it.
 pub const DONE: &str = "Done";
@@ -254,31 +183,7 @@ fn doing_plural(name: &str) -> &'static str {
     }
 }
 
-// The heading of the area of work the model named in a call that is still being written.
-// Nothing is in the header until the first word of the heading arrives. See
-// `crate::tools::partial_text`, which reads a part of a call as far as it has been written.
-pub fn partial_words(raw: &str) -> String {
-    tools::partial_text(raw, "topic")
-}
-
-// The latest short line is the most useful header while the model is still working. The topic
-// remains a fallback for a call that has not supplied a progress line yet.
-pub fn live_head(entry: &Entry) -> String {
-    let latest = entry
-        .lines
-        .iter()
-        .rev()
-        .map(|one| one.trim())
-        .find(|one| !one.is_empty())
-        .unwrap_or_else(|| entry.topic.trim());
-    if latest.is_empty() {
-        return String::from(WORKING);
-    }
-    one_line(String::from(latest))
-}
-
-// True when a name is one of the tools of the program, rather than one a server of tools added.
-// The tool that closes the block of the answer is with them, for it is never shown as a block.
+// True when a name is a known program tool or a legacy corporate marker.
 fn known(name: &str) -> bool {
     matches!(
         name,
@@ -472,37 +377,10 @@ pub fn settle(block: &mut WorkBlock) {
     }
 }
 
-// A call began under the summary of the work. A heading the model wrote last takes the call
-// inside it, so the work of that heading is with it; with no heading open the call is on its
-// own. Inside the heading the call goes under the line the model wrote last, so the text of the
-// summary and the work they mean are read together: another line the model writes takes the
-// calls that come after it.
+// A real tool call becomes its own work block. Assistant progress messages are stored on their
+// assistant messages and rendered as separate sub-blocks by the page.
 pub fn begin(blocks: &mut Vec<WorkBlock>, name: &str, id: &str, args: &Value) {
-    let made = block_for(name, id, args);
-    match blocks.last_mut() {
-        Some(one) if one.tool == NAME => under(one, made),
-        _ => blocks.push(made),
-    }
-}
-
-// The place one call is inside a heading of the summary: under the line the model wrote last,
-// or under the heading itself when the heading holds no line of its own.
-fn under(head: &mut WorkBlock, made: WorkBlock) {
-    match head.sub.last_mut() {
-        Some(one) if one.line => one.sub.push(made),
-        _ => head.sub.push(made),
-    }
-}
-
-// The line of the summary the model wrote, made into a block of its own. A line with no call
-// under it is drawn as a plain line; the calls that fall under it are what makes it open.
-fn line_block(text: String) -> WorkBlock {
-    WorkBlock {
-        head: text,
-        tool: String::from(NAME),
-        line: true,
-        ..Default::default()
-    }
+    blocks.push(block_for(name, id, args));
 }
 
 // The block of one call, searched for in all of the summary: a call is at the top, or inside
@@ -707,193 +585,24 @@ fn group_of(run: &[WorkBlock]) -> WorkBlock {
     }
 }
 
-// Take the summary of the work out of what the model sent, and put it into the summary of the
-// answer. A heading that the model wrote before is left open and the lines go under it; another
-// heading opens a block of its own. Nothing is written for a call that carries no heading and
-// no line.
-pub fn note(blocks: &mut Vec<WorkBlock>, entry: &Entry) -> bool {
-    let topic = entry.topic.trim();
-    let mut lines: Vec<String> = entry
-        .lines
-        .iter()
-        .map(|one| one.trim())
-        .filter(|one| !one.is_empty())
-        .map(String::from)
-        .collect();
-    lines.dedup();
-    if topic.is_empty() && lines.is_empty() {
-        return false;
-    }
-    if topic.is_empty() {
-        // Without a heading the lines have nowhere of their own, so they are under the heading
-        // the model opened last, or under a block of their own when the model opened none.
-        let place = blocks
-            .last_mut()
-            .filter(|one| one.tool == NAME && !one.line);
-        match place {
-            Some(one) => one.sub.extend(lines.into_iter().map(line_block)),
-            None => blocks.push(WorkBlock {
-                head: String::from(WORKING),
-                sub: lines.into_iter().map(line_block).collect(),
-                tool: String::from(NAME),
-                ..Default::default()
-            }),
-        }
-        return true;
-    }
-    // Only the heading at the end of the summary takes the lines. A heading the model wrote
-    // before, with another one after it, remains as it was: two headings of one name are two
-    // blocks of the work, each with the calls that were created under it.
-    let place = blocks
-        .last_mut()
-        .filter(|one| one.tool == NAME && !one.line && one.head == topic);
-    match place {
-        Some(one) => one.sub.extend(lines.into_iter().map(line_block)),
-        None => blocks.push(WorkBlock {
-            head: String::from(topic),
-            sub: lines.into_iter().map(line_block).collect(),
-            tool: String::from(NAME),
-            ..Default::default()
-        }),
-    }
-    true
-}
-
-// The text the model gets when the corporate display remains. The mode changes what the user
-// can see, so the model has to be informed how its work reaches the screen: the thoughts and
-// the call blocks are hidden, and the short it writes is the only account of the work the user
-// reads.
+// The text the model gets when the corporate display remains. Progress messages become ordered
+// sub-blocks, and the final answer remains a normal chat message outside the card.
+// Short narration before and after each action is the account the user sees while the model works.
 pub fn system_prompt() -> String {
     String::from(
-        "Corporate display is on. The user cannot see your reasoning or tool-call messages. One progress card belongs to each answer; its title shows your current action, and its contents show short progress headings with their updates and the tool calls made for them. The final assistant reply stays in the chat below the card.\n\
-         Use work_log throughout any answer that involves research, tools, file changes, or multiple steps. Before each tool call, write one short progress line saying what you are about to do. After the call returns, write one short line saying what it returned or what failed. Do this for each call, including consecutive calls; do not wait until a group of calls is complete. A short direct answer with no meaningful work needs no progress lines.\n\
-         Each work_log call names a workstream in topic and gives one or two concise progress lines in lines. Use a clear, specific heading such as 'Research the release' or 'Create the findings file'. Reuse the same topic only to add progress to that same workstream. Start a new topic when you begin a different workstream; never rename or replace an earlier topic to describe later work. Each topic becomes its own heading block, and each progress line becomes its own sub-block. Keep earlier headings and lines intact.\n\
-         Progress lines describe one concrete step or result in a few words. For example: 'Searching the web for the release date.' and then 'Found the November release notes.' Do not repeat the user request, write a generic status, or put your final answer in a progress line. Calls you make after a progress line appear under that line, so write a fresh line before moving to the next step.\n\
-         The title of the card follows your latest progress or action while you work. Keep work_log updates frequent enough that it never looks stalled. For file edits, the tool call block also shows the file and added and removed line counts; do not duplicate those counts in progress text.\n\
-         When all work and tool calls are complete, call finish_answer exactly once immediately before your final assistant reply. Do not call any tool after finish_answer. The final reply is shown outside the progress card.",
+        "Corporate display is on. One progress card belongs to each answer. The user cannot see your private reasoning or tool-call messages. Every assistant progress message outside private reasoning is shown as its own ordered sub-block inside the card. Your final answer is shown once as a normal chat message outside the card. The card title follows your current action; do not repeat progress updates below the card.\n\
+         Never use a progress, logging, or finish tool; none is available or needed. Use normal assistant text to keep the user informed. For every task that takes more than one step, begin with a short, concrete sentence saying what you are about to do before you inspect, search, call a tool, edit, run a command, or otherwise act. Do not make the user infer your plan from hidden reasoning or from a tool call.\n\
+         After each action, report its useful outcome in a new, brief assistant message before starting the next action. Say what you found, changed, created, tested, or what failed, then name the next step when one remains. Keep each update focused on one action or result; each message becomes its own sub-block, in the order written. Do not combine several unrelated steps into one update, repeat the full request, or send empty status messages.\n\
+         Before a substantial investigation or review, give a short user-visible update such as 'I will compare the two implementations before choosing the fix.' After the check, report its useful result. Never expose private chain-of-thought; report only the purpose of the check and its result. Keep the user informed during long work with concise updates when the current action changes or a meaningful result arrives.\n\
+         Before a tool call, tell the user what the call will do. After its result, explain the relevant outcome before making another call. Do this for each call, including consecutive calls. For file changes, identify the files or behavior changed and mention relevant checks and their outcome. Be accurate: do not claim a check passed or an action succeeded unless it did.\n\
+         When the work is complete, write one clear final assistant message. It appears outside the card as the normal chat response. Summarize the result and any important remaining limitation there; do not repeat it in a progress sub-block or use a special tool or marker.",
     )
-}
-
-// The text the model gets back for the call that closes the block of its answer. They are kept
-// short, and they say what comes next.
-pub const FINISH_WORDS: &str =
-    "The block is closed. What you write now is the answer the user reads.";
-
-// The text the model gets back for a call of the tool. They are kept short, for the model does
-// not need to be informed what it just wrote.
-pub fn receipt(written: bool) -> String {
-    if written {
-        String::from("Noted. The user sees it in the block.")
-    } else {
-        String::from("Nothing was noted: a heading or a line is needed.")
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_heading_of_the_model_is_kept_and_another_one_opens_a_new_block() {
-        let mut blocks = Vec::new();
-        assert!(note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Weighing the two methods"),
-                lines: vec![String::from("Comparing the results.")],
-            }
-        ));
-        assert!(note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Weighing the two methods"),
-                lines: vec![String::from("Weighing the caveats.")],
-            }
-        ));
-        assert!(note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Checking the version"),
-                lines: vec![String::from("Which version the feature needs.")],
-            }
-        ));
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0].sub.len(), 2, "the two writings are under one heading");
-        assert!(blocks[0].sub[0].line, "a line of the summary is a block of its own");
-        assert_eq!(blocks[0].sub[1].head, "Weighing the caveats.");
-        assert_eq!(blocks[1].head, "Checking the version");
-    }
-
-    #[test]
-    fn a_call_stands_under_the_heading_the_model_opened_last() {
-        let mut blocks = Vec::new();
-        note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Reading the paper"),
-                lines: vec![String::from("Two methods to compare.")],
-            },
-        );
-        begin(&mut blocks, tools::TOOL_NAME, "c1", &json!({"command": "ls"}));
-        assert_eq!(blocks.len(), 1, "the call is inside the heading");
-        // The line the model wrote remains as the first block of the heading, and the call is
-        // under it.
-        assert_eq!(blocks[0].sub.len(), 1);
-        assert!(blocks[0].sub[0].line);
-        assert_eq!(blocks[0].sub[0].head, "Two methods to compare.");
-        assert_eq!(blocks[0].sub[0].sub[0].head, "Running command ls");
-        // The call is found again by its number, inside the heading and under the line of it.
-        let found = find_mut(&mut blocks, "c1").expect("the call of the paper");
-        settle(found);
-        assert_eq!(blocks[0].sub[0].sub[0].head, "Ran a command ls");
-        // A second heading takes the calls after it, and leaves the first one as it is now.
-        note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Writing the answer"),
-                lines: vec![String::from("The two methods, side by side.")],
-            },
-        );
-        begin(&mut blocks, search::NAME, "c2", &json!({"query": "attention"}));
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0].sub[0].sub.len(), 1, "the first heading keeps its work");
-        assert_eq!(blocks[1].sub.len(), 1);
-        assert_eq!(blocks[1].sub[0].sub[0].head, "Searching the web attention");
-        // The header of the block names every type of work the answer did, in the order the
-        // types were done. The user reads one line and knows the answer both ran a command and
-        // searched.
-        assert_eq!(head_after(&blocks), "Ran a command, Searched the web");
-    }
-
-    #[test]
-    fn two_headings_of_one_name_are_two_blocks() {
-        let mut blocks = Vec::new();
-        note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Work"),
-                lines: vec![String::from("The first part.")],
-            },
-        );
-        begin(&mut blocks, tools::TOOL_NAME, "c1", &json!({"command": "pwd"}));
-        note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Elsewhere"),
-                lines: vec![String::from("An item by itself.")],
-            },
-        );
-        note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Work"),
-                lines: vec![String::from("The last part.")],
-            },
-        );
-        assert_eq!(blocks.len(), 3, "a heading begun again opens again");
-        assert_eq!(blocks[2].sub.len(), 1);
-        assert_eq!(blocks[0].sub.len(), 1);
-    }
+    use serde_json::json;
 
     #[test]
     fn a_call_that_came_back_is_said_in_the_words_of_a_thing_done() {
@@ -1015,41 +724,6 @@ mod tests {
         assert!(!made[0].done, "one call of the run is still going on");
     }
 
-    // The calls fall under the line the model wrote last. Another line the model writes takes
-    // the calls that come after it, so the text of the summary and the work they mean are read
-    // together.
-    #[test]
-    fn a_call_stands_under_the_line_the_model_wrote_last() {
-        let mut blocks = Vec::new();
-        note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Build Phase 1"),
-                lines: vec![String::from("Creating the schemas.")],
-            },
-        );
-        begin(&mut blocks, editfile::CREATE_NAME, "c1", &json!({"path": "schema.prisma"}));
-        note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Build Phase 1"),
-                lines: vec![String::from("Building the APIs.")],
-            },
-        );
-        begin(&mut blocks, editfile::CREATE_NAME, "c2", &json!({"path": "auth.ts"}));
-        begin(&mut blocks, editfile::CREATE_NAME, "c3", &json!({"path": "cart.ts"}));
-        assert_eq!(blocks.len(), 1, "the heading of the same name is kept");
-        assert_eq!(blocks[0].sub.len(), 2, "two lines of the summary are in the heading");
-        assert_eq!(blocks[0].sub[0].sub.len(), 1, "the first line holds the call under it");
-        assert_eq!(blocks[0].sub[1].sub.len(), 2, "the second line holds the two after it");
-        // Put together, the two calls of the second line are in one block under that line, and
-        // the first line keeps its one call as it was.
-        let made = grouped(&blocks);
-        assert_eq!(made[0].sub[0].sub.len(), 1);
-        assert_eq!(made[0].sub[1].sub.len(), 1);
-        assert_eq!(made[0].sub[1].sub[0].head, "Creating files (2)");
-    }
-
     // The header of an answer that thought and did nothing else reports how long the thinking
     // took, and not that the answer is done. The short the model wrote is no work of a call, so
     // an answer that wrote only the short still reports what it thought.
@@ -1060,14 +734,6 @@ mod tests {
         assert_eq!(thought_head(12_400), "Thought for 12 seconds");
         let mut blocks = Vec::new();
         assert_eq!(head_of_answer(&blocks, 0), DONE);
-        assert_eq!(head_of_answer(&blocks, 4200), "Thought for 4 seconds");
-        note(
-            &mut blocks,
-            &Entry {
-                topic: String::from("Weighing it"),
-                lines: vec![String::from("Two ways.")],
-            },
-        );
         assert_eq!(head_of_answer(&blocks, 4200), "Thought for 4 seconds");
     }
 
