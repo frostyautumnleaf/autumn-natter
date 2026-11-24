@@ -375,7 +375,7 @@ function corpGroup(tool, head, run) {
 // Tool outcome blocks from the first answer of the fixture below. Assistant narration is
 // supplied by the messages themselves, just as it is in the live conversation.
 const CORP_WORK = [
-  corpCall('run_terminal', 'call-1', 'Ran a command cargo test --release markdown', {
+  corpCall('run_terminal', 'call-1', 'Ran cargo test --release markdown', {
     command: 'cargo test --release markdown',
     output: 'running 6 tests\ntest markdown::tests::list_after_paragraph ... ok\n' +
       'all 6 tests passed'
@@ -421,7 +421,7 @@ const CORP = [
     reasoning: 'The order is mended and the tests remain. Say what changed, and say of the file that was there.',
     reasoning_ms: 2600,
     work: CORP_WORK,
-    work_head: 'Ran a command, Edited a file, Created files (3)',
+    work_head: 'Ran, Edited a file, Created files (3)',
   }),
   said(6, 'You', 'And the height of the bar?'),
   said(7, 'Assistant', 'The top bar takes its height from the text beside it, and never from the block under it.', {
@@ -1103,7 +1103,7 @@ function scene(name, dark, theme) {
       start.live_work_head = 'Creating files (3)';
       start.status = 'Answering';
       if (process.env.AN_CORPCLOSED === '1') {
-        start.live_work_head = 'Ran a command, Edited a file, Created files (3)';
+        start.live_work_head = 'Ran, Edited a file, Created files (3)';
       }
     }
   }

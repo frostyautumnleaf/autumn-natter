@@ -113,7 +113,7 @@ pub const DONE: &str = "Done";
 // short block of the call.
 fn doing_word(name: &str) -> &'static str {
     match name {
-        tools::TOOL_NAME => "Running command",
+        tools::TOOL_NAME => "Running",
         editfile::EDIT_NAME => "Editing file",
         editfile::CREATE_NAME => "Creating file",
         search::NAME => "Searching the web",
@@ -131,7 +131,7 @@ fn doing_word(name: &str) -> &'static str {
 // The same text once the call returned. A search that returned is not 'Searching the web'.
 fn done_word(name: &str) -> &'static str {
     match name {
-        tools::TOOL_NAME => "Ran a command",
+        tools::TOOL_NAME => "Ran",
         editfile::EDIT_NAME => "Edited a file",
         editfile::CREATE_NAME => "Created a file",
         search::NAME => "Searched the web",
@@ -648,10 +648,10 @@ mod tests {
         assert_eq!(made[0].sub[0].file, "f0.ts", "a call keeps its own file");
         assert!(made[0].done, "every call of the run returned");
         assert!(!made[1].group, "one run of a kind is no run of its kind");
-        assert_eq!(made[1].head, "Ran a command ls");
+        assert_eq!(made[1].head, "Ran ls");
         assert!(!made[2].group, "one call of a kind is no run");
         // The answer header summarizes all file calls, including the one after another tool.
-        assert_eq!(head_after(&made), "Created 3 files, Ran a command");
+        assert_eq!(head_after(&made), "Created 3 files, Ran");
     }
 
     #[test]
@@ -690,7 +690,7 @@ mod tests {
         came_back(&mut second, "/workspace", true, 0, 0);
         assert_eq!(
             head_after(&[first, second]),
-            "Searched the web, Ran a command, it failed"
+            "Searched the web, Ran, it failed"
         );
     }
 
@@ -751,7 +751,7 @@ mod tests {
             done: true,
             ..Default::default()
         });
-        assert_eq!(head_after(&blocks), "Ran a command");
+        assert_eq!(head_after(&blocks), "Ran");
         let made = grouped(&blocks);
         assert_eq!(made.len(), 2, "the closing marker is no call of a run");
     }
