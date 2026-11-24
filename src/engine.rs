@@ -9301,8 +9301,13 @@ fn run_handoff(
             let Ok(mut guard) = state.lock() else {
                 return false;
             };
-            guard.busy = guard.any_generating();
+            // The chat is said to be no longer answered, and no longer summarised, before the
+            // marker of the whole program is weighed: weighed over a chat still said to be at
+            // work, it left the program held busy for good. See the same ordering where an
+            // answer gives up on its model.
             guard.live_mut(chat).generating = false;
+            guard.live_mut(chat).summarising = false;
+            guard.busy = guard.any_generating();
             // The marker keeps nothing of its own, and the reason is beside it, so the user can
             // start the summary again.
             guard.finish_summary_in(chat, &id, "", before, 0, &problem);
@@ -10569,11 +10574,24 @@ fn run_turn(
             state.set_status("Thinking");
         }
         Err(problem) => {
+            let stopped = cancel.load(Ordering::Relaxed);
             let Ok(mut state) = state.lock() else { return Ended::Halted };
-            state.busy = state.any_generating();
+            // The chat is no longer being answered before the marker of the whole program is
+            // weighed. Weighed first, it is weighed over a chat that is still said to be at
+            // work, and the program was then held busy for good: the waiting lists of every
+            // chat were held back, and the settings that may not move during an answer could
+            // not be moved again.
             state.live_mut(chat).generating = false;
+            state.busy = state.any_generating();
             state.push_note_in(chat, &problem, true);
-            state.set_status("The model did not start");
+            // The load of the model is part of the turn, so a stop asked for during it ends the
+            // turn where it stands. Saying then that the model did not start would leave the
+            // user looking for a fault of the machine where there is only their own request.
+            state.set_status(if stopped {
+                "Stopped before the model loaded"
+            } else {
+                "The model did not start"
+            });
             return Ended::Halted;
         }
     }
@@ -12760,9 +12778,12 @@ fn ensure_server(
     }
     stop_run(state, &mut held);
     if cancel.load(Ordering::Relaxed) {
-        return Err("Stopped before the model loaded".to_string());
+        return Err(llama::STOPPED_LOAD_WORDS.to_string());
     }
-    match llama::Server::start(&binary, model, settings, &gpus, keeping.as_deref()) {
+    // The flag goes with the wait for the server to answer. A model that takes minutes to read
+    // in is a model the user can still stop, and stopping it must take the child with it rather
+    // than leave it loading a model no answer is waiting for.
+    match llama::Server::start(&binary, model, settings, &gpus, keeping.as_deref(), Some(cancel)) {
         Ok(started) => {
             let total = started.ctx_total;
             let notes = started.notes.clone();

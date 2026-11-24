@@ -379,12 +379,20 @@ impl Server {
     // `keep_talks` names the folder the server writes the conversations it has worked through
     // into, and reads them back from -- see `slot_save_flags`. It is none when the user has
     // switched the keeping off, and nothing of a conversation is then kept anywhere.
+    //
+    // `cancel` is the flag an answer is stopped with. The reading-in of a big model is minutes
+    // of waiting, and a stop asked for in the middle of them is asked for the whole of the turn
+    // - the load with it - so the flag is looked at again every round of the wait below. A child
+    // that is stopped this way is stopped where it stands and nothing is tried again: a second
+    // load would be a load the user asked for a second time. No flag is given where nothing of a
+    // load may be stopped.
     pub fn start(
         binary: &Path,
         model: &ModelInfo,
         settings: &ModelSettings,
         gpus: &[Gpu],
         keep_talks: Option<&Path>,
+        cancel: Option<&AtomicBool>,
     ) -> Result<Server, String> {
         let port = util::free_port().ok_or("No free port on this machine")?;
         let mut notes = Vec::new();
@@ -464,7 +472,7 @@ impl Server {
                 model_id: model.id(),
                 notes: notes.clone(),
             };
-            match server.wait_ready(log_place.as_deref()) {
+            match server.wait_ready(log_place.as_deref(), cancel) {
                 Ok(props) => {
                     if let Some(n) = props
                         .get("default_generation_settings")
@@ -526,13 +534,25 @@ impl Server {
 
     // Wait for the health endpoint. The load of a big model can take minutes. The log of this
     // start is read back when the wait fails, so the text the server gave are with the text of
-    // the error.
-    fn wait_ready(&mut self, log_place: Option<&Path>) -> Result<Value, Fail> {
+    // the error. The flag an answer is stopped with is asked about once every round, so a stop
+    // asked for while the model is being read in is answered in the fraction of a second, and
+    // not when the reading ends - which, for a model of many parts, is not an hour the user
+    // stopped has any wish to wait for.
+    fn wait_ready(&mut self, log_place: Option<&Path>, cancel: Option<&AtomicBool>) -> Result<Value, Fail> {
         let deadline = Instant::now() + Duration::from_secs(900);
         // The status of the last health call, for the error text. Every round of the loop sets
         // it before the text is created.
         let mut last_status: Option<u16>;
         loop {
+            // The answer this load was begun for is over, so the load is over with it. Nothing
+            // is read back of the log: the server left no fault of its own, it was stopped.
+            if load_stopped(cancel) {
+                return Err(Fail {
+                    text: STOPPED_LOAD_WORDS.to_string(),
+                    output: String::new(),
+                    exited: false,
+                });
+            }
             // A child that left early never becomes ready.
             if let Ok(Some(_)) = self.child.try_wait() {
                 return Err(Fail {
@@ -564,6 +584,19 @@ impl Server {
             std::thread::sleep(Duration::from_millis(300));
         }
     }
+}
+
+// The words the wait for a ready server gives back when the answer it was begun for was stopped
+// while the model was still being read in. They say what was stopped and what stands where it
+// was: the message of the user is still in the chat, the model is not loaded, and sending the
+// message again begins the load again.
+pub const STOPPED_LOAD_WORDS: &str =
+    "The load of the model was stopped: you stopped the answer while it was being read in. Your message is still in the chat, and send it again to load the model.";
+
+// Whether the answer this load was begun for is over. Where nothing may be stopped no flag is
+// given, and a missing flag is an answer that is going on.
+fn load_stopped(cancel: Option<&AtomicBool>) -> bool {
+    cancel.map(|flag| flag.load(Ordering::Relaxed)).unwrap_or(false)
 }
 
 // Why the start failed.

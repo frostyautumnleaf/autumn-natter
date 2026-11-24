@@ -3579,9 +3579,13 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
               <div class="menu hidden" id="thinkmenu"></div>
             </div>
             <button class="send" id="send" title="Send the message">
+              <!--   One place carries the two markers of the box: the way out, while there is something
+              to send, and the mark of the stop, while an answer is being written. The stop is the same X
+              the program draws wherever a thing is taken off. A square reads as a thing that is there,
+              and stopping an answer is a thing done to it. -->
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true">
                 <path class="mark-send" d="M8 12.4V3.6M4.4 7.2 8 3.6l3.6 3.6"/>
-                <path class="mark-stop" d="M5.4 5.4h5.2v5.2H5.4z"/>
+                <path class="mark-stop" d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/>
               </svg>
             </button>
           </div>
@@ -4473,10 +4477,11 @@ function draw(s) {
 
   // The round marker. It is dull while there is nothing to send, and it turns into the stop
   // marker while an answer arrives. The files attached to the message count as something to
-  // send, text or no text.
+  // send, text or no text. The tip of the button is given once, by sendTitle above, and names
+  // what the button does at this moment - the tip of sending is not left standing on a mark of
+  // the stop.
   var live = !!s.generating || anythingToSend();
   el.send.className = 'send' + (s.generating ? ' stop' : '') + (live ? ' live' : '');
-  el.send.title = s.generating ? 'Stop the answer' : 'Send the message';
 
   drawThread(s);
   drawPlanAsks(s);
