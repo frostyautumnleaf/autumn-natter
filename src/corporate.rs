@@ -206,15 +206,21 @@ fn reading_head(files: &[String], done: bool) -> String {
 
 // Once the model has answered after a tool result, the contents have been processed and a
 // reading card can move from its live wording to its completed wording.
-pub fn finish_reads(blocks: &mut [WorkBlock]) {
+pub fn finish_reads(blocks: &mut [WorkBlock]) -> bool {
+    let mut changed = false;
     for block in blocks {
         if block.reading {
             if let Some(files) = cat_files(&block.command) {
-                block.head = reading_head(&files, true);
+                let done = reading_head(&files, true);
+                if block.head != done {
+                    block.head = done;
+                    changed = true;
+                }
             }
         }
-        finish_reads(&mut block.sub);
+        changed |= finish_reads(&mut block.sub);
     }
+    changed
 }
 
 // The same text once the call returned. A search that returned is not 'Searching the web'.

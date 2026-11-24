@@ -10918,6 +10918,11 @@ fn run_turn(
             &mut |piece: &str| {
                 if let Ok(mut guard) = stream_state.lock() {
                     guard.live_mut(chat).live_text.push_str(piece);
+                    // The first assistant output after a tool result means the model has
+                    // processed that result. Mark standalone file reads complete while this
+                    // answer streams, rather than waiting for its final message to be saved.
+                    let read_finished = guard.corporate_on_in(chat)
+                        && corporate::finish_reads(&mut guard.live_mut(chat).live_work);
                     if guard.corporate_on_in(chat)
                         && guard.live_ref(chat).running.is_none()
                     {
@@ -10962,6 +10967,9 @@ fn run_turn(
                     // was writing. The block of that call records it now, instead of going on
                     // saying it is being written.
                     if end_writing_calls(&mut guard, chat) {
+                        guard.touch();
+                    }
+                    if read_finished {
                         guard.touch();
                     }
                     if text_update.elapsed() > Duration::from_millis(60) {
