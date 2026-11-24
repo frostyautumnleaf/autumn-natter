@@ -9671,7 +9671,7 @@ function workBlock(one, path) {
   head.appendChild(fold);
   if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
     var icon = one.reading
-      ? 'M1.6 6h4.2a2 2 0 0 1 0 4H3.6a2 2 0 0 1-2-2V6zm12.8 0h-4.2a2 2 0 0 0 0 4h2.2a2 2 0 0 0 2-2V6zM7.8 7h.4'
+      ? 'M2 3h4.2A2.8 2.8 0 0 1 9 5.8V13a2.2 2.2 0 0 0-2.2-2H2zM14 3H9.8A2.8 2.8 0 0 0 7 5.8V13a2.2 2.2 0 0 1 2.2-2H14zM9 5.8V13'
       : toolShape(one.tool).mark;
     head.appendChild(mark(icon, 'wtoolmark'));
   }
@@ -9745,8 +9745,8 @@ function corporateCard(head, parts, foldKey, busy) {
   dots.appendChild(make('i'));
   var title = make('span');
   title.textContent = head || 'Working';
-  top.appendChild(fold);
   top.appendChild(dots);
+  top.appendChild(fold);
   top.appendChild(title);
   box.appendChild(top);
   var body = make('div', 'wbody');
