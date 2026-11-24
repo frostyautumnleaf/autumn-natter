@@ -35,6 +35,7 @@ pub fn now_secs() -> i64 {
         Ok(d) => d.as_secs() as i64,
         Err(_) => 0,
     }
+
 }
 
 // Turn seconds into a short text for the chat list. A time from today shows as hours and
@@ -1151,13 +1152,13 @@ impl Store {
         Ok(wrote)
     }
 
-    // Queue a snapshot for one chat on a single writer thread. Chat controls are changed while
-    // the engine lock is held, so writing the whole conversation there would stall every chat
-    // that is being answered. A per-chat FIFO keeps snapshots in the order they were taken.
+    // Queue a settings snapshot on one writer thread per database. Chat controls are changed
+    // while the engine lock is held, so writing the conversation there would stall every chat
+    // that is being answered. The FIFO preserves the order snapshots were taken.
     pub fn save_chat_async(&self, chat: ChatSettingsSnapshot) -> Result<(), String> {
         static WRITERS: OnceLock<Mutex<HashMap<String, mpsc::Sender<ChatSettingsSnapshot>>>> = OnceLock::new();
         let writers = WRITERS.get_or_init(|| Mutex::new(HashMap::new()));
-        let key = format!("{}:{}", self.db_path.display(), chat.id);
+        let key = self.db_path.display().to_string();
         let mut writers = writers
             .lock()
             .map_err(|_| String::from("the chat save queue is unavailable"))?;
@@ -2354,4 +2355,50 @@ mod tests {
         assert!(gone.is_err(), "a repository that is not there is answered as an error");
         let _ = fs::remove_dir_all(&room);
     }
+    #[test]
+    fn a_settings_snapshot_is_written_off_thread_without_replacing_chat_history() {
+        let room = room("queued-chat-settings");
+        let store = store_in(&room);
+        let mut chat = Chat::new("", "model");
+        chat.messages.push(Message {
+            role: "You".to_string(),
+            body: "Keep this message ".repeat(32_768),
+            ..Default::default()
+        });
+        store.save_chat(&chat).expect("the chat is saved first");
+        let blocking_started = std::time::Instant::now();
+        store
+            .save_chat(&chat)
+            .expect("the synchronous baseline is saved");
+        let blocking_elapsed = blocking_started.elapsed();
+        let mut snapshot = ChatSettingsSnapshot {
+            id: chat.meta.id.clone(),
+            code_enabled: false,
+            tools: ToolSwitches::default(),
+            search_enabled: true,
+            rag_enabled: false,
+        };
+        snapshot.tools.set("tasks", true);
+        let queued_started = std::time::Instant::now();
+        store.save_chat_async(snapshot).expect("the chat settings are enqueued");
+        let queued_elapsed = queued_started.elapsed();
+        println!(
+            "chat switch persistence: full synchronous save {blocking_elapsed:?}, queued setting update {queued_elapsed:?}"
+        );
+
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let saved = loop {
+            if let Some(saved) = store.load_chat(&chat.meta.id) {
+                if saved.meta.search_enabled && saved.meta.tools.value_of("tasks") {
+                    break saved;
+                }
+            }
+            assert!(std::time::Instant::now() < until, "the settings save completes");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert_eq!(saved.messages.len(), 1);
+        assert_eq!(saved.messages[0].body.len(), "Keep this message ".len() * 32_768);
+        let _ = fs::remove_dir_all(&room);
+    }
+
 }

@@ -3261,12 +3261,18 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
 }
 
 /* The Glass skin lifts controls and bars above the page with a translucent, blurred surface. */
-body.glass { --bg: #17202a; --surface: rgba(38, 49, 62, .72); --surface-2: rgba(44, 57, 72, .62); --surface-3: rgba(60, 75, 92, .68); --line: rgba(255,255,255,.12); --line-strong: rgba(255,255,255,.2); --text: #f5f8fc; --text-2: #d6e0eb; --strong: #fff; --accent: #0a84ff; --hover: rgba(255,255,255,.1); --shadow: 0 14px 38px rgba(0,0,0,.26); color-scheme: dark; }
-body.glass .menu, body.glass .sheet, body.glass .dock-row, body.glass header, body.glass .timeline, body.glass .badge, body.glass .btn { backdrop-filter: blur(14px) saturate(180%); -webkit-backdrop-filter: blur(14px) saturate(180%); border-color: transparent; box-shadow: inset 0 1px rgba(255,255,255,.22), inset 0 -1px rgba(255,255,255,.08), 0 8px 28px rgba(0,0,0,.2); }
+body.glass { --bg: #17202a; --surface: rgba(38, 49, 62, .72); --surface-2: rgba(44, 57, 72, .62); --surface-3: rgba(60, 75, 92, .68); --line: rgba(255,255,255,.12); --line-strong: rgba(255,255,255,.2); --text: #f5f8fc; --text-2: #d6e0eb; --strong: #fff; --accent: #0a84ff; --hover: rgba(255,255,255,.1); --grid: rgba(125,190,255,.055); --grid-mark: rgba(125,190,255,.16); --shadow: 0 14px 38px rgba(0,0,0,.26); color-scheme: dark; }
+body.glass .menu, body.glass .sheet, body.glass .dock-row, body.glass #box, body.glass header, body.glass .timeline, body.glass .field, body.glass .btn { backdrop-filter: blur(14px) saturate(180%); -webkit-backdrop-filter: blur(14px) saturate(180%); border-color: transparent; box-shadow: inset 0 1px rgba(255,255,255,.22), inset 0 -1px rgba(255,255,255,.08), 0 8px 28px rgba(0,0,0,.2); }
 body.glass .badge, body.glass .btn, body.glass .menu button { border-radius: 999px; transition: transform .22s cubic-bezier(.2,.8,.2,1), background .18s ease; }
 body.glass .badge:hover, body.glass .btn:hover, body.glass .menu button:hover { transform: scale(1.025); }
 body.glass .badge:active, body.glass .btn:active, body.glass .menu button:active { transform: scale(.97); }
 body.glass header, body.glass .dock-row { margin: 6px 10px; border-radius: 24px; background: rgba(37,48,61,.72); }
+body.glass #box { border-radius: 28px; background: rgba(37,48,61,.48); }
+body.glass .badge { border-color: transparent; background: transparent; box-shadow: none; }
+body.glass .badge:hover { background: rgba(255,255,255,.12); }
+body.glass .seg button.on, body.glass .menu button.now { color: var(--text); background: rgba(255,255,255,.16); box-shadow: inset 0 1px rgba(255,255,255,.24), 0 4px 14px rgba(0,0,0,.14); }
+body.glass .seg button.on { border-radius: 999px; }
+body.glass .send, body.glass #send { color: #fff; background: rgba(10,132,255,.84); border-color: transparent; }
 body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-radius: 24px; }
 </style>
 </head>
@@ -3729,7 +3735,7 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
 
         <div class="sec">Appearance</div>
         <div class="fld wide"><span class="lbl">Theme</span>
-          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the same colours on a nearly black background, Silver grey and white and the shades between them alone, Corporate that same ladder of grey on a nearly black background, and Neon a night of blue-black with the hairlines lit. The theme changes at once.</span>
+          <span class="sub">The colours the page is drawn in. Light is the pale ground of the program, Dark the warm near-black, Silver and Corporate the two neutral ladders, Neon a blue-black with lit hairlines, and Glass a translucent material raised above the page. The theme changes at once.</span>
           <div class="ctl"><div class="seg" id="fTheme" role="group" aria-label="Which theme to draw the page in">
               <button class="on" id="fThemeLight" type="button">Light</button>
               <button id="fThemeDark" type="button">Dark</button>
@@ -3739,7 +3745,7 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
               <button id="fThemeGlass" type="button">Glass</button>
             </div></div></div>
         <div class="fld wide"><span class="lbl">Pixel-art look</span>
-          <span class="sub">Draw the theme in pixel-art form: no rounded corner, no blur, every shadow a flat block, and the text in a fixed-width font. The colours are the colours of the theme, so each of the five has a standard look and a pixel-art one. The look changes at once.</span>
+          <span class="sub">Draw the theme in pixel-art form: no rounded corner, no blur, every shadow a flat block, and the text in a fixed-width font. The colours are the colours of the theme, so each theme has a standard look and a pixel-art one. The look changes at once.</span>
           <div class="ctl"><div class="seg" id="fThemeArt" role="group" aria-label="Whether to draw the theme out of squares">
               <button class="on" id="fThemeStandard" type="button">Standard</button>
               <button id="fThemePixel" type="button">Pixel art</button>
