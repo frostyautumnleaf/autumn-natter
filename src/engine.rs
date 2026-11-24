@@ -10148,8 +10148,9 @@ fn write_calls(state: &mut State, calls: &[ToolCall], chat: &str) -> bool {
     if grew {
         state.live_mut(chat).live_tools = made;
     }
+    let mut heading_changed = false;
     if state.corporate_on_in(chat) {
-        if let Some(one) = state.live_ref(chat).live_tools.iter().find(|one| !one.done) {
+        let heading = if let Some(one) = state.live_ref(chat).live_tools.iter().find(|one| !one.done) {
             let id = if one.call_id.is_empty() {
                 format!("stream:{}", one.index)
             } else {
@@ -10162,11 +10163,23 @@ fn write_calls(state: &mut State, calls: &[ToolCall], chat: &str) -> bool {
                 &one.command,
                 &one.target,
             )
-            .head;
+            .head
+        } else if !state.live_ref(chat).live_reasoning.is_empty() {
+            String::from(corporate::THINKING)
+        } else {
+            let words = corporate::live_head_from_text(&state.live_ref(chat).live_text);
+            if words.is_empty() {
+                String::from(corporate::THINKING)
+            } else {
+                words
+            }
+        };
+        if state.live_ref(chat).live_work_head != heading {
             state.live_mut(chat).live_work_head = heading;
+            heading_changed = true;
         }
     }
-    gauge || grew
+    gauge || grew || heading_changed
 }
 
 impl LiveTool {

@@ -9633,6 +9633,34 @@ function appendCardWork(before, after, one, path, live) {
   (live && !one.done ? after : before).push(workBlock(one, path));
 }
 
+// A live tool call is also carried separately from the work tree. Keep it as a card sub-block
+// even if the snapshot was taken between the stream update and rebuilding that tree.
+function workHasCall(blocks, callId) {
+  for (var n = 0; n < blocks.length; n++) {
+    if (blocks[n].call_id === callId || workHasCall(blocks[n].sub || [], callId)) { return true; }
+  }
+  return false;
+}
+
+function liveToolBlock(call, mainHead) {
+  var name = String(call.name || '');
+  var command = String(call.command || '').trim();
+  var file = String(call.target || '').trim();
+  var reading = name === 'run_terminal' && /^Reading\b/.test(mainHead || '');
+  var head;
+  if (reading) { head = mainHead; }
+  else if (name === 'run_terminal') { head = 'Running' + (command ? ' ' + command.split('\n')[0] : ''); }
+  else if (name === 'edit_file') { head = 'Editing file' + (file ? ' ' + file : ''); }
+  else if (name === 'create_file') { head = 'Creating file' + (file ? ' ' + file : ''); }
+  else { head = name.replace(/_/g, ' '); }
+  return {
+    head: head, tool: name,
+    id: call.call_id ? 'stream:' + call.call_id : 'stream:' + call.index,
+    call_id: call.call_id || '', done: false, reading: reading,
+    command: name === 'run_terminal' ? command : '', file: file
+  };
+}
+
 // One block of the summary of the work.
 function workHeading(one) {
   var head = one.head || 'Working';
@@ -9765,6 +9793,16 @@ function cardParts(m, excludeWords, answerKey, wordIndex) {
   for (var n = 0; n < short.length; n++) {
     var path = answerKey + ':work:' + wordIndex + ':' + n;
     appendCardWork(before, after, short[n], path, m.id === 'live');
+  }
+  if (m.id === 'live') {
+    var calls = m.tools || [];
+    for (var c = 0; c < calls.length; c++) {
+      var callId = calls[c].call_id || '';
+      if (!callId || !workHasCall(short, callId)) {
+        after.push(workBlock(liveToolBlock(calls[c], m.work_head),
+          answerKey + ':stream:' + (callId || calls[c].index)));
+      }
+    }
   }
   out = out.concat(before);
   var said = String(m.body || '').trim();
