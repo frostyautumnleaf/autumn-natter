@@ -9506,6 +9506,16 @@ function threadItems() {
   var items = (s.messages || []).slice();
   if (s.generating && !s.summarising) {
     items.push(liveMessage(s));
+  } else if (chatting.corporate && s.running
+      && ((s.live_work || []).length || s.live_work_head)) {
+    // A tool can remain active during a brief gap between model steps. Keep its live work on
+    // an assistant row so the progress card stays visible until the next stream begins.
+    var held = liveMessage(s);
+    held.id = 'live-work';
+    held.body = '';
+    held.reasoning = '';
+    held.tools = [];
+    items.push(held);
   } else if (s.summarising && chatting.corporate && !hasSavedWorkCard(items)
       && ((s.live_work || []).length || s.live_work_head)) {
     // A tool-only answer can have no Assistant message yet when it reaches a handoff. The
