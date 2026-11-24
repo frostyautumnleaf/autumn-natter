@@ -1104,6 +1104,8 @@ function scene(name, dark, theme) {
         { head: 'Creating file notes/summary.md', tool: 'create_file', id: 'stream:tool-create',
           call_id: 'tool-create', file: 'notes/summary.md', done: false }
       ];
+      start.tool_previews = start.live_work.splice(1);
+      start.messages.push(said('read-message', 'Tool', 'cat src/main.rs', { activity: start.live_work[0] }));
       start.live_work_head = 'Reading main.rs';
       start.live_tools = [
         { call_id: 'tool-read', index: 0, name: 'run_terminal',

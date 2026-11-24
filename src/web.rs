@@ -7,6 +7,7 @@
 use serde_json::{json, Value};
 
 use crate::config::{self, Config, ModelSettings};
+use crate::corporate::{self, WorkBlock};
 use crate::engine::Snap;
 use crate::llama;
 use crate::planning;
@@ -15,6 +16,40 @@ use crate::util;
 
 // The page itself. See web/page.html.
 pub const PAGE: &str = include_str!("../web/page.html");
+
+// Saved work can live on the assistant message following the tool. Index it by the
+// program's message id so it supplies presentation details for that exact execution.
+fn index_work<'a>(work: &'a [WorkBlock], index: &mut std::collections::HashMap<&'a str, &'a WorkBlock>) {
+    for block in work {
+        if !block.id.is_empty() { index.insert(&block.id, block); }
+        index_work(&block.sub, index);
+    }
+}
+
+fn tool_activity(m: &store::Message, saved: Option<&WorkBlock>, active: bool) -> WorkBlock {
+    let mut block = saved.cloned().unwrap_or_else(|| {
+        let args = serde_json::from_str(&m.tool_args).unwrap_or(Value::Null);
+        corporate::block_for(&m.tool_name, &m.id, &args)
+    });
+    block.call_id.clone_from(&m.call_id);
+    if m.cancelled {
+        block.head.clone_from(&m.tool);
+        block.output.clone_from(&m.body);
+        block.done = true;
+        block.failed = true;
+    } else if !block.done && m.tool != "Running ..." {
+        let (adds, cuts) = if matches!(m.tool_name.as_str(), crate::editfile::EDIT_NAME | crate::editfile::CREATE_NAME) {
+            crate::engine::plus_minus(&m.tool)
+        } else {
+            (0, 0)
+        };
+        corporate::came_back(&mut block, &m.tool, !m.failed, adds, cuts);
+    }
+    if block.reading && block.done && (!active || saved.is_none()) {
+        corporate::finish_reads(std::slice::from_mut(&mut block));
+    }
+    block
+}
 
 // The state as JSON. The page sends the number it already has (since). When nothing changed,
 // the answer stays small.
@@ -62,10 +97,47 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             })
         })
         .collect();
+    let cards = snap.chat_display == config::CORPORATE_DISPLAY;
+    let mut work = std::collections::HashMap::new();
+    if cards {
+        for m in &snap.messages {
+            index_work(&m.work, &mut work);
+        }
+        index_work(&snap.live_work, &mut work);
+    }
+    let mut previews = Vec::new();
+    if cards && snap.generating && !snap.summarising {
+        for (slot, one) in snap.live_tools.iter().enumerate() {
+            let block = corporate::streaming_block(&one.name, &format!("stream:{}", one.index),
+                &one.call_id, &one.command, &one.target);
+            if !block.reading {
+                let mut preview = json!(block);
+                preview["slot"] = json!(slot);
+                previews.push(preview);
+            }
+        }
+    }
+    let mut answer_tools = Vec::new();
     let messages: Vec<Value> = snap
         .messages
         .iter()
-        .map(|m| {
+        .enumerate()
+        .map(|(i, m)| {
+            let activity = (cards && m.role == "Tool" && !m.tool_name.is_empty()
+                && !matches!(m.tool_name.as_str(), corporate::NAME | corporate::FINISH_NAME))
+                .then(|| tool_activity(m, work.get(m.id.as_str()).copied(), snap.generating));
+            if let Some(block) = &activity {
+                answer_tools.push(block.clone());
+            }
+            let ends_answer = !snap.messages.get(i + 1)
+                .is_some_and(|next| matches!(next.role.as_str(), "Assistant" | "Tool"));
+            let summary = if ends_answer && !answer_tools.is_empty() {
+                let head = corporate::head_after(&answer_tools);
+                answer_tools.clear();
+                Some(head)
+            } else {
+                None
+            };
             // The blocks of the attachments need the name and the type of each file, in the
             // order the user hung them. The text of a file and the bytes of an image are not
             // here: the page requests one of them by its id when it draws the block.
@@ -93,6 +165,8 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 // How long that thinking took, in milliseconds.
                 "reasoning_ms": m.reasoning_ms,
                 // Tool outcomes and the current card title in corporate display.
+                "activity": activity,
+                "answer_head": summary,
                 "work": &m.work,
                 "work_head": &m.work_head,
                 "tool": m.tool,
@@ -246,6 +320,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "live_tools": live_tools,
         // Tool outcomes and the current card title in corporate display.
         "live_work": snap.live_work,
+        "tool_previews": previews,
         "live_work_head": snap.live_work_head,
         // The question the model has put to the user and is waiting on, when it has put one.
         // The popup of the request is above the chat composer, and the user answers it there:

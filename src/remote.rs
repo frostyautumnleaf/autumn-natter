@@ -109,6 +109,10 @@ fn handle(engine: &Engine, mut request: Request) {
                     .with_header(content_type("text/html; charset=utf-8")),
             );
         }
+        ("GET", "/frontend/corporate.js") => {
+            let _ = request.respond(Response::from_string(include_str!("../frontend/corporate.js"))
+                .with_header(content_type("text/javascript; charset=utf-8")));
+        }
         ("GET", "/autumn-natter.svg") | ("GET", "/favicon.ico") => {
             let _ = request.respond(
                 Response::from_data(ICON)

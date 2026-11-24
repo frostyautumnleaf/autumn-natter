@@ -2926,6 +2926,14 @@ impl State {
                 ..Default::default()
             });
         }
+        if self.corporate_on_in(chat_id) {
+            // Move this preview into its Tool message in the same snapshot. Later
+            // calls in the batch stay visible until their own execution begins.
+            let pending = &mut self.live_mut(chat_id).live_tools;
+            if let Some(index) = pending.iter().position(|one| one.call_id == call.id && one.name == call.name) {
+                pending.remove(index);
+            }
+        }
         self.corporate_begin_in(chat_id, call, &id);
         self.persist_in(chat_id);
         self.touch();
@@ -4401,35 +4409,7 @@ impl State {
             prompt_rate: self.live().prompt_rate,
             answer_rate: self.live().answer_rate,
             live_tools: self.live().live_tools.clone(),
-            // What the user is shown: calls of one tool made one after another remain together
-            // in a block of their own. A standalone cat command only becomes a read block once
-            // it is run, so an unfinished path never appears as a changing "Reading" heading.
-            live_work: {
-                let mut work = self.live().live_work.clone();
-                if self.corporate_on() {
-                    for one in &self.live().live_tools {
-                        let mut block = corporate::streaming_block(
-                            &one.name,
-                            &if one.call_id.is_empty() {
-                                format!("stream:{}", one.index)
-                            } else {
-                                format!("stream:{}", one.call_id)
-                            },
-                            &one.call_id,
-                            &one.command,
-                            &one.target,
-                        );
-                        // A standalone cat command is a read only once it starts running. Keep
-                        // the partial command out of the card until that point.
-                        if block.reading {
-                            continue;
-                        }
-                        block.done = one.done;
-                        work.push(block);
-                    }
-                }
-                corporate::grouped(&work)
-            },
+            live_work: self.live().live_work.clone(),
             live_work_head: self.live().live_work_head.clone(),
             ask: self.live().asking.clone(),
             running: self.live().running.as_ref().map(|one| RunningTool {
@@ -11725,6 +11705,9 @@ fn run_turn(
                 Ended::Done
             };
         }
+        if guard.corporate_on_in(chat) {
+            guard.live_mut(chat).live_tools = watched(&step_runs);
+        }
         // Keep the lock free while a command runs.
         drop(guard);
 
@@ -11974,7 +11957,7 @@ fn tool_group_word(part: &str) -> String {
 // The two numbers of a change that a file tool made, extracted from the text of its result:
 // `Edited notes.md (1 replacement, +12 -3)`. Nothing returns for a tool that changed no file,
 // and for text that carry no such pair.
-fn plus_minus(words: &str) -> (i64, i64) {
+pub(crate) fn plus_minus(words: &str) -> (i64, i64) {
     let read = |mark: char| -> Option<i64> {
         let place = words.find(mark)? + mark.len_utf8();
         let rest = &words[place..];
@@ -15683,6 +15666,60 @@ mod tests {
     }
 
     #[test]
+    fn corporate_tool_messages_own_their_activity_after_reopening() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config {
+            chat_display: String::from(config::CORPORATE_DISPLAY),
+            ..Config::default()
+        });
+        open_a_chat(&engine);
+        let mut state = engine.state.lock().unwrap();
+        let chat = state.open_id();
+        let call = |id: &str, command: &str| ToolCall {
+            id: id.into(), name: tools::TOOL_NAME.into(),
+            arguments: json!({ "command": command }).to_string(),
+        };
+        state.push_message_in(&chat, "You", "Check the contents of test.txt.", "", 0, false);
+        state.live_mut(&chat).generating = true;
+        state.push_message_in(&chat, "Assistant", "I will read the file first.", "", 0, false);
+        let read = call("read", "cat -A test.txt");
+        let id = state.begin_tool_in(&chat, &read, "cat -A test.txt", "", 0);
+        state.finish_tool_in(&chat, &id, "shop", true);
+        state.push_message_in(&chat, "Assistant", "I will check the raw bytes.", "", 0, false);
+        state.live_mut(&chat).live_work_head = corporate::THINKING.into();
+        let bytes = call("bytes", "xxd test.txt");
+        write_calls(&mut state, std::slice::from_ref(&bytes), &chat);
+        let snapshot = |s: &State| crate::web::state(&s.snap(), None);
+        let streaming = snapshot(&state);
+        assert_eq!(streaming["tool_previews"][0]["head"], "Running xxd test.txt");
+
+        let id = state.begin_tool_in(&chat, &bytes, "xxd test.txt", "", 0);
+        let running = snapshot(&state);
+        assert_eq!(running["tool_previews"], json!([]));
+        assert_eq!(running["messages"][4]["activity"]["head"], "Running xxd test.txt");
+        state.finish_tool_in(&chat, &id, "00000000: 7368 6f70  shop", true);
+        state.push_message_in(&chat, "Assistant", "The file contains the four bytes for **shop**.", "", 0, false);
+        state.finish_answer(&chat);
+        let finished = snapshot(&state);
+        let assert_finished = |frame: &Value| {
+            assert_eq!(frame["tool_previews"], json!([]));
+            assert_eq!(frame["messages"][2]["activity"]["head"], "Read test.txt");
+            assert_eq!(frame["messages"][4]["activity"]["head"], "Ran xxd test.txt");
+        };
+        assert_finished(&finished);
+        let mut reopened = state.snap();
+        reopened.messages = state.store.load_chat(&chat).unwrap().messages;
+        reopened.live_work.clear();
+        let reopened = crate::web::state(&reopened, None);
+        assert_finished(&reopened);
+        // The browser check can replay the same wire data as the native window and remote page.
+        if let Some(path) = std::env::var_os("AN_CORPORATE_FRAMES") {
+            std::fs::write(path, json!([streaming, running, finished, reopened]).to_string()).unwrap();
+        }
+    }
+
+    #[test]
     fn a_streamed_read_stays_hidden_until_the_tool_starts() {
         let _guard = config::test_turn();
         setup();
@@ -15694,6 +15731,7 @@ mod tests {
         let mut state = engine.state.lock().unwrap();
         let chat = state.open_id();
         state.live_mut(&chat).live_work_head = String::from(corporate::THINKING);
+        state.live_mut(&chat).generating = true;
         let read = ToolCall {
             id: String::from("read-call"),
             name: String::from(tools::TOOL_NAME),
@@ -15706,6 +15744,7 @@ mod tests {
         drop(state);
 
         let streaming = engine.snapshot();
+        assert_eq!(crate::web::state(&streaming, None)["tool_previews"], json!([]));
         assert!(
             !streaming.live_work.iter().any(|one| one.reading),
             "a partial cat path was shown as a read"
