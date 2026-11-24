@@ -1,15 +1,13 @@
-// Going to a place of the chat from a node of one of the three lines beside it,
+// Going to a place of the chat from a node of one of the two lines beside it,
 // checked in both pages with no engine behind the page. The chat is long - the
 // type a context of an hour makes - and all of it is in the space of the
-// conversation, so the way from the end of it back to an early chapter is many screens.
+// conversation, so the way from the end of it back to an early message is many screens.
 //
 //   node goto-face-check.js
 //   AN_PAGE=../web/page.html node goto-face-check.js   # one page only
 //
-// Six items are checked:
-//   * one click of a node of the chapter line remains that chapter at the top of
-//     the view, however far it is - and the same for a node of the summarisation
-//     line and for a dash of the line of the user's own messages;
+// Five items are checked:
+//   * a click of a dash for a user message goes to that message, however far it is;
 //   * a second click, of a node further up or further down the conversation, goes to
 //     that place in one go as well, and not half the way to it;
 //   * text above the place that settle after the click - a row that grows, which
@@ -39,7 +37,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // the context grows to many times the height of the window. That is the case the going has to
 // answer for.
 function makeTalk(many) {
-  var messages = [], chapters = [], handoffs = [];
+  var messages = [], handoffs = [];
   var paragraph = 'Paragraph of this answer, which runs to some length so that the turn it '
     + 'is in is a good deal taller than a line of text. It holds a list, and a sentence '
     + 'or two after the list, and it reports nothing of consequence.';
@@ -53,24 +51,22 @@ function makeTalk(many) {
         + 'The end of answer ' + n + '.',
       when: '12:0' + (n % 10), when_full: 'today at 12:0' + (n % 10), tool: '', mono: false,
       failed: false, reasoning: '', reasoning_ms: 0, attachments: [] });
-    chapters.push({ id: 'ch' + n, name: 'Chapter ' + n, after: 'u' + n });
     handoffs.push({ id: 'm' + n, number: n, state: 'done', when: 'today', before: 9000 + n,
       after: 900, snippet: 'The conversation about ' + n });
   }
-  return { messages: messages, chapters: chapters, handoffs: handoffs };
+  return { messages: messages, handoffs: handoffs };
 }
 
-// The chat of a context of so many turns, was at the end of itself as it is now when the user
-// has been watching an answer arrive, with the three lines beside it drawn as well.
+// The chat of many turns begins at the end of itself, with the user-message and summary lines
+// drawn beside it.
 function setup(many) {
   var talk = makeTalk(many);
-  cur = { chatting: { chapters: true, userline: true, send_anim: false },
+  cur = { chatting: { userline: true, send_anim: false },
     chat: { id: 'chat-long', title: 'Long conversation', home: false },
-    messages: talk.messages, chapters: talk.chapters, handoffs: talk.handoffs,
+    messages: talk.messages, handoffs: talk.handoffs,
     compaction: {}, generating: false, live: '', reasoning: '', live_tools: [] };
   readChatting(cur);
   drawThread(cur);
-  drawChapters(cur);
   drawTimeline(cur);
   drawUserLine(cur);
   stick = true;
@@ -95,14 +91,6 @@ function place(mid) {
   };
 }
 
-// The row that the going to a chapter means: the first row of the chapter, which is the row
-// after the message the chapter is named for.
-function chapterMid(after) {
-  var at = messageIndex(after);
-  var node = turnForIndex(at + 1) || turnForIndex(at);
-  return node ? (node.dataset.mid || 'from:' + node.dataset.from) : '';
-}
-
 const LATE = 420;      // how long the going is given to stand the chat
 const SLACK = 40;      // how far from the top of the view the row may stand
 
@@ -115,8 +103,7 @@ async function main() {
   });
   const inject = 'window.makeTalk = ' + makeTalk.toString()
     + '\nwindow.setup = ' + setup.toString()
-    + '\nwindow.place = ' + place.toString()
-    + '\nwindow.chapterMid = ' + chapterMid.toString();
+    + '\nwindow.place = ' + place.toString();
 
   for (const one of PAGES) {
     const page = await browser.newPage();
@@ -137,22 +124,22 @@ async function main() {
     // the conversation has stopped moving.
     await sleep(900);
 
-    // One click of a node of the chapter line, a long way up the conversation.
+    // One click of a dash for a user message, a long way up the conversation.
     const first = await page.evaluate(() => {
-      const mid = chapterMid('u4');
+      const mid = 'u4';
       return { mid: mid, before: window.place(mid) };
     });
-    if (!first.mid) { note('the row a chapter node goes to was not found'); }
-    await page.evaluate(() => { gotoChapter({ id: 'ch4', name: 'Chapter 4', after: 'u4' }); });
+    if (!first.mid) { note('the user message to go to was not found'); }
+    await page.evaluate(() => { gotoUserMessage('u4'); });
     await sleep(LATE);
     const landed = await page.evaluate((mid) => window.place(mid), first.mid);
-    if (landed.gone) { note('the row a chapter node went to is removed from the chat'); }
+    if (landed.gone) { note('the user message row is removed from the chat'); }
     else if (Math.abs(landed.rel) > SLACK) {
-      note('one click of a chapter node left the row ' + landed.rel + ' from the top of the '
+      note('one click of a user message left the row ' + landed.rel + ' from the top of the '
         + 'view, of ' + laid.view + ' tall (it stood ' + first.before.rel + ' away before)');
     }
     if (landed.followed) { note('the chat still follows the answer after the user went looking'); }
-    console.log('  ' + one.name + ' chapter: ' + JSON.stringify({
+    console.log('  ' + one.name + ' user message: ' + JSON.stringify({
       laid: laid, from: first.before.rel, to: landed.rel, at: landed.at,
     }));
 
@@ -160,8 +147,8 @@ async function main() {
     // whole way, for the row named is what is checked, not the way left over from the last
     // going.
     const up = await page.evaluate(() => {
-      const mid = chapterMid('u2');
-      gotoChapter({ id: 'ch2', name: 'Chapter 2', after: 'u2' });
+      const mid = 'u2';
+      gotoUserMessage('u2');
       return mid;
     });
     await sleep(LATE);
@@ -170,8 +157,8 @@ async function main() {
       note('a second click stopped ' + upLanded.rel + ' away instead of coming to the row');
     }
     const down = await page.evaluate(() => {
-      const mid = chapterMid('u20');
-      gotoChapter({ id: 'ch20', name: 'Chapter 20', after: 'u20' });
+      const mid = 'u20';
+      gotoUserMessage('u20');
       return mid;
     });
     await sleep(LATE);
@@ -184,8 +171,8 @@ async function main() {
     // image that arrived does - must not leave the chat remaining somewhere else than the row
     // that was requested.
     const grown = await page.evaluate(() => {
-      const mid = chapterMid('u6');
-      gotoChapter({ id: 'ch6', name: 'Chapter 6', after: 'u6' });
+      const mid = 'u6';
+      gotoUserMessage('u6');
       el.col.children[0].style.minHeight = '900px';
       return mid;
     });
@@ -199,8 +186,8 @@ async function main() {
     // A draw that arrives while the chat is being was must not drag it back to the end of the
     // conversation.
     const drawn = await page.evaluate(() => {
-      const mid = chapterMid('u8');
-      gotoChapter({ id: 'ch8', name: 'Chapter 8', after: 'u8' });
+      const mid = 'u8';
+      gotoUserMessage('u8');
       drawThread(cur);
       return mid;
     });
@@ -236,21 +223,6 @@ async function main() {
       note('a dash of the user message line stopped ' + dashLanded.rel + ' away from its row');
     }
 
-    // The first node of the conversation is at the first turn of it, and not at the questions
-    // of the plan, which are in the same space.
-    const head = await page.evaluate(() => {
-      setup(40);
-      const turns = threadTurns(el.col);
-      const mid = turns.length ? turns[0].dataset.mid : '';
-      gotoChapter({ id: 'ch0', name: 'The first chapter', after: '' });
-      return mid;
-    });
-    await sleep(LATE);
-    const headLanded = await page.evaluate((mid) => window.place(mid), head);
-    if (!headLanded.gone && Math.abs(headLanded.rel) > SLACK) {
-      note('the first node of the conversation was not at its first row: '
-        + JSON.stringify(headLanded));
-    }
 
     if (faults.length) { note('the face faulted: ' + faults.slice(0, 2).join(' | ')); }
     await page.close();

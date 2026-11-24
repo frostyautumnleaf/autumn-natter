@@ -1,11 +1,11 @@
-// The three lines beside the chat, checked in both pages with no engine behind
+// The two lines beside the chat, checked in both pages with no engine behind
 // them: the drawing is driven manually, so the window face and the browser face
 // are read the same way.
 //
 //   node rail-face-check.js
 //   AN_PAGE=../web/page.html node rail-face-check.js   # one page only
 //
-// Seven items are checked, for each of the three lines:
+// Seven items are checked, for each of the two lines:
 //   * a line with space to spare keeps the distance between its nodes and shows
 //     all of them, with no marker at either end - it looks as it did before the
 //     line became a window;
@@ -36,27 +36,25 @@ const PAGES = process.env.AN_PAGE
 const shell = process.env.AN_SHELL_BIN || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// What each of the three lines is made of. Every line is drawn from a conversation with this
+// What each remaining line is made of. Every line is drawn from a conversation with this
 // many nodes in it, first with few enough to fit and then with far too many.
 const SCRIPT = `
 window.__talk = function (many) {
-  var messages = [], chapters = [], handoffs = [];
+  var messages = [], handoffs = [];
   for (var n = 1; n <= many; n++) {
     messages.push({ id: 'u' + n, role: 'You', body: 'Question ' + n + ' with a long tail of words', when: '12:0' + (n % 10), attachments: [] });
     messages.push({ id: 'm' + n, role: 'Assistant', body: 'Answer ' + n, when: '12:0' + (n % 10), attachments: [] });
-    chapters.push({ id: 'ch' + n, name: 'Chapter ' + n, after: 'u' + n });
     handoffs.push({ id: 'h' + n, number: n, state: 'done', when: '2026-10-21, 12:0' + (n % 10),
       before: 9000 + n, after: 900, snippet: 'The talk about number ' + n });
   }
-  return { messages: messages, chapters: chapters, handoffs: handoffs, compaction: {} };
+  return { messages: messages, handoffs: handoffs, compaction: {} };
 };
 
 // One line, drawn the way the page draws it.
 window.__draw = function (which, many) {
   var state = window.__talk(many);
-  cur = { messages: state.messages, chapters: state.chapters, handoffs: state.handoffs, compaction: {} };
-  chatting.chapters = true; chatting.timeline = true; chatting.userline = true;
-  if (which === 'chapters') { drawChapters(state); }
+  cur = { messages: state.messages, handoffs: state.handoffs, compaction: {} };
+  chatting.timeline = true; chatting.userline = true;
   if (which === 'timeline') { drawTimeline(state); }
   if (which === 'userline') { drawUserLine(state); }
 };
@@ -108,16 +106,16 @@ window.__mark = function (which, place) {
 };
 `;
 
-const LINES = ['chapters', 'timeline', 'userline'];
+const LINES = ['timeline', 'userline'];
 
 // How tall a line of three nodes is, and how tall the window of a line that overflows is. The
 // first is the height of three nodes and the two distances between them; the second is the
 // space of the stage with the margin the line keeps at either end taken off.
-const SHORT_HEIGHT = { chapters: 75, timeline: 75, userline: 51 };
+const SHORT_HEIGHT = { timeline: 75, userline: 51 };
 const EDGE = 26;
 
 // The distance from the top of one node to the next, and the height of a node.
-const ROW = { chapters: [32, 11], timeline: [32, 11], userline: [24, 3] };
+const ROW = { timeline: [32, 11], userline: [24, 3] };
 
 async function main() {
   let trouble = 0;

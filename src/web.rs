@@ -33,21 +33,6 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         .map(|r| json!({ "id": r.id, "name": r.name }))
         .collect();
 
-    // The marker of a chapter is not a message of the conversation: it is beside the chat as a
-    // node on the chapter line, so it is kept out of the text.
-    let chapters: Vec<Value> = snap
-        .chapters
-        .iter()
-        .map(|one| {
-            json!({
-                "id": one.id,
-                "name": one.name,
-                // The chapter begins after this message. Empty for the chapter at the very top
-                // of the chat.
-                "after": one.after,
-            })
-        })
-        .collect();
     // The summarisations of the open chat. The heading in the conversation and the timeline at
     // the right of the chat are made of these: the number of the summarisation, what became of
     // it, and a little of what it reports.
@@ -181,8 +166,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         })
         .collect();
     // The calls of a tool the model is writing right now. The text of a command is those
-    // extracted from the call so far, for the call is seldom finished. A marker of a chapter is
-    // never in this list, as it is never shown.
+    // extracted from the call so far, for the call is seldom finished.
     let live_tools: Vec<Value> = snap
         .live_tools
         .iter()
@@ -234,9 +218,6 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // changed and not on every look.
         "structure_rev": snap.structure_rev,
         "messages": messages,
-        // The chapters the model flagged, in the order it flagged them. The line beside the
-        // chat is made of these, and of nothing else.
-        "chapters": chapters,
         // The summarisations of the open chat, oldest first. The line at the right of the chat
         // is made of these, and of nothing else.
         "handoffs": handoffs,
@@ -444,8 +425,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             // True once the first-run screen has been removed through.
             "welcomed": snap.welcomed,
             "silent_retries": snap.chat_silent_retries,
-            "chapters": snap.chat_chapters,
-            // The line of the user's own messages at the right of the chat.
+            // The line of the user's own messages in the left gutter beside the sidebar.
             "userline": snap.chat_userline,
             // Whether the background of the chat is a faint grid. Only the page draws it.
             "grid": snap.chat_grid,

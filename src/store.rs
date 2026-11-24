@@ -554,9 +554,8 @@ pub struct Attachment {
 }
 
 // One message. The role is "You", "Assistant", "Tool", "Note", "Chapter" or "Summary". A
-// chapter is a marker the model made of where a part of the conversation begins: it holds its
-// place among the messages below, and is never drawn as a message. A summary is the handoff
-// summary of a compaction: it holds its place too, it is drawn as the heading of the
+// "Chapter" is kept for markers in older conversations and is never drawn as a message. A
+// summary is the handoff summary of a compaction: it holds its place too, it is drawn as the heading of the
 // summarisation, and it is the marker past which the text of the conversation is left out of
 // what goes back to the model.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -670,7 +669,7 @@ pub struct Chat {
 // The first line of the newest message, in a short form. The carousel uses it for the soft
 // image of a chat at the side of the window.
 pub fn preview(messages: &[Message]) -> String {
-    // A marker of a chapter is not a note about the conversation, so it reports nothing about
+    // A legacy chapter marker is not a note about the conversation, so it reports nothing about
     // what the chat is about either. A handoff summary is a whole remaining text of its own,
     // and its first line would fill the soft image on its own. The newest message that was
     // really stated is the one to show.

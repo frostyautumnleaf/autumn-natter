@@ -443,13 +443,8 @@ pub struct Config {
     // back. 0 leaves a silence alone.
     #[serde(default = "silence_retries")]
     pub chat_silent_retries: i64,
-    // Read the chapters of a chat out of the headings of the answers, and show them beside it.
-    // The text that tell the model of the rule go with the switch, so a chat that shows no
-    // chapter line never pays for them.
-    #[serde(default = "on_by_default")]
-    pub chat_chapters: bool,
-    // Show the messages of the user on a line of their own, hard against the right edge of the
-    // chat, as if the chat were bordered by them: one short dash for one message, and a little
+    // Show the messages of the user on a line of their own, in the left gutter beside the
+    // sidebar, as if the chat were bordered by them: one short dash for one message, and a little
     // of the message on the card of the dash. The line is there so a user of a long chat can go
     // back to an item they asked without scrolling all of the conversation over.
     #[serde(default = "on_by_default")]
@@ -527,8 +522,7 @@ pub struct Config {
     pub pasted_text_char_limit: u32,
     // How wide the chat may be, in pixels. The width the chat always had is the least it can be
     // set to. The page keeps the chat within 80 per cent of the width of the window, and within
-    // the space that is above after the line of the chapters, the line of the summarisations
-    // and the arrows of the chat have taken their space.
+    // the space left by the user-message rail, the summarisation timeline and the arrows.
     #[serde(default = "default_chat_width")]
     pub chat_width: u32,
     // How long the model waits for an answer to a question it put to the user. When the time is
@@ -579,7 +573,8 @@ pub struct Config {
     pub chat_system_prompts_on: Vec<String>,
     // The vertical timeline of the summarisations, at the right of the chat.
     #[serde(default = "on_by_default")]
-    pub chat_timeline: bool,    // The servers of the user's own, spoken to over MCP. They stand here and
+    pub chat_timeline: bool,
+    // The servers of the user's own, spoken to over MCP. They stand here and
     // not in a directory of their own, for the settings panel writes the whole list again
     // whenever one of them moves. A set of settings written before this was reads with no
     // server at all.
@@ -930,7 +925,6 @@ impl Default for Config {
             chat_display: plain_display(),
             welcomed: false,
             chat_silent_retries: 2,
-            chat_chapters: true,
             chat_userline: true,
             chat_grid: true,
             chat_background: String::from(BACKGROUND_NONE),
@@ -1532,7 +1526,6 @@ mod tests {
         assert!(cfg.chat_date_new_chat);
         assert!(cfg.chat_highlight);
         assert!(cfg.chat_colour_text);
-        assert!(cfg.chat_chapters);
         assert!(cfg.chat_userline);
         assert!(cfg.chat_grid);
         assert_eq!(cfg.chat_background, BACKGROUND_NONE);
@@ -1716,7 +1709,6 @@ mod tests {
         assert!(read.chat_collapse_tools);
         assert!(read.chat_date_new_chat);
         assert!(read.chat_highlight);
-        assert!(read.chat_chapters);
         // The keeping of the conversations was not in the file either, and it reads on rather
         // than off: a user who never heard of it is not left with the chats read through again
         // on every coming back.

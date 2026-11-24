@@ -46,8 +46,7 @@ use crate::viewimage;
 // presses it.
 const TOOL_EXTEND: Duration = Duration::from_secs(300);
 // How many terminal commands one answer may run, and how many round trips one answer may take
-// in all, both read from the Chatting settings. A marker of a chapter is not a command: it runs
-// nothing, so it eats neither space. The two settings remain unlimited for a new set of
+// in all, both read from the Chatting settings. The two settings remain unlimited for a new set of
 // settings, and the answer then ends only when the model stops by itself.
 //
 // A ceiling of nothing is a poor item to leave in an answer, so the two spaces are never
@@ -257,20 +256,6 @@ pub struct McpSnap {
     pub tools: Vec<String>,
     // The reason the server could not be checked, or empty.
     pub fault: String,
-}
-
-// One chapter of a chat, as the window needs it. A chapter is kept in the chat as a message of
-// its own, so it is where the model requested it, and the window draws it as a node on the
-// chapter line and never as a message.
-#[derive(Clone, Debug, Default)]
-pub struct Chapter {
-    // The id of the message the chapter is on.
-    pub id: String,
-    // The name the model gave the chapter, no longer than the tool allows.
-    pub name: String,
-    // The id of the message the chapter begins after. Empty when the chapter is at the very top
-    // of the chat.
-    pub after: String,
 }
 
 // One call of a tool the model is writing right now. The user sees the text of it as they come,
@@ -1118,123 +1103,6 @@ fn ends_on_an_empty_turn(history: &Value) -> bool {
         .is_some_and(|items| items.len() > 1 && said_nothing_at_all(&items[items.len() - 1]))
 }
 
-// The chapters of one chat, in the order they begin. A chapter is begun by a main heading of an
-// answer: the model opens a large new part of its work with a line that starts with one or two
-// `#` markers, and the text of that line name the part. Nothing is called and nothing is
-// written for it, so a chapter costs the conversation no message of its own. The chats of
-// before carry their markers as messages of the role `Chapter`, and those are still read, so an
-// older chat keeps the line of nodes it was given.
-//
-// A heading means a chapter only where the model wrote it as text: a `#` at the start of a line
-// inside a block of code is a comment of that code. A note is not a place a chapter can begin
-// after, for the window puts notes between the turns and they come and go with them.
-fn chapter_marks(chat: &Chat) -> Vec<Chapter> {
-    let mut out: Vec<Chapter> = Vec::new();
-    let mut before = String::new();
-    for message in &chat.messages {
-        // A marker of the old type is a chapter with a message of its own, and is never a place
-        // another chapter begins after.
-        if message.role == "Chapter" {
-            if !message.body.trim().is_empty() {
-                out.push(Chapter {
-                    id: message.id.clone(),
-                    name: message.body.clone(),
-                    after: before.clone(),
-                });
-            }
-            continue;
-        }
-        if message.role == "Note" {
-            continue;
-        }
-        let heads = if message.role == "Assistant" {
-            heading_names(&message.body)
-        } else {
-            Vec::new()
-        };
-        if heads.is_empty() {
-            before = message.id.clone();
-            continue;
-        }
-        // The chapter begins after the message before the answer that carries the heading, so
-        // the answer itself remains within the chapter it began.
-        for name in heads {
-            out.push(Chapter {
-                id: format!("{}-{}", message.id, out.len()),
-                name,
-                after: before.clone(),
-            });
-        }
-        // The answer that carries a heading is itself a place a later chapter begins after, so
-        // the next chapter of the same answer is after it.
-        before = message.id.clone();
-    }
-    out
-}
-
-// The main headings of one answer, in the order they remain: the lines that begin with one or
-// two `#` markers and a space, outside a fenced block of code. A heading with no text in it is
-// no chapter.
-fn heading_names(body: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut fenced = false;
-    for line in body.lines() {
-        let bare = line.trim_start_matches([' ', '\t']);
-        if bare.starts_with("```") || bare.starts_with("~~~") {
-            fenced = !fenced;
-            continue;
-        }
-        if fenced {
-            continue;
-        }
-        let marks = bare.len() - bare.trim_start_matches('#').len();
-        if marks == 0 || marks > 2 {
-            continue;
-        }
-        let rest = &bare[marks..];
-        // A heading is a marker and a space: a word that runs on from the markers is a word,
-        // and not a heading.
-        if !(rest.starts_with(' ') || rest.starts_with('\t')) {
-            continue;
-        }
-        // The markers some pointers put behind a heading as well are no part of its name.
-        let named = rest
-            .trim()
-            .trim_end_matches(['#', ' ', '\t'])
-            .trim()
-            .to_string();
-        if named.is_empty() {
-            continue;
-        }
-        out.push(cut_chapter_name(&named));
-    }
-    out
-}
-
-// The name of a chapter, cut to what a node beside the chat can carry.
-fn cut_chapter_name(words: &str) -> String {
-    let mut name = String::new();
-    for (number, ch) in words.chars().enumerate() {
-        if number >= 60 {
-            name.push('\u{2026}');
-            break;
-        }
-        name.push(ch);
-    }
-    name
-}
-
-// The text that goes before the model while the chapters of a chat are on. Chapters are not
-// flagged with a call of any type: they are extracted from the headings of the answers, so the
-// model has to be told to open a large part of its work with a main heading. The text goes in
-// a message of the role `system` at the head of the conversation, once for the conversation,
-// and it is removed when the switch is off.
-pub fn chapters_words() -> String {
-    String::from(
-        "The chapters of this chat are read from your headings. When a large new part of the work begins - a new task, a new question, a new phase of the work, a new part of a story you are writing - open it with a main heading: a line that starts with '# ' or '## ', whose text reports what the part is about in a few words. The program puts that heading beside the chat as a node the user may go straight to. Do not use a heading for a small item inside a part, do not open the whole chat with a heading, and do not speak of chapters or of headings in your answer.",
-    )
-}
-
 // The four colours a model may put on its text: the marker that opens the colour, and the
 // marker that closes it. The names are the model's own, and the page paints each of them with
 // one colour of its own: `green` #24c935, `light_green` #61ff71, `red` #c92424 and `light_red`
@@ -1441,10 +1309,7 @@ pub struct Snap {
     // How many times an answer is asked over when the model came to its own end without a word,
     // a call or an error.
     pub chat_silent_retries: i64,
-    // Whether the model may marker the chapters of a chat, and whether the chapter line is
-    // beside it.
-    pub chat_chapters: bool,
-    // The line of the user's own messages, at the right of the chat.
+    // The line of the user's own messages, in the left gutter beside the sidebar.
     pub chat_userline: bool,
     // Whether the background of the chat is drawn as a faint grid. The page draws it; the engine
     // only carries the switch out of the settings.
@@ -1497,10 +1362,8 @@ pub struct Snap {
     // page puts the continue marker on this message only, so the proposal and the rules that
     // decide it are held in one place in the engine.
     pub continue_id: String,
-    // The chapters of the open chat, in the order the model flagged them.
-    pub chapters: Vec<Chapter>,
     // The summarisations of the open chat, oldest first, for the heading of the summarisation
-    // and the timeline of them at the right of the chat.
+    // and the timeline of them in the left gutter beside the sidebar.
     pub handoffs: Vec<Handoff>,
     // The Compaction section of the settings, as the page reads it.
     pub chat_compaction: String,
@@ -1788,8 +1651,7 @@ fn ends_open(history: &Value) -> bool {
 }
 
 // The newest saying of the conversation: the last message that is something the user or the
-// model stated. The markers of a chapter, of a note, of a summarisation and of a tool run are
-// among the text and are no sayings of their own.
+// Legacy chapter markers, notes, summaries, and tool runs are not sayings of their own.
 fn newest_saying(chat: &Chat) -> Option<&Message> {
     chat.messages
         .iter()
@@ -3669,16 +3531,6 @@ impl State {
                 "content": words,
             }));
         }
-        // The text of the chapters of the chat, beside the text of the program. While the
-        // switch of the Chatting settings is on, the nodes beside the chat are extracted from
-        // the headings of the answers, and the model has to know that it is being read that
-        // way. The text go away with the switch.
-        if self.cfg.chat_chapters {
-            out.push(json!({
-                "role": "system",
-                "content": chapters_words(),
-            }));
-        }
         // The text of the corporate display, beside the text of the program. The mode hides the
         // thoughts and the call blocks, so the model has to know that the short it writes is
         // the only account of its work the user reads. The text go away with the mode.
@@ -3815,8 +3667,8 @@ impl State {
                     }
                     out.push(entry);
                 }
-                // A tool run and a chapter are both a call the model made and an answer it got
-                // back. Only the run is shown to the user.
+                // Legacy chapter markers and tool runs are kept out of the model-visible conversation.
+                // Chapter markers are ignored; tool runs are returned to the model.
                 "Tool" | "Chapter" => {
                     // A call that was stopped before the model had written all of it is not a
                     // call. The text of it stop in the middle, and a server set to read
@@ -4475,7 +4327,6 @@ impl State {
             chat_display: self.cfg.chat_display.clone(),
             welcomed: self.cfg.welcomed,
             chat_silent_retries: self.cfg.chat_silent_retries,
-            chat_chapters: self.cfg.chat_chapters,
             chat_userline: self.cfg.chat_userline,
             chat_grid: self.cfg.chat_grid,
             chat_background: self.cfg.chat_background.clone(),
@@ -4508,8 +4359,7 @@ impl State {
             chat_id: self.current.clone().unwrap_or_default(),
             home: self.current.is_none(),
             greeting: crate::greet::greeting(store::now_secs()),
-            // The markers of the chapters are not text of the conversation: they are given on
-            // the side, and kept out of the messages the window draws.
+            // Legacy chapter markers remain hidden from the conversation view.
             messages: chat
                 .map(|c| {
                     c.messages
@@ -4521,7 +4371,6 @@ impl State {
                 .unwrap_or_default(),
             // The answer the page may propose to go on with, if there is one.
             continue_id: self.goable_answer().unwrap_or_default(),
-            chapters: chat.map(chapter_marks).unwrap_or_default(),
             handoffs: chat
                 .map(|one| handoff_marks(one, self.live().generating))
                 .unwrap_or_default(),
@@ -6477,7 +6326,7 @@ impl Engine {
             .map(|chat| chat.messages[index].role.clone())
             .unwrap_or_default();
         // Only a message of the user, or an answer of the model, has an answer to be written
-        // again. A run of a tool, a note and a marker of a chapter are not asks of the user,
+        // again. A run of a tool, a note and a legacy chapter marker are not asks of the user,
         // and the page returns nothing over them.
         let cut = match role.as_str() {
             "You" => index + 1,
@@ -7099,7 +6948,6 @@ impl Snap {
             chat_display: String::from(config::PLAIN_DISPLAY),
             welcomed: true,
             chat_silent_retries: 2,
-            chat_chapters: true,
             chat_userline: true,
             chat_grid: true,
             chat_background: String::from(config::BACKGROUND_NONE),
@@ -7120,7 +6968,6 @@ impl Snap {
             greeting: String::new(),
             messages: Vec::new(),
             continue_id: String::new(),
-            chapters: Vec::new(),
             handoffs: Vec::new(),
             chat_compaction: crate::config::COMPACTION_HANDOFF.to_string(),
             chat_compact_by: crate::config::COMPACT_BY_PERCENT.to_string(),
@@ -10266,8 +10113,7 @@ fn finish_progress(state: &mut State, chat: &str) -> bool {
 // sees the command grow. True when the window has something new to draw.
 fn write_calls(state: &mut State, calls: &[ToolCall], chat: &str) -> bool {
     let mut made = watched(calls);
-    // The meter leaves for a marker of a chapter too. Such a call gives the user no block, but
-    // the model wrote it after the text it was sent.
+    // The meter leaves when a tool call begins, after the text the model was sent.
     let gauge = finish_progress(state, chat);
     // A call that is where it was not being written any more, so the word that records it is
     // kept. A call whose text grew is being written again, and records it too. Without this a
@@ -10763,8 +10609,7 @@ fn run_turn(
     );
     // The two spaces of the Chatting settings, read once for this answer. None means no
     // ceiling, which is how both mean a new set of settings: the answer then ends when the
-    // model stops by itself, and a model may run as many commands as it wants. A marker of a
-    // chapter eats neither space.
+    // model stops by itself, and a model may run as many commands as it wants. Legacy chapter markers do not use either limit.
     let (command_room, answer_room) = {
         let Ok(guard) = state.lock() else { return Ended::Halted };
         (
@@ -12043,12 +11888,10 @@ fn is_writing(call: &ToolCall) -> bool {
 // The tools the model is proposed for one step, or nothing at all when it is proposed none. The
 // terminal tool and the tools that work on the files remain and fall together with the badge of
 // the tools, for all of them change what is on the computer. The web search is on a switch of
-// its own, for it reads the web out of the program and never the computer. The marker of a
-// chapter is on a switch of its own as well, for it runs nothing. `access` is what the chat
+// its own, for it reads the web out of the program and never the computer. `access` is what the chat
 // lets a command reach, so the text of the terminal tool tell the model what it really has. The
 // line of the drop-down of the badge of the tools that a tool of the program is under. A tool
-// outside the badge - the marker of a chapter, and every tool of a server of the user's own -
-// gives nothing back, for the badge holds no switch over it.
+// Every tool of a server of the user's own is outside that badge and its switches.
 fn group_of(name: &str) -> Option<&'static str> {
     match name {
         tools::TOOL_NAME => Some("commands"),
@@ -12144,8 +11987,7 @@ fn plus_minus(words: &str) -> (i64, i64) {
 // planning mode is off none of them is proposed at all, so a model reading the plan as its
 // first message knows nothing of them. `sandbox` goes with the request, for the text of the
 // tools that work on the computer tell the state of the sandbox, and nothing of it when the
-// sandbox is off. The chapters of a chat propose no tool: they are extracted from the headings
-// of the answers, and the model is informed of them in the text before the conversation.
+// sandbox is off.
 #[allow(clippy::too_many_arguments)]
 fn offered_with_planning(
     sandbox: bool,
@@ -14535,117 +14377,6 @@ mod tests {
         }
     }
 
-    // A chapter is begun by a main heading of an answer. The chapters are given to the window
-    // in the order they begin, each tied to the message before the answer that carries it, and
-    // the heading itself stays among the text of the conversation: it is part of the answer,
-    // and not a marker beside it.
-    #[test]
-    fn the_chapters_are_read_from_the_headings_of_the_answers() {
-        let _guard = config::test_turn();
-        setup();
-        let engine = Engine::start(Config::default());
-        open_a_chat(&engine);
-        let (first, second) = {
-            let mut state = engine.state.lock().unwrap();
-            state.push_message("You", "Fix the parser", "", 0, false);
-            let first = state.chat().unwrap().messages.last().unwrap().id.clone();
-            state.push_message(
-                "Assistant",
-                "## Fixing the parser\n\nThe grammar was wrong.\n\n### A small thing inside\n\n```python\n# not a heading\nprint(1)\n```",
-                "",
-                0,
-                false,
-            );
-            let second = state.chat().unwrap().messages.last().unwrap().id.clone();
-            state.push_message(
-                "Assistant",
-                "# Over in the next part\n\nNothing else stands here.",
-                "",
-                0,
-                false,
-            );
-            (first, second)
-        };
-        let chapters = engine.snapshot().chapters;
-        assert_eq!(chapters.len(), 2, "the headings were not read as chapters");
-        assert_eq!(chapters[0].name, "Fixing the parser");
-        // The chapter begins after the message before the answer that carries it, so the answer
-        // itself remains within the chapter it began.
-        assert_eq!(chapters[0].after, first);
-        assert_eq!(chapters[1].name, "Over in the next part");
-        assert_eq!(chapters[1].after, second);
-        // The heading is a note about the answer, so the answer is drawn whole and the window
-        // is given the chapter on the side as well.
-        let visible = engine.snapshot().messages;
-        assert_eq!(visible.len(), 3);
-        assert!(visible[1].body.contains("## Fixing the parser"));
-    }
-
-    // Only a main heading opens a chapter: one or two markers and a space, outside a block of
-    // code, with text after the markers. A heading with markers behind its text is named by the
-    // text alone, and a long name is cut to what a node can carry.
-    #[test]
-    fn only_a_main_heading_of_the_answer_opens_a_chapter() {
-        let _guard = config::test_turn();
-        assert_eq!(heading_names("# One\nText\n## Two\n"), vec!["One", "Two"]);
-        // A third marker is a heading of a part, not of a chapter of the chat.
-        assert!(heading_names("### Three").is_empty());
-        // A word that runs on from the markers is a word.
-        assert!(heading_names("#One").is_empty());
-        // A `#` at the start of a line is a comment inside a block of code.
-        assert!(heading_names("```\n# inside the code\n```\n").is_empty());
-        assert!(heading_names("~~~\n# inside the code\n~~~\n").is_empty());
-        // A heading with nothing after its markers names nothing.
-        assert!(heading_names("##   ").is_empty());
-        // The markers behind the text of a heading is no part of its name.
-        assert_eq!(heading_names("## Four ##"), vec!["Four"]);
-        // A heading of a quote or a list line is not a heading of its own.
-        assert!(heading_names("> # quoted").is_empty());
-        // The name of a chapter is cut to what a node beside the chat can carry.
-        let long = heading_names(&format!("# {}", "n".repeat(80)));
-        assert_eq!(long.len(), 1);
-        assert_eq!(long[0].chars().count(), 61, "the name was not cut: {}", long[0]);
-        assert!(long[0].ends_with('\u{2026}'));
-    }
-
-    // The chats of before carry their chapters as markers of their own, with a message each.
-    // Those markers are still read, so a chat written while the tool of the chapters were keeps
-    // the line of nodes it was given, and an answer with headings in it keeps those too.
-    #[test]
-    fn the_chapters_of_an_older_chat_are_still_read() {
-        let _guard = config::test_turn();
-        setup();
-        let engine = Engine::start(Config::default());
-        open_a_chat(&engine);
-        {
-            let mut state = engine.state.lock().unwrap();
-            state.push_message("You", "Fix the parser", "", 0, false);
-            state.push_message(
-                "Chapter",
-                "Fixing the parser",
-                "The chapter was marked",
-                0,
-                false,
-            );
-            state.push_message(
-                "Assistant",
-                "## And now the tests",
-                "",
-                0,
-                false,
-            );
-        }
-        let chapters = engine.snapshot().chapters;
-        assert_eq!(chapters.len(), 2);
-        assert_eq!(chapters[0].name, "Fixing the parser");
-        assert_eq!(chapters[1].name, "And now the tests");
-        // A marker of a chapter is no word of the conversation, so the window is given the
-        // answers alone.
-        let visible = engine.snapshot().messages;
-        assert!(!visible.iter().any(|m| m.role == "Chapter"));
-        assert_eq!(visible.len(), 2);
-    }
-
     // A turn writes no line about itself. A command is an answer, a stop is not a sentence, and
     // a failure is already informed by its own note.
     #[test]
@@ -15491,9 +15222,8 @@ mod tests {
         );
     }
 
-    // The user watches a command as the model writes it, and watches nothing of a marker of a
-    // chapter. The name of a call arrives parts, so a name that could still become the marker
-    // remains aside until it is known.
+    // The user watches a command as the model writes it. The name of a call arrives in parts, so
+    // a name that could still become a command remains aside until it is known.
     #[test]
     fn only_a_command_the_user_can_use_is_written_out() {
         let command = ToolCall {
@@ -15547,7 +15277,6 @@ mod tests {
     // The badge of the tools is the entry point to every tool that can run on the computer:
     // with it off the model is proposed no command and no tool that works on a file. The web
     // search is on a switch of its own, and it alone is enough to carry tools with the call.
-    // The chapters of a chat propose no tool at all, whatever their switch reports.
     #[test]
     fn no_badge_of_the_tools_opens_no_tool_at_all() {
         let names = |list: &Value| {
@@ -17448,9 +17177,8 @@ mod tests {
         add_message(state, "You", "the third prompt");
     }
 
-    // The conversation without the lines of the day and the clock time, and without the text
-    // the program puts before the conversation of the chapters, so a test about another rule
-    // counts the text of the user and the model as they were.
+    // The conversation without the lines of the day and the clock time, so a test about another rule
+    // counts only the text of the user and the model.
     fn undated(history: &Value) -> Vec<Value> {
         history
             .as_array()
@@ -17458,10 +17186,9 @@ mod tests {
             .iter()
             .filter(|message| {
                 let said = message["content"].as_str().unwrap_or_default();
-                // The line of the day, the text of the chapters, the text of the colours and
-                // the text of the directory is text of the program, not of the conversation.
+                // The line of the day, the text of the colours and the text of the directory is program
+                // text, not conversation text.
                 !said.starts_with(DATE_HEAD)
-                    && !said.starts_with("The chapters of this chat are read from")
                     && !said.starts_with("You may put colour on a few words")
                     && !said.starts_with("The context of this conversation stays open")
             })
@@ -17533,8 +17260,7 @@ mod tests {
             .expect("a line of the day first")
             .starts_with(DATE_HEAD));
         // The text of the user go out as they were written: the line is a message of its own
-        // and not a word added to them. The text of the chapters remains after the line, so the
-        // first of them is sought without any message of the program.
+        // and not a word added to them. The first prompt stays ahead of the conversation.
         assert_eq!(undated(&history)[0]["content"], json!("the first prompt"));
         let said = undated(&history);
         assert_eq!(said.len(), 5, "the line is not one of the text of the chat");
@@ -18395,8 +18121,7 @@ mod tests {
         // enough that the estimate of the conversation, with the report of the call in it,
         // reads past the limit, and the estimate of the same conversation without the report
         // reads under it. The space the text of the program takes is counted in here: the
-        // line of the day, the text of the chapters, the text of the colours and the text of
-        // the space ride with every ask.
+        // line of the day, the text of the colours and the text of the space ride with every ask.
         state.ctx_total = 2048;
         state.live_write().ctx_used = 1600;
         let cfg = Config {
@@ -19042,24 +18767,24 @@ mod tests {
     }
 
     // A conversation that ends on a call or on a question is not open, so there is nothing for
-    // a model to write on from. The markers of a chapter and of a summarisation are no sayings,
-    // so a conversation that ends on one of them has the newest saying of the model before them
+    // a model to write on from. A legacy chapter marker and a summarisation are not sayings, so a
+    // conversation that ends on one of them has the newest saying of the model before it
     // for it to go on with.
     #[test]
-    fn a_mark_of_a_chapter_leaves_the_answer_behind_it_goable() {
+    fn a_legacy_chapter_mark_leaves_the_answer_behind_it_goable() {
         let _guard = config::test_turn();
         let mut messages = four_messages();
         messages.push(Message {
             id: String::from("e"),
             role: String::from("Chapter"),
-            body: String::from("a chapter the model flagged"),
+            body: String::from("a legacy chapter marker"),
             ..Default::default()
         });
         let engine = engine_with(messages);
         assert_eq!(
             engine.snapshot().continue_id,
             "d",
-            "a chapter marker hid the answer it is behind"
+            "a legacy marker hid the answer it is behind"
         );
         assert!(
             newest_saying(
