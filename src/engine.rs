@@ -2640,6 +2640,29 @@ impl State {
         self.persist_in(&chat);
     }
 
+    // Persist a settings change without holding up other chats on the database write.
+    fn persist_async(&mut self) {
+        let id = self.open_id();
+        let Some(chat) = self.chat_of(&id) else { return };
+        if chat.messages.is_empty() {
+            return;
+        }
+        let first = chat.messages.len() == 1;
+        let snapshot = store::ChatSettingsSnapshot {
+            id: chat.meta.id.clone(),
+            code_enabled: chat.meta.code_enabled,
+            tools: chat.meta.tools.clone(),
+            search_enabled: chat.meta.search_enabled,
+            rag_enabled: chat.meta.rag_enabled,
+        };
+        if first {
+            self.touch_structure();
+        }
+        if let Err(problem) = self.store.save_chat_async(snapshot) {
+            self.note_write_problem(&problem);
+        }
+    }
+
     // Write one chat to disk, by its id. An answer that is arriving in the background writes
     // its own chat, which is not the one the side bar has open.
     fn persist_in(&mut self, chat: &str) {
@@ -4258,13 +4281,7 @@ impl State {
         rag::system_prompt(files, counted, vision)
     }
 
-    // True when the open chat is working in planning mode.
-    pub fn planning_open(&self) -> bool {
-        self.chat()
-            .map(|chat| chat.meta.planning)
-            .unwrap_or(false)
-    }
-
+    // True when this chat is working in planning mode.
     fn planning_open_in(&self, chat: &str) -> bool {
         self.chat_of(chat)
             .map(|one| one.meta.planning)
@@ -5287,7 +5304,7 @@ impl Engine {
         }
         // The same choice opens the next chat too, whatever is left open now.
         state.new_code = enabled;
-        state.persist();
+        state.persist_async();
         state.set_status(if enabled {
             "The model may use the tools of the program"
         } else {
@@ -5323,7 +5340,7 @@ impl Engine {
             return;
         }
         state.new_code = state.new_tools.any_on_with(room);
-        state.persist();
+        state.persist_async();
         let word = tool_group_word(part);
         let words = if on {
             format!("The model may use {} again", word)
@@ -5346,7 +5363,7 @@ impl Engine {
         }
         // The same choice opens the next chat too, whatever is left open now.
         state.new_search = enabled;
-        state.persist();
+        state.persist_async();
         state.set_status(if enabled {
             "The model may search the web"
         } else {
@@ -5367,7 +5384,7 @@ impl Engine {
         }
         // The same choice opens the next chat too, whatever is left open now.
         state.new_rag = enabled;
-        state.persist();
+        state.persist_async();
         state.set_status(if enabled {
             "The model may search the sources of this working directory"
         } else {
@@ -12050,6 +12067,7 @@ fn group_of(name: &str) -> Option<&'static str> {
 // True when the open chat lets a call of this name through. The badge of the tools is read
 // where the tools are proposed; this is the same rule laid over the call itself, for a model
 // can name a tool it was never proposed.
+#[cfg(test)]
 fn tool_allowed(state: &Arc<Mutex<State>>, name: &str) -> bool {
     let Ok(guard) = state.lock() else { return false };
     let chat = guard.open_id();

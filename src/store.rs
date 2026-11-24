@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config;
@@ -802,6 +802,15 @@ pub struct Store {
     older: Older,
 }
 
+#[derive(Clone)]
+pub struct ChatSettingsSnapshot {
+    pub id: String,
+    pub code_enabled: bool,
+    pub tools: ToolSwitches,
+    pub search_enabled: bool,
+    pub rag_enabled: bool,
+}
+
 // The folders the text of the program was in before they were in a database: the loose chats,
 // the conversations of the repositories, and the records of them. They is offset from the
 // repositories, so a command working inside a repository cannot reach a conversation or the
@@ -1140,6 +1149,63 @@ impl Store {
             Ok(())
         })?;
         Ok(wrote)
+    }
+
+    // Queue a snapshot for one chat on a single writer thread. Chat controls are changed while
+    // the engine lock is held, so writing the whole conversation there would stall every chat
+    // that is being answered. A per-chat FIFO keeps snapshots in the order they were taken.
+    pub fn save_chat_async(&self, chat: ChatSettingsSnapshot) -> Result<(), String> {
+        static WRITERS: OnceLock<Mutex<HashMap<String, mpsc::Sender<ChatSettingsSnapshot>>>> = OnceLock::new();
+        let writers = WRITERS.get_or_init(|| Mutex::new(HashMap::new()));
+        let key = format!("{}:{}", self.db_path.display(), chat.id);
+        let mut writers = writers
+            .lock()
+            .map_err(|_| String::from("the chat save queue is unavailable"))?;
+        let sender = writers.entry(key).or_insert_with(|| {
+            let (sender, receive) = mpsc::channel::<ChatSettingsSnapshot>();
+            let repos_dir = self.repos_dir.clone();
+            let db_path = self.db_path.clone();
+            let older = self.older.clone();
+            std::thread::spawn(move || {
+                let store = Store::in_room(repos_dir, db_path, older);
+                while let Ok(snapshot) = receive.recv() {
+                    if let Err(problem) = store.save_chat_settings(&snapshot) {
+                        proglog::note(proglog::STORE, &problem);
+                    }
+                }
+            });
+            sender
+        });
+        sender
+            .send(chat)
+            .map_err(|_| String::from("the chat save queue stopped"))
+    }
+
+    fn save_chat_settings(&self, snapshot: &ChatSettingsSnapshot) -> Result<(), String> {
+        let database = self.database()?;
+        database.write(|conn| {
+            let text: String = conn
+                .query_row(
+                    "SELECT data FROM chats WHERE id = ?1",
+                    params![snapshot.id],
+                    |row| row.get(0),
+                )
+                .map_err(db::fault)?;
+            let mut current: Chat = serde_json::from_str(&text)
+                .map_err(|problem| format!("the chat settings cannot be read: {}", problem))?;
+            current.meta.code_enabled = snapshot.code_enabled;
+            current.meta.tools = snapshot.tools.clone();
+            current.meta.search_enabled = snapshot.search_enabled;
+            current.meta.rag_enabled = snapshot.rag_enabled;
+            let text = serde_json::to_string(&current)
+                .map_err(|problem| format!("the chat settings cannot be written: {}", problem))?;
+            conn.execute(
+                "UPDATE chats SET data = ?1 WHERE id = ?2",
+                params![text, snapshot.id],
+            )
+            .map_err(db::fault)?;
+            Ok(())
+        })
     }
 
     // Take one chat away for good.
