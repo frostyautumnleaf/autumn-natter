@@ -196,6 +196,66 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       faults.push('the direct answer text is missing from the chat ' + where);
     }
 
+    // The most important state change is the handoff from the live row to the saved answer.
+    // Keep the same rendered thread while generation stops and the final message is persisted.
+    where = 'the live-to-saved answer transition';
+    var start = [said(40, 'You', 'Explain this briefly.')];
+    box = look(state(start, CHAT, {
+      generating: true, live: '', reasoning: 'Thinking through the explanation.',
+      reasoning_ms: 700, live_work: [], live_work_head: 'Thinking'
+    }));
+    if (!box.querySelector('.turn:last-child > .work')) {
+      faults.push('the live answer has no card before it finishes ' + where);
+    }
+    var saved = start.concat([said(41, 'Assistant', 'Here is the explanation.', {
+      reasoning: 'Thinking through the explanation.', reasoning_ms: 700,
+      work_head: 'Done', work_closed: true
+    })]);
+    box = look(state(saved, CHAT));
+    if (!box.querySelector('.turn[data-mid="41"] > .work')) {
+      faults.push('the card vanished when the live row became a saved answer ' + where);
+    }
+    box = look(state(saved, CHAT));
+    if (cards(box).length !== 1) {
+      faults.push('the saved answer card did not survive the next page update ' + where);
+    }
+
+    // During a handoff the model's summary text remains hidden, but a tool-only step has no
+    // saved Assistant message to carry its progress card. Keep that card above the summary
+    // marker until the answer resumes.
+    where = 'a tool-only answer during handoff summarisation';
+    var duringHandoff = state([
+      said(50, 'You', 'Research and report.'),
+      said(51, 'Tool', 'Search result', { tool: 'Search returned' }),
+      said(52, 'Summary', '', { work_head: '' })
+    ], CHAT, {
+      generating: true, summarising: true, live: 'summary model text stays hidden',
+      reasoning: 'summary model thoughts stay hidden', live_work: SHORT,
+      live_work_head: 'Searching the web'
+    });
+    box = look(duringHandoff);
+    var heldCard = box.querySelector('.turn[data-mid="live-work"] > .work');
+    if (!heldCard || !/Searching the web/.test(heldCard.textContent)) {
+      faults.push('the work card disappeared during the handoff ' + where);
+    } else if (heldCard.querySelector('.answer-words, .wthink')) {
+      faults.push('summary text or thoughts are visible inside the held card ' + where);
+    }
+    if (box.textContent.indexOf('summary model text stays hidden') >= 0
+        || box.textContent.indexOf('summary model thoughts stay hidden') >= 0) {
+      faults.push('the hidden handoff text was displayed ' + where);
+    }
+    // If earlier assistant content already owns this answer's card, do not draw a duplicate.
+    var storedHandoff = state([
+      said(53, 'You', 'Research and report.'),
+      said(54, 'Assistant', 'Checking sources.', { work: SHORT, work_head: 'Searching the web' }),
+      said(55, 'Summary', '')
+    ], CHAT, { generating: true, summarising: true, live_work: [],
+      live_work_head: 'Searching the web' });
+    box = look(storedHandoff);
+    if (cards(box).length !== 1) {
+      faults.push('handoff duplicated a card already stored on the answer ' + where);
+    }
+
     // Two: a run of calls of one tool is one block, stated in the plural with the count, and
     // holds the calls under it. A line of the summary with nothing under it is a plain line
     // with nothing to open.
@@ -326,5 +386,6 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     + 'it, the answer itself outside; a run of calls of one tool is one block in the plural; '
     + 'a line of the short with nothing under it is a plain line; an answer coming in is '
     + 'held by one card and puts it again as it grows; direct answers keep their card; file '
-    + 'edits keep line counts; and with the display off nothing of this stands');
+    + 'edits keep line counts; the card survives live-to-saved and handoff transitions; and '
+    + 'with the display off nothing of this stands');
 })().catch(function (e) { console.error(e); process.exit(1); });

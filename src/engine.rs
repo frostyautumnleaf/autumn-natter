@@ -9340,9 +9340,9 @@ fn run_handoff(
         guard.live_mut(chat).live_text = String::new();
         guard.live_mut(chat).live_reasoning = String::new();
         guard.live_mut(chat).live_tools = Vec::new();
-        guard.live_mut(chat).live_work = Vec::new();
-        guard.live_mut(chat).live_work_head = String::new();
-        guard.live_mut(chat).live_work_closed = false;
+        // Keep the work tree and its heading: a tool-only step may not have a stored Assistant
+        // message yet, and the page uses this state to keep its progress card visible during
+        // the handoff.
         guard.live_mut(chat).progress = 0;
         guard.live_mut(chat).progress_on = false;
         let id = guard.begin_summary_in(chat);

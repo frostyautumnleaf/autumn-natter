@@ -9073,8 +9073,34 @@ function liveMessage(s) {
 function threadItems() {
   var s = cur || {};
   var items = (s.messages || []).slice();
-  if (s.generating && !s.summarising) { items.push(liveMessage(s)); }
+  if (s.generating && !s.summarising) {
+    items.push(liveMessage(s));
+  } else if (s.summarising && chatting.corporate && !hasSavedWorkCard(items)
+      && ((s.live_work || []).length || s.live_work_head)) {
+    // A tool-only answer can have no Assistant message yet when it reaches a handoff. The
+    // summary request hides the live text, but its progress card must remain visible while the
+    // summary is written. The engine keeps the work tree aside until the answer resumes.
+    var held = liveMessage(s);
+    held.id = 'live-work';
+    held.body = '';
+    held.reasoning = '';
+    held.tools = [];
+    held.work_closed = false;
+    var place = items.length;
+    while (place > 0 && items[place - 1].role === 'Summary') { place--; }
+    items.splice(place, 0, held);
+  }
   return items;
+}
+
+// A work card already transferred to a stored assistant message stays on that message through
+// the handoff. Only a tool-only step needs the held live card above the summary marker.
+function hasSavedWorkCard(items) {
+  for (var n = items.length - 1; n >= 0 && items[n].role !== 'You'; n--) {
+    var one = items[n];
+    if (one.role === 'Assistant' && ((one.work || []).length || one.work_head)) { return true; }
+  }
+  return false;
 }
 
 // The text of one message, put into a turn. The turn is created once, and the text of an answer
@@ -10913,10 +10939,7 @@ function drawThread(s) {
   cur = s;
   var box = el.col;
   foldsFollowSettings();
-  var items = s.messages.slice();
-  // A handoff summary is written of sight: nothing of it is put on the page while it grows, so
-  // no live answer remains while the program is at one.
-  if (s.generating && !s.summarising) { items.push(liveMessage(s)); }
+  var items = threadItems();
   if (items.length === 0) {
     stopInk();
     if (box.dataset.key !== 'blank') {
