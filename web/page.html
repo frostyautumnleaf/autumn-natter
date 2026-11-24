@@ -3708,6 +3708,9 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
               <button class="on" id="fThemeStandard" type="button">Standard</button>
               <button id="fThemePixel" type="button">Pixel art</button>
             </div></div></div>
+        <div class="fld wide"><span class="lbl">Welcome screen</span>
+          <span class="sub">Go through the welcome screen again to choose how the chat is shown, its theme and other starting options.</span>
+          <div class="ctl"><button class="btn" id="welcomeAgain" type="button">Open welcome screen</button></div></div>
 
         <div class="sec">Chatting</div>
         <div class="fld"><span class="lbl">Collapse thinking while it arrives</span>
@@ -9456,6 +9459,19 @@ var corporateLocks = ['fFoldThink', 'fGrowThink', 'fToolsInThink', 'fFoldTools',
 // sees what they are choosing rather than a name for it. The choice is written into the
 // settings whole when the user reports they are ready, and the screen never returns.
 var welcomeChosen = null;
+var welcomeRevisit = false;
+
+function welcomeSettings(cfg) {
+  return {
+    display: cfg.chat_display === 'corporate' ? 'corporate' : 'plain',
+    seamless: !!cfg.chat_seamless,
+    grow_thinking: cfg.chat_grow_thinking !== false,
+    tools_in_thinking: cfg.chat_tools_in_thinking !== false,
+    summary: cfg.chat_compaction !== 'off',
+    theme: cfg.theme || themeWord || 'light',
+    theme_pixel: !!cfg.theme_pixel
+  };
+}
 
 function welcomeMock(kind) {
   var box = document.createElement('div');
@@ -9482,9 +9498,9 @@ function welcomeMock(kind) {
       + '<rect x="24" y="92" width="104" height="5" rx="2" fill="currentColor" opacity=".3"/></svg>';
     return box;
   }
-  // The five themes: the background of the page and the text upon it.
-  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', silver: '#2b2b2b', corporate: '#0d0d0d', neon: '#0a0c1c' };
-  var inks = { light: '#232323', dark: '#e8e8e8', silver: '#dcdcdc', corporate: '#e6e6e6', neon: '#cfe4ff' };
+  // The themes: the background of the page and the text upon it.
+  var grounds = { light: '#f2f0ec', dark: '#1a1a1c', silver: '#2b2b2b', corporate: '#0d0d0d', neon: '#0a0c1c', glass: 'rgba(43, 56, 72, .78)' };
+  var inks = { light: '#232323', dark: '#e8e8e8', silver: '#dcdcdc', corporate: '#e6e6e6', neon: '#cfe4ff', glass: '#eff5fb' };
   var box2 = document.createElement('div');
   box2.innerHTML = '<span class="wswatch" style="background:' + grounds[kind] + '">'
     + '<svg viewBox="0 0 62 40" width="62" height="40" xmlns="http://www.w3.org/2000/svg">'
@@ -9509,6 +9525,7 @@ function welcomePart(title, hint) {
 
 function welcomeCard(where, words, mock, name, said) {
   var card = make('div', 'wcard');
+  card.classList.toggle('on', welcomeChosen[where] === words);
   if (mock) { card.appendChild(welcomeMock(mock)); }
   var label = make('span', 'wname');
   label.textContent = name;
@@ -9550,7 +9567,9 @@ function drawWelcome() {
   title.textContent = 'Welcome to Autumn Natter';
   screen.appendChild(title);
   var word = make('div', 'wword');
-  word.textContent = 'Three choices and the chat is yours. They can all be changed later in the settings, and nothing here is written until you say you are ready.';
+  word.textContent = welcomeRevisit
+    ? 'Choose how the chat is shown and how it looks. These choices are saved when you press the button below.'
+    : 'Three choices and the chat is yours. They can all be changed later in the settings, and nothing here is written until you say you are ready.';
   screen.appendChild(word);
 
   var modes = welcomePart('How the work is shown',
@@ -9591,7 +9610,7 @@ function drawWelcome() {
   screen.appendChild(themePart);
 
   var go = make('button', 'wgo');
-  go.textContent = 'Start using the chat';
+  go.textContent = welcomeRevisit ? 'Save these choices' : 'Start using the chat';
   go.addEventListener('click', finishWelcome);
   screen.appendChild(go);
 }
@@ -9635,7 +9654,18 @@ function postWelcome(cfg) {
   cfg.theme_pixel = !!welcomeChosen.theme_pixel;
   cfg.welcomed = true;
   ask('config', { config: cfg }).then(function () {
+    if (overlayOpen() && setTab === 'program') {
+      byId('fDisplay').value = welcomeChosen.display;
+      byId('fSeamless').checked = !!welcomeChosen.seamless;
+      byId('fGrowThink').checked = !!welcomeChosen.grow_thinking;
+      byId('fToolsInThink').checked = !!welcomeChosen.tools_in_thinking;
+      byId('fCompaction').value = welcomeChosen.summary ? 'handoff' : 'off';
+      corporateGreyed(welcomeChosen.display === 'corporate');
+      showThemeButtons();
+      showArtButtons();
+    }
     hideWelcome();
+    welcomeRevisit = false;
     poll();
   });
 }
@@ -17093,6 +17123,11 @@ byId('sheetFindClear').addEventListener('click', function () {
 
 byId('tabProgram').addEventListener('click', function () {
   showSetTab('program'); if (!progDirty) { loadProgram(); }
+});
+byId('welcomeAgain').addEventListener('click', function () {
+  welcomeChosen = welcomeSettings(readProgram());
+  welcomeRevisit = true;
+  showWelcome();
 });
 byId('tabModel').addEventListener('click', function () {
   showSetTab('model'); if (!mdlDirty) { loadModel(); }
