@@ -1315,17 +1315,6 @@ body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
 .wplainline { padding: 7px 12px; line-height: 1.45; }
 .wbbody .wplainline { padding: 3px 0; }
 /*
- * A thought of the model inside the one block of the answer. The mode hides the panels of the
- * thoughts whole, so this is where the user reads them, and they is there while the model is
- * thinking and not only once it has done. */
-.wthought { white-space: pre-wrap; word-break: break-word; color: var(--dim);
-  font-size: 12.5px; line-height: 1.55; }
-.wthink > .wbhead { font-style: italic; }
-/*
- * The thought that is all of what an answer did. The header of the block reports it already, so
- * the thought remains as text under that header, with no header of its own. */
-.wthink.wsolo > .wbbody { padding: 2px 12px 10px 12px; }
-/*
  * The text the model wrote to the user while it worked, before the block of the work was
  * closed. They are markdown, and they are under the first line of them, which is the header of
  * the block. */
@@ -9095,18 +9084,6 @@ function hasSavedWorkCard(items) {
 // The text of one message, put into a turn. The turn is created once, and the text of an answer
 // that is arriving is put again by the writer above.
 
-// The corporate display: one block for an answer. The header reports the current action; the
-// blocks under it carry each assistant output and the outcomes of calls. The thoughts and the
-// calls are hidden whole, so this block is the only way in. The text for the time the model
-// took thinking, for the header of a thought that is inside the one block of the answer. The
-// block reports the time in whole seconds, where the panel of the thoughts in the plain display
-// reports it in the finer text of `thoughtWords`.
-function thoughtSaidWords(ms) {
-  var secs = Math.round((Number(ms) || 0) / 1000);
-  if (!isFinite(secs) || secs < 1) { secs = 1; }
-  return 'Thought for ' + secs + (secs === 1 ? ' second' : ' seconds');
-}
-
 // The header of an assistant output sub-block: its first line, truncated for the
 // header is read in a glance.
 function headOfWords(text) {
@@ -9130,34 +9107,10 @@ function restOfWords(text) {
   return out.join('\n').replace(/^\s+/, '');
 }
 
-// A thought of the model, inside the one block of the answer. The mode hides the panels of the
-// thoughts whole, so this is where the user reads them, and they is there while the model is
-// thinking, not only when it has done. The header reports how long the thought took once it is
-// over.
-function thinkingBlock(text, ms, done) {
-  var block = make('div', 'wblock wthink');
-  block.dataset.kind = 'thought';
-  var head = make('div', 'wbhead');
-  var fold = make('span', 'wfold');
-  fold.textContent = '\u25BE';
-  var title = make('span');
-  title.textContent = done ? thoughtSaidWords(ms) : 'Thinking';
-  head.appendChild(fold);
-  head.appendChild(title);
-  block.appendChild(head);
-  var body = make('div', 'wbbody');
-  var words = make('div', 'wthought');
-  words.textContent = String(text || '').replace(/\s+$/, '');
-  body.appendChild(words);
-  block.appendChild(body);
-  head.addEventListener('click', function () { block.classList.toggle('shut'); });
-  return block;
-}
-
 // One assistant message becomes one sub-block in the answer card. Its first line is the
 // heading, and the rest of its text stays under that heading.
 function wordsBlock(text, mid) {
-  var block = make('div', 'wblock wwords');
+  var block = make('div', 'wblock wwords shut');
   if (mid) { block.dataset.said = mid; }
   var head = make('div', 'wbhead');
   var fold = make('span', 'wfold');
@@ -9184,7 +9137,7 @@ function wordsBlock(text, mid) {
 }
 
 // One block of the summary of the work.
-function workBlock(one, deep) {
+function workBlock(one) {
   var lines = one.lines || [];
   var under = one.sub || [];
   // A line of the summary with nothing under it is drawn as a plain line. The calls that fall
@@ -9195,7 +9148,7 @@ function workBlock(one, deep) {
     plain.textContent = one.head || '';
     return plain;
   }
-  var block = make('div', 'wblock' + (deep ? ' shut' : ''));
+  var block = make('div', 'wblock shut');
   var head = make('div', 'wbhead');
   var fold = make('span', 'wfold');
   fold.textContent = '\u25BE';
@@ -9248,7 +9201,7 @@ function workBlock(one, deep) {
   }
   // The calls made under this heading are inside it, each a block of its own, so a heading of
   // the work and the work of that heading are read together.
-  for (var k = 0; k < under.length; k++) { put(workBlock(under[k], true)); }
+  for (var k = 0; k < under.length; k++) { put(workBlock(under[k])); }
   if (!body) {
     block.className = 'wblock';
     head.style.cursor = 'default';
@@ -9257,9 +9210,8 @@ function workBlock(one, deep) {
   return block;
 }
 
-// The one block of an answer: `head` is what the model is at, and `parts` the blocks that are
-// inside it -- the thoughts of the model, the text it wrote while it worked, and the summary of
-// the work.
+// The one block of an answer: `head` is the current action, and `parts` are progress messages
+// and tool outcomes. Expandable sub-blocks start closed.
 function corporateCard(head, parts) {
   var box = make('div', 'work');
   var top = make('div', 'whead');
@@ -9277,23 +9229,21 @@ function corporateCard(head, parts) {
   return box;
 }
 
-// The parts of an answer message: its private thought, its assistant text sub-block, and any
-// completed tool work that belongs before it. Tool messages have their own outcome blocks.
-function cardParts(m, thoughtDone, excludeWords) {
+// The parts of an answer message: its assistant text sub-block and completed tool work.
+function cardParts(m, excludeWords) {
   var out = [];
   if (!m || (m.role && m.role !== 'Assistant')) { return out; }
   var short = m.work || [];
   // Stored work was completed between the preceding assistant step and this one, so it comes
-  // before this message's thoughts. Work on the live message belongs to the step being written
-  // now, so its thoughts come first.
+  // before this assistant update. Work on the live message belongs to the step being written
+  // now, so it follows that update.
   if (m.id !== 'live') {
-    for (var n = 0; n < short.length; n++) { out.push(workBlock(short[n], false)); }
+    for (var n = 0; n < short.length; n++) { out.push(workBlock(short[n])); }
   }
-  if (m.reasoning) { out.push(thinkingBlock(m.reasoning, m.reasoning_ms, !!thoughtDone)); }
   var said = String(m.body || '').trim();
   if (said && !excludeWords) { out.push(wordsBlock(said, m.id)); }
   if (m.id === 'live') {
-    for (var k = 0; k < short.length; k++) { out.push(workBlock(short[k], false)); }
+    for (var k = 0; k < short.length; k++) { out.push(workBlock(short[k])); }
   }
   return out;
 }
@@ -9345,21 +9295,11 @@ function answerCard(items, at) {
     var m = run[k];
     if (m.role !== 'Assistant') { continue; }
     foundAssistant = true;
-    parts = parts.concat(cardParts(m, m.id === 'live' ? !!m.reasoning_done : true, m === final));
+    parts = parts.concat(cardParts(m, m === final));
     if ((m.work || []).length || m.work_head) { head = m.work_head || 'Done'; }
   }
   if (!foundAssistant) { return null; }
   var made = corporateCard(head || 'Done', parts);
-  // A thought that is all of what an answer did needs no second saying of itself. The header of
-  // the block reports it already; the thought under it remains as text, and not as a block that
-  // repeats the header.
-  if (parts.length === 1 && parts[0].dataset && parts[0].dataset.kind === 'thought') {
-    var inner = parts[0].firstElementChild;
-    if (inner && inner.classList.contains('wbhead')) {
-      parts[0].removeChild(inner);
-      parts[0].classList.add('wsolo');
-    }
-  }
   return made;
 }
 

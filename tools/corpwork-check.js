@@ -92,7 +92,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     ])];
 
     // A context of two answers: progress stays in the first card, its final output sits outside,
-    // and the other answer is nothing but a thought.
+    // and the other answer has no visible thought sub-block.
     var talk = [
       said(1, 'You', 'Fix the order and run the tests.'),
       said(2, 'Assistant', 'I will read the parser first.',
@@ -158,8 +158,13 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     if (!made[0].querySelector('.wwords')) {
       faults.push('the text the model stated while it worked are not in the card ' + where);
     }
-    if (!made[0].querySelector('.wthink')) {
-      faults.push('the thought of the model is not in the card ' + where);
+    if (made[0].querySelector('.wthink')) {
+      faults.push('the card shows a thought sub-block ' + where);
+    }
+    var expandable = Array.prototype.slice.call(made[0].querySelectorAll('.wblock'))
+      .filter(function (one) { return one.querySelector(':scope > .wbbody'); });
+    if (expandable.some(function (one) { return !one.classList.contains('shut'); })) {
+      faults.push('an expandable sub-block is open by default ' + where);
     }
     // The rows of the parts written before the answer is offset; the text of the user does not.
     var away = ['2', '3'].filter(function (id) {
@@ -176,7 +181,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       faults.push('the second question of the user is offset ' + where);
     }
 
-    // A direct answer with no reasoning or tool work still has a card, with its answer inside.
+    // A direct answer with no tool work still has a card, and the final message remains outside.
     where = 'a direct answer with no tool work';
     box = look(state([
       said(20, 'You', 'What is 2 + 2?'),
@@ -187,14 +192,14 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       faults.push('a direct answer with no logged work has no card ' + where);
     } else {
       var directHead = (direct.querySelector('.whead') || {}).textContent || '';
-      if (!/Done/.test(directHead)
-          || !/4\./.test((direct.querySelector('.wwords') || {}).textContent || '')) {
-        faults.push('the direct answer is not in its Done card ' + where);
+      if (!/Done/.test(directHead) || direct.querySelector('.wwords')) {
+        faults.push('the direct answer was added to its progress card ' + where);
       }
     }
     var directPlain = box.querySelector('.turn[data-mid="21"] > .plain');
-    if (!directPlain || getComputedStyle(directPlain).display !== 'none') {
-      faults.push('the direct answer is duplicated outside its card ' + where);
+    if (!directPlain || getComputedStyle(directPlain).display === 'none'
+        || !/4\./.test(directPlain.textContent || '')) {
+      faults.push('the direct answer is not visible outside its card ' + where);
     }
 
     // The most important state change is the handoff from the live row to the saved answer.
@@ -215,6 +220,11 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     box = look(state(saved, CHAT));
     if (!box.querySelector('.turn[data-mid="41"] > .work')) {
       faults.push('the card vanished when the live row became a saved answer ' + where);
+    }
+    var savedPlain = box.querySelector('.turn[data-mid="41"] > .plain');
+    if (!savedPlain || getComputedStyle(savedPlain).display === 'none'
+        || !/Here is the explanation/.test(savedPlain.textContent || '')) {
+      faults.push('the final answer is not outside the saved card ' + where);
     }
     box = look(state(saved, CHAT));
     if (cards(box).length !== 1) {
@@ -281,19 +291,14 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       faults.push('a plain line of the summary carries a marker to open ' + where);
     }
 
-    // Three: an answer of nothing but a thought reports how long the model thought for once,
-    // and not twice.
-    where = 'an answer of nothing but a thought';
-    if (made[1].querySelectorAll('.wthink').length !== 1) {
-      faults.push('a thought of an answer remains twice over ' + where);
-    }
-    if (made[1].querySelector('.wthink .wbhead')) {
-      faults.push('the thought of an answer reports again what the header of the card reports ' + where);
+    // Three: private thought text never appears as a Corporate card sub-block.
+    where = 'an answer with private thought text';
+    if (made[1].querySelector('.wthink, .wthought')) {
+      faults.push('private thought text appears in the card ' + where);
     }
 
     // Four: an answer arriving is held by the card at the header of its turn, and the rows of
-    // its parts written before is offset. Live text is a sub-block in the card while it is
-    // being written, and the final assistant output stays in the card as its own sub-block.
+    // its parts written before is offset. Live text is a sub-block while it is being written.
     where = 'an answer coming in';
     box = look(state(talk.slice(0, 4), CHAT, {
       generating: true, live: 'Still writing this response.', reasoning: 'Say what changed.',
@@ -309,10 +314,9 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
         faults.push('the header of the card of an answer arriving reports "' + liveHead + '" ' + where);
       }
       var liveSub = liveCard.querySelector('.wwords[data-said="live"]');
-      if (!liveCard.querySelector('.wthink') || !liveSub
+      if (liveCard.querySelector('.wthink') || !liveSub
           || !/Still writing this response/.test(liveSub.textContent)) {
-        faults.push('the thought or the text of the work is not in the card of an '
-          + 'answer coming in ' + where);
+        faults.push('the text of the work is missing or a thought is shown in its card ' + where);
       }
     }
     if (box.querySelector('.turn[data-mid="2"]').classList.contains('t-hush') === false) {
@@ -452,7 +456,8 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
   }
   console.log('one card means an answer, at the header of the row that carries its last '
     + 'message; progress outputs stay in ordered card sub-blocks while the final answer is '
-    + 'outside; thoughts and tool outcomes are also inside it; a run of calls of one tool is '
+    + 'outside; private thoughts are hidden and tool outcomes are inside; sub-blocks start '
+    + 'collapsed; a run of calls of one tool is '
     + 'one block in the plural; '
     + 'a line of the short with nothing under it is a plain line; an answer coming in is '
     + 'held by one card and puts it again as it grows; direct answers keep their card; file '
