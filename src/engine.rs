@@ -9891,7 +9891,9 @@ fn keep_results_inside_the_space(
     } else {
         estimated
             .iter()
-            .map(|tokens| counted_total.saturating_mul(*tokens) / estimated_total)
+            .map(|tokens| {
+                ((counted_total as u128 * *tokens as u128) / estimated_total as u128) as u64
+            })
             .collect()
     };
     if estimated_total != 0 {
