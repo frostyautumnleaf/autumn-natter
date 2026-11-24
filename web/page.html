@@ -9275,7 +9275,7 @@ function fillLive(turn, m, group) {
     ink.base = group.ms || 0;
   } else {
     turn.className = 'turn t-ai';
-    turn.innerHTML = '';
+    clearTurn(turn);
     var made = thinkPanel();
     panel = made.panel; body = made.words;
     head = made.head; label = made.label;
@@ -9324,15 +9324,9 @@ function fillLive(turn, m, group) {
   drawWork(turn, m);
 }
 
-// The one block of an answer, put at the header of the turn that carries it. The block of an
-// answer that is arriving is put again as the work grows, so its header reports what the model
-// is at this moment. The fold the user gave the block is kept over the putting again, for the
-// block is created anew under a pointer that may be reading it.
-//
-// The block holds all of the answer: the thoughts of the model, the text it wrote that are
-// inside the block, and the summary of the work. An answer is in more than one message, so the
-// parts are gathered from every message of it, and the block remains once, at the header of the
-// row that ends the answer.
+// The one block of an answer stays at its first row while its contents grow. Its heading follows
+// the current action, and its stable node keeps the card from flashing as the answer adds tool
+// results and assistant messages.
 function drawWork(turn, m) {
   if (!turn || !chatting.corporate) { return; }
   var items = threadItems();
@@ -9341,22 +9335,58 @@ function drawWork(turn, m) {
   putCard(turn, items, at);
 }
 
-// The one block of the answer the message at this place belongs to, put at the header of the
-// turn. Only the turn that carries the last message of the answer takes the block, so an answer
-// is given one block and not one for every message of it; the other turns of the answer is
-// offset, see `rowHushed`. The fold the user gave the block is kept over the putting again, for
-// the block is created anew under a pointer that may be reading it.
+// The one block of an answer is anchored at its first row. Other rows hold only text that
+// belongs outside the card, such as the final answer, or are hidden while it is underway.
 function putCard(turn, items, at) {
-  if (answerEnd(items, at) !== at) { return; }
-  var made = answerCard(items, at);
+  var end = answerEnd(items, at);
+  var run = answerFrom(items, end);
+  if (!run.length) { return; }
+  var start = threadPlace(items, run[0]);
+  var owner = null;
+  var from = Number(turn.dataset.from), to = Number(turn.dataset.to);
+  if (Number.isFinite(from) && Number.isFinite(to) && start >= from && start < to) {
+    owner = turn;
+  } else {
+    owner = turnForIndex(start) || turn;
+  }
+  var made = answerCard(items, end);
   if (!made) { return; }
-  turn.classList.toggle('corp-card-only', !answerFinal(items, at));
-  var old = turn.querySelector(':scope > .work');
+  var final = answerFinal(items, end);
+  var finalAt = final ? threadPlace(items, final) : -1;
+  var ownerFrom = Number(owner.dataset.from), ownerTo = Number(owner.dataset.to);
+  var ownsFinal = finalAt >= 0 && Number.isFinite(ownerFrom) && Number.isFinite(ownerTo)
+    && finalAt >= ownerFrom && finalAt < ownerTo;
+  owner.classList.toggle('corp-card-only', !ownsFinal);
+  owner.classList.remove('t-hush');
+
+  // A live answer can move between rows as tool results and new assistant steps arrive. Keep
+  // its card on the first row of that answer and move the existing DOM node with it, so the
+  // main block and the latest completed sub-block never blink out during the move.
+  var key = made.dataset.foldKey;
+  var old = owner._corporateCard || owner.querySelector(':scope > .work');
+  if (!old || old.dataset.foldKey !== key) { old = null; }
+  var turns = el.col ? threadTurns(el.col) : [];
+  for (var r = 0; r < turns.length; r++) {
+    var found = turns[r].querySelector(':scope > .work');
+    if (!found || found.dataset.foldKey !== key) { continue; }
+    if (!old) { old = found; }
+    else if (found !== old && found.parentNode) { found.parentNode.removeChild(found); }
+  }
   if (old) {
     reconcileCorporateNode(old, made);
+    if (old.parentNode !== owner) { owner.insertBefore(old, owner.firstChild); }
   } else {
-    turn.insertBefore(made, turn.firstChild);
+    owner.insertBefore(made, owner.firstChild);
   }
+  delete owner._corporateCard;
+}
+
+// A turn may be rebuilt because the answer moved to another row. Hold onto its card while the
+// ordinary message content is redrawn; putCard will reconcile and restore that same node.
+function clearTurn(turn) {
+  var card = turn.querySelector(':scope > .work');
+  if (card) { turn._corporateCard = card; }
+  turn.innerHTML = '';
 }
 
 // Bring an already displayed corporate node in line with the latest snapshot while keeping
@@ -9551,6 +9581,20 @@ function wordsBlock(text, mid, foldKey) {
   return block;
 }
 
+// Repeated calls of one tool are grouped in the saved work data. Keep each call as its own
+// ordered sub-block in the corporate card, so adding a new call never replaces a completed one
+// with a temporary group heading.
+function appendCardWork(before, after, one, path, live) {
+  var under = one && one.sub || [];
+  if (one && one.group && under.length) {
+    for (var n = 0; n < under.length; n++) {
+      appendCardWork(before, after, under[n], path + ':' + n, live);
+    }
+    return;
+  }
+  (live && !one.done ? after : before).push(workBlock(one, path));
+}
+
 // One block of the summary of the work.
 function workHeading(one) {
   var head = one.head || 'Working';
@@ -9679,17 +9723,15 @@ function cardParts(m, excludeWords, answerKey, wordIndex) {
   var out = [];
   if (!m || (m.role && m.role !== 'Assistant')) { return out; }
   var short = m.work || [];
-  // Stored work was completed between the preceding assistant step and this one, so it comes
-  // before this assistant update. Work on the live message belongs to the step being written
-  // now, so it follows that update.
-  if (m.id !== 'live') {
-    for (var n = 0; n < short.length; n++) { out.push(workBlock(short[n], answerKey + ':work:' + wordIndex + ':' + n)); }
+  var before = [], after = [];
+  for (var n = 0; n < short.length; n++) {
+    var path = answerKey + ':work:' + wordIndex + ':' + n;
+    appendCardWork(before, after, short[n], path, m.id === 'live');
   }
+  out = out.concat(before);
   var said = String(m.body || '').trim();
   if (said && !excludeWords) { out.push(wordsBlock(said, m.id, answerKey + ':words:' + wordIndex)); }
-  if (m.id === 'live') {
-    for (var k = 0; k < short.length; k++) { out.push(workBlock(short[k], answerKey + ':work:' + wordIndex + ':' + k)); }
-  }
+  out = out.concat(after);
   return out;
 }
 
@@ -10018,7 +10060,7 @@ function corporateGreyed(on) {
 
 function fill(turn, m) {
   turn.className = 'turn ' + roleClass(m) + (m.failed ? ' bad' : '');
-  turn.innerHTML = '';
+  clearTurn(turn);
   if (chatting.corporate) {
     // The corporate display: one card for progress, with the final assistant message left as
     // ordinary chat text. Private thoughts and ordinary call bubbles stay hidden.
@@ -10580,6 +10622,9 @@ function unfoldRow(turn, folds) {
 // An answer that is arriving is drawn by the writer, inside the panel that holds the thought
 // that led to it when the Chatting setting reports that the blocks of a tool run is there.
 function drawRow(turn, items, row) {
+  // Corporate cards are pinned to the first row of their answer. Record this row's range
+  // before filling it, so a row being rebuilt can take its existing card before replacement.
+  markTurnRange(turn, row);
   turn.dataset.row = rowStamp(items, row);
   if (row.to - row.from > 1) {
     var last = row.live ? row.to - 1 : row.to;
@@ -10590,10 +10635,11 @@ function drawRow(turn, items, row) {
     markTurnRange(turn, row);
     if (row.live) {
       fillLive(turn, items[row.to - 1], made);
-      // The earlier tool/thought part of a live group is normally hushed while its answer is
-      // still ahead. This same row now holds the live corporate card, so hiding the group would
-      // hide the card until the answer ends.
-      if (chatting.corporate) { turn.classList.remove('t-hush'); }
+      // Keep the row visible only when the stable corporate card is attached to it. The live
+      // card may be anchored to an earlier row while this group carries the next step.
+      if (chatting.corporate && turn.querySelector(':scope > .work')) {
+        turn.classList.remove('t-hush');
+      }
     }
     return;
   }
@@ -10660,22 +10706,17 @@ function syncTurn(turn, items, row) {
 // back, so the answer that is arriving can go on inside it.
 function fillGroup(turn, items, from, to) {
   turn.className = 'turn t-tool';
-  turn.innerHTML = '';
-  // The corporate display: the one block of the answer is at the header of the row, as it does
-  // for an answer that is on its own. The panel of the thoughts and the blocks of the calls are
-  // hidden whole by the mode, so this block is the only account of the work the user is given,
-  // and it is with the row that ends the answer alone.
+  clearTurn(turn);
+  // The corporate display keeps one card for the whole answer. The card is anchored to the
+  // answer's first row; later rows carry only the final user-facing message, if there is one.
   var short = null;
-  if (chatting.corporate && answerEnd(items, to - 1) === to - 1) {
-    short = answerCard(items, to - 1);
-  }
-  if (short) {
-    turn.appendChild(short);
+  if (chatting.corporate && to > from) {
+    putCard(turn, items, to - 1);
+    short = turn.querySelector(':scope > .work');
   }
   // While the corporate display remains the row reads as the answer it led to, for nothing else
   // in it is seen.
   if (chatting.corporate && items[to - 1].role === 'Assistant') { turn.className = 'turn t-ai'; }
-  if (short) { turn.classList.toggle('corp-card-only', !answerFinal(items, to - 1)); }
   var made = thinkPanel();
   var ms = 0;
   var parts = groupParts(items, from, to);
@@ -10711,8 +10752,10 @@ function fillGroup(turn, items, from, to) {
   // A row of thoughts and runs that came to no answer shows nothing at all while the corporate
   // display remains, so it is offset. So does a row of an answer that the one block is above,
   // for the block holds all of it.
-  if (chatting.corporate && (rowHushed(items, from, to)
-      || (!short && !turn.querySelector('.plain > .thought, .plain > .tool')))) {
+  var final = chatting.corporate ? answerFinal(items, answerEnd(items, to - 1)) : null;
+  var finalAt = final ? threadPlace(items, final) : -1;
+  var finalHere = finalAt >= from && finalAt < to;
+  if (chatting.corporate && !short && !finalHere) {
     turn.classList.add('t-hush');
   }
   return { panel: made.panel, words: made.words, head: made.head,
