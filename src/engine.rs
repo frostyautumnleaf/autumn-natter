@@ -12192,12 +12192,6 @@ fn run_command(
             output
         );
     }
-    if !sandbox_on {
-        output = format!(
-            "{}\n(Not sandboxed: this command could reach the whole machine)",
-            output
-        );
-    }
     let Ok(mut guard) = state.lock() else { return };
     guard.finish_tool_in(chat, &message_id, &output, outcome.ok);
 }
