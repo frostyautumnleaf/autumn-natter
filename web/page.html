@@ -11524,16 +11524,6 @@ function drawThread(s) {
       if (q >= 0) { placeEnd(turns[q], plan[q]); }
     }
   }
-  // Tool calls change the live work tree while the model is waiting for their result, when
-  // there may be no text chunk for the streaming writer to use as a redraw signal. Reconcile
-  // the card from every state snapshot so its in-progress headings are visible immediately.
-  if (chatting.corporate && ((s.live_work || []).length || s.live_work_head)) {
-    var liveAt = -1;
-    for (var i = items.length - 1; i >= 0; i--) {
-      if (items[i].id === 'live' || items[i].id === 'live-work') { liveAt = i; break; }
-    }
-    if (liveAt >= 0) { drawWork(turnForIndex(liveAt), items[liveAt]); }
-  }
   if (stick) {
     el.thread.scrollTop = el.thread.scrollHeight;
     stepHeadShown();
