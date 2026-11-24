@@ -1,9 +1,9 @@
-// Check the Logs tab of the sheet of settings: the log of this run is chosen by
-// itself and read again by itself, manual reads stand still until the button is
-// pressed, the search shows the lines that hold the words looked for, and a line
-// of a fault is read in the colour of a fault. The log is stood in for by a list
-// of words that grows when the check asks, which is how a start of the server
-// that is going on is spoken for without a server and without a model.
+// Check the Logs tab of the settings panel: the log of this run is chosen by itself and read
+// again by itself, manual reads stay still until the button is pressed, the search shows the
+// lines that hold the text searched for, and a line of an error is read in the colour of an
+// error. The log is placed in for by a list of text that grows when the check asks, which is
+// how a start of the server that is going on is spoken for without a server and without a
+// model.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -32,11 +32,11 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       return all.length ? all[all.length - 1].textContent : '';
     };
 
-    // The log of the server, stood in for. It grows when the check asks, and the
-    // calls of the bridge are caught here instead of sent to the program.
+    // The log of the server, was in for. It grows when the check asks, and the calls of the
+    // bridge are caught here instead of sent to the program.
     var held = [];
     for (var n = 1; n <= 30; n++) { held.push('0.0' + n + ' I line ' + n + ' of the log'); }
-    held.push('0.03.10 W a warning about the room of the talk');
+    held.push('0.03.10 W a warning about the size of the context');
     held.push('0.03.11 E error: the model file could not be read');
     var reads = 0;
     getLogs = function () {
@@ -65,63 +65,63 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('the log chosen by itself is ' + by('logPick').value + ' and not the current one');
     }
     if (by('saveSheet').style.display !== 'none') {
-      faults.push('the button for saving stands on the Logs tab, where nothing is saved');
+      faults.push('the button for saving is on the Logs tab, where nothing is saved');
     }
 
-    // The foot of the sheet, as it stood before this tab was added: a line drawn
-    // over it, and its note and its buttons standing on one line at the bottom,
-    // within the window and not below it. The button for saving is put away on
-    // this tab, so it is asked for only where it stands.
+    // The bottom of the stylesheet, as it was before this tab was added: a line drawn over it,
+    // and its note and its buttons remaining on one line at the bottom, within the window and
+    // not below it. The button for saving is closed on this tab, so it is requested only where
+    // it is.
     var footOf = function (wantsSave) {
       var foot = document.querySelector('#overlay .sheet-foot');
       var walk = getComputedStyle(foot);
       var r = foot.getBoundingClientRect();
       var sheet = by('overlay').firstElementChild.getBoundingClientRect();
       if (walk.display !== 'flex') {
-        faults.push('the foot of the sheet is laid out as ' + walk.display + ', not in a line');
+        faults.push('the bottom of the stylesheet is decompressed as ' + walk.display + ', not in a line');
       }
-      if (walk.borderTopWidth !== '1px') { faults.push('no line is drawn over the foot of the sheet'); }
+      if (walk.borderTopWidth !== '1px') { faults.push('no line is drawn over the bottom of the stylesheet'); }
       if (r.height < 40) {
-        faults.push('the foot of the sheet stands ' + Math.round(r.height) + ' high, which is nothing');
+        faults.push('the bottom of the stylesheet remains ' + Math.round(r.height) + ' high, which is nothing');
       }
-      if (Math.abs(r.bottom - sheet.bottom) > 1) { faults.push('the foot does not stand at the bottom of the sheet'); }
-      if (r.bottom > window.innerHeight + 1) { faults.push('the foot of the sheet stands below the window'); }
+      if (Math.abs(r.bottom - sheet.bottom) > 1) { faults.push('the foot is not at the bottom of the stylesheet'); }
+      if (r.bottom > window.innerHeight + 1) { faults.push('the bottom of the stylesheet remains below the window'); }
       var close = by('closeSheet').getBoundingClientRect();
-      if (close.height < 20 || close.width < 30) { faults.push('the button for closing has no room of its own'); }
+      if (close.height < 20 || close.width < 30) { faults.push('the button for closing has no space of its own'); }
       if (close.bottom > r.bottom + 1 || close.right > r.right + 1) {
-        faults.push('the button for closing stands outside the foot');
+        faults.push('the button for closing is outside the foot');
       }
       if (wantsSave) {
         var save = by('saveSheet').getBoundingClientRect();
-        if (save.height < 20 || save.width < 30) { faults.push('the button for saving has no room of its own'); }
-        if (Math.abs(save.top - close.top) > 1) { faults.push('the two buttons of the foot do not stand on one line'); }
-        if (save.right > r.right + 1) { faults.push('the button for saving stands outside the foot'); }
+        if (save.height < 20 || save.width < 30) { faults.push('the button for saving has no space of its own'); }
+        if (Math.abs(save.top - close.top) > 1) { faults.push('the two buttons of the foot are not on one line'); }
+        if (save.right > r.right + 1) { faults.push('the button for saving is outside the foot'); }
       }
     };
     footOf(false);
 
-    // Refresh belongs to manual. While the log is read by itself the button
-    // stands greyed, and a button that stands greyed cannot be pressed.
+    // Refresh belongs to manual. While the log is read by itself the button remains greyed, and
+    // a button that remains greyed cannot be pressed.
     var refresh = by('logRefresh');
     if (refresh.textContent.trim() !== 'Refresh') {
       faults.push('the button reads \"' + refresh.textContent.trim() + '\" and not Refresh');
     }
-    if (!refresh.disabled) { faults.push('Refresh stands live while the log is read by itself'); }
+    if (!refresh.disabled) { faults.push('Refresh remains live while the log is read by itself'); }
     if (getComputedStyle(refresh).cursor !== 'default') {
-      faults.push('Refresh does not stand back from the pointer while it is greyed');
+      faults.push('Refresh is not back from the pointer while it is greyed');
     }
     var pressed = 0;
     refresh.addEventListener('click', function () { pressed++; });
     refresh.click();
-    if (pressed) { faults.push('Refresh could be pressed while it stood greyed'); }
-    if (by('logDir').textContent.indexOf('logs') < 0) { faults.push('the folder of the logs is not named'); }
-    if (by('logLlama').textContent.indexOf('llamacpp') < 0) { faults.push('the folder of llama.cpp is not named'); }
-    if (by('logSandbox').textContent.indexOf('bubblewrap') < 0) { faults.push('the answer of the jail is not shown'); }
+    if (pressed) { faults.push('Refresh could be pressed while it was greyed'); }
+    if (by('logDir').textContent.indexOf('logs') < 0) { faults.push('the directory of the logs is not named'); }
+    if (by('logLlama').textContent.indexOf('llamacpp') < 0) { faults.push('the directory of llama.cpp is not named'); }
+    if (by('logSandbox').textContent.indexOf('bubblewrap') < 0) { faults.push('the answer of the sandbox is not shown'); }
     var state = by('logState').textContent;
     if (state.indexOf('server-2.log') < 0) { faults.push('the line over the log does not name the log'); }
     if (state.indexOf('read again at') < 0) { faults.push('the line over the log does not say when it was read'); }
 
-    // The end of the log stands there, and a line of a fault is coloured as one.
+    // The end of the log is there, and a line of an error is coloured as one.
     if (lastLine().indexOf('the model file could not be read') < 0) {
       faults.push('the last line of the log is not shown: ' + lastLine());
     }
@@ -131,24 +131,24 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       if (every[e].classList.contains('err')) { kinds.err++; }
       if (every[e].classList.contains('warn')) { kinds.warn++; }
     }
-    if (kinds.err !== 1) { faults.push(kinds.err + ' lines read as a fault, not the one that holds the error'); }
+    if (kinds.err !== 1) { faults.push(kinds.err + ' lines read as an error, not the one that holds the error'); }
     if (kinds.warn !== 1) { faults.push(kinds.warn + ' lines read as a warning, not the one that holds it'); }
     var body = by('logBody');
     if (body.scrollHeight - body.scrollTop - body.clientHeight > 3) {
-      faults.push('the view does not stand at the last line of the log');
+      faults.push('the view is not at the last line of the log');
     }
 
-    // The search shows the lines that hold the words, and marks the words.
+    // The search shows the lines that hold the text, and markers the text.
     var search = by('logSearch');
     search.value = 'model file';
     search.dispatchEvent(new Event('input'));
     await wait(40);
     var found = rows();
     if (found.length !== 1) {
-      faults.push('the search left ' + found.length + ' lines, not the one that holds the words');
+      faults.push('the search left ' + found.length + ' lines, not the one that holds the text');
     }
     if (found.length && !found[0].querySelector('b.hit')) {
-      faults.push('the words looked for are not marked on the line that holds them');
+      faults.push('the text searched for is not flagged on the line that holds it');
     }
     if (by('logCount').textContent.indexOf('1 line') < 0) {
       faults.push('the count of the search does not say one line: ' + by('logCount').textContent);
@@ -158,11 +158,10 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     await wait(40);
     if (rows().length !== 0) { faults.push('a search that holds nothing showed lines anyway'); }
     if (by('logCount').textContent.indexOf('nothing') < 0) {
-      faults.push('a search that holds nothing did not say so: ' + by('logCount').textContent);
+      faults.push('a search that holds nothing did not record it: ' + by('logCount').textContent);
     }
 
-    // The two steps go from one line that holds the words to the next, and round
-    // the back again.
+    // The two steps go from one line that holds the text to the next, and round the back again.
     search.value = 'of the log';
     search.dispatchEvent(new Event('input'));
     await wait(40);
@@ -170,8 +169,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (hits.length !== 30) { faults.push('the search found ' + hits.length + ' lines, not 30'); }
     by('logNext').click();
     var now = body.querySelectorAll('.ln.now');
-    if (now.length !== 1) { faults.push('a step did not stand on exactly one line'); }
-    else if (hits.length && now[0] !== hits[0]) { faults.push('the first step does not stand on the first line'); }
+    if (now.length !== 1) { faults.push('a step was not on exactly one line'); }
+    else if (hits.length && now[0] !== hits[0]) { faults.push('the first step is not on the first line'); }
     by('logNext').click();
     now = body.querySelectorAll('.ln.now');
     if (hits.length > 1 && now.length && now[0] !== hits[1]) { faults.push('the second step did not move on'); }
@@ -197,8 +196,8 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('turning the following on did not bring the view back to the end');
     }
 
-    // Manual: nothing moves until the button beside the field is pressed, and
-    // the button stands live for this pace alone.
+    // Manual: nothing moves until the button beside the field is pressed, and the button
+    // remains live for this pace alone.
     var rate = by('logRate');
     rate.value = 'manual';
     rate.dispatchEvent(new Event('change'));
@@ -215,23 +214,23 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     if (lastLine().indexOf('came while the reading stood manual') < 0) {
       faults.push('the button did not read the log again');
     }
-    if (pressed !== 1) { faults.push('the button that stands live could not be pressed'); }
+    if (pressed !== 1) { faults.push('the button that remains live could not be pressed'); }
 
-    // Live: the new line comes by itself, and the five second pace does not come
-    // sooner than it says.
+    // Live: the new line comes by itself, and the five second pace does not come sooner than it
+    // reports.
     rate.value = 'live';
     rate.dispatchEvent(new Event('change'));
     held.push('9.99.01 I a line that came while the tab stood open');
     await wait(1500);
     if (lastLine().indexOf('while the tab stood open') < 0) {
-      faults.push('a live read did not bring the line that came in: ' + lastLine());
+      faults.push('a live read did not bring the line that arrived: ' + lastLine());
     }
     rate.value = '5';
     rate.dispatchEvent(new Event('change'));
     held.push('9.99.02 I a line of the five second wait');
     await wait(1500);
     if (lastLine().indexOf('five second wait') >= 0) {
-      faults.push('the five second pace came sooner than the five seconds it stands for');
+      faults.push('the five second pace came sooner than the five seconds it means');
     }
     await wait(4200);
     if (lastLine().indexOf('five second wait') < 0) {
@@ -241,15 +240,15 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     // The pace is put back on live, and the button of manual goes grey again.
     rate.value = 'live';
     rate.dispatchEvent(new Event('change'));
-    if (!refresh.disabled) { faults.push('Refresh did not go back to standing greyed with the log'); }
+    if (!refresh.disabled) { faults.push('Refresh did not go back to remaining greyed with the log'); }
 
-    // The switch at the head of the tab. The log of the program is a second list,
-    // with names of its own and words of its own, and the kind travels with the ask
-    // for it. The words that were being looked for are left in their field, for the
-    // same fault is often looked for in both logs.
+    // The switch at the header of the tab. The log of the program is a second list, with names
+    // of its own and text of its own, and the type travels with the request for it. The text
+    // that was being searched for is left in their field, for the same error is often searched
+    // for in both logs.
     var prog = [];
     prog.push('2026-11-02 03:01:44.123 meter the meter moved from 412 to 900 while an answer was coming in');
-    prog.push('2026-11-02 03:01:45.004 summary the handoff summary #2 is kept: 6964 of the talk stood for 412');
+    prog.push('2026-11-02 03:01:45.004 summary the handoff summary #2 is kept: 6964 of the conversation was for 412');
     prog.push('2026-11-02 03:01:46.500 cut the writing is stopped at 240112 of 262144');
     var asked = [];
     getLogs = function (kind) {
@@ -275,38 +274,38 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     by('logFaceProgram').click();
     await wait(140);
     if (asked[asked.length - 1] !== 'program') {
-      faults.push('the ask for the list did not carry the kind: ' + asked[asked.length - 1]);
+      faults.push('the request for the list did not carry the type: ' + asked[asked.length - 1]);
     }
     if (!by('logFaceProgram').classList.contains('on')) {
-      faults.push('the switch does not mark the log of the program as the one in front');
+      faults.push('the switch does not marker the log of the program as the one in front');
     }
     if (by('logFaceServer').classList.contains('on')) {
-      faults.push('the switch marks both faces at once');
+      faults.push('the switch markers both pages at once');
     }
     if (by('logPick').value !== 'program-9.log') {
       faults.push('the log of the program chosen by itself is ' + by('logPick').value + ' and not the current one');
     }
     if (lastLine().indexOf('the writing is stopped at 240112') < 0) {
-      faults.push('the words of the log of the program are not shown: ' + lastLine());
+      faults.push('the text of the log of the program are not shown: ' + lastLine());
     }
     if (by('logBody').getAttribute('aria-label').indexOf('program') < 0) {
-      faults.push('the log of the program is named for the server to a reader of the page');
+      faults.push('the log of the program is named for the server to a user of the page');
     }
     // And back to the log of llama.cpp, which is read again the same way.
     by('logFaceServer').click();
     await wait(140);
     if (by('logPick').value !== 'server-2.log') {
-      faults.push('the log of the server is not come at again: ' + by('logPick').value);
+      faults.push('the log of the server is not reach again: ' + by('logPick').value);
     }
     if (lastLine().indexOf('five second wait') < 0) {
-      faults.push('the words of the log of the server are not put back: ' + lastLine());
+      faults.push('the text of the log of the server are not put back: ' + lastLine());
     }
     if (by('logBody').getAttribute('aria-label').indexOf('llama-server') < 0) {
-      faults.push('the log of the server is not named for a reader of the page');
+      faults.push('the log of the server is not named for a user of the page');
     }
 
-    // Back on the tab that has a button for saving, the foot stands as it did:
-    // the note at one end and the two buttons on one line at the other.
+    // Back on the tab that has a button for saving, the foot remains as it did: the note at one
+    // end and the two buttons on one line at the other.
     showSetTab('program');
     await wait(60);
     footOf(true);
@@ -314,12 +313,12 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       faults.push('the button for saving was put away on the tab that has something to save');
     }
 
-    // The sheet is put away, and the reading of the log stops with it.
+    // The stylesheet is closed, and the reading of the log stops with it.
     reads = 0;
     closeSettings();
     held.push('9.99.03 I a line written after the sheet was put away');
     await wait(1400);
-    if (reads !== 0) { faults.push('the log was read ' + reads + ' times with the sheet closed'); }
+    if (reads !== 0) { faults.push('the log was read ' + reads + ' times with the stylesheet closed'); }
     if (!by('overlay').classList.contains('hidden')) { faults.push('the sheet did not go away'); }
     return faults;
   });
@@ -329,10 +328,10 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     process.exit(1);
   }
   console.log('the Logs tab chooses the log of this run by itself, reads it again while the');
-  console.log('update stands on live or on five seconds and stands still on manual, shows the');
-  console.log('lines that hold the words looked for with the words marked and the two steps');
-  console.log('between them, colours a line of a fault, and stops reading when the sheet is put');
+  console.log('update is on live or on five seconds and stays still on manual, shows the');
+  console.log('lines that hold the text searched for with the text flagged and the two steps');
+  console.log('between them, colours a line of an error, and stops reading when the stylesheet is put');
   console.log('away; Refresh stands greyed outside manual, the switch at the head reads the log');
-  console.log('of the program and the log of llama.cpp by the same rules, and the foot of the');
-  console.log('sheet stands as it did, with its note and its buttons on one line at the bottom');
+  console.log('of the program and the log of llama.cpp by the same rules, and the bottom of the');
+  console.log('sheet remains as it did, with its note and its buttons on one line at the bottom');
 })().catch(function (e) { console.error(e); process.exit(1); });

@@ -1,25 +1,25 @@
 // The tool that shows the contents of files to the user.
 //
-// The model names the files, and the program puts a block into the talk with one
-// button in it. That button opens the window the chat already has for looking at
-// one file whole: the same window, the same ways of closing it. Every file of the
-// call stands in the window on a page of its own, and the user turns the pages
-// with the two arrows, for a row of files is read one after the other.
+// The model names the files, and the program puts a block into the conversation with one button
+// in it. That button opens the window the chat already has for looking at one file whole: the
+// same window, the same ways of closing it. Every file of the call is in the window on a page
+// of its own, and the user turns the pages with the two arrows, for a row of files is read one
+// after the other.
 //
-// Only the kinds the window can really show are let through: words, a picture, a
-// drawing of lines, a page of html, and a document of pages. An archive is
-// refused, for a window of the chat is not a folder, and a kind nothing knows is
-// refused too. The tool says which files it let through and which it would not,
-// and a file the user may want to take away is what the offer tool is for.
+// Only the types the window can really show are let through: text, an image, a drawing of
+// lines, a page of html, and a document of pages. An archive is refused, for a window of the
+// chat is not a folder, and a type nothing knows is refused too. The tool reports which files
+// it let through and which it would not, and a file the user may want to remove is what the
+// proposal tool is for.
 //
-// The window reads the file again when the user opens it, so what is shown stands
-// on the machine at that moment and not at the moment the model made the call.
-// The bytes are never kept in the words of the talk.
+// The window reads the file again when the user opens it, so what is shown is on the computer
+// at that moment and not at the moment the model made the call. The bytes are never kept in the
+// text of the conversation.
 //
-// The road of a file follows the state of the sandbox, as the file tools do:
-// while the jail stands only the room of the chat is opened, and with the jail
-// off a file of the machine may be shown. The tool is offered under the badge of
-// the tools, and the drop-down of the badge holds its own line.
+// The path of a file follows the state of the sandbox, as the file tools do: while the sandbox
+// remains only the working directory of the chat is opened, and with the sandbox off a file of the
+// computer may be shown. The tool is proposed under the badge of the tools, and the drop-down
+// of the badge holds its own line.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -27,20 +27,18 @@ use std::path::Path;
 
 use crate::tools::with_rule;
 
-// Name the model uses to ask for files to be shown.
+// Name the model uses to request files to be shown.
 pub const NAME: &str = "display_files";
 
-// The most files one call may put in the window. A model that named the whole of
-// a repository was not asked to, and a page for every file of it is not a thing a
-// user turns through.
+// The most files one call may put in the window. A model that named all of a repository was not
+// asked to, and a page for every file of it is not an item a user turns through.
 pub const GREATEST_FILES: usize = 8;
 
-// The greatest file the window reads. A file above this is named and refused: the
-// window is for reading a page, and a file of that size is taken with the offer
-// tool instead.
+// The greatest file the window reads. A file above this is named and refused: the window is for
+// reading a page, and a file of that size is taken with the proposal tool instead.
 pub const GREATEST_FILE: u64 = 8 * 1024 * 1024;
 
-// The kinds of file the window shows, as a picture of a drawing of lines.
+// The types of file the window shows, as an image of a drawing of lines.
 const PICTURE_ENDINGS: &str = "png jpg jpeg gif webp bmp ico avif";
 const VECTOR_ENDINGS: &str = "svg";
 const PAGE_ENDINGS: &str = "html htm xhtml";
@@ -51,9 +49,9 @@ const WORDS_ENDINGS: &str = "txt text md markdown mdx rst adoc asciidoc org tex 
                              swift rb php pl pm lua r dart vue svelte sql sh bash zsh fish diff \
                              patch po pot srt vtt log";
 
-// How one file is shown: "words", "picture", "vector", "page", "document", or
-// nothing at all when the window has no way of showing that kind. The word goes
-// to the page with the file, so the page does not keep a list of its own.
+// How one file is shown: "text", "image", "vector", "page", "document", or nothing at all when
+// the window has no way of showing that type. The word goes to the page with the file, so the
+// page does not keep a list of its own.
 pub fn shape(extension: &str) -> &'static str {
     let tail = extension.to_ascii_lowercase();
     let tail = tail.trim_start_matches('.');
@@ -78,7 +76,7 @@ pub fn shape(extension: &str) -> &'static str {
     ""
 }
 
-// True when the window has a way of showing this kind of file.
+// True when the window has a way of showing this type of file.
 pub fn displayable(extension: &str) -> bool {
     !shape(extension).is_empty()
 }
@@ -87,13 +85,13 @@ fn has(list: &str, tail: &str) -> bool {
     list.split(' ').any(|one| one == tail)
 }
 
-// The tool as the model is told of it. `sandbox` decides only the sentence of the
-// room, as it does for the tools that work on the files.
+// The tool as the model is informed of it. `sandbox` decides only the sentence of the
+// space, as it does for the tools that work on the files.
 pub fn definition(sandbox: bool) -> Value {
     let reach = if sandbox {
-        "While the sandbox stands, only a file of that directory may be shown."
+        "While the sandbox remains, only a file of that directory may be shown."
     } else {
-        "The file may stand anywhere on this machine, and the tool runs in the program."
+        "The file may remain anywhere on this computer, and the tool runs in the program."
     };
     json!({
         "type": "function",
@@ -117,7 +115,7 @@ pub fn definition(sandbox: bool) -> Value {
                     },
                     "note": {
                         "type": "string",
-                        "description": "A short line for the block, in the words of the chat, such as 'The three files you asked to see'. Nothing is put there when it is left out."
+                        "description": "A short line for the block, in the text of the chat, such as 'The three files you asked to see'. Nothing is put there when it is left out."
                     }
                 },
                 "required": ["paths"]
@@ -126,10 +124,9 @@ pub fn definition(sandbox: bool) -> Value {
     })
 }
 
-// One file of one call. The record of the message holds these, so the block is
-// drawn again when the chat is opened another day, and in the page of the remote
-// mode. `path` is the name the window asks the program for, and `shape` is how the
-// window shows that file.
+// One file of one call. The record of the message holds these, so the block is drawn again when
+// the chat is opened another day, and in the page of the remote mode. `path` is the name the
+// window asks the program for, and `shape` is how the window shows that file.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Shown {
     pub name: String,
@@ -139,20 +136,19 @@ pub struct Shown {
     pub size: u64,
 }
 
-// What became of one call. The block stands in the chat when `shown` holds
-// anything, and the words of the receipt go back to the model either way.
+// What became of one call. The block is in the chat when `shown` holds anything, and the text
+// of the result go back to the model either way.
 pub struct Made {
     pub report: crate::tools::Report,
     // The files the window can show, in the order the model named them.
     pub shown: Vec<Shown>,
-    // The words the model gave for the block, cut to one short line.
+    // The text the model gave for the block, cut to one short line.
     pub note: String,
 }
 
-// Answer one call. Every file is looked for as the file tools look for a file, and
-// a file the window cannot show, or that is not there, or that is bigger than the
-// window reads, is reported and passed over. A call with nothing showable in it
-// gives no block at all.
+// Answer one call. Every file is searched for as the file tools search for a file, and a file
+// the window cannot show, or that is not there, or that is bigger than the window reads, is
+// reported and passed over. A call with nothing showable in it gives no block at all.
 pub fn show(workdir: &Path, arguments: &str, sandbox: bool) -> Made {
     let value: Value = serde_json::from_str(arguments).unwrap_or(Value::Null);
     let note = trim_note(value.get("note").and_then(|v| v.as_str()).unwrap_or(""));
@@ -232,8 +228,8 @@ pub fn show(workdir: &Path, arguments: &str, sandbox: bool) -> Made {
     }
 }
 
-// The files the model named. The array is read first, and one name under `path`
-// is taken when there is no array, as the offer tool does.
+// The files the model named. The array is read first, and one name under `path` is taken when
+// there is no array, as the proposal tool does.
 fn asked_paths(value: &Value) -> Vec<String> {
     let mut asked: Vec<String> = Vec::new();
     if let Some(list) = value.get("paths").and_then(|v| v.as_array()) {
@@ -264,8 +260,8 @@ fn full_name(one: &Shown) -> String {
     }
 }
 
-// The name of a file as the block shows it: the part before the tail, cut in the
-// middle when it is too long for a line.
+// The name of a file as the block shows it: the part before the tail, cut in the middle when it
+// is too long for a line.
 fn cut_of(name: &str) -> String {
     let (stem, _) = crate::download::split_name(name);
     let mut held = String::new();
@@ -279,17 +275,17 @@ fn cut_of(name: &str) -> String {
     held
 }
 
-// The road of a file, read as the file tools read a name. While the jail stands
-// the room of the chat is the only place opened; with the jail off a name of the
-// machine is taken as it is given.
+// The path of a file, read as the file tools read a name. While the sandbox is on, the working
+// directory of the chat is the only place opened; with the sandbox off, a name of this computer
+// is taken as it is given.
 fn place_of(workdir: &Path, asked: &str, sandbox: bool) -> Option<std::path::PathBuf> {
     crate::editfile::place_kept(workdir, asked, sandbox)
         .ok()
         .filter(|place| place.is_file())
 }
 
-// The name the window asks for. A file of the room of the chat is named from the
-// room, as the offer tool names it; a file outside the room keeps the whole road.
+// The name the window requests. A file inside the working directory of the chat is named from the
+// working directory, as the proposal tool names it; a file outside it keeps the whole path.
 fn clean_of(workdir: &Path, place: &Path) -> String {
     let room = workdir
         .canonicalize()
@@ -321,14 +317,14 @@ fn trim_note(words: &str) -> String {
     held
 }
 
-// True of the name of this tool, so the engine knows the call is one of the tools
-// the program does itself.
+// True of the name of this tool, so the engine knows the call is one of the tools the program
+// does itself.
 pub fn is_tool(name: &str) -> bool {
     name == NAME
 }
 
-// The head of the block of a call that is still being written: the first file the
-// model named, and the count of the rest when it named more than one.
+// The header of the block of a call that is still being written: the first file the model
+// named, and the count of the rest when it named more than one.
 pub fn partial_words(arguments: &str) -> String {
     let value: Value = serde_json::from_str(arguments).unwrap_or(Value::Null);
     let asked = asked_paths(&value);
@@ -339,16 +335,16 @@ pub fn partial_words(arguments: &str) -> String {
     }
 }
 
-// The last part of a name the model gave, for the head of a block.
+// The last part of a name the model gave, for the header of a block.
 fn last_of(asked: &str) -> String {
     asked.replace('\\', "/").rsplit('/').next().unwrap_or("").to_string()
 }
 
-// The bytes of one file of a block, for the window. The name is read the same way
-// the tool read it, and the same rule of the room lies over it: while the jail
-// stands only the room of the chat is opened, and with the jail off a name of the
-// machine is taken as it is given. A kind the window does not show is refused
-// here too, so a name cannot be used to read a file the tool would not show.
+// The bytes of one file of a block, for the window. The name is read the same way the tool read
+// it, and the same rule of the space lies over it: while the sandbox remains only the
+// working directory of the chat is opened, and with the sandbox off a name of the computer is taken as
+// it is given. A type the window does not show is refused here too, so a name cannot be used to
+// read a file the tool would not show.
 pub fn bytes_of(
     workdir: &Path,
     asked: &str,
@@ -379,12 +375,12 @@ mod tests {
             name
         ));
         let _ = std::fs::remove_dir_all(&place);
-        std::fs::create_dir_all(&place).expect("the room of the test could not be made");
+        std::fs::create_dir_all(&place).expect("the directory of the test could not be made");
         place
     }
 
-    // The window shows five kinds and nothing else. An archive and a kind nothing
-    // knows are turned away, which is what the tool tells the model.
+    // The window shows five types and nothing else. An archive and a type nothing knows are
+    // turned away, which is what the tool reports the model.
     #[test]
     fn the_kinds_of_the_window_are_known() {
         assert_eq!(shape("md"), "words");
@@ -400,8 +396,8 @@ mod tests {
         assert!(!displayable("zip"));
     }
 
-    // The files of the call are put in the window in the order they were named,
-    // and the file the window cannot show is told to the model.
+    // The files of the call are put in the window in the order they were named, and the file
+    // the window cannot show is set to the model.
     #[test]
     fn the_files_of_a_call_are_shown_and_the_rest_are_told() {
         let room = room_of("call");
@@ -426,35 +422,34 @@ mod tests {
         let _ = std::fs::remove_dir_all(&room);
     }
 
-    // The room of the chat is the only place opened while the jail stands. With
-    // the jail off a file of the machine is shown, which is the rule the file
-    // tools work to as well.
+    // The working directory of the chat is the only place opened while the sandbox is on. With the
+    // sandbox off a file of the computer is shown, which is the rule the file tools work to as
+    // well.
     #[test]
     fn the_room_of_the_files_follows_the_state_of_the_sandbox() {
-        let room = room_of("jail");
+        let room = room_of("sandbox");
         let beside = std::env::temp_dir().join(format!(
             "autumn-natter-display-beside-{}.md",
             std::process::id()
         ));
         std::fs::write(&beside, "a file of the machine").expect("the file was written");
         let kept = show(&room, r#"{"paths":["../outside.md"]}"#, true);
-        assert!(!kept.report.ok, "a name out of the room was shown with the jail on");
+        assert!(!kept.report.ok, "a name out of the working directory was shown with the sandbox on");
         let whole = format!(r#"{{"paths":["{}"]}}"#, beside.display());
         let let_in = show(&room, &whole, false);
         assert!(let_in.report.ok, "{}", let_in.report.output);
         assert_eq!(let_in.shown.len(), 1);
         assert!(
             let_in.shown[0].path.ends_with(".md"),
-            "the whole road of the file was lost: {}",
+            "the whole path of the file was lost: {}",
             let_in.shown[0].path
         );
         let _ = std::fs::remove_dir_all(&room);
         let _ = std::fs::remove_file(&beside);
     }
 
-    // The window asks for the bytes by the name the block carries, and the same
-    // rule of the room lies over the asking. A kind the window does not show is
-    // refused there too.
+    // The window requests the bytes by the name the block carries, and the same rule of the
+    // space lies over the asking. A type the window does not show is refused there too.
     #[test]
     fn the_bytes_of_a_block_come_by_the_name_of_the_block() {
         let room = room_of("bytes");
@@ -468,8 +463,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&room);
     }
 
-    // The tool is told of the two rules the model has to keep: it shows nothing
-    // the user did not ask for, and it asks in words before it shows.
+    // The tool is informed of the two rules the model has to keep: it shows nothing the user
+    // did not request, and it asks in text before it shows.
     #[test]
     fn the_tool_says_when_it_may_be_called() {
         let made = definition(true);
@@ -481,14 +476,14 @@ mod tests {
             .expect("the tool is described");
         assert!(words.contains("ONLY when the user asked"), "the tool does not say it waits for the user to ask");
         assert!(words.contains("ask in words"), "the tool does not say to ask at the end");
-        assert!(words.contains("sandbox"), "the room of the files is not said");
+        assert!(words.contains("sandbox"), "the space of the files is not stated");
         let down = definition(false);
         let said = down
             .get("function")
             .and_then(|f| f.get("description"))
             .and_then(|v| v.as_str())
             .expect("the tool is described");
-        assert!(said.contains("anywhere on this machine"), "the reach of the tool does not follow the sandbox");
-        assert!(!said.contains("While the sandbox stands"), "the jail is named with the jail off");
+        assert!(said.contains("anywhere on this computer"), "the reach of the tool does not follow the sandbox");
+        assert!(!said.contains("While the sandbox stands"), "the sandbox is named with the sandbox off");
     }
 }

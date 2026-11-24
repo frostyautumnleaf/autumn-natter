@@ -1,11 +1,11 @@
 // The llama-server process, and the OpenAI compatible calls to it.
 //
-// Autumn Natter never loads a model by itself. It starts llama-server as a
-// child process and talks to it over HTTP on the loopback address only.
+// Autumn Natter never loads a model by itself. It starts llama-server as a child process and
+// sends requests to it over HTTP on the loopback address only.
 
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,23 +20,58 @@ pub const KV_TYPES: &[&str] = &[
     "f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1",
 ];
 
-// Speculative decoding methods llama.cpp accepts for --spec-type.
-pub const SPEC_TYPES: &[&str] = &[
-    "none",
-    "draft-simple",
-    "draft-eagle3",
-    "draft-mtp",
-    "draft-dflash",
-    "draft-dspark",
-    "ngram-simple",
-    "ngram-map-k",
-    "ngram-map-k4v",
-    "ngram-mod",
-    "ngram-cache",
+// Speculative decoding methods llama.cpp accepts for --spec-type, with the text each choice of
+// the settings panel pointers to the server. The two remain together here because one choice is
+// a pair: ngram-mod and MTP at once, which the server takes as a comma-separated list and runs
+// both ways of guessing.
+//
+// The place in this list is the number a set of settings keeps, so a new choice goes at the
+// end: the choices before it keep the places the settings files of the users name.
+pub const SPEC_TYPES: &[(&str, &str)] = &[
+    ("none", "none"),
+    ("draft-simple", "draft-simple"),
+    ("draft-eagle3", "draft-eagle3"),
+    ("draft-mtp", "draft-mtp"),
+    ("draft-dflash", "draft-dflash"),
+    ("draft-dspark", "draft-dspark"),
+    ("ngram-simple", "ngram-simple"),
+    ("ngram-map-k", "ngram-map-k"),
+    ("ngram-map-k4v", "ngram-map-k4v"),
+    ("ngram-mod", "ngram-mod"),
+    ("ngram-cache", "ngram-cache"),
+    // The pair. The ngram-mod guesses come out of the conversation itself and cost nothing of
+    // the model, and the MTP header guesses what it can while the n-grams remain empty handed.
+    ("ngram-mod + MTP", "ngram-mod,draft-mtp"),
 ];
 
-// Model load modes shown in the user interface. The value handed to llama.cpp
-// is the last one, because directio is called dio there.
+// The names of the choices, for the settings panel.
+pub fn spec_names() -> Vec<&'static str> {
+    SPEC_TYPES.iter().map(|(name, _value)| *name).collect()
+}
+
+// The text one choice pointers to `--spec-type`. A place outside the list is read as all of it
+// being off, which is what a settings file that names no choice means.
+pub fn spec_value(index: usize) -> &'static str {
+    SPEC_TYPES
+        .get(index)
+        .map(|(_name, value)| *value)
+        .unwrap_or("none")
+}
+
+// True when the choice requests the ngram-mod guesses, on its own or beside another way of
+// guessing. The three numbers of ngram-mod go to the server only then.
+pub fn spec_has_ngram_mod(index: usize) -> bool {
+    spec_value(index).contains("ngram-mod")
+}
+
+// True when the choice requests the MTP header of the model. The header is then the file the
+// drafts come from.
+pub fn spec_has_mtp(index: usize) -> bool {
+    spec_value(index).contains("draft-mtp")
+}
+
+// Model load modes shown in the user interface. The value handed to llama.cpp is the last one,
+// because directio is called dio there.
 pub const LOAD_MODES: &[&str] = &["none", "mmap", "mlock", "mmap+mlock", "directio"];
 
 fn load_mode_value(index: usize) -> &'static str {
@@ -66,9 +101,9 @@ impl ModelInfo {
     }
 }
 
-// Look for model files in a directory tree. Hidden folders are skipped. A model
-// that was split into parts stands once in the list, and a model that stands in
-// a folder of its own is named for that folder.
+// Search for model files in a directory tree. Hidden folders are skipped. A model that was
+// split into parts remains once in the list, and a model that is in a directory of its own is
+// named for that folder.
 pub fn list_models(dir: &Path) -> Vec<ModelInfo> {
     let mut found: Vec<ModelInfo> = Vec::new();
     walk(dir, 0, 3, &mut found);
@@ -77,11 +112,10 @@ pub fn list_models(dir: &Path) -> Vec<ModelInfo> {
     out
 }
 
-// The mark of a split at the end of the name of a model file:
-// `-00001-of-00033`, or the same with underscores. It gives the name the model
-// has without the mark, the number of this part, and the number of parts in
-// all. A name with no mark gives nothing, so a model of eight billion parameters
-// called `llama-3-8b` keeps its name.
+// The marker of a split at the end of the name of a model file: `-00001-of-00033`, or the same
+// with underscores. It gives the name the model has without the marker, the number of this
+// part, and the number of parts in all. A name with no marker gives nothing, so a model of
+// eight billion parameters called `llama-3-8b` keeps its name.
 fn shard_of(stem: &str) -> Option<(String, usize, usize)> {
     let (before, total) = stem.rsplit_once(['-', '_'])?;
     let total: usize = total.parse().ok()?;
@@ -91,22 +125,21 @@ fn shard_of(stem: &str) -> Option<(String, usize, usize)> {
     }
     let (base, number) = before_of.rsplit_once(['-', '_'])?;
     let number: usize = number.parse().ok()?;
-    // A name that is nothing but the mark of a split names no model.
+    // A name that is nothing but the marker of a split names no model.
     if base.is_empty() || number == 0 {
         return None;
     }
     Some((base.to_string(), number, total))
 }
 
-// One part of a split, or a whole model, with the name it stands in the list
-// under. The parts of one model are gathered under the folder they stand in and
-// their name without the mark of the split; the first of them is kept, for the
-// rest hang off it and are no choice of their own. A model that stands in a
-// folder of its own inside the folder of models is named for that folder, which
-// is the name the user gave it when the files were put there.
+// One part of a split, or a whole model, with the name it is in the list under. The parts of
+// one model are gathered under the folder they are in and their name without the marker of the
+// split; the first of them is kept, for the rest hang off it and are no choice of their own. A
+// model that is in a directory of its own inside the directory of models is named for that
+// folder, which is the name the user gave it when the files were put there.
 fn named_models(root: &Path, found: Vec<ModelInfo>) -> Vec<ModelInfo> {
-    // One entry per model: the folder, the name without the mark of a split,
-    // the number of the part kept, and the record the list is drawn from.
+    // One entry per model: the folder, the name without the marker of a split, the number of
+    // the part kept, and the record the list is drawn from.
     let mut kept: Vec<(PathBuf, String, usize, ModelInfo)> = Vec::new();
     for model in found {
         let stem = model.name.clone();
@@ -129,8 +162,8 @@ fn named_models(root: &Path, found: Vec<ModelInfo>) -> Vec<ModelInfo> {
             None => kept.push((dir, base, number, model)),
         }
     }
-    // How many models stand in each folder, looked up before the folders are
-    // given away one by one.
+    // How many models are in each folder, looked up before the folders are given away one by
+    // one.
     let mut counts: Vec<(PathBuf, usize)> = Vec::new();
     for (dir, _, _, _) in kept.iter() {
         match counts.iter_mut().find(|(d, _)| d == dir) {
@@ -152,9 +185,8 @@ fn named_models(root: &Path, found: Vec<ModelInfo>) -> Vec<ModelInfo> {
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
-            // The folder of one model names that model. A folder of more than
-            // one cannot name them all alike, so the name of the file is kept
-            // beside it.
+            // The directory of one model names that model. A directory of more than one cannot
+            // name them all as well, so the name of the file is kept beside it.
             model.name = match (folder.is_empty(), count_at(&dir)) {
                 (true, _) => base,
                 (false, 1) => folder,
@@ -168,8 +200,8 @@ fn named_models(root: &Path, found: Vec<ModelInfo>) -> Vec<ModelInfo> {
     out
 }
 
-// The name a projector of a split model answers to: the name of the model
-// without the mark of the split.
+// The name a projector of a split model answers to: the name of the model without the marker of
+// the split.
 fn shard_base(stem: &str) -> String {
     match shard_of(stem) {
         Some((base, _number, _total)) => base,
@@ -219,13 +251,13 @@ fn walk(dir: &Path, depth: usize, max_depth: usize, out: &mut Vec<ModelInfo>) {
     }
 }
 
-// Find the vision projector that belongs to a model. It is looked for where the
-// files of the model stand, which is a folder of its own when the model has one,
-// and not in the folder of models the user pointed at.
+// Find the vision projector that belongs to a model. It is searched for where the files of the
+// model remain, which is a directory of its own when the model has one, and not in the
+// directory of models the user pointed at.
 pub fn find_mmproj(model: &Path) -> Option<PathBuf> {
     let dir = model.parent()?;
     let stem = model.file_stem()?.to_string_lossy().to_lowercase();
-    // The mark of a split is no part of the name a projector answers to.
+    // The marker of a split is no part of the name a projector answers to.
     let base = shard_base(&stem).to_lowercase();
     let entries = fs::read_dir(dir).ok()?;
     let mut fallback: Option<PathBuf> = None;
@@ -248,10 +280,55 @@ pub fn find_mmproj(model: &Path) -> Option<PathBuf> {
                 continue;
             }
         }
-        // Prefer the projector named after the model, with the mark of a split
-        // on either side taken away.
+        // Prefer the projector named after the model, with the marker of a split on either side
+        // removed.
         let pbase = shard_base(&pstem);
         if pbase.starts_with(&base) || base.starts_with(&pbase) || name.starts_with(&stem) {
+            return Some(path);
+        }
+        if fallback.is_none() {
+            fallback = Some(path);
+        }
+    }
+    fallback
+}
+
+// Find the MTP header that belongs to a model, the way the vision projector is found: where the
+// files of the model remain, which is a directory of its own when the model has one, and not in
+// the directory of models the user pointed at.
+//
+// A header answers to `mtp` in its name. It is never the file of the model itself, for a model
+// whose own name carries the word is not a header of itself, and the server would be asked to
+// header a model with the model.
+pub fn find_mtp(model: &Path) -> Option<PathBuf> {
+    let dir = model.parent()?;
+    let stem = model.file_stem()?.to_string_lossy().to_lowercase();
+    let base = shard_base(&stem);
+    let entries = fs::read_dir(dir).ok()?;
+    let mut fallback: Option<PathBuf> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if !name.ends_with(".gguf") || !name.contains("mtp") {
+            continue;
+        }
+        if path == model {
+            continue;
+        }
+        let hstem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .unwrap_or_else(|| name.clone());
+        // A header that was split too is read from its first part.
+        if let Some((_hbase, number, _total)) = shard_of(&hstem) {
+            if number != 1 {
+                continue;
+            }
+        }
+        // Prefer the header named for the model it headers, with the word for the header
+        // anywhere between the two ends of the name.
+        let hbase = shard_base(&hstem);
+        if hbase.starts_with(&base) || base.starts_with(&hbase) {
             return Some(path);
         }
         if fallback.is_none() {
@@ -285,7 +362,7 @@ impl Server {
         match self.child.try_wait() {
             Ok(None) => true,
             Ok(Some(_)) => false,
-            // The handle is gone, so treat the server as dead.
+            // The handle is removed, so treat the server as dead.
             Err(_) => false,
         }
     }
@@ -293,55 +370,59 @@ impl Server {
 
     // Start llama-server and wait until it answers.
     //
-    // The thinking mode, the choice of keeping the thinking, the tools of the
-    // chat and the jail of the sandbox stand on none of the flags of the
-    // server: they ride on every ask instead (see `thinking_kwargs`), so a
-    // change of any of them leaves this process, and the model it loaded, be.
-    // What a server is started with is the model and the settings of the Model
-    // tab, and nothing else.
+    // The thinking mode, the choice of keeping the thinking, the tools of the chat and the
+    // sandbox of the sandbox are on none of the flags of the server: they ride on every ask
+    // instead (see `thinking_kwargs`), so a change of any of them leaves this process, and the
+    // model it loaded, be. What a server is started with is the model and the settings of the
+    // Model tab, and nothing else.
     //
-    // `keep_talks` names the folder the server writes the talks it has worked
-    // through into, and reads them back from -- see `slot_save_flags`. It is
-    // none when the user has switched the keeping off, and nothing of a talk
-    // is then kept anywhere.
+    // `keep_talks` names the folder the server writes the conversations it has worked through
+    // into, and reads them back from -- see `slot_save_flags`. It is none when the user has
+    // switched the keeping off, and nothing of a conversation is then kept anywhere.
+    //
+    // `cancel` is the flag an answer is stopped with. The reading-in of a big model is minutes
+    // of waiting, and a stop asked for in the middle of them is asked for the whole of the turn
+    // - the load with it - so the flag is looked at again every round of the wait below. A child
+    // that is stopped this way is stopped where it stands and nothing is tried again: a second
+    // load would be a load the user asked for a second time. No flag is given where nothing of a
+    // load may be stopped.
     pub fn start(
         binary: &Path,
         model: &ModelInfo,
         settings: &ModelSettings,
         gpus: &[Gpu],
         keep_talks: Option<&Path>,
+        cancel: Option<&AtomicBool>,
     ) -> Result<Server, String> {
         let port = util::free_port().ok_or("No free port on this machine")?;
         let mut notes = Vec::new();
-        // The folder has to stand before it is named to the server, for the
-        // server throws out an argument that names no folder of the disk, and
-        // the keeping of every talk would go missing with it. A folder that
-        // cannot be made is told to the user; the server starts none the
-        // less, only without the keeping.
+        // The folder has to remain before it is named to the server, for the server throws out
+        // an argument that names no folder of the disk, and the keeping of every conversation
+        // would go missing with it. A folder that cannot be made is set to the user; the server
+        // starts none the less, only without the keeping.
         //
-        // The switch of the default arguments holds for these words as well, so
-        // a server that is given a command line of the user's own is not given
-        // an argument it may not know. With the switch off no talk is kept.
+        // The switch of the default arguments holds for this text as well, so a server that is
+        // given a command line of the user's own is not given an argument it may not know. With
+        // the switch off no conversation is kept.
         let keeping = match keep_talks {
             Some(dir) if settings.send_default_args => match fs::create_dir_all(dir) {
                 Ok(()) => slot_save_flags(dir),
                 Err(problem) => {
                     notes.push(format!(
-                        "The talks the model has read through cannot be kept: the folder of the program could not be made ({})",
+                        "The conversations the model has read through cannot be kept: the program directory could not be made ({})",
                         problem
                     ));
                     Vec::new()
                 }
             },
-            // No folder at all, or the switch of the default arguments off:
-            // nothing is named to the server, and nothing is kept.
+            // No folder at all, or the switch of the default arguments off: nothing is named to
+            // the server, and nothing is kept.
             _ => Vec::new(),
         };
-        // Every start asks for the chat template of the model. Three things of
-        // a chat are read out of that template and nothing else: the tools the
-        // chat offers, the thinking mode, and the keeping of the thinking. A
-        // model whose template will not stand is started again without it, and
-        // such a server reads no tool call and no thinking flag.
+        // Every start requests the chat template of the model. Three items of a chat are
+        // extracted from that template and nothing else: the tools the chat proposes, the
+        // thinking mode, and the keeping of the thinking. A model whose template will not be is
+        // started again without it, and such a server reads no tool call and no thinking flag.
         let mut template = true;
         let mut args = build_args(
             binary,
@@ -354,9 +435,9 @@ impl Server {
         );
         args.extend(keeping.iter().cloned());
 
-        // One log for this start of the server, under the logs of the program.
-        // The Logs tab of the sheet of settings reads it, and the ten newest of
-        // them, so a start that went wrong can still be read after the next one.
+        // One log for this start of the server, under the logs of the program. The Logs tab of
+        // the settings panel reads it, and the ten newest of them, so a start that went wrong
+        // can still be read after the next one.
         let log_place = crate::logs::start(crate::logs::Kind::Server);
         let mut attempt = 0;
         loop {
@@ -391,7 +472,7 @@ impl Server {
                 model_id: model.id(),
                 notes: notes.clone(),
             };
-            match server.wait_ready(log_place.as_deref()) {
+            match server.wait_ready(log_place.as_deref(), cancel) {
                 Ok(props) => {
                     if let Some(n) = props
                         .get("default_generation_settings")
@@ -405,19 +486,17 @@ impl Server {
                     return Ok(server);
                 }
                 Err(problem) => {
-                    // A model whose chat template will not stand cannot carry
-                    // the tools of a chat, a thinking mode, or the keeping of
-                    // the thinking. One retry without the template tells the
-                    // user less and still works.
+                    // A model whose chat template will not be cannot carry the tools of a chat,
+                    // a thinking mode, or the keeping of the thinking. One retry without the
+                    // template reports the user less and still works.
                     //
-                    // With the switch of the default arguments off, the program
-                    // never asked for the template, so a start that left is not
-                    // the fault of it. The words of the user would go out again
-                    // as they stand, and the second attempt would say the same
-                    // thing twice.
+                    // With the switch of the default arguments off, the program never requested
+                    // the template, so a start that left is not the error in it. The text of
+                    // the user would go out again as they are now, and the second attempt would
+                    // say the same twice.
                     if attempt == 1 && template && problem.exited && settings.send_default_args {
                         notes.push(
-                            "This model has no usable chat template, so no tool and no thinking mode is offered"
+                            "This model has no usable chat template, so no tool and no thinking mode is proposed"
                                 .to_string(),
                         );
                         template = false;
@@ -430,8 +509,8 @@ impl Server {
                             template,
                             &mut notes,
                         );
-                        // The retry is a whole new command line, so the folder
-                        // of the kept talks is named to it again.
+                        // The retry is a whole new command line, so the directory of the kept
+                        // conversations is named to it again.
                         args.extend(keeping.iter().cloned());
                         server.stop_now();
                         continue;
@@ -453,15 +532,27 @@ impl Server {
         let _ = self.child.wait();
     }
 
-    // Wait for the health endpoint. The load of a big model can take minutes.
-    // The log of this start is read back when the wait fails, so the words the
-    // server gave are with the words of the fault.
-    fn wait_ready(&mut self, log_place: Option<&Path>) -> Result<Value, Fail> {
+    // Wait for the health endpoint. The load of a big model can take minutes. The log of this
+    // start is read back when the wait fails, so the text the server gave are with the text of
+    // the error. The flag an answer is stopped with is asked about once every round, so a stop
+    // asked for while the model is being read in is answered in the fraction of a second, and
+    // not when the reading ends - which, for a model of many parts, is not an hour the user
+    // stopped has any wish to wait for.
+    fn wait_ready(&mut self, log_place: Option<&Path>, cancel: Option<&AtomicBool>) -> Result<Value, Fail> {
         let deadline = Instant::now() + Duration::from_secs(900);
-        // The status of the last health call, for the error text. Every round
-        // of the loop sets it before the text is made.
+        // The status of the last health call, for the error text. Every round of the loop sets
+        // it before the text is created.
         let mut last_status: Option<u16>;
         loop {
+            // The answer this load was begun for is over, so the load is over with it. Nothing
+            // is read back of the log: the server left no fault of its own, it was stopped.
+            if load_stopped(cancel) {
+                return Err(Fail {
+                    text: STOPPED_LOAD_WORDS.to_string(),
+                    output: String::new(),
+                    exited: false,
+                });
+            }
             // A child that left early never becomes ready.
             if let Ok(Some(_)) = self.child.try_wait() {
                 return Err(Fail {
@@ -495,6 +586,19 @@ impl Server {
     }
 }
 
+// The words the wait for a ready server gives back when the answer it was begun for was stopped
+// while the model was still being read in. They say what was stopped and what stands where it
+// was: the message of the user is still in the chat, the model is not loaded, and sending the
+// message again begins the load again.
+pub const STOPPED_LOAD_WORDS: &str =
+    "The load of the model was stopped: you stopped the answer while it was being read in. Your message is still in the chat, and send it again to load the model.";
+
+// Whether the answer this load was begun for is over. Where nothing may be stopped no flag is
+// given, and a missing flag is an answer that is going on.
+fn load_stopped(cancel: Option<&AtomicBool>) -> bool {
+    cancel.map(|flag| flag.load(Ordering::Relaxed)).unwrap_or(false)
+}
+
 // Why the start failed.
 struct Fail {
     text: String,
@@ -502,9 +606,9 @@ struct Fail {
     exited: bool,
 }
 
-// Open the log file of this start. The file was made when the start was asked
-// for, and it is written from the front again when the server is started a
-// second time in the same run of the program.
+// Open the log file of this start. The file was created when the start was requested, and it is
+// written from the front again when the server is started a second time in the same run of the
+// program.
 fn open_log(place: Option<&Path>) -> Option<fs::File> {
     let place = place?;
     fs::OpenOptions::new()
@@ -514,8 +618,8 @@ fn open_log(place: Option<&Path>) -> Option<fs::File> {
         .ok()
 }
 
-// Read the end of a text file, for an error message. No place at all, and no
-// file at all, give back nothing.
+// Read the end of a text file, for an error message. No place at all, and no file at all, give
+// back nothing.
 fn read_tail(path: Option<&Path>, max_bytes: usize) -> String {
     let text = match path {
         Some(place) => fs::read_to_string(place).unwrap_or_default(),
@@ -532,28 +636,25 @@ fn read_tail(path: Option<&Path>, max_bytes: usize) -> String {
     text[idx..].to_string()
 }
 
-// A model spread over more than one card has its graphs made on each of them,
-// and a graph of one card does not stand with the memory of another: such a
-// server is told to make no graphs at all, which costs a little speed and
-// saves the start.
+// A model spread over more than one card has its graphs made on each of them, and a graph of
+// one card is not with the memory of another: such a server is set to make no graphs at all,
+// which costs a little speed and saves the start.
 pub fn graphs_of_a_spread_model(gpus: &[Gpu]) -> bool {
     gpus.iter().filter(|g| g.enabled && g.is_offload).count() > 1
 }
 
-// Build the command line for llama-server. The server takes many knobs,
-// so the call is a flat list.
+// Build the command line for llama-server. The server takes many knobs, so the call is a flat
+// list.
 //
-// `template` says whether the chat template of the model is asked for with
-// `--jinja`. It is asked for on every start, for the three things a chat may
-// change between one answer and the next are all read out of that template and
-// are sent with the ask instead of with the command line: the tools of the
-// chat, the thinking mode, and the keeping of the thinking of the earlier
-// turns. `thinking_kwargs` is the other half of that.
+// `template` reports whether the chat template of the model is requested with `--jinja`. It is
+// requested on every start, for the three items a chat may change between one answer and the
+// next are all extracted from that template and are sent with the request instead of with the
+// command line: the tools of the chat, the thinking mode, and the keeping of the thinking of
+// the earlier turns. `thinking_kwargs` is the other half of that.
 //
-// With `send_default_args` off, only the four words of the connection go out:
-// the model, its name, the address and the port. Nothing else of this program
-// is named to the server then, and the command line is those four words and
-// the extra arguments of the user.
+// With `send_default_args` off, only the four words of the connection go out: the model, its
+// name, the address and the port. Nothing else of this program is named to the server then, and
+// the command line is those four words and the extra arguments of the user.
 pub fn build_args(
     _binary: &Path,
     model: &ModelInfo,
@@ -575,17 +676,16 @@ pub fn build_args(
         port.to_string(),
     ];
 
-    // The switch of the default arguments. A server of another build, a fork
-    // that knows none of the arguments llama.cpp answers to today, throws out
-    // the command line at the first word it does not know and is gone before
-    // the program can speak to it. With the switch off, the whole of the
-    // command line but the four words of the connection is then what the user
-    // wrote in the field of the extra arguments, and that field is sent last:
-    // another model, another port or another address named there is the last
-    // word, as it is for every argument of the tab when the switch stands on.
+    // The switch of the default arguments. A server of another build, a fork that knows none of
+    // the arguments llama.cpp answers to today, throws out the command line at the first word
+    // it does not know and is removed before the program can speak to it. With the switch off,
+    // all of the command line but the four words of the connection is then what the user wrote
+    // in the field of the extra arguments, and that field is sent last: another model, another
+    // port or another address named there is the last word, as it is for every argument of the
+    // tab when the switch is on.
     if !settings.send_default_args {
         notes.push(String::from(
-            "The default arguments are off, so the server is given only the model, its name, the address and the port. Nothing of the Model tab is asked for, and the talks are not kept.",
+            "The default arguments are off, so the server is given only the model, its name, the address and the port. Nothing of the Model tab is requested, and the conversations are not kept.",
         ));
         for part in util::split_args(&settings.extra_args) {
             args.push(part);
@@ -597,11 +697,11 @@ pub fn build_args(
         "--no-webui".into(),
         "--props".into(),
         "--slots".into(),
-        // The log of the server is read in the Logs tab of the sheet of
-        // settings, so it holds everything the server has to say: every level of
-        // the log, the time before every line, and no colours, for a file holds
-        // no colours. These three stand here and not in the settings of one
-        // model, for a log that hides nothing is what a fault is read out of.
+        // The log of the server is read in the Logs tab of the settings panel, so it holds
+        // everything the server has to say: every level of the log, the time before every line,
+        // and no colours, for a file holds no colours. These three is here and not in the
+        // settings of one model, for a log that hides nothing is what an error is extracted
+        // from.
         "-v".into(),
         "--log-timestamps".into(),
         "--log-colors".into(),
@@ -620,14 +720,13 @@ pub fn build_args(
         settings.ubatch_size.max(1).to_string(),
         "-lm".into(),
         load_mode_value(clamp(settings.load_index, LOAD_MODES.len())).to_string(),
-        // Fast attention stands on for every start, and has no setting of its
-        // own.
+        // Fast attention is on for every start, and has no setting of its own.
         "-fa".into(),
         "on".into(),
     ]);
 
-    // Devices. llama.cpp has no tensor parallel switch, so the device list
-    // does that work: every enabled device, or only the first one.
+    // Devices. llama.cpp has no tensor parallel switch, so the device list does that work:
+    // every enabled device, or only the first one.
     let offload: Vec<&Gpu> = gpus.iter().filter(|g| g.enabled && g.is_offload).collect();
     let any_offload = gpus.iter().any(|g| g.is_offload);
     if any_offload {
@@ -644,35 +743,30 @@ pub fn build_args(
             };
             args.push("--device".into());
             args.push(names.join(","));
-            // The whole of the layers go to the cards, which is what putting a
-            // model on a card means. llama.cpp reads any negative number as the
-            // whole of the layers, and -1 is its own way of saying it; a great
-            // number of layers said the same thing in the end, but read as a
-            // count the model was over, and left the server nothing to say about
-            // the layers of a model that would not fit.
+            // All of the layers go to the cards, which is what putting a model on a card means.
+            // llama.cpp reads any negative number as all of the layers, and -1 is its own way
+            // of saying it; a great number of layers stated the same in the end, but read as a
+            // count the model was over, and left the server nothing to say about the layers of
+            // a model that would not fit.
             args.push("-ngl".into());
             args.push("-1".into());
         }
     }
 
-    // A model spread over more than one card has its graphs made on each card,
-    // and a graph of one card does not stand with the memory of another, which
-    // the server answers by failing to make the graph at all. Such a server is
-    // told to make no graphs, which costs a little speed and saves the start.
-    // There is no word for this on the command line, so it is carried in the
+    // A model spread over more than one card has its graphs made on each card, and a graph of
+    // one card is not with the memory of another, which the server answers by failing to make
+    // the graph at all. Such a server is set to make no graphs, which costs a little speed and
+    // saves the start. There is no word for this on the command line, so it is carried in the
     // touch of the server instead. See `graphs_of_a_spread_model`.
 
-    // The fit of the model into the cards is asked for whenever the user holds
-    // any of a card back, and needs no setting of its own. The server is
-    // told the room of the talk the chat was given, and how much of every
-    // card is to stand over: the share the user set
-    // is what the model may work in, and what is left of a card is the margin.
-    // A margin never falls below the least a server needs to stand up in, which
-    // is what a slider at the whole of the cards comes to -- for the whole of
-    // the cards would else ask for a margin of nothing at all.
-    // The least a server may be left standing over: below this there is no
-    // room for the talk, and a model loaded with such a margin would have
-    // nowhere to put it.
+    // The fit of the model into the cards is requested whenever the user holds any of a card
+    // back, and needs no setting of its own. The server is informed the size of the context the
+    // chat was given, and how much of every card is to remain over: the share the user set is
+    // what the model may work in, and what is left of a card is the margin. A margin never
+    // falls below the least a server needs to remain up in, which is what a slider at all of
+    // the cards comes to -- for all of the cards would else request a margin of nothing at all.
+    // The least a server may be left remaining over: below this there is no space for the
+    // conversation, and a model loaded with such a margin would have nowhere to put it.
     const LEAST_FIT_TARGET: u64 = 256;
     let share = crate::config::sanitize_vram_budget(settings.vram_budget);
     let total: u64 = gpus
@@ -698,8 +792,8 @@ pub fn build_args(
         args.push(margins.join(","));
     }
 
-    // Sampling of one answer. The values are sent on every start, so the
-    // defaults of this program stand over the defaults of the server.
+    // Sampling of one answer. The values are sent on every start, so the defaults of this
+    // program remain over the defaults of the server.
     args.push("--temp".into());
     args.push(settings.temperature.to_string());
     args.push("--top-p".into());
@@ -719,26 +813,26 @@ pub fn build_args(
     args.push("--seed".into());
     args.push(settings.seed.to_string());
 
-    // The room for context checkpoints, and the ceiling of the talk memory.
-    // 0 turns the checkpoints off, and for the ceiling 0 turns the cache off
-    // while -1 lifts the limit.
+    // The space for context checkpoints, and the ceiling of the conversation memory. 0
+    // turns the checkpoints off, and for the ceiling 0 turns the cache off while -1 lifts the
+    // limit.
     args.push("--ctx-checkpoints".into());
     args.push(settings.ctx_checkpoints.to_string());
     args.push("--cache-ram".into());
     args.push(settings.cache_ram.to_string());
 
-    // Prompt caching. The server keeps the work of the prompt and reuses it
-    // on the next turn. The flag is sent in one form or the other, so the
-    // switch of the window always reaches the server.
+    // Prompt caching. The server keeps the work of the prompt and reuses it on the next turn.
+    // The flag is sent in one form or the other, so the switch of the window always reaches the
+    // server.
     if settings.cache_prompt {
         args.push("--cache-prompt".into());
     } else {
         args.push("--no-cache-prompt".into());
     }
 
-    // A talk that overflows the room. By default the server shifts the old
-    // words out and keeps going. With the switch on, the shift stays away,
-    // and the answer stops at the edge of the room.
+    // A conversation that overflows the space. By default the server shifts the old text
+    // out and keeps going. With the switch on, the shift stays away, and the answer stops at
+    // the edge of the space.
     if settings.no_context_shift {
         args.push("--no-context-shift".into());
     }
@@ -752,8 +846,8 @@ pub fn build_args(
             }
             None => notes.push(format!("No vision projector file next to {}", model.name)),
         }
-        // The room one image may take. 0 keeps the value inside the model
-        // file, so the flag stays away.
+        // The space one image may take. 0 keeps the value inside the model file, so the
+        // flag stays away.
         if settings.image_min_tokens > 0 {
             args.push("--image-min-tokens".into());
             args.push(settings.image_min_tokens.to_string());
@@ -762,8 +856,8 @@ pub fn build_args(
             args.push("--image-max-tokens".into());
             args.push(settings.image_max_tokens.to_string());
         }
-        // The projector works on the card, by default. With the switch on, it
-        // works on the CPU, and the card stays free for the model.
+        // The projector works on the card, by default. With the switch on, it works on the CPU,
+        // and the card stays free for the model.
         if settings.mmproj_cpu {
             args.push("--no-mmproj-offload".into());
         }
@@ -779,30 +873,61 @@ pub fn build_args(
         args.push(settings.reasoning_message.clone());
     }
 
-    // Thinking stands on no flag of the server. The mode of the chat in hand,
-    // and the choice of keeping the thinking of the earlier turns, are words
-    // for the chat template and are sent with every ask -- see
-    // `thinking_kwargs` -- so a badge moved between two answers neither changes
-    // this command line nor sends the model away with it. The reasoning budget
-    // of the Model tab is a setting of the server and stays here.
+    // Thinking is on no flag of the server. The mode of the current chat, and the choice of
+    // keeping the thinking of the earlier turns, are text for the chat template and are sent
+    // with every ask -- see `thinking_kwargs` -- so a badge moved between two answers neither
+    // changes this command line nor sends the model away with it. The reasoning budget of the
+    // Model tab is a setting of the server and stays here.
 
     // Speculative decoding.
-    let spec = SPEC_TYPES[clamp(settings.spec_index, SPEC_TYPES.len())];
+    let spec = spec_value(settings.spec_index);
     if spec != "none" {
         args.push("--spec-type".into());
         args.push(spec.to_string());
         args.push("--spec-draft-n-max".into());
         args.push(settings.draft_tokens.max(1).to_string());
-        if !settings.draft_model.trim().is_empty() {
+        // The three numbers ngram-mod is given, and only for a choice that requests ngram-mod.
+        // 0 keeps the number the server is on, so a set of settings written before these fields
+        // existed requests nothing and guesses as it did.
+        if spec_has_ngram_mod(settings.spec_index) {
+            if settings.ngram_match > 0 {
+                args.push("--spec-ngram-mod-n-match".into());
+                args.push(settings.ngram_match.to_string());
+            }
+            if settings.ngram_max > 0 {
+                args.push("--spec-ngram-mod-n-max".into());
+                args.push(settings.ngram_max.to_string());
+            }
+            if settings.ngram_min > 0 {
+                args.push("--spec-ngram-mod-n-min".into());
+                args.push(settings.ngram_min.to_string());
+            }
+        }
+        // The file the guesses come from. For MTP it is the header of the model itself: when
+        // the user names no file, the header is searched for beside the model, as the projector
+        // of a model that can look at images is.
+        let mut draft = settings.draft_model.trim().to_string();
+        if draft.is_empty() && spec_has_mtp(settings.spec_index) {
+            if let Some(head) = find_mtp(&model.path) {
+                notes.push(format!(
+                    "The MTP header of the model is read from {}.",
+                    head.file_name()
+                        .map(|one| one.to_string_lossy().to_string())
+                        .unwrap_or_else(|| head.display().to_string())
+                ));
+                draft = head.display().to_string();
+            }
+        }
+        if !draft.is_empty() {
             args.push("--spec-draft-model".into());
-            args.push(settings.draft_model.clone());
+            args.push(draft);
         }
     }
 
-    // The chat template of the model, asked for with `--jinja`. The tools of a
-    // chat, the thinking mode and the keeping of the thinking are all read out
-    // of that template, so the flag is asked for on every start and no longer
-    // stands over by itself for each of the two asks that used to push it.
+    // The chat template of the model, requested with `--jinja`. The tools of a chat, the
+    // thinking mode and the keeping of the thinking are all extracted from that template, so
+    // the flag is requested on every start and is no longer over by itself for each of the two
+    // asks that used to push it.
     if template {
         args.push("--jinja".into());
     }
@@ -821,23 +946,21 @@ pub fn build_args(
     args
 }
 
-// What one ask tells the chat template about thinking, as the json of
-// `chat_template_kwargs`. Nothing of the thinking stands on the command line
-// of the server, so a badge moved between two answers costs no load of a
-// model: the word for it goes out with the ask instead.
+// What one ask reports the chat template about thinking, as the json of `chat_template_kwargs`.
+// Nothing of the thinking is on the command line of the server, so a badge moved between two
+// answers costs no load of a model: the word for it is sent with the request instead.
 //
-// The server reads these words over the ones it was started with, so a keyword
-// named here holds for this ask and for this ask only. A mode this program
-// does not know -- the word `auto` of a chat kept from an older version, for
-// example -- sends nothing, which leaves the model to its own ways.
+// The server reads this text over the ones it was started with, so a keyword named here holds
+// for this ask and for this ask only. A mode this program does not know -- the word `auto` of a
+// chat kept from an older version, for example -- sends nothing, which leaves the model to its
+// own ways.
 //
-// `enable_thinking` and `reasoning_effort` are the two words llama.cpp has for
-// a long time. `preserve_reasoning` is the word of a newer one: the server
-// takes it from the same place as the flag `--reasoning-preserve` of the
-// command line, and puts the four words behind it the same way. Those four are
-// named here as well, for a server old enough to know only the words of the
-// template itself then reads the same choice, and a template that names none
-// of them takes no heed of any.
+// `enable_thinking` and `reasoning_effort` are the two words llama.cpp has for a long time.
+// `preserve_reasoning` is the word of a newer one: the server takes it from the same place as
+// the flag `--reasoning-preserve` of the command line, and puts the four words behind it the
+// same way. Those four are named here as well, for a server old enough to know only the text of
+// the template itself then reads the same choice, and a template that names none of them takes
+// no heed of any.
 pub fn thinking_kwargs(mode: &str, preserve: Option<bool>) -> Value {
     let mut made: serde_json::Map<String, Value> = serde_json::Map::new();
     match mode {
@@ -866,15 +989,14 @@ pub fn thinking_kwargs(mode: &str, preserve: Option<bool>) -> Value {
     Value::Object(made)
 }
 
-// The arguments that hand the server the folder it writes the talks it has
-// worked through into, and reads them back from. The folder must stand
-// already: the server throws out an argument that names no folder of the disk,
-// which is why `Server::start` makes the folder before the arguments are put
-// together.
+// The arguments that hand the server the folder it writes the conversations it has worked
+// through into, and reads them back from. The folder must remain already: the server throws out
+// an argument that names no folder of the disk, which is why `Server::start` makes the folder
+// before the arguments are put together.
 //
-// A server started without these arguments knows nothing of the keeping. It
-// answers a call of `slot_state` with words saying that it does not support
-// the action, and the caller takes that as a talk that was not kept.
+// A server started without these arguments knows nothing of the keeping. It answers a call of
+// `slot_state` with text saying that it does not support the action, and the caller takes that
+// as a conversation that was not kept.
 pub fn slot_save_flags(dir: &Path) -> Vec<String> {
     vec![
         "--slot-save-path".into(),
@@ -889,29 +1011,26 @@ fn clamp(index: usize, len: usize) -> usize {
     index.min(len - 1)
 }
 
-// Tell the server what to do with the talk that one of its slots has worked
-// its way through. `action` is "save", which copies the worked-through state
-// of the slot into a file of the folder from `--slot-save-path`, or "restore",
-// which lays the state from such a file in the slot again, so that the next
-// ask of that slot is read on from where the talk left off instead of from its
-// first word.
+// Tell the server what to do with the conversation that one of its slots has worked its way
+// through. `action` is "save", which copies the worked-through state of the slot into a file of
+// the folder from `--slot-save-path`, or "restore", which lays the state from such a file in
+// the slot again, so that the next ask of that slot is read on from where the conversation left
+// off instead of from its first word.
 //
-// Nothing here shortens or lays out that file: the talk is gigabytes, and it
-// stands in its short shape except for the moment the server is writing it or
-// reading it. `write_talk` and `read_talk` in the engine are the two places
-// that ask for the file, and they do the shortening round this call.
+// Nothing here compresses or lays out that file: the conversation is gigabytes, and it is in
+// its compressed form except for the moment the server is writing it or reading it.
+// `write_talk` and `read_talk` in the engine are the two places that request the file, and they
+// do the shortening round this call.
 //
-// The name of the file goes in the body of the call, and the server looks for
-// it in that folder and nowhere else: a name with a folder mark in it, or with
-// a point of the disk, is thrown out by the server. `context_name` in the
-// engine makes names that always pass.
+// The name of the file goes in the body of the call, and the server searches for it in that
+// folder and nowhere else: a name with a folder marker in it, or with a point of the disk, is
+// thrown out by the server. `context_name` in the engine makes names that always pass.
 //
-// The number given back is the bigness of the file in bytes. Both calls answer
-// with a fault when there is nothing to be done: a slot with no talk worked
-// through in it, a file that is not there, or a file that does not fit the
-// room of the slot. None of those is a hurt -- the talk is then simply read
-// through again, which is what would have happened without any keeping -- so
-// the engine takes a fault quietly and says nothing of it.
+// The number given back is the bigness of the file in bytes. Both calls answer with an error
+// when there is nothing to be done: a slot with no conversation worked through in it, a file
+// that is not there, or a file that does not fit the space of the slot. None of those is a
+// hurt -- the conversation is then simply read through again, which is what would have happened
+// without any keeping -- so the engine takes an error quietly and reports nothing of it.
 pub fn slot_state(
     base_url: &str,
     action: &str,
@@ -921,9 +1040,9 @@ pub fn slot_state(
     let url = format!("{}/slots/{}?action={}", base_url, slot, action);
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(5))
-        // A whole talk is copied to, or off, the disk. A long talk on a slow
-        // disk takes longer than the small calls of the endpoints, so the wait
-        // here is a long one. Nothing else is asked of the server meanwhile.
+        // A whole conversation is copied to, or off, the disk. A long conversation on a slow
+        // disk takes longer than the small calls of the endpoints, so the wait here is a long
+        // one. Nothing else is asked of the server meanwhile.
         .timeout_read(Duration::from_secs(600))
         .build();
     let body = json!({ "filename": filename });
@@ -933,7 +1052,7 @@ pub fn slot_state(
             let _ = response.into_reader().read_to_string(&mut text);
             let told = serde_json::from_str::<Value>(&text).map_err(|_| {
                 format!(
-                    "The server answered the {} of a talk with words that could not be read",
+                    "The server answered the {} of a conversation with text that could not be reads",
                     action
                 )
             })?;
@@ -968,7 +1087,64 @@ pub fn get_json(url: &str) -> Result<Value, u16> {
     }
 }
 
-// One tool call the model asked for.
+// Whether one slot of the server is at work on a request right now. The endpoint of the slots is
+// there only for a server started with `--slots`, which is how the program starts its own, and
+// nothing is given back for a server that has it not - a server of the user's own, reached over
+// the network. The caller takes nothing given back as a slot it may send to: the wait for an
+// answer is then all the guard there is.
+pub fn slot_working(base_url: &str, slot: usize) -> Option<bool> {
+    let told = get_json(&format!("{}/slots", base_url)).ok()?;
+    let at_work = |one: &Value| -> Option<bool> {
+        one.get("id")
+            .and_then(|id| id.as_i64())
+            .filter(|id| *id as usize == slot)
+            .and_then(|_| one.get("is_processing"))
+            .and_then(Value::as_bool)
+    };
+    match told {
+        Value::Array(items) => items.iter().find_map(at_work),
+        // A server that answers the endpoint with one object answers the slot named in it.
+        one => at_work(&one).or_else(|| {
+            one.get("slots")
+                .and_then(Value::as_array)
+                .and_then(|items| items.iter().find_map(at_work))
+        }),
+    }
+}
+
+// The tokens of a set of texts, counted with the vocabulary of the model that is to be asked, in
+// the order they were given. The counting is done by `llama-tokenize` of the same build as the
+// server, which is what reads the words as the server reads them: it loads the vocabulary of the
+// model file and nothing else, so it costs no space on the card. The load of the vocabulary is
+// what the moment costs, and it is a moment of the clock for the whole set and not for each of
+// them: every text is given to a tool of its own at once, and the tools are waited for together.
+// Nothing is given back for a build with no tokenizer beside the server, which is how a server of
+// the user's own may stand; the caller takes nothing given back as a counting it has to do
+// without.
+pub fn token_count(llama_dir: &str, model: &str, text: &str) -> Option<usize> {
+    let tool = crate::config::tokenize_in(Path::new(llama_dir))?;
+    let mut child = Command::new(&tool)
+        .arg("--model")
+        .arg(model)
+        .arg("--stdin")
+        .arg("--show-count")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(text.as_bytes()).ok()?;
+    let out = child.wait_with_output().ok()?;
+    let said = String::from_utf8_lossy(&out.stdout);
+    said.lines()
+        .rev()
+        .find_map(|one| one.trim_start().strip_prefix("Total number of tokens: "))?
+        .trim()
+        .parse::<usize>()
+        .ok()
+}
+
+// One tool call the model requested.
 #[derive(Clone, Debug, Default)]
 pub struct ToolCall {
     pub id: String,
@@ -976,10 +1152,10 @@ pub struct ToolCall {
     pub arguments: String,
 }
 
-// How far the server is with the words it was sent. The server sends these
-// numbers while it works the prompt through, before it has a word to give
-// back. `total` counts every token of the prompt, and `cache` the tokens the
-// server kept from an earlier turn and does not work through again.
+// How far the server is with the text it was sent. The server sends these numbers while it
+// works the prompt through, before it has a word to give back. `total` counts every token of
+// the prompt, and `cache` the tokens the server kept from an earlier turn and does not work
+// through again.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Progress {
     pub total: u64,
@@ -989,11 +1165,11 @@ pub struct Progress {
 }
 
 impl Progress {
-    // How fast the words that were sent are being worked through, in tokens of
-    // the talk to the second. The server gives the tokens it has done with and
-    // the clock it took to do them, so the speed is read from those two. The
-    // tokens kept from before are left out, for they cost no work. A piece that
-    // names no time gives nought, and the window counts the clocks itself.
+    // How fast the text that was sent is being worked through, in tokens of the conversation to
+    // the second. The server gives the tokens it has done with and the clock it took to do
+    // them, so the speed is read from those two. The tokens kept from before are left out, for
+    // they cost no work. A piece that names no time gives zero, and the window counts the
+    // clocks itself.
     pub fn per_second(&self) -> f64 {
         if self.time_ms == 0 {
             return 0.0;
@@ -1006,9 +1182,9 @@ impl Progress {
         done as f64 / (self.time_ms as f64 / 1000.0)
     }
 
-    // The part of the work that is done, between 0.0 and 1.0. The tokens the
-    // server kept from before are left out of both sides, for they cost
-    // nothing and would make the work look finished before it began.
+    // The part of the work that is done, between 0.0 and 1.0. The tokens the server kept from
+    // before are left out of both sides, for they cost nothing and would make the work look
+    // finished before it began.
     pub fn part(&self) -> f64 {
         if self.total == 0 {
             return 0.0;
@@ -1024,40 +1200,37 @@ impl Progress {
     }
 }
 
-// How full the room of the talk is so far, as the server says it. The server
-// is asked to give these numbers on every piece of the answer, and not only at
-// the end of it, so the meter of the context can move while the model writes.
-// `prompt` counts the words of the talk the server has worked through, `cache`
-// the words it kept from an earlier turn, and `written` the words the model has
-// given back.
+// How full the size of the context is so far, as the server reports it. The server is asked to
+// give these numbers on every piece of the answer, and not only at the end of it, so the
+// context meter can move while the model writes. `prompt` counts the text of the conversation
+// the server has worked through, `cache` the text it kept from an earlier turn, and `written`
+// the text the model has given back.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Context {
     pub prompt: u64,
     pub cache: u64,
     pub written: u64,
-    // The two speeds the server measures, given on the same piece of the answer
-    // as the counts above. `prompt_per_second` is how fast the words that were
-    // sent are worked through, and `decode_per_second` how fast the model is
-    // writing. A server that says nothing of speed leaves both at nought, and the
-    // window then counts the clocks itself.
+    // The two speeds the server measures, given on the same piece of the answer as the counts
+    // above. `prompt_per_second` is how fast the text that was sent is worked through, and
+    // `decode_per_second` how fast the model is writing. A server that shows nothing of speed
+    // leaves both at zero, and the window then counts the clocks itself.
     pub prompt_per_second: f64,
     pub decode_per_second: f64,
 }
 
 impl Context {
-    // The words the talk takes up: every word that was sent, whether the server
-    // worked it through anew or kept it from before, and every word the model
-    // has written. The two sides of the words sent do not stand together, so
-    // all three numbers are wanted.
+    // The text the conversation takes up: every word that was sent, whether the server worked
+    // it through anew or kept it from before, and every word the model has written. The two
+    // sides of the text sent are not together, so all three numbers are wanted.
     pub fn used(&self) -> u64 {
         self.prompt + self.cache + self.written
     }
 
-    // The words the server was sent, and none of the words it has written back: the
-    // words it worked through and the words it kept from an earlier turn. This is the
-    // room the talk took when the ask went out. The words sent stand in the talk
-    // whichever way the ask ends, and it is the one number of it the server speaks
-    // that is still true of the talk when an answer was stopped before its end.
+    // The text the server was sent, and none of the text it has written back: the text it
+    // worked through and the text it kept from an earlier turn. This is the space the
+    // conversation took when the request was sent. The text sent are in the conversation
+    // whichever way the request ends, and it is the one number of it the server speaks that is
+    // still true of the conversation when an answer was stopped before its end.
     pub fn sent(&self) -> u64 {
         self.prompt + self.cache
     }
@@ -1073,59 +1246,66 @@ pub struct Answer {
     pub finish: String,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
-    // The last word the server said about the prompt it was working through.
+    // The last word the server stated about the prompt it was working through.
     pub progress: Progress,
-    // The last word the server said about the room of the talk. A piece of no words
-    // says nothing of the talk and is passed over in silence, as `on_context` is, so
-    // this stands at nought for an ask that never said anything of the room.
-    // `Answer::sent`, read out of it, is the number the meter of the context keeps
-    // when an ask speaks no number of the talk at its end.
+    // The last word the server stated about the size of the context. A part of no text reports
+    // nothing of the conversation and is passed over in silence, as `on_context` is, so this is
+    // at zero for a request that never stated anything of the space. `Answer::sent`,
+    // extracted from it, is the number the context meter keeps when a request speaks no number
+    // of the conversation at its end.
     pub context: Context,
     // The user stopped the answer.
     pub stopped: bool,
-    // The program stopped the answer itself, because the talk came to the room it
-    // was given. The words of the answer, and of a tool call that was being
-    // written, are kept up to the moment of the cut: the model is still holding
-    // its pen in the middle of a word, and what it had written so far is all the
-    // program has of the thought.
+    // The program stopped the answer itself, because the conversation came to the space it
+    // was given. The text of the answer, and of a tool call that was being written, are kept up
+    // to the moment of the cut: the model is still holding its pen in the middle of a word, and
+    // what it had written so far is all the program has of the thought.
     pub interrupted: bool,
     // A transport problem, or the message from the server.
     pub error: Option<String>,
 }
 
 impl Answer {
-    // The room of the words the server was sent on this ask, as the server spoke it.
-    // It speaks the same room in two places: on every piece of the answer, in the
-    // timings of the talk, and on the progress of the words being worked through, as
-    // the whole of the prompt. Either can be all there is, for the progress of the
-    // prompt is spoken before the first word of the talk is counted, and the timings
-    // go on saying the room while the model writes and stop with the answer. The
-    // larger of the two is the room, since the two count the selfsame words.
+    // The size of the text the server was sent on this ask, as the server spoke it. It speaks
+    // the same space in two places: on every piece of the answer, in the timings of the
+    // conversation, and on the progress of the text being worked through, as all of the prompt.
+    // Either can be all there is, for the progress of the prompt is spoken before the first
+    // word of the conversation is counted, and the timings go on saying the space while the
+    // model writes and stop with the answer. The larger of the two is the space, since the
+    // two count the selfsame text.
     //
-    // This is what the meter of the context stands on when an ask speaks no number
-    // at its end: see `meter_after` in the engine.
+    // This is what the context meter is on when a request speaks no number at its end: see
+    // `meter_after` in the engine.
     pub fn sent(&self) -> u64 {
         self.context.sent().max(self.progress.total)
     }
 }
 
-// Send one chat request and stream the answer. on_text gets every piece of new
-// text as it arrives, so the window can show it. on_progress gets the state of
-// the prompt work, as the server reports it while the prompt goes through.
-// on_context gets how full the room of the talk is, as the server reports it on
-// every piece of the answer. on_tool gets the calls of the model as they are
-// written, so the user can see the words of a command as the model puts them
-// down. The stream has a hand for everything the window shows at once, so the
-// call is a flat list of them.
+// How long one ask of the server is waited out. The wait is of the silence and not of the work:
+// it is the time the server may go without saying a word of anything, measured between one piece
+// of the stream and the next, so a long conversation being worked through is never cut off in
+// the middle of it. It is never without an end: an ask the server takes and never answers has to
+// come back with a word about itself, because the chat it belongs to remains held while the ask
+// is out. A request the server holds back because it is still at work in the slot named is the
+// silence this waits out; see `wait_for_slot` in the engine, which waits for the slot before the
+// ask goes out at all.
+pub const ASK_WAIT: Duration = Duration::from_secs(1800);
+
+// Send one chat request and stream the answer. on_text gets every piece of new text as it
+// arrives, so the window can show it. on_progress gets the state of the prompt work, as the
+// server reports it while the prompt goes through. on_context gets how full the size of the
+// context is, as the server reports it on every piece of the answer. on_tool gets the calls of
+// the model as they are written, so the user can see the text of a command as the model puts
+// them down. The stream has a pointer for everything the window shows at once, so the call is a
+// flat list of them.
 //
-// Two hands stop the stream. `cancel` is the user's, and `interrupt` is the
-// program's own: it is put up when the talk has come to the room the program
-// meant to keep, and the stream is cut off at the next piece of the answer. The
-// one cannot wait for the other, for a model writing a tool call bigger than the
-// room it has writes until the room is gone, and the room being gone is what the
-// program was trying to avoid. Nothing of what came before the cut is lost: the
-// words of the answer and the words of the unfinished call stand in the answer
-// that is given back, with `interrupted` said of them.
+// Two pointers stop the stream. `cancel` is the user's, and `interrupt` is the program's own:
+// it is put up when the conversation has come to the space the program meant to keep, and
+// the stream is cut off at the next piece of the answer. The one cannot wait for the other, for
+// a model writing a tool call bigger than the space it has writes until the space is
+// removed, and the space being removed is what the program was trying to avoid. Nothing of
+// what came before the cut is lost: the text of the answer and the text of the unfinished call
+// is in the answer that is given back, with `interrupted` stated of them.
 #[allow(clippy::too_many_arguments)]
 pub fn stream_chat(
     base_url: &str,
@@ -1138,11 +1318,80 @@ pub fn stream_chat(
     on_context: &mut dyn FnMut(Context),
     on_tool: &mut dyn FnMut(&[ToolCall]),
 ) -> Answer {
+    stream_chat_wait(
+        base_url,
+        body,
+        cancel,
+        interrupt,
+        ASK_WAIT,
+        on_text,
+        on_reasoning,
+        on_progress,
+        on_context,
+        on_tool,
+    )
+}
+
+// The same ask with the wait of the server named. The making of the space for a handoff summary
+// asks with this: an ask that the server never takes up is ended at the wait, reported on the
+// line, and the summarisation goes on without it. See `ask_fold_part` and `ask_summary` in the
+// engine.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_chat_within(
+    base_url: &str,
+    body: &Value,
+    cancel: &AtomicBool,
+    interrupt: &AtomicBool,
+    wait: Duration,
+    on_text: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
+    on_progress: &mut dyn FnMut(Progress),
+    on_context: &mut dyn FnMut(Context),
+    on_tool: &mut dyn FnMut(&[ToolCall]),
+) -> Answer {
+    stream_chat_wait(
+        base_url,
+        body,
+        cancel,
+        interrupt,
+        wait,
+        on_text,
+        on_reasoning,
+        on_progress,
+        on_context,
+        on_tool,
+    )
+}
+
+// Whether the words of a failed ask say that the server was waited out, rather than that the
+// stream was broken. The two are told apart because one of them is the server being slow and
+// the other is the connection going.
+fn waited_for(problem: &str, wait: Duration) -> bool {
+    let said = problem.to_lowercase();
+    wait.as_secs() > 0
+        && (said.contains("timed out") || said.contains("timeout") || said.contains("would block"))
+}
+
+// The ask of the server, with the wait for the answer named. `stream_chat` is the ask of an
+// answer and `stream_chat_within` the ask of the space being made; both come here.
+#[allow(clippy::too_many_arguments)]
+fn stream_chat_wait(
+    base_url: &str,
+    body: &Value,
+    cancel: &AtomicBool,
+    interrupt: &AtomicBool,
+    wait: Duration,
+    on_text: &mut dyn FnMut(&str),
+    on_reasoning: &mut dyn FnMut(&str),
+    on_progress: &mut dyn FnMut(Progress),
+    on_context: &mut dyn FnMut(Context),
+    on_tool: &mut dyn FnMut(&[ToolCall]),
+) -> Answer {
     let mut answer = Answer::default();
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(10))
         // A long prompt can keep the server busy for many minutes.
-        .timeout_read(Duration::from_secs(1800))
+        .timeout_read(wait)
         .build();
     let url = format!("{}/v1/chat/completions", base_url);
     let response = match agent.post(&url).send_json(body) {
@@ -1154,7 +1403,12 @@ pub fn stream_chat(
             return answer;
         }
         Err(other) => {
-            answer.error = Some(format!("Cannot reach the model: {}", other));
+            let said = format!("{}", other);
+            answer.error = Some(if waited_for(&said, wait) {
+                waited_words(wait)
+            } else {
+                format!("Cannot reach the model: {}", other)
+            });
             return answer;
         }
     };
@@ -1162,11 +1416,11 @@ pub fn stream_chat(
     let mut stream = response.into_reader();
     let mut pending: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4096];
-    // The pieces of one read are worked through one after another, and the room of
-    // the talk may come to an end under any one of them. So the program's hand is
-    // looked at after every piece, and not only after every read: a whole tool
-    // call can come in one read, and the call has to be cut off at the piece the
-    // room gave out under, which is the piece the talk was spoken of in.
+    // The parts of one read are worked through one after another, and the size of the context
+    // may come to an end under any one of them. So the program's hand is checked after every
+    // piece, and not only after every read: a whole tool call can arrive one read, and the call
+    // has to be cut off at the part the context window filled under, which is the part the
+    // conversation was spoken of in.
     'answer: loop {
         if cancel.load(Ordering::Relaxed) {
             answer.stopped = true;
@@ -1190,17 +1444,16 @@ pub fn stream_chat(
                             on_context,
                             on_tool,
                         ) {
-                            // The stream told us it is finished.
+                            // The stream informed us it is finished.
                             pending.clear();
                             break;
                         }
-                        // The room gave out under this piece. The words of it are
-                        // already in the answer, and the rest of the stream goes
-                        // with the connection. A piece that brought the word the
-                        // model ends an answer with is not cut at all: the answer
-                        // came to its end of itself, and the last thing a stream
-                        // speaks is often the number that moves the meter, which
-                        // would else be read as a call broken in the middle.
+                        // The context window filled under this piece. The text of it is already
+                        // in the answer, and the rest of the stream goes with the connection. A
+                        // piece that brought the word the model ends an answer with is not cut
+                        // at all: the answer came to its end of itself, and the last item a
+                        // stream speaks is often the number that moves the meter, which would
+                        // else be read as a call broken in the middle.
                         if answer.finish.is_empty() && interrupt.load(Ordering::Relaxed) {
                             answer.interrupted = true;
                             break 'answer;
@@ -1210,7 +1463,12 @@ pub fn stream_chat(
             }
             Err(e) => {
                 if !answer.stopped {
-                    answer.error = Some(format!("The stream stopped: {}", e));
+                    let said = format!("{}", e);
+                    answer.error = Some(if waited_for(&said, wait) {
+                        waited_words(wait)
+                    } else {
+                        format!("The stream stopped: {}", e)
+                    });
                 }
                 break;
             }
@@ -1219,11 +1477,28 @@ pub fn stream_chat(
     answer
 }
 
-// The words of a thing the server said. Words stand as one string, or as a list
-// of parts, of which the words of a part ride under `text` and a picture of one
-// under `image_url`: a list of pictures alone says nothing at all, and is said
-// so. Nothing is given when the thing is neither of those shapes, so a silence
-// is told from a saying by the caller.
+// What the line says when the server was waited out. The wait is named, so a user knows whether
+// the server was slow and the conversation big, or the server was gone.
+fn waited_words(wait: Duration) -> String {
+    let secs = wait.as_secs();
+    let said = if secs >= 60 && secs.is_multiple_of(60) {
+        format!("{} minutes", secs / 60)
+    } else if secs >= 60 {
+        format!("{:.1} minutes", secs as f64 / 60.0)
+    } else {
+        format!("{} seconds", secs)
+    };
+    format!(
+        "The server was sent the request and answered nothing within {} of being asked. \
+         It is at work on another request of the same slot, or it is not answering",
+        said
+    )
+}
+
+// The text of an item the server stated. Text remains as one string, or as a list of parts, of
+// which the text of a part ride under `text` and an image of one under `image_url`: a list of
+// images alone reports nothing at all, and is reported so. Nothing is given when the item is
+// neither of those forms, so a silence is informed from a saying by the caller.
 fn said_words(said: &Value) -> Option<String> {
     match said {
         Value::String(text) => Some(text.clone()),
@@ -1270,9 +1545,8 @@ fn apply_event(
             .and_then(|v| v.as_u64())
             .unwrap_or(answer.completion_tokens);
     }
-    // The server is asked for the state of the prompt work (return_progress).
-    // Every number of it is given again in one go, so the last one seen is the
-    // one that stands.
+    // The server is requested the state of the prompt work (return_progress). Every number of
+    // it is given again in one go, so the last one seen is the one that remains.
     if let Some(made) = value.get("prompt_progress") {
         let number = |name: &str| made.get(name).and_then(|v| v.as_u64()).unwrap_or(0);
         answer.progress = Progress {
@@ -1283,10 +1557,10 @@ fn apply_event(
         };
         on_progress(answer.progress);
     }
-    // The room of the talk, as the server says it on this piece. The server is
-    // asked for the numbers of every piece (timings_per_token), so the meter of
-    // the context moves during the answer. A piece of no words at all says
-    // nothing of the talk, so it is passed over in silence.
+    // The size of the context, as the server reports it on this piece. The server is requested
+    // the numbers of every piece (timings_per_token), so the context meter moves during the
+    // answer. A part of no text at all reports nothing of the conversation, so it is passed
+    // over in silence.
     if let Some(made) = value.get("timings") {
         let number = |name: &str| made.get(name).and_then(|v| v.as_u64()).unwrap_or(0);
         let speed = |name: &str| made.get(name).and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -1298,9 +1572,9 @@ fn apply_event(
             decode_per_second: speed("predicted_per_second"),
         };
         if told.used() > 0 {
-            // Every number of it is given again in one go, as it is for the progress
-            // of the prompt above, so the last piece that said anything of the talk
-            // is the piece that stands when the ask is over.
+            // Every number of it is given again in one go, as it is for the progress of the
+            // prompt above, so the last piece that stated anything of the conversation is the
+            // part that remains when the request is over.
             answer.context = told;
             on_context(told);
         }
@@ -1312,24 +1586,22 @@ fn apply_event(
         answer.finish = finish.to_string();
     }
     let delta = choice.get("delta").unwrap_or(&Value::Null);
-    // The words of an answer come as one string, or as a list of parts of which
-    // the words and the pictures are mixed: a server of the OpenAI shape may
-    // send either, and the parts of a picture carry no words to read. Both are
-    // read, for a program that reads only the string sees an answer of parts as
-    // a turn with nothing in it and asks the model again over its own answer.
+    // The text of an answer come as one string, or as a list of parts of which the text and the
+    // images are mixed: a server of the OpenAI form may send either, and the parts of an image
+    // carry no text to read. Both are read, for a program that reads only the string sees an
+    // answer of parts as a turn with nothing in it and asks the model again over its own
+    // answer.
     if let Some(content) = said_words(delta.get("content").unwrap_or(&Value::Null)) {
         if !content.is_empty() {
             answer.text.push_str(&content);
             on_text(&content);
         }
     }
-    // Reasoning models stream their thinking in a field of its own. The name of
-    // that field is not settled between the servers: llama.cpp gives back
-    // `reasoning_content`, and a server of the same shape gives the same words
-    // under `reasoning`. Both are read, and the first of them that holds words
-    // is the thinking of this piece, for a program that sees neither reads the
-    // turn as an empty one and goes on asking the model over words it had
-    // already written.
+    // Reasoning models stream their thinking in a field of its own. The name of that field is
+    // not settled between the servers: llama.cpp returns `reasoning_content`, and a server of
+    // the same format gives the same text under `reasoning`. Both are read, and the first of
+    // them that holds text is the thinking of this piece, for a program that sees neither reads
+    // the turn as an empty one and goes on asking the model over text it had already written.
     if let Some(reasoning) = delta
         .get("reasoning_content")
         .and_then(said_words)
@@ -1341,10 +1613,10 @@ fn apply_event(
             on_reasoning(&reasoning);
         }
     }
-    // Tool calls arrive in pieces. They are joined by their index.
+    // Tool calls arrive in parts. They are joined by their index.
     if let Some(calls) = delta.get("tool_calls").and_then(|c| c.as_array()) {
-        // The names and the words of a call are put again below, so the whole
-        // of what is written so far is given back, and not only the piece.
+        // The names and the text of a call is put again below, so all of what is written so far
+        // is given back, and not only the part.
         let wrote = !calls.is_empty();
         for item in calls {
             let index = item
@@ -1416,9 +1688,9 @@ mod tests {
         }
     }
 
-    // The folder of the kept talks goes to the server as one argument, and the
-    // server is told the folder and nothing else: it makes the names of the
-    // files inside it by itself.
+    // The directory of the kept conversations goes to the server as one argument, and the
+    // server is informed the folder and nothing else: it makes the names of the files inside it
+    // by itself.
     #[test]
     fn the_folder_of_the_kept_talks_goes_to_the_server() {
         let flags = slot_save_flags(Path::new("/data/of/the/program/contexts"));
@@ -1431,12 +1703,11 @@ mod tests {
         );
     }
 
-    // The switch of the default arguments, off, leaves the four words of the
-    // connection and the words of the user, and nothing else. A server of
-    // another build, which throws out a command line at the first word it does
-    // not know, is then given a line it can read to the end. The words of the
-    // user go last, so a model, an address or a port named there is the last
-    // word, as it is for every argument of the tab when the switch stands on.
+    // The switch of the default arguments, off, leaves the four words of the connection and the
+    // text of the user, and nothing else. A server of another build, which throws out a command
+    // line at the first word it does not know, is then given a line it can read to the end. The
+    // text of the user go last, so a model, an address or a port named there is the last word,
+    // as it is for every argument of the tab when the switch is on.
     #[test]
     fn the_switch_of_the_default_arguments_lets_the_user_have_the_line() {
         let settings = ModelSettings {
@@ -1462,17 +1733,17 @@ mod tests {
             .map(String::from)
             .collect();
         assert_eq!(args, want);
-        // The user is told what the switch took away: nothing of the Model tab
-        // is asked for, and no talk is kept.
+        // The user is informed what the switch removed: nothing of the Model tab is requested,
+        // and no conversation is kept.
         assert_eq!(notes.len(), 1);
         assert!(notes[0].contains("default arguments are off"));
-        assert!(notes[0].contains("talks are not kept"));
+        assert!(notes[0].contains("conversations are not kept"));
     }
 
-    // With the switch on, which is where a new set of settings stands, the
-    // words of the connection go out with the arguments of this program, as
-    // they always did. A settings file written before the switch existed reads
-    // as the switch on, so no model loses the arguments it was started with.
+    // With the switch on, which is where a new set of settings remains, the text of the
+    // connection go out with the arguments of this program, as they always did. A settings file
+    // written before the switch existed reads as the switch on, so no model loses the arguments
+    // it was started with.
     #[test]
     fn the_default_arguments_go_out_when_the_switch_stands_on() {
         let mut notes = Vec::new();
@@ -1505,8 +1776,8 @@ mod tests {
         assert!(ModelSettings::default().send_default_args);
     }
 
-    // A settings file of the day before the switch has no word for it, and is
-    // read as the switch on. A file that says off is read as off.
+    // A settings file of the day before the switch has no word for it, and is read as the
+    // switch on. A file that shows off is read as off.
     #[test]
     fn a_settings_file_without_the_switch_is_read_as_the_switch_on() {
         let held: ModelSettings = serde_json::from_str("{\"ctx_size\":4096}").unwrap();
@@ -1516,8 +1787,8 @@ mod tests {
         assert!(!off.send_default_args);
     }
 
-    // The Sampling section sends its values to the server on every start, and
-    // the defaults of the program stand in a new set of settings.
+    // The Sampling section sends its values to the server on every start, and the defaults of
+    // the program are in a new set of settings.
     #[test]
     fn the_sampling_values_go_to_the_server() {
         let settings = ModelSettings {
@@ -1575,18 +1846,17 @@ mod tests {
         assert_eq!(find_flag(&args, "--seed"), "-1");
     }
 
-    // The chat template of the model is asked for once, and it is asked for on
-    // every start. The tools of a chat, the thinking mode and the keeping of
-    // the thinking are all read out of that template and go out with the ask,
-    // so the flag can no longer stand over for one of them alone -- and a
-    // start without it would take all three away from the chat.
+    // The chat template of the model is requested once, and it is requested on every start. The
+    // tools of a chat, the thinking mode and the keeping of the thinking are all extracted from
+    // that template and go out with the request, so the flag can be no longer over for one of
+    // them alone -- and a start without it would take all three away from the chat.
     #[test]
     fn the_chat_template_is_asked_for_once() {
         let templated = ModelSettings {
             chat_template: String::from("{% for message in messages %}{{ message.content }}{% endfor %}"),
             ..Default::default()
         };
-        // How many times the flag stands on the command line.
+        // How many times the flag is on the command line.
         let asked = |settings: &ModelSettings, template: bool| -> usize {
             let mut notes = Vec::new();
             let args = build_args(
@@ -1601,13 +1871,13 @@ mod tests {
             args.iter().filter(|a| a.as_str() == "--jinja").count()
         };
         let plain = ModelSettings::default();
-        // One ask, whichever of the two settings stands behind it.
+        // One ask, whichever of the two settings is behind it.
         assert_eq!(asked(&plain, true), 1);
         assert_eq!(asked(&templated, true), 1);
-        // The way the flag is put away again is the retry of a model whose
-        // template will not stand, and it is asked for once there too.
+        // The way the flag is closed again is the retry of a model whose template will not be,
+        // and it is requested once there too.
         assert_eq!(asked(&plain, false), 0);
-        // And the template of the user still goes to the server beside the ask.
+        // And the template of the user still goes to the server beside the request.
         let mut notes = Vec::new();
         let args = build_args(
             std::path::Path::new(""),
@@ -1624,8 +1894,8 @@ mod tests {
         );
     }
 
-    // Nothing of the thinking stands on the command line of the server any
-    // more, so no choice of a badge moves a loaded model.
+    // Nothing of the thinking is on the command line of the server any more, so no choice of a
+    // badge moves a loaded model.
     #[test]
     fn no_thinking_choice_moves_the_command_line() {
         let line = || {
@@ -1651,9 +1921,9 @@ mod tests {
         }
     }
 
-    // The thinking of an ask goes out with the ask. The switch, the level and
-    // the keeping are the three words a chat may move between two answers, and
-    // each of them is said to the chat template of that one ask.
+    // The thinking of a request is sent with the request. The switch, the level and the keeping
+    // are the three words a chat may move between two answers, and each of them is reported to
+    // the chat template of that one ask.
     #[test]
     fn the_thinking_of_an_ask_rides_on_the_ask() {
         let off = thinking_kwargs("off", None);
@@ -1669,16 +1939,16 @@ mod tests {
         assert_eq!(level["enable_thinking"], json!(true));
         assert_eq!(level["reasoning_effort"], json!("medium"));
 
-        // A mode the program does not know says nothing at all, which is what
-        // a chat kept from an older version stood on before.
+        // A mode the program does not know reports nothing at all, which is what a chat kept
+        // from an older version was on before.
         assert!(thinking_kwargs("auto", None).is_null());
         assert!(thinking_kwargs("", None).is_null());
     }
 
-    // The choice to keep the thinking of the turns before the last answer is
-    // said in the one word of a newer server and in the four words a template
-    // names for itself, so that both read the same choice. A model whose
-    // template has no switch for it -- the choice of none -- says nothing.
+    // The choice to keep the thinking of the turns before the last answer is reported in the
+    // one word of a newer server and in the four words a template names for itself, so that
+    // both read the same choice. A model whose template has no switch for it -- the choice of
+    // none -- reports nothing.
     #[test]
     fn the_kept_thinking_rides_on_the_ask() {
         let held = thinking_kwargs("on", Some(true));
@@ -1698,9 +1968,8 @@ mod tests {
         assert!(thinking_kwargs("on", None).get("preserve_reasoning").is_none());
     }
 
-    // The whole of the layers go to the cards, and llama.cpp is read with its
-    // own number for that -- a negative one -- rather than with a count of layers
-    // the model cannot be over.
+    // All of the layers go to the cards, and llama.cpp is read with its own number for that --
+    // a negative one -- rather than with a count of layers the model cannot be over.
     #[test]
     fn the_layers_go_to_the_cards_as_a_negative_number() {
         let card = Gpu {
@@ -1723,8 +1992,8 @@ mod tests {
         assert_eq!(find_flag(&args, "--device"), "CUDA0");
         assert_eq!(find_flag(&args, "-ngl"), "-1");
 
-        // A card the user kept back is no card at all, and the layers stay in the
-        // memory of the machine with the model.
+        // A card the user kept back is no card at all, and the layers stay in the memory of the
+        // computer with the model.
         let back = Gpu {
             enabled: false,
             ..card
@@ -1743,8 +2012,8 @@ mod tests {
         assert_eq!(find_flag(&held, "-ngl"), "0");
     }
 
-    // The checkpoints and the ceiling of the talk memory go to the server, and
-    // the defaults of the program stand in a new set of settings.
+    // The checkpoints and the ceiling of the conversation memory go to the server, and the
+    // defaults of the program are in a new set of settings.
     #[test]
     fn the_checkpoints_and_the_cache_ram_go_to_the_server() {
         let settings = ModelSettings {
@@ -1779,8 +2048,8 @@ mod tests {
         assert_eq!(find_flag(&args, "--cache-ram"), "8192");
     }
 
-    // The prompt cache stands on for a new set of settings, and the switch of
-    // the window reaches the server in one form or the other.
+    // The prompt cache is on for a new set of settings, and the switch of the window reaches
+    // the server in one form or the other.
     #[test]
     fn the_cache_prompt_flag_follows_the_switch() {
         let mut notes = Vec::new();
@@ -1814,9 +2083,9 @@ mod tests {
         assert!(args.iter().any(|a| a == "--no-cache-prompt"));
     }
 
-    // The room one image may take goes to the server with the vision switch
-    // on. With the switch off, or with 0 in a field, the flag stays away, and
-    // the value inside the model file stands.
+    // The space one image may take goes to the server with the vision switch on. With the
+    // switch off, or with 0 in a field, the flag stays away, and the value inside the model
+    // file remains.
     #[test]
     fn the_image_tokens_go_to_the_server_with_vision() {
         let settings = ModelSettings {
@@ -1869,8 +2138,7 @@ mod tests {
         assert!(!args.iter().any(|a| a == "--image-max-tokens"));
     }
 
-    // Fast attention is sent to the server on every start, with no setting of
-    // its own.
+    // Fast attention is sent to the server on every start, with no setting of its own.
     #[test]
     fn fast_attention_is_always_on() {
         let mut notes = Vec::new();
@@ -1886,8 +2154,8 @@ mod tests {
         assert_eq!(find_flag(&args, "-fa"), "on");
     }
 
-    // The switch for no context shift sends its flag, and the flag stays away
-    // for a new set of settings.
+    // The switch for no context shift sends its flag, and the flag stays away for a new set of
+    // settings.
     #[test]
     fn the_no_context_shift_flag_follows_the_switch() {
         let mut notes = Vec::new();
@@ -1919,8 +2187,8 @@ mod tests {
         assert!(args.iter().any(|a| a == "--no-context-shift"));
     }
 
-    // The switch for the CPU projector sends its flag with the vision switch
-    // on, and the flag stays away for a new set of settings.
+    // The switch for the CPU projector sends its flag with the vision switch on, and the flag
+    // stays away for a new set of settings.
     #[test]
     fn the_cpu_projector_flag_follows_the_switch() {
         let mut notes = Vec::new();
@@ -1953,8 +2221,8 @@ mod tests {
         assert!(args.iter().any(|a| a == "--no-mmproj-offload"));
     }
 
-    // The server answers a request for the state of the prompt work with a
-    // part named prompt_progress, and every number of it is kept.
+    // The server answers a request for the state of the prompt work with a part named
+    // prompt_progress, and every number of it is kept.
     #[test]
     fn the_state_of_the_prompt_work_is_read_from_the_stream() {
         let mut answer = Answer::default();
@@ -1979,9 +2247,9 @@ mod tests {
         assert_eq!(answer.progress.time_ms, 900);
     }
 
-    // The words of a call of the model come in pieces, about one word at a
-    // time. The whole of what is written so far is given back on every piece, so
-    // the user can watch a command grow instead of waiting for the end of it.
+    // The text of a call of the model arrive parts, about one word at a time. All of what is
+    // written so far is given back on every piece, so the user can watch a command grow instead
+    // of waiting for the end of it.
     #[test]
     fn the_words_of_a_call_are_given_back_as_they_come() {
         let mut answer = Answer::default();
@@ -2020,19 +2288,18 @@ mod tests {
                 "{\"command\":\"ls -la\"}",
             ]
         );
-        // The name came with the first piece, and the id with it, so the call is
-        // known by the end of it as well as it was before.
+        // The name came with the first piece, and the id with it, so the call is known by the
+        // end of it as well as it was before.
         let call = answer.tool_calls.first().expect("one call was written");
         assert_eq!(call.name, "run_terminal");
         assert_eq!(call.id, "call-one");
     }
 
-    // A stream cut off at the limit of the room leaves the words of a call in the
-    // middle of them. Those words are all the program has of what the model was
-    // put to, so they stand in the answer that is given back. And the answer has
-    // spoken no finishing word: that is how the stream knows an answer that was
-    // stopped from one that came to its end under the very piece that moved the
-    // meter of the talk, which is a number the limit is looked at by.
+    // A stream cut off at the limit of the space leaves the text of a call in the middle of
+    // them. Those text is all the program has of what the model was put to, so they are in the
+    // answer that is given back. And the answer has spoken no finishing word: that is how the
+    // stream knows an answer that was stopped from one that came to its end under the very
+    // piece that moved the context meter, which is a number the limit is checked by.
     #[test]
     fn the_words_of_a_stopped_call_stand_in_the_answer() {
         let mut answer = Answer::default();
@@ -2052,9 +2319,9 @@ mod tests {
                 &mut |made: &[ToolCall]| seen.push(made[0].arguments.clone()),
             );
         }
-        // The words of the call stand whole up to the piece the stream stopped at,
-        // and they are the words a server could not read as arguments: the string
-        // the model was writing was never shut.
+        // The text of the call remains whole up to the part the stream stopped at, and they are
+        // the text a server could not read as arguments: the string the model was writing was
+        // never shut.
         assert_eq!(
             answer.tool_calls[0].arguments,
             r#"{"path":"notes.md","edits":[{"old_string":"th"#
@@ -2062,13 +2329,13 @@ mod tests {
         let given = seen.last().map(String::as_str);
         assert_eq!(given, Some(r#"{"path":"notes.md","edits":[{"old_string":"th"#));
         assert_eq!(answer.tool_calls[0].name, editfile::EDIT_NAME);
-        // No finishing word, so a hand over the stream that stops it is the cut
-        // off of an answer, and not the end of one.
+        // No finishing word, so a hand over the stream that stops it is the cut off of an
+        // answer, and not the end of one.
         assert!(answer.finish.is_empty());
         assert!(!answer.stopped);
         assert!(!answer.interrupted);
-        // The word the model ends an answer with is told by the piece that brings
-        // it, and no piece after it can be read as a call broken in the middle.
+        // The word the model ends an answer with is informed by the part that brings it, and no
+        // piece after it can be read as a call broken in the middle.
         apply_event(
             r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#,
             &mut answer,
@@ -2081,20 +2348,19 @@ mod tests {
         assert_eq!(answer.finish, "stop");
     }
 
-    // A call of a file tool, streamed in the order a model likes rather than in
-    // the order the shape of the call asks for: the words to put in first, the
-    // words to take out after them, and the name of the file last of all. The
-    // words the user of the chat is handed move with every piece of the stream,
-    // so the block of the call holds the change from the first word of it, and is
-    // never left blank while the model is still writing.
+    // A call of a file tool, streamed in the order a model likes rather than in the order the
+    // form of the call requests: the text to put in first, the text to take out after them, and
+    // the name of the file last of all. The text the user of the chat is handed move with every
+    // piece of the stream, so the block of the call holds the change from the first word of it,
+    // and is never left blank while the model is still writing.
     #[test]
     fn a_file_call_streamed_the_other_way_about_shows_its_words_as_they_come() {
         let arguments = concat!(
             r#"{"edits":[{"new_string":"uno","old_string":"one"}],"#,
             r#""path":"notes/todo.txt"}"#,
         );
-        // One piece of the stream, as the server sends it. The first piece names
-        // the tool and carries the mark that opens the words of the call.
+        // One piece of the stream, as the server sends it. The first piece names the tool and
+        // carries the marker that opens the text of the call.
         let piece = |words: &str, named: bool| -> String {
             let mut part = json!({ "index": 0, "function": { "arguments": words } });
             if named {
@@ -2105,8 +2371,8 @@ mod tests {
             json!({ "choices": [{ "index": 0, "delta": { "tool_calls": [part] } }] }).to_string()
         };
         let mut answer = Answer::default();
-        // The body of the block and the name of the file in the head, as the
-        // user was handed them after every piece.
+        // The body of the block and the name of the file in the header, as the user was handed
+        // them after every piece.
         let mut read: Vec<(String, String)> = Vec::new();
         let mut told = |made: &[ToolCall]| {
             read.push(editfile::live_params(editfile::EDIT_NAME, &made[0].arguments));
@@ -2120,8 +2386,8 @@ mod tests {
             &mut |_| {},
             &mut told,
         );
-        // The rest of the words come four characters at a time, which is about
-        // what a piece of an answer carries.
+        // The rest of the text come four characters at a time, which is about what a part of an
+        // answer carries.
         let mut rest = &arguments[1..];
         while !rest.is_empty() {
             let end = rest
@@ -2141,7 +2407,7 @@ mod tests {
             );
             rest = tail;
         }
-        // The whole of the call reads as the whole of any other call does.
+        // All of the call reads as all of any other call does.
         assert_eq!(
             read.last(),
             Some(&(
@@ -2149,19 +2415,19 @@ mod tests {
                 String::from("notes/todo.txt")
             ))
         );
-        // The words of the change stood in the block while the file was still
-        // unnamed, and they never fell back to nothing after they had begun.
+        // The text of the change was in the block while the file was still unnamed, and they
+        // never fell back to nothing after they had begun.
         let words = read
             .iter()
             .position(|(body, _)| !body.is_empty())
-            .expect("a word of the change came to the block");
-        // The first word the block was given stood under the mark of a change,
-        // which is what a call written the other way about has to give: the words
-        // to put in are the only words that have come so far. A block that waited
-        // for the words to take out would show them first, over a mark.
+            .expect("a note about the change came to the block");
+        // The first word the block was given was under the marker of a change, which is what a
+        // call written the other way about has to give: the text to put in are the only text
+        // that has come so far. A block that waited for the text to take out would show it
+        // first, over a marker.
         assert!(
             read[words].0.starts_with("change 1 · what it becomes\nr "),
-            "the block first showed {:?}, and not a word under the mark of a change",
+            "the block first showed {:?}, and not a word under the marker of a change",
             read[words].0
         );
         let named = read
@@ -2181,22 +2447,21 @@ mod tests {
                 number
             );
         }
-        // The body of the block moved more than once, so the user watched the
-        // change being written instead of waiting for the end of it.
+        // The body of the block moved more than once, so the user watched the change being
+        // written instead of waiting for the end of it.
         let moves = read
             .windows(2)
             .filter(|pair| pair[0].0 != pair[1].0)
             .count();
         assert!(
             moves > 3,
-            "the body of the block moved {} times over {} pieces",
+            "the body of the block moved {} times over {} parts",
             moves,
             read.len()
         );
     }
 
-    // A piece of an answer is not a piece of a call, so it says nothing about
-    // the calls.
+    // A part of an answer is not a part of a call, so it reports nothing about the calls.
     #[test]
     fn a_piece_of_the_answer_says_nothing_of_the_calls() {
         let mut answer = Answer::default();
@@ -2225,8 +2490,8 @@ mod tests {
         assert_eq!(told, 0);
     }
 
-    // The server is asked for the room the talk takes on every piece, so the
-    // meter of the context has numbers to move on while the model writes.
+    // The server is requested the directory the conversation takes on every piece, so the
+    // context meter has numbers to move on while the model writes.
     #[test]
     fn the_room_of_the_talk_is_read_from_the_stream() {
         let mut answer = Answer::default();
@@ -2246,20 +2511,19 @@ mod tests {
             &mut |_| {},
         );
         assert!(going_on);
-        // 327 words worked through, 14 kept from an earlier turn, and 9 words
-        // written by the model.
+        // 327 text worked through, 14 kept from an earlier turn, and 9 text written by the
+        // model.
         assert_eq!(seen, vec![350]);
     }
 
-    // The room of the words the server was sent stands by itself on the answer, for
-    // an ask that speaks no number at its end is weighed on those words and not on
-    // the words the model had written when it was stopped. See the meter of the
-    // context, and `Answer::context`.
+    // The size of the text the server was sent remains by itself on the answer, for a request
+    // that speaks no number at its end is weighed on that text and not on the text the model
+    // had written when it was stopped. See the context meter, and `Answer::context`.
     #[test]
     fn the_words_the_server_was_sent_stand_by_themselves() {
         let mut answer = Answer::default();
-        // Nothing has been said of the talk yet, which is how an ask that the server
-        // never answered reads.
+        // Nothing has been stated of the conversation yet, which is how a request that the
+        // server never answered reads.
         assert_eq!(answer.context.used(), 0);
         assert_eq!(answer.context.sent(), 0);
         let piece = concat!(
@@ -2276,12 +2540,12 @@ mod tests {
             &mut |_| {},
         );
         assert!(going_on);
-        // 341 words were sent to the server, 9 had been written back, and the last
-        // word of the kind stands on the answer whichever way the ask ends.
+        // 341 text was sent to the server, 9 had been written back, and the last word of the
+        // type is on the answer whichever way the request ends.
         assert_eq!(answer.context.used(), 350);
         assert_eq!(answer.context.sent(), 341);
-        // A piece of no words at all says nothing of the talk, so it leaves the
-        // number that stands alone.
+        // A part of no text at all reports nothing of the conversation, so it leaves the number
+        // that remains alone.
         let hush = "{\"choices\":[{\"index\":0,\"delta\":{}}],\"timings\":{\"prompt_n\":0}}";
         apply_event(
             hush,
@@ -2293,13 +2557,12 @@ mod tests {
             &mut |_| {},
         );
         assert_eq!(answer.context.sent(), 341);
-        // The answer gives the room of the words it was sent out of the two numbers
-        // the server speaks of them, whichever it has.
+        // The answer gives the size of the text it was sent out of the two numbers the server
+        // speaks of them, whichever it has.
         assert_eq!(answer.sent(), 341);
-        // The progress of the prompt speaks the whole of the words that were sent
-        // before a word of the talk is counted, which is all there is to stand on
-        // for an answer the user stopped while the server was still working them
-        // through.
+        // The progress of the prompt speaks all of the text that was sent before a note about
+        // the conversation is counted, which is all there is to go on for an answer the user
+        // stopped while the server was still working them through.
         let mut early = Answer::default();
         apply_event(
             concat!(
@@ -2313,15 +2576,14 @@ mod tests {
             &mut |_made: Context| {},
             &mut |_| {},
         );
-        assert_eq!(early.context.sent(), 0, "nothing was said of the talk itself");
+        assert_eq!(early.context.sent(), 0, "nothing was stated of the conversation itself");
         assert_eq!(early.sent(), 213_797);
     }
 
-    // The two speeds of the work stand on the same piece of the answer as the
-    // room of the talk, for the server is asked for the numbers of every piece.
-    // The numbers below are as a run of the model really gave them: 817 words of
-    // the talk worked through at 26.4 to the second, and 16 words written at 5.8
-    // to the second.
+    // The two speeds of the work are on the same piece of the answer as the size of the
+    // context, for the server is requested the numbers of every piece. The numbers below are as
+    // a run of the model really gave them: 817 text of the conversation worked through at 26.4
+    // to the second, and 16 text written at 5.8 to the second.
     #[test]
     fn the_two_speeds_of_the_work_are_read_from_the_stream() {
         let mut answer = Answer::default();
@@ -2345,11 +2607,11 @@ mod tests {
             },
             &mut |_| {},
         );
-        let said = told.expect("the piece carried the room, so it was told");
+        let said = told.expect("the part carried the space, so it was informed");
         assert!((said.prompt_per_second - 26.380714).abs() < 1e-6);
         assert!((said.decode_per_second - 5.771872).abs() < 1e-6);
-        // A piece that says nothing of speed leaves both at nought, which is how
-        // a server without these numbers reads.
+        // A piece that shows nothing of speed leaves both at zero, which is how a server
+        // without these numbers reads.
         let mut quiet = Answer::default();
         let mut hush: Option<Context> = None;
         apply_event(
@@ -2365,32 +2627,31 @@ mod tests {
             },
             &mut |_| {},
         );
-        let still = hush.expect("the piece named a word of the talk");
+        let still = hush.expect("the part named a note about the conversation");
         assert_eq!((still.prompt_per_second, still.decode_per_second), (0.0, 0.0));
     }
 
-    // The speed of the words that were sent is read from the two numbers of the
-    // progress of the prompt: the tokens done with, and the clock they took. The
-    // tokens kept from before are no work at all, so they stand on neither side.
+    // The speed of the text that was sent is reads from the two numbers of the progress of the
+    // prompt: the tokens done with, and the clock they took. The tokens kept from before are no
+    // work at all, so they are on neither side.
     #[test]
     fn the_speed_of_the_prompt_is_read_from_its_progress() {
-        // 817 words in 30.967 seconds, which is 26.4 to the second.
+        // 817 text in 30.967 seconds, which is 26.4 to the second.
         let going = Progress { total: 817, cache: 0, processed: 817, time_ms: 30967 };
         assert!((going.per_second() - 26.383).abs() < 0.01, "{}", going.per_second());
-        // Half of the words were kept from before. The server counts the tokens it
-        // has come to, the kept ones among them, so the work done in the time is
-        // the tokens come to less the tokens kept: 60 come to, 40 kept, and 20
-        // done in the second.
+        // Half of the text was kept from before. The server counts the tokens it has come to,
+        // the kept ones among them, so the work done in the time is the tokens come to less the
+        // tokens kept: 60 come to, 40 kept, and 20 done in the second.
         let kept = Progress { total: 100, cache: 40, processed: 60, time_ms: 1000 };
         assert!((kept.per_second() - 20.0).abs() < 1e-9, "{}", kept.per_second());
-        // A piece that names no time, or no work, gives no speed. The first piece
-        // of a request is of that shape.
+        // A piece that names no time, or no work, gives no speed. The first piece of a request
+        // is of that form.
         assert_eq!(Progress { total: 817, cache: 0, processed: 0, time_ms: 0 }.per_second(), 0.0);
         assert_eq!(Progress { total: 0, cache: 0, processed: 0, time_ms: 500 }.per_second(), 0.0);
     }
 
-    // A piece with no room in it says nothing of the talk. The first piece of a
-    // request stands for the request itself, and the numbers of it are nothing.
+    // A piece with no space in it reports nothing of the conversation. The first piece of a
+    // request means the request itself, and the numbers of it are nothing.
     #[test]
     fn a_piece_of_no_words_says_nothing_of_the_talk() {
         let mut answer = Answer::default();
@@ -2409,7 +2670,7 @@ mod tests {
             &mut |_| {},
         );
         assert_eq!(told, 0);
-        // A piece with no room of its own in it says nothing either.
+        // A piece with no space of its own in it reports nothing either.
         let plain = "{\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Now\"}}]}";
         apply_event(
             plain,
@@ -2423,8 +2684,8 @@ mod tests {
         assert_eq!(told, 0);
     }
 
-    // The words of the talk are counted once, whatever the server kept from
-    // before. A talk of no words at all takes no room.
+    // The text of the conversation is counted once, whatever the server kept from before. A
+    // context of no text at all takes no space.
     #[test]
     fn the_words_of_the_talk_are_counted_once() {
         assert_eq!(Context::default().used(), 0);
@@ -2435,7 +2696,7 @@ mod tests {
             ..Context::default()
         };
         assert_eq!(fresh.used(), 435);
-        // The same talk, but the server kept part of the words from before.
+        // The same conversation, but the server kept part of the text from before.
         let kept = Context {
             prompt: 4,
             cache: 323,
@@ -2445,8 +2706,8 @@ mod tests {
         assert_eq!(kept.used(), 435);
     }
 
-    // The part of the work that is done leaves out the tokens the server kept
-    // from an earlier turn, for those cost nothing.
+    // The part of the work that is done leaves out the tokens the server kept from an earlier
+    // turn, for those cost nothing.
     #[test]
     fn the_part_of_the_work_leaves_the_kept_tokens_out() {
         let half = Progress {
@@ -2476,7 +2737,7 @@ mod tests {
         assert_eq!(over.part(), 1.0);
     }
 
-    // The mark of a split is read out of the name of a file.
+    // The marker of a split is extracted from the name of a file.
     #[test]
     fn the_mark_of_a_split_is_read_from_a_name() {
         let parts = shard_of("Qwen3.8-Flash-Next-AD-5.00bpw-Q5_K_M-M64-00001-of-00033").unwrap();
@@ -2491,8 +2752,8 @@ mod tests {
         assert!(shard_of("thing-of-00002").is_none());
     }
 
-    // A model split into parts stands once in the list, named for the folder it
-    // stands in, and its projector is found beside it.
+    // A model split into parts remains once in the list, named for the folder it is in, and its
+    // projector is found beside it.
     #[test]
     fn a_split_model_stands_once_in_the_list() {
         let root = std::env::temp_dir().join(format!(
@@ -2513,24 +2774,24 @@ mod tests {
         let models = list_models(&root);
         let names: Vec<&str> = models.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(names, vec!["Qwen-3.8", "Qwen3.5-0.8B-UD-Q6_K_XL"]);
-        // The first part of the split stands for the whole of it.
+        // The first part of the split means all of it.
         let split = models.iter().find(|m| m.name == "Qwen-3.8").unwrap();
         assert!(split
             .path
             .to_string_lossy()
             .ends_with("M64-00001-of-00033.gguf"));
-        // The projector is read from the folder of the model, where it stands.
-        let mmproj = find_mmproj(&split.path).expect("the projector stands with the model");
+        // The projector is read from the directory of the model, where it is.
+        let mmproj = find_mmproj(&split.path).expect("the projector is with the model");
         assert_eq!(mmproj.file_name().unwrap(), "Qwen-3.8-mmproj-f16.gguf");
         assert_eq!(mmproj.parent().unwrap(), inner);
         let alone = models.iter().find(|m| m.name != "Qwen-3.8").unwrap();
-        let other = find_mmproj(&alone.path).expect("the projector stands with the model");
+        let other = find_mmproj(&alone.path).expect("the projector is with the model");
         assert_eq!(other.file_name().unwrap(), "Qwen3.5-0.8B-UD-Q6_K_XL-mmproj.gguf");
         let _ = fs::remove_dir_all(&root);
     }
 
-    // A folder of two models cannot name them both for the folder, so the name
-    // of the file is kept beside it.
+    // A directory of two models cannot name them both for the folder, so the name of the file
+    // is kept beside it.
     #[test]
     fn two_models_in_one_folder_are_told_apart() {
         let root = std::env::temp_dir().join(format!(
@@ -2552,5 +2813,222 @@ mod tests {
     fn find_flag(args: &[String], flag: &str) -> String {
         let pos = args.iter().position(|a| a == flag).expect("the flag is there");
         args[pos + 1].clone()
+    }
+
+    // The place of one choice in the list of them. The settings keep the place, so a check that
+    // named the places would drift with the list.
+    fn place_of(name: &str) -> usize {
+        spec_names()
+            .iter()
+            .position(|one| *one == name)
+            .unwrap_or_else(|| panic!("{} is not a choice in the settings panel", name))
+    }
+
+    // The two ways of guessing go to the server as one list, for the server runs every way
+    // named in it. The pair is at the end of the list, so the choices before it keep the places
+    // the settings files of the users name.
+    #[test]
+    fn the_two_ways_of_guessing_go_to_the_server_together() {
+        assert_eq!(SPEC_TYPES.len(), 12);
+        let pair = place_of("ngram-mod + MTP");
+        assert_eq!(pair, SPEC_TYPES.len() - 1);
+        assert_eq!(spec_value(place_of("ngram-mod")), "ngram-mod");
+        assert_eq!(spec_value(place_of("draft-mtp")), "draft-mtp");
+        assert_eq!(spec_value(pair), "ngram-mod,draft-mtp");
+        // A place the settings name that is no place at all is read as no guessing, and not as
+        // the pair.
+        assert_eq!(spec_value(99), "none");
+        assert!(spec_has_ngram_mod(pair) && spec_has_mtp(pair));
+        assert!(spec_has_ngram_mod(place_of("ngram-mod")));
+        assert!(!spec_has_mtp(place_of("ngram-mod")));
+        assert!(!spec_has_ngram_mod(place_of("draft-mtp")));
+        assert!(spec_has_mtp(place_of("draft-mtp")));
+
+        let settings = ModelSettings {
+            spec_index: pair,
+            draft_tokens: 6,
+            ..Default::default()
+        };
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &settings,
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--spec-type"), "ngram-mod,draft-mtp");
+        assert_eq!(find_flag(&args, "--spec-draft-n-max"), "6");
+    }
+
+    // The three numbers ngram-mod is given reach the server with a choice that requests
+    // ngram-mod, and with that choice only. 0 in a field keeps the number the server is on.
+    #[test]
+    fn the_numbers_of_ngram_mod_reach_the_server_it_is_asked_for() {
+        let asked = ModelSettings {
+            spec_index: place_of("ngram-mod"),
+            ngram_match: 24,
+            ngram_max: 64,
+            ngram_min: 48,
+            ..Default::default()
+        };
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &asked,
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--spec-ngram-mod-n-match"), "24");
+        assert_eq!(find_flag(&args, "--spec-ngram-mod-n-max"), "64");
+        assert_eq!(find_flag(&args, "--spec-ngram-mod-n-min"), "48");
+        // The numbers of a way of guessing the server was not requested stay away, and so does
+        // all of them with 0 in the field.
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings {
+                spec_index: place_of("draft-mtp"),
+                ngram_match: 24,
+                ngram_max: 64,
+                ngram_min: 48,
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a.starts_with("--spec-ngram-mod")));
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &model(),
+            &ModelSettings {
+                spec_index: place_of("ngram-mod"),
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a.starts_with("--spec-ngram-mod")));
+        // The numbers of the settings that were written before these fields existed are the
+        // numbers of the server, which is 0 in each field.
+        assert_eq!(ModelSettings::default().ngram_match, 0);
+        assert_eq!(ModelSettings::default().ngram_max, 0);
+        assert_eq!(ModelSettings::default().ngram_min, 0);
+    }
+
+    // The header of a model is searched for where the files of the model remain, and is never
+    // the file of the model itself.
+    #[test]
+    fn the_mtp_head_of_a_model_is_found_beside_it() {
+        let root = std::env::temp_dir().join("an-llama-mtp-check");
+        let _ = fs::remove_dir_all(&root);
+        let inner = root.join("Qwen3.5-9B");
+        fs::create_dir_all(&inner).expect("the directory of the model is created");
+        let target = inner.join("Qwen3.5-9B-Q4_K_M.gguf");
+        fs::write(&target, b"x").expect("the model stands");
+        let head = inner.join("Qwen3.5-9B-MTP-Q4_K_M.gguf");
+        fs::write(&head, b"x").expect("the head stands");
+        fs::write(inner.join("Qwen3.5-9B-mmproj-f16.gguf"), b"x").expect("the projector stands");
+        assert_eq!(
+            find_mtp(&target).expect("the header is with the model"),
+            head
+        );
+        // A model whose own name carries the word for the header is not a header of itself: it
+        // is not proposed back as its own header.
+        let named = inner.join("Gemma-4-12B-MTP-QAT.gguf");
+        fs::write(&named, b"x").expect("another model stands");
+        assert_ne!(find_mtp(&named).unwrap(), named);
+        // A model with no header beside it has none.
+        let alone = root.join("Alone.gguf");
+        fs::write(&alone, b"x").expect("a model alone stands");
+        assert!(find_mtp(&alone).is_none(), "no header is in the folder");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // With a choice that requests the header of the model, and no file named by the user, the
+    // header found beside the model goes to the server, and is informed in the notes. A file of
+    // the user is above it, and a choice that requests no header is given nothing.
+    #[test]
+    fn the_head_of_the_model_goes_to_the_server_when_mtp_is_asked_for() {
+        let root = std::env::temp_dir().join("an-llama-mtp-args");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("the directory of the model is created");
+        let target = root.join("Qwen3.5-9B-Q4_K_M.gguf");
+        fs::write(&target, b"x").expect("the model stands");
+        let head = root.join("Qwen3.5-9B-MTP.gguf");
+        fs::write(&head, b"x").expect("the head stands");
+        let with_head = ModelInfo {
+            path: target.clone(),
+            name: String::from("Qwen3.5-9B-Q4_K_M"),
+            kind: "GGUF",
+        };
+        let pair = place_of("ngram-mod + MTP");
+
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &with_head,
+            &ModelSettings {
+                spec_index: pair,
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert_eq!(
+            find_flag(&args, "--spec-draft-model"),
+            head.display().to_string()
+        );
+        assert!(
+            notes.iter().any(|one| one.contains("MTP header")),
+            "{:?}",
+            notes
+        );
+        // The file the user named is above the header that was found.
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &with_head,
+            &ModelSettings {
+                spec_index: pair,
+                draft_model: String::from("/models/other.gguf"),
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert_eq!(find_flag(&args, "--spec-draft-model"), "/models/other.gguf");
+        assert!(!notes.iter().any(|one| one.contains("MTP header")));
+        // A way of guessing that needs no file is given none, though a header is in the folder.
+        let mut notes = Vec::new();
+        let args = build_args(
+            std::path::Path::new(""),
+            &with_head,
+            &ModelSettings {
+                spec_index: place_of("ngram-mod"),
+                ..Default::default()
+            },
+            &[],
+            8080,
+            true,
+            &mut notes,
+        );
+        assert!(!args.iter().any(|a| a == "--spec-draft-model"));
+        let _ = fs::remove_dir_all(&root);
     }
 }

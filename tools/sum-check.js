@@ -1,7 +1,7 @@
 
-// A look at the sheet of a whole handoff summary, which shares the name `.shead`
-// with the head of a group in the side bar. The words of the sheet stand at the
-// left, as the sheet of settings does, and the head of the bar is not felt here.
+// A look at the stylesheet of a whole handoff summary, which shares the name `.shead` with the
+// header of a group in the side bar. The text of the stylesheet is at the left, as the settings
+// panel does, and the header of the top bar is not felt here.
 'use strict';
 const path = require('path');
 const puppeteer = require('puppeteer');

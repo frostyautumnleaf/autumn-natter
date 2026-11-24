@@ -63,9 +63,9 @@ fn a_message_may_be_sent_after_a_summarisation() {
     let engine = Engine::start(cfg);
     engine.new_chat();
 
-    // Talk until the room is past the share set for the summarisation. The
-    // script makes the room grow with the number of messages and fall back
-    // again when a summary cuts the talk short.
+    // Conversation until the space is past the share set for the summarisation. The script
+    // makes the space grow with the number of messages and fall back again when a summary cuts
+    // the conversation short.
     let mut made = false;
     for n in 1..12 {
         engine.prompt(format!("message {}", n), Vec::new());
@@ -101,7 +101,7 @@ fn a_message_may_be_sent_after_a_summarisation() {
     let mid = engine.snapshot();
     println!("after the send: generating={} status={}", mid.generating, mid.status);
     let bodies = reader_words(&engine);
-    println!("reader messages: {:?}", bodies);
+    println!("user messages: {:?}", bodies);
     assert!(
         bodies.iter().any(|b| b == "after the summary"),
         "the message written after the summarisation never reached the chat"

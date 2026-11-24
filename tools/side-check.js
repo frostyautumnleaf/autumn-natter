@@ -1,15 +1,15 @@
 
 // A look at the side bar and the first screen, without the desktop or the model.
 //
-// The page is loaded as it stands, the lists of the bar are handed to it by
+// The page is loaded as it is now, the lists of the top bar are handed to it by
 // hand, and the numbers of the layout are written out: whether the chat that
-// is open has its name in bold, and how much room stands above and below the
+// is open has its name in bold, and how much space is above and below the
 // group of the first screen.
 //
-//   node side-check.js                       # both questions, pale skin
-//   node side-check.js dark                  # the dark skin
+//   node side-check.js                       # both questions, pale theme
+//   node side-check.js dark                  # the dark theme
 //   node side-check.js 1440 900              # another window
-//   node side-check.js shot side.png         # a picture of the bar, scrolled to
+//   node side-check.js shot side.png         # an image of the top bar, scrolled to
 //     the chat that is open, so the bold of its name is seen
 'use strict';
 const path = require('path');
@@ -29,7 +29,7 @@ function chats(n, openAt, repo) {
       title: 'Chat ' + (i + 1) + ' about the layout of the window',
       repo: repo || '', when: 'Today 09:0' + (i % 10),
       pinned: false, archived: false, active: i === openAt,
-      messages: 4, preview: 'a line of the talk'
+      messages: 4, preview: 'a line of the conversation'
     });
   }
   return out;
@@ -73,7 +73,7 @@ const LISTS = {
     const box = document.getElementById('sideBody').getBoundingClientRect();
     const last = rows.length ? rows[rows.length - 1].getBoundingClientRect() : null;
 
-    // The first screen: the group of the mark, the words, and the chat box.
+    // The first screen: the group of the marker, the text, and the chat composer.
     document.body.classList.add('home');
     document.getElementById('greet').textContent = 'Good morning. What shall we work on?';
     document.getElementById('homenote').innerHTML =
@@ -104,9 +104,8 @@ const LISTS = {
     };
   }, { dark, openAt: OPEN_AT, L: LISTS, D: W + 'x' + H });
 
-  // The lists a moment behind the window: the chat that stood open before is
-  // still marked open in them, and the bar must set apart only the chat the
-  // window is looking at now.
+  // The lists a moment behind the window: the chat that was open before is still flagged open
+  // in them, and the top bar must set apart only the chat the window is looking at now.
   const stale = await page.evaluate(({ L }) => {
     const loose = L.loose.map((c, i) => Object.assign({}, c, { active: i === 1 }));
     lists = { repositories: [], loose: loose, archived: [] };
@@ -123,9 +122,8 @@ const LISTS = {
         return o && getComputedStyle(o).fontWeight; })() };
   }, { L: LISTS });
 
-  // The three dots of a row, asked for by the pointer: the day gives way to the
-  // mark, the row keeps the height and the width it had, and the mark stands on
-  // the same line as the day.
+  // The three dots of a row, requested by the pointer: the title gives way to the marker, the
+  // row keeps the height and the width it had, and the marker is on the same line as the day.
   if (process.argv.includes('hover')) {
     const rows = await page.$$('#looseBody .srow');
     const before = await page.evaluate(() => {
@@ -149,9 +147,9 @@ const LISTS = {
            row.querySelector('.sday').getBoundingClientRect().height / 2)) < 3,
         transition: getComputedStyle(row.querySelector('.sdots')).transitionProperty };
     });
-    // The move itself: the width of the mark is looked at while the pointer is
-    // on the row, so a move that takes the time it was given can be told from a
-    // snap from nought to full in one step.
+    // The move itself: the width of the marker is checked while the pointer is on the row, so a
+    // move that takes the time it was given can be informed from a snap from zero to full in
+    // one step.
     const steps = [];
     await rows[2].hover();
     for (let i = 0; i < 5; i++) {

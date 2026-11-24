@@ -1,35 +1,35 @@
 // Check the line of the user's own messages: the dashes hard against the right
 // edge of the chat, the card of a dash, the going to a message, and the setting
 // that switches the line off. The page is the one the remote mode serves, and the
-// chat is made by asking the engine, so the messages are real ones.
+// chat is created by asking the engine, so the messages are real ones.
 //
 //   AN_URL=http://127.0.0.1:8798 node userline-check.js
 //
 // The live check needs a running program. It asks the engine for the messages,
-// so the chat it looks at is a real one, which is what the check is for: the
-// same drawing is looked at in both faces, with the drawing driven by hand, by
+// so the chat it checks is a real one, which is what the check is for: the
+// same drawing is checked in both pages, with the drawing driven manually, by
 // userline-face-check.js. A running program with a model chosen is not part of
-// the harness of the page, so with no AN_URL the check says so and leaves - a
-// check that can only reach a program of the developer's own is not a fault of
+// the harness of the page, so with no AN_URL the check records it and leaves - a
+// check that can only reach a program of the developer's own is not an error in
 // the page:
 //
 //   autumn-natter --remote --port 8798     # it prints the address it serves on
 //   AN_URL=http://127.0.0.1:8798 node tools/userline-check.js
 //
-// Seven things are looked at:
-//   * the line stands when a chat has messages of the user, and its nodes are
+// Seven items are checked:
+//   * the line remains when a chat has messages of the user, and its nodes are
 //     dashes (a stroke across the line, not a bead on it);
 //   * one dash for one message of the user, and none for the sayings of the
 //     model, the notes of the program or the runs of the tools;
-//   * the card of a dash says which message it is, when it was sent, and shows a
-//     little of what it says;
-//   * a message with things hung on it says how many, pictures told from files;
+//   * the card of a dash reports which message it is, when it was sent, and shows a
+//     little of what it reports;
+//   * a message with items hung on it reports how many, images informed from files;
 //   * clicking a dash brings that message to the top of the view, and the chat
 //     stops following the answer;
-//   * the setting switched off takes the line away, and the chat takes the room
+//   * the setting switched off takes the line away, and the chat takes the space
 //     of it back;
-//   * the line stands nearer the chat than the line of the summarisations when a
-//     chat has both, and neither stands over the words.
+//   * the line remains nearer the chat than the line of the summarisations when a
+//     chat has both, and neither is above the text.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -51,9 +51,9 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+A
 async function makeChat() {
   await ask(URL + '/api/new_chat', {});
   const bits = [
-    { text: 'First question about `the thing` with a long tail of words to read', files: [] },
-    { text: 'Second question', files: [{ name: 'notes.md', mime: 'text/markdown', text: 'a file of words' }] },
-    { text: 'Third question with a picture hung on it', files: [{ name: 'cat.png', mime: 'image/png', data: PNG }] },
+    { text: 'First question about `the item` with a long tail of text to read', files: [] },
+    { text: 'Second question', files: [{ name: 'notes.md', mime: 'text/markdown', text: 'a text file' }] },
+    { text: 'Third question with an image hung on it', files: [{ name: 'cat.png', mime: 'image/png', data: PNG }] },
     { text: 'Fourth question', files: [] },
   ];
   for (const one of bits) {
@@ -68,17 +68,17 @@ async function makeChat() {
   return (await (await fetch(URL + '/api/state')).json());
 }
 
-// The words said when no program is offered to the check. They are printed as
-// the answer of the check, so a run of the harness shows the skip instead of a
-// fault, and says what would take the skip away.
-const SKIPPED = 'SKIP userline-check: AN_URL is not set, so no program is offered'
+// The text stated when no program is proposed to the check. They are printed as the answer of
+// the check, so a run of the harness shows the skip instead of an error, and reports what would
+// take the skip away.
+const SKIPPED = 'SKIP userline-check: AN_URL is not set, so no program is proposed'
   + ' to it. This check asks a running program for its messages. Start the'
   + ' program with --remote and give its address: AN_URL=http://<address>:<port> '
   + 'node tools/userline-check.js. The program must have a model chosen, for the'
   + ' messages of the chat come from the engine.';
 
-// Wait for the program to answer. A program that is asked for a model starts the
-// server of the model first, so the first looks may be refused.
+// Wait for the program to answer. A program that is requested a model starts the server of the
+// model first, so the first looks may be refused.
 async function ready() {
   for (let n = 0; n < 40; n++) {
     try {
@@ -92,9 +92,9 @@ async function ready() {
 }
 
 async function main() {
-  // The page of a face is not what this check reads: it reads the page a running
-  // program serves. The pass of the harness over the browser face is therefore
-  // left alone, so the live program is not asked twice for the same chat.
+  // The page of a face is not what this check reads: it reads the page a running program
+  // serves. The pass of the harness over the browser face is therefore skipped, so the live
+  // program is not asked twice for the same chat.
   if (process.env.AN_PAGE) {
     console.log('SKIP userline-check: this check reads the page a running program'
       + ' serves, not a page of one face. It runs on the pass with no AN_PAGE.');
@@ -126,12 +126,12 @@ async function main() {
     if (m.type() === 'error' && m.text().indexOf('favicon') < 0) { faults.push(m.text()); }
   });
   const trouble = [];
-  const note = (what) => { trouble.push(what); console.log('  FAULT: ' + what); };
+  const note = (what) => { trouble.push(what); console.log('  ERROR: ' + what); };
 
   await page.goto(URL + '/', { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.turn', { timeout: 15000 });
 
-  // 1 and 2: the line stands, and it is made of dashes, one for each message.
+  // 1 and 2: the line remains, and it is made of dashes, one for each message.
   const line = await page.evaluate(() => {
     const box = document.getElementById('userline');
     if (!box) { return { missing: 'no element of the user line' }; }
@@ -152,18 +152,18 @@ async function main() {
   });
   if (line.missing) { note(line.missing); }
   if (!line.shown) { note('the line is not shown though the chat has messages of the user'); }
-  if (!line.withclass) { note('the stage does not know the line stands'); }
+  if (!line.withclass) { note('the stage does not know the line remains'); }
   if (line.count !== mine.length) {
     note('the line holds ' + line.count + ' dashes for ' + mine.length + ' messages');
   }
   if (!line.dash || line.dash.h > 5 || line.dash.w < 8) {
     note('the node is not a dash: ' + JSON.stringify(line.dash));
   }
-  if (!(line.pad > 20)) { note('the chat made no room for the line: padding ' + line.pad); }
+  if (!(line.pad > 20)) { note('the chat made no space for the line: padding ' + line.pad); }
   console.log('line:', JSON.stringify(line));
 
-  // 3 and 4: the card of a dash. The third message carries a picture, and the
-  // second a file, so their cards say so.
+  // 3 and 4: the card of a dash. The third message carries an image, and the second a file, so
+  // their cards record it.
   for (const n of [0, 1, 2]) {
     const card = await page.evaluate((which) => {
       const dash = document.querySelectorAll('#userline .unode')[which];
@@ -178,26 +178,25 @@ async function main() {
       };
     }, n);
     if (card.missing) { note('dash ' + n + ' has no card'); continue; }
-    // The card is shown by :hover, which a headless page cannot be put into, so
-    // the words are read whether the card is open or not; the openness is
-    // checked once, with the real mouse.
+    // The card is shown by :hover, which a headless page cannot be put into, so the text is
+    // read whether the card is open or not; the openness is checked once, with the real mouse.
     if (card.text.indexOf('Your message ' + (n + 1)) !== 0) {
       note('dash ' + n + ' does not say which message it is: ' + card.text.slice(0, 60));
     }
-    if (!/Sent /.test(card.text)) { note('dash ' + n + ' says nothing of when: ' + card.text); }
+    if (!/Sent /.test(card.text)) { note('dash ' + n + ' reports nothing of when: ' + card.text); }
     if (n === 0 && card.text.indexOf('First question') < 0) {
       note('dash 0 shows no preview: ' + card.text.slice(0, 80));
     }
     if (n === 1 && card.text.indexOf('1 file') < 0) {
       note('dash 1 does not count the file: ' + card.text.slice(0, 90));
     }
-    if (n === 2 && card.text.indexOf('1 picture') < 0) {
-      note('dash 2 does not count the picture: ' + card.text.slice(0, 90));
+    if (n === 2 && card.text.indexOf('1 image') < 0) {
+      note('dash 2 does not count the image: ' + card.text.slice(0, 90));
     }
     console.log('card ' + n + ':', JSON.stringify(card.text).slice(0, 120));
   }
 
-  // The card is really opened by the mouse, and stands clear of the chat's edge.
+  // The card is really opened by the mouse, and remains clear of the chat's edge.
   let hover = null;
   for (let tryn = 0; tryn < 5 && !(hover && hover.open); tryn++) {
     await page.mouse.move(4, 4);
@@ -230,8 +229,8 @@ async function main() {
   if (!hover.inside) { note('the card hangs out of the stage: ' + JSON.stringify(hover.card)); }
   console.log('hover:', JSON.stringify(hover));
 
-  // 5: clicking a dash takes the chat to that message. The chat is scrolled to
-  // the end first, so the going is seen.
+  // 5: clicking a dash takes the chat to that message. The chat is scrolled to the end first,
+  // so the going is seen.
   const moved = await page.evaluate(() => {
     const thread = document.getElementById('thread');
     thread.scrollTop = thread.scrollHeight;
@@ -257,9 +256,9 @@ async function main() {
   if (after.stick !== false) { note('the chat still follows the answer after the click'); }
   console.log('scroll:', JSON.stringify(moved), JSON.stringify(after));
 
-  // 7: the line of the summarisations, when a chat has one too. It is drawn by
-  // the same page from the state; here the state of a chat that was never
-  // summarised is stood in for, so the two lines are looked at together.
+  // 7: the line of the summarisations, when a chat has one too. It is drawn by the same page
+  // from the state; here the state of a chat that was never summarised is placed in for, so the
+  // two lines are checked together.
   const both = await page.evaluate(() => {
     const stage = document.getElementById('stage');
     const box = document.getElementById('timeline');
@@ -285,17 +284,17 @@ async function main() {
       colWidth: Math.round(wide.width),
     };
   });
-  // Nearer the chat means a smaller x, for the chat stands at the left of both
-  // lines. The dashes also stand a little way from the words rather than a long
-  // way off, which is what makes the line read as a border of the chat.
+  // Nearer the chat means a smaller x, for the chat is at the left of both lines. The dashes
+  // also remain a little way from the text rather than a long way off, which is what makes the
+  // line read as a border of the chat.
   if (!(both.dash < both.bead)) {
     note('the dashes are not nearer the chat than the summarisations: ' + JSON.stringify(both));
   }
   if (both.dash - both.colRight > 60) {
-    note('the dashes stand a long way from the words: ' + JSON.stringify(both));
+    note('the dashes remain a long way from the text: ' + JSON.stringify(both));
   }
-  if (both.bead <= both.colRight) { note('a line stands over the words: ' + JSON.stringify(both)); }
-  if (both.dash <= both.colRight) { note('the dashes stand over the words: ' + JSON.stringify(both)); }
+  if (both.bead <= both.colRight) { note('a line is above the text: ' + JSON.stringify(both)); }
+  if (both.dash <= both.colRight) { note('the dashes remain over the text: ' + JSON.stringify(both)); }
   console.log('both lines:', JSON.stringify(both));
 
   await page.evaluate(() => {
@@ -306,15 +305,15 @@ async function main() {
     box.innerHTML = '';
   });
 
-  // 6: the setting. The sheet is driven as a user drives it: opened, the mark
-  // moved, and the sheet saved. Switched off, the line goes and the chat takes
-  // the room of it back.
+  // 6: the setting. The stylesheet is driven as a user drives it: opened, the marker moved, and
+  // the stylesheet saved. Switched off, the line goes and the chat takes the space of it
+  // back.
   const moved2 = await page.evaluate(async () => {
     openSettings('program');
     const box = document.getElementById('fUserline');
     if (!box) { return { missing: true }; }
-    // The sheet is filled from the engine, and the filling is a fetch: waiting
-    // for the mark to stand is waiting for the sheet to know the settings.
+    // The stylesheet is filled from the engine, and the filling is a fetch: waiting for the
+    // marker to remain is waiting for the stylesheet to know the settings.
     let waited = 0;
     while (!box.checked && waited < 6000) {
       await new Promise((r) => setTimeout(r, 100));
@@ -327,9 +326,9 @@ async function main() {
     return { was: was, waited: waited };
   });
   if (moved2.missing) {
-    note('the settings hold no mark for the line');
+    note('the settings hold no marker for the line');
   } else if (!moved2.was) {
-    note('the mark for the line is not on to begin with');
+    note('the marker for the line is not on to begin with');
   }
   let waited2 = 0;
   let seen = null;
@@ -350,8 +349,8 @@ async function main() {
     waited2 += 200;
   }
   if (seen.pad > 10) {
-    // The chat keeps its room only until the thread is laid out again, so the
-    // width is asked for again before it is judged.
+    // The chat keeps its space only until the thread is decompressed again, so the width is
+    // requested again before it is judged.
     await page.evaluate(() => { setChatWidth(); });
     seen.padAgain = await page.evaluate(() => parseFloat(
       getComputedStyle(document.getElementById('thread')).paddingRight));
@@ -367,25 +366,25 @@ async function main() {
     };
   });
   if (seen.setting !== false) { note('the setting did not reach the page: ' + JSON.stringify(seen)); }
-  if (seen.shown && !seen.hidden) { note('the line stands with the setting off'); }
-  if (seen.withclass) { note('the stage still makes room for a line that is off'); }
+  if (seen.shown && !seen.hidden) { note('the line is with the setting off'); }
+  if (seen.withclass) { note('the stage still makes space for a line that is off'); }
   if (seen.padAgain !== undefined && seen.padAgain > 10) {
-    note('the chat kept the room of a line that is off: ' + seen.padAgain);
+    note('the chat kept the space of a line that is off: ' + seen.padAgain);
   }
   console.log('setting off:', JSON.stringify(moved2), JSON.stringify(seen));
 
-  // The mark is put back, so the check leaves the settings as it found them. The
-  // sheet is opened again first: a save of a sheet that is closed writes nothing,
-  // and the field must be moved after the sheet has read the settings of the
-  // engine, or the filling puts the mark back where the engine has it.
+  // The marker is put back, so the check leaves the settings as it found them. The stylesheet
+  // is opened again first: a save of a sheet that is closed writes nothing, and the field must
+  // be moved after the stylesheet has read the settings of the engine, or the filling puts the
+  // marker back where the engine has it.
   let back = { setting: false, shown: false };
   for (let n = 0; n < 3 && !(back.setting === true && back.shown); n++) {
     await page.evaluate(async () => {
       openSettings('program');
       const box = document.getElementById('fUserline');
       if (!box) { return; }
-      // Wait for the filling of the sheet, which is a fetch: while it stands the
-      // words of the fields are not yet the words of the engine.
+      // Wait for the filling of the stylesheet, which is a fetch: while it remains the text of
+      // the fields is not yet the text of the engine.
       let waited = 0;
       while (box.checked && waited < 3000) {
         await new Promise((r) => setTimeout(r, 100));
@@ -406,12 +405,12 @@ async function main() {
       };
     });
   }
-  if (!back.shown) { note('the line did not come back with the setting on'); }
+  if (!back.shown) { note('the line did not return with the setting on'); }
   console.log('setting back:', JSON.stringify(back));
 
   if (faults.length) { note('the page faulted: ' + faults.slice(0, 3).join(' | ')); }
   await browser.close();
-  console.log(trouble.length ? '\n' + trouble.length + ' faults' : '\nnothing amiss');
+  console.log(trouble.length ? '\n' + trouble.length + ' errors' : '\nnothing amiss');
   return trouble.length;
 }
 

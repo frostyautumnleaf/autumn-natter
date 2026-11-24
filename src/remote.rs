@@ -1,12 +1,12 @@
-// Remote mode. It runs the same engine as the desktop window, and serves one
-// web page for the other computers of the local network.
+// Remote mode. It runs the same engine as the desktop window, and serves one web page for the
+// other computers of the local network.
 //
-// The page asks for the state with a short poll. Nothing is pushed to the
-// browser: the text of an answer arrives with the next poll. This keeps the
-// server small, and a local network answers fast enough for it.
+// The page requests the state with a short poll. Nothing is pushed to the browser: the text of
+// an answer arrives with the next poll. This keeps the server small, and a local network
+// answers fast enough for it.
 //
-// Only a computer of the local network may open the page. A stranger on the
-// internet is refused, even when the router maps the port.
+// Only a computer of the local network may open the page. A stranger on the internet is
+// refused, even when the router maps the port.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
@@ -23,14 +23,14 @@ use crate::web;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
-// How long one wait for a request lasts. After every wait the loop looks at the
-// stop flag, so Ctrl-C ends the run in an orderly way.
+// How long one wait for a request lasts. After every wait the loop checks the stop flag, so
+// Ctrl-C ends the run in an orderly way.
 const WAIT: Duration = Duration::from_millis(200);
 
-// The page, and the icon of the program, which the page asks for once. The same
-// file is the mark of the tab: the page names it with `<link rel="icon">`, and a
-// browser that does not read that asks for `/favicon.ico` on its own. The file
-// is a mark of lines, so one file serves every size of tab.
+// The page, and the icon of the program, which the page requests once. The same file is the
+// marker of the tab: the page names it with `<link rel="icon">`, and a browser that does not
+// read that requests `/favicon.ico` on its own. The file is a marker of lines, so one file
+// serves every size of tab.
 const ICON: &[u8] = include_bytes!("../assets/icons/autumn-natter.svg");
 
 // Set by Ctrl-C. A signal handler may only write to a value like this.
@@ -58,7 +58,7 @@ pub fn start(cfg: Config) -> Result<(), String> {
     let mapping = if upnp_enabled {
         match upnp::open(port) {
             Ok(guard) => {
-                println!("The router maps port {} to this machine.", port);
+                println!("The router maps port {} to this computer.", port);
                 Some(guard)
             }
             Err(problem) => {
@@ -109,6 +109,10 @@ fn handle(engine: &Engine, mut request: Request) {
                     .with_header(content_type("text/html; charset=utf-8")),
             );
         }
+        ("GET", "/frontend/corporate.js") => {
+            let _ = request.respond(Response::from_string(include_str!("../frontend/corporate.js"))
+                .with_header(content_type("text/javascript; charset=utf-8")));
+        }
         ("GET", "/autumn-natter.svg") | ("GET", "/favicon.ico") => {
             let _ = request.respond(
                 Response::from_data(ICON)
@@ -122,9 +126,8 @@ fn handle(engine: &Engine, mut request: Request) {
             let value = web::state(&snap, query_u64(&query, "since"));
             let _ = request.respond(json_response(&value));
         }
-        // One attachment of a message, for the block the page draws. The
-        // words of a file and the bytes of a picture come back under the
-        // same three words: name, kind, data.
+        // One attachment of a message, for the block the page draws. The text of a file and the
+        // bytes of an image return under the same three words: name, type, data.
         ("GET", "/api/attachment") => {
             let id = query_value(&query, "id");
             match engine.attachment(&id) {
@@ -143,8 +146,8 @@ fn handle(engine: &Engine, mut request: Request) {
                 }
             }
         }
-        // The whole of the plan of the open chat, for the window that reads it at
-        // a click on the heading over the talk.
+        // All of the plan of the open chat, for the window that reads it at a click on the
+        // heading over the conversation.
         ("GET", "/api/plan") => match engine.plan() {
             Some(words) => {
                 let _ = request.respond(json_response(&json!({ "words": words })));
@@ -153,18 +156,16 @@ fn handle(engine: &Engine, mut request: Request) {
                 let _ = request.respond(json_status(404, "This chat has no plan"));
             }
         },
-        // The sheet of settings. The page of the remote mode reads the same
-        // settings the window of the program reads, and writes them back with a
-        // call of its own.
+        // The settings panel. The page of the remote mode reads the same settings the window of
+        // the program reads, and writes them back with a call of its own.
         ("GET", "/api/config") => {
             let _ = request.respond(json_response(&web::config_value(engine)));
         }
         ("GET", "/api/repositories") => {
             let _ = request.respond(json_response(&web::repositories_value(engine)));
         }
-        // The pre-written prompts of the Program tab. Without an id the call
-        // gives the lines of the table; with one it gives the words of that
-        // prompt, for the user asked to read it.
+        // The pre-written prompts of the Program tab. Without an id the call gives the lines of
+        // the table; with one it gives the text of that prompt, for the user asked to read it.
         ("GET", "/api/prompts") => {
             let id = query_value(&query, "id");
             let _ = request.respond(json_response(&web::prompts_value(&id)));
@@ -173,28 +174,36 @@ fn handle(engine: &Engine, mut request: Request) {
             let id = query_value(&query, "id");
             let _ = request.respond(json_response(&web::model_settings_value(engine, &id)));
         }
-        // The logs, for the Logs tab: the output of llama-server, and the log the
-        // program writes of its own work. The list is asked for on its own, and one
-        // log with it, for a log is far too big to come with the state of the page.
-        // The kind of the log comes with the ask, and a word that is neither kind
-        // is read as the log of llama-server.
-        // The servers of the user's own, whole, for the MCP tab of the
-        // settings. The state carries their names and their tools, and nothing
-        // of the words a server of the program itself is made of.
+        // The logs, for the Logs tab: the output of llama-server, and the log the program
+        // writes of its own work. The list is requested on its own, and one log with it, for a
+        // log is far too big to come with the state of the page. The type of the log comes with
+        // the request, and a word that is neither type is read as the log of llama-server. The
+        // servers of the user's own, whole, for the MCP tab of the settings. The state carries
+        // their names and their tools, and nothing of the text a server of the program itself
+        // is made of.
         ("GET", "/api/mcp") => {
             let _ = request.respond(json_response(&web::mcp_value(engine)));
         }
+        // The embedding model of the sources, for the section at the top of the Program tab, and
+        // the sources of the open chat, for their pop-up. Both are read again while a download or
+        // a counting is going on, and neither comes with the state of the page.
+        ("GET", "/api/embed_state") => {
+            let _ = request.respond(json_response(&engine.embedding_state()));
+        }
+        ("GET", "/api/sources_list") => {
+            let _ = request.respond(json_response(&engine.sources_value()));
+        }
         ("GET", "/api/logs") => {
             let kind = crate::logs::Kind::of_word(&query_value(&query, "kind"));
-            let _ = request.respond(json_response(&web::logs_value(kind)));
+            let _ = request.respond(log_json_response(&web::logs_value(kind)));
         }
         ("GET", "/api/log") => {
             let kind = crate::logs::Kind::of_word(&query_value(&query, "kind"));
             let id = query_value(&query, "id");
             let value = web::log_value(kind, &id, query_u64(&query, "tail"));
-            // A log that is not here answers with the words of a fault, and with
-            // the number that says so as well.
-            let answer = json_response(&value);
+            // A log that is not here answers with the text of an error, and with the number
+            // that records it as well.
+            let answer = log_json_response(&value);
             let _ = request.respond(
                 if value.get("ok").and_then(|v| v.as_bool()) == Some(false) {
                     answer.with_status_code(404)
@@ -203,11 +212,11 @@ fn handle(engine: &Engine, mut request: Request) {
                 },
             );
         }
-        // A file the user was offered by the download tool. The name is the one
-        // the block carries, and only the room of the open chat is opened for it:
-        // the rule of the sandbox lies over a download as it lies over a command.
-        // The bytes come back as an attachment, so the browser keeps the name the
-        // block showed rather than the kind it guessed.
+        // A file the user was proposed by the download tool. The name is the one the block
+        // carries, and only the working directory of the open chat is opened for it: the rule of the
+        // sandbox lies over a download as it lies over a command. The bytes return as an
+        // attachment, so the browser keeps the name the block showed rather than the type it
+        // guessed.
         ("GET", "/api/gift") => {
             let asked = query_value(&query, "path");
             match engine.gift(&asked) {
@@ -219,9 +228,9 @@ fn handle(engine: &Engine, mut request: Request) {
                 }
             }
         }
-        // The whole of an offer at once, wound into one archive in the memory. The
-        // names come as several `path` words of the query, and the archive is
-        // never written out to the room of the chat.
+        // All of an propose at once, wound into one archive in the memory. The names come as
+        // several `path` text of the query, and the archive is never written out to the
+        // working directory of the chat.
         ("GET", "/api/gift_zip") => {
             let asked = query_values(&query, "path");
             match engine.gift_zip(&asked) {
@@ -234,11 +243,11 @@ fn handle(engine: &Engine, mut request: Request) {
                 }
             }
         }
-        // The contents of one file of a show. The window over the contents of a
-        // file asks for it by the name the block of the show carries. The rule of
-        // the room follows the state of the sandbox of the chat that is open, and a
-        // kind the window has no way of showing is refused, so the route reads no
-        // more than the tool would have put in the window.
+        // The contents of one file of a show. The window over the contents of a file requests
+        // it by the name the block of the show carries. The rule of the working directory follows the
+        // state of the sandbox of the chat that is open, and a type the window has no way of
+        // showing is refused, so the route reads no more than the tool would have put in the
+        // window.
         ("GET", "/api/display") => {
             let asked = query_value(&query, "path");
             match engine.display_of(&asked) {
@@ -248,7 +257,7 @@ fn handle(engine: &Engine, mut request: Request) {
                 None => {
                     let _ = request.respond(json_status(
                         404,
-                        "That file is not here, or it is not a kind the window shows",
+                        "That file is not here, or it is not a type the window shows",
                     ));
                 }
             }
@@ -266,7 +275,7 @@ fn handle(engine: &Engine, mut request: Request) {
     }
 }
 
-// True when the caller sits on this machine or inside the local network.
+// True when the caller sits on this computer or inside the local network.
 fn allowed(request: &Request) -> bool {
     match request.remote_addr() {
         Some(SocketAddr::V4(address)) => {
@@ -293,8 +302,8 @@ fn split_url(url: &str) -> (String, String) {
     }
 }
 
-// A text from the query of the page, for example id=ab12cd34ef. A missing
-// text gives an empty string, and the code behind it answers for that.
+// A text from the query of the page, for example id=ab12cd34ef. A missing text gives an empty
+// string, and the code behind it answers for that.
 fn query_value(query: &str, key: &str) -> String {
     for pair in query.split('&') {
         let mut parts = pair.splitn(2, '=');
@@ -308,9 +317,8 @@ fn query_value(query: &str, key: &str) -> String {
     String::new()
 }
 
-// Every value a word of the query carries. The button that takes the whole of an
-// offer at once sends one `path` word for each file of it, so the same name comes
-// back several times.
+// Every value a note about the query carries. The button that takes all of an propose at once
+// sends one `path` word for each file of it, so the same name returns several times.
 fn query_values(query: &str, key: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for pair in query.split('&') {
@@ -344,11 +352,17 @@ fn json_response(value: &serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>
         .with_header(content_type("application/json; charset=utf-8"))
 }
 
-// The bytes of a file the user was offered. The name goes into the answer as an
-// attachment, so the browser keeps the name the block showed instead of the kind
-// it guessed, and the file is never opened in the page. A name of another alphabet
-// is written twice over: once the plain way, for a browser that reads only that,
-// and once as the bytes of UTF-8 with the awkward letters written as numbers.
+// The log list and its text change while the browser keeps the tab open. Do not let a browser
+// or a proxy reuse an earlier empty list or an older read of a log for the next request.
+fn log_json_response(value: &serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
+    json_response(value).with_header(header("cache-control", "no-store"))
+}
+
+// The bytes of a file the user was proposed. The name goes into the answer as an attachment, so
+// the browser keeps the name the block showed instead of the type it guessed, and the file is
+// never opened in the page. A name of another alphabet is written twice over: once the plain
+// way, for a browser that reads only that, and once as the bytes of UTF-8 with the awkward
+// letters written as numbers.
 fn bytes_response(
     name: &str,
     kind: &str,
@@ -363,13 +377,13 @@ fn bytes_response(
     Response::from_data(bytes)
         .with_header(content_type(kind))
         .with_header(header("content-disposition", &held))
-        // The file is of this chat and of this moment: a page that kept an old
-        // copy of it would hand out words that are no longer the work.
+        // The file is of this chat and of this moment: a page that kept an old copy of it would
+        // hand out text that is no longer the work.
         .with_header(header("cache-control", "no-store"))
 }
 
-// A name the plain way round in a header: the quotes and the marks that end a
-// line are taken out, for they would end the header itself.
+// A name the plain way round in a header: the quotes and the markers that end a line are taken
+// out, for they would end the header itself.
 fn plain_name(name: &str) -> String {
     name.chars()
         .map(|ch| match ch {
@@ -379,8 +393,8 @@ fn plain_name(name: &str) -> String {
         .collect()
 }
 
-// The letters a header cannot carry written as numbers, which is how a name of
-// another alphabet reaches the browser whole.
+// The letters a header cannot carry written as numbers, which is how a name of another alphabet
+// reaches the browser whole.
 fn percent_of(name: &str) -> String {
     let mut out = String::new();
     for byte in name.as_bytes() {
@@ -415,8 +429,8 @@ fn header(name: &str, value: &str) -> Header {
         .unwrap_or_else(|_| Header::from_bytes("content-type", "text/plain").unwrap())
 }
 
-// Ctrl-C sets the flag instead of ending the run at once. The loop then takes
-// the model out of the memory and asks the router to remove the mapping.
+// Ctrl-C sets the flag instead of ending the run at once. The loop then takes the model out of
+// the memory and asks the router to remove the mapping.
 #[cfg(unix)]
 fn watch_ctrl_c() {
     // SAFETY: the handler only writes to a stop flag.
@@ -435,8 +449,8 @@ fn stop_asked() -> bool {
     STOPPED.load(Ordering::Relaxed)
 }
 
-// Windows has no signal handler here. Closing the window of the console ends
-// the run, and the router drops a mapping when the program does not answer.
+// Windows has no signal handler here. Closing the window of the console ends the run, and the
+// router drops a mapping when the program does not answer.
 #[cfg(not(unix))]
 fn watch_ctrl_c() {}
 

@@ -1,28 +1,25 @@
 // The tool that stays with a question the model has put to the user.
 //
-// A model that cannot go on without a word from the user — a token that was
-// never given, a name that was never chosen, a yes or a no that the work turns
-// on — asks instead of guessing. The program puts the question above the chat
-// box, with the choices the model offered under it and a box of its own for an
-// answer the model did not think of, and waits. What the user says goes back
-// to the model as the result of the call, and the model goes on from there.
+// A model that cannot go on without a word from the user — a token that was never given, a name
+// that was never chosen, a yes or a no that the work turns on — asks instead of guessing. The
+// program puts the question above the chat composer, with the choices the model proposed under
+// it and a box of its own for an answer the model did not think of, and waits. What the user
+// reports goes back to the model as the result of the call, and the model goes on from there.
 //
-// A question of the ordinary kind is waited for a short while: thirty seconds by
-// default, from the Chatting settings. When the time is gone the model is told
-// that the user did not answer, and it is left to go on as best it can. A
-// question the model has marked as one it cannot go on without is waited for as
-// long as it takes, for a model that was told to ask only when it must is a
-// model whose question had better be answered. Both waits are read from the
+// A question of the ordinary type is waited for a short while: thirty seconds by default, from
+// the Chatting settings. When the time is removed the model is informed that the user did not
+// answer, and it is left to go on as best it can. A question the model has flagged as one it
+// cannot go on without is waited for as long as it takes, for a model that was set to ask only
+// when it must is a model whose question had better be answered. Both waits are read from the
 // settings, and a wait of nothing at all turns the timeout away.
 //
-// The call stands in the chat as the block of a run, as every other tool does:
-// the user sees the question being written, then sees the block say what the
-// question came to. The popup is only the front of it. A run the user stopped
-// with their own hand leaves the popup as well, and the model is told that the
-// answer never came.
+// The call is in the chat as the block of a run, as every other tool does: the user sees the
+// question being written, then sees the block say what the question came to. The popup is only
+// the start of it. A run the user stopped manually leaves the popup as well, and the model is
+// informed that the answer never came.
 //
-// The tool falls under the badge of the tools, and under the line of its own in
-// the drop-down of the badge, as the other tools of the program do.
+// The tool falls under the badge of the tools, and under the line of its own in the drop-down
+// of the badge, as the other tools of the program do.
 
 use serde_json::{json, Value};
 
@@ -31,54 +28,53 @@ use crate::tools::with_rule;
 // Name the model uses to put a question to the user.
 pub const NAME: &str = "ask_user";
 
-// The most choices one question may carry. A question with ten roads under it is
-// not a question but a form, and a popup of a form is a thing to be read through
-// before anything can be said.
+// The most choices one question may carry. A question with ten paths under it is not a question
+// but a form, and a popup of a form is an item to be read through before anything can be
+// stated.
 pub const GREATEST_CHOICES: usize = 5;
 
-// The longest question the popup shows. A model that wants to explain a great
-// deal has the words of its own answer for that.
+// The longest question the popup shows. A model that wants to explain a great deal has the text
+// of its own answer for that.
 pub const GREATEST_QUESTION: usize = 600;
 
-// The longest choice the popup shows. A choice that does not fit a line of the
-// popup was not read as a choice.
+// The longest choice the popup shows. A choice that does not fit a line of the popup was not
+// read as a choice.
 pub const GREATEST_CHOICE: usize = 120;
 
-// The wait of a question of the ordinary kind, when nothing stands in the way.
-// It is the same thirty seconds the settings default to, so a question written
-// with no wait of its own is waited for as long as the sheet of settings would
-// have said.
+// The wait of a question of the ordinary type, when nothing is in the way. It is the same
+// thirty seconds the settings default to, so a question written with no wait of its own is
+// waited for as long as the settings panel would have stated.
 pub const ORDINARY_WAIT: u32 = 30;
 
-// What the model asked for.
+// What the model requested.
 #[derive(Clone, Debug, Default)]
 pub struct Question {
-    // The question, and the reason the model gives with it. The popup shows this
-    // at the top, as the title of the ask.
+    // The question, and the reason the model gives with it. The popup shows this at the top, as
+    // the title of the request.
     pub text: String,
-    // The roads the model offered, in the order it offered them. A question with
-    // no road under it is answered in the box of the popup.
+    // The paths the model proposed, in the order it proposed them. A question with no path
+    // under it is answered in the box of the popup.
     pub choices: Vec<String>,
-    // True when the model says it cannot go on without an answer. Such a
-    // question is waited for as long as it takes, unless the settings say else.
+    // True when the model reports it cannot go on without an answer. Such a question is waited
+    // for as long as it takes, unless the settings say else.
     pub critical: bool,
 }
 
-// The tool as the model is told of it.
+// The tool as the model is informed of it.
 pub fn definition() -> Value {
     json!({
         "type": "function",
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Put a question to the user and wait for the answer. Use it only when the work cannot go on without a word from the user: a secret or token that was never given, a choice the user has to make, a permission that has to be given. Ask one question, and offer up to five short answers the user may choose from; the user may always write an answer of their own instead. Say in the question why you are asking, for it is shown as the title of the ask. An ordinary question is waited for a short while and then given up, and you are told the user did not answer; use 'critical' only when you truly cannot go on, for such a question waits until the user answers. While planning mode is on, questions about the work go to `ask_plan` instead, which stands the whole of them in the talk and waits as long as it takes: keep this tool for the thing only the user can hand you - a token, a permission - which no plan can settle in advance.",
+                "Put a question to the user and wait for the answer. Use it only when the work cannot go on without a word from the user: a secret or token that was never given, a choice the user has to make, a permission that has to be given. Ask one question, and propose up to five short answers the user may choose from; the user may always write an answer of their own instead. Say in the question why you are asking, for it is shown as the title of the request. An ordinary question is waited for a short while and then given up, and you are informed the user did not answer; use 'critical' only when you truly cannot go on, for such a question waits until the user answers. While planning mode is on, questions about the work go to `ask_plan` instead, which remains all of them in the conversation and waits as long as it takes: keep this tool for what only the user can give you - a token, a permission - which no plan can settle in advance.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "question": {
                         "type": "string",
-                        "description": "The question, and the reason for asking it, in the words of the chat. It stands at the top of the ask."
+                        "description": "The question, and the reason for asking it, in the text of the chat. It is at the top of the request."
                     },
                     "choices": {
                         "type": "array",
@@ -88,7 +84,7 @@ pub fn definition() -> Value {
                     "kind": {
                         "type": "string",
                         "enum": ["normal", "critical"],
-                        "description": "How long to wait. 'normal', which is the default, is given up after the short wait in the settings and you are told the user did not answer. 'critical' waits until the user answers, and is only for a question you cannot go on without."
+                        "description": "How long to wait. 'normal', which is the default, is given up after the short wait in the settings and you are informed the user did not answer. 'critical' waits until the user answers, and is only for a question you cannot go on without."
                     }
                 },
                 "required": ["question"]
@@ -102,9 +98,9 @@ pub fn is_tool(name: &str) -> bool {
     name == NAME
 }
 
-// What the model asked for, read out of the words of the call. A call that gave
-// no question is answered with a question that says so, so the popup is never an
-// empty box and the model is never left without a receipt.
+// What the model requested, extracted from the text of the call. A call that gave no question
+// is answered with a question that records it, so the popup is never an empty box and the model
+// is never left without a result.
 pub fn parse(arguments: &str) -> Question {
     let value: Value = serde_json::from_str(arguments).unwrap_or(Value::Null);
     let text = one_line(
@@ -125,8 +121,8 @@ pub fn parse(arguments: &str) -> Question {
             }
         }
     }
-    // A model that writes the halves of a call in the order it likes often gives
-    // `options` for the list of answers, and `type` for the kind of question.
+    // A model that writes the halves of a call in the order it likes often gives `options` for
+    // the list of answers, and `type` for the type of question.
     if choices.is_empty() {
         if let Some(list) = value.get("options").and_then(|v| v.as_array()) {
             for one in list.iter() {
@@ -145,7 +141,7 @@ pub fn parse(arguments: &str) -> Question {
         .unwrap_or("");
     Question {
         text: if text.is_empty() {
-            String::from("The model asked a question but wrote no words with it. Answer in your own words.")
+            String::from("The model asked a question but wrote no text with it. Answer in your own text.")
         } else {
             text
         },
@@ -154,10 +150,9 @@ pub fn parse(arguments: &str) -> Question {
     }
 }
 
-// The words of the head of the block while the call is being written: the
-// question as far as it has come. The run of words the model is quoting is read
-// whether it has been closed or not, so the head says something from the first
-// letter of the question.
+// The text of the header of the block while the call is being written: the question as far as
+// it has come. The run of text the model is quoting is read whether it has been closed or not,
+// so the header reports something from the first letter of the question.
 pub fn partial_words(arguments: &str) -> String {
     let Some(at) = arguments.find("\"question\"") else {
         return String::new();
@@ -191,10 +186,9 @@ pub fn partial_words(arguments: &str) -> String {
     one_line(&word, GREATEST_QUESTION)
 }
 
-// The wait of a question, read from the settings. A question of the ordinary
-// kind that was given no wait at all keeps the short wait of the tool, so a
-// setting of nothing does not turn an ordinary question into one that waits for
-// ever: that is what 'critical' is for.
+// The wait of a question, read from the settings. A question of the ordinary type that was
+// given no wait at all keeps the short wait of the tool, so a setting of nothing does not turn
+// an ordinary question into one that waits for ever: that is what 'critical' is for.
 pub fn wait_of(critical: bool, ordinary: u32, weighty: u32) -> u32 {
     if critical {
         weighty
@@ -205,8 +199,8 @@ pub fn wait_of(critical: bool, ordinary: u32, weighty: u32) -> u32 {
     }
 }
 
-// The result of a call that was answered. The words go back to the model, so
-// they say what the user said and nothing else.
+// The result of a call that was answered. The text go back to the model, so they say what the
+// user stated and nothing else.
 pub fn answered_words(answer: &str) -> String {
     let said = answer.trim();
     if said.is_empty() {
@@ -215,8 +209,8 @@ pub fn answered_words(answer: &str) -> String {
     format!("The user answered: {}", one_line(said, 2000))
 }
 
-// The result of a question that was given up. The model is told the wait it set
-// itself, so it can weigh whether to ask again in another way.
+// The result of a question that was given up. The model is informed the wait it set itself, so
+// it can weigh whether to ask again in another way.
 pub fn given_up_words(seconds: u32) -> String {
     format!(
         "The user did not answer within {} {}. You may go on without their answer, or ask again for what you truly need",
@@ -225,14 +219,14 @@ pub fn given_up_words(seconds: u32) -> String {
     )
 }
 
-// The result of a run the user stopped with their own hand. The question was
-// never answered, and the popup went with the run.
+// The result of a run the user stopped manually. The question was never answered, and the popup
+// went with the run.
 pub fn stopped_words() -> String {
     String::from("The user stopped the answer, so the question was never answered")
 }
 
-// One line of words, cut at a length. Marks of a new line are turned into spaces,
-// for a title of a popup and the head of a block are each one line.
+// One line of text, cut at a length. Markers of a new line are turned into spaces, for a title
+// of a popup and the header of a block are each one line.
 fn one_line(words: &str, bound: usize) -> String {
     let flat = words.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= bound {
@@ -250,10 +244,10 @@ fn one_line(words: &str, bound: usize) -> String {
 mod tests {
     use super::*;
 
-    // While planning mode is on, the questions of the work go to the questionnaire
-    // of the plan rather than to this card over the chat box: the words of the tool
-    // say so, so a model that has both in front of it chooses the one that waits as
-    // long as it takes and brings the answers back together.
+    // While planning mode is on, the questions of the work go to the questionnaire of the plan
+    // rather than to this card over the chat composer: the text of the tool record it, so a
+    // model that has both in front of it chooses the one that waits as long as it takes and
+    // brings the answers back together.
     #[test]
     fn the_words_send_the_questions_of_a_plan_elsewhere() {
         let made = definition();
@@ -263,8 +257,8 @@ mod tests {
         assert!(said.contains("instead"), "{said}");
     }
 
-    // The shape of the tool: one question, up to five answers to choose from, and
-    // the two kinds of wait.
+    // The form of the tool: one question, up to five answers to choose from, and the two types
+    // of wait.
     #[test]
     fn the_shape_of_the_tool_asks_one_question() {
         let made = definition();
@@ -282,8 +276,8 @@ mod tests {
         assert!(!is_tool("offer_files"));
     }
 
-    // The words of the call are read the long way and the short way, and the
-    // halves that came in the order the model liked are read as well.
+    // The text of the call is reads the long way and the short way, and the halves that arrived
+    // the order the model liked are read as well.
     #[test]
     fn the_call_is_read_whichever_way_it_was_written() {
         let plain = parse(
@@ -292,20 +286,19 @@ mod tests {
         assert_eq!(plain.text, "Which file should I take?");
         assert_eq!(plain.choices.len(), 2);
         assert_eq!(plain.choices[1], "The last");
-        assert!(plain.critical, "the model said it cannot go on");
-        // `options` and `type` stand for the same two things, for a model writes
-        // the word it knows.
+        assert!(plain.critical, "the model stated it cannot go on");
+        // `options` and `type` mean the same two items, for a model writes the word it knows.
         let other = parse(r#"{"question":"A token?","options":["Here it is"],"type":"normal"}"#);
         assert_eq!(other.choices, vec![String::from("Here it is")]);
         assert!(!other.critical);
-        // Nothing of the kind is a question of the ordinary kind, and a question
-        // with no words says so rather than standing empty.
+        // Nothing of the type is a question of the ordinary type, and a question with no text
+        // records it rather than remaining empty.
         let bare = parse("{}");
         assert!(bare.text.starts_with("The model asked a question"));
         assert!(bare.choices.is_empty());
         assert!(!bare.critical);
-        // More than five answers, and a choice of many lines: the popup holds
-        // five lines of one line each.
+        // More than five answers, and a choice of many lines: the popup holds five lines of one
+        // line each.
         let many = parse(&format!(
             r#"{{"question":"Which?","choices":[{}]}}"#,
             (1..9)
@@ -321,9 +314,8 @@ mod tests {
         assert!(long.text.ends_with('\u{2026}'));
     }
 
-    // The two waits: a question the model cannot go on without waits for ever by
-    // default, and an ordinary one waits the short while even when the setting
-    // was left at nothing.
+    // The two waits: a question the model cannot go on without waits for ever by default, and
+    // an ordinary one waits the short while even when the setting was left at nothing.
     #[test]
     fn the_wait_of_a_question_comes_from_the_settings() {
         assert_eq!(wait_of(false, 10, 0), 10);
@@ -333,7 +325,7 @@ mod tests {
         assert_eq!(wait_of(true, 10, 120), 120);
     }
 
-    // The three receipts the model is given.
+    // The three results the model is given.
     #[test]
     fn the_receipt_says_what_became_of_the_question() {
         assert_eq!(answered_words("  the first one  "), "The user answered: the first one");
@@ -343,8 +335,8 @@ mod tests {
         assert!(stopped_words().contains("never answered"));
     }
 
-    // The head of the block has something to say while the question is being
-    // written, and after it.
+    // The header of the block has something to say while the question is being written, and
+    // after it.
     #[test]
     fn the_head_of_a_block_being_written_says_the_question() {
         assert_eq!(

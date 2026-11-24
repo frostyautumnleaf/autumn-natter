@@ -3,14 +3,14 @@
 //
 // The server here is not llama.cpp but `probe/noreload/llama-server`: a script
 // that writes one line to starts.jsonl for every process that runs, and one
-// line to asks.jsonl for every ask, with the words of `chat_template_kwargs`
+// line to asks.jsonl for every ask, with the text of `chat_template_kwargs`
 // and the count of the tools it was sent.
 //
-// The check is the whole of the rule the program stands on now. The thinking
-// mode, the tools and the jail of the sandbox go out with the ask, so a chat
+// The check is all of the rule the program is on now. The thinking
+// mode, the tools and the sandbox of the sandbox go out with the request, so a chat
 // that moves all three between two answers is answered by the server that is
 // already up: one start for the session, and two asks that say different
-// things about the thinking. Before this, each of those moves took the running
+// items about the thinking. Before this, each of those moves took the running
 // server with it and the model was loaded over again.
 //
 //     cargo test -p autumn-natter-core --test live_no_reload -- --nocapture --test-threads=1
@@ -29,14 +29,14 @@ fn wait_for_answer(engine: &Engine) {
         if !s.generating && !s.busy {
             return;
         }
-        assert!(std::time::Instant::now() < until, "the answer never came to an end");
+        assert!(std::time::Instant::now() < until, "the answer never finished");
         sleep(Duration::from_millis(100));
     }
 }
 
-// Wait until the script has taken one more ask than it had. The worker takes
-// the work out of a queue, so a prompt is not on its way until the moment the
-// worker has it, and the state says nothing of the answer before that.
+// Wait until the script has taken one more ask than it had. The worker takes the work out of a
+// queue, so a prompt is not on its way until the moment the worker has it, and the state
+// reports nothing of the answer before that.
 fn wait_for_ask(asks: &PathBuf, before: usize) {
     let until = std::time::Instant::now() + Duration::from_secs(120);
     loop {
@@ -45,7 +45,7 @@ fn wait_for_ask(asks: &PathBuf, before: usize) {
         }
         assert!(
             std::time::Instant::now() < until,
-            "the ask never reached the script"
+            "the request never reached the script"
         );
         sleep(Duration::from_millis(100));
     }
@@ -73,8 +73,8 @@ fn a_badge_moved_loads_no_model_again() {
     std::fs::create_dir_all(&data).expect("a place for the program data");
     config::set_data_dir(data);
 
-    // The model file is only wanted so the engine has a model to choose, and so
-    // that its chat template can be read: the script answers every ask.
+    // The model file is only wanted so the engine has a model to choose, and so that its chat
+    // template can be read: the script answers every ask.
     let model = root
         .join("testing_model/Qwen3.5-9B-Q4_K_M.gguf")
         .canonicalize()
@@ -94,9 +94,9 @@ fn a_badge_moved_loads_no_model_again() {
     };
     cfg.model_settings.insert(model, ms);
     cfg.chat_compaction = String::from("off");
-    // A copy of the settings is kept beside the engine, so a switch of the
-    // Chatting section can be written over later as the sheet of the settings
-    // writes it: the whole of the settings, with one thing in them changed.
+    // A copy of the settings is kept beside the engine, so a switch of the Chatting section can
+    // be written over later as the settings panel writes it: all of the settings, with one item
+    // in them changed.
     let kept = cfg.clone();
     let engine = Engine::start(cfg);
     engine.new_chat();
@@ -119,15 +119,14 @@ fn a_badge_moved_loads_no_model_again() {
         "the first ask carried no tool"
     );
 
-    // Every badge that used to move the server is moved, and a second answer is
-    // asked for.
+    // Every badge that used to move the server is moved, and a second answer is requested.
     engine.set_thinking("on");
     engine.set_code(false);
     engine.set_search(true);
     engine.set_sandbox(false);
-    // The Chatting switch of the journey a sent message makes is written over at
-    // the same moment. It touches nothing of the server, for the movement is
-    // only on the screen, and the page is told of it with the next state.
+    // The Chatting switch of the journey a sent message makes is written over at the same
+    // moment. It touches nothing of the server, for the movement is only on the screen, and the
+    // page is informed of it with the next state.
     let mut moved = kept.clone();
     moved.chat_send_anim = false;
     engine.save_settings(moved);

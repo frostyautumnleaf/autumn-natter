@@ -1,11 +1,10 @@
 
 // A live run of the engine against a real model, for the handoff summary.
 //
-// The engine drives llama-server as a window does. This program sends a long
-// working chat through it, with the summarisation threshold stood low enough
-// that the room runs short again and again, and reads back what the window
-// would have shown: how many summarisations came, whether the model went on
-// writing after each of them, and what the meter of the talk read.
+// The engine drives llama-server as a window does. This program sends a long working chat
+// through it, with the summarisation threshold was low enough that the space runs short
+// again and again, and reads back what the window would have shown: how many summarisations
+// came, whether the model went on writing after each of them, and what the context meter read.
 //
 use std::io::Write;
 use std::path::PathBuf;
@@ -28,13 +27,12 @@ fn number(name: &str, fallback: i64) -> i64 {
     arg(name, &fallback.to_string()).parse().unwrap_or(fallback)
 }
 
-// A turn of the talk. Each one makes the model call a tool of the program and
-// answer what came back, so a call of a tool stands in the talk and has to be
-// answered again after a handoff summary -- which is the case that left the chat
-// standing at the heading of a summarisation with no answer after it.
-// How long the program waits for the engine to move before it calls the chat
-// dead. A model that is thinking, or a summary that is being written, moves the
-// clock again; a chat that stands still for this long had nothing to go on with.
+// A turn of the conversation. Each one makes the model call a tool of the program and answer
+// what returned, so a call of a tool is in the conversation and has to be answered again after
+// a handoff summary -- which is the case that left the chat remaining at the heading of a
+// summarisation with no answer after it. How long the program waits for the engine to move
+// before it calls the chat dead. A model that is thinking, or a summary that is being written,
+// moves the clock again; a chat that stays still for this long had nothing to go on with.
 const STALL_SECONDS: u64 = 300;
 
 const TURNS: [&str; 12] = [
@@ -48,12 +46,12 @@ const TURNS: [&str; 12] = [
     "Run this command with the terminal tool: cat notes.txt. How many lines are in it?",
     "Run this command with the terminal tool: wc -c notes.txt todo.txt. Read both numbers back to me.",
     "Run this command with the terminal tool: tail -n 2 notes.txt. Read back what it printed, and say the number I asked you to remember at the start of this chat.",
-    "Run this command with the terminal tool: head -n 3 notes.txt. Read it back, name every file in this folder, and say the number again.",
+    "Run this command with the terminal tool: header -n 3 notes.txt. Read it back, name every file in this folder, and say the number again.",
     "Say in one line the number I asked you to remember at the start of this chat, and every file we have worked on.",
 ];
 
-// The last lines of the log of the model server. The engine keeps ten of them,
-// one per start, and the newest of them says what the server of this run said.
+// The last lines of the log of the model server. The engine keeps ten of them, one per start,
+// and the newest of them reports what the server of this run stated.
 fn tail_server_log(data: &std::path::Path, wanted: usize) -> String {
     let dir = data.join("logs");
     let mut names: Vec<_> = match std::fs::read_dir(&dir) {
@@ -117,19 +115,18 @@ fn main() {
     settings.ubatch_size = 128;
     settings.cache_ram = 0;
     settings.ctx_checkpoints = 0;
-    // The testing model thinks a great deal before it writes. A ceiling over the
-    // thinking keeps an ask that needs no thinking at all -- the ask for a
-    // summary -- from spending the room of the talk on thinking.
+    // The testing model thinks a great deal before it writes. A ceiling over the thinking keeps
+    // a request that needs no thinking at all -- the request for a summary -- from spending the
+    // size of the context on thinking.
     settings.reasoning_budget = 6000;
     settings.no_context_shift = true;
-    // The llama-server of the box is a CUDA build and the card of the box is
-    // busy with the server of the user, so the model is kept off the card.
+    // The llama-server of the box is a CUDA build and the card of the box is busy with the
+    // server of the user, so the model is kept off the card.
     settings.extra_args = String::from("--device none -ngl 0 --fit off");
     engine.select_model(model.id());
-    // The card of the box is busy with the server of the user, and its free
-    // memory reads as nought, so a CUDA start of a second server dies of it. Every
-    // device of the engine is therefore switched off here, so the model of the run
-    // is kept on the CPU throughout.
+    // The card of the box is busy with the server of the user, and its free memory reads as
+    // zero, so a CUDA start of a second server dies of it. Every device of the engine is
+    // therefore switched off here, so the model of the run is kept on the CPU throughout.
     engine
         .state
         .lock()
@@ -148,12 +145,12 @@ fn main() {
         tools_on
     ));
 
-    // The badge of the tools stands on for the chat, so a call of a tool stands
-    // in the talk and has to be answered again after a summarisation.
+    // The badge of the tools is on for the chat, so a call of a tool is in the conversation and
+    // has to be answered again after a summarisation.
     engine.set_code(tools_on);
 
-    // One chat, opened by its id: the first send grows it, and every send after
-    // it goes back into the same chat, as it does in the window.
+    // One chat, opened by its id: the first send grows it, and every send after it goes back
+    // into the same chat, as it does in the window.
     let mut chat_id = String::new();
     let began = Instant::now();
     let mut asked = 0usize;
@@ -171,7 +168,7 @@ fn main() {
             last_marks = marks;
             stall_at = Instant::now();
             say(&format!(
-                "[{:6.1}s] summarisation #{} came. The talk now takes {} of {}. Status {:?}",
+                "[{:6.1}s] summarisation #{} came. The conversation now takes {} of {}. Status {:?}",
                 began.elapsed().as_secs_f64(),
                 marks,
                 context_used(&data, &chat_id),
@@ -181,12 +178,12 @@ fn main() {
         }
         let snap = engine.snapshot();
         if !snap.generating && !snap.busy {
-            // The engine stands ready. The answer of the send in hand is in the
-            // chat, so the next one may go out, until the turns run out.
+            // The engine remains ready. The answer of the send in hand is in the chat, so the
+            // next one may go out, until the turns run out.
             if answers >= asked && asked < turns {
                 let words = TURNS[asked % TURNS.len()].to_string();
                 say(&format!(
-                    "[{:6.1}s] send {} of {}: {} (talk takes {} of {}, marks {})",
+                    "[{:6.1}s] send {} of {}: {} (conversation takes {} of {}, markers {})",
                     began.elapsed().as_secs_f64(),
                     asked + 1,
                     turns,
@@ -202,7 +199,7 @@ fn main() {
                 }
                 stall_at = Instant::now();
             } else if answers >= asked && asked >= turns {
-                // Everything asked for came to an end.
+                // Everything requested finished.
                 break;
             }
         }
@@ -241,7 +238,7 @@ fn main() {
         "status {:?} context {} of {}",
         snap.status, snap.context_used, snap.context_total
     ));
-    println!("marks of the summarisation: {}", snap.handoffs.len());
+    println!("markers of the summarisation: {}", snap.handoffs.len());
     for mark in &snap.handoffs {
         say(&format!(
             "  #{} {} before {} after {} why {:?} snippet {:?}",
@@ -285,9 +282,9 @@ fn main() {
             }
         }
     }
-    // What the model server said last. A run that stood still is read best from
-    // the server of it: the fault is either in the ask the engine sent or in the
-    // answer the server gave back, and only the log of the two says which.
+    // What the model server stated last. A run that was still is read best from the server of
+    // it: the error is either in the request the engine sent or in the answer the server
+    // returned, and only the log of the two reports which.
     println!("--- server log\n{}", tail_server_log(data.as_path(), 20));
     if let Some(turn) = dead_line {
         println!("RESULT stalled after send {}", turn);
@@ -297,7 +294,7 @@ fn main() {
 }
 
 
-// The messages of one chat of the data folder, as they stand on disk.
+// The messages of one chat of the data folder, as they are now on disk.
 fn read_chat(data: &std::path::Path, id: &str) -> (Vec<serde_json::Value>, usize) {
     if id.is_empty() {
         return (Vec::new(), 0);
@@ -318,7 +315,7 @@ fn read_chat(data: &std::path::Path, id: &str) -> (Vec<serde_json::Value>, usize
     (items, marks)
 }
 
-// The number the meter of the talk stands on for one chat of the disk.
+// The number the context meter is on for one chat of the disk.
 fn context_used(data: &std::path::Path, id: &str) -> u64 {
     if id.is_empty() {
         return 0;
@@ -331,8 +328,8 @@ fn context_used(data: &std::path::Path, id: &str) -> u64 {
     value["meta"]["context_used"].as_u64().unwrap_or(0)
 }
 
-// Write a line out at once. The log of a run is read while the run is going on,
-// so words that stood in the buffer of the program were not of much use.
+// Write a line out at once. The log of a run is read while the run is going on, so text that
+// was in the buffer of the program were not of much use.
 fn say(text: &str) {
     println!("{}", text);
     let _ = std::io::stdout().flush();

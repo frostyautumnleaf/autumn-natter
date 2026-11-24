@@ -1,6 +1,6 @@
-// Read strings from the header of a GGUF model file. The file is opened
-// read-only, and the header is walked until the wanted key is found. The
-// tensor data is never touched, so a big model costs a few reads only.
+// Read strings from the header of a GGUF model file. The file is opened read-only, and the
+// header is scanned until the wanted key is found. The tensor data is never touched, so a big
+// model costs a few reads only.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -15,8 +15,8 @@ const MAX_STRING: u64 = 1 << 30;
 // An array count above this means a corrupt file, not a count.
 const MAX_ARRAY: u64 = 1 << 30;
 
-// The size of a fixed-size value, in bytes. None means the type is not fixed
-// size, so the value cannot be skipped.
+// The size of a fixed-size value, in bytes. None means the type is not fixed size, so the value
+// cannot be skipped.
 fn fixed_size(vtype: u32) -> Option<u64> {
     match vtype {
         0 | 1 | 7 => Some(1),
@@ -109,10 +109,9 @@ fn skip_value(file: &mut File, vtype: u32) -> bool {
 
 // Read one string value from the header of a GGUF file.
 //
-// The header holds the magic, the version, the tensor count, the count of key
-// value pairs, and the pairs. A pair is a key string, a value type, and the
-// value. Strings carry a length in front. Arrays carry the type of the
-// element and the count.
+// The header holds the magic, the version, the tensor count, the count of key value pairs, and
+// the pairs. A pair is a key string, a value type, and the value. Strings carry a length in
+// front. Arrays carry the type of the element and the count.
 pub fn read_string(path: &Path, key: &str) -> Option<String> {
     let mut file = File::open(path).ok()?;
     let mut head = [0u8; 24];
@@ -186,8 +185,8 @@ mod tests {
 
     #[test]
     fn a_string_key_is_read_from_a_header() {
-        // Each test writes a file of its own. Two tests that write the same file
-        // at the same time can leave the other one reading a half written file.
+        // Each test writes a file of its own. Two tests that write the same file at the same
+        // time can leave the other one reading a half written file.
         let dir = Path::new("uidata/gguf-tests");
         let _ = std::fs::create_dir_all(dir);
         let path = write_gguf(dir, "with-template.gguf");
@@ -212,8 +211,8 @@ mod tests {
         assert!(read_string(&path, "tokenizer.chat_template").is_none());
     }
 
-    // The bundled test model carries the stock Qwen template. It has the
-    // thinking switch, and it has no effort levels.
+    // The bundled test model carries the stock Qwen template. It has the thinking switch, and
+    // it has no effort levels.
     #[test]
     fn the_test_model_carries_the_switch() {
         let path = Path::new("../testing_model/Qwen3.5-0.8B-UD-Q6_K_XL.gguf");

@@ -1,17 +1,15 @@
-// Check where the blocks of a call being written stand while an answer comes in.
+// Check where the blocks of a call being written remain while an answer arrives.
 //
-// A call that came out of a thought reads as one part of that thought, and stands
-// inside the thinking panel. But a call asked for after the model has said a word
-// of the answer itself did not come out of the thought above it, and the block of
-// it was put into the panel that closed before those words - which read as the
-// tool having been called before the answer was written. The block now stands
-// under the words of the answer from the moment the model has spoken. A call that
-// ends a step is run then and there, so a block of a call is never left standing
-// to be moved about after the words of the answer have come: the row is made from
-// the messages instead, where the run of the tool stands under the thought that
-// led to it or below the panel, as the talk reads. The page is loaded as it
-// stands, with no bridge and no engine: the thread is driven by hand with the
-// states the engine hands out.
+// A call that came out of a thought reads as one part of that thought, and is inside the
+// thinking panel. But a call requested after the model has stated a note about the answer
+// itself did not come out of the thought above it, and the block of it was put into the panel
+// that closed before that text - which read as the tool having been called before the answer
+// was written. The block now is under the text of the answer from the moment the model has
+// spoken. A call that ends a step is run then and there, so a block of a call is never left
+// remaining to be moved about after the text of the answer has come: the row is created from
+// the messages instead, where the run of the tool is under the thought that led to it or below
+// the panel, as the conversation reads. The page is loaded as it is now, with no bridge and no
+// engine: the thread is driven manually with the states the engine pointers out.
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -55,8 +53,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
         done: !!done }];
     }
 
-    // The one block of a call being written, and whether it stands in a thinking
-    // panel.
+    // The one block of a call being written, and whether it is in a thinking panel.
     function block(box) {
       var made = box.querySelectorAll('.tool.write');
       if (made.length !== 1) {
@@ -70,9 +67,9 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var chat = { collapse_thinking: false, collapse_tools: true, tools_in_thinking: true };
     var head = [said('m1', 'You', 'what kernel is this?')];
 
-    // One: the thought leads to the call, and nothing of the answer has been said.
-    // The block stands inside the panel of the thought.
-    where = 'a call out of a thought, with no words of the answer';
+    // One: the thought leads to the call, and nothing of the answer has been stated. The block
+    // is inside the panel of the thought.
+    where = 'a call out of a thought, with no text of the answer';
     var one = { messages: head, generating: true, summarising: false, live: '',
       reasoning: 'I must read the kernel.', reasoning_ms: 800, reasoning_done: false,
       chatting: chat, live_tools: [] };
@@ -82,12 +79,12 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     var box = look(two);
     var node = block(box);
     if (node && !inPanel(node)) {
-      faults.push('a call that came out of a thought stands outside the thinking panel ' + where);
+      faults.push('a call that came out of a thought is outside the thinking panel ' + where);
     }
 
-    // Two: the thought, then words of the answer, then the call. The block must
-    // stand under the words, and not in the panel that closed before them.
-    where = 'a call after the model wrote words outside the thinking block';
+    // Two: the thought, then text of the answer, then the call. The block must be under the
+    // text, and not in the panel that closed before them.
+    where = 'a call after the model wrote text outside the thinking block';
     var three = { messages: head, generating: true, summarising: false, live: '',
       reasoning: 'I must read the kernel.', reasoning_ms: 800, reasoning_done: false,
       chatting: chat, live_tools: [] };
@@ -101,16 +98,16 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     box = look(five);
     node = block(box);
     if (node && inPanel(node)) {
-      faults.push('a call asked for after the answer was written stands in the thinking '
-        + 'panel that closed before the words ' + where);
+      faults.push('a call requested after the answer was written is in the thinking '
+        + 'panel that closed before the text ' + where);
     }
-    // And it stands after the words of the answer, where a user looks for it.
+    // And it is after the text of the answer, where a user searches for it.
     var words = box.querySelector('.turn:last-child .plain');
     if (node && words && !(node.compareDocumentPosition(words) & Node.DOCUMENT_POSITION_PRECEDING)) {
-      faults.push('the block of the call stands before the words of the answer ' + where);
+      faults.push('the block of the call is before the text of the answer ' + where);
     }
 
-    // Three: no thoughts at all, so no panel, and the block stands under the words.
+    // Three: no thoughts at all, so no panel, and the block is under the text.
     where = 'a call with no thought before it';
     var nine = { messages: head, generating: true, summarising: false, live: '',
       reasoning: '', reasoning_ms: 0, chatting: chat, live_tools: [] };
@@ -120,7 +117,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     box = look(ten);
     node = block(box);
     if (node && inPanel(node)) {
-      faults.push('a call with no thought before it stands in a thinking panel ' + where);
+      faults.push('a call with no thought before it is in a thinking panel ' + where);
     }
 
     // Four: the setting off puts the block under the panel whatever the thought.
@@ -135,7 +132,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     box = look(twelve);
     node = block(box);
     if (node && inPanel(node)) {
-      faults.push('with the setting off the block stands inside the panel ' + where);
+      faults.push('with the setting off the block is inside the panel ' + where);
     }
 
     return faults;
@@ -146,7 +143,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
     process.exit(1);
   }
   console.log('a call out of a thought stands inside the thinking panel; a call asked for '
-    + 'after the model wrote words of its answer stands under those words and not in the '
+    + 'after the model wrote text of its answer is under that text and not in the '
     + 'panel before them; and with no thought before a call, or the setting off, the '
     + 'block stands under the words');
 })().catch(function (e) { console.error(e); process.exit(1); });

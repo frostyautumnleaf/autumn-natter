@@ -1,9 +1,9 @@
-// Check that the chat box takes files the way a user offers them: a file let
+// Check that the chat composer takes files the way a user proposes them: a file let
 // go over the page, a file pasted into the box, and a paste whose event carries
-// its file in the list of items only. The last shape is what a web view of a
-// window hands over where the list of files is left empty, so the box must
-// still take the file. A paste into a field of the sheet of settings is left
-// alone, and a paste of many words still turns into a file of its own.
+// its file in the list of items only. The last form is what a web view of a
+// window pointers over where the list of files is left empty, so the box must
+// still take the file. A paste into a field of the settings panel is left
+// alone, and a paste of a lot of text still turns into a file of its own.
 //
 //   node attach-check.js                  # the window page
 //   AN_PAGE=../web/page.html AN_FETCH=1 node attach-check.js
@@ -13,12 +13,11 @@ const puppeteer = require('puppeteer');
 
 const PAGE = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const USE_FETCH = process.env.AN_FETCH === '1';
-// The sheet of settings stands in the window alone, so its field is looked at
-// there only.
+// The settings panel is in the window alone, so its field is checked there only.
 const IS_WINDOW = !USE_FETCH;
 
-// The state of the engine, as the record of web::state. One chat with two
-// messages, so the box and the talk both stand.
+// The state of the engine, as the record of web::state. One chat with two messages, so the box
+// and the conversation both remain.
 function stateOf(dark) {
   return {
     rev: 1, unchanged: false,
@@ -35,7 +34,7 @@ function stateOf(dark) {
       { id: '1', role: 'You', body: 'What colour is this?', reasoning: '', reasoning_ms: 0,
         attachments: [{ id: 'a1', name: 'swatch.png', mime: 'image/png', image: true }],
         tool: '', mono: false, failed: false, when: '09:04' },
-      { id: '2', role: 'Assistant', body: 'This picture is orange.', reasoning: '',
+      { id: '2', role: 'Assistant', body: 'This image is orange.', reasoning: '',
         reasoning_ms: 0, attachments: [], tool: '', mono: false, failed: false, when: '09:05' },
     ],
     live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
@@ -51,8 +50,8 @@ function stateOf(dark) {
   };
 }
 
-// The blocks over the words of the box, as the user sees them: one name each,
-// whether the row stands, the words of the box and the mark of send.
+// The blocks over the text of the box, as the user sees them: one name each, whether the row
+// remains, the text of the box and the send marker.
 function readHeld() {
   var row = document.getElementById('parts');
   var names = [];
@@ -67,8 +66,8 @@ function readHeld() {
 }
 
 async function main() {
-  // The headless shell of another machine is named with AN_SHELL_BIN, as the
-  // other checks of this program do.
+  // The headless shell of another computer is named with AN_SHELL_BIN, as the other checks of
+  // this program do.
   let shell = process.env.AN_SHELL_BIN || '';
   if (!shell) {
     try {
@@ -98,8 +97,8 @@ async function main() {
       };
       return;
     }
-    // The calls of the page, so a check can see which road was taken, and the
-    // events of the window, so a check can send one.
+    // The calls of the page, so a check can see which path was taken, and the events of the
+    // window, so a check can send one.
     window.__asked = [];
     window.__events = {};
     window.__send__ = function (name, payload) {
@@ -115,8 +114,8 @@ async function main() {
             return Promise.resolve({ name: 'swatch.png', mime: 'image/png',
               data: 'data:image/png;base64,iVBORw0KGgo=', text: '' });
           }
-          // The window reads a file of the machine by its place: a picture of
-          // one ending comes as a data URL, the rest as words.
+          // The window reads a file of the computer by its place: an image of one ending comes
+          // as a data URL, the rest as text.
           if (command === 'take_files') {
             window.__asked.push('take_files:' + ((args && args.paths) || []).join(','));
             var made = ((args && args.paths) || []).map(function (place) {
@@ -129,12 +128,12 @@ async function main() {
             });
             return Promise.resolve({ files: made });
           }
-          // The clipboard of the machine, which holds a picture of the screen.
+          // The clipboard of the computer, which holds an image of the screen.
           if (command === 'clipboard_take') {
             window.__asked.push('clipboard_take');
             return Promise.resolve({ files: [{ name: 'pasted-picture.png',
               mime: 'image/png', kind: 'image',
-              data: 'data:image/png;base64,iVBORw0KGgo=', text: '' }], road: 'machine' });
+              data: 'data:image/png;base64,iVBORw0KGgo=', text: '' }], source: 'machine' });
           }
           return Promise.resolve({ ok: true });
         }
@@ -151,8 +150,8 @@ async function main() {
   await page.goto('file://' + path.resolve(PAGE));
   await new Promise(function (r) { setTimeout(r, 500); });
 
-  // One: two files let go over the box, as they come from the file manager of
-  // the machine. Their order is the order of the blocks.
+  // One: two files let go over the box, as they come from the file manager of the computer.
+  // Their order is the order of the blocks.
   const letGo = await page.evaluate(function () {
     var transfer = new DataTransfer();
     transfer.items.add(new File(['bytes'], 'photo.png', { type: 'image/png' }));
@@ -169,19 +168,19 @@ async function main() {
       + ', and two blocks were asked for');
   }
   if (held.hidden) { faults.push('the row of blocks is hidden while it holds files'); }
-  // The box says where a file would land while the file is on its way over it,
-  // and says nothing of the kind once the file has landed.
+  // The box reports where a file would land while the file is on its way over it, and reports
+  // nothing of the type once the file has landed.
   if (letGo.look.indexOf('drop') >= 0) {
-    faults.push('the box still says a file may be let go, after it landed: ' + letGo.look);
+    faults.push('the box still reports a file may be let go, after it landed: ' + letGo.look);
   }
-  // A file let go must be stopped, or the web view leaves the chat for the
-  // file itself, and the talk is gone.
+  // A file let go must be stopped, or the web view leaves the chat for the file itself, and the
+  // conversation is removed.
   if (!letGo.prevented) {
     faults.push('a file let go over the page was not stopped');
   }
 
-  // Two: the mark of a block takes one file away again, so the next look starts
-  // from one block.
+  // Two: the marker of a block takes one file away again, so the next look starts from one
+  // block.
   await page.evaluate(function () {
     var row = document.getElementById('parts');
     var x = row ? row.querySelector('.part button.x') : null;
@@ -190,7 +189,7 @@ async function main() {
   await new Promise(function (r) { setTimeout(r, 120); });
   held = await page.evaluate(readHeld);
   if (held.names.length !== 1) {
-    faults.push('the mark that takes a file away left ' + JSON.stringify(held.names));
+    faults.push('the marker that takes a file away left ' + JSON.stringify(held.names));
   }
 
   // Three: a paste into the box, the way Ctrl+V of a file comes.
@@ -208,15 +207,15 @@ async function main() {
     faults.push('a paste of a file left ' + JSON.stringify(held.names));
   }
 
-  // Four: the shape a web view of a window gives, where the list of files is
-  // empty and the file stands in the list of items only.
+  // Four: the form a web view of a window gives, where the list of files is empty and the file
+  // is in the list of items only.
   await page.evaluate(function () {
     var ev = new Event('paste', { bubbles: true, cancelable: true });
     ev.clipboardData = {
       files: [],
       getData: function () { return ''; },
       items: [{ kind: 'file', getAsFile: function () {
-        return new File(['words only'], 'items-only.md', { type: 'text/markdown' });
+        return new File(['text only'], 'items-only.md', { type: 'text/markdown' });
       } }]
     };
     document.getElementById('draft').dispatchEvent(ev);
@@ -228,8 +227,7 @@ async function main() {
       + JSON.stringify(held.names));
   }
 
-  // Five: a paste of many words turns into a file of its own, and the box keeps
-  // its shape.
+  // Five: a paste of a lot of text turns into a file of its own, and the box keeps its form.
   await page.evaluate(function () {
     var transfer = new DataTransfer();
     var long = '';
@@ -243,29 +241,29 @@ async function main() {
   await new Promise(function (r) { setTimeout(r, 200); });
   held = await page.evaluate(readHeld);
   if (held.names.filter(function (n) { return n.indexOf('pasted-text') === 0; }).length !== 1) {
-    faults.push('a paste of many words did not become a file: ' + JSON.stringify(held.names));
+    faults.push('a paste of a lot of text did not become a file: ' + JSON.stringify(held.names));
   }
   if (held.words.length > 0) {
-    faults.push('the words of a big paste stood in the box instead of in a file');
+    faults.push('the text of a big paste was in the box instead of in a file');
   }
 
-  // Six: the round mark knows that a message of files and no words is one.
+  // Six: the round marker knows that a message of files and no text is one.
   if (held.send.indexOf('live') < 0) {
-    faults.push('the round mark does not know that files are something to send');
+    faults.push('the round marker does not know that files are something to send');
   }
 
   if (IS_WINDOW) {
-    // Seven: the road of the window itself. The web view of the system on Linux
-    // never brings a file let go down to the page, so the program says so from
-    // the side of the window - that a drag stands over it, and that a file was
-    // let go, with the places of the files. The page then asks the window to
-    // read them, and lets a drop of its own kind alone, so nothing lands twice.
+    // Seven: the path of the window itself. The web view of the system on Linux never brings a
+    // file let go down to the page, so the program records it from the side of the window -
+    // that a drag is above it, and that a file was let go, with the places of the files. The
+    // page then asks the window to read them, and lets a drop of its own type alone, so nothing
+    // lands twice.
     await page.evaluate(function () { window.__send__('window-drop', { kind: 'over' }); });
     const over = await page.evaluate(function () {
       return document.getElementById('box').className;
     });
     if (over.indexOf('drop') < 0) {
-      faults.push('the window said a drag stands over it, and the box says nothing'
+      faults.push('the window stated a drag is above it, and the box reports nothing'
         + ' of the kind: ' + over);
     }
     await page.evaluate(function () {
@@ -282,7 +280,7 @@ async function main() {
       return document.getElementById('box').className;
     });
     if (afterDown.indexOf('drop') >= 0) {
-      faults.push('the box still says a file may be let go, after the window took it: '
+      faults.push('the box still reports a file may be let go, after the window took it: '
         + afterDown);
     }
     // The same file let go over the page now must not be hung on a second time.
@@ -299,9 +297,9 @@ async function main() {
         + JSON.stringify(held.names));
     }
 
-    // Eight: a paste that brought nothing asks the clipboard of the machine,
-    // which the window reads through the toolkit of the system. A picture of
-    // the clipboard is a picture, and not a file of bytes with no ending.
+    // Eight: a paste that brought nothing asks the clipboard of the computer, which the window
+    // reads through the toolkit of the system. An image of the clipboard is an image, and not a
+    // file of bytes with no ending.
     await page.evaluate(function () {
       var ev = new Event('paste', { bubbles: true, cancelable: true });
       ev.clipboardData = { files: [], items: [], getData: function () { return ''; } };
@@ -310,20 +308,19 @@ async function main() {
     await new Promise(function (r) { setTimeout(r, 300); });
     held = await page.evaluate(readHeld);
     if (held.names.indexOf('pasted-picture.png') < 0) {
-      faults.push('a paste of nothing at all did not ask the clipboard of the machine: '
+      faults.push('a paste of nothing at all did not ask the clipboard of the computer: '
         + JSON.stringify(held.names));
     }
     const asked = await page.evaluate(function () { return window.__asked; });
     if (asked.indexOf('clipboard_take') < 0) {
-      faults.push('the paste asked the web view of the window instead of the machine');
+      faults.push('the paste asked the web view of the window instead of the computer');
     }
     if (asked.filter(function (a) { return a.indexOf('take_files:') === 0; }).length === 0) {
-      faults.push('the drop of the window never asked for the files of its places');
+      faults.push('the drop of the window never requested the files of its places');
     }
 
-    // Nine: a field of the sheet keeps its paste. A heap of words pasted into
-    // a field of the sheet must stand in the field, and not hang a block on the
-    // message of the chat.
+    // Nine: a field of the stylesheet keeps its paste. A heap of text pasted into a field of
+    // the stylesheet must be in the field, and not hang a block on the message of the chat.
     await page.evaluate(function () {
       var b = document.getElementById('settingsbtn');
       if (b) { b.click(); }
@@ -344,16 +341,16 @@ async function main() {
     await new Promise(function (r) { setTimeout(r, 200); });
     const after = await page.evaluate(readHeld);
     if (prevented) {
-      faults.push('a paste into a field of the sheet was taken by the chat box');
+      faults.push('a paste into a field of the stylesheet was taken by the chat composer');
     }
     if (after.names.length !== before.names.length) {
-      faults.push('a paste into a field of the sheet hung a block on the message: '
+      faults.push('a paste into a field of the stylesheet hung a block on the message: '
         + JSON.stringify(after.names));
     }
   }
 
   if (errors.length) {
-    faults.push('the page said: ' + errors.join(' | '));
+    faults.push('the page stated: ' + errors.join(' | '));
   }
 
   console.log('the blocks over the box, at the last look: ' + JSON.stringify(held.names));
@@ -362,8 +359,8 @@ async function main() {
     console.log('FAULTS\n' + faults.join('\n'));
     process.exit(1);
   }
-  console.log('the chat box took the file let go, the file pasted, the file of the'
-    + ' items list only, and the paste of many words'
+  console.log('the chat composer took the file let go, the file pasted, the file of the'
+    + ' items list only, and the paste of a lot of text'
     + (IS_WINDOW ? ', and the window took its own drop and its own clipboard' : ''));
 }
 

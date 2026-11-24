@@ -1,13 +1,11 @@
-#!/usr/bin/env bash
+# !/usr/bin/env bash
 #
 # Autumn Natter - build and run in one command.
 #
-# Calls build.sh to set up the toolchain and build the program, then runs it.
-# Nothing is written outside this directory, and nothing needs sudo.
+# Calls build.sh to set up the toolchain and build the program, then runs it. Nothing is written
+# outside this directory, and nothing needs sudo.
 #
-#   git clone https://github.com/frostyautumnleaf/autumn-natter
-#   cd autumn-natter
-#   ./run.sh
+# git clone https://github.com/frostyautumnleaf/autumn-natter cd autumn-natter ./run.sh
 #
 # Everything it installs lives in ./.local . Delete that folder to undo it all.
 #

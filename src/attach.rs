@@ -1,28 +1,24 @@
 // Attachments: the files a user hangs on a message.
 //
-// A user drags files on to the chat box, or pastes them, and each file
-// becomes an attachment. The page reads a picture as a data URL and a file
-// of words as its words, and sends both with the message. The engine keeps
-// the words of one attachment in a record of its own, and keeps the id, the
-// name and the kind in the message.
+// A user drags files on to the chat composer, or pastes them, and each file becomes an
+// attachment. The page reads an image as a data URL and a text file as its text, and sends both
+// with the message. The engine keeps the text of one attachment in a record of its own, and
+// keeps the id, the name and the type in the message.
 //
-// The records stand under a folder of the chat that holds them: the folder
-// `.attachments` inside the repository of the chat, or inside the working
-// folder the program gave a chat with no repository. A chat and its files
-// therefore stand together, so the files of a chat are still there when the
-// chat is opened again the next day, and they go with the repository when the
-// user moves it. A command of the tool sees them too, for the folder stands
-// in the room the command works in.
+// The records are under a directory of the chat that holds them: the folder `.attachments`
+// inside the repository of the chat, or inside the working folder the program gave a chat with
+// no repository. A chat and its files therefore remain together, so the files of a chat are
+// still there when the chat is opened again the next day, and they go with the repository when
+// the user moves it. A command of the tool sees them too, for the folder is in the space
+// the command works in.
 //
-// The words that go to the model name every attachment with its place in
-// the order the user attached it, and its whole file name, ending
-// included. Pictures go out in that same order, each one spoken of by its
-// number just before it stands. A user can then write about the third
-// image, and the model knows which picture that is. A file of words goes
-// out as its words. A document of the shapes that keep their words hidden
-// -- a PDF, an RTF file -- goes out as the words read out of it, which is
-// read once, when the record is written. A file of neither goes out by its
-// name alone, for nothing else of it would mean anything to the model.
+// The text that go to the model name every attachment with its place in the order the user
+// attached it, and its whole file name, ending included. Images go out in that same order, each
+// one spoken of by its number just before it remains. A user can then write about the third
+// image, and the model knows which image that is. A text file is sent as its text. A document
+// of the forms that keep their text hidden -- a PDF, an RTF file -- is sent as the text
+// extracted from it, which is read once, when the record is written. A file of neither is sent
+// by name only, for nothing else of it would mean anything to the model.
 
 use serde_json::{json, Value};
 use std::fs;
@@ -32,41 +28,40 @@ use crate::config;
 use crate::documents;
 use crate::store;
 
-// The most attachments one message may carry. llama.cpp has a room of its
-// own for pictures in one message, and a chat box with more blocks than
-// this says less, not more.
+// The most attachments one message may carry. llama.cpp has a directory of its own for images
+// in one message, and a chat composer with more blocks than this reports less, not more.
 pub const MAX_ATTACHMENTS: usize = 16;
 
-// The most words of one attachment that go to the model. A file of more is
-// cut, and the model is told that it was cut.
+// The most text of one attachment that go to the model. A file of more is cut, and the model is
+// informed that it was cut.
 pub const MAX_TEXT_CHARS: usize = 200_000;
 
 // The longest file name kept. A name longer than this is cut at the end.
 pub const MAX_NAME_CHARS: usize = 200;
 
-// The words that stand after a file of words the model was not given whole.
-// The same words stand wherever a file is cut, so the model is never told a
-// whole file was given when it was not.
+// The text that remains after a text file the model was not given whole. The same text remains
+// wherever a file is cut, so the model is never informed a whole file was given when it was
+// not.
 pub const CUT_NOTE: &str = "(the file was cut here, because it held more text than this program sends)";
 
-// The words that stand in place of the words of a document whose words are a
-// picture of words: a scan, or a page of a drawing. The model is told what it
-// has, rather than left to guess at an empty space.
+// The text that replaces the text of a document whose text is an image of text: a scan, or a
+// page of a drawing. The model is informed what it has, rather than left to guess at an empty
+// space.
 pub const NO_WORDS_NOTE: &str =
-    "(no words could be read out of this document: it may be a scan, or a page of drawings)";
+    "(no text could be extracted from this document: it may be a scan, or a page of drawings)";
 
-// The words that stand in place of the words of a document that keeps its words
-// behind a code this program cannot read.
+// The text that replaces the text of a document that keeps its text behind a code this program
+// cannot read.
 pub const CLOSED_NOTE: &str =
     "(this document keeps its words behind a code this program cannot read, so only its name is sent)";
 
-// Endings that stand for a picture the vision projector can read.
+// Endings that mean an image the vision projector can read.
 const IMAGE_ENDINGS: [&str; 8] = [
     "png", "jpg", "jpeg", "gif", "bmp", "webp", "tif", "tiff",
 ];
 
-// Endings that stand for a file of words. The model reads these as they
-// are, so they go out among the words of the message.
+// Endings that mean a text file. The model reads these as they are, so they go out among the
+// text of the message.
 const TEXT_ENDINGS: [&str; 80] = [
     "txt", "md", "markdown", "mdx", "rst", "adoc", "asciidoc", "org", "tex", "bib", "rs",
     "py", "pyi", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "jsonl", "toml", "yaml",
@@ -77,9 +72,9 @@ const TEXT_ENDINGS: [&str; 80] = [
     "svelte", "proto", "graphql", "diff", "patch", "po", "pot", "srt", "vtt",
 ];
 
-// One attachment as the page sends it: the whole file name with its ending,
-// the kind of the file, the data URL of a picture, or the words of a file
-// of words. A file that is neither carries neither.
+// One attachment as the page sends it: the whole file name with its ending, the type of the
+// file, the data URL of an image, or the text of a text file. A file that is neither carries
+// neither.
 #[derive(Clone, Debug, Default)]
 pub struct Incoming {
     pub name: String,
@@ -88,7 +83,7 @@ pub struct Incoming {
     pub text: String,
 }
 
-// What stands in the record of one attachment on disk.
+// What is in the record of one attachment on disk.
 #[derive(Clone, Debug, Default)]
 pub struct Stored {
     pub name: String,
@@ -97,35 +92,34 @@ pub struct Stored {
     pub text: String,
 }
 
-// The name of the folder of the records, inside the room of the chat.
+// The name of the directory of the records, inside the working directory of the chat.
 pub const FOLDER: &str = ".attachments";
 
-// The folder that holds the records of the attachments of one chat. It stands
-// inside the room that chat works in, which is its repository, or its own
-// folder under `work/` when it has no repository.
+// The folder that holds the records of the attachments of one chat. It is inside the working directory that
+// chat works in, which is its repository, or its own folder under `work/` when it has no
+// repository.
 pub fn shelf(workdir: &Path) -> PathBuf {
     workdir.join(FOLDER)
 }
 
-// The folder an older run of the program kept the records in: one flat folder
-// under the data directory, with no room of the chat in it. It is looked at
-// once, and only to move what stands in it away.
+// The folder an older run of the program kept the records in: one flat folder under the data
+// directory, with no record of the chat in its name. It is checked once, and only to move what
+// is in it away.
 pub fn old_dir() -> PathBuf {
     config::paths().data.join("attachments")
 }
 
-// Move the records of these attachments out of the old folder into the folder
-// of the chat that holds them. A record that stands in the new place already
-// is left where it is, and a record that is in neither place is nothing to
-// move. The number of what moved comes back, so the caller can say whether the
-// old folder is empty now.
+// Move the records of these attachments out of the old folder into the working directory of the
+// chat that holds them. A record that is in the new place already is left where it is, and a
+// record that is in neither place is nothing to move. The number of what moved returns, so the
+// caller can say whether the old folder is empty now.
 pub fn move_old(place: &Path, ids: &[String]) -> usize {
     move_from(&old_dir(), place, ids)
 }
 
-// The same move, between two folders that are named. This is what the move of
-// the old records comes down to, and it is what a test can try without
-// touching the place the program keeps its data in.
+// The same move, between two folders that are named. This is what the move of the old records
+// drops to, and it is what a test can try without touching the place the program keeps its data
+// in.
 pub fn move_from(from: &Path, place: &Path, ids: &[String]) -> usize {
     if !from.is_dir() {
         return 0;
@@ -151,10 +145,10 @@ pub fn move_from(from: &Path, place: &Path, ids: &[String]) -> usize {
     moved
 }
 
-// The record of one attachment, looked for under a list of rooms. Every room
-// holds chats, and the record of a chat stands in a folder of that chat, so
-// this walks the rooms and opens only the record it was asked for. It is the
-// slow way, for when the chat that holds the record is not known.
+// The record of one attachment, searched for under a list of spaces. Every space holds
+// chats, and the record of a chat is in a directory of that chat, so this walks the spaces
+// and opens only the record it was requested. It is the slow way, for when the chat that holds
+// the record is not known.
 pub fn find_in(rooms: &[PathBuf], id: &str) -> Option<Stored> {
     if !looks_like_id(id) {
         return None;
@@ -181,19 +175,18 @@ pub fn drop_old_dir() {
     let _ = fs::remove_dir(old_dir());
 }
 
-// True for the ten hexadecimal characters of an id, and for nothing else. A
-// caller from the web may hand over anything, so nothing that smells like a
-// road is opened.
+// True for the ten hexadecimal characters of an id, and for nothing else. A caller from the web
+// may hand over anything, so nothing that smells like a path is opened.
 fn looks_like_id(id: &str) -> bool {
     id.len() == 10 && id.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-// True when the attachment is a picture the model can be shown. An unknown
-// kind falls back to the ending of the file name.
+// True when the attachment is an image the model can be shown. An unknown type falls back to
+// the ending of the file name.
 pub fn is_image(mime: &str, name: &str) -> bool {
     if mime.starts_with("image/") {
-        // The web page kind of a picture is words, and this program has no
-        // user for it. It stands among the files of words instead.
+        // The web page type of an image is text, and this program has no user for it. It is
+        // among the files of text instead.
         return !mime.contains("svg");
     }
     if mime.starts_with("text/") || !mime.is_empty() && mime != "application/octet-stream" {
@@ -205,7 +198,7 @@ pub fn is_image(mime: &str, name: &str) -> bool {
     }
 }
 
-// True when the attachment is a file of words.
+// True when the attachment is a text file.
 pub fn is_text(mime: &str, name: &str) -> bool {
     if mime.contains("svg") {
         return true;
@@ -229,9 +222,8 @@ pub fn is_text(mime: &str, name: &str) -> bool {
         )
 }
 
-// Which of the three kinds a file is, said in the word the page and the
-// window both use for a block over the chat box: a picture, a file of words,
-// or a file that can only be named.
+// Which of the three types a file is, stated in the word the page and the window both use for a
+// block over the chat composer: an image, a text file, or a file that can only be named.
 pub fn kind_of(name: &str, mime: &str) -> &'static str {
     if is_image(mime, name) {
         "image"
@@ -242,10 +234,9 @@ pub fn kind_of(name: &str, mime: &str) -> &'static str {
     }
 }
 
-// The kind of file the ending of its name says it is. The window needs this
-// when it takes a file from the machine by its place, for a place on the disk
-// carries no kind of its own. A name with no ending, or an ending this
-// program does not know, stands as a stream of bytes.
+// The type of file the ending of its name reports it is. The window needs this when it takes a
+// file from the computer by its place, for a place on the disk carries no type of its own. A
+// name with no ending, or an ending this program does not know, remains as a stream of bytes.
 pub fn mime_of(name: &str) -> &'static str {
     match ending(name).as_deref() {
         Some("png") => "image/png",
@@ -283,8 +274,7 @@ pub fn mime_of(name: &str) -> &'static str {
     }
 }
 
-// The ending of a file name, in lower case. A name with no ending gives
-// nothing.
+// The ending of a file name, in lower case. A name with no ending gives nothing.
 fn ending(name: &str) -> Option<String> {
     let dot = name.rfind('.')?;
     if dot + 1 >= name.len() || dot == 0 {
@@ -293,11 +283,11 @@ fn ending(name: &str) -> Option<String> {
     Some(name[dot + 1..].to_ascii_lowercase())
 }
 
-// The file name the model is given: no folder road, no control characters,
-// and cut at the length a block can show.
+// The file name the model is given: no folder path, no control characters, and cut at the
+// length a block can show.
 pub fn tidy_name(raw: &str) -> String {
-    // A road from another system may come with the name. The last part of
-    // it is the name of the file.
+    // A path from another system may come with the name. The last part of it is the name of the
+    // file.
     let last = raw.rsplit(['/', '\\']).next().unwrap_or(raw);
     let mut out = String::new();
     for ch in last.chars() {
@@ -312,11 +302,10 @@ pub fn tidy_name(raw: &str) -> String {
     out.trim().to_string()
 }
 
-// The attachments of a send call, in the order the page sent them. An entry
-// with no name is dropped. The order of what is left stands as the user made
-// it. A file is kept whatever its size, for there is no ceiling on the size
-// of a file the user hangs on a message; the words of a file of words are cut
-// only where they go to the model, and the model is told of the cut.
+// The attachments of a send call, in the order the page sent them. An entry with no name is
+// dropped. The order of what is left remains as the user made it. A file is kept whatever its
+// size, for there is no ceiling on the size of a file the user hangs on a message; the text of
+// a text file is cut only where they go to the model, and the model is informed of the cut.
 pub fn parse_incoming(value: Value) -> Vec<Incoming> {
     let Some(items) = value.as_array() else {
         return Vec::new();
@@ -354,11 +343,10 @@ pub fn parse_incoming(value: Value) -> Vec<Incoming> {
     out
 }
 
-// The words of an attachment that the page sent as a shape of bytes: a PDF, an
-// RTF file. The page sends no words of such a file, for the words of it are not
-// to be had without reading the shape, so the reading is done here, once, when
-// the record is written. Nothing comes back when the file is no such document,
-// or when the page sent words of its own.
+// The text of an attachment that the page sent as a form of bytes: a PDF, an RTF file. The page
+// sends no text of such a file, for the text of it is not to be had without reading the form,
+// so the reading is done here, once, when the record is written. Nothing returns when the file
+// is no such document, or when the page sent text of its own.
 fn words_of_shape(file: &Incoming) -> Option<String> {
     if !file.text.trim().is_empty() {
         return None;
@@ -367,19 +355,17 @@ fn words_of_shape(file: &Incoming) -> Option<String> {
         return None;
     }
     match documents::words_of_data_url(&file.name, &file.mime, &file.data) {
-        // The shape was read, and the page has no words in it: a scan, or a
-        // page of a drawing.
+        // The form was read, and the page has no text in it: a scan, or a page of a drawing.
         Some(words) if words.trim().is_empty() => Some(String::from(NO_WORDS_NOTE)),
         Some(words) => Some(words),
-        // No shape of this kind could be read at all.
+        // No form of this type could be read at all.
         None => Some(String::from(CLOSED_NOTE)),
     }
 }
 
-// Write the records of new attachments in the folder of the chat that holds
-// them, and give back the marks the message keeps. A record that cannot be
-// written loses that attachment, and the user is told of it by the count
-// that comes back short.
+// Write the records of new attachments in the working directory of the chat that holds them, and
+// give back the markers the message keeps. A record that cannot be written loses that
+// attachment, and the user is informed of it by the count that returns short.
 pub fn save_at(place: &Path, files: &[Incoming]) -> Vec<store::Attachment> {
     let _ = fs::create_dir_all(place);
     let mut out: Vec<store::Attachment> = Vec::new();
@@ -406,9 +392,9 @@ pub fn save_at(place: &Path, files: &[Incoming]) -> Vec<store::Attachment> {
     out
 }
 
-// The words kept in the record of one attachment, cut at the longest run this
-// program sends. A record with nothing in it says so, for a file that holds no
-// words is not the same thing to the model as a file that was never read.
+// The text kept in the record of one attachment, cut at the longest run this program sends. A
+// record with nothing in it records it, for a file that holds no text is not the same to the
+// model as a file that was never read.
 fn words_of_record(record: &Stored) -> String {
     let words = record.text.as_str();
     if words.trim().is_empty() {
@@ -425,7 +411,7 @@ fn words_of_record(record: &Stored) -> String {
     words.to_string()
 }
 
-// The record of one attachment, read from the folder of the chat.
+// The record of one attachment, read from the working directory of the chat.
 pub fn read_at(place: &Path, id: &str) -> Option<Stored> {
     if !looks_like_id(id) {
         return None;
@@ -450,8 +436,8 @@ pub fn read_at(place: &Path, id: &str) -> Option<Stored> {
     })
 }
 
-// Take one attachment away from the disk. The chat that held it is gone, so
-// its records may go too.
+// Take one attachment away from the disk. The chat that held it is removed, so its records may
+// go too.
 pub fn remove_at(place: &Path, ids: &[String]) {
     for id in ids {
         if looks_like_id(id) {
@@ -460,21 +446,20 @@ pub fn remove_at(place: &Path, ids: &[String]) {
     }
 }
 
-// The way from the folder of the chat to the record of one attachment. The id
-// is ten hexadecimal characters, so nothing that smells like a road is opened.
+// The way from the working directory of the chat to the record of one attachment. The id is ten
+// hexadecimal characters, so nothing that smells like a path is opened.
 fn record_path(place: &Path, id: &str) -> PathBuf {
     place.join(format!("{}.json", id))
 }
 
-// The content of a user message for the API. With no attachments this is
-// the words of the user, exactly as they were before.
+// The content of a user message for the API. With no attachments this is the text of the user,
+// exactly as they were before.
 //
-// With attachments it is a list of parts. The words of the user come
-// first, and after them the list of the attachments with their numbers.
-// Then, in the same order, a file of words follows as a part of its own,
-// and a picture follows as an image part with one line of words before it
-// that names its number and its file. The pictures therefore stand in the
-// order of the list, and each can be named by its number.
+// With attachments it is a list of parts. The text of the user comes first, and after it the
+// list of the attachments with their numbers. Then, in the same order, a text file follows as a
+// part of its own, and an image follows as an image part with one line of text before it that
+// names its number and its file. The images are therefore in the order of the list, and each
+// can be named by its number.
 pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], vision_on: bool) -> Value {
     if attachments.is_empty() {
         return json!(body);
@@ -483,10 +468,10 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
         .iter()
         .map(|one| read_at(place, &one.id))
         .collect();
-    // What goes out of each attachment: the bytes of a picture, the words of a
-    // file of words or of a document read out of its shape, or nothing but the
-    // name of it. A document that told the model plainly that it has no words to
-    // give carries no part of its own, for the telling stands in the list.
+    // What is sent of each attachment: the bytes of an image, the text of a text file or of a
+    // document extracted from its form, or nothing but the name of it. A document that informed
+    // the model plainly that it has no text to give carries no part of its own, for the report
+    // is in the list.
     let mut carries: Vec<bool> = Vec::with_capacity(attachments.len());
     let mut told: Vec<Option<&'static str>> = Vec::with_capacity(attachments.len());
     for (number, one) in attachments.iter().enumerate() {
@@ -527,8 +512,8 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
             if !vision_on {
                 String::from("an image, which this model cannot see, because vision is off")
             } else {
-                // The number of the picture counts only the pictures that
-                // really go out, so "the third image" is never a gap.
+                // The number of the image counts only the images that really go out, so "the
+                // third image" is never a gap.
                 picture_of += 1;
                 format!("an image, image number {}", picture_of)
             }
@@ -598,12 +583,11 @@ pub fn content_at(place: &Path, body: &str, attachments: &[store::Attachment], v
     Value::Array(parts)
 }
 
-// The words of a tool answer, with the pictures that hang on the same message
-// after them. A tool that opened a picture gives the words of its receipt here
-// and the picture itself as a part, so that the model is shown the picture and
-// not a run of base64 written out in words. Without the switch for pictures, or
-// without a picture on the message, these are the plain words, as they were
-// before the tool of pictures came.
+// The text of a tool result, with the images attached to the same message after it. A tool
+// that opened an image gives the text of its result here and the image itself as a part, so
+// that the model is shown the image and not a run of base64 written out in text. Without the
+// switch for images, or without an image on the message, these are the plain text, as they were
+// before the tool of images came.
 pub fn parts_at(
     place: &Path,
     words: &str,
@@ -637,9 +621,9 @@ pub fn parts_at(
 mod tests {
     use super::*;
 
-    // The records of the attachments stand in a folder of the chat that
-    // holds them, so a test makes a place of its own to keep them in. Each
-    // test has a folder no other test looks at, for the tests run together.
+    // The records of the attachments are in a directory of the chat that holds them, so a test
+    // makes a place of its own to keep them in. Each test has a folder no other test checks,
+    // for the tests run together.
     fn test_shelf() -> PathBuf {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -658,9 +642,9 @@ mod tests {
         }
     }
 
-    // The picture kind is known from the kind of the file, and from the
-    // ending when the kind says nothing. A web picture is words, and the
-    // ending of a picture alone does not make a text file a picture.
+    // The image type is known from the type of the file, and from the ending when the type
+    // reports nothing. A web image is text, and the ending of an image alone does not make a
+    // text file an image.
     #[test]
     fn a_picture_is_known_from_its_kind_or_its_ending() {
         assert!(is_image("image/png", "photo"));
@@ -671,8 +655,7 @@ mod tests {
         assert!(!is_image("application/json", "data.json"));
     }
 
-    // A file of words is known from its kind, or from its ending when the
-    // kind says nothing.
+    // A text file is known from its type, or from its ending when the type reports nothing.
     #[test]
     fn a_file_of_words_is_known_from_its_kind_or_its_ending() {
         assert!(is_text("text/plain", "notes"));
@@ -684,8 +667,8 @@ mod tests {
         assert!(!is_text("application/pdf", "paper.pdf"));
     }
 
-    // A name keeps its ending, loses its road, and loses the characters
-    // that no file name should hold.
+    // A name keeps its ending, loses its path, and loses the characters that no file name
+    // should hold.
     #[test]
     fn a_name_keeps_its_ending_and_loses_its_road() {
         assert_eq!(tidy_name("/home/user/notes.txt"), "notes.txt");
@@ -696,22 +679,22 @@ mod tests {
         assert_eq!(tidy_name(&long).chars().count(), MAX_NAME_CHARS);
     }
 
-    // The send call gives its attachments in order. An entry with no name
-    // is dropped, and nothing past the ceiling is kept.
+    // The send call gives its attachments in order. An entry with no name is dropped, and
+    // nothing past the ceiling is kept.
     #[test]
     fn the_send_call_gives_its_attachments_in_order() {
         let body = json!([
             { "name": "first.png", "mime": "image/png", "data": "data:image/png;base64,AAA=" },
             { "name": "", "mime": "text/plain", "text": "no name, so nothing" },
-            { "name": "second.txt", "mime": "text/plain", "text": "the words" },
+            { "name": "second.txt", "mime": "text/plain", "text": "the text" },
         ]);
         let made = parse_incoming(body);
         assert_eq!(made.len(), 2);
         assert_eq!(made[0].name, "first.png");
         assert_eq!(made[1].name, "second.txt");
-        assert_eq!(made[1].text, "the words");
-        // A file of any size is kept, for there is no ceiling on the size of a
-        // file the user hangs on a message.
+        assert_eq!(made[1].text, "the text");
+        // A file of any size is kept, for there is no ceiling on the size of a file the user
+        // hangs on a message.
         let big = json!([{ "name": "big.txt", "mime": "text/plain", "text": "x".repeat(MAX_TEXT_CHARS + 1) }]);
         let kept_big = parse_incoming(big);
         assert_eq!(kept_big.len(), 1);
@@ -719,17 +702,16 @@ mod tests {
         assert_eq!(kept_big[0].text.chars().count(), MAX_TEXT_CHARS + 1);
     }
 
-    // With no attachments the message goes out exactly as it did before
-    // this part of the program existed.
+    // With no attachments the message is sent exactly as it did before this part of the program
+    // existed.
     #[test]
     fn a_message_without_attachments_sends_plain_words() {
         let made = content_at(Path::new("."), "Hello there", &[], true);
         assert_eq!(made, json!("Hello there"));
     }
 
-    // The words that go out name every attachment by its number and its
-    // whole file name, count the pictures apart from the files of words,
-    // and keep the pictures in the order of the list.
+    // The text that go out name every attachment by its number and its whole file name, count
+    // the images apart from the files of text, and keep the images in the order of the list.
     #[test]
     fn the_attachments_stand_numbered_in_the_order_they_came() {
         let _guard = config::test_turn();
@@ -751,16 +733,15 @@ mod tests {
         assert!(lead.contains("1. photo.png (an image, image number 1)"));
         assert!(lead.contains("2. notes.txt (a text file, given in full below)"));
         assert!(lead.contains("3. tool.zip (a file that cannot be read here"));
-        // The words of the text file go out under their number and name.
+        // The text of the text file go out under their number and name.
         let words = parts
             .iter()
             .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
             .find(|t| t.starts_with("The text of attachment 2"))
-            .expect("the words of the second attachment");
+            .expect("the text of the second attachment");
         assert!(words.contains("named notes.txt"));
         assert!(words.contains("the words of the note"));
-        // The picture goes out as an image part, with its number named just
-        // before it.
+        // The image is sent as an image part, with its number named just before it.
         let image_at = parts
             .iter()
             .position(|p| p.get("type").and_then(|t| t.as_str()) == Some("image_url"))
@@ -770,8 +751,7 @@ mod tests {
         assert!(before.contains("photo.png"));
         let url = parts[image_at]["image_url"]["url"].as_str().unwrap();
         assert_eq!(url, "data:image/png;base64,AAA=");
-        // The file of neither kind stands by its name alone, and asks for
-        // no part of its own.
+        // The file of neither type remains by name only, and requests no part of its own.
         assert_eq!(
             parts
                 .iter()
@@ -783,10 +763,9 @@ mod tests {
         remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
     }
 
-    // A document of a shape that keeps its words hidden is read once, when its
-    // record is written, and its words then go out with the message as the words
-    // of a file of words do. A page of no words says what it is, and a file of a
-    // shape the program cannot read says that too.
+    // A document of a form that keeps its text hidden is read once, when its record is written,
+    // and its text then go out with the message as the text of a text file does. A page of no
+    // text reports what it is, and a file of a form the program cannot read reports that too.
     #[test]
     fn a_document_goes_out_with_the_words_read_out_of_it() {
         let _guard = config::test_turn();
@@ -806,7 +785,7 @@ mod tests {
         let record = read_at(&shelf, &kept[0].id).expect("the record was written");
         assert!(
             record.text.contains("The plan of the work"),
-            "the words of the page were not read out of it: {}",
+            "the text of the page was not extracted from it: {}",
             record.text
         );
         let made = content_at(&shelf, "Read my plan", &kept, true);
@@ -827,8 +806,8 @@ mod tests {
         let _ = fs::remove_dir_all(&shelf);
     }
 
-    // A page whose words are a picture of words is told as such, in the list of
-    // the attachments, and carries no part of its own.
+    // A page whose text is an image of text is informed as such, in the list of the
+    // attachments, and carries no part of its own.
     #[test]
     fn a_page_of_no_words_says_what_it_is() {
         let _guard = config::test_turn();
@@ -861,15 +840,14 @@ mod tests {
                 .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("text"))
                 .count(),
             1,
-            "a page of no words asks for no part of its own"
+            "a page of no text requests no part of its own"
         );
         remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
         let _ = fs::remove_dir_all(&shelf);
     }
 
-    // Two pictures take two numbers in the order the user attached them.
-    // With the vision switch off, no picture goes out, and the list says
-    // why.
+    // Two images take two numbers in the order the user attached them. With the vision switch
+    // off, no image is sent, and the list reports why.
     #[test]
     fn pictures_keep_their_order_and_their_names() {
         let _guard = config::test_turn();
@@ -902,24 +880,24 @@ mod tests {
         remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
     }
 
-    // The record of an attachment reads back as it was written, and an id
-    // that is not an id opens nothing.
+    // The record of an attachment reads back as it was written, and an id that is not an id
+    // opens nothing.
     #[test]
     fn a_record_reads_back_and_a_strange_id_opens_nothing() {
         let _guard = config::test_turn();
         let shelf = test_shelf();
-        let files = vec![incoming("note.md", "text/markdown", "", "# Head")];
+        let files = vec![incoming("note.md", "text/markdown", "", "# Header")];
         let kept = save_at(&shelf, &files);
         let made = read_at(&shelf, &kept[0].id).expect("the record reads back");
         assert_eq!(made.name, "note.md");
-        assert_eq!(made.text, "# Head");
+        assert_eq!(made.text, "# Header");
         assert!(read_at(&shelf, "").is_none());
         assert!(read_at(&shelf, "../../etc/passwd").is_none());
         remove_at(&shelf, &kept.iter().map(|a| a.id.clone()).collect::<Vec<_>>());
         assert!(read_at(&shelf, &kept[0].id).is_none());
     }
 
-    // The records stand in a folder of the room of the chat, under the name
+    // The records are in a directory of the working directory of the chat, under the name
     // `.attachments`, so a chat and its files are found together.
     #[test]
     fn the_records_stand_in_a_folder_of_the_room_of_the_chat() {
@@ -935,9 +913,9 @@ mod tests {
         let _ = fs::remove_dir_all(&room);
     }
 
-    // A run of the program that kept the records in one flat folder moves them
-    // into the folder of the chat that carries them. A record that is not
-    // asked for, and one that stands in the new place already, stay put.
+    // A run of the program that kept the records in one flat folder moves them into the work
+    // directory of the chat that carries them. A record that is not requested, and one that is
+    // in the new place already, stay put.
     #[test]
     fn the_records_of_an_older_run_move_into_the_room_of_the_chat() {
         let rooms = test_shelf();
@@ -955,15 +933,15 @@ mod tests {
         fs::rename(&now, &was).expect("a record goes back to the old folder");
         let ids = vec![kept[0].id.clone(), kept[1].id.clone()];
         assert_eq!(move_from(&old, &folder, &ids), 1, "one record moved");
-        assert!(now.is_file(), "the record stands with the chat now");
+        assert!(now.is_file(), "the record is with the chat now");
         assert!(!was.exists(), "the old folder holds it no longer");
         assert!(read_at(&folder, &kept[0].id).is_some());
         assert_eq!(move_from(&old, &folder, &ids), 0, "nothing left to move");
         let _ = fs::remove_dir_all(&rooms);
     }
 
-    // When the chat that holds a record is not known, the rooms of the chats
-    // are walked, and only the record that was asked for is opened.
+    // When the chat that holds a record is not known, the spaces of the chats are walked,
+    // and only the record that was requested is opened.
     #[test]
     fn a_record_is_found_by_walking_the_rooms() {
         let rooms = test_shelf();
@@ -977,17 +955,16 @@ mod tests {
         let _ = fs::remove_dir_all(&rooms);
     }
 
-    // A place on the disk carries no kind of its own, so the window is given
-    // one from the ending of the name, and the three kinds of block follow.
+    // A place on the disk carries no type of its own, so the window is given one from the
+    // ending of the name, and the three types of block follow.
     #[test]
     fn a_place_on_disk_is_named_by_its_ending() {
         assert_eq!(mime_of("photo.png"), "image/png");
         assert_eq!(mime_of("photo.JPG"), "image/jpeg");
         assert_eq!(mime_of("notes.md"), "text/markdown");
         assert_eq!(mime_of("no-ending"), "application/octet-stream");
-        // A document of a shape that keeps its words hidden is named by its
-        // ending, and stands as a file of its own: the reading of it is the work
-        // of the program, not of the page.
+        // A document of a form that keeps its text hidden is named by its ending, and remains
+        // as a file of its own: the reading of it is the work of the program, not of the page.
         assert_eq!(mime_of("plan.pdf"), "application/pdf");
         assert_eq!(mime_of("notes.rtf"), "application/rtf");
         assert_eq!(kind_of("plan.pdf", mime_of("plan.pdf")), "file");
@@ -995,8 +972,8 @@ mod tests {
         assert_eq!(kind_of("photo.png", mime_of("photo.png")), "image");
         assert_eq!(kind_of("notes.md", mime_of("notes.md")), "text");
         assert_eq!(kind_of("model.bin", mime_of("model.bin")), "file");
-        // A kind of its own outranks the ending, for the machine that handed
-        // the file over knows better than a name.
+        // A type of its own outranks the ending, for the computer that handed the file over
+        // knows better than a name.
         assert_eq!(kind_of("copy", "image/png"), "image");
     }
 }

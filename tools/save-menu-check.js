@@ -1,14 +1,12 @@
-// Check what the button of a block of offered files does with the browser. The
-// folder a browser downloads into is rarely the folder the user wanted, so a
-// browser that answers to `showSaveFilePicker` is asked where the file is to go:
-// the native dialog of the operating system, with the name of the file the block
-// showed and the kind of it. Where the browser cannot ask - the window of the
-// program, a page that is not stood on a secure place, an older browser - the file
-// goes to the download folder, as it always did. A dialog the user let go is a
-// thing they said no to: nothing is fetched and nothing is written.
+// Check what the button of a block of proposed files does with the browser. The folder a
+// browser downloads into is rarely the folder the user wanted, so a browser that answers to
+// `showSaveFilePicker` is asked where the file is to go: the native dialog of the operating
+// system, with the name of the file the block showed and the type of it. Where the browser
+// cannot ask - the window of the program, a page that is not was on a secure place, an older
+// browser - the file goes to the download folder, as it always did. A dialog the user let go is
+// an item they stated no to: nothing is fetched and nothing is written.
 //
-//   node save-menu-check.js
-//   AN_PAGE=web/page.html AN_FETCH=1 node save-menu-check.js
+// node save-menu-check.js AN_PAGE=web/page.html AN_FETCH=1 node save-menu-check.js
 const path = require('path');
 const puppeteer = require('puppeteer');
 
@@ -39,7 +37,7 @@ function stateOf() {
             path: 'counts/of-the-run.csv', size: 118 }
         ],
         mono: false, failed: false, when: '09:05' },
-      { id: '3', role: 'Assistant', body: 'The page and the table stand under this answer.',
+      { id: '3', role: 'Assistant', body: 'The page and the table are under this answer.',
         reasoning: '', reasoning_ms: 0, attachments: [], tool: '', mono: false,
         failed: false, when: '09:06' },
     ],
@@ -107,8 +105,8 @@ async function main() {
     var anchors = [];     // the names given to the browser for a plain download
     var fetches = [];     // the roads the bytes were asked for
 
-    // The bytes of a file, as the small server of the program answers them. The
-    // road of the archive is answered too, for the button of the whole offer.
+    // The bytes of a file, as the small server of the program answers them. The path of the
+    // archive is answered too, for the button of the whole proposal.
     var plain = window.fetch;
     window.fetch = function (where) {
       var said = String(where);
@@ -120,21 +118,21 @@ async function main() {
           blob: function () { return Promise.resolve(new Blob(['the bytes of the file'])); }
         });
       }
-      // Every other road is left to the fetch the page came with, which is the
-      // small server of the remote mode or nothing at all.
+      // Every other path is left to the fetch the page came with, which is the small server of
+      // the remote mode or nothing at all.
       return plain.apply(window, arguments);
     };
 
-    // The click of an anchor is how a browser is told to download. It is watched,
-    // so a plain download can be told from a file written where the user chose.
+    // The click of an anchor is how a browser is set to download. It is watched, so a plain
+    // download can be informed from a file written where the user chose.
     var clickOf = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function () {
       if (this.download) { anchors.push(this.download); road.push('anchor'); }
       return clickOf.apply(this, arguments);
     };
 
-    // The dialog of the browser. The handle it gives back opens, writes and
-    // closes, which is all the page does with it.
+    // The dialog of the browser. The handle it returns opens, writes and closes, which is all
+    // the page does with it.
     function handleOf(name) {
       return {
         createWritable: function () {
@@ -169,15 +167,15 @@ async function main() {
     function wait(ms) { return new Promise(function (r) { setTimeout(r, ms || 240); }); }
     function reset() { road = []; picks = []; written = []; anchors = []; fetches = []; }
 
-    // The page of the program asks for the bytes over the bridge; the road of the
-    // small server is the one the browser takes. Both faces are checked here as
-    // the page of the browser, which is where the dialog stands.
+    // The page of the program requests the bytes over the bridge; the path of the small server
+    // is the one the browser takes. Both pages are checked here as the page of the browser,
+    // which is where the dialog remains.
     if (typeof inWindow !== 'undefined') { inWindow = false; }
     if (!block(0) || !block(1)) { return { none: true }; }
 
-    // A browser that answers: the dialog is asked first, with the whole name of
-    // the file and its kind, and the bytes go to the file the user chose. Nothing
-    // is given to the browser as a plain download.
+    // A browser that answers: the dialog is asked first, with the whole name of the file and
+    // its type, and the bytes go to the file the user chose. Nothing is given to the browser as
+    // a plain download.
     reset();
     answerPicker('a-page-of-the-work.html');
     block(0).querySelector('.get').click();
@@ -185,8 +183,8 @@ async function main() {
     var asked = { road: road.slice(), picks: picks.slice(), written: written.slice(),
       anchors: anchors.slice(), fetches: fetches.slice() };
 
-    // The dialog let go: nothing is fetched, nothing is written, and the browser
-    // is not given the file either.
+    // The dialog let go: nothing is fetched, nothing is written, and the browser is not given
+    // the file either.
     reset();
     abortPicker();
     block(0).querySelector('.get').click();
@@ -194,8 +192,8 @@ async function main() {
     var cancelled = { road: road.slice(), fetches: fetches.slice(),
       written: written.slice(), anchors: anchors.slice() };
 
-    // A browser that does not answer: the file goes to the download folder, under
-    // the name the block showed, as it always did.
+    // A browser that does not answer: the file goes to the download folder, under the name the
+    // block showed, as it always did.
     reset();
     delete window.showSaveFilePicker;
     block(0).querySelector('.get').click();
@@ -203,8 +201,8 @@ async function main() {
     var plainDown = { road: road.slice(), anchors: anchors.slice(),
       fetches: fetches.slice(), written: written.slice() };
 
-    // The whole of an offer: the archive is asked for, and the dialog is asked
-    // with the name of the archive.
+    // All of an propose: the archive is requested, and the dialog is asked with the name of the
+    // archive.
     reset();
     answerPicker('a-page-of-the-work.html.zip');
     var all = document.querySelector('.gifts .all');
@@ -222,15 +220,15 @@ async function main() {
   await browser.close();
 
   const faults = [];
-  if (work.none) { throw new Error('no block of offered files stands in the chat'); }
+  if (work.none) { throw new Error('no block of proposed files is in the chat'); }
   if (work.blocks !== 2) { faults.push('the offer drew ' + work.blocks + ' blocks'); }
 
-  // The dialog was asked before the bytes, with the name and the kind of the file.
+  // The dialog was asked before the bytes, with the name and the type of the file.
   const asked = work.asked;
   if (asked.road[0] !== 'picker') {
     faults.push('the dialog was not asked first: ' + asked.road.join(' -> '));
   }
-  if (asked.road.indexOf('fetch') < 0) { faults.push('the bytes were never asked for'); }
+  if (asked.road.indexOf('fetch') < 0) { faults.push('the bytes were never requested'); }
   if (asked.road.indexOf('write') < 0) { faults.push('the bytes never came to the chosen file'); }
   if (asked.anchors.length) {
     faults.push('a browser that was asked was also given a plain download: ' + asked.anchors[0]);
@@ -242,22 +240,22 @@ async function main() {
   }
   const accept = ((wants.types || [])[0] || {}).accept || {};
   if (!accept['text/html']) {
-    faults.push('the dialog was not given the kind of the file: ' + JSON.stringify(wants.types));
+    faults.push('the dialog was not given the type of the file: ' + JSON.stringify(wants.types));
   }
   if (asked.written.indexOf('a-page-of-the-work.html:21B') < 0) {
     faults.push('the bytes written are not the bytes of the file: ' + asked.written.join(','));
   }
   if (asked.fetches[0].indexOf('/api/gift?path=') !== 0) {
-    faults.push('the road of the file is not the road of the offer: ' + asked.fetches[0]);
+    faults.push('the path of the file is not the path of the proposal: ' + asked.fetches[0]);
   }
 
-  // A dialog let go is a thing the user said no to.
+  // A dialog let go is an item the user stated no to.
   if (work.cancelled.fetches.length || work.cancelled.written.length
     || work.cancelled.anchors.length) {
     faults.push('a dialog let go still took the file: ' + work.cancelled.road.join(' -> '));
   }
 
-  // With no dialog to ask, the plain download stands, under the right name.
+  // With no dialog to ask, the plain download remains, under the right name.
   const plainDown = work.plainDown;
   if (plainDown.anchors[0] !== 'a-page-of-the-work.html') {
     faults.push('the plain download did not carry the name of the file: '
@@ -267,13 +265,13 @@ async function main() {
     faults.push('a browser that cannot ask wrote into a handle of its own');
   }
 
-  // The whole of an offer is asked for as an archive, with a name of its own.
+  // All of an propose is requested as an archive, with a name of its own.
   if (work.whole.picks.length && work.whole.picks[0].suggestedName !== 'a-page-of-the-work.html.zip') {
     faults.push('the archive was not given its name: '
       + JSON.stringify(work.whole.picks[0].suggestedName));
   }
   if (work.whole.fetches[0] && work.whole.fetches[0].indexOf('/api/gift_zip?') !== 0) {
-    faults.push('the whole of the offer was not asked for as an archive: ' + work.whole.fetches[0]);
+    faults.push('all of the proposal was not requested as an archive: ' + work.whole.fetches[0]);
   }
   if (work.whole.anchors.length) {
     faults.push('the archive was given as a plain download although the dialog was asked');
@@ -281,8 +279,8 @@ async function main() {
 
   const face = process.env.AN_PAGE ? 'the page of the remote mode' : 'the window page';
   if (!faults.length) {
-    console.log('the button of a block of offered files asks the browser where the file is '
-      + 'to go, writes the bytes there, lets a dialog that was let go stand for a no, and '
+    console.log('the button of a block of proposed files asks the browser where the file is '
+      + 'to go, writes the bytes there, lets a dialog that was let go mean a no, and '
       + 'falls back on the download folder where the browser cannot ask - on ' + face);
     return;
   }
