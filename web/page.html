@@ -1314,6 +1314,13 @@ body.dark .work { --work-text: #ffffff; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
   cursor: pointer; color: var(--work-text); font-weight: 600; }
 .work > .whead .wfold { color: var(--work-text); font-size: 10px; flex: 0 0 auto; }
+.work > .whead .dots { display: none; gap: 3px; align-items: center;
+  justify-content: center; width: 12px; height: 12px; }
+.work > .whead.busy .dots { display: inline-flex; }
+.work > .whead .dots i { width: 3.5px; height: 3.5px; border-radius: 50%;
+  background: var(--ink); animation: nod 1.1s ease-in-out infinite; }
+.work > .whead .dots i:nth-child(2) { animation-delay: .15s; }
+.work > .whead .dots i:nth-child(3) { animation-delay: .3s; }
 .work .wfold { display: inline-flex; width: 13px; height: 13px; align-items: center;
   justify-content: center; line-height: 1; }
 .work.shut > .wbody { display: none; }
@@ -9365,14 +9372,20 @@ function workBlock(one, path) {
 
 // The one block of an answer: `head` is the current action, and `parts` are progress messages
 // and tool outcomes. Expandable sub-blocks start closed.
-function corporateCard(head, parts, foldKey) {
+function corporateCard(head, parts, foldKey, busy) {
   var box = make('div', 'work shut');
   var top = make('div', 'whead');
+  if (busy) { top.classList.add('busy'); }
   var fold = make('span', 'wfold');
   fold.textContent = '\u25BE';
+  var dots = make('span', 'dots');
+  dots.appendChild(make('i'));
+  dots.appendChild(make('i'));
+  dots.appendChild(make('i'));
   var title = make('span');
   title.textContent = head || 'Working';
   top.appendChild(fold);
+  top.appendChild(dots);
   top.appendChild(title);
   box.appendChild(top);
   var body = make('div', 'wbody');
@@ -9462,7 +9475,8 @@ function answerCard(items, at) {
     if ((m.work || []).length || m.work_head) { head = m.work_head || 'Done'; }
   }
   if (!foundAssistant) { return null; }
-  var made = corporateCard(head || 'Done', parts, foldKey + ':main');
+  var busy = run.some(function (m) { return m.id === 'live'; });
+  var made = corporateCard(head || 'Done', parts, foldKey + ':main', busy);
   return made;
 }
 
