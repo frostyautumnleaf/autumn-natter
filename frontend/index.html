@@ -558,7 +558,12 @@ textarea, input { font: inherit; color: inherit; }
   flex: 0 0 auto; font-size: 10.5px; font-weight: 650; letter-spacing: .06em;
   text-transform: uppercase; color: var(--ink);
 }
-.field > .svg { position: absolute; left: 9px; pointer-events: none; }
+/*
+ * The marker of the choice stands at the left of the box and the arrow of the list at the right,
+ * both of them written over the choice. The arrow is known by its own class: a rule that names
+ * both edges of a box asks the impossible of it, the left edge is the one kept, and the arrow of
+ * the list was drawn over the marker at the left - so the choice had no arrow to be seen at all. */
+.field > .svg:not(.arrow) { position: absolute; left: 9px; pointer-events: none; }
 /*
  * The chip of the file type is written over the choice, so it must let the pointer through: a
  * click on it is a click on the box, and opens the list. */
