@@ -1036,8 +1036,8 @@ pub const CUT_TOLD_FIRST: &str = "[A tool call was cancelled";
 // requested an answer rather than for the call it would else write behind the result. Nothing
 // is added in any other case: the block of a summarisation is in the conversation already, and
 // a second copy of it would cost the space the summarisation was created to win.
-fn go_on_words(state: &State, carried: &str) -> Value {
-    let mut history = state.build_history();
+fn go_on_words(state: &State, chat: &str, carried: &str) -> Value {
+    let mut history = state.build_history_in(chat);
     if carried.trim().is_empty() {
         return history;
     }
@@ -1125,16 +1125,11 @@ pub fn colour_words() -> String {
     )
 }
 
-// The text that go before the model while the size of the context is created by a handoff
-// summary. A model that is never informed how the space is kept open reads a full context as
-// the end of its work: it compresses the part it was requested, leaves a part of it out, or
-// stops to ask leave for the next step, all because it counts the text it has left. This text
-// reports that there is nothing to count. They go in a message of the role `system` at the
-// header of the conversation, once for the conversation, and they go away when compaction
-// remains off.
+// General context guidance when compaction is enabled. A handoff is announced
+// separately, when a recorded summary is sent with the conversation.
 pub fn compaction_words() -> String {
     String::from(
-        "The context of this conversation stays open while you work. When the context window of the model fills, this program writes a handoff summary of the conversation, puts it in the place of the messages it replaced, and the work goes on in the context that is created. That may happen again and again, without end, and nothing of the work is lost by it: the files stay where you wrote them, and the summary carries the state of the work.\n\nYou therefore have no budget of context, no limit of time and no limit on the number of tool calls. Do not measure the work against the context you think you have. Never leave a part of the work out, never write a simpler version because the full version is large, and never stop to ask whether there is space for the next step: when space runs out, the program creates it. Work until the work is complete, one step at a time, and say nothing of the context or the summary in your answer.",
+        "The program manages the context window while you work. Do not shorten or leave out parts of the user's request based on the space you think remains. Work through the request one step at a time.",
     )
 }
 
@@ -3574,10 +3569,7 @@ impl State {
                 "content": colour_words(),
             }));
         }
-        // The text of the space the conversation is on, beside the text of the program. A
-        // chat whose space is created by a handoff summary has no ceiling the model has to work
-        // within, and a model that does not know that compresses its own work for a limit that
-        // is not there. The text go away when compaction remains off.
+        // While compaction is on, the program manages the context for the model.
         if self.compaction_on() {
             out.push(json!({
                 "role": "system",
@@ -9164,11 +9156,6 @@ fn run_handoff(
         let Ok(mut guard) = state.lock() else {
             return false;
         };
-        let Some(model) = guard.model_of(chat).clone() else {
-            abandon_turn(&mut guard, chat);
-            guard.set_status("Choose a model in the top bar first");
-            return false;
-        };
         if guard.chat_of(chat).is_none() {
             abandon_turn(&mut guard, chat);
             return false;
@@ -9182,6 +9169,24 @@ fn run_handoff(
         // the summary, and the text that remains after the newest written marker: all of what
         // there is to summarise now, and no summary of a summary.
         let history = guard.build_history_in(chat);
+        // The first prompt stays in the context. Compaction cannot free space
+        // until there is another message to replace.
+        if !guard.handoff_owed_in(chat)
+            && history.as_array().is_none_or(|items| {
+                items
+                    .iter()
+                    .filter(|item| item["role"] != "system")
+                    .nth(1)
+                    .is_none()
+            })
+        {
+            return false;
+        }
+        let Some(model) = guard.model_of(chat).clone() else {
+            abandon_turn(&mut guard, chat);
+            guard.set_status("Choose a model in the top bar first");
+            return false;
+        };
         guard.live_mut(chat).generating = true;
         guard.busy = true;
         // The text of the summary is written of sight of the user.
@@ -10671,7 +10676,7 @@ fn run_turn(
          compaction_on) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
-                go_on_words(&guard, carried_prompt),
+                go_on_words(&guard, chat, carried_prompt),
                 guard.chat_of(chat).map(|c| c.meta.code_enabled).unwrap_or(false),
                 guard
                     .chat_of(chat)
@@ -10753,7 +10758,7 @@ fn run_turn(
                 None if going_on => CONTINUE_PROMPT,
                 None => "",
             };
-            history = go_on_words(&guard, carried_prompt);
+            history = go_on_words(&guard, chat, carried_prompt);
             guard.live_mut(chat).generating = true;
             guard.set_status("Space was created. The model is going on with the answer");
         }
@@ -13369,57 +13374,20 @@ mod tests {
         assert!(tool_group_word("summarise").contains("ummar"));
     }
 
-    // The text of the space go out with the conversation while the settings make the
-    // space by a handoff summary, and go away when it remains off. A model that is never
-    // informed how the space is kept reads a full context as the end of its work, and
-    // compresses the part it was requested.
     #[test]
     fn the_words_of_the_room_stand_with_the_talk_while_compaction_stands_on() {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
         open_a_chat(&engine);
-        let said = {
-            let state = engine.state.lock().unwrap();
-            state.build_history().to_string()
-        };
-        assert!(
-            said.contains("The context of this conversation stays open"),
-            "the text of the space did not go out with the conversation"
-        );
-        // The text says what the model is to make of the limits: no call limit, and nothing to
-        // leave out of the work.
-        assert!(said.contains("no limit on the number of tool calls"));
-        assert!(said.contains("Never leave a part of the work out"));
-        assert!(said.contains("Work until the work is complete"));
-        // The text go out once for the conversation, in a message of the role `system`.
-        let count = {
-            let state = engine.state.lock().unwrap();
-            state
-                .build_history()
-                .as_array()
-                .expect("a list of the conversation")
-                .iter()
-                .filter(|one| {
-                    one["content"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .starts_with("The context of this conversation stays open")
-                })
-                .count()
-        };
-        assert_eq!(count, 1, "the text of the space ride more than once with the conversation");
-        // Compaction off: no summary is ever written, so nothing is informed of a space that is
-        // never made.
-        {
-            let mut state = engine.state.lock().unwrap();
-            state.cfg.chat_compaction = String::from(config::COMPACTION_OFF);
-            let said = state.build_history().to_string();
-            assert!(
-                !said.contains("The context of this conversation stays open"),
-                "the text of the directory was with compaction off"
-            );
-        }
+        let mut state = engine.state.lock().unwrap();
+        let guidance = json!({ "role": "system", "content": compaction_words() });
+        let history = state.build_history();
+        let messages = history.as_array().unwrap();
+        assert_eq!(messages.iter().filter(|m| **m == guidance).count(), 1);
+
+        state.cfg.chat_compaction = String::from(config::COMPACTION_OFF);
+        assert!(!state.build_history().as_array().unwrap().contains(&guidance));
     }
 
     // The user works in one chat with the tools on and a level of thinking picked, and opens a
@@ -16979,7 +16947,7 @@ mod tests {
         // as it is now, with nothing added to it.
         let stood = state.build_history();
         assert_eq!(
-            go_on_words(&state, ""),
+            go_on_words(&state, &state.open_id(), ""),
             stood,
             "text was added to a conversation that ends on a question already"
         );
@@ -17001,7 +16969,7 @@ mod tests {
             "the result of the run was not last: {}",
             debt
         );
-        let history = go_on_words(&state, CONTINUE_PROMPT);
+        let history = go_on_words(&state, &state.open_id(), CONTINUE_PROMPT);
         let items = undated(&history);
         let last = items.last().expect("a conversation the request was given");
         assert_eq!(last["role"], json!("user"), "the ask did not end on the user");
@@ -17039,6 +17007,59 @@ mod tests {
                 .any(|message| message.body.contains(CONTINUE_PROMPT)),
             "the word of the program was written into the chat"
         );
+    }
+
+    #[test]
+    fn a_new_chats_first_request_uses_its_own_history() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        let fresh = state.open_id();
+        add_message(&mut state, "You", "hello");
+
+        // The worker can send the fresh chat's request while the sidebar has
+        // another chat open, for example when the model is still loading.
+        state.start_chat();
+        let previous = state.open_id();
+        add_message(&mut state, "You", "the first prompt of the other chat");
+        add_message(&mut state, "Assistant", "the answer");
+        let mark = state.begin_summary();
+        state.finish_summary(&mark, "The parser was updated.", 3000, 300, "");
+
+        let history = go_on_words(&state, &fresh, "");
+        assert_eq!(
+            undated(&history),
+            vec![json!({ "role": "user", "content": "hello" })]
+        );
+        assert!(!history.to_string().contains("handoff summary"));
+
+        state.current = Some(fresh);
+        let history = go_on_words(&state, &previous, "");
+        let messages = undated(&history);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1]["content"], handoff_block("The parser was updated."));
+    }
+
+    #[test]
+    fn a_handoff_cannot_replace_only_the_first_prompt() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let chat = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            add_message(&mut state, "You", "hello");
+            state.set_status("Ready");
+            state.open_id()
+        };
+        let server = Arc::new(Mutex::new(None));
+        let cancel = Arc::new(AtomicBool::new(false));
+        assert!(!run_handoff(&engine.state, &server, &cancel, &chat));
+        let state = engine.state.lock().unwrap();
+        assert_eq!(state.status, "Ready");
+        assert_eq!(state.chat_of(&chat).unwrap().messages.len(), 1);
     }
 
     // A chat that was cut for a handoff summary and never got one does not go on asking the
@@ -17143,7 +17164,7 @@ mod tests {
         );
         // The word of the program rides on the request and is never written into the chat, for
         // the user never wrote it and has nothing to read where it is.
-        let asked = undated(&go_on_words(&state, EMPTY_TURN_WORDS));
+        let asked = undated(&go_on_words(&state, &state.open_id(), EMPTY_TURN_WORDS));
         let last = asked.last().expect("the ask is not empty");
         assert_eq!(last["role"], json!("user"));
         assert_eq!(last["content"].as_str().expect("words"), EMPTY_TURN_WORDS);
@@ -17270,6 +17291,7 @@ mod tests {
     // The conversation without the lines of the day and the clock time, so a test about another rule
     // counts only the text of the user and the model.
     fn undated(history: &Value) -> Vec<Value> {
+        let context_guidance = compaction_words();
         history
             .as_array()
             .expect("a list of the conversation")
@@ -17280,7 +17302,7 @@ mod tests {
                 // text, not conversation text.
                 !said.starts_with(DATE_HEAD)
                     && !said.starts_with("You may put colour on a few words")
-                    && !said.starts_with("The context of this conversation stays open")
+                    && said != context_guidance
             })
             .cloned()
             .collect()
