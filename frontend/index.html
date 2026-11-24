@@ -1308,17 +1308,22 @@ body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: n
  * the offered files are there. */
 body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
 .work { margin: 14px 0; }
+.work { --work-text: var(--ink-leaf); }
+body:not(.dark):not(.silver):not(.corporate):not(.neon):not(.glass) .work { --work-text: #242424; }
+body.dark .work { --work-text: #ffffff; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
-  cursor: pointer; color: var(--ink-leaf); font-weight: 600; }
-.work > .whead .wfold { color: var(--ink-leaf); font-size: 10px; flex: 0 0 auto; }
+  cursor: pointer; color: var(--work-text); font-weight: 600; }
+.work > .whead .wfold { color: var(--work-text); font-size: 10px; flex: 0 0 auto; }
+.work .wfold { display: inline-flex; width: 13px; height: 13px; align-items: center;
+  justify-content: center; line-height: 1; }
 .work.shut > .wbody { display: none; }
 .work.shut > .whead .wfold { transform: rotate(-90deg); }
-.work .wline, .work .wbhead { color: var(--ink-leaf); }
+.work .wline, .work .wbhead, .work .wfile, .work .wout { color: var(--work-text); }
 .wbody { padding: 4px 12px; }
 .wblock { border: 0; border-left: 1px solid var(--line); }
-.wblock > .wbhead { display: flex; align-items: baseline; gap: 8px; padding: 7px 12px;
+.wblock > .wbhead { display: flex; align-items: center; gap: 8px; padding: 7px 12px;
   cursor: pointer; }
-.wblock > .wbhead .wfold { color: var(--ink-leaf); font-size: 9px; flex: 0 0 auto; }
+.wblock > .wbhead .wfold { color: var(--work-text); font-size: 9px; flex: 0 0 auto; }
 .wblock > .wbhead .wtoolmark { width: 13px; height: 13px; stroke: var(--dim); flex: 0 0 auto; }
 .wblock.shut > .wbbody { display: none; }
 .wblock.shut > .wbhead .wfold { transform: rotate(-90deg); }
@@ -1341,7 +1346,7 @@ body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
  * The text the model wrote to the user while it worked, before the block of the work was
  * closed. They are markdown, and they are under the first line of them, which is the header of
  * the block. */
-.wwords > .wbbody { color: var(--ink); }
+.wwords > .wbbody { color: var(--work-text); }
 .wwords > .wbbody > :first-child { margin-top: 0; }
 /*
  * The text of a call inside the short: the command that ran, the file it worked on, and what
@@ -1353,8 +1358,8 @@ body.corpwork .turn.t-hush:not(:has(.answer-end)) { display: none; }
   font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
   background: var(--code-bg); border: 1px solid var(--code-line); border-radius: 7px;
   padding: 6px 8px; margin: 5px 0 0; color: var(--ink); }
-.wout { max-height: 190px; overflow: auto; color: var(--ink-leaf); }
-.wfile { color: var(--ink-leaf); font-size: 11.5px; padding: 4px 0 0; word-break: break-all; }
+.wout { max-height: 190px; overflow: auto; }
+.wfile { font-size: 11.5px; padding: 4px 0 0; word-break: break-all; }
 .wplus, .wminus { font-variant-numeric: tabular-nums; margin-left: 7px; }
 .wplus { color: var(--hunk-add); }
 .wminus { color: var(--hunk-cut); }
