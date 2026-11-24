@@ -9373,7 +9373,8 @@ function putCard(turn, items, at) {
     else if (found !== old && found.parentNode) { found.parentNode.removeChild(found); }
   }
   if (old) {
-    reconcileCorporateNode(old, made);
+    var busy = run.some(function (one) { return one.id === 'live'; });
+    reconcileCorporateNode(old, made, busy);
     if (old.parentNode !== owner) { owner.insertBefore(old, owner.firstChild); }
   } else {
     owner.insertBefore(made, owner.firstChild);
@@ -9394,7 +9395,7 @@ function clearTurn(turn) {
 // of its sub-blocks flash, and a freshly appended block could briefly land before an older one
 // while the next snapshot replaced the whole card. This reconciles the final order in one DOM
 // pass and only creates the nodes that are actually new.
-function reconcileCorporateNode(here, wanted) {
+function reconcileCorporateNode(here, wanted, keepLiveParts) {
   if (here.nodeType !== wanted.nodeType || here.nodeName !== wanted.nodeName) {
     if (here.parentNode) { here.parentNode.replaceChild(wanted, here); }
     return wanted;
@@ -9418,6 +9419,33 @@ function reconcileCorporateNode(here, wanted) {
   }
   if (preserveOpen) { here.classList.remove('shut'); }
 
+  // A streamed assistant message can change how the answer is parsed for a snapshot. Preserve
+  // completed tool blocks that were already shown, and retain earlier assistant updates while
+  // the answer is active, so a new narration block cannot replace the sub-block before it.
+  if (here.classList.contains('wbody')) {
+    var current = Array.prototype.slice.call(here.childNodes);
+    var wantedKeys = Object.create(null);
+    for (var w = 0; w < wanted.childNodes.length; w++) {
+      var wantedKey = wanted.childNodes[w].dataset && wanted.childNodes[w].dataset.foldKey;
+      if (wantedKey) { wantedKeys[wantedKey] = true; }
+    }
+    for (var c = 0; c < current.length; c++) {
+      var prior = current[c];
+      var priorKey = prior.dataset && prior.dataset.foldKey;
+      if (!priorKey || wantedKeys[priorKey] || !prior.classList) { continue; }
+      var toolPart = prior.classList.contains('wblock')
+        && !prior.classList.contains('wwords');
+      var liveWords = keepLiveParts && prior.classList.contains('wwords');
+      if (!toolPart && !liveWords) {
+        continue;
+      }
+      var copy = prior.cloneNode(true);
+      var place = Math.min(c, wanted.childNodes.length);
+      wanted.insertBefore(copy, wanted.childNodes[place] || null);
+      wantedKeys[priorKey] = true;
+    }
+  }
+
   var previous = Array.prototype.slice.call(here.childNodes);
   var keyed = Object.create(null);
   for (var p = 0; p < previous.length; p++) {
@@ -9436,7 +9464,7 @@ function reconcileCorporateNode(here, wanted) {
           && !(candidate.dataset && candidate.dataset.foldKey)) { match = candidate; }
     }
     if (match && used.includes(match)) { match = null; }
-    var child = match ? reconcileCorporateNode(match, next) : next;
+    var child = match ? reconcileCorporateNode(match, next, keepLiveParts) : next;
     used.push(child);
     var before = here.childNodes[n] || null;
     if (before !== child) { here.insertBefore(child, before); }
@@ -9765,7 +9793,12 @@ function answerEnd(items, at) {
 
 // The final assistant message of a completed answer remains outside its progress card.
 function answerFinal(items, at) {
+  // A step can finish before its next tool call starts, but the overall answer is still active.
+  // Do not treat that step's status text as the final answer while the model is still working.
   var run = answerFrom(items, at);
+  if (cur && cur.generating && run.some(function (one) {
+    return one.id === 'live' || one.id === 'live-work';
+  })) { return null; }
   var last = run.length ? run[run.length - 1] : null;
   return last && last.id !== 'live' && last.id !== 'live-work'
       && last.role === 'Assistant' && String(last.body || '').trim() ? last : null;
