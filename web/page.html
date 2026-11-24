@@ -9493,13 +9493,14 @@ function drawWelcome() {
   long.appendChild(longOpts);
   screen.appendChild(long);
 
-  var themePart = welcomePart('The theme of the pages', 'Pale, dark, the grey and white of the silver theme, the near black of the corporate one, or the lit blue-black of the neon one.');
+  var themePart = welcomePart('The theme of the pages', 'Pale, dark, the grey and white of the silver theme, the near black of the corporate one, the lit blue-black of the neon one, or a translucent glass surface.');
   var themeCards = make('div', 'wcards');
   themeCards.appendChild(welcomeCard('theme', 'light', 'light', 'Light', ''));
   themeCards.appendChild(welcomeCard('theme', 'dark', 'dark', 'Dark', ''));
   themeCards.appendChild(welcomeCard('theme', 'silver', 'silver', 'Silver', ''));
   themeCards.appendChild(welcomeCard('theme', 'corporate', 'corporate', 'Corporate', ''));
   themeCards.appendChild(welcomeCard('theme', 'neon', 'neon', 'Neon', ''));
+  themeCards.appendChild(welcomeCard('theme', 'glass', 'glass', 'Glass', ''));
   themePart.appendChild(themeCards);
   var artOpts = make('div', 'wopts');
   artOpts.appendChild(welcomeTick('theme_pixel', 'Pixel-art look',

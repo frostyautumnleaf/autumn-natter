@@ -1,9 +1,9 @@
-// The five themes of the pages, and the pixel-art form of all of them, checked in both pages of
+// The six themes of the pages, and the pixel-art form of all of them, checked in both pages of
 // the program with no engine behind it.
 //
 // Seven items are checked, in each page:
-// * the stylesheet proposes five themes and two forms, and the list the top bar steps through
-//    holds the five;
+// * the stylesheet proposes six themes and two forms, and the list the top bar steps through
+//    holds the six;
 // * the fifth theme goes on when its marker is clicked, its colour tokens answer, and the call
 //    it makes carries both text of the theme;
 // * the pixel-art form keeps the colours of the theme it is laid over, so the background and
@@ -27,7 +27,7 @@ const USE_FETCH = process.env.AN_FETCH === '1';
 const SHOTS = process.env.AN_THEME_SHOTS === '1';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const WORDS = ['light', 'dark', 'silver', 'corporate', 'neon'];
+const WORDS = ['light', 'dark', 'silver', 'corporate', 'neon', 'glass'];
 
 function said(id, role, body) {
   return {
@@ -152,7 +152,7 @@ async function start(state) {
     }, state);
   }
   await page.setViewport({ width: 1100, height: 800 });
-  await page.goto('file://' + path.resolve(PAGE));
+  await page.goto(process.env.AN_PAGE_URL || ('file://' + path.resolve(PAGE)));
   await sleep(400);
   return { browser: browser, page: page, errors: errors };
 }
@@ -178,7 +178,7 @@ async function main() {
     const run = await start(stateOf('light', false));
     const page = run.page;
 
-    // The five themes and the two forms are proposed, and the top bar steps through five.
+    // The six themes and the two forms are proposed, and the top bar steps through six.
     const offered = await page.evaluate(function (words) {
       const marks = words.map(function (word) {
         const id = 'fTheme' + word.charAt(0).toUpperCase() + word.slice(1);
@@ -191,8 +191,8 @@ async function main() {
           !!document.getElementById('fThemePixel')],
       };
     }, WORDS);
-    if (offered.list.length !== 5 || offered.list.join('|') !== WORDS.join('|')) {
-      note('the list of the themes is not the five: ' + JSON.stringify(offered.list));
+    if (offered.list.length !== 6 || offered.list.join('|') !== WORDS.join('|')) {
+      note('the list of the themes is not the six: ' + JSON.stringify(offered.list));
     }
     if (offered.marks.indexOf(false) >= 0) {
       note('a theme has no marker of its own in the stylesheet: ' + JSON.stringify(offered.marks));
@@ -406,6 +406,9 @@ async function main() {
     });
     if (welcome.cards.indexOf('Neon') < 0) {
       note('the welcome screen does not propose the fifth theme: ' + JSON.stringify(welcome.cards));
+    }
+    if (welcome.cards.indexOf('Glass') < 0) {
+      note('the welcome screen does not propose the sixth theme: ' + JSON.stringify(welcome.cards));
     }
     if (!welcome.hasForm) {
       note('the welcome screen holds no marker of the pixel-art form');

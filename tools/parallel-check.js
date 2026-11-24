@@ -219,7 +219,7 @@ async function main() {
     page.on('pageerror', (e) => faults.push(String(e)));
     const busy = stateOf('light', 1, true, ['c1', 'c3'], 'The answer is being written');
     await page.evaluateOnNewDocument(bridges, busy);
-    await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
+    await page.goto(process.env.AN_PAGE_URL || ('file://' + one.file), { waitUntil: 'domcontentloaded' });
     await sleep(600);
     const notes = [];
     const note = (what) => { notes.push(what); console.log('  ERROR: ' + what); };

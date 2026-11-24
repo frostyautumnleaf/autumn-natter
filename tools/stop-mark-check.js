@@ -36,7 +36,7 @@ const PAGES = process.env.AN_PAGE
     { name: 'the browser page', tag: 'web', file: path.join(__dirname, '..', 'web', 'page.html') }
   ];
 
-const THEMES = ['light', 'dark', 'silver', 'corporate', 'neon'];
+const THEMES = ['light', 'dark', 'silver', 'corporate', 'neon', 'glass'];
 const shell = process.env.AN_SHELL_BIN || '';
 const shots = process.argv[2] === 'shots';
 const pixel = process.env.AN_PIXEL === '1';

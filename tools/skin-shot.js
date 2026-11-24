@@ -1,4 +1,4 @@
-// The five themes, and the pixel-art form of them, drawn out for the eye icon: the chat
+// The six themes, and the pixel-art form of them, drawn out for the eye icon: the chat
 // with its blocks, and the settings panel open at the Program tab, in each
 // form of each theme.
 //
@@ -9,7 +9,7 @@ const puppeteer = require('puppeteer');
 
 const PAGE = process.env.AN_PAGE || path.join(__dirname, '..', 'frontend', 'index.html');
 const USE_FETCH = process.env.AN_FETCH === '1';
-const WORDS = ['light', 'dark', 'silver', 'corporate', 'neon'];
+const WORDS = ['light', 'dark', 'silver', 'corporate', 'neon', 'glass'];
 const ONLY = process.env.AN_SKIN ? process.env.AN_SKIN.split(',') : null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -62,7 +62,7 @@ function stateOf(theme, pixel) {
     ],
     live: '', reasoning: '', reasoning_ms: 0, reasoning_done: false,
     progress: { percent: 0, active: false, what: 'text' },
-    chapters: [{ id: 'ch1', title: 'The five themes', from: 0, to: 3, summary: 'Five themes, and the forms of them.' }],
+    chapters: [{ id: 'ch1', title: 'The six themes', from: 0, to: 3, summary: 'Six themes, and the forms of them.' }],
     live_tools: [],
     mcp: { servers: [] },
     thinking: { mode: 'off', available: true, modes: ['off'] },
@@ -155,7 +155,7 @@ async function main() {
       await sleep(500);
       const name = 'skinshot-' + tag + '-' + skin + (form ? '-pixel' : '');
       await run.page.screenshot({ path: path.join(__dirname, name + '.png') });
-      // The settings panel, at the Program tab, where the markers of the five themes and of the
+      // The settings panel, at the Program tab, where the markers of the six themes and of the
       // two forms remain.
       await run.page.evaluate(function () {
         if (typeof openSettings === 'function') { openSettings('program'); }

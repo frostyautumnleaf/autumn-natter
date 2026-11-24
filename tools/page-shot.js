@@ -52,8 +52,8 @@
 //     puts the pace of the log on manual, which is how the button of Refresh is
 //     checked remaining live; the other two paces leave it greyed
 //   AN_THEME=corporate node page-shot.js home-pale p.png
-//     draws the scene in one of the five themes: light, dark, silver, corporate or
-//     neon. A name that ends in -dark, -silver, -corporate or -neon does the same,
+//     draws the scene in one of the six themes: light, dark, silver, corporate,
+//     neon or glass. A name that ends in -dark, -silver, -corporate, -neon or -glass does the same,
 //     and -pale asks for the pale one
 //   AN_LOGKIND=program node page-shot.js sheet-logs p.png
 //     reads the log of the program instead of the output of llama.cpp, which is

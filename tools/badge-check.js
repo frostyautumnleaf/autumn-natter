@@ -96,7 +96,7 @@ async function start(state) {
     }, state);
   }
   await page.setViewport({ width: 1100, height: 800 });
-  await page.goto('file://' + path.resolve(PAGE));
+  await page.goto(process.env.AN_PAGE_URL || ('file://' + path.resolve(PAGE)));
   await new Promise(function (r) { setTimeout(r, 400); });
   return { browser: browser, page: page, errors: errors };
 }
@@ -185,6 +185,23 @@ async function main() {
   await run.page.mouse.click(think.left, think.y);
   await new Promise(function (r) { setTimeout(r, 120); });
   if (!await open(run.page, 'thinkmenu')) { throw new Error('the thinking badge lost its way'); }
+  await run.page.mouse.click(5, 5);
+  await new Promise(function (r) { setTimeout(r, 120); });
+  await run.page.click('#plus');
+  await new Promise(function (r) { setTimeout(r, 120); });
+  const retrieval = await run.page.evaluate(function () {
+    var menu = document.getElementById('plusmenu');
+    var rag = document.getElementById('rag');
+    var mcp = document.getElementById('mcpwrap');
+    return { open: !!menu && !menu.classList.contains('hidden'),
+      rag: !!menu && !!rag && rag.parentNode === menu,
+      mcp: !!menu && !!mcp && mcp.parentNode === menu,
+      separated: !!menu && menu.children[2] && menu.children[2].classList.contains('sep') };
+  });
+  if (!retrieval.open || !retrieval.rag || !retrieval.mcp || !retrieval.separated) {
+    throw new Error('the retrieval badges are not in their own section of the plus menu: '
+      + JSON.stringify(retrieval));
+  }
   const servers = await places(run.page, '#mcp');
   await run.page.mouse.click(servers.left, servers.y);
   await new Promise(function (r) { setTimeout(r, 120); });

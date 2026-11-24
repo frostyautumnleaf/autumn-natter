@@ -7,7 +7,7 @@
 // with a real program what tools/theme-ask-check.js does with a state written by hand - and it is
 // the slower of the two, because a disk is in the way.
 //
-// Every one of the five themes is put on by clicking the marker of the top bar, and the class of
+// Every one of the six themes is put on by clicking the marker of the top bar, and the class of
 // the body is watched at every frame after each click: the theme that was left must never be seen
 // again once the theme of the click is on, the theme of the click must be the theme the page is
 // in at the end, and the program must have written it down. The pixel-art form is put on and off
@@ -28,7 +28,7 @@ if (!URL) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const THEMES = ['light', 'dark', 'silver', 'corporate', 'neon'];
+const THEMES = ['light', 'dark', 'silver', 'corporate', 'neon', 'glass'];
 
 // Watch what the page is drawn in, once a frame: a theme that flickers back for a few hundred
 // milliseconds is over between two polls and must not be missed.
@@ -73,7 +73,7 @@ const nextWord = (word) => THEMES[(THEMES.indexOf(word) + 1) % THEMES.length];
   await page.goto(URL, { waitUntil: 'domcontentloaded' });
   await sleep(1200);
 
-  // Each of the five themes, put on by the marker of the top bar.
+  // Each of the six themes, put on by the marker of the top bar.
   const cycles = [];
   for (let turn = 0; turn < 5; turn++) {
     const before = await page.evaluate(function () { return window.themeWord; });

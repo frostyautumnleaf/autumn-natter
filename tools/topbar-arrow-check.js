@@ -3,7 +3,7 @@
 // the arrow of the list at the right. The rule that sets the marker at the left was written for
 // the marker of the box and took the arrow with it, and a box with both of its edges named keeps
 // the left one: the arrow was drawn over the marker, which is how the two choices came to have no
-// arrow at all. This tool measures the two boxes as each of the five skins paints them, on both
+// arrow at all. This tool measures the two boxes as each of the six skins paints them, on both
 // faces, and asks that the arrow stands at the right edge of its box, clear of the marker and of
 // the chip of the file type, and that it keeps still under the pointer - the arrow of a choice
 // says that there is a list, it is not itself a thing to hold (task N3).
@@ -21,7 +21,7 @@ const PAGES = process.env.AN_PAGE
     { name: 'the browser page', tag: 'web', file: path.join(__dirname, '..', 'web', 'page.html') }
   ];
 
-const THEMES = ['light', 'dark', 'silver', 'corporate', 'neon'];
+const THEMES = ['light', 'dark', 'silver', 'corporate', 'neon', 'glass'];
 const FIELDS = ['.bar .field.tagged', '.bar .field:not(.tagged)'];
 const shell = process.env.AN_SHELL_BIN || '';
 const shots = process.argv[2] === 'shots';
@@ -150,7 +150,7 @@ async function main() {
     page.on('pageerror', (e) => faults.push(String(e)));
     await page.evaluateOnNewDocument('window.__stubs = ' + stubs.toString());
     await page.evaluateOnNewDocument('window.__stubs(' + JSON.stringify(stateOf('light')) + ');');
-    await page.goto('file://' + one.file, { waitUntil: 'domcontentloaded' });
+    await page.goto(process.env.AN_PAGE_URL || ('file://' + one.file), { waitUntil: 'domcontentloaded' });
     await sleep(600);
     if (faults.length) { trouble++; console.log('  ERROR: ' + one.name + ' page faults: ' + faults.join(' | ')); }
 
