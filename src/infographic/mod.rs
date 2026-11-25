@@ -137,33 +137,25 @@ pub fn definitions() -> Vec<Value> {
             "function": {
                 "name": PROJECT_NAME,
                 "description": with_rule(String::from(
-                    "Create a video composition, change its header, or read the whole of it. The \
-                     header sets the frame size, the frame rate, the duration, the colour palette \
-                     and the background. Called with only the name of a composition, it answers \
-                     with the state of the video: the header and one line per layer. Given \
-                     `layers`, that list becomes the whole layer list and the previous layers are \
-                     dropped; use the layer tool to change a single layer. Given `preview`, the \
-                     frames named are drawn from the composition as it stands, shown to me as \
-                     images, and written into the `frames` folder of the composition. The full \
-                     vocabulary is in the system prompt of this suite."
+                    "Create or inspect a composition, set its header, or replace its full layer list. Setting `layers` replaces every existing layer; use `infographic_layer` for individual edits. `preview` returns and saves up to three frames of the current composition. Field definitions are in this suite's system prompt."
                 )),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "project": { "type": "string", "description": "The name of the composition. It is also the name of the folder the work is in. Leave it out for the default composition of this chat." },
-                        "about": { "type": "string", "description": "One line about what the video is of." },
-                        "canvas": { "type": "string", "description": format!("The frame size. Named sizes: {canvases}. Or as 1280x720.") },
-                        "fps": { "type": "integer", "description": "Frames per second, 1 to 60. 24 is the default." },
-                        "length": { "type": "number", "description": "Duration in seconds. 0 means the end of the last layer." },
-                        "palette": { "type": "string", "description": format!("The colour palette. The sets are {palettes}.") },
-                        "colours": { "type": "object", "description": "Colours for this video only: ink, ground, soft, accent, series." },
-                        "font": { "type": "string", "description": "'sans', 'serif', 'mono', or the name of a font family on this machine." },
-                        "heading_weight": { "type": "string", "description": "'normal', 'bold' or 'black'." },
-                        "background": { "type": "object", "description": "The background: kind (solid, gradient, image, none), colour, from, to, angle, vignette, media, fit." },
-                        "audio": { "type": "object", "description": "The audio track under the whole video: media, from, length, volume, fade_in, fade_out." },
-                        "tracks": { "type": "array", "description": "Names of the timeline rows. They affect the listing only.", "items": { "type": "string" } },
-                        "layers": { "type": "array", "description": "The whole layer list. Given at all, it replaces the layers that were there." },
-                        "preview": { "type": "string", "description": "Frames of the work in progress to show me as images, drawn from the composition before any render: one second, or 'now', or 'film' for three across the film, or 'none'. Up to 3. They are written into the frames folder of the composition as well." }
+                        "project": { "type": "string", "description": "Composition and folder name; defaults to this chat's composition." },
+                        "about": { "type": "string", "description": "One-line video description." },
+                        "canvas": { "type": "string", "description": format!("Frame size: {canvases} or width x height, e.g. 1280x720.") },
+                        "fps": { "type": "integer", "description": "Frame rate, 1–60; defaults to 24." },
+                        "length": { "type": "number", "description": "Duration in seconds; 0 uses the last layer's end." },
+                        "palette": { "type": "string", "description": format!("Palette: {palettes}.") },
+                        "colours": { "type": "object", "description": "Per-composition colours: ink, ground, soft, accent, series." },
+                        "font": { "type": "string", "description": "sans, serif, mono, or an installed font family." },
+                        "heading_weight": { "type": "string", "description": "normal, bold or black." },
+                        "background": { "type": "object", "description": "Background fields: kind, colour, from, to, angle, vignette, media, fit." },
+                        "audio": { "type": "object", "description": "Global audio fields: media, from, length, volume, fade_in, fade_out." },
+                        "tracks": { "type": "array", "description": "Timeline track names; affects listing only.", "items": { "type": "string" } },
+                        "layers": { "type": "array", "description": "Full layer list; replaces all existing layers." },
+                        "preview": { "type": "string", "description": "Return and save up to 3 frames: 'now', a second as text, 'film' (three frames), or 'none'." }
                     }
                 }
             }
@@ -173,27 +165,17 @@ pub fn definitions() -> Vec<Value> {
             "function": {
                 "name": LAYER_NAME,
                 "description": with_rule(String::from(
-                    "Add a layer to a composition, change one, delete one, or read one back. `one` \
-                     selects the layer by its id, its name, or its position in the list starting \
-                     at 1. `layer` carries the fields to change, and they are merged into the \
-                     layer that stands: a field the call does not name keeps its value. Without \
-                     `one`, a new layer is added, at `at` when a position is given. With `remove` \
-                     set to true the layer is deleted. Without `layer` or `remove`, the layer is \
-                     returned as the JSON it is stored as, and with no `one` either the whole \
-                     composition is returned. Problems with the layer - text that does not fit its \
-                     box, a file that is missing - are reported in the answer. Given `preview`, the \
-                     frame named is drawn with this layer in place - 'now' is the middle of the time \
-                     the layer owns - shown to me as an image, and written into the `frames` folder."
+                    "Add, read, edit or remove one layer. Select it by id, name or 1-based position; edits merge, preserving unspecified fields. Without `one`, add a layer; `remove` deletes it. Omit `layer` and `remove` to read the selected layer, or the whole composition when `one` is omitted. Responses report layer issues. `preview` returns and saves up to three frames; 'now' is the layer's midpoint."
                 )),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "project": { "type": "string", "description": "The name of the composition." },
-                        "one": { "type": "string", "description": "Which layer: its id, its name, or its position in the list starting at 1." },
-                        "at": { "type": "integer", "description": "The position in the list, from 0, for a layer being added." },
-                        "layer": { "type": "object", "description": "The fields of the layer. The system prompt of this suite lists what a layer may set." },
-                        "remove": { "type": "boolean", "description": "Delete the layer instead of changing it." },
-                        "preview": { "type": "string", "description": "The frame to show me after the change: 'now' for the middle of this layer's time, a second, or 'film' for three across the film. Up to 3. Written into the frames folder of the composition as well." }
+                        "project": { "type": "string", "description": "Composition name." },
+                        "one": { "type": "string", "description": "Layer id, name or 1-based position." },
+                        "at": { "type": "integer", "description": "0-based insertion position for a new layer." },
+                        "layer": { "type": "object", "description": "Layer fields; see this suite's system prompt." },
+                        "remove": { "type": "boolean", "description": "Delete the selected layer." },
+                        "preview": { "type": "string", "description": "Return and save up to 3 frames: 'now', a second as text, or 'film'." }
                     }
                 }
             }
@@ -203,28 +185,22 @@ pub fn definitions() -> Vec<Value> {
             "function": {
                 "name": CUTOUT_NAME,
                 "description": with_rule(String::from(
-                    "Key a subject out of an image or of one frame of a video, and show the result \
-                     to me. The screen colour is detected from the border of the picture when \
-                     `colour` is 'auto', which is what a green or blue screen needs. The file is \
-                     not modified: the key is drawn into the folder of the composition as a PNG \
-                     for inspection, and the settings that produced it are returned, to be put on \
-                     the layer as an `effects` entry of kind 'chroma'. Run this once per subject \
-                     before the video is rendered."
+                    "Remove a green/blue screen from an image or video frame and return a preview plus the settings. `colour: auto` detects the border colour. Review the result and copy its settings to the layer's chroma effect; the source is unchanged. Run once per keyed subject before rendering."
                 )),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "project": { "type": "string", "description": "The name of the composition." },
-                        "media": { "type": "string", "description": "The image or video file." },
-                        "at": { "type": "number", "description": "The second of the video to key from. 0 is the first frame." },
-                        "colour": { "type": "string", "description": "'auto' to detect the border colour, or the colour itself: green, #00ff00." },
-                        "similarity": { "type": "number", "description": "How far a colour may be from the key colour and still be removed, 0.0 to 1.0. Default 0.24." },
-                        "blend": { "type": "number", "description": "How wide the gradient of the edge is, 0.0 to 1.0. Default 0.12." },
-                        "spill": { "type": "number", "description": "How much of the screen colour is suppressed in the edges of the subject, 0.0 to 1.0. Default 0.6." },
-                        "feather": { "type": "number", "description": "Softness of the edge, in pixels of the frame." },
-                        "choke": { "type": "number", "description": "How far the edge of the key is pulled in, to remove a fringe. -0.5 to 0.5." },
-                        "despill": { "type": "number", "description": "Suppress the screen colour across the whole image, 0.0 to 1.0." },
-                        "show": { "type": "string", "description": "'cut' for the subject on a transparent background, 'matte' for the black and white alpha, 'over' for the subject over a colour." }
+                        "project": { "type": "string", "description": "Composition name." },
+                        "media": { "type": "string", "description": "Source image or video path." },
+                        "at": { "type": "number", "description": "Video second to key; 0 is the first frame." },
+                        "colour": { "type": "string", "description": "Screen colour or 'auto' to detect it from the border." },
+                        "similarity": { "type": "number", "description": "Key colour tolerance, 0–1; default 0.24." },
+                        "blend": { "type": "number", "description": "Edge gradient width, 0–1; default 0.12." },
+                        "spill": { "type": "number", "description": "Screen-colour suppression at subject edges, 0–1; default 0.6." },
+                        "feather": { "type": "number", "description": "Edge softness in pixels." },
+                        "choke": { "type": "number", "description": "Edge contraction to remove fringe, -0.5–0.5." },
+                        "despill": { "type": "number", "description": "Screen-colour suppression across the image, 0–1." },
+                        "show": { "type": "string", "description": "Preview: cut (transparent), matte (alpha), or over (composited colour)." }
                     },
                     "required": ["media"]
                 }
@@ -235,21 +211,14 @@ pub fn definitions() -> Vec<Value> {
             "function": {
                 "name": CHECK_NAME,
                 "description": with_rule(String::from(
-                    "Report every fault in a composition: text that does not fit its box, a file \
-                     that is missing or is a different media type than the layer states, a layer \
-                     that is never on screen, a video with nothing visible in it. Every layer is \
-                     drawn at the middle of its own time range to find text that overflows. Run \
-                     this before a render and fix what it reports. Given `at` or `preview`, the \
-                     frames are drawn and shown to me as images as well, and written into the \
-                     `frames` folder of the composition, so the work may be judged before it is \
-                     rendered."
+                    "Check for overflowing text, missing or mismatched media, invisible layers and empty frames. Layers are checked at their time midpoints. Run before rendering and fix reported issues. `at` or `preview` also returns and saves frame images."
                 )),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "project": { "type": "string", "description": "The name of the composition." },
-                        "at": { "type": "number", "description": "One second of the video, when only that frame is to be checked." },
-                        "preview": { "type": "string", "description": "Frames to show me as images: 'now' for the frame being checked, a second, or 'film' for three across the video. Up to 3." }
+                        "project": { "type": "string", "description": "Composition name." },
+                        "at": { "type": "number", "description": "Check one video second." },
+                        "preview": { "type": "string", "description": "Return and save up to 3 frames: 'now', a second as text, or 'film'." }
                     }
                 }
             }
@@ -259,24 +228,18 @@ pub fn definitions() -> Vec<Value> {
             "function": {
                 "name": RENDER_NAME,
                 "description": with_rule(String::from(
-                    "Draw the frames of a composition and write the file: an MP4 with audio when \
-                     this machine has ffmpeg, an animated GIF when it does not, or one still PNG of \
-                     one second. The file is written into the folder of the composition. Stills of \
-                     the video are returned to me as images in the answer, so I can see the result: \
-                     `preview` lists the seconds to show, and three are taken across the video when \
-                     none are named. Rendering a one minute video takes about a minute, and the \
-                     state line reports the progress."
+                    "Render the composition to MP4 (requires ffmpeg), GIF or a still PNG; save it in the composition folder. MP4/GIF return up to three stills, sampled across the video by default. Rendering may take time; monitor progress."
                 )),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "project": { "type": "string", "description": "The name of the composition." },
-                        "form": { "type": "string", "description": "'mp4', 'gif' or 'png'. An mp4 is refused with a note about the gif when the machine has no ffmpeg." },
-                        "fps": { "type": "integer", "description": "Frames per second of the output file. The value from the composition when none is given." },
-                        "name": { "type": "string", "description": "The name of the file, without its extension. The name of the composition when none is given." },
-                        "at": { "type": "number", "description": "The second of the video the still PNG is drawn at, for form 'png'." },
-                        "preview": { "type": "array", "description": "The seconds of the video to return as stills, up to 3. 'none' for no stills.", "items": { "type": "number" } },
-                        "sound": { "type": "boolean", "description": "Whether the audio of the composition is mixed into the video. True when not given." }
+                        "project": { "type": "string", "description": "Composition name." },
+                        "form": { "type": "string", "description": "Output: mp4 (requires ffmpeg), gif or png." },
+                        "fps": { "type": "integer", "description": "Output frame rate; defaults to the composition's rate." },
+                        "name": { "type": "string", "description": "Output filename without extension; defaults to the composition name." },
+                        "at": { "type": "number", "description": "Video second for a PNG still." },
+                        "preview": { "type": "array", "description": "Seconds for up to 3 stills; defaults to 3 spaced frames. Use ['none'] to disable.", "items": { "oneOf": [{ "type": "number" }, { "type": "string", "enum": ["none"] }] } },
+                        "sound": { "type": "boolean", "description": "Include composition audio in MP4; defaults to true." }
                     }
                 }
             }

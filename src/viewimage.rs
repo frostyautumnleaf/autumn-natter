@@ -70,16 +70,16 @@ pub fn definition(sandbox: bool) -> Value {
         "A file may remain anywhere on this computer, and its whole name is then given."
     };
     let paths_said = if sandbox {
-        "The names of the files to look at, each relative to the working directory of the chat."
+        "Image file paths, relative to this chat's working directory."
     } else {
-        "The names of the files to look at, each relative to the working directory of the chat, or whole when the file remains elsewhere on this computer."
+        "Image file paths, relative to this chat or absolute."
     };
     json!({
         "type": "function",
         "function": {
             "name": NAME,
             "description": with_rule(format!(
-                "Send one or more images to yourself, so that you can be asked about them. Give the names of files in the chat as a list, as [\"notes/cat.png\", \"notes/dog.png\"], or the addresses of images on the web as a list, as [\"https://example.org/cat.png\"]. One name or a list of names is read either way, and one call may carry up to eight images, which arrive in the order you named them. {} Each image must be of a kind the projector reads: PNG, JPEG, GIF, BMP or WebP, and no more than twelve megabytes. A WebP is decoded and sent to you as a PNG. An image can only be shown while vision is turned on for the model; without it the call says so and nothing is read. The images are not stored after the conversation.",
+                "Inspect up to eight image files or URLs, in order, so you can answer questions about them. Supported files are PNG, JPEG, GIF, BMP and WebP, up to 12 MiB each. WebP is sent as PNG. Vision must be enabled; images are not stored. {}",
                 said
             )),
             "parameters": {
@@ -93,7 +93,7 @@ pub fn definition(sandbox: bool) -> Value {
                     "urls": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "The addresses of the images to look at, instead of or beside the files."
+                        "description": "Image URLs, optionally alongside file paths."
                     }
                 },
                 "required": []

@@ -73,18 +73,18 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Search the web, and read a page of it. With text to search for it returns the titles, the addresses and the short summaries of the results. With an address it reads that page and returns its text, so use the address of a result you want instead of guessing at it. The answer of a search engine is a short summary only, so a second call with the address of the page is often the better part of the work. Nothing that is read is stored.",
+                "Search the web with `query` for ranked results and short summaries. To inspect a result, call again with its returned `url`; do not guess addresses. Page text is truncated, and nothing read is stored.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The text to search for."
+                        "description": "Search terms or a question."
                     },
                     "url": {
                         "type": "string",
-                        "description": "The address of a page to read, instead of searching."
+                        "description": "Returned page URL to read instead of searching."
                     }
                 },
                 "required": []

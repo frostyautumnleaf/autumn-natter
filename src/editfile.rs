@@ -76,16 +76,16 @@ fn reach_words(sandbox: bool, making: bool) -> &'static str {
 // may work in follows the state of the sandbox.
 pub fn edit_definition(sandbox: bool) -> Value {
     let path_said = if sandbox {
-        "The file to change. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'. While the sandbox is on, only a file of that directory may be worked on."
+        "File to edit, relative to this chat's working directory. While the sandbox is on, only a file of that directory may be edited."
     } else {
-        "The file to change. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name of a file of this computer."
+        "File to edit, relative to this chat's working directory or by its full path."
     };
     json!({
         "type": "function",
         "function": {
             "name": EDIT_NAME,
             "description": with_rule(format!(
-                "Change a file in the chat by replacing exact text with other exact text. Prefer this over writing a whole file again with the terminal tool, because only the changed part is sent. Copy each old_string exactly from the file, spacing included. Put every change to one file in the same call, not in several calls. Every old_string is matched against the file as it was before this call, and no two of them may cover the same text. Each must match one place, unless replace_all is set for it. If one matches no place, or more than one, nothing at all is written. A change that matches no place is answered with the lines of the file nearest to the text it searched for, so the call can be written again from those lines and go through. An old_string is never empty: use create_file for a new file. {} A call that succeeded means the file now holds what was sent, so read it again only when you must.",
+                "Edit one existing file by replacing exact text. Copy each old_string exactly, including whitespace. Put all non-overlapping edits for one file in this call. Each old_string must match once unless replace_all is true; if any match fails or is ambiguous, nothing is changed and nearby lines are returned. Use create_file for new files. {} On success, the file contains the requested edits; reread only if needed.",
                 reach_words(sandbox, false)
             )),
             "parameters": {
@@ -97,21 +97,21 @@ pub fn edit_definition(sandbox: bool) -> Value {
                     },
                     "edits": {
                         "type": "array",
-                        "description": "The changes to apply in one call. Each change gives the text to replace and the text to put in its place.",
+                        "description": "All non-overlapping replacements to apply to this file.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "old_string": {
                                     "type": "string",
-                                    "description": "The text to replace, copied from the file. Never empty."
+                                    "description": "Exact non-empty text to replace."
                                 },
                                 "new_string": {
                                     "type": "string",
-                                    "description": "The text to put in its place."
+                                    "description": "Replacement text."
                                 },
                                 "replace_all": {
                                     "type": "boolean",
-                                    "description": "Replace every place this text appears, instead of requiring that it appears once. Off when it is not given."
+                                    "description": "Replace every occurrence. Defaults to false, which requires one match."
                                 }
                             },
                             "required": ["old_string", "new_string"]
@@ -129,16 +129,16 @@ pub fn edit_definition(sandbox: bool) -> Value {
 // the state of the sandbox.
 pub fn create_definition(sandbox: bool) -> Value {
     let path_said = if sandbox {
-        "The file to create. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs'. While the sandbox is on, only a file of that directory may be made. A file that already exists is never overwritten and never emptied: such a call fails and the file remains unchanged."
+        "New file path, relative to this chat's working directory. While the sandbox is on, only a file of that directory may be created. Existing files are never overwritten; use edit_file to change one."
     } else {
-        "The file to create. The name may be relative to the working directory of the chat, for example 'notes.txt' or 'src/parse.rs', or a whole name of a file of this computer. A file that already exists is never overwritten and never emptied: such a call fails and the file remains unchanged."
+        "New file path, relative to this chat's working directory or by full path. Existing files are never overwritten; use edit_file to change one."
     };
     json!({
         "type": "function",
         "function": {
             "name": CREATE_NAME,
             "description": with_rule(format!(
-                "Create a new file with the text given for it. This tool never overwrites a file and never empties one: if a file of that name already is with text in it, the call fails, the file is left exactly as it was, and edit_file is the tool that changes it. So look first whether the file is there, and when a file that exists is wanted changed rather than made, call edit_file instead. The folders on the way to the file are created. The whole file is written at once, so text that grows in steps is better added with edit_file. {}",
+                "Create a new file with the complete content. Existing files are never overwritten; use edit_file to change one. Parent folders are created. For incremental content, create the file first, then use edit_file. {}",
                 reach_words(sandbox, true)
             )),
             "parameters": {
@@ -150,7 +150,7 @@ pub fn create_definition(sandbox: bool) -> Value {
                     },
                     "text": {
                         "type": "string",
-                        "description": "The whole content of the new file. An empty string makes an empty file."
+                        "description": "Complete content of the new file. Empty text creates an empty file."
                     }
                 },
                 "required": ["path", "text"]
@@ -1552,7 +1552,7 @@ mod tests {
             assert!(!words.contains("the only place this tool works"), "{}", words);
             assert!(!words.to_lowercase().contains("sandbox"), "{}", words);
             let named = path(&made);
-            assert!(named.contains("a whole name of a file of this computer"), "{}", named);
+            assert!(named.contains("full path"), "{}", named);
             assert!(!named.to_lowercase().contains("sandbox"), "{}", named);
         }
     }

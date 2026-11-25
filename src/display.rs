@@ -88,17 +88,22 @@ fn has(list: &str, tail: &str) -> bool {
 // The tool as the model is informed of it. `sandbox` decides only the sentence of the
 // space, as it does for the tools that work on the files.
 pub fn definition(sandbox: bool) -> Value {
+    let paths_said = if sandbox {
+        "Required file paths relative to the chat's working directory; up to eight."
+    } else {
+        "Required file paths relative to the chat or full paths on this computer; up to eight."
+    };
     let reach = if sandbox {
         "While the sandbox remains, only a file of that directory may be shown."
     } else {
-        "The file may remain anywhere on this computer, and the tool runs in the program."
+        "Files may be anywhere on this computer when you give a full path."
     };
     json!({
         "type": "function",
         "function": {
             "name": NAME,
             "description": with_rule(format!(
-                "Show the contents of one or more files to the user in a window of the chat. The window is opened by the user: the call puts a block in the chat with one button in it, and the button opens the window over the files named here. Each file stands on a page of its own and the user turns the pages. Only these kinds are shown: words (txt, md, code, settings), a picture (png, jpg, gif, webp, bmp), a drawing of lines (svg), a page of html, and a document of pages (pdf). An archive such as a zip, a library, a program and a file of no known kind are refused, and answered with the word that they are not shown; offer such a file with offer_files instead. Call this tool ONLY when the user asked to have files displayed, or answered yes when you asked. Never call it on your own, and never call it to show your work that was not asked for. At the end of an answer that made or changed files you may ask in words whether the user wants any of them displayed, and call this tool only after the answer. {} The window reads the file when the user opens it, so a file changed afterwards is shown as it stands then. Up to eight files are taken by one call.",
+                "Show up to eight supported files in the chat's viewer. Use only when requested or agreed after asking; if unrequested, ask in your final answer and wait. Supported types are text, images, SVG, HTML and PDF. Unsupported files are refused; use offer_files for downloads. The user opens the viewer after the call, which reads each file as it then exists. {}",
                 reach
             )),
             "parameters": {
@@ -107,15 +112,15 @@ pub fn definition(sandbox: bool) -> Value {
                     "paths": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "The files to show to the user. Every name may be relative to the working directory of the chat, for example 'page.html' or 'notes/plan.md'. One name is enough; up to eight are taken."
+                        "description": paths_said
                     },
                     "path": {
                         "type": "string",
-                        "description": "One file to show, when there is only one and no array is given."
+                        "description": "Optional additional file path."
                     },
                     "note": {
                         "type": "string",
-                        "description": "A short line for the block, in the text of the chat, such as 'The three files you asked to see'. Nothing is put there when it is left out."
+                        "description": "Optional short label shown above the files."
                     }
                 },
                 "required": ["paths"]
@@ -474,8 +479,8 @@ mod tests {
             .get("description")
             .and_then(|v| v.as_str())
             .expect("the tool is described");
-        assert!(words.contains("ONLY when the user asked"), "the tool does not say it waits for the user to ask");
-        assert!(words.contains("ask in words"), "the tool does not say to ask at the end");
+        assert!(words.contains("Use only when requested"), "the tool does not wait for a request or agreement");
+        assert!(words.contains("ask in your final answer"), "the tool does not say to ask before displaying");
         assert!(words.contains("sandbox"), "the space of the files is not stated");
         let down = definition(false);
         let said = down
@@ -484,6 +489,7 @@ mod tests {
             .and_then(|v| v.as_str())
             .expect("the tool is described");
         assert!(said.contains("anywhere on this computer"), "the reach of the tool does not follow the sandbox");
+        assert!(said.contains("full path"), "full file paths are not allowed when unsandboxed");
         assert!(!said.contains("While the sandbox stands"), "the sandbox is named with the sandbox off");
     }
 }

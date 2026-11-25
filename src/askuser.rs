@@ -67,24 +67,24 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Put a question to the user and wait for the answer. Use it only when the work cannot go on without a word from the user: a secret or token that was never given, a choice the user has to make, a permission that has to be given. Ask one question, and propose up to five short answers the user may choose from; the user may always write an answer of their own instead. Say in the question why you are asking, for it is shown as the title of the request. An ordinary question is waited for a short while and then given up, and you are informed the user did not answer; use 'critical' only when you truly cannot go on, for such a question waits until the user answers. While planning mode is on, questions about the work go to `ask_plan` instead, which remains all of them in the conversation and waits as long as it takes: keep this tool for what only the user can give you - a token, a permission - which no plan can settle in advance.",
+                "Ask one question only when work cannot go on without information, a decision or permission. State why you need it and offer up to five likely answers; the user can always write their own. Use `critical` only when blocked. In planning mode, use `ask_plan` for planning questions; reserve this tool for secrets, tokens and permissions.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "question": {
                         "type": "string",
-                        "description": "The question, and the reason for asking it, in the text of the chat. It is at the top of the request."
+                        "description": "Question and brief reason, shown as the request title."
                     },
                     "choices": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Up to five short answers the user may choose from, such as \"Yes, go on\" or \"Only the first file\". Leave it out when the answer cannot be guessed at; the user can write an answer whatever you offer."
+                        "description": "Up to five likely answers. Omit when the user must write their own."
                     },
                     "kind": {
                         "type": "string",
                         "enum": ["normal", "critical"],
-                        "description": "How long to wait. 'normal', which is the default, is given up after the short wait in the settings and you are informed the user did not answer. 'critical' waits until the user answers, and is only for a question you cannot go on without."
+                        "description": "Wait behavior: `normal` times out; `critical` waits indefinitely. Use critical only when blocked."
                     }
                 },
                 "required": ["question"]

@@ -460,18 +460,18 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": tools::with_rule(String::from(
-                "Search the sources of this working directory for text that answers a question. The sources are the files the user put in the hidden .sources folder - documents, pages of writing, tables, code, and with a vision projector, pictures. The search counts words, so it finds the places that talk about the thing asked for even when they do not use the same words as the question. It returns the path of each place, its rank, and the text of it. Nothing of the conversation is looked at, and nothing is stored.",
+                "Search this working directory's indexed `.sources` files for passages relevant to a question. Results include source paths, ranks and text. The search is limited to those files, not chat history, and stores nothing.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The question or the words to look for in the sources."
+                        "description": "Question or topic to find in the indexed sources."
                     },
                     "places": {
                         "type": "integer",
-                        "description": "How many places to return, from 1 to 12. Six are returned when nothing is given."
+                        "description": "Results to return, 1–12. Defaults to 6."
                     }
                 },
                 "required": ["query"]
@@ -627,31 +627,30 @@ pub fn similar(a: &[f32], b: &[f32]) -> f32 {
 pub fn system_prompt(files: usize, counted: usize, vision: bool) -> String {
     let state = if files == 0 {
         String::from(
-            "Nothing has been put into the .sources folder yet, so a search of it answers with nothing.",
+            "Nothing has been put into .sources yet; search_sources will return no passages.",
         )
     } else if counted == 0 {
         format!(
-            "There are {} files in the folder and none of them is counted yet, so a search of them answers with the start of the folder and nothing more.",
+            "There are {} files in .sources and none of them is counted yet; results contain only the folder's beginning.",
             files
         )
     } else {
         format!(
-            "There are {} files in the folder and {} of them are counted, so a search of them answers with the places that talk about what was asked.",
+            "There are {} files in .sources and {} of them are counted; search returns passages relevant to the question.",
             files, counted
         )
     };
     let images = if vision {
         String::from(
-            " The embedding model of this chat has a vision projector, so the contents of a picture in the folder are counted as well.",
+            " The embedding model has a vision projector, so images are searchable too.",
         )
     } else {
         String::new()
     };
     format!(
-        "Retrieval is on for this chat. The tool `search_sources` searches the hidden folder `.sources` of the working directory you are in, and returns the path of each place it found, its rank, and the text of it. Use it before you say that something is not known to you, whenever the question is about the material of this working directory rather than about the conversation.{}\n\
-         {}.\n\
-         The files themselves are in `.sources/`, with the tree the user gave them kept: a source named `docs/api/auth.md` in an answer is the file `.sources/docs/api/auth.md`, and you may read it whole with the tools you already have when one piece is not enough.\n\
-         Quote what a source says rather than what you remember of its subject, and name the path of the source you took a thing from. When a search returns nothing useful, say what you searched for, so the user can tell you where to look instead.",
+        "Retrieval is on. Use `search_sources` for questions about this working directory's indexed material before saying you do not know. It searches `.sources` and returns source paths, match ranks and passages.{}\n\
+         {}\n\
+         Paths preserve the source tree: `docs/api/auth.md` is `.sources/docs/api/auth.md`. Read a source file when a passage is insufficient. Cite its path and distinguish source text from prior knowledge. If results are not useful, say what you searched for.",
         images, state
     )
 }

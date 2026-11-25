@@ -137,11 +137,11 @@ impl Access {
 // run.
 pub fn definition(sandbox: bool, access: Access) -> Value {
     let mut reach = String::from(
-        "Run one shell command and return its output. The command runs in the working directory of the chat. ",
+        "Run one shell command in the working directory of the chat and return its output. ",
     );
     if sandbox {
         reach.push_str(
-            "The command runs in the sandbox, so it can see only that directory and the programs of the computer: no other file of the computer is visible, the home folder included. The path `/tmp/` resolves to a relative `./tmp/` directory of the working directory, so a file left there is kept, is seen by the next command of this chat, and is a file of the working directory of the chat. ",
+            "Sandboxed commands see only this working directory and installed programs. `/tmp/` maps to `./tmp/`, shared with later commands. ",
         );
         reach.push_str(if access.net() {
             "The command may reach the network. "
@@ -150,13 +150,13 @@ pub fn definition(sandbox: bool, access: Access) -> Value {
         });
         if access.pip {
             reach.push_str(
-                "Python packages may be installed: pip is on the PATH and installs into a Python environment of this chat at .venv. ",
+                "pip is on the PATH and installs into this chat's `.venv`. ",
             );
         }
         if access.fetch {
-            reach.push_str("wget, curl and fetch may be used to read a page of the web.");
+            reach.push_str("Web downloads with wget, curl and fetch are enabled.");
         } else {
-            reach.push_str("wget, curl and fetch are turned off, so do not request a file of the web with them.");
+            reach.push_str("Web downloads with wget, curl and fetch are turned off.");
         }
     }
     json!({
@@ -169,7 +169,7 @@ pub fn definition(sandbox: bool, access: Access) -> Value {
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "The shell command to run, as one line of text."
+                        "description": "One shell command to run."
                     }
                 },
                 "required": ["command"]
@@ -185,7 +185,7 @@ pub fn definition(sandbox: bool, access: Access) -> Value {
 // after all. That text come out as thinking before an answer that goes on as if none of it had
 // been stated. The rule is the same one a person works under already, and saying it once takes
 // the argument out of the model's way.
-pub const CALL_RULE: &str = "Use a tool only when the user requested something a tool can do, or when it is plainly needed for the work. Never call a tool to fill a turn: answering in text is the right item when no tool is wanted.";
+pub const CALL_RULE: &str = "Use tools only for actions the user requested or that are needed to fulfill the request. If text alone answers it, do not call a tool.";
 
 // Hang the rule of the tools on the description of one of them. A tool keeps its own text
 // first, so what it does is read before the rule that shows when to use it.
@@ -1937,7 +1937,7 @@ mod tests {
         let words = open["function"]["description"].as_str().unwrap_or("").to_string();
         assert!(words.contains("The command may reach the network."));
         assert!(words.contains("pip is on the PATH"));
-        assert!(words.contains("wget, curl and fetch may be used"));
+        assert!(words.contains("Web downloads with wget, curl and fetch are enabled."));
         assert!(!words.contains("There is no network access."));
     }
 

@@ -36,14 +36,14 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": tools::with_rule(String::from(
-                "Put the conversation of this chat into a handoff summary now, and continue the work in the new context that is created. The program writes the summary, keeps it in the chat where the conversation was cut, and stops sending you the messages the summary replaced: you read the summary instead. Nothing of the work is lost: the files stay where they were written, and every message the user sent is still in the chat. Call it when a large part of the work is finished and the conversation has grown long, or when the user asks you to summarise, compact or clear the chat. Do not call it at the start of a conversation, do not call it twice in one answer, and do not call it because a step failed.",
+                "Request a handoff summary when a substantial phase is complete and the context is long, or when the user asks to summarize or compact the chat. Continue from the summary in the reduced context. Do not call at the start, more than once per answer, or because a step failed.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "why": {
                         "type": "string",
-                        "description": "The reason the summary is needed now, in a few words, or the text of the user who requested it."
+                        "description": "Brief reason for the handoff, or the user's request."
                     }
                 },
                 "required": []
@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(made["function"]["name"], NAME);
         let said = made["function"]["description"].as_str().unwrap_or("");
         assert!(said.contains("handoff summary"));
-        assert!(said.contains("Never call a tool to fill a turn"));
+        assert!(said.contains("If text alone answers it, do not call a tool"));
         assert_eq!(made["function"]["parameters"]["type"], "object");
     }
 
