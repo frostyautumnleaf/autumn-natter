@@ -581,7 +581,30 @@ function workingSingleNode(parent, key, message, index) {
   return node;
 }
 
+// A tool record keeps the thought that led to it, while the live answer can still carry the
+// same text. Show that thought once, but keep any new reasoning the model writes after the run.
+function plainMessagesWithoutRepeatedToolThoughts(messages) {
+  let lastThought = '';
+  let toolSinceThought = false;
+  return messages.map(message => {
+    const reasoning = String(message.reasoning || '');
+    const thought = reasoning.replace(/\s+/g, ' ').trim();
+    const repeated = thought && thought === lastThought
+      && (message.role === 'Tool' || toolSinceThought);
+    let shown = message;
+    if (repeated) {
+      shown = Object.assign({}, message, { reasoning: '' });
+    } else if (thought) {
+      lastThought = thought;
+      toolSinceThought = false;
+    }
+    if (message.role === 'Tool') { toolSinceThought = true; }
+    return shown;
+  });
+}
+
 function plainWorkRows(body, messages, state) {
+  messages = plainMessagesWithoutRepeatedToolThoughts(messages);
   const spans = thoughtSpans(messages);
   const rows = threadRows(messages, spans);
   const old = new Map(Array.from(body.children, node => [node.dataset.workRow, node]));

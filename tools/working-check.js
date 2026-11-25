@@ -409,6 +409,73 @@ fs.mkdirSync(shotDir, { recursive: true });
         'thought', 'tool', 'thought', 'tool', 'thought'
       ]), 'separate Plain blocks became out of order: ' + JSON.stringify(order()));
     });
+
+    await page.evaluate(async () => {
+      const repeated = 'The result is incomplete. I will search again for a more specific page.';
+      const user = workMessage('repeat-user', 'You', 'Search and summarize.');
+      const running = workMessage('repeat-tool', 'Tool', 'Running ...', {
+        reasoning: repeated, reasoning_ms: 1800, tool_name: 'web_search', tool: 'Running ...'
+      });
+      const state = workState([user, running], false, { generating: true, running: 'web_search',
+        reasoning: repeated, reasoning_ms: 1800 });
+      state.chatting.collapse_thinking = false;
+      state.chatting.collapse_tools = false;
+      drawWorkState(state);
+      const main = el.col.querySelector('.work-turn');
+      if (main.classList.contains('shut')) { main.querySelector('.work-turn-head').click(); }
+      const visibleThoughts = () => Array.from(main.querySelectorAll('.think .thought'))
+        .map(node => node.textContent.trim()).filter(Boolean);
+      workCheck(visibleThoughts().filter(text => text === repeated).length === 1,
+        'live reasoning duplicated the same reasoning saved with a running tool');
+      workCheck(main.querySelector('.think .words .tool'),
+        'the repeated-thought case lost its running tool block');
+      state.chatting.tools_in_thinking = false;
+      drawWorkState(state);
+      workCheck(visibleThoughts().filter(text => text === repeated).length === 1,
+        'live reasoning duplicated the running tool thought when tools were outside thinking');
+      state.reasoning = 'The new result gives me a useful version number.';
+      drawWorkState(state);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      workCheck(visibleThoughts().filter(text => text === repeated).length === 1
+        && visibleThoughts().filter(text => text === state.reasoning).length === 1,
+        'new live reasoning was hidden along with a repeated thought');
+      const savedThought = workMessage('repeat-saved-thought', 'Assistant', '', {
+        reasoning: repeated, reasoning_ms: 900
+      });
+      const savedTool = workMessage('repeat-saved-tool', 'Tool', 'Running ...', {
+        reasoning: repeated, reasoning_ms: 900, tool_name: 'web_search', tool: 'Running ...'
+      });
+      const historyState = workState([user, savedThought, savedTool], false, {
+        generating: true, reasoning: repeated, reasoning_ms: 1800
+      });
+      historyState.chatting.collapse_thinking = false;
+      historyState.chatting.collapse_tools = false;
+      historyState.chat.id = 'visual-saved-duplicate-check';
+      drawWorkState(historyState);
+      const historyMain = el.col.querySelector('.work-turn');
+      if (historyMain.classList.contains('shut')) {
+        historyMain.querySelector('.work-turn-head').click();
+      }
+      const historyThoughts = () => Array.from(historyMain.querySelectorAll('.think .thought'))
+        .map(node => node.textContent.trim()).filter(Boolean);
+      workCheck(historyThoughts().filter(text => text === repeated).length === 1,
+        'the same thought was shown again by the saved tool record');
+      historyState.chatting.tools_in_thinking = false;
+      drawWorkState(historyState);
+      workCheck(historyThoughts().filter(text => text === repeated).length === 1,
+        'the saved thought duplicated after its tool when tools were outside thinking');
+      const screenshotState = workState([user, running], false, { generating: true,
+        running: 'web_search', reasoning: repeated, reasoning_ms: 1800 });
+      screenshotState.chatting.collapse_thinking = false;
+      screenshotState.chatting.collapse_tools = false;
+      screenshotState.chat.id = 'visual-duplicate-check';
+      drawWorkState(screenshotState);
+      const screenshotMain = el.col.querySelector('.work-turn');
+      if (screenshotMain.classList.contains('shut')) {
+        screenshotMain.querySelector('.work-turn-head').click();
+      }
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-no-duplicate-thought.png'), fullPage: true });
     console.log(path.join(shotDir, 'plain-cancel.png'));
     console.log(path.join(shotDir, 'plain-worked.png'));
     console.log(path.join(shotDir, 'plain-thinking-complete.png'));
@@ -419,6 +486,7 @@ fs.mkdirSync(shotDir, { recursive: true });
     console.log(path.join(shotDir, 'direct-answer-plain.png'));
     console.log(path.join(shotDir, 'direct-answer-corporate.png'));
     console.log(path.join(shotDir, 'plain-thought-tool-order.png'));
+    console.log(path.join(shotDir, 'plain-no-duplicate-thought.png'));
     console.log('Working blocks, cancellation colour, and Corporate response animation passed');
   } finally {
     await browser.close();
