@@ -1273,6 +1273,8 @@ body.dark .work-turn { --work-text: #ffffff; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
   cursor: pointer; color: var(--work-text); font-weight: 600; }
 .work > .whead .wfold { color: var(--work-text); font-size: 10px; flex: 0 0 auto; }
+.work > .whead .wmainmark { width: 13px; height: 13px; stroke: var(--dim); flex: 0 0 auto; }
+.work > .whead .wmainmark.bulb { stroke: var(--ink); }
 .brain-paper .brain { fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round;
   stroke-linejoin: round; }
 .brain-paper .page { fill: var(--bg); stroke: currentColor; stroke-width: .9; }
@@ -4248,7 +4250,7 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
     <div class="sbody" id="planWordsBox"></div>
   </div>
 </div>
-<script src="corporate.js?v=5"></script>
+<script src="corporate.js?v=6"></script>
 <script>'use strict';
 
 // The window sends requests to the engine through Tauri, and not over the network. The names of

@@ -117,6 +117,32 @@ function corporateEntry(node, one) {
   header.style.cursor = body.childElementCount ? 'pointer' : 'default';
 }
 
+function corporateMainMark(header, body, title) {
+  let icon = null;
+  if (title === 'Thinking' || title === 'Thought' || title.startsWith('Thought for ')) {
+    icon = mark(THINK_MARK, 'wmainmark bulb');
+  } else {
+    const marks = body.querySelectorAll('.wtoolmark');
+    if (marks.length) {
+      icon = marks[marks.length - 1].cloneNode(true);
+      icon.classList.remove('wtoolmark');
+      icon.classList.add('wmainmark');
+    }
+  }
+  const current = header.querySelector('.wmainmark');
+  const label = header.querySelector('.wtitle');
+  if (!icon) {
+    current?.remove();
+    return;
+  }
+  if (current && current.className.baseVal === icon.className.baseVal
+      && current.querySelector('path')?.getAttribute('d') === icon.querySelector('path')?.getAttribute('d')) {
+    return;
+  }
+  current?.remove();
+  header.insertBefore(icon, label);
+}
+
 // Separate activity at each stretch of visible prose. Local ordinals keep the same nodes
 // when a streamed message is saved or a tool draft receives a permanent message id.
 function corporateAnswer(run, state) {
@@ -232,6 +258,7 @@ function updateCorporateCard(card, part) {
   const title = (!part.active && summary) || latest || thought;
   const label = header.lastElementChild;
   if (label.textContent !== title) { label.textContent = title; }
+  corporateMainMark(header, body, title);
 
   const hasDetails = body.childElementCount > 0;
   header.querySelector('.wfold').style.visibility = hasDetails ? '' : 'hidden';
