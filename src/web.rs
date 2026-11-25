@@ -117,7 +117,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             }
         }
     }
-    let mut answer_tools = Vec::new();
+    let mut activity_tools = Vec::new();
     let messages: Vec<Value> = snap
         .messages
         .iter()
@@ -127,13 +127,14 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 && !matches!(m.tool_name.as_str(), corporate::NAME | corporate::FINISH_NAME))
                 .then(|| tool_activity(m, work.get(m.id.as_str()).copied(), snap.generating));
             if let Some(block) = &activity {
-                answer_tools.push(block.clone());
+                activity_tools.push(block.clone());
             }
-            let ends_answer = !snap.messages.get(i + 1)
-                .is_some_and(|next| matches!(next.role.as_str(), "Assistant" | "Tool"));
-            let summary = if ends_answer && !answer_tools.is_empty() {
-                let head = corporate::head_after(&answer_tools);
-                answer_tools.clear();
+            let ends_activity = (m.role == "Assistant" && !m.body.trim().is_empty())
+                || !snap.messages.get(i + 1)
+                    .is_some_and(|next| matches!(next.role.as_str(), "Assistant" | "Tool"));
+            let summary = if ends_activity && !activity_tools.is_empty() {
+                let head = corporate::head_after(&activity_tools);
+                activity_tools.clear();
                 Some(head)
             } else {
                 None
@@ -164,6 +165,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "reasoning": m.reasoning,
                 // How long that thinking took, in milliseconds.
                 "reasoning_ms": m.reasoning_ms,
+                "thought_offsets": &m.thought_offsets,
                 // Tool outcomes and the current card title in corporate display.
                 "activity": activity,
                 "answer_head": summary,
@@ -382,6 +384,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "reasoning": snap.live_reasoning,
         "reasoning_ms": snap.live_thought_ms,
         "reasoning_done": snap.live_thought_done,
+        "thought_offsets": &snap.live_thought_offsets,
         // How far the server is with the text it was sent. The meter above the chat composer is
         // made of these three: the number, whether it remains, and what the program is working
         // on. The page puts the text of the last one together, as it does for the names of the

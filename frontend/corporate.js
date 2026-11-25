@@ -1,5 +1,5 @@
-// Corporate display has one thread row per answer. Tool messages own executed calls.
-// Drafts belong only to the active model step and are never restored from history.
+// A corporate answer alternates between activity cards and assistant messages. Tool messages
+// own executed calls, and drafts belong only to the active model step.
 'use strict';
 
 const corporateOpen = new Set();
@@ -45,7 +45,7 @@ function corporateDisclosure(key, main) {
   return node;
 }
 
-function corporateEntry(node, item) {
+function corporateEntry(node, one) {
   const header = node.firstElementChild;
   const body = node.lastElementChild;
   const arrow = header.firstElementChild;
@@ -58,59 +58,56 @@ function corporateEntry(node, item) {
     part.textContent = text;
     body.append(part);
   }
-  if (item.words !== undefined) {
-    node.classList.add('wwords');
-    const lines = item.words.trim().split('\n');
-    inlineInto(title, inlineParts(lines.shift()), false);
-    header.append(title);
-    for (const part of blocks(lines.join('\n').trim())) { body.append(blockNode(part)); }
-  } else {
-    const one = item.work;
-    if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
-      header.append(mark(one.reading ? READ_MARK : toolShape(one.tool).mark, 'wtoolmark'));
+  if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
+    header.append(mark(one.reading ? READ_MARK : toolShape(one.tool).mark, 'wtoolmark'));
+  }
+  title.textContent = (one.head || 'Working').replace(/^Looked at (a picture|pictures)/,
+    one.image_count > 1 || /^Looked at pictures/.test(one.head) ? 'Viewed images' : 'Viewed image');
+  header.append(title);
+  if ((one.tool === 'create_file' || one.tool === 'edit_file') && (one.adds || one.cuts)) {
+    for (const [style, count] of [['wplus', '+' + (one.adds || 0)], ['wminus', '-' + (one.cuts || 0)]]) {
+      const number = make('span', style);
+      number.textContent = count;
+      header.append(number);
     }
-    title.textContent = (one.head || 'Working').replace(/^Looked at (a picture|pictures)/,
-      one.image_count > 1 || /^Looked at pictures/.test(one.head) ? 'Viewed images' : 'Viewed image');
-    header.append(title);
-    if ((one.tool === 'create_file' || one.tool === 'edit_file') && (one.adds || one.cuts)) {
-      for (const [style, count] of [['wplus', '+' + (one.adds || 0)], ['wminus', '-' + (one.cuts || 0)]]) {
-        const number = make('span', style);
-        number.textContent = count;
-        header.append(number);
-      }
-    }
-    if (one.failed) {
-      const failure = make('span', 'wbad');
-      failure.textContent = 'it failed';
-      header.append(failure);
-    }
-    for (const line of one.lines || []) { detail('div', 'wline', line); }
-    detail('pre', 'wcmd', one.command);
-    detail('div', 'wfile', one.file);
-    detail('pre', 'wout', one.output);
-    for (const [index, child] of (one.sub || []).entries()) {
-      const nested = corporateDisclosure(node.dataset.foldKey + '/' + index, false);
-      corporateEntry(nested, { work: child });
-      body.append(nested);
-    }
+  }
+  if (one.failed) {
+    const failure = make('span', 'wbad');
+    failure.textContent = 'it failed';
+    header.append(failure);
+  }
+  for (const line of one.lines || []) { detail('div', 'wline', line); }
+  detail('pre', 'wcmd', one.command);
+  detail('div', 'wfile', one.file);
+  detail('pre', 'wout', one.output);
+  for (const [index, child] of (one.sub || []).entries()) {
+    const nested = corporateDisclosure(node.dataset.foldKey + '/' + index, false);
+    corporateEntry(nested, child);
+    body.append(nested);
   }
   arrow.style.visibility = body.childElementCount ? '' : 'hidden';
   header.tabIndex = body.childElementCount ? 0 : -1;
   header.style.cursor = body.childElementCount ? 'pointer' : 'default';
 }
 
-// Ordinals are local to this answer. A draft keeps its place when the engine gives
-// the execution a permanent message id, even if the model supplied no call id.
-function corporateAnswer(run, state, beforeSummary) {
-  const entries = [];
-  const tail = run[run.length - 1];
-  const live = tail.id === 'live' || tail.id === 'live-work';
-  const final = !live && !beforeSummary && tail.role === 'Assistant' && tail.body.trim() ? tail : null;
+// Separate activity at each stretch of visible prose. Local ordinals keep the same nodes
+// when a streamed message is saved or a tool draft receives a permanent message id.
+function corporateAnswer(run, state) {
+  const parts = [];
   const seen = new Set();
   const executions = run.some(m => m.role === 'Tool' && m.activity);
-  let tools = 0, words = 0, title = 'Done';
-  function tool(work) {
-    entries.push({ key: 'tool/' + tools++, work: work });
+  let card = null;
+  function activity() {
+    if (!card) {
+      card = { key: parts.length, tools: [], ms: 0, busy: false };
+      parts.push(card);
+    }
+    return card;
+  }
+  function thought(ms, busy) {
+    const one = activity();
+    one.ms += Number(ms) || 0;
+    one.busy ||= busy;
   }
   function legacyHeading(one) {
     return { ...one, sub: (one.sub || []).filter(child => child.tool === 'work_log').map(legacyHeading) };
@@ -118,81 +115,145 @@ function corporateAnswer(run, state, beforeSummary) {
   function legacy(work) {
     for (const one of work || []) {
       if (one.group) { legacy(one.sub); continue; }
-      if (String(one.id || '').startsWith('stream:')) { continue; }
+      if (String(one.id || '').startsWith('stream:') || one.tool === 'finish_answer') { continue; }
       if (executions && one.tool !== 'work_log') { continue; }
       if (one.id && seen.has(one.id)) { continue; }
       if (one.id) { seen.add(one.id); }
       // Older chats can include the same executed calls inside work_log headings.
-      tool(executions ? legacyHeading(one) : one);
+      activity().tools.push(executions ? legacyHeading(one) : one);
     }
+  }
+  function prose(text, m) {
+    if (!text.trim()) { return null; }
+    const one = { key: parts.length, text, message: m };
+    parts.push(one);
+    card = null;
+    return one;
   }
   for (const m of run) {
     if (m.role === 'Tool') {
+      if (m.reasoning || m.reasoning_ms) { thought(m.reasoning_ms, false); }
       if (m.activity && !seen.has(m.id)) {
         seen.add(m.id);
-        tool(m.activity);
-        title = m.activity.head;
+        const one = activity();
+        one.tools.push(m.activity);
+        if (m.tool?.startsWith('Running ')) { one.running = m.activity.head; }
+        if (m.answer_head) { one.summary = m.answer_head; }
       }
       continue;
     }
     legacy(m.work);
-    if (m !== final && m.body.trim()) {
-      entries.push({ key: 'words/' + words++, words: m.body });
+    if (card && m.answer_head) { card.summary = m.answer_head; }
+    if (card && m.work_head && !executions && card.tools.length) { card.legacyTitle = m.work_head; }
+
+    const body = m.body || '';
+    const offsets = m.thought_offsets?.length ? m.thought_offsets : (m.reasoning || m.reasoning_ms ? [0] : []);
+    let start = 0, lastText = null;
+    for (const [index, end] of offsets.entries()) {
+      if (end < start || end > body.length) { continue; }
+      lastText = prose(body.slice(start, end), m) || lastText;
+      thought(offsets.length === 1 ? m.reasoning_ms : 0,
+        m.id === 'live' && !m.reasoning_done && index === offsets.length - 1);
+      start = end;
     }
-    if (m.work_head) { title = m.work_head; }
-  }
-  if (tail.id === 'live' && state.generating && !state.summarising) {
-    for (const [index, draft] of (state.tool_previews || []).entries()) {
-      // A hidden cat preview still occupies a slot in a batch of tool calls.
-      entries.push({ key: 'tool/' + (tools + (draft.slot ?? index)), work: draft });
+    lastText = prose(body.slice(start), m) || lastText;
+    if (lastText) { lastText.actions = true; }
+
+    if (m.id === 'live' && state.generating && !state.summarising && state.tool_previews?.length) {
+      const one = activity();
+      one.drafts = state.tool_previews;
+      one.busy = true;
     }
   }
-  if (!live && tail.answer_head) { title = tail.answer_head; }
-  return { entries, title, final, busy: tail.id === 'live' };
+  return parts;
 }
 
-function updateCorporateAnswer(turn, run, state, beforeSummary) {
-  const key = turn.dataset.row;
-  const model = corporateAnswer(run, state, beforeSummary);
-  let card = turn.firstElementChild;
-  if (!card || !card.classList.contains('work')) {
-    card = corporateDisclosure(key, true);
-    card.firstElementChild.append(make('span', 'wtitle'));
-    turn.prepend(card);
-  }
+function updateCorporateCard(card, part) {
   const header = card.firstElementChild;
-  header.classList.toggle('busy', model.busy);
+  header.classList.toggle('busy', Boolean(part.busy || part.running));
+  const lastTool = part.tools[part.tools.length - 1];
+  const elapsed = part.ms ? 'Thought for ' + spanWords(Math.max(1000, part.ms)) : 'Thought';
+  const summary = part.summary === 'Done' ? '' : part.summary;
+  const title = part.running || (part.drafts ? 'Writing a tool call' :
+    part.busy ? 'Thinking' : summary || part.legacyTitle || lastTool?.head || elapsed);
   const label = header.lastElementChild;
-  if (label.textContent !== model.title) { label.textContent = model.title; }
+  if (label.textContent !== title) { label.textContent = title; }
+
   const body = card.lastElementChild;
   const old = new Map(Array.from(body.children, node => [node.dataset.foldKey, node]));
-  model.entries.forEach(function (entry, index) {
-    const id = key + '/' + entry.key;
+  function insert(work, slot, index) {
+    const id = card.dataset.foldKey + '/tool/' + slot;
     const node = old.get(id) || corporateDisclosure(id, false);
     old.delete(id);
-    const stamp = JSON.stringify(entry);
+    const stamp = JSON.stringify(work);
     if (node._activity !== stamp) {
-      corporateEntry(node, entry);
+      corporateEntry(node, work);
       node._activity = stamp;
     }
     if (body.children[index] !== node) { body.insertBefore(node, body.children[index] || null); }
+  }
+  part.tools.forEach((work, index) => insert(work, index, index));
+  // A hidden cat preview still occupies a slot in a batch of tool calls.
+  (part.drafts || []).forEach((work, index) =>
+    insert(work, part.tools.length + (work.slot ?? index), part.tools.length + index));
+  for (const stale of old.values()) { stale.remove(); }
+  const hasDetails = body.childElementCount > 0;
+  header.querySelector('.wfold').style.visibility = hasDetails ? '' : 'hidden';
+  header.tabIndex = hasDetails ? 0 : -1;
+  header.style.cursor = hasDetails ? '' : 'default';
+  if (hasDetails) {
+    header.setAttribute('role', 'button');
+    header.setAttribute('aria-expanded', String(!card.classList.contains('shut')));
+  } else {
+    header.removeAttribute('role');
+    header.removeAttribute('aria-expanded');
+  }
+}
+
+function updateCorporateProse(node, part) {
+  const text = node.firstElementChild;
+  const m = part.message;
+  text.dataset.mid = m.id;
+  if (node._text !== part.text) {
+    text.replaceChildren(...blocks(part.text).map(blockNode));
+    node._text = part.text;
+  }
+  const stamp = part.actions && m.id !== 'live' &&
+    JSON.stringify([m.id, m.body, m.when, m.can_continue]);
+  if (node._actions !== stamp) {
+    node.querySelector('.stamp')?.remove();
+    const actions = stamp && actLine(m);
+    if (actions) { node.append(actions); }
+    node._actions = stamp;
+  }
+}
+
+function updateCorporateAnswer(turn, run, state) {
+  const old = new Map(Array.from(turn.children)
+    .filter(node => node.dataset.part !== undefined)
+    .map(node => [node.dataset.part, node]));
+  corporateAnswer(run, state).forEach(function (part, index) {
+    const text = part.text !== undefined;
+    const key = (text ? 'words/' : 'activity/') + part.key;
+    let node = old.get(key);
+    old.delete(key);
+    if (text) {
+      if (!node) {
+        node = make('div', 'corporate-message');
+        node.append(make('div', 'plain answer-words'));
+      }
+      updateCorporateProse(node, part);
+    } else {
+      if (!node) {
+        node = corporateDisclosure(turn.dataset.row + '/' + key, true);
+        node.firstElementChild.append(make('span', 'wtitle'));
+      }
+      updateCorporateCard(node, part);
+    }
+    node.dataset.part = key;
+    if (turn.children[index] !== node) { turn.insertBefore(node, turn.children[index] || null); }
   });
   for (const stale of old.values()) { stale.remove(); }
-
-  const final = model.final;
-  const stamp = final && JSON.stringify([final.id, final.body, final.when, final.can_continue]);
-  if (turn._final !== stamp) {
-    turn.querySelectorAll(':scope > .answer-words, :scope > .stamp').forEach(node => node.remove());
-    if (final) {
-      const answer = make('div', 'plain answer-words');
-      answer.dataset.mid = final.id;
-      for (const part of blocks(final.body)) { answer.append(blockNode(part)); }
-      turn.append(answer);
-      const actions = actLine(final);
-      if (actions) { turn.append(actions); }
-    }
-    turn._final = stamp;
-  }
 }
 
 function drawCorporateThread(state, items) {
@@ -228,7 +289,7 @@ function drawCorporateThread(state, items) {
     turn.dataset.to = to;
     turn.dataset.mid = m.id;
     if (answer) {
-      updateCorporateAnswer(turn, items.slice(from, to), state, items[to]?.role === 'Summary');
+      updateCorporateAnswer(turn, items.slice(from, to), state);
     } else {
       const stamp = JSON.stringify([m, m.role === 'Summary' && handoffOf(m.id)]);
       if (turn._content !== stamp) {

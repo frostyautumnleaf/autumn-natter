@@ -576,6 +576,9 @@ pub struct Message {
     // chat was written before this was measured.
     #[serde(default)]
     pub reasoning_ms: u64,
+    // Where each reasoning phase began in the assistant's visible text, in UTF-16 units.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thought_offsets: Vec<usize>,
     // Tool name plus arguments, for a tool call. Empty for other messages.
     #[serde(default)]
     pub tool: String,

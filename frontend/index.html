@@ -1013,7 +1013,8 @@ body.home .stage { display: none; }
   margin-top: 0; overflow: hidden; line-height: 15px;
   transition: opacity 160ms, height 160ms, margin-top 160ms;
   font-variant-numeric: tabular-nums; }
-.turn:hover .stamp { opacity: 1; height: 15px; margin-top: 5px; }
+.turn:hover .stamp:not(.corporate-message > .stamp), .corporate-message:hover > .stamp,
+.corporate-message:focus-within > .stamp { opacity: 1; height: 15px; margin-top: 5px; }
 /*
  * The blocks an answer ends with - the steps, the files proposed, the window of shown files,
  * the paths proposed - are not the text of the message. The line of the time and the markers
@@ -1230,9 +1231,10 @@ pre.code .t-p { color: var(--t-pun); }
   display: block; }
 .wgo { margin: 6px 0 0; }
 /*
- * The corporate display. Private thoughts and ordinary call bubbles are hidden. One card means
- * an answer: its title reports the current action and each assistant message is a sub-block. */
+ * The corporate display. Activity cards sit between assistant messages. Private thoughts
+ * and ordinary tool bubbles are hidden. */
 body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: none !important; }
+.corporate-message + .corporate-message { margin-top: 14px; }
 .work { margin: 14px 0; }
 .work { --work-text: var(--ink-leaf); }
 body:not(.dark):not(.silver):not(.corporate):not(.neon):not(.glass) .work { --work-text: #242424; }
@@ -1270,12 +1272,6 @@ body.dark .work { --work-text: #ffffff; }
 .wbbody .wblock > .wbhead { padding: 6px 10px; }
 .wbbody .wblock > .wbbody { padding: 0 10px 6px 26px; }
 .wline { padding: 3px 0; }
-/*
- * The text the model wrote to the user while it worked, before the block of the work was
- * closed. They are markdown, and they are under the first line of them, which is the header of
- * the block. */
-.wwords > .wbbody { color: var(--work-text); }
-.wwords > .wbbody > :first-child { margin-top: 0; }
 /*
  * The text of a call inside the short: the command that ran, the file it worked on, and what
  * returned. The block of the run itself is hidden while the mode remains, so these are the only
@@ -3726,7 +3722,7 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
           <span class="sub">The model can colour a few words of its answer: green, light green, red or light red. Turn this off to read the answer with no colour. The markers stay in the conversation that goes back to the model, and the model is informed nothing about the colours.</span>
           <div class="ctl"><input id="fColourText" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Show the work</span>
-          <span class="sub">How the model's work is presented. Plain mode shows thinking panels and each tool call in its own block. Corporate mode hides private thinking and shows one card per answer; its title follows the current action and each progress message appears inside as its own ordered sub-block. The final answer appears as a normal chat message outside the card.</span>
+          <span class="sub">How the model's work is presented. Plain mode shows thinking panels and each tool call in its own block. Corporate mode groups thinking and tool activity into cards between the model’s chat messages. Progress updates and final answers appear directly in the chat.</span>
           <div class="ctl"><select id="fDisplay">
             <option value="plain">Plain</option>
             <option value="corporate">Corporate</option>
@@ -9071,13 +9067,14 @@ function liveMessage(s) {
   return {
     id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
     reasoning_ms: s.reasoning_ms || 0, reasoning_done: !!s.reasoning_done,
+    thought_offsets: s.thought_offsets || [],
     tool: '', tools: s.live_tools || [], mono: false, failed: false, when: '',
     work: s.live_work || [], work_head: s.live_work_head || '',
   };
 }
 
-// The messages the thread is made of. The thread and the one block of an answer are drawn from
-// the same list, so a block put on the page reports what the rows of the answer say.
+// The messages the thread is made of. Both displays use the same list, including the
+// assistant message still being written.
 function threadItems() {
   var s = cur || {};
   var items = (s.messages || []).slice();
@@ -9092,6 +9089,8 @@ function threadItems() {
     held.id = 'live-work';
     held.body = '';
     held.reasoning = '';
+    held.reasoning_ms = 0;
+    held.thought_offsets = [];
     held.tools = [];
     var place = items.length;
     while (place > 0 && items[place - 1].role === 'Summary') { place--; }
@@ -9137,14 +9136,13 @@ function welcomeMock(kind) {
   }
   if (kind === 'corporate') {
     box.innerHTML = '<svg class="wmock" viewBox="0 0 220 112" xmlns="http://www.w3.org/2000/svg">'
-      + '<rect x="10" y="10" width="150" height="16" rx="4" fill="currentColor" opacity=".22"/>'
-      + '<rect x="10" y="34" width="200" height="68" rx="7" fill="currentColor" opacity=".12"/>'
-      + '<rect x="18" y="42" width="96" height="6" rx="3" fill="currentColor" opacity=".42"/>'
-      + '<rect x="18" y="58" width="184" height="1" fill="currentColor" opacity=".2"/>'
-      + '<rect x="24" y="64" width="120" height="5" rx="2" fill="currentColor" opacity=".3"/>'
-      + '<rect x="24" y="74" width="150" height="5" rx="2" fill="currentColor" opacity=".3"/>'
-      + '<rect x="18" y="86" width="184" height="1" fill="currentColor" opacity=".2"/>'
-      + '<rect x="24" y="92" width="104" height="5" rx="2" fill="currentColor" opacity=".3"/></svg>';
+      + '<rect x="94" y="10" width="116" height="14" rx="4" fill="currentColor" opacity=".22"/>'
+      + '<path d="m12 39 3 3-3 3m0 27 3 3-3 3" fill="none" stroke="currentColor" opacity=".55"/>'
+      + '<rect x="23" y="40" width="78" height="4" rx="2" fill="currentColor" opacity=".45"/>'
+      + '<rect x="10" y="55" width="154" height="4" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="23" y="73" width="93" height="4" rx="2" fill="currentColor" opacity=".45"/>'
+      + '<rect x="10" y="90" width="172" height="4" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="10" y="99" width="118" height="4" rx="2" fill="currentColor" opacity=".3"/></svg>';
     return box;
   }
   // The five themes: the background of the page and the text upon it.
@@ -9219,10 +9217,10 @@ function drawWelcome() {
   screen.appendChild(word);
 
   var modes = welcomePart('How the work is shown',
-    'The plain way shows the model thoughts and each command, search and edit in its own block. The corporate way keeps each progress update in an ordered sub-block inside one card, then shows the final answer as a normal chat message.');
+    'The plain way shows the model thoughts and each command, search and edit in its own block. The corporate way shows messages directly in the chat, with activity cards that fold away thinking and tool work.');
   var modeCards = make('div', 'wcards');
   modeCards.appendChild(welcomeCard('display', 'plain', 'plain', 'Plain', 'The thoughts and the calls, all of them, in the open.'));
-  modeCards.appendChild(welcomeCard('display', 'corporate', 'corporate', 'Corporate', 'One card per answer, with each assistant update inside.'));
+  modeCards.appendChild(welcomeCard('display', 'corporate', 'corporate', 'Corporate', 'Activity cards between the model’s chat messages.'));
   modes.appendChild(modeCards);
   screen.appendChild(modes);
 
@@ -9587,8 +9585,10 @@ var answerEdit = null;
 
 function editAnswer(m) {
   if (answerEdit) { answerEdit(); }
-  var host = el.col.querySelector('.answer-words[data-mid="' + m.id + '"]');
+  var hosts = Array.from(el.col.querySelectorAll('.answer-words[data-mid="' + m.id + '"]'));
+  var host = hosts.shift();
   if (!host) { return; }
+  for (var other of hosts) { other.parentElement.hidden = true; }
   var was = host.innerHTML;
   var field = make('textarea', 'answer-edit');
   field.value = m.body;
@@ -9612,19 +9612,24 @@ function editAnswer(m) {
   }
   function shut() {
     if (answerEdit === shut) { answerEdit = null; }
+    for (var other of hosts) { other.parentElement.hidden = false; }
     host.innerHTML = was;
   }
   function write() {
     var words = field.value;
     if (!words.trim()) { return; }
-    answerEdit = null;
-    // The new text is put back through the renderer at once, and not extracted from the chat
-    // again: the row is created anew only when the marker of the row moves, and an answer
-    // written over with as much text as it had leaves the marker where it was.
-    m.body = words;
-    host.innerHTML = '';
-    var cut = blocks(words);
-    for (var n = 0; n < cut.length; n++) { host.appendChild(blockNode(cut[n])); }
+    // Draw the edited words at once while the engine saves them.
+    shut();
+    if (chatting.corporate) {
+      if (m.body !== words.trim()) {
+        m.body = words.trim();
+        m.thought_offsets = [];
+      }
+      drawThread(cur);
+    } else {
+      m.body = words;
+      host.replaceChildren(...blocks(words).map(blockNode));
+    }
     post('/api/edit_answer', { id: m.id, body: words });
   }
   answerEdit = shut;
@@ -10589,9 +10594,7 @@ function addTurn(box, turn) {
 }
 
 function drawThread(s) {
-  // The state the thread is created from is the last state the page is on, so the one block of
-  // an answer, which is gathered from the thread, is gathered from these messages and not from
-  // the ones of an earlier look.
+  // Read the thread from this snapshot, including the assistant's current output.
   cur = s;
   var box = el.col;
   foldsFollowSettings();

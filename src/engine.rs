@@ -1375,6 +1375,8 @@ pub struct Snap {
     pub live_text: String,
     // The model's reasoning, streamed while an answer arrives.
     pub live_reasoning: String,
+    // Positions of reasoning phases in the visible text, in UTF-16 units for the page.
+    pub live_thought_offsets: Vec<usize>,
     // How long the thinking of the answer taking form lasted, in milliseconds, and whether it
     // has stopped. The page writes these on the header of the panel.
     pub live_thought_ms: u64,
@@ -1449,6 +1451,8 @@ pub struct ChatLive {
     pub live_text: String,
     // The model's reasoning, streamed while an answer arrives.
     pub live_reasoning: String,
+    // Positions of reasoning phases in the visible text, in UTF-16 units for the page.
+    pub live_thought_offsets: Vec<usize>,
     // Whether the thinking that came with the live answer has stopped. The header of the panel
     // reports how long it took once it has.
     pub live_thought_done: bool,
@@ -1468,11 +1472,9 @@ pub struct ChatLive {
     // The calls of a tool the model is writing right now, in the order it writes them. The user
     // sees a command as it is written.
     pub live_tools: Vec<LiveTool>,
-    // Tool outcome blocks for the corporate display. Assistant narration is kept in message
-    // text and rendered as one sub-block per assistant message.
+    // Tool outcome blocks for the corporate display. Assistant narration is drawn in the chat.
     pub live_work: Vec<corporate::WorkBlock>,
-    // The header the one block of the corporate display is at right now: what the model is at,
-    // in the text of the item that is going on.
+    // The current heading of the work being gathered for the corporate display.
     pub live_work_head: String,
     // All of a plan the model let go, waiting to become the first message of the work. It
     // remains only between the call that let the plan go and the turn that begins the work,
@@ -2591,7 +2593,11 @@ impl State {
         } else {
             String::new()
         };
-        // The page renders every assistant message in its own corporate card sub-block.
+        let thought_offsets = if role == "Assistant" {
+            std::mem::take(&mut self.live_mut(chat).live_thought_offsets)
+        } else {
+            Vec::new()
+        };
         if let Some(chat) = self.chat_of_mut(chat) {
             chat.messages.push(Message {
                 id: store::new_id(),
@@ -2599,6 +2605,7 @@ impl State {
                 body: body.to_string(),
                 reasoning: reasoning.to_string(),
                 reasoning_ms,
+                thought_offsets,
                 mono,
                 work,
                 work_head: head,
@@ -2615,23 +2622,35 @@ impl State {
     // two, so the new text go onto the message that is at the end of the conversation. False
     // means the message is no longer the last one of the conversation, and the text has to be
     // kept on its own.
-    fn append_resumed(&mut self, id: &str, body: &str, reasoning: &str, reasoning_ms: u64) -> bool {
-        // The work of this part of the answer joins the summary of the answer it was removed on
-        // from, so the one block of the corporate display holds all of the work and not only
-        // the last part of it.
-        let more = if self.corporate_on() {
-            let mut held = std::mem::take(&mut self.live_write().live_work);
+    fn append_resumed(
+        &mut self,
+        chat_id: &str,
+        id: &str,
+        body: &str,
+        reasoning: &str,
+        reasoning_ms: u64,
+    ) -> bool {
+        let matching = self.chat_of(chat_id).and_then(|chat| chat.messages.last())
+            .is_some_and(|last| last.id == id && last.role == "Assistant");
+        if !matching {
+            return false;
+        }
+        let joined = self.corporate_on_in(chat_id);
+        let live = self.live_mut(chat_id);
+        let offsets = std::mem::take(&mut live.live_thought_offsets);
+        let more = if joined {
+            let mut held = std::mem::take(&mut live.live_work);
             corporate::finish_reads(&mut held);
             held
         } else {
             Vec::new()
         };
-        let joined = self.corporate_on();
-        let Some(chat) = self.chat_mut() else { return false };
-        let Some(last) = chat.messages.last_mut() else { return false };
-        if last.id != id || last.role != "Assistant" {
-            return false;
+        let Some(last) = self.chat_of_mut(chat_id).and_then(|chat| chat.messages.last_mut())
+        else { return false };
+        if last.thought_offsets.is_empty() && (!last.reasoning.is_empty() || last.reasoning_ms > 0) {
+            last.thought_offsets.push(0);
         }
+        let previous = last.body.encode_utf16().count();
         last.body.push_str(body);
         if !reasoning.trim().is_empty() {
             if last.reasoning.trim().is_empty() {
@@ -2641,6 +2660,8 @@ impl State {
                 last.reasoning.push_str(reasoning);
             }
         }
+        last.thought_offsets
+            .extend(offsets.into_iter().map(|offset| previous + offset));
         last.reasoning_ms += reasoning_ms;
         last.when = store::now_secs();
         if !more.is_empty() {
@@ -2954,12 +2975,6 @@ impl State {
         config::display_is_corporate(&self.cfg.chat_display)
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn corporate_on(&self) -> bool {
-        self.corporate_on_in(self.open_id().as_str())
-    }
-
     // True when the settings make the space of a conversation by a handoff summary. With
     // compaction off nothing is ever summarised: the text of the space go out no more, and
     // the tool that requests the space has nothing to request, so it is proposed nowhere
@@ -2975,8 +2990,7 @@ impl State {
         system_words_of(&self.cfg)
     }
 
-    // A call began: the one block reports what the model is at, and a block of the call is in
-    // the summary of the work.
+    // A call began: record its work and heading for the corporate display.
     fn corporate_begin_in(&mut self, chat_id: &str, call: &ToolCall, id: &str) {
         // The tool of the summary writes text, not a run: the heading it names is in the short,
         // and no block of a call means it. The tool that closes the block of the answer is
@@ -4215,6 +4229,7 @@ impl State {
         }
         self.live_mut(chat_id).live_text.clear();
         self.live_mut(chat_id).live_reasoning.clear();
+        self.live_mut(chat_id).live_thought_offsets.clear();
         self.live_mut(chat_id).live_tools.clear();
         self.live_mut(chat_id).live_work.clear();
         self.live_mut(chat_id).live_work_head.clear();
@@ -4393,6 +4408,7 @@ impl State {
                 .unwrap_or_default(),
             live_text: self.live().live_text.clone(),
             live_reasoning: self.live().live_reasoning.clone(),
+            live_thought_offsets: self.live().live_thought_offsets.clone(),
             live_thought_ms: self.live().live_thought_ms,
             live_thought_done: self.live().live_thought_done,
             progress: self.live().progress,
@@ -6280,7 +6296,12 @@ impl Engine {
             return;
         }
         if let Some(chat) = state.chat_mut() {
-            chat.messages[index].body = words;
+            let message = &mut chat.messages[index];
+            if message.body != words {
+                // The editor replaces the whole message. Its old split points no longer apply.
+                message.thought_offsets.clear();
+                message.body = words;
+            }
             chat.meta.updated = store::now_secs();
         }
         state.persist();
@@ -6974,6 +6995,7 @@ impl Snap {
             chat_timeline: true,
             live_text: String::new(),
             live_reasoning: String::new(),
+            live_thought_offsets: Vec::new(),
             live_thought_ms: 0,
             live_thought_done: false,
             progress: 0,
@@ -9195,6 +9217,7 @@ fn run_handoff(
         // of the summarisation.
         guard.live_mut(chat).live_text = String::new();
         guard.live_mut(chat).live_reasoning = String::new();
+        guard.live_mut(chat).live_thought_offsets.clear();
         guard.live_mut(chat).live_tools = Vec::new();
         // Keep the work tree and its heading: a tool-only step may not have a stored Assistant
         // message yet, and the page uses this state to keep its progress card visible during
@@ -10847,6 +10870,7 @@ fn run_turn(
         if let Ok(mut guard) = state.lock() {
             guard.live_mut(chat).thought_start = None;
             guard.live_mut(chat).thought_end = None;
+            guard.live_mut(chat).live_thought_offsets.clear();
             guard.live_mut(chat).live_thought_ms = 0;
             guard.live_mut(chat).live_thought_done = false;
             // The meter means this step alone, and for every step of an answer. The text under
@@ -10954,8 +10978,12 @@ fn run_turn(
                     if let Some(begun) = guard.live_ref(chat).thought_start {
                         guard.live_mut(chat).live_thought_ms = now.duration_since(begun).as_millis() as u64;
                     }
-                    guard.live_mut(chat).live_thought_done = false;
-                    guard.live_mut(chat).live_reasoning.push_str(piece);
+                    let live = guard.live_mut(chat);
+                    if !piece.is_empty() && (live.live_thought_offsets.is_empty() || live.live_thought_done) {
+                        live.live_thought_offsets.push(live.live_text.encode_utf16().count());
+                    }
+                    live.live_thought_done = false;
+                    live.live_reasoning.push_str(piece);
                     // A thought is a note about the answer as well: the text that was sent is
                     // worked through by now.
                     if finish_progress(&mut guard, chat) {
@@ -11503,6 +11531,7 @@ fn run_turn(
                 // so the user reads one answer and not two.
                 let joined = match &resumed {
                     Some(id) => guard.append_resumed(
+                        chat,
                         id,
                         &answer_text,
                         &answer_thinking,
@@ -11511,7 +11540,7 @@ fn run_turn(
                     None => false,
                 };
                 if !joined {
-                    guard.push_message_in(chat, 
+                    guard.push_message_in(chat,
                         "Assistant",
                         &answer_text,
                         &answer_thinking,
@@ -12015,7 +12044,7 @@ fn offered_with_planning(
         list.push(planning::ask_definition());
         list.push(planning::end_definition());
     }
-    // Corporate mode uses normal assistant messages as progress sub-blocks and adds no tools.
+    // Corporate mode displays normal assistant messages and adds no tools.
     if list.is_empty() {
         return None;
     }
@@ -15668,6 +15697,8 @@ mod tests {
             assert_eq!(frame["tool_previews"], json!([]));
             assert_eq!(frame["messages"][2]["activity"]["head"], "Read test.txt");
             assert_eq!(frame["messages"][4]["activity"]["head"], "Ran xxd test.txt");
+            assert_eq!(frame["messages"][3]["answer_head"], "Ran a command");
+            assert_eq!(frame["messages"][5]["answer_head"], "Ran a command");
         };
         assert_finished(&finished);
         let mut reopened = state.snap();
@@ -15679,6 +15710,38 @@ mod tests {
         if let Some(path) = std::env::var_os("AN_CORPORATE_FRAMES") {
             std::fs::write(path, json!([streaming, running, finished, reopened]).to_string()).unwrap();
         }
+    }
+
+    #[test]
+    fn corporate_thought_boundaries_survive_a_saved_and_resumed_answer() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config {
+            chat_display: String::from(config::CORPORATE_DISPLAY),
+            ..Config::default()
+        });
+        open_a_chat(&engine);
+        let mut state = engine.state.lock().unwrap();
+        let chat = state.open_id();
+        let first = "I checked 🧪.";
+        let last = " The results are ready.";
+        let body = format!("{first}{last}");
+        let offsets = vec![0, first.encode_utf16().count()];
+        state.live_mut(&chat).live_thought_offsets = offsets.clone();
+        let live = crate::web::state(&state.snap(), None);
+        assert_eq!(live["thought_offsets"], json!(offsets));
+
+        state.push_message_in(&chat, "Assistant", &body, "two thoughts", 2000, false);
+        let id = state.chat_of(&chat).unwrap().messages.last().unwrap().id.clone();
+        assert!(state.live_ref(&chat).live_thought_offsets.is_empty());
+        let saved = state.store.load_chat(&chat).unwrap();
+        assert_eq!(saved.messages.last().unwrap().thought_offsets, offsets);
+
+        state.live_mut(&chat).live_thought_offsets = vec![0];
+        assert!(state.append_resumed(&chat, &id, " One more result.", "another thought", 1000));
+        let resumed = crate::web::state(&state.snap(), None);
+        assert_eq!(resumed["messages"].as_array().unwrap().last().unwrap()["thought_offsets"],
+            json!([0, first.encode_utf16().count(), body.encode_utf16().count()]));
     }
 
     #[test]
