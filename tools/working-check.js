@@ -116,6 +116,29 @@ fs.mkdirSync(shotDir, { recursive: true });
     await page.screenshot({ path: path.join(shotDir, 'plain-worked.png'), fullPage: true });
 
     await page.evaluate(() => {
+      const prompt = workMessage('plain-thinking-user', 'You', 'test');
+      const active = workState([prompt], false, { generating: true,
+        reasoning: 'A short thought.', reasoning_ms: 1000, reasoning_done: false });
+      drawWorkState(active);
+      const liveHead = el.col.querySelector('.think > .thead');
+      workCheck(liveHead.classList.contains('busy'),
+        'a live regular thinking block did not enter its busy state');
+      const completed = workMessage('plain-thinking-done', 'Assistant', 'Online. Ready when you are.', {
+        reasoning: 'A short thought.', reasoning_ms: 1000, reasoning_done: true
+      });
+      drawWorkState(workState([prompt, completed], false));
+      const head = el.col.querySelector('.think > .thead');
+      workCheck(head.querySelector('.cap').textContent === 'Thought for 1 second',
+        'the completed regular thinking block did not report its one-second duration');
+      workCheck(!head.classList.contains('busy')
+        && getComputedStyle(head.querySelector('.bulb')).display !== 'none',
+      'the thinking bulb stayed hidden after the block completed');
+      const work = el.col.querySelector('.work-turn');
+      if (work.classList.contains('shut')) { work.querySelector('.work-turn-head').click(); }
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-thinking-complete.png'), fullPage: true });
+
+    await page.evaluate(() => {
       const activity = { id: 'live-search-result', head: 'Searched the web for rate limits',
         tool: 'web_search', done: true, failed: false, lines: [], output: 'The rate limit is 20.' };
       const liveTool = workMessage('live-search-result', 'Tool', 'Search results', {
@@ -276,6 +299,7 @@ fs.mkdirSync(shotDir, { recursive: true });
     await page.screenshot({ path: path.join(shotDir, 'plain-two-turns.png'), fullPage: true });
     console.log(path.join(shotDir, 'plain-cancel.png'));
     console.log(path.join(shotDir, 'plain-worked.png'));
+    console.log(path.join(shotDir, 'plain-thinking-complete.png'));
     console.log(path.join(shotDir, 'corporate-processing.png'));
     console.log(path.join(shotDir, 'corporate-worked.png'));
     console.log(path.join(shotDir, 'corporate-thinking.png'));
