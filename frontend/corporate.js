@@ -436,7 +436,7 @@ function workingPlan(items, state) {
       while (at < items.length && items[at].role !== 'You') { at++; }
       plan.push(...workingEntry(items.slice(from, at), 'orphan:' + message.id,
         from, at, inFlight && at === items.length,
-        workResultProcessing(items.slice(from, at), state, inFlight && at === items.length)));
+        workResultProcessing(items.slice(from, at), state, inFlight && at === items.length), state));
       continue;
     }
     plan.push({ kind: 'message', message, index: at++ });
@@ -444,7 +444,7 @@ function workingPlan(items, state) {
     while (at < items.length && items[at].role !== 'You') { at++; }
     plan.push(...workingEntry(items.slice(from, at), 'turn:' + message.id,
       from, at, inFlight && at === items.length,
-      workResultProcessing(items.slice(from, at), state, inFlight && at === items.length)));
+      workResultProcessing(items.slice(from, at), state, inFlight && at === items.length), state));
   }
   return plan;
 }
@@ -457,7 +457,33 @@ function workResultProcessing(messages, state, active) {
   return messages.some(message => message.role === 'Tool' && message.activity && message.activity.done);
 }
 
-function workingEntry(messages, key, from, to, active, processing) {
+function hasRecordedActivity(work) {
+  return (work || []).some(one => one.group
+    ? hasRecordedActivity(one.sub) : one.tool !== 'finish_answer');
+}
+
+function hasWorkActivity(messages, state) {
+  if (state.running || state.summarising || (state.tool_previews || []).length) { return true; }
+  return messages.some(message => message.role === 'Tool' || message.role === 'Summary'
+    || String(message.reasoning || '').trim()
+    || (message.tools || []).length > 0
+    || hasRecordedActivity(message.work)
+    || (String(message.work_head || '').trim()
+      && message.work_head !== 'Done' && message.work_head !== 'Thinking'));
+}
+
+function workingEntry(messages, key, from, to, active, processing, state) {
+  if (!hasWorkActivity(messages, state)) {
+    const direct = [];
+    for (let index = 0; index < messages.length; index++) {
+      const message = messages[index];
+      if (message.id !== 'live' || String(message.body || '').length > 0
+          || String(message.reasoning || '').trim()) {
+        direct.push({ kind: 'message', message, index: from + index });
+      }
+    }
+    return direct;
+  }
   let finalAt = -1;
   if (!active) {
     for (let n = messages.length - 1; n >= 0; n--) {
@@ -531,11 +557,18 @@ function workingSingleNode(parent, key, message, index) {
   if (!node) {
     node = make('div', 'turn');
     node.dataset.viewKey = key;
-    fill(node, message);
+    if (message.id === 'live') { fillLive(node, message); }
+    else { fill(node, message); }
     claimFlyTurn(node, message.role === 'You' ? message : null);
     node._workingStamp = JSON.stringify([roleStamp(message), message.role === 'Summary'
       && handoffOf(message.id)]);
   } else {
+    if (message.id === 'live') {
+      feedInk(message);
+      node.dataset.from = String(index);
+      node.dataset.to = String(index + 1);
+      return node;
+    }
     const stamp = JSON.stringify([roleStamp(message), message.role === 'Summary'
       && handoffOf(message.id)]);
     if (node._workingStamp !== stamp) {

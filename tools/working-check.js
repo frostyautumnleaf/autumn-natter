@@ -286,9 +286,13 @@ fs.mkdirSync(shotDir, { recursive: true });
       'the final message did not move outside the work block');
       const turns = [workMessage('u1', 'You', 'First question.'),
         workMessage('a1', 'Assistant', 'An intermediate update.'),
-        workMessage('f1', 'Assistant', 'First final answer.'),
+        workMessage('f1', 'Assistant', 'First final answer.', {
+          reasoning: 'Check the answer.', reasoning_ms: 1100
+        }),
         workMessage('u2', 'You', 'Second question.'),
-        workMessage('f2', 'Assistant', 'Second final answer.')];
+        workMessage('f2', 'Assistant', 'Second final answer.', {
+          reasoning: 'Check the answer.', reasoning_ms: 1200
+        })];
       drawWorkState(workState(turns, false));
       workCheck(el.col.querySelectorAll(':scope > .work-turn').length === 2,
         'each user turn must have its own Working/Worked block');
@@ -297,6 +301,28 @@ fs.mkdirSync(shotDir, { recursive: true });
       'one completed turn did not retain its own Worked block');
     });
     await page.screenshot({ path: path.join(shotDir, 'plain-two-turns.png'), fullPage: true });
+
+    for (const corporate of [false, true]) {
+      const mode = corporate ? 'corporate' : 'plain';
+      await page.evaluate(mode => {
+        const corporate = mode === 'corporate';
+        const prompt = workMessage('direct-user-' + mode, 'You', 'Say hello.');
+        const live = workState([prompt], corporate, { generating: true,
+          live: 'Online. Ready when you are.' });
+        drawWorkState(live);
+        workCheck(!el.col.querySelector('.work-turn'),
+          'a direct live answer created a Working block in ' + mode + ' mode');
+        workCheck(el.col.textContent.includes(live.live),
+          'a direct live answer was not visible in ' + mode + ' mode');
+        const answer = workMessage('direct-answer-' + mode, 'Assistant', 'Online. Ready when you are.');
+        drawWorkState(workState([prompt, answer], corporate));
+        workCheck(!el.col.querySelector('.work-turn'),
+          'a direct final answer created a Worked block in ' + mode + ' mode');
+        workCheck(el.col.textContent.includes(answer.body),
+          'a direct final answer was not visible in ' + mode + ' mode');
+      }, mode);
+      await page.screenshot({ path: path.join(shotDir, 'direct-answer-' + mode + '.png'), fullPage: true });
+    }
     console.log(path.join(shotDir, 'plain-cancel.png'));
     console.log(path.join(shotDir, 'plain-worked.png'));
     console.log(path.join(shotDir, 'plain-thinking-complete.png'));
@@ -304,6 +330,8 @@ fs.mkdirSync(shotDir, { recursive: true });
     console.log(path.join(shotDir, 'corporate-worked.png'));
     console.log(path.join(shotDir, 'corporate-thinking.png'));
     console.log(path.join(shotDir, 'plain-two-turns.png'));
+    console.log(path.join(shotDir, 'direct-answer-plain.png'));
+    console.log(path.join(shotDir, 'direct-answer-corporate.png'));
     console.log('Working blocks, cancellation colour, and Corporate response animation passed');
   } finally {
     await browser.close();
