@@ -130,8 +130,14 @@ fs.mkdirSync(shotDir, { recursive: true });
       'an active turn is not labelled Working for its duration');
       const main = el.col.querySelector('.work-turn');
       const header = main && main.querySelector('.work-turn-head');
+      const latestActivityIcon = card && card.querySelector('.wmainmark');
+      const turnIcon = header && header.querySelector('.work-turn-mark');
       workCheck(main.classList.contains('processing'),
         'the active turn did not show its response-processing icon');
+      workCheck(turnIcon && latestActivityIcon
+        && turnIcon.querySelector('path').getAttribute('d')
+          === latestActivityIcon.querySelector('path').getAttribute('d'),
+      'the Corporate work heading did not show its latest activity icon');
       workCheck(getComputedStyle(header.querySelector('.brain-paper')).display !== 'none',
         'the animated brain and paper icon is hidden');
       workCheck(getComputedStyle(header.querySelector('.work-turn-dots')).display === 'none',
@@ -166,12 +172,48 @@ fs.mkdirSync(shotDir, { recursive: true });
         'a completed Corporate turn is not labelled Worked for its duration');
       workCheck(main.textContent.includes(intermediate.body) && main.querySelector('.work'),
         'the Corporate block omitted intermediate prose or its tool activity');
+      const activityHeads = Array.from(main.querySelectorAll('.work > .whead'));
+      const thoughtHead = activityHeads.find(head => head.querySelector('.wtitle')?.textContent
+        .startsWith('Thought for '));
+      const thoughtIcon = thoughtHead && thoughtHead.querySelector('.wmainmark.bulb');
+      const activityIcons = Array.from(main.querySelectorAll('.work > .whead > .wmainmark'));
+      const latestActivityIcon = activityIcons[activityIcons.length - 1];
+      const turnIcon = main.querySelector('.work-turn-head .work-turn-mark');
+      workCheck(thoughtIcon, 'a Thought for heading omitted the thinking bulb');
+      workCheck(turnIcon && latestActivityIcon
+        && turnIcon.querySelector('path').getAttribute('d')
+          === latestActivityIcon.querySelector('path').getAttribute('d'),
+      'the completed Corporate work heading did not use the latest sub-block icon: '
+        + JSON.stringify({ turn: turnIcon?.querySelector('path')?.getAttribute('d'),
+          latest: latestActivityIcon?.querySelector('path')?.getAttribute('d'),
+          count: activityIcons.length }));
       workCheck(!main.textContent.includes(final.body) && finalRow.textContent.includes(final.body),
         'the Corporate final answer remained inside the work block');
       workCheck(main.classList.contains('shut'), 'a completed Corporate block should start collapsed');
       main.querySelector('.work-turn-head').click();
+      workCheck(!main.classList.contains('shut'), 'the completed Corporate block did not open on click');
     });
     await page.screenshot({ path: path.join(shotDir, 'corporate-worked.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      drawWorkState(workState([
+        workMessage('corp-thinking-user', 'You', 'Think this through first.')
+      ], true, { generating: true, reasoning: 'I am considering the request.',
+        reasoning_ms: 2100, reasoning_done: false }));
+      const main = el.col.querySelector('.work-turn');
+      const mainIcon = main.querySelector('.work-turn-mark');
+      const activityIcon = main.querySelector('.work .wmainmark');
+      workCheck(main.querySelector('.work .wtitle').textContent === 'Thinking',
+        'the synthetic thinking activity was not rendered as Thinking');
+      workCheck(mainIcon?.classList.contains('bulb') && activityIcon?.classList.contains('bulb'),
+        'the active Thinking heading omitted the bulb icon');
+      workCheck(mainIcon.querySelector('path').getAttribute('d')
+        === activityIcon.querySelector('path').getAttribute('d'),
+      'the outer work heading did not inherit the Thinking bulb');
+      if (main.classList.contains('shut')) { main.querySelector('.work-turn-head').click(); }
+      workCheck(!main.classList.contains('shut'), 'the active Thinking block did not open');
+    });
+    await page.screenshot({ path: path.join(shotDir, 'corporate-thinking.png'), fullPage: true });
 
     await page.evaluate(() => {
       const tool = workMessage('plain-result', 'Tool', 'Search results', {
@@ -236,6 +278,7 @@ fs.mkdirSync(shotDir, { recursive: true });
     console.log(path.join(shotDir, 'plain-worked.png'));
     console.log(path.join(shotDir, 'corporate-processing.png'));
     console.log(path.join(shotDir, 'corporate-worked.png'));
+    console.log(path.join(shotDir, 'corporate-thinking.png'));
     console.log(path.join(shotDir, 'plain-two-turns.png'));
     console.log('Working blocks, cancellation colour, and Corporate response animation passed');
   } finally {

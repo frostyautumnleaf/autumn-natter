@@ -143,6 +143,29 @@ function corporateMainMark(header, body, title) {
   header.insertBefore(icon, label);
 }
 
+function workingMainMark(header, body, enabled) {
+  const status = header.querySelector('.work-turn-state');
+  const current = header.querySelector('.work-turn-mark');
+  let source = null;
+  if (enabled) {
+    const marks = body.querySelectorAll('.work > .whead > .wmainmark');
+    source = marks[marks.length - 1] || body.querySelector('.wtoolmark');
+  }
+  if (!source) {
+    current?.remove();
+    return;
+  }
+  const icon = source.cloneNode(true);
+  icon.classList.remove('wmainmark', 'wtoolmark');
+  icon.classList.add('work-turn-mark');
+  if (current && current.className.baseVal === icon.className.baseVal
+      && current.querySelector('path')?.getAttribute('d') === icon.querySelector('path')?.getAttribute('d')) {
+    return;
+  }
+  current?.remove();
+  header.insertBefore(icon, status);
+}
+
 // Separate activity at each stretch of visible prose. Local ordinals keep the same nodes
 // when a streamed message is saved or a tool draft receives a permanent message id.
 function corporateAnswer(run, state) {
@@ -626,6 +649,7 @@ function workingNode(box, item, state) {
   const body = node.lastElementChild;
   if (chatting.corporate) { corporateWorkRows(body, item.messages, state); }
   else { plainWorkRows(body, item.messages, state); }
+  workingMainMark(node.firstElementChild, body, Boolean(chatting.corporate));
   return node;
 }
 

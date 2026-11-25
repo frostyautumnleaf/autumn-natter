@@ -1255,6 +1255,8 @@ body.dark .work-turn { --work-text: #ffffff; }
 .work-turn > .work-turn-head:hover { background: var(--hover); }
 .work-turn .work-turn-fold { display: inline-flex; align-items: center; justify-content: center;
   width: 13px; height: 13px; flex: 0 0 auto; color: var(--work-text); font-size: 10px; }
+.work-turn-head .work-turn-mark { width: 13px; height: 13px; flex: 0 0 auto; stroke: var(--dim); }
+.work-turn-head .work-turn-mark.bulb { stroke: var(--ink); }
 .work-turn-head .work-turn-dots { display: none; align-items: center; justify-content: center;
   width: 12px; height: 12px; flex: 0 0 auto; gap: 3px; }
 .work-turn.corp-work-turn[data-active="true"] .work-turn-dots { display: inline-flex; }
@@ -4260,7 +4262,7 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
   </div>
 </div>
 
-<script src="../frontend/corporate.js?v=6"></script>
+<script src="../frontend/corporate.js?v=7"></script>
 <script>'use strict';
 
 // The page sends requests to the engine over the small HTTP server of the remote mode. The
