@@ -1,5 +1,5 @@
 // Verify that streamed Corporate tool calls appear as sub-blocks, while a cat command stays
-// hidden until the tool starts and the main heading does not follow streamed arguments.
+// hidden until the tool starts and an active card follows its latest tool.
 //
 // Run with AN_PAGE_URL pointing at frontend/index.html, for example through screenshot.sh's
 // local HTTP server.
@@ -120,6 +120,43 @@ const puppeteer = require('puppeteer');
         [completed.head], 'The file contains four bytes.']);
       check(cards().slice(1).every(node => node.querySelector('.wtitle').textContent === 'Ran a command'),
         'each card should summarize its own completed tool calls');
+
+      // A search keeps its heading while the model reads the result in private.
+      function heading() { return cards()[0].querySelector('.wtitle').textContent; }
+      state.messages = [message('search-user', 'You', 'Search for the release notes.')];
+      state.live = '';
+      state.generating = true;
+      state.reasoning = 'Planning the search.';
+      state.tool_previews = [];
+      drawThread(state);
+      check(heading() === 'Thinking', 'a card with only live reasoning should say Thinking');
+
+      const search = { id: 'search', tool: 'web_search', head: 'Searching the web for release notes' };
+      state.tool_previews = [search];
+      drawThread(state);
+      check(heading() === search.head, 'the search preview should take over the heading');
+
+      const result = message('search', 'Tool', 'Release notes', {
+        activity: { ...search, head: 'Searched the web for release notes', done: true },
+        answer_head: 'Searched the web'
+      });
+      state.messages.push(result);
+      state.tool_previews = [];
+      state.reasoning = '';
+      drawThread(state);
+      check(heading() === result.activity.head, 'the card should wait for prose before showing the summary');
+
+      state.reasoning = 'Reading the results.';
+      drawThread(state);
+      check(heading() === result.activity.head && cards()[0].querySelector('.whead.busy'),
+        'reasoning after a search should keep the search heading and the activity dots');
+
+      state.live = 'I found the release notes.';
+      state.reasoning_done = true;
+      drawThread(state);
+      check(heading() === result.answer_head, 'starting a message should show the card summary');
+      state.reasoning = '';
+      state.reasoning_done = false;
 
       // In a parallel request the engine withholds a cat path until execution.
       // A visible second preview must keep its own node and fold as the first appears.

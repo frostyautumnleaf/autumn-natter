@@ -45,6 +45,11 @@ function corporateDisclosure(key, main) {
   return node;
 }
 
+function corporateToolTitle(one) {
+  return (one.head || 'Working').replace(/^Looked at (a picture|pictures)/,
+    one.image_count > 1 || /^Looked at pictures/.test(one.head) ? 'Viewed images' : 'Viewed image');
+}
+
 function corporateEntry(node, one) {
   const header = node.firstElementChild;
   const body = node.lastElementChild;
@@ -61,8 +66,7 @@ function corporateEntry(node, one) {
   if (one.tool && one.tool !== 'work_log' && one.tool !== 'finish_answer') {
     header.append(mark(one.reading ? READ_MARK : toolShape(one.tool).mark, 'wtoolmark'));
   }
-  title.textContent = (one.head || 'Working').replace(/^Looked at (a picture|pictures)/,
-    one.image_count > 1 || /^Looked at pictures/.test(one.head) ? 'Viewed images' : 'Viewed image');
+  title.textContent = corporateToolTitle(one);
   header.append(title);
   if ((one.tool === 'create_file' || one.tool === 'edit_file') && (one.adds || one.cuts)) {
     for (const [style, count] of [['wplus', '+' + (one.adds || 0)], ['wminus', '-' + (one.cuts || 0)]]) {
@@ -137,7 +141,7 @@ function corporateAnswer(run, state) {
         seen.add(m.id);
         const one = activity();
         one.tools.push(m.activity);
-        if (m.tool?.startsWith('Running ')) { one.running = m.activity.head; }
+        if (m.tool?.startsWith('Running ')) { one.busy = true; }
         if (m.answer_head) { one.summary = m.answer_head; }
       }
       continue;
@@ -165,17 +169,20 @@ function corporateAnswer(run, state) {
       one.busy = true;
     }
   }
+  // Only the card after the last visible message can still receive activity.
+  if (card && run[run.length - 1]?.id === 'live') { card.active = true; }
   return parts;
 }
 
 function updateCorporateCard(card, part) {
   const header = card.firstElementChild;
-  header.classList.toggle('busy', Boolean(part.busy || part.running));
-  const lastTool = part.tools[part.tools.length - 1];
+  header.classList.toggle('busy', Boolean(part.active && part.busy));
+  const lastTool = part.drafts?.at(-1) || part.tools.at(-1);
   const elapsed = part.ms ? 'Thought for ' + spanWords(Math.max(1000, part.ms)) : 'Thought';
   const summary = part.summary === 'Done' ? '' : part.summary;
-  const title = part.running || (part.drafts ? 'Writing a tool call' :
-    part.busy ? 'Thinking' : summary || part.legacyTitle || lastTool?.head || elapsed);
+  const latest = lastTool ? corporateToolTitle(lastTool) : '';
+  const title = part.active ? latest || (part.busy ? 'Thinking' : elapsed) :
+    summary || part.legacyTitle || latest || elapsed;
   const label = header.lastElementChild;
   if (label.textContent !== title) { label.textContent = title; }
 
