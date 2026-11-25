@@ -690,9 +690,10 @@ body.home .stage { display: none; }
  * whole page, so the grid stands down while that form is on.
  */
 .gridbg {
-  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
+  position: absolute; left: 0; z-index: 0; width: 100%;
   pointer-events: none;
 }
+body.home .gridbg { display: none; }
 /*
  * The field of random digits the cursor uncovers in the background of the chat. It is the
  * deepest thing in the place the chat is in: under the rain and the leaves, under every
@@ -1683,7 +1684,7 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   from { opacity: 0; transform: translateY(12px) scale(.985); }
   to { opacity: 1; transform: none; }
 }
-.dock { flex: 0 0 auto; width: var(--dock-width, auto); margin-left: var(--dock-left, 0px);
+.dock { position: relative; flex: 0 0 auto; width: var(--dock-width, auto); margin-left: var(--dock-left, 0px);
   padding-bottom: 12px; }
 
 /*
@@ -3261,6 +3262,7 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
 </div>
 
 <div class="main" id="main">
+  <canvas class="gridbg" id="gridbg" aria-hidden="true"></canvas>
   <!--   Where the rain breaks on the chat composer box and on the blocks of the chat. It is above all
     of the chat, receives no pointer events, and holds nothing but the squares of water of the
     moment. -->
@@ -3338,10 +3340,6 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
     <!--   The field of random digits the cursor uncovers. It is the deepest thing in the chat, and
       only the numbers the aura about the pointer reaches are drawn; the Chatting setting decides
       whether there are any at all. -->
-    <!--   The grid the background of the chat is drawn with: hairlines in the colour of the theme, in
-      the place of the solid colour, while the Chatting setting asks for it. It is under the
-      digits, and it is the deepest thing here. -->
-    <canvas class="gridbg" id="gridbg" aria-hidden="true"></canvas>
     <canvas class="digits" id="digits" aria-hidden="true"></canvas>
     <canvas class="fall" id="fall" aria-hidden="true"></canvas>
     <!--   The summarisations of the chat. They remain out of the text, on a line at the right of the
@@ -6036,17 +6034,19 @@ function gridRgba(one) {
     + ',' + (Math.round(one[3] * 1000) / 1000) + ')';
 }
 
-// The canvas of the grid, at the size of the computer's own pixels and of the place the chat is
-// in. Nothing is drawn where there is no such place: a chat that is not open, a window that is
-// hidden, or a stage that has been folded away.
+// The grid runs from the top of the thread to the bottom of the chat, including the dock.
+// The backing canvas uses the computer's own pixels. It stays empty when the chat is hidden.
 function gridSize() {
   var stage = document.getElementById('stage');
+  var main = document.getElementById('main');
   var canvas = grid.canvas || document.getElementById('gridbg');
-  if (!stage || !canvas) { return false; }
+  if (!stage || !main || !canvas) { return false; }
   if (stage.offsetParent === null) { return false; }
-  var s = stage.getBoundingClientRect();
-  var wide = Math.max(0, Math.round(s.width));
-  var tall = Math.max(0, Math.round(s.height));
+  var top = stage.offsetTop;
+  var wide = main.clientWidth;
+  var tall = main.clientHeight - top;
+  canvas.style.top = top + 'px';
+  canvas.style.height = tall + 'px';
   var dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   if (grid.ctx && wide === grid.w && tall === grid.h && dpr === grid.dpr) { return true; }
   if (wide <= 0 || tall <= 0) { return false; }
@@ -6232,12 +6232,17 @@ function gridSetting(on) {
   gridGoOn();
 }
 
-// The place the chat is in is the only thing the grid is sized to, so a window that changes
-// shape is asked after and nothing else is.
+// The grid follows changes to the window and to the layout of the chat.
 (function gridWire() {
-  window.addEventListener('resize', function () {
+  function resize() {
     if (grid.want) { gridGoOn(); }
-  });
+  }
+  window.addEventListener('resize', resize);
+  if (window.ResizeObserver) {
+    var watch = new ResizeObserver(resize);
+    watch.observe(document.getElementById('main'));
+    watch.observe(document.getElementById('stage'));
+  }
 })();
 
 // ------------------------------------------------------- the digits under the cursor
