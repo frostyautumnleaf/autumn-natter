@@ -176,7 +176,7 @@ function corporateAnswer(run, state) {
 
 function updateCorporateCard(card, part) {
   const header = card.firstElementChild;
-  header.classList.toggle('busy', Boolean(part.active && part.busy));
+  header.classList.toggle('busy', Boolean(part.active));
   const body = card.lastElementChild;
   const old = new Map(Array.from(body.children, node => [node.dataset.foldKey, node]));
   function insert(work, slot, index) {

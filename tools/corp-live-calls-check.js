@@ -145,6 +145,10 @@ const puppeteer = require('puppeteer');
       state.reasoning = '';
       drawThread(state);
       check(heading() === result.activity.head, 'the card should wait for prose before showing the summary');
+      function dotsVisible() {
+        return getComputedStyle(cards()[0].querySelector('.whead .dots')).visibility === 'visible';
+      }
+      check(dotsVisible(), 'the dots should stay visible after a tool returns and before model output');
 
       const next = message('second-search', 'Tool', 'More results', {
         activity: { ...search, id: 'second-search', head: 'Searched the web for patch numbers', done: true },
@@ -153,13 +157,13 @@ const puppeteer = require('puppeteer');
       state.messages.push(next);
       state.reasoning = 'Reading the results.';
       drawThread(state);
-      check(heading() === next.activity.head && cards()[0].querySelector('.whead.busy'),
+      check(heading() === next.activity.head && dotsVisible(),
         'reasoning after a search should keep the search heading and the activity dots');
 
       state.live = 'I found the release notes.';
       state.reasoning_done = true;
       drawThread(state);
-      check(heading() === next.answer_head, 'starting a message should show the card summary');
+      check(heading() === next.answer_head && !dotsVisible(), 'starting a message should show the summary and hide the dots');
       state.reasoning = '';
       state.reasoning_done = false;
 
