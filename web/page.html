@@ -5007,7 +5007,7 @@ function rainSurfaces() {
   var box = document.getElementById('box');
   if (box) {
     var r = box.getBoundingClientRect();
-    if (r.width > 8) { out.push({ x: r.left - s.left, w: r.width, y: r.top - s.top }); }
+    if (r.width > 8) { out.push({ x: r.left - s.left, w: r.width, y: r.top - s.top, composer: true }); }
   }
   // A block is worth a splash at its top edge only while the window shows it: there is no sense
   // in a splash at an edge the user cannot see.
@@ -5023,11 +5023,11 @@ function rainSurfaces() {
 // The edge a drop met between the last frame and this one, or nothing at all when it fell past
 // none. Where more than one edge was met, the highest is the one the drop came to first.
 function rainHit(x, before, after) {
-  var found = 0;
+  var found = null;
   for (var i = 0; i < rain.surfaces.length; i++) {
     var one = rain.surfaces[i];
     if (x < one.x || x > one.x + one.w) { continue; }
-    if (one.y >= before && one.y <= after && (!found || one.y < found)) { found = one.y; }
+    if (one.y > before && one.y <= after && (!found || one.y < found.y)) { found = one; }
   }
   return found;
 }
@@ -5132,12 +5132,7 @@ function rainStep(now) {
   } else {
     rain.grown = 0;
   }
-  // A drop that has no edge to meet is let go of a little below the chat, and one that has the
-  // chat composer box below the chat is kept as far as that.
   var tail = rain.h + 24;
-  for (var e = 0; e < rain.surfaces.length; e++) {
-    if (rain.surfaces[e].y + 24 > tail) { tail = rain.surfaces[e].y + 24; }
-  }
   rain.ctx.clearRect(0, 0, rain.w, rain.h);
   rain.sctx.clearRect(0, 0, rain.sw, rain.sh);
   var kept = [];
@@ -5149,8 +5144,10 @@ function rainStep(now) {
     one.y += one.speed * dt;
     var met = rainHit(one.x, before, one.y);
     if (met) {
-      if (chatting.rainSplash) { rainSpur(one.x, met); }
-      continue;
+      if (chatting.rainSplash) { rainSpur(one.x, met.y); }
+      // The composer masks the falling streak. Keep it in the background so it can
+      // reappear below the box after the splash on its top edge.
+      if (!met.composer) { continue; }
     }
     if (one.y - one.len * RAIN_CELL > tail) { continue; }
     rainDraw(one);
