@@ -9832,6 +9832,7 @@ function partStamp(part) {
 function partNode(part) {
   var node = part.kind === 'thought' ? thoughtBlocks(part.m) : toolBox(part.m);
   if (part.m.id) { node.dataset.mid = part.m.id; }
+  node.dataset.groupPart = part.kind + ':' + (part.m.id || '');
   node.dataset.stamp = partStamp(part);
   return node;
 }
@@ -9846,24 +9847,33 @@ function syncGroup(turn, items, from, to, isLive) {
   var body = panel ? panel.querySelector('.words') : null;
   if (!body) { return; }
   var parts = groupParts(items, from, to);
-  // The parts of the answer that is arriving are behind these, and the writer owns them, so
-  // they are kept out of the count and skipped.
-  var held = [];
-  var live = null;
-  for (var c = body.firstChild; c; c = c.nextSibling) {
-    if (c.dataset && c.dataset.live) { live = c; break; }
-    held.push(c);
-  }
-  while (held.length > parts.length) {
-    var gone = held.pop();
-    gone.parentNode.removeChild(gone);
-  }
+  // Persisted parts keep their own nodes; streamed thoughts and calls stay at the end only
+  // while the writer still owns them.
+  var held = new Map();
+  Array.from(body.children).forEach(function (node) {
+    if (node.dataset.groupPart) { held.set(node.dataset.groupPart, node); }
+  });
+  var ordered = [];
   for (var p = 0; p < parts.length; p++) {
-    var node = held[p];
-    if (!node) { body.insertBefore(partNode(parts[p]), live); continue; }
-    if (node.dataset.stamp !== partStamp(parts[p])) {
-      body.replaceChild(partNode(parts[p]), node);
+    var key = parts[p].kind + ':' + (parts[p].m.id || '');
+    var node = held.get(key);
+    held.delete(key);
+    if (!node) {
+      node = partNode(parts[p]);
+    } else if (node.dataset.stamp !== partStamp(parts[p])) {
+      var replacement = partNode(parts[p]);
+      replacement.classList.toggle('closed', node.classList.contains('closed'));
+      node.replaceWith(replacement);
+      node = replacement;
     }
+    ordered.push(node);
+  }
+  held.forEach(function (node) { node.remove(); });
+  var streamed = Array.from(body.children).filter(function (node) { return node.dataset.live; });
+  if (!isLive) { streamed.forEach(function (node) { node.remove(); }); }
+  for (var n = 0; n < ordered.length; n++) {
+    var anchor = body.children[n] || null;
+    if (anchor !== ordered[n]) { body.insertBefore(ordered[n], anchor); }
   }
   // The writer reports how long the model has thought for, so the header of a panel that holds
   // an answer still arriving is left to it.

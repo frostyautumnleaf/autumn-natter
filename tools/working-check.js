@@ -323,6 +323,92 @@ fs.mkdirSync(shotDir, { recursive: true });
       }, mode);
       await page.screenshot({ path: path.join(shotDir, 'direct-answer-' + mode + '.png'), fullPage: true });
     }
+
+    await page.evaluate(() => {
+      const user = workMessage('order-user', 'You', 'Think, search, think, and search again.');
+      const firstThought = workMessage('order-thought-1', 'Assistant', '', {
+        reasoning: 'First thought.', reasoning_ms: 1200
+      });
+      const firstTool = workMessage('order-tool-1', 'Tool', 'First search result.', {
+        tool_name: 'web_search', tool: 'First search result.'
+      });
+      const secondThought = workMessage('order-thought-2', 'Assistant', '', {
+        reasoning: 'Second thought.', reasoning_ms: 900
+      });
+      const secondTool = workMessage('order-tool-2', 'Tool', 'Second search result.', {
+        tool_name: 'web_search', tool: 'Second search result.'
+      });
+      const active = workState([user, firstThought, firstTool], false, {
+        generating: true, reasoning: 'Second thought.', reasoning_ms: 900
+      });
+      drawWorkState(active);
+      const main = el.col.querySelector('.work-turn');
+      if (main.classList.contains('shut')) { main.querySelector('.work-turn-head').click(); }
+      const order = () => Array.from(el.col.querySelector('.work-turn .think > .words').children)
+        .filter(node => node.classList.contains('thought') || node.classList.contains('tool'))
+        .map(node => node.classList.contains('thought') ? 'thought' : 'tool');
+      const expected = ['thought', 'tool', 'thought'];
+      workCheck(JSON.stringify(order()) === JSON.stringify(expected),
+        'the first Plain thinking/tool sequence was out of order: ' + JSON.stringify(order()));
+
+      const next = workState([user, firstThought, firstTool, secondThought, secondTool], false, {
+        generating: true, reasoning: 'Third thought.', reasoning_ms: 600
+      });
+      drawWorkState(next);
+      workCheck(JSON.stringify(order()) === JSON.stringify([
+        'thought', 'tool', 'thought', 'tool', 'thought'
+      ]), 'a streamed Plain tool result reordered thoughts and tools: ' + JSON.stringify(order()));
+
+      const thirdThought = workMessage('order-thought-3', 'Assistant', '', {
+        reasoning: 'Third thought.', reasoning_ms: 600
+      });
+      const final = workMessage('order-final', 'Assistant', 'Finished.');
+      drawWorkState(workState([user, firstThought, firstTool, secondThought,
+        secondTool, thirdThought, final], false));
+      workCheck(JSON.stringify(order()) === JSON.stringify([
+        'thought', 'tool', 'thought', 'tool', 'thought'
+      ]), 'finishing Plain mode duplicated or reordered thinking/tool blocks: '
+        + JSON.stringify(order()));
+      const panel = el.col.querySelector('.work-turn .think');
+      if (panel.classList.contains('closed')) { panel.querySelector('.thead').click(); }
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-thought-tool-order.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      const user = workMessage('order-off-user', 'You', 'Think and search with separate blocks.');
+      const thought1 = workMessage('order-off-thought-1', 'Assistant', '', {
+        reasoning: 'First thought.', reasoning_ms: 1000
+      });
+      const tool1 = workMessage('order-off-tool-1', 'Tool', 'First result.', {
+        tool_name: 'web_search', tool: 'First result.'
+      });
+      const thought2 = workMessage('order-off-thought-2', 'Assistant', '', {
+        reasoning: 'Second thought.', reasoning_ms: 1000
+      });
+      const tool2 = workMessage('order-off-tool-2', 'Tool', 'Second result.', {
+        tool_name: 'web_search', tool: 'Second result.'
+      });
+      const look = (messages, extra) => {
+        const state = workState(messages, false, extra || {});
+        state.chatting.tools_in_thinking = false;
+        drawWorkState(state);
+      };
+      const order = () => Array.from(el.col.querySelector('.work-turn-body').children)
+        .map(row => row.querySelector('.tool') ? 'tool' : row.querySelector('.think') ? 'thought' : '')
+        .filter(Boolean);
+      look([user, thought1, tool1], { generating: true, reasoning: 'Second thought.', reasoning_ms: 1000 });
+      look([user, thought1, tool1, thought2, tool2], {
+        generating: true, reasoning: 'Third thought.', reasoning_ms: 1000
+      });
+      const thought3 = workMessage('order-off-thought-3', 'Assistant', '', {
+        reasoning: 'Third thought.', reasoning_ms: 1000
+      });
+      look([user, thought1, tool1, thought2, tool2, thought3,
+        workMessage('order-off-final', 'Assistant', 'Finished.')]);
+      workCheck(JSON.stringify(order()) === JSON.stringify([
+        'thought', 'tool', 'thought', 'tool', 'thought'
+      ]), 'separate Plain blocks became out of order: ' + JSON.stringify(order()));
+    });
     console.log(path.join(shotDir, 'plain-cancel.png'));
     console.log(path.join(shotDir, 'plain-worked.png'));
     console.log(path.join(shotDir, 'plain-thinking-complete.png'));
@@ -332,6 +418,7 @@ fs.mkdirSync(shotDir, { recursive: true });
     console.log(path.join(shotDir, 'plain-two-turns.png'));
     console.log(path.join(shotDir, 'direct-answer-plain.png'));
     console.log(path.join(shotDir, 'direct-answer-corporate.png'));
+    console.log(path.join(shotDir, 'plain-thought-tool-order.png'));
     console.log('Working blocks, cancellation colour, and Corporate response animation passed');
   } finally {
     await browser.close();
