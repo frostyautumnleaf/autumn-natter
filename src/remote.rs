@@ -106,12 +106,14 @@ fn handle(engine: &Engine, mut request: Request) {
         ("GET", "/") => {
             let _ = request.respond(
                 Response::from_string(web::PAGE)
-                    .with_header(content_type("text/html; charset=utf-8")),
+                    .with_header(content_type("text/html; charset=utf-8"))
+                    .with_header(header("cache-control", "no-cache")),
             );
         }
         ("GET", "/frontend/corporate.js") => {
             let _ = request.respond(Response::from_string(include_str!("../frontend/corporate.js"))
-                .with_header(content_type("text/javascript; charset=utf-8")));
+                .with_header(content_type("text/javascript; charset=utf-8"))
+                .with_header(header("cache-control", "no-cache")));
         }
         ("GET", "/autumn-natter.svg") | ("GET", "/favicon.ico") => {
             let _ = request.respond(

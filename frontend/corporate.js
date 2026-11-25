@@ -136,7 +136,7 @@ function corporateAnswer(run, state) {
   }
   for (const m of run) {
     if (m.role === 'Tool') {
-      if (m.reasoning || m.reasoning_ms) { thought(m.reasoning_ms, false); }
+      if (m.reasoning?.trim()) { thought(m.reasoning_ms, false); }
       if (m.activity && !seen.has(m.id)) {
         seen.add(m.id);
         const one = activity();
@@ -151,7 +151,7 @@ function corporateAnswer(run, state) {
     if (card && m.work_head && !executions && card.tools.length) { card.legacyTitle = m.work_head; }
 
     const body = m.body || '';
-    const offsets = m.thought_offsets?.length ? m.thought_offsets : (m.reasoning || m.reasoning_ms ? [0] : []);
+    const offsets = m.reasoning?.trim() ? (m.thought_offsets?.length ? m.thought_offsets : [0]) : [];
     let start = 0, lastText = null;
     for (const [index, end] of offsets.entries()) {
       if (end < start || end > body.length) { continue; }
@@ -177,15 +177,6 @@ function corporateAnswer(run, state) {
 function updateCorporateCard(card, part) {
   const header = card.firstElementChild;
   header.classList.toggle('busy', Boolean(part.active && part.busy));
-  const lastTool = part.drafts?.at(-1) || part.tools.at(-1);
-  const elapsed = part.ms ? 'Thought for ' + spanWords(Math.max(1000, part.ms)) : 'Thought';
-  const summary = part.summary === 'Done' ? '' : part.summary;
-  const latest = lastTool ? corporateToolTitle(lastTool) : '';
-  const title = part.active ? latest || (part.busy ? 'Thinking' : elapsed) :
-    summary || part.legacyTitle || latest || elapsed;
-  const label = header.lastElementChild;
-  if (label.textContent !== title) { label.textContent = title; }
-
   const body = card.lastElementChild;
   const old = new Map(Array.from(body.children, node => [node.dataset.foldKey, node]));
   function insert(work, slot, index) {
@@ -204,6 +195,15 @@ function updateCorporateCard(card, part) {
   (part.drafts || []).forEach((work, index) =>
     insert(work, part.tools.length + (work.slot ?? index), part.tools.length + index));
   for (const stale of old.values()) { stale.remove(); }
+  // Use the last rendered row, so an active card with visible actions always names one.
+  const latest = body.lastElementChild?.firstElementChild.querySelector('.wbtitle')?.textContent;
+  const summary = [part.summary, part.legacyTitle].find(head => head && head !== 'Done' && head !== 'Thinking');
+  const thought = part.active && part.busy ? 'Thinking' :
+    part.ms ? 'Thought for ' + spanWords(Math.max(1000, part.ms)) : 'Thought';
+  const title = (!part.active && summary) || latest || thought;
+  const label = header.lastElementChild;
+  if (label.textContent !== title) { label.textContent = title; }
+
   const hasDetails = body.childElementCount > 0;
   header.querySelector('.wfold').style.visibility = hasDetails ? '' : 'hidden';
   header.tabIndex = hasDetails ? 0 : -1;

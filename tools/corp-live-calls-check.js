@@ -146,17 +146,42 @@ const puppeteer = require('puppeteer');
       drawThread(state);
       check(heading() === result.activity.head, 'the card should wait for prose before showing the summary');
 
+      const next = message('second-search', 'Tool', 'More results', {
+        activity: { ...search, id: 'second-search', head: 'Searched the web for patch numbers', done: true },
+        answer_head: 'Searched the web 2 times'
+      });
+      state.messages.push(next);
       state.reasoning = 'Reading the results.';
       drawThread(state);
-      check(heading() === result.activity.head && cards()[0].querySelector('.whead.busy'),
+      check(heading() === next.activity.head && cards()[0].querySelector('.whead.busy'),
         'reasoning after a search should keep the search heading and the activity dots');
 
       state.live = 'I found the release notes.';
       state.reasoning_done = true;
       drawThread(state);
-      check(heading() === result.answer_head, 'starting a message should show the card summary');
+      check(heading() === next.answer_head, 'starting a message should show the card summary');
       state.reasoning = '';
       state.reasoning_done = false;
+
+      state.messages = [message('text-only-user', 'You', 'Say hello.')];
+      state.live = '';
+      state.reasoning = ' \n';
+      state.reasoning_ms = 120;
+      state.thought_offsets = [0];
+      drawThread(state);
+      check(cards().length === 0, 'waiting with only whitespace reasoning should not start a card');
+      state.live = 'Hello!';
+      drawThread(state);
+      expectSections(['Hello!']);
+      state.messages.push(message('text-only', 'Assistant', 'Hello!', {
+        reasoning: state.reasoning, reasoning_ms: state.reasoning_ms, thought_offsets: [0]
+      }));
+      state.generating = false;
+      drawThread(state);
+      expectSections(['Hello!']);
+      state.reasoning = '';
+      state.reasoning_ms = 0;
+      state.thought_offsets = [];
 
       // In a parallel request the engine withholds a cat path until execution.
       // A visible second preview must keep its own node and fold as the first appears.
