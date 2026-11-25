@@ -1246,22 +1246,53 @@ body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: n
 .work { --work-text: var(--ink-leaf); }
 body:not(.dark):not(.silver):not(.corporate):not(.neon) .work { --work-text: #242424; }
 body.dark .work { --work-text: #ffffff; }
+.work-turn { --work-text: var(--ink-leaf); margin: 14px 0; }
+body:not(.dark):not(.silver):not(.corporate):not(.neon) .work-turn { --work-text: #242424; }
+body.dark .work-turn { --work-text: #ffffff; }
+.work-turn > .work-turn-head { display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 8px; border: 0; background: none; color: var(--work-text); text-align: left;
+  font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.work-turn > .work-turn-head:hover { background: var(--hover); }
+.work-turn .work-turn-fold { display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; flex: 0 0 auto; color: var(--work-text); font-size: 10px; }
+.work-turn-head .work-turn-dots { display: none; align-items: center; justify-content: center;
+  width: 12px; height: 12px; flex: 0 0 auto; gap: 3px; }
+.work-turn.corp-work-turn[data-active="true"] .work-turn-dots { display: inline-flex; }
+.work-turn.corp-work-turn.processing[data-active="true"] .work-turn-dots { display: none; }
+.work-turn-head .work-turn-dots i { width: 3.5px; height: 3.5px; border-radius: 50%;
+  background: var(--ink); animation: nod 1.1s ease-in-out infinite; }
+.work-turn-head .work-turn-dots i:nth-child(2) { animation-delay: .15s; }
+.work-turn-head .work-turn-dots i:nth-child(3) { animation-delay: .3s; }
+.work-turn-head .brain-paper { display: none; width: 30px; height: 18px; flex: 0 0 auto;
+  overflow: visible; color: var(--ink); }
+.work-turn.processing .brain-paper { display: inline-flex; }
+.work-turn.shut > .work-turn-head .work-turn-fold { transform: rotate(-90deg); }
+.work-turn.shut > .work-turn-body { display: none; }
+.work-turn-state { color: var(--dim); font-weight: 600; }
+.work-turn-body { min-width: 0; margin-left: 6px; padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--line); }
+.work-turn-body > .turn:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+.work-turn + .turn { border-top: 0; margin-top: 0; padding-top: 0; }
+.work-turn-body > .turn + .turn { margin-top: 12px; padding-top: 12px; }
+.work-turn-body > .corp-work-run + .corp-work-run,
+.work-turn-body > .corp-work-run + .turn { margin-top: 12px; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
   cursor: pointer; color: var(--work-text); font-weight: 600; }
 .work > .whead .wfold { color: var(--work-text); font-size: 10px; flex: 0 0 auto; }
-.work > .whead .dots { display: inline-flex; visibility: hidden; gap: 3px;
-  align-items: center; justify-content: center; width: 12px; height: 12px; flex: 0 0 auto; }
-.work > .whead.busy .dots { visibility: visible; }
-.work > .whead .dots i { width: 3.5px; height: 3.5px; border-radius: 50%;
-  background: var(--ink); animation: nod 1.1s ease-in-out infinite; }
-.work > .whead .dots i:nth-child(2) { animation-delay: .15s; }
-.work > .whead .dots i:nth-child(3) { animation-delay: .3s; }
+.brain-paper .brain { fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round;
+  stroke-linejoin: round; }
+.brain-paper .page { fill: var(--bg); stroke: currentColor; stroke-width: .9; }
+.brain-paper .page-line { fill: none; stroke: currentColor; stroke-width: .55; }
+.brain-paper .page-one { animation: paper-in 1.35s ease-in-out infinite; }
+.brain-paper .page-two { animation: paper-in 1.35s ease-in-out .42s infinite; }
+@keyframes paper-in { 0% { opacity: .25; transform: translateX(-2px); }
+  55% { opacity: 1; } 100% { opacity: .1; transform: translateX(8px); } }
 .work .wfold { display: inline-flex; width: 13px; height: 13px; align-items: center;
   justify-content: center; line-height: 1; }
 .work.shut > .wbody { display: none; }
 .work.shut > .whead .wfold { transform: rotate(-90deg); }
 .work .wline, .work .wbhead, .work .wfile, .work .wout { color: var(--work-text); }
-.wbody { padding: 4px 12px 4px 37px; }
+.wbody { padding: 4px 12px 4px 19px; }
 .wblock { border: 0; border-left: 1px solid var(--line); }
 .wblock > .wbhead { display: flex; align-items: center; gap: 8px; padding: 7px 12px;
   cursor: pointer; }
@@ -1406,7 +1437,10 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   text-align: center; white-space: pre-wrap; overflow-wrap: anywhere; }
 .note::before, .note::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
 .turn.bad .note { color: var(--ink-fail); }
-.turn.bad .body, .turn.bad .bubble, .turn.bad .plain { color: var(--ink-fail); }
+/* A failed tool row may also carry the thinking that led to it. Keep the warning colour on the
+ * tool result itself so cancelling a call cannot tint the thoughts around it. */
+.turn.bad:not(.t-tool) .body, .turn.bad:not(.t-tool) .bubble,
+.turn.bad:not(.t-tool) .plain { color: var(--ink-fail); }
 
 /*
  * One run of the terminal tool. The header reports which command runs, or has run, and gives
@@ -4224,7 +4258,7 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
   </div>
 </div>
 
-<script src="../frontend/corporate.js?v=3"></script>
+<script src="../frontend/corporate.js?v=5"></script>
 <script>'use strict';
 
 // The page sends requests to the engine over the small HTTP server of the remote mode. The
@@ -10897,128 +10931,27 @@ function addTurn(box, turn) {
 }
 
 function drawThread(s) {
-  // Read the thread from this snapshot, including the assistant's current output.
   cur = s;
-  var box = el.col;
   foldsFollowSettings();
   var items = threadItems();
-  if (items.length === 0) {
+  if (!items.length) {
     stopInk();
-    if (box.dataset.key !== 'blank') {
-      box.dataset.key = 'blank';
-      // The chat is remembered as none, so the chat that returns after this one is at the top
-      // again, as a chat that was opened always does.
-      box.dataset.chat = '';
-      box.innerHTML = '';
+    if (el.col.dataset.key !== 'blank') {
+      el.col.dataset.key = 'blank';
+      el.col.dataset.chat = '';
+      el.col.innerHTML = '';
       var blank = make('div', 'empty');
       var strong = make('b');
       strong.textContent = 'Nothing written yet';
       var rest = make('span');
       rest.textContent = 'Write below and press Enter. An empty chat is removed '
         + 'when you switch chats.';
-      blank.appendChild(strong);
-      blank.appendChild(rest);
-      box.appendChild(blank);
+      blank.append(strong, rest);
+      el.col.appendChild(blank);
     }
     return;
   }
-  if (chatting.corporate) {
-    drawCorporateThread(s, items);
-    return;
-  }
-  // A train of thought that runs over a run of tools is in one thinking panel, so the thoughts,
-  // the runs that came out of them, and the text of the answer at the end of it read as one
-  // part of the conversation. The span of each panel is in the key, so the thread is rebuilt
-  // when a panel grows.
-  var spans = thoughtSpans(items);
-  var rows = threadRows(items, spans);
-  var plan = endPlan(items, rows, !!(s && s.generating));
-  var key = items.map(function (m) { return m.id; }).join('|')
-          + '#' + spans.map(function (r) { return r.from + '-' + r.to; }).join(',');
-  var open = (s.chat && s.chat.id) || '';
-  var turns = threadTurns(box);
-  if (box.dataset.key !== key) {
-    var had = Number(box.dataset.count || 0);
-    var fresh = box.dataset.chat !== open;
-    box.dataset.key = key;
-    box.dataset.chat = open;
-    box.dataset.count = items.length;
-    // The rows of a chat only ever are at the end of it, so the thread is not rebuilt whole
-    // when one row arrives. A row that is where it was kept; a row whose text changed is put
-    // again on its own; a row that is new is added, and the rows that are no longer there are
-    // removed. The chat that was here was built again for one row that arrived, which read as
-    // the whole chat refreshing under the user.
-    for (var r = 0; r < rows.length; r++) {
-      var ids = rowStamp(items, rows[r]);
-      var child = turns[r];
-      if (!child) {
-        var turn = make('div', 'turn');
-        drawRow(turn, items, rows[r]);
-        // Only the turn that arrived fades up. A chat that was opened is already there, and its
-        // turns do not need to record it again.
-        if (r === rows.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
-        // A message of the user that arrived while a copy of the text is on its way is the
-        // place that copy is going to.
-        claimFlyTurn(turn, rows[r].to - rows[r].from === 1 ? items[rows[r].from] : null);
-        addTurn(box, turn);
-        turns.push(turn);
-      } else if (child.dataset.row !== ids) {
-        // The row is rebuilt in a new turn. The folds the user moved are read off the old one
-        // and put back on the new one, but only when the two rows are made of the same
-        // conversation: a row that is where another row was after a message was sent of the
-        // chat is a different part of the conversation, and the folds of the row that went
-        // should not follow it.
-        var kept = !foldMoved && sameTalk(child.dataset.row, ids) ? foldsOf(child) : null;
-        var again = make('div', 'turn');
-        drawRow(again, items, rows[r]);
-        unfoldRow(again, kept);
-        box.replaceChild(again, child);
-        turns[r] = again;
-        // A row that was created again lost the marker that holds a message back from sight, so
-        // it is put on again while the copy is still on its way.
-        if (fly && fly.mid && again.dataset.mid === fly.mid) {
-          fly.turn = again;
-          again.classList.add('landing');
-        }
-      } else {
-        syncTurn(child, items, rows[r]);
-      }
-    }
-    while (turns.length > rows.length) { box.removeChild(turns.pop()); }
-    for (var p = 0; p < rows.length; p++) { placeEnd(turns[p], plan[p]); }
-    if (fresh) {
-      // A chat that was opened or turned is at the top.
-      el.thread.scrollTop = 0;
-      stick = true;
-    }
-  } else {
-    var tail = items[items.length - 1];
-    if (tail.id === 'live') {
-      // An answer that is arriving is written a few characters at a time by the writer, so the
-      // text flow instead of arriving in jumps.
-      feedInk(tail);
-    } else {
-      stopInk();
-    }
-    // The last rows are the ones that can still say something new: the answer that is arriving,
-    // and the run of a tool whose result arrived while the model wrote on. Only the last turn
-    // was checked before, so a block of a run that is in a thinking panel under an answer went
-    // on saying 'running' with nothing of its result for the rest of the answer.
-    for (var k = rows.length - 3; k < rows.length; k++) {
-      if (k >= 0) { syncTurn(turns[k], items, rows[k]); }
-    }
-    // The blocks the last answers end with are checked again here as well: an offer that
-    // arrived while the model was writing remains aside until the answer is over, and the row
-    // that carries it has nothing else to say when it ends. The same is true of the display
-    // button and of the paths proposed for what comes next, which are in the same place.
-    for (var q = rows.length - 3; q < rows.length; q++) {
-      if (q >= 0) { placeEnd(turns[q], plan[q]); }
-    }
-  }
-  if (stick) {
-    el.thread.scrollTop = el.thread.scrollHeight;
-    stepHeadShown();
-  }
+  drawWorkingThread(s, items);
 }
 
 // Send the blocks of code of a part of the chat back to their first line, when the user never

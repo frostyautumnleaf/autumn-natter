@@ -6,6 +6,34 @@ const corporateOpen = new Set();
 const READ_MARK = 'M8 4.75C6.45 3.35 4.35 2.95 1.75 3.5V12'
   + 'c2.6-.55 4.7-.15 6.25 1.25 1.55-1.4 3.65-1.8 6.25-1.25V3.5'
   + 'c-2.6-.55-4.7-.15-6.25 1.25zM8 4.75v8.5';
+const workFolded = new Map();
+const workStarted = new Map();
+const workElapsed = new Map();
+let workClock = 0;
+
+function processingMark() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'brain-paper');
+  const brain = document.createElementNS(svg.namespaceURI, 'path');
+  brain.setAttribute('class', 'brain');
+  brain.setAttribute('d', 'M13 3.1c-.7-1.5-3.1-1.7-4.1-.3-1.9-.2-3.1 1.8-2.3 3.4-1.7 1.2-1.2 3.8.7 4.3.3 1.8 2.3 2.6 3.8 1.6 1.2 1 2.8.7 3.7-.3 1.5.8 3.3.1 3.6-1.5 1.9-.6 2.3-3.1.7-4.3.8-1.7-.5-3.6-2.3-3.4-1-1.5-3.4-1.2-4.1.3zM13 3.1v8.9M9.2 5.4c.8.1 1.2.7 1.1 1.5M16.8 5.4c-.8.1-1.2.7-1.1 1.5M9.5 9.3c.6-.5 1.3-.5 1.9 0M16.5 9.3c-.6-.5-1.3-.5-1.9 0');
+  svg.appendChild(brain);
+  for (const [name, x, y] of [['page-one', 1, 5], ['page-two', 3, 9]]) {
+    const group = document.createElementNS(svg.namespaceURI, 'g');
+    group.setAttribute('class', name);
+    const page = document.createElementNS(svg.namespaceURI, 'path');
+    page.setAttribute('class', 'page');
+    page.setAttribute('d', `M${x} ${y - 2}h4l2 2v5H${x}z`);
+    const lines = document.createElementNS(svg.namespaceURI, 'path');
+    lines.setAttribute('class', 'page-line');
+    lines.setAttribute('d', `M${x + 1} ${y + 1}h3M${x + 1} ${y + 2.5}h2`);
+    group.append(page, lines);
+    svg.appendChild(group);
+  }
+  return svg;
+}
 
 function corporateDisclosure(key, main) {
   const node = make('div', main ? 'work' : 'wblock');
@@ -13,11 +41,6 @@ function corporateDisclosure(key, main) {
   const header = make('div', main ? 'whead' : 'wbhead');
   const arrow = make('span', 'wfold');
   arrow.textContent = '▾';
-  if (main) {
-    const dots = make('span', 'dots');
-    dots.append(make('i'), make('i'), make('i'));
-    header.append(dots);
-  }
   header.append(arrow);
   const body = make('div', main ? 'wbody' : 'wbbody');
   node.append(header, body);
@@ -141,7 +164,7 @@ function corporateAnswer(run, state) {
         seen.add(m.id);
         const one = activity();
         one.tools.push(m.activity);
-        if (m.tool?.startsWith('Running ')) { one.busy = true; }
+        if (m.tool?.startsWith('Running ') || m.activity.head?.startsWith('Running ')) { one.busy = true; }
         if (m.answer_head) { one.summary = m.answer_head; }
       }
       continue;
@@ -169,13 +192,19 @@ function corporateAnswer(run, state) {
       one.busy = true;
     }
   }
-  // Only the card after the last visible message can still receive activity.
-  if (card && run[run.length - 1]?.id === 'live') { card.active = true; }
+  // Keep the newest activity live until the whole answer ends. In particular, a returned tool
+  // result can be under review while the model is thinking or writing the next short message.
+  if (state.generating || state.running || state.summarising) {
+    for (let n = parts.length - 1; n >= 0; n--) {
+      if (parts[n].text === undefined) { parts[n].active = true; break; }
+    }
+  }
   return parts;
 }
 
 function updateCorporateCard(card, part) {
   const header = card.firstElementChild;
+  header.classList.remove('processing');
   header.classList.toggle('busy', Boolean(part.active));
   const body = card.lastElementChild;
   const old = new Map(Array.from(body.children, node => [node.dataset.foldKey, node]));
@@ -263,53 +292,378 @@ function updateCorporateAnswer(turn, run, state) {
   for (const stale of old.values()) { stale.remove(); }
 }
 
-function drawCorporateThread(state, items) {
+// Live turns use the time seen by this page. Older saved turns have no total duration field, so
+// their available thinking intervals provide the best duration the chat record can report.
+function workingDuration(key, active, messages) {
+  const now = performance.now();
+  if (active) {
+    if (!workStarted.has(key)) { workStarted.set(key, now); }
+    return (workElapsed.get(key) || 0) + now - workStarted.get(key);
+  }
+  if (workStarted.has(key)) {
+    workElapsed.set(key, (workElapsed.get(key) || 0) + now - workStarted.get(key));
+    workStarted.delete(key);
+  }
+  if (workElapsed.has(key)) { return workElapsed.get(key); }
+  return (messages || []).reduce((total, message) =>
+    total + (Number(message.reasoning_ms) || 0), 0);
+}
+
+function workingLabel(key, active, messages) {
+  return (active ? 'Working for ' : 'Worked for ')
+    + spanWords(workingDuration(key, active, messages));
+}
+
+function updateWorkingClock() {
+  let active = false;
+  for (const node of document.querySelectorAll('.work-turn[data-active="true"]')) {
+    const key = node.dataset.workKey;
+    if (!workStarted.has(key)) { continue; }
+    active = true;
+    const status = node.querySelector('.work-turn-state');
+    const label = workingLabel(key, true, []);
+    if (status.textContent !== label) {
+      status.textContent = label;
+      const head = node.querySelector('.work-turn-head');
+      head.setAttribute('aria-label', label + (node.classList.contains('shut')
+        ? ', expand work' : ', collapse work'));
+    }
+  }
+  if (!active && workClock) {
+    clearInterval(workClock);
+    workClock = 0;
+  }
+}
+
+function startWorkingClock() {
+  if (!workClock) { workClock = setInterval(updateWorkingClock, 1000); }
+}
+
+function workingDisclosure(key) {
+  const node = make('div', 'turn work-turn');
+  node.dataset.viewKey = 'work:' + key;
+  node.dataset.workKey = key;
+  const header = make('button', 'work-turn-head');
+  header.type = 'button';
+  const fold = make('span', 'work-turn-fold');
+  fold.textContent = '▾';
+  const dots = make('span', 'dots work-turn-dots');
+  dots.append(make('i'), make('i'), make('i'));
+  header.append(fold, dots, processingMark());
+  const status = make('span', 'work-turn-state');
+  header.append(status);
+  const body = make('div', 'work-turn-body');
+  node.dataset.active = 'false';
+  node.append(header, body);
+  function apply() {
+    const shut = workFolded.has(key) ? Boolean(workFolded.get(key)) : true;
+    node.classList.toggle('shut', shut);
+    header.setAttribute('aria-expanded', String(!shut));
+    header.setAttribute('aria-label', status.textContent
+      + (shut ? ', expand work' : ', collapse work'));
+  }
+  header.addEventListener('click', function () {
+    workFolded.set(key, !node.classList.contains('shut'));
+    apply();
+  });
+  apply();
+  return node;
+}
+
+function workingPlan(items, state) {
+  const plan = [];
+  let at = 0;
+  const inFlight = Boolean(state.generating || state.running || state.summarising);
+  while (at < items.length) {
+    const message = items[at];
+    if (message.role !== 'You') {
+      if (message.role !== 'Assistant' && message.role !== 'Tool'
+          && message.role !== 'Summary' && message.role !== 'Note') {
+        plan.push({ kind: 'message', message, index: at++ });
+        continue;
+      }
+      const from = at;
+      while (at < items.length && items[at].role !== 'You') { at++; }
+      plan.push(...workingEntry(items.slice(from, at), 'orphan:' + message.id,
+        from, at, inFlight && at === items.length,
+        workResultProcessing(items.slice(from, at), state, inFlight && at === items.length)));
+      continue;
+    }
+    plan.push({ kind: 'message', message, index: at++ });
+    const from = at;
+    while (at < items.length && items[at].role !== 'You') { at++; }
+    plan.push(...workingEntry(items.slice(from, at), 'turn:' + message.id,
+      from, at, inFlight && at === items.length,
+      workResultProcessing(items.slice(from, at), state, inFlight && at === items.length)));
+  }
+  return plan;
+}
+
+function workResultProcessing(messages, state, active) {
+  if (!active || state.running || (state.tool_previews || []).length) { return false; }
+  if (messages.some(message => message.id === 'live' && (message.tools || []).length)) { return false; }
+  if (messages.some(message => message.role === 'Tool' && message.activity
+      && /^Running /.test(message.activity.head || ''))) { return false; }
+  return messages.some(message => message.role === 'Tool' && message.activity && message.activity.done);
+}
+
+function workingEntry(messages, key, from, to, active, processing) {
+  let finalAt = -1;
+  if (!active) {
+    for (let n = messages.length - 1; n >= 0; n--) {
+      const one = messages[n];
+      if (one.role !== 'Assistant' && one.role !== 'Tool') { continue; }
+      if (one.role === 'Assistant' && one.id !== 'live' && !one.stopped
+          && String(one.body || '').trim()) { finalAt = n; }
+      break;
+    }
+  }
+  let final = null;
+  let split = null;
+  if (finalAt >= 0) {
+    const original = messages[finalAt];
+    const body = String(original.body || '');
+    const offsets = Array.isArray(original.thought_offsets) ? original.thought_offsets : [];
+    const rawStart = offsets.length ? Number(offsets[offsets.length - 1]) || 0 : 0;
+    const finalStart = Math.max(0, Math.min(body.length, rawStart));
+    if (!body.slice(finalStart).trim()) { finalAt = -1; }
+    else { split = { body, offsets, finalStart }; }
+  }
+  const work = messages.slice(0, finalAt >= 0 ? finalAt + 1 : messages.length);
+  if (finalAt >= 0) {
+    const original = messages[finalAt];
+    work[finalAt] = Object.assign({}, original, {
+      id: 'work:' + original.id,
+      body: split.body.slice(0, split.finalStart),
+      thought_offsets: split.offsets.filter(offset => Number(offset) <= split.finalStart),
+      can_continue: false,
+      downloads: [],
+      displayed: [],
+      suggestions: [],
+      steps: null
+    });
+    final = Object.assign({}, original, {
+      body: split.body.slice(split.finalStart),
+      reasoning: '',
+      reasoning_ms: 0,
+      thought_offsets: [],
+      work: [],
+      work_head: ''
+    });
+  }
+  return [
+    { kind: 'working', key, active, processing, messages: work, from,
+      to: finalAt >= 0 ? from + finalAt : to },
+    ...(final ? [{ kind: 'final', key: 'final:' + final.id, message: final,
+      source: messages[finalAt], index: from + finalAt }] : []),
+    ...(finalAt >= 0 ? messages.slice(finalAt + 1).map((message, index) => ({
+      kind: 'message', message, index: from + finalAt + index + 1
+    })) : [])
+  ];
+}
+
+function moveChildren(parent, wanted, keepPlan) {
+  const retained = new Set(wanted);
+  for (const child of Array.from(parent.children)) {
+    if (keepPlan && child.id === 'planask') { continue; }
+    if (!retained.has(child)) { child.remove(); }
+  }
+  for (let n = 0; n < wanted.length; n++) {
+    const node = wanted[n];
+    const others = Array.from(parent.children).filter(child => !(keepPlan && child.id === 'planask'));
+    const anchor = others[n] || (keepPlan && parent.querySelector(':scope > #planask')) || null;
+    if (anchor !== node) { parent.insertBefore(node, anchor || null); }
+  }
+}
+
+function workingSingleNode(parent, key, message, index) {
+  let node = Array.from(parent.children).find(child => child.dataset.viewKey === key);
+  if (!node) {
+    node = make('div', 'turn');
+    node.dataset.viewKey = key;
+    fill(node, message);
+    claimFlyTurn(node, message.role === 'You' ? message : null);
+    node._workingStamp = JSON.stringify([roleStamp(message), message.role === 'Summary'
+      && handoffOf(message.id)]);
+  } else {
+    const stamp = JSON.stringify([roleStamp(message), message.role === 'Summary'
+      && handoffOf(message.id)]);
+    if (node._workingStamp !== stamp) {
+      fill(node, message);
+      node._workingStamp = stamp;
+    }
+  }
+  node.dataset.from = String(index);
+  node.dataset.to = String(index + 1);
+  return node;
+}
+
+function plainWorkRows(body, messages, state) {
+  const spans = thoughtSpans(messages);
+  const rows = threadRows(messages, spans);
+  const old = new Map(Array.from(body.children, node => [node.dataset.workRow, node]));
+  const oldRows = Array.from(body.children);
+  const keep = [];
+  for (let n = 0; n < rows.length; n++) {
+    const row = rows[n];
+    const key = rowStamp(messages, row);
+    let node = old.get(key);
+    old.delete(key);
+    if (!node) {
+      node = oldRows.find(candidate => old.has(candidate.dataset.workRow)
+        && workingRowsMatch(candidate.dataset.workRow, key));
+      if (node) { old.delete(node.dataset.workRow); }
+    }
+    if (!node) {
+      node = make('div', 'turn');
+      drawRow(node, messages, row);
+    } else {
+      syncTurn(node, messages, row);
+    }
+    node.dataset.workRow = key;
+    keep.push(node);
+    const end = endPlan(messages, rows, Boolean(state.generating))[n];
+    placeEnd(node, end);
+  }
+  for (const stale of old.values()) { stale.remove(); }
+  for (let n = 0; n < keep.length; n++) {
+    if (body.children[n] !== keep[n]) { body.insertBefore(keep[n], body.children[n] || null); }
+  }
+  const tail = messages[messages.length - 1];
+  if (tail && tail.id === 'live') { feedInk(tail); }
+}
+
+function workingRowsMatch(before, after) {
+  if (sameTalk(before, after)) { return true; }
+  const oldIds = before.split('+');
+  const newIds = after.split('+');
+  return oldIds.includes('live') && newIds.some(id => id.startsWith('work:'));
+}
+
+function corporateWorkRows(body, messages, state) {
+  const old = new Map(Array.from(body.children, node => [node.dataset.workPart, node]));
+  const keep = [];
+  let answerIndex = 0;
+  for (let at = 0; at < messages.length;) {
+    const message = messages[at];
+    if (message.role === 'Assistant' || message.role === 'Tool') {
+      const from = at++;
+      while (at < messages.length
+          && (messages[at].role === 'Assistant' || messages[at].role === 'Tool')) { at++; }
+      const run = messages.slice(from, at);
+      const key = 'answer:' + answerIndex++;
+      let node = old.get(key);
+      old.delete(key);
+      if (!node) { node = make('div', 'corp-work-run'); }
+      node.dataset.workPart = key;
+      node.dataset.row = key;
+      updateCorporateAnswer(node, run, state);
+      keep.push(node);
+      continue;
+    }
+    const key = 'message:' + message.id;
+    let node = old.get(key);
+    old.delete(key);
+    if (!node) { node = make('div', 'turn'); }
+    const stamp = JSON.stringify([roleStamp(message), message.role === 'Summary'
+      && handoffOf(message.id)]);
+    if (node._workingStamp !== stamp) {
+      fill(node, message);
+      node._workingStamp = stamp;
+    }
+    node.dataset.workPart = key;
+    keep.push(node);
+    at++;
+  }
+  for (const stale of old.values()) { stale.remove(); }
+  for (let n = 0; n < keep.length; n++) {
+    if (body.children[n] !== keep[n]) { body.insertBefore(keep[n], body.children[n] || null); }
+  }
+}
+
+function workingNode(box, item, state) {
+  const key = item.key + ':' + (cur && cur.chat && cur.chat.id || '');
+  const label = workingLabel(key, item.active, item.messages);
+  if (item.active) { startWorkingClock(); }
+  let node = Array.from(box.children).find(child => child.dataset.viewKey === 'work:' + key);
+  if (!node) { node = workingDisclosure(key); }
+  const status = node.querySelector('.work-turn-state');
+  node.dataset.active = String(Boolean(item.active));
+  node.classList.toggle('corp-work-turn', Boolean(chatting.corporate));
+  node.classList.toggle('processing', Boolean(chatting.corporate && item.processing));
+  status.textContent = label;
+  node.firstElementChild.setAttribute('aria-label', status.textContent +
+    (node.classList.contains('shut') ? ', expand work' : ', collapse work'));
+  node.dataset.from = String(item.from);
+  node.dataset.to = String(item.to);
+  const body = node.lastElementChild;
+  if (chatting.corporate) { corporateWorkRows(body, item.messages, state); }
+  else { plainWorkRows(body, item.messages, state); }
+  return node;
+}
+
+function corporateFinalNode(box, item) {
+  let node = Array.from(box.children).find(child => child.dataset.viewKey === item.key);
+  if (!node) {
+    node = make('div', 'turn t-ai');
+    node.dataset.viewKey = item.key;
+    const prose = make('div', 'corporate-message');
+    prose.append(make('div', 'plain answer-words'));
+    node.append(prose);
+  }
+  node.className = 'turn t-ai';
+  node.dataset.from = String(item.index);
+  node.dataset.to = String(item.index + 1);
+  const prose = node.firstElementChild;
+  updateCorporateProse(prose, {
+    text: item.message.body || '', message: item.source, actions: true
+  });
+  placeEnd(node, endPlan([item.source], [{ from: 0, to: 1 }], false)[0]);
+  return node;
+}
+
+function drawWorkingThread(state, items) {
   const box = el.col;
   const chat = state.chat && state.chat.id || '';
-  const fresh = box.dataset.chat !== chat;
-  const reset = fresh || box.dataset.key !== 'corporate';
-  stopInk();
-  if (reset) { threadTurns(box).forEach(node => node.remove()); }
-  box.dataset.key = 'corporate';
+  const mode = chatting.corporate ? 'corporate' : 'plain';
+  const fresh = box.dataset.chat !== chat || box.dataset.workingMode !== mode
+    || box.dataset.key === '';
+  const hasLive = items.some(message => message.id === 'live');
+  if (fresh || !hasLive) { stopInk(); }
+  if (fresh) {
+    for (const child of Array.from(box.children)) { if (child.id !== 'planask') { child.remove(); } }
+  }
   box.dataset.chat = chat;
-  box.dataset.count = items.length;
-  const turns = threadTurns(box);
-  const ranges = [];
-  let anchor = 'first';
-  function isAnswer(m) { return m.role === 'Assistant' || m.role === 'Tool'; }
-  for (let from = 0; from < items.length;) {
-    const m = items[from];
-    const answer = isAnswer(m);
-    let to = from + 1;
-    if (answer) { while (to < items.length && isAnswer(items[to])) { to++; } }
-    else { anchor = m.id; }
-    const key = JSON.stringify([chat, anchor, answer]);
-    const index = ranges.length;
-    let turn = turns[index];
-    if (!turn || turn.dataset.row !== key) {
-      const next = make('div', answer ? 'turn t-ai' : 'turn');
-      if (turn) { turn.replaceWith(next); } else { addTurn(box, next); }
-      turn = turns[index] = next;
-      turn.dataset.row = key;
-    }
-    turn.dataset.from = from;
-    turn.dataset.to = to;
-    turn.dataset.mid = m.id;
-    if (answer) {
-      updateCorporateAnswer(turn, items.slice(from, to), state);
-    } else {
-      const stamp = JSON.stringify([m, m.role === 'Summary' && handoffOf(m.id)]);
-      if (turn._content !== stamp) {
-        fill(turn, m);
-        turn._content = stamp;
-        claimFlyTurn(turn, m);
+  box.dataset.workingMode = mode;
+  box.dataset.key = 'working:' + mode;
+  const plan = workingPlan(items, state);
+  const ordered = [];
+  for (const item of plan) {
+    if (item.kind === 'message') {
+      ordered.push(workingSingleNode(box, 'message:' + item.message.id,
+        item.message, item.index));
+    } else if (item.kind === 'working') {
+      ordered.push(workingNode(box, item, state));
+    } else if (item.kind === 'final') {
+      if (chatting.corporate) {
+        ordered.push(corporateFinalNode(box, item));
+      } else {
+        const visible = item.message;
+        ordered.push(workingSingleNode(box, item.key, visible, item.index));
+        const node = ordered[ordered.length - 1];
+        const sourceStamp = JSON.stringify([roleStamp(item.source), item.source.body,
+          item.source.when, item.source.can_continue]);
+        if (node._workSourceStamp !== sourceStamp) {
+          node.querySelector('.stamp')?.remove();
+          const actions = actLine(item.source);
+          if (actions) { node.append(actions); }
+          node._workSourceStamp = sourceStamp;
+        }
+        placeEnd(node, endPlan([item.source], [{ from: 0, to: 1 }], false)[0]);
       }
     }
-    ranges.push({ from, to });
-    from = to;
   }
-  while (turns.length > ranges.length) { turns.pop().remove(); }
-  endPlan(items, ranges, state.generating).forEach((plan, i) => placeEnd(turns[i], plan));
+  moveChildren(box, ordered, true);
   if (fresh) { el.thread.scrollTop = 0; stick = true; }
   else if (stick) { el.thread.scrollTop = el.thread.scrollHeight; stepHeadShown(); }
 }

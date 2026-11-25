@@ -102,15 +102,17 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       return s;
     }
 
-    function cards(box) { return Array.from(box.querySelectorAll('.turn > .work')); }
+    function cards(box) { return Array.from(box.querySelectorAll('.work-turn .work')); }
     function title(card) { return card.querySelector('.whead').textContent; }
 
     const box = look(state(talk, CHAT));
+    check(box.querySelector('.work-turn')?.classList.contains('shut'),
+      'the main work block should start collapsed');
     const [first, legacy, second] = cards(box);
     check(cards(box).length === 3, 'each period of activity needs its own card');
     check(title(first).includes('Thought for 4 seconds') && title(legacy).includes('Created files (3)')
       && title(second).includes('Thought for 12 seconds'), 'headings must describe their own activity');
-    check(first.nextElementSibling.querySelector('.answer-words').textContent === talk[1].body
+    check(box.querySelector('.work-turn .answer-words').textContent === talk[1].body
       && Array.from(box.querySelectorAll('.answer-words'), node => node.textContent)
         .join('|') === [talk[1].body, talk[3].body, talk[5].body].join('|'),
       'every assistant message must appear between cards');
@@ -129,8 +131,9 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     const start = [said(40, 'You', 'Explain this briefly.')];
     const firstWords = 'I’ll check the 🧪 results.';
     function phases() {
-      return Array.from(box.querySelector('.turn.t-ai').children)
-        .filter(node => node.matches('.work, .corporate-message'));
+      return Array.from(box.querySelectorAll(
+        '.work-turn .corp-work-run > .work, .work-turn .corp-work-run > .corporate-message, ' +
+        '.turn.t-ai > .corporate-message'));
     }
     look(state(start, CHAT, { generating: true, reasoning: 'Private thought', thought_offsets: [0] }));
     const active = cards(box)[0];
@@ -140,7 +143,8 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       reasoning_done: true, reasoning_ms: 1300, thought_offsets: [0] }));
     const firstProse = phases()[1];
     check(phases()[0] === active && firstProse.textContent === firstWords
-      && !active.querySelector('.busy'), 'the streamed message should follow its activity card');
+      && active.querySelector('.busy'), 'the streamed message should follow its activity card: '
+      + phases().map(node => node.classList.contains('work') ? title(node) : node.textContent).join('|'));
 
     const offsets = [0, firstWords.length];
     look(state(start, CHAT, { generating: true, live: firstWords, reasoning: 'Private thought again',
@@ -157,17 +161,19 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     const saved = said(41, 'Assistant', firstWords + finalWords,
       { reasoning: 'Private thought again', thought_offsets: offsets });
     look(state(start.concat(saved), CHAT));
-    check(phases()[0] === active && phases()[1] === firstProse &&
-      phases()[2] === resumed && phases()[3] === finalProse,
-      'saving the answer must preserve the existing cards and messages');
+    const savedFinal = phases()[3];
+    check(phases()[0] === active && phases()[1] === firstProse && phases()[2] === resumed
+      && savedFinal !== finalProse && savedFinal.querySelector('.answer-words').textContent
+        === 'Here is the answer.',
+      'saving the answer must preserve its work and move only the final words outside');
     check(!box.textContent.includes('Private thought'), 'the saved answer exposed private reasoning');
-    const editButton = finalProse.querySelector('button');
+    const editButton = savedFinal.querySelector('button');
     editButton.click();
-    check(firstProse.querySelector('textarea').value === saved.body && finalProse.hidden,
+    check(savedFinal.querySelector('textarea').value === saved.body,
       'editing should open the complete stored message');
-    firstProse.querySelector('.answer-edit-acts button:last-child').click();
-    check(!finalProse.hidden && firstProse.querySelector('.answer-words').textContent === firstWords,
-      'closing the editor should restore both message fragments');
+    savedFinal.querySelector('.answer-edit-acts button:last-child').click();
+    check(savedFinal.querySelector('.answer-words').textContent === 'Here is the answer.',
+      'closing the editor should restore the final answer');
 
     look(state(start.concat(said(42, 'Assistant', 'No tools were needed.')), CHAT));
     check(cards(box).length === 0 && box.querySelector('.answer-words').textContent === 'No tools were needed.',
@@ -178,8 +184,8 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       look(state([said(50, 'You', 'Research and report.'), previous, said(52, 'Summary', '')], CHAT,
         { generating: true, summarising: true, live: 'secret handoff text', reasoning: 'secret thought',
           live_work: SHORT, live_work_head: 'Searching the web' }));
-      check(cards(box).length === 1 && title(cards(box)[0]).includes('Searching the web'),
-        'handoff should retain the card above the summary');
+      check(cards(box).length === 1,
+        'handoff should retain the work card inside the turn');
       check(!box.textContent.includes('secret'), 'handoff exposed the summary stream');
       if (previous.role === 'Assistant') {
         check(box.querySelector('.answer-words').textContent === previous.body,

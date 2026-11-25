@@ -46,22 +46,34 @@ const puppeteer = require('puppeteer');
         chatting: { collapse_thinking: true, grow_thinking: true,
           tools_in_thinking: true, corporate: true }
       };
-      function cards() { return Array.from(el.col.querySelectorAll('.turn > .work')); }
+      function cards() { return Array.from(el.col.querySelectorAll('.work-turn .work')); }
       function rows() { return Array.from(el.col.querySelectorAll('.work > .wbody > .wblock')); }
       function sections() {
-        return Array.from(el.col.querySelectorAll('.turn > .work, .turn > .corporate-message'), node => {
-          if (node.classList.contains('corporate-message')) {
-            return node.querySelector('.answer-words').textContent;
+        const result = [];
+        for (const run of el.col.querySelectorAll('.work-turn .corp-work-run')) {
+          for (const node of run.children) {
+            if (node.classList.contains('corporate-message')) {
+              result.push(node.querySelector('.answer-words').textContent);
+            } else if (node.classList.contains('work')) {
+              result.push(Array.from(node.querySelectorAll('.wbtitle'), title => title.textContent));
+            }
           }
-          return Array.from(node.querySelectorAll('.wbtitle'), title => title.textContent);
-        });
+        }
+        for (const node of el.col.querySelectorAll(':scope > .turn.t-ai > .corporate-message')) {
+          result.push(node.querySelector('.answer-words').textContent);
+        }
+        return result;
       }
       function expectSections(expected) {
         var actual = sections();
-        check(JSON.stringify(actual) === JSON.stringify(expected), JSON.stringify(actual));
+        check(JSON.stringify(actual) === JSON.stringify(expected), JSON.stringify({ actual, expected,
+          cards: cards().map(card => Array.from(card.querySelectorAll('.wbtitle'), title => title.textContent)) }));
       }
       readChatting(state);
       drawThread(state);
+      var workTurn = el.col.querySelector('.work-turn');
+      check(workTurn && workTurn.classList.contains('shut'), 'the main work block should start collapsed');
+      workTurn.querySelector('.work-turn-head').click();
       var words = 'I read shop. Now I will check the file.';
       expectSections([['Read test.txt'], words, ['Running wc -c test.txt']]);
       check(cards().concat(rows()).every(node => node.classList.contains('shut')),
@@ -130,11 +142,14 @@ const puppeteer = require('puppeteer');
       state.tool_previews = [];
       drawThread(state);
       check(heading() === 'Thinking', 'a card with only live reasoning should say Thinking');
+      check(dotsVisible() && !processingVisible(),
+        'ordinary live work should show the main heading dots');
 
       const search = { id: 'search', tool: 'web_search', head: 'Searching the web for release notes' };
       state.tool_previews = [search];
       drawThread(state);
-      check(heading() === search.head, 'the search preview should take over the heading');
+      check(heading() === search.head && dotsVisible() && !processingVisible(),
+        'writing a tool call should keep the main heading dots');
 
       const result = message('search', 'Tool', 'Release notes', {
         activity: { ...search, head: 'Searched the web for release notes', done: true },
@@ -146,9 +161,15 @@ const puppeteer = require('puppeteer');
       drawThread(state);
       check(heading() === result.activity.head, 'the card should wait for prose before showing the summary');
       function dotsVisible() {
-        return getComputedStyle(cards()[0].querySelector('.whead .dots')).visibility === 'visible';
+        return getComputedStyle(el.col.querySelector('.work-turn-dots')).display !== 'none';
       }
-      check(dotsVisible(), 'the dots should stay visible after a tool returns and before model output');
+      function processingVisible() {
+        var main = el.col.querySelector('.work-turn');
+        return main.classList.contains('processing')
+          && getComputedStyle(main.querySelector('.brain-paper')).display !== 'none';
+      }
+      check(processingVisible() && !dotsVisible(),
+        'the animated brain should show while the model processes the tool result');
 
       const next = message('second-search', 'Tool', 'More results', {
         activity: { ...search, id: 'second-search', head: 'Searched the web for patch numbers', done: true },
@@ -157,18 +178,24 @@ const puppeteer = require('puppeteer');
       state.messages.push(next);
       state.reasoning = 'Reading the results.';
       drawThread(state);
-      check(heading() === next.activity.head && dotsVisible(),
-        'reasoning after a search should keep the search heading and the activity dots');
+      check(heading() === next.activity.head && processingVisible() && !dotsVisible(),
+        'reasoning after a search should keep the action heading and processing animation');
 
       state.live = 'I found the release notes.';
       state.reasoning_done = true;
       drawThread(state);
-      check(heading() === next.answer_head && !dotsVisible(), 'starting a message should show the summary and hide the dots');
+      check(processingVisible() && el.col.querySelector('.work-turn').textContent.includes(state.live),
+        'the processing animation should remain until the turn finishes');
       state.reasoning = '';
       state.reasoning_done = false;
+      state.generating = false;
+      drawThread(state);
+      check(!processingVisible() && !dotsVisible(),
+        'the processing animation should stop when the turn finishes');
 
       state.messages = [message('text-only-user', 'You', 'Say hello.')];
       state.live = '';
+      state.generating = true;
       state.reasoning = ' \n';
       state.reasoning_ms = 120;
       state.thought_offsets = [0];
@@ -234,7 +261,7 @@ const puppeteer = require('puppeteer');
           if (node.querySelector('.wcmd')) { node.querySelector('.wbhead').click(); }
         }));
         if (process.env.AN_CARD_SHOT) {
-          const turn = await page.$('.turn.t-ai');
+          const turn = await page.$('.work-turn');
           await turn.screenshot({ path: process.env.AN_CARD_SHOT + '-' + phases[index] + '.png' });
         }
       }
