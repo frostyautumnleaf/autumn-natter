@@ -116,6 +116,54 @@ fs.mkdirSync(shotDir, { recursive: true });
     await page.screenshot({ path: path.join(shotDir, 'plain-worked.png'), fullPage: true });
 
     await page.evaluate(() => {
+      const prompt = workMessage('final-transition-user', 'You', 'Search and report.');
+      const search = workMessage('final-transition-search', 'Tool', 'Search results', {
+        reasoning: 'I will search for the current information.', reasoning_ms: 900,
+        tool_name: 'web_search', tool: 'The search results are stale.'
+      });
+      const answer = 'The latest release could not be confirmed from these results.';
+      const thought = 'The results are stale, so I will explain the uncertainty.';
+      const state = workState([prompt, search], false, { generating: true,
+        live: answer, reasoning: thought, reasoning_ms: 1600 });
+      state.chat.id = 'visual-final-outside';
+      state.chatting.collapse_thinking = false;
+      state.chatting.collapse_tools = false;
+      drawWorkState(state);
+      const activeMain = el.col.querySelector('.work-turn');
+      if (activeMain.classList.contains('shut')) {
+        activeMain.querySelector('.work-turn-head').click();
+      }
+      workCheck(activeMain.textContent.includes(answer),
+        'the live final response was not visible during generation');
+
+      const completed = workMessage('final-transition-answer', 'Assistant', answer, {
+        reasoning: thought, reasoning_ms: 1600, reasoning_done: true, thought_offsets: [0]
+      });
+      state.messages = [prompt, search, completed];
+      state.generating = false;
+      state.live = '';
+      state.reasoning = '';
+      drawWorkState(state);
+      const main = el.col.querySelector('.work-turn');
+      const finalRow = main.nextElementSibling;
+      workCheck(!main.textContent.includes(answer) && finalRow
+        && finalRow.textContent.includes(answer),
+      'the completed final response remained inside the work block');
+      const finalStyle = finalRow && getComputedStyle(finalRow);
+      const finalBox = finalRow && finalRow.getBoundingClientRect();
+      workCheck(finalRow && finalBox.height > 0 && finalStyle.display !== 'none'
+        && finalStyle.visibility !== 'hidden' && finalStyle.opacity !== '0',
+      'the final answer node is hidden: ' + JSON.stringify(finalRow && {
+        className: finalRow.className, height: finalBox.height,
+        display: finalStyle.display, visibility: finalStyle.visibility, opacity: finalStyle.opacity
+      }));
+      workCheck(el.col.textContent.split(answer).length - 1 === 1,
+        'the completed final response is duplicated in the chat');
+      if (main.classList.contains('shut')) { main.querySelector('.work-turn-head').click(); }
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-final-outside-worked.png'), fullPage: true });
+
+    await page.evaluate(() => {
       const prompt = workMessage('plain-thinking-user', 'You', 'test');
       const active = workState([prompt], false, { generating: true,
         reasoning: 'A short thought.', reasoning_ms: 1000, reasoning_done: false });
@@ -511,6 +559,7 @@ fs.mkdirSync(shotDir, { recursive: true });
     await page.screenshot({ path: path.join(shotDir, 'plain-no-duplicate-thought.png'), fullPage: true });
     console.log(path.join(shotDir, 'plain-cancel.png'));
     console.log(path.join(shotDir, 'plain-worked.png'));
+    console.log(path.join(shotDir, 'plain-final-outside-worked.png'));
     console.log(path.join(shotDir, 'plain-thinking-complete.png'));
     console.log(path.join(shotDir, 'corporate-processing.png'));
     console.log(path.join(shotDir, 'corporate-worked.png'));
@@ -520,7 +569,7 @@ fs.mkdirSync(shotDir, { recursive: true });
     console.log(path.join(shotDir, 'direct-answer-corporate.png'));
     console.log(path.join(shotDir, 'plain-thought-tool-order.png'));
     console.log(path.join(shotDir, 'plain-no-duplicate-thought.png'));
-    console.log('Working blocks, thought deduplication, cancellation colour, and Corporate response animation passed');
+    console.log('Working blocks, final response placement, thought deduplication, cancellation colour, and Corporate response animation passed');
   } finally {
     await browser.close();
   }

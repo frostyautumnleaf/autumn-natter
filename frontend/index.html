@@ -9850,6 +9850,54 @@ function partNode(part) {
   return node;
 }
 
+// The text the answer wrote before its final response, kept under the thinking panel.
+function answerPart(message) {
+  var node = make('div', 'plain answer-words');
+  if (message.id) { node.dataset.mid = message.id; }
+  node.dataset.answerStamp = String(message.body || '');
+  var content = blocks(message.body);
+  for (var n = 0; n < content.length; n++) { node.appendChild(blockNode(content[n])); }
+  return node;
+}
+
+// The final response used to be written by the live node inside the work row. Once it became a
+// saved message, this row must keep only any non-final text and let the final node stand outside.
+function syncGroupAnswers(turn, items, from, to, isLive) {
+  var held = new Map();
+  Array.from(turn.children).forEach(function (node) {
+    if (node.classList.contains('answer-words')) { held.set(node.dataset.mid || '', node); }
+  });
+  var ordered = [];
+  for (var n = from; n < to; n++) {
+    var message = items[n];
+    if (message.id === 'live' || message.role === 'Tool' || !String(message.body || '').trim()) {
+      continue;
+    }
+    var key = message.id || '';
+    var node = held.get(key);
+    held.delete(key);
+    if (!node || node.dataset.answerStamp !== String(message.body || '')) {
+      var replacement = answerPart(message);
+      if (node) { node.replaceWith(replacement); }
+      node = replacement;
+    }
+    ordered.push(node);
+  }
+  held.forEach(function (node) { node.remove(); });
+  if (!isLive) {
+    Array.from(turn.children).forEach(function (node) {
+      if (node.classList.contains('plain') && !node.classList.contains('answer-words')
+          && !node.querySelector('.think') && node.querySelector('.caret')) {
+        node.remove();
+      }
+    });
+  }
+  var line = Array.from(turn.children).find(function (node) {
+    return node.classList.contains('stamp');
+  }) || null;
+  for (var n = 0; n < ordered.length; n++) { turn.insertBefore(ordered[n], line); }
+}
+
 // The panel of a train of thought is removed through part by part: only a part that stated
 // something new is rebuilt, and every other part is left where it is. The panel was built again
 // whole before, and that threw the reading place of the panel away, so the thought the user was
@@ -10027,6 +10075,7 @@ function syncTurn(turn, items, row) {
     // the making.
     var kept = foldMoved ? null : foldsOf(turn);
     syncGroup(turn, items, row.from, row.live ? row.to - 1 : row.to, row.live);
+    syncGroupAnswers(turn, items, row.from, row.to, row.live);
     unfoldRow(turn, kept);
     return;
   }
@@ -10069,11 +10118,7 @@ function fillGroup(turn, items, from, to) {
   for (var k = from; k < to; k++) {
     var tail = items[k];
     if (tail.role === 'Tool' || !String(tail.body || '').trim()) { continue; }
-    var said = make('div', 'plain answer-words');
-    if (tail.id) { said.dataset.mid = tail.id; }
-    var cut = blocks(tail.body);
-    for (var j = 0; j < cut.length; j++) { said.appendChild(blockNode(cut[j])); }
-    turn.appendChild(said);
+    turn.appendChild(answerPart(tail));
   }
   // The line under a train of thought belongs to the last message of it, which is the answer
   // the thought led to, or the last run of a tool.
