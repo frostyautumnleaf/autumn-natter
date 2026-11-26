@@ -950,7 +950,7 @@ mod tests {
         assert_eq!(thought_head(0), "Thought for 1 second");
         assert_eq!(thought_head(1400), "Thought for 1 second");
         assert_eq!(thought_head(12_400), "Thought for 12 seconds");
-        let mut blocks = Vec::new();
+        let blocks = Vec::new();
         assert_eq!(head_of_answer(&blocks, 0), DONE);
         assert_eq!(head_of_answer(&blocks, 4200), "Thought for 4 seconds");
     }

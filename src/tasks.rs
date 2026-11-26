@@ -324,7 +324,7 @@ fn count_of(text: &str, needle: &str) -> usize {
 // empty text to find adds the words at the end of the part, which is how the content of a task is
 // written out in pieces. A name or a summary is never left without a word in it, for a task is not
 // made without them.
-pub fn edit(work: &str, index: &str, field: &str, edits: &[Change]) -> Result<Task, String> {
+fn edit(work: &str, index: &str, field: &str, edits: &[Change]) -> Result<Task, String> {
     let found = lookup(work, index)?;
     let held = part_of(&found, field)?;
     let said = column_of(field).ok_or_else(|| format!("\"{field}\" has no place in the list"))?;

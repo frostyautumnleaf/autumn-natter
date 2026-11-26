@@ -1727,11 +1727,6 @@ impl State {
         self.busy = self.any_generating();
     }
 
-    // The live state of the chat the side bar has open, when one is open.
-    fn open_live(&self) -> Option<&ChatLive> {
-        self.live_of(self.current.as_deref().unwrap_or(""))
-    }
-
     // Reach the state of one chat with the fields of that chat in front. The entry of the chat
     // is prepared, so what follows always has something to work on.
     pub fn for_chat(&mut self, chat: &str) -> ChatScope<'_> {
@@ -1740,18 +1735,6 @@ impl State {
             state: self,
             chat: chat.to_string(),
         }
-    }
-
-    // Whether the chat named is being answered now.
-    fn chat_generating(&self, chat: &str) -> bool {
-        self.live_of(chat)
-            .map(|one| one.generating)
-            .unwrap_or(false)
-    }
-
-    // Whether the chat the side bar has open is being answered now.
-    fn open_generating(&self) -> bool {
-        self.chat_generating(self.current.as_deref().unwrap_or(""))
     }
 
     // Whether any chat at all is being answered, or is having its space made by a handoff
@@ -1816,6 +1799,7 @@ impl State {
     }
 
     // The waiting list of the chat that is left open, when it has one.
+    #[cfg(test)]
     fn open_queue(&self) -> Option<&WaitingList> {
         let chat = self.current.as_deref()?;
         self.queue_of(chat)
@@ -2148,6 +2132,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn last_answer(&self) -> Option<String> {
         self.last_answer_in(self.open_id().as_str())
     }
@@ -2186,6 +2171,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn answer_programmed(&mut self, body: &str) {
         let chat = self.open_id();
         self.answer_programmed_in(&chat, body);
@@ -2213,6 +2199,7 @@ impl State {
     // against this, so a chat that is where the one before it was requests the server that is
     // already up, and the model on it stays loaded. Nothing of the thinking, of the tools or of
     // the sandbox is here, for all three are stated with every ask.
+    #[cfg(test)]
     fn server_wants(&self) -> ServerWants {
         ServerWants {
             model_id: self.current_model_id(),
@@ -2530,6 +2517,7 @@ impl State {
     }
 
     // Add one message of a normal type to the open chat.
+    #[cfg(test)]
     fn push_message(
         &mut self,
         role: &str,
@@ -2690,13 +2678,6 @@ impl State {
         self.touch();
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn push_note(&mut self, text: &str, failed: bool) {
-        let chat = self.open_id();
-        self.push_note_in(&chat, text, failed);
-    }
-
     // The answer the user stopped is the one answer the page may go on with. The marker
     // therefore goes on the newest saying of the model, and off every older one: two answers
     // under a marker of going on read as an error, and an answer the user has written past is
@@ -2715,6 +2696,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn mark_last_answer_stopped(&mut self) {
         let chat = self.open_id();
         self.mark_last_answer_stopped_in(&chat);
@@ -2735,6 +2717,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn clear_stopped_marks(&mut self) {
         let chat = self.open_id();
         self.clear_stopped_marks_in(&chat);
@@ -2785,6 +2768,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn begin_summary(&mut self) -> String {
         let chat = self.open_id();
         self.begin_summary_in(&chat)
@@ -2826,6 +2810,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn finish_summary(&mut self, id: &str, summary: &str, before: u64, after: u64, why: &str) {
         let chat = self.open_id();
         self.finish_summary_in(&chat, id, summary, before, after, why);
@@ -2910,6 +2895,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn handoffs(&self) -> Vec<Handoff> {
         self.handoffs_in(self.open_id().as_str())
     }
@@ -2957,6 +2943,7 @@ impl State {
     }
 
     // The same for the chat that is left open.
+    #[cfg(test)]
     fn begin_tool(
         &mut self,
         call: &ToolCall,
@@ -3021,13 +3008,6 @@ impl State {
         }
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn corporate_begin(&mut self, call: &ToolCall, id: &str) {
-        let chat = self.open_id();
-        self.corporate_begin_in(&chat, call, id);
-    }
-
     // A call returned: the header of its block is reported in the text of an item that
     // happened, what a call that changed a file did to it is with it, and the text that
     // returned is inside it, for the block of the call is hidden while the corporate display
@@ -3056,13 +3036,6 @@ impl State {
         self.live_mut(chat_id).live_work_head = head;
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn corporate_finish(&mut self, id: &str, output: &str, ok: bool) {
-        let chat = self.open_id();
-        self.corporate_finish_in(&chat, id, output, ok);
-    }
-
     // Write the output of a tool run into its message.
     fn finish_tool_in(&mut self, chat_id: &str, id: &str, output: &str, ok: bool) {
         self.finish_tool_with_in(chat_id, id, output, ok, Vec::new());
@@ -3070,6 +3043,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn finish_tool(&mut self, id: &str, output: &str, ok: bool) {
         let chat = self.open_id();
         self.finish_tool_in(&chat, id, output, ok);
@@ -3101,13 +3075,6 @@ impl State {
         (id, seconds)
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn begin_asking(&mut self, asked: &askuser::Question) -> (String, u32) {
-        let chat = self.open_id();
-        self.begin_asking_in(&chat, asked)
-    }
-
     // A questionnaire of planning mode. It carries any number of questions, is waited for as
     // long as it takes, and is answered when the user sends all of it manually.
     fn begin_asking_plan_in(&mut self, chat_id: &str, items: Vec<AskItem>) -> String {
@@ -3128,13 +3095,6 @@ impl State {
         self.live_mut(chat_id).asking = Some(one);
         self.touch();
         id
-    }
-
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn begin_asking_plan(&mut self, items: Vec<AskItem>) -> String {
-        let chat = self.open_id();
-        self.begin_asking_plan_in(&chat, items)
     }
 
     // The answers of the user to a questionnaire, put in the text the model is given back. Each
@@ -3202,12 +3162,6 @@ impl State {
             .and_then(|one| one.answer.clone())
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn asking_answer_of(&self, id: &str) -> Option<String> {
-        self.asking_answer_of_in(self.open_id().as_str(), id)
-    }
-
     // Take the request away, for the question came to its end and the popup over the chat
     // composer has nothing left to say. A question of another run is skipped.
     fn clear_asking_in(&mut self, chat_id: &str, id: &str) {
@@ -3221,13 +3175,6 @@ impl State {
             self.live_mut(chat_id).asking = None;
             self.touch();
         }
-    }
-
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn clear_asking(&mut self, id: &str) {
-        let chat = self.open_id();
-        self.clear_asking_in(&chat, id);
     }
 
     // The same, with the files a run of the download tool proposed to the user. The proposal
@@ -3248,13 +3195,6 @@ impl State {
         self.touch();
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn finish_gifts(&mut self, id: &str, output: &str, ok: bool, gifts: Vec<download::Gift>) {
-        let chat = self.open_id();
-        self.finish_gifts_in(&chat, id, output, ok, gifts);
-    }
-
     // The same, with the files one run of the display tool put in the window. The show rides on
     // the message of the run, so the button of the block opens the same files again when the
     // chat is opened another day.
@@ -3270,13 +3210,6 @@ impl State {
         self.live_mut(chat_id).running = None;
         self.persist_in(chat_id);
         self.touch();
-    }
-
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn finish_displayed(&mut self, id: &str, output: &str, ok: bool, displayed: Vec<display::Shown>) {
-        let chat = self.open_id();
-        self.finish_displayed_in(&chat, id, output, ok, displayed);
     }
 
     // The same, with the next steps one run of the suggestion tool proposed. The proposal rides
@@ -3307,13 +3240,6 @@ impl State {
         self.live_mut(chat_id).running = None;
         self.persist_in(chat_id);
         self.touch();
-    }
-
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn finish_suggestions(&mut self, id: &str, output: &str, ok: bool, asks: Vec<crate::suggest::Suggestion>) {
-        let chat = self.open_id();
-        self.finish_suggestions_in(&chat, id, output, ok, asks);
     }
 
     // The same, with the steps of the work one run of the steps tool showed. The block rides on
@@ -3347,13 +3273,6 @@ impl State {
         self.touch();
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn finish_steps(&mut self, id: &str, output: &str, ok: bool, plan: Option<crate::steps::Plan>) {
-        let chat = self.open_id();
-        self.finish_steps_in(&chat, id, output, ok, plan);
-    }
-
     // The same, with the records of the images the run opened hanging on the message as well. A
     // tool that pointers an image to the model keeps the bytes of it out of the text the user
     // is given, so the image is where the images of a chat remain: in the directory of the
@@ -3381,6 +3300,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn finish_tool_with(&mut self, id: &str, output: &str, ok: bool, pictures: Vec<Attachment>) {
         let chat = self.open_id();
         self.finish_tool_with_in(&chat, id, output, ok, pictures);
@@ -3399,6 +3319,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn begin_running(&mut self, id: &str, watch: &crate::util::Watch) {
         let chat = self.open_id();
         self.begin_running_in(&chat, id, watch);
@@ -4072,11 +3993,6 @@ impl State {
     fn attach_place_for_chat(&self, chat: &str) -> Option<PathBuf> {
         let one = self.chat_of(chat)?;
         Some(self.attach_place_for(one))
-    }
-
-    // The directory of the records of the open chat, for an image a tool opened.
-    fn attach_place(&self) -> Option<PathBuf> {
-        self.chat().map(|chat| self.attach_place_for(chat))
     }
 
     // The directory a tool of the open chat works in. The panel of the sources and the badge of

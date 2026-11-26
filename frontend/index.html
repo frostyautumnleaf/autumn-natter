@@ -4253,7 +4253,7 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
     <div class="sbody" id="planWordsBox"></div>
   </div>
 </div>
-<script src="corporate.js?v=7"></script>
+<script src="corporate.js?v=8"></script>
 <script>'use strict';
 
 // The window sends requests to the engine through Tauri, and not over the network. The names of
@@ -9002,10 +9002,23 @@ function placeWrites() {
   }
 }
 
-// The state has new text for the answer that is arriving.
+// The live buffer can lose text when its saved copy takes over after a tool. Reconcile the
+// visible prefix before writing on, so the words the buffer gave back do not remain on screen.
 function feedInk(m) {
   ink.said = String(m.body || '');
-  ink.musing = String(m.reasoning || '');
+  var nextMusing = String(m.reasoning || '');
+  var visibleMusing = ink.musing.slice(0, ink.shownMusing);
+  var sameMusing = 0;
+  while (sameMusing < visibleMusing.length && sameMusing < nextMusing.length
+      && visibleMusing.charAt(sameMusing) === nextMusing.charAt(sameMusing)) {
+    sameMusing++;
+  }
+  var replaceThought = sameMusing < visibleMusing.length;
+  ink.musing = nextMusing;
+  if (replaceThought) {
+    ink.shownMusing = sameMusing;
+    writeThought();
+  }
   ink.ms = ink.base + (Number(m.reasoning_ms) || 0);
   ink.done = !!m.reasoning_done;
   if (ink.words) {

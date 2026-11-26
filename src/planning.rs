@@ -1418,7 +1418,8 @@ mod tests {
         assert!(said.contains(ASK_NAME), "{}", said);
         assert!(said.contains(READ_NAME), "{}", said);
         assert!(said.contains("keep questions and unresolved choices out of the plan"), "{}", said);
-        let ask = ask_definition()["function"]["description"]
+        let definition = ask_definition();
+        let ask = definition["function"]["description"]
             .as_str()
             .expect("questionnaire instructions");
         assert!(ask.contains("There is no timeout"), "{ask}");

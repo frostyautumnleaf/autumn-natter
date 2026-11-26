@@ -464,8 +464,41 @@ fs.mkdirSync(shotDir, { recursive: true });
       drawWorkState(historyState);
       workCheck(historyThoughts().filter(text => text === repeated).length === 1,
         'the saved thought duplicated after its tool when tools were outside thinking');
-      const screenshotState = workState([user, running], false, { generating: true,
-        running: 'web_search', reasoning: repeated, reasoning_ms: 1800 });
+      const transitionTool = workMessage('transition-tool', 'Tool', 'Search results', {
+        reasoning: repeated, reasoning_ms: 900, tool_name: 'web_search',
+        tool: 'Latest results for Minecraft.'
+      });
+      const transitionState = workState([user], false, { generating: true,
+        reasoning: repeated, reasoning_ms: 1800 });
+      transitionState.chat.id = 'visual-transition-duplicate-check';
+      transitionState.chatting.collapse_thinking = false;
+      transitionState.chatting.collapse_tools = false;
+      drawWorkState(transitionState);
+      const transitionMain = el.col.querySelector('.work-turn');
+      if (transitionMain.classList.contains('shut')) {
+        transitionMain.querySelector('.work-turn-head').click();
+      }
+      await new Promise(resolve => setTimeout(resolve, 600));
+      workCheck(Array.from(transitionMain.querySelectorAll('.think .thought'))
+        .some(node => node.textContent.trim() === repeated),
+      'the initial live thought did not render for the transition check');
+      transitionState.messages = [user, transitionTool];
+      drawWorkState(transitionState);
+      const transitionThoughts = Array.from(transitionMain.querySelectorAll('.think .thought'))
+        .map(node => node.textContent.trim()).filter(Boolean);
+      workCheck(transitionThoughts.filter(text => text === repeated).length === 1
+        && transitionMain.querySelector('.think .words .tool'),
+      'a thought already on screen remained duplicated after a tool completed');
+    });
+    await page.evaluate(() => {
+      const repeated = 'The result is incomplete. I will search again for a more specific page.';
+      const user = workMessage('repeat-user', 'You', 'Search and summarize.');
+      const completed = workMessage('repeat-completed-tool', 'Tool', 'Search results', {
+        reasoning: repeated, reasoning_ms: 1800, tool_name: 'web_search',
+        tool: 'Latest results for Minecraft.'
+      });
+      const screenshotState = workState([user, completed], false, { generating: true,
+        reasoning: repeated, reasoning_ms: 1800 });
       screenshotState.chatting.collapse_thinking = false;
       screenshotState.chatting.collapse_tools = false;
       screenshotState.chat.id = 'visual-duplicate-check';
@@ -487,7 +520,7 @@ fs.mkdirSync(shotDir, { recursive: true });
     console.log(path.join(shotDir, 'direct-answer-corporate.png'));
     console.log(path.join(shotDir, 'plain-thought-tool-order.png'));
     console.log(path.join(shotDir, 'plain-no-duplicate-thought.png'));
-    console.log('Working blocks, cancellation colour, and Corporate response animation passed');
+    console.log('Working blocks, thought deduplication, cancellation colour, and Corporate response animation passed');
   } finally {
     await browser.close();
   }
