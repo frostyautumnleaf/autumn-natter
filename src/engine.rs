@@ -479,6 +479,21 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             String::new(),
             String::from("the plan is agreed"),
         ),
+        crate::goal::COMPLETE_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the active goal"),
+        ),
+        crate::goal::CRITERIA_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("acceptance criteria"),
+        ),
+        crate::goal::PAUSE_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("essential user input"),
+        ),
         // The handoff summary is named by the conversation it puts away. The reason the model
         // gives with the call rides beside it.
         summarise::NAME => (
@@ -3520,6 +3535,18 @@ impl State {
                 "content": planning::system_prompt(&chat.meta.plan_file),
             }));
         }
+        // An active goal is independent of the visible transcript, so this instruction is
+        // injected on every request. It survives the messages a handoff summary replaces.
+        if let Some(goal) = chat.meta.goal.as_deref() {
+            out.push(json!({
+                "role": "system",
+                "content": crate::goal::system_prompt(
+                    goal,
+                    &chat.meta.goal_criteria,
+                    chat.meta.goal_paused,
+                ),
+            }));
+        }
         // The text of the tasks suite, beside the text of the program. The eight tools are
         // proposed only while the line of the badge is on, and the rule the suite exists for -
         // that the list of tasks is read before an answer ends - is worth nothing unless the
@@ -4094,6 +4121,9 @@ impl State {
             let Some(chat) = self.chat_of_mut(chat_id) else {
                 return false;
             };
+            if chat.meta.goal.is_some() {
+                return false;
+            }
             if chat.meta.planning && !chat.meta.plan_file.is_empty() {
                 return true;
             }
@@ -4114,6 +4144,23 @@ impl State {
                 }
             }
         }
+        true
+    }
+
+    // Start or resume a goal. The goal is part of the saved chat metadata, rather than a
+    // transcript convention, so compaction and reloading cannot accidentally finish it.
+    fn set_goal_in(&mut self, chat_id: &str, goal: Option<String>, paused: bool) -> bool {
+        let Some(chat) = self.chat_of_mut(chat_id) else {
+            return false;
+        };
+        if chat.meta.goal != goal {
+            chat.meta.goal_criteria.clear();
+        }
+        chat.meta.goal = goal;
+        chat.meta.goal_paused = paused;
+        chat.meta.updated = store::now_secs();
+        self.persist_in(chat_id);
+        self.touch();
         true
     }
 
@@ -4776,14 +4823,33 @@ impl Engine {
             let opened = state.open_id();
             return Self::prepare_message_in(state, &opened, text, files);
         }
-        // The commands of the chat composer. `/plan` turns planning mode on for this chat and
-        // makes its plan file; the text behind it are the request the plan is to be made of,
-        // and they go on as a message of their own. A command with nothing behind it turns the
-        // mode on and asks nothing of the model, so the user may look at the plan file or write
-        // the request next.
+        // The commands of the chat composer. `/plan` turns planning mode on; `/goal` starts or
+        // resumes persistent work. They cannot overlap, because planning mode forbids execution.
         let (command, rest) = planning::split(&text);
+        if command == Some(planning::Command::Goal)
+            && matches!(rest.trim().to_ascii_lowercase().as_str(), "stop" | "cancel")
+        {
+            if state
+                .chat_of(chat)
+                .is_some_and(|one| one.meta.goal.is_some())
+            {
+                state.set_goal_in(chat, None, false);
+                state.set_status("The active goal was stopped");
+            } else {
+                state.set_status("There is no active goal to stop");
+            }
+            return None;
+        }
+        let mut goal_change = None;
         let text = match command {
             Some(planning::Command::Plan) => {
+                if state
+                    .chat_of(chat)
+                    .is_some_and(|one| one.meta.goal.is_some())
+                {
+                    state.set_status("Complete or replace the active goal before starting planning mode");
+                    return None;
+                }
                 if state.start_planning_in(chat) {
                     state.set_status(
                         "Planning mode is on. The plan of this chat is kept in the chats database",
@@ -4797,7 +4863,37 @@ impl Engine {
                 }
                 rest
             }
+            Some(planning::Command::Goal) => {
+                if state.planning_open_in(chat) {
+                    state.set_status("Release or leave planning mode before starting a goal");
+                    return None;
+                }
+                let objective = rest.trim();
+                if objective.is_empty() {
+                    let Some(active) = state
+                        .chat_of(chat)
+                        .and_then(|one| one.meta.goal.clone())
+                    else {
+                        state.set_status("Write /goal followed by the goal you want completed");
+                        return None;
+                    };
+                    goal_change = Some(active.clone());
+                    format!("Continue pursuing the active goal: {active}")
+                } else {
+                    let objective = objective.to_string();
+                    goal_change = Some(objective.clone());
+                    objective
+                }
+            }
             None => text,
+        };
+        // A reply to a paused goal supplies the missing input and resumes its work.
+        let resume_goal = if command.is_none() {
+            state
+                .chat_of(chat)
+                .is_some_and(|one| one.meta.goal_paused)
+        } else {
+            false
         };
         // A chat that was cut for a handoff summary and never got one is at the place it was
         // cut: its conversation is past the context window of the model and cannot be sent as
@@ -4818,6 +4914,15 @@ impl Engine {
         if state.server_binary().is_none() {
             state.set_status("llama-server was not found. Set its directory in the settings");
             return None;
+        }
+        if let Some(goal) = goal_change {
+            state.set_goal_in(chat, Some(goal), false);
+            state.set_status("A goal is active and will continue until verified complete");
+        } else if resume_goal {
+            if let Some(active) = state.chat_of(chat).and_then(|one| one.meta.goal.clone()) {
+                state.set_goal_in(chat, Some(active), false);
+                state.set_status("The active goal is resumed");
+            }
         }
         Some(SentMessage { text, files, queued: None })
     }
@@ -6963,11 +7068,33 @@ fn run_send(
         // whatever the answer came to, for a chat left past the limit is only stopped again on
         // the next message.
         let made_room = maybe_compact(state, server, cancel, Weigh::Talk, chat);
+        let (active_goal, goal_paused) = goal_state(state, chat);
+        if goal_paused {
+            if let Ok(mut guard) = state.lock() {
+                guard.set_status("Goal paused for your input. Reply to the model or send /goal to resume");
+            }
+            break;
+        }
         // A summary the program requested is written so that the work goes on, and so it does:
         // the model is put back to its conversation with the first prompt of the user and the
         // summary in front of it, and none of the text the summary means. An answer the user
         // stopped, or one the stream broke, is not continued.
-        if !made_room || ended != Ended::Done || goings_on >= CONTINUE_ROOF || cancel.load(Ordering::Relaxed) {
+        if ended != Ended::Done || cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        // An active goal turns each otherwise-final model answer into another work round. The
+        // completion tool clears it; a handoff summary does not. The ordinary compaction-only
+        // continuation remains capped, as before.
+        if goal_should_continue(
+            &ended,
+            active_goal.is_some(),
+            goal_paused,
+            cancel.load(Ordering::Relaxed),
+        ) {
+            turn = Turn::Continue;
+            continue;
+        }
+        if !made_room || goings_on >= CONTINUE_ROOF {
             break;
         }
         goings_on += 1;
@@ -6999,6 +7126,23 @@ fn run_send(
     // an end. A message whose text the model has just written is sent with the next turn of the
     // chat, ahead of the messages that were only put in the list.
     note_answer(state, chat);
+}
+
+// The durable goal state of the chat, read after each model round and compaction.
+fn goal_state(state: &Arc<Mutex<State>>, chat: &str) -> (Option<String>, bool) {
+    state
+        .lock()
+        .ok()
+        .and_then(|guard| {
+            guard
+                .chat_of(chat)
+                .map(|one| (one.meta.goal.clone(), one.meta.goal_paused))
+        })
+        .unwrap_or_default()
+}
+
+fn goal_should_continue(ended: &Ended, active: bool, paused: bool, cancelled: bool) -> bool {
+    *ended == Ended::Done && active && !paused && !cancelled
 }
 
 // The next message of the waiting list of the chat that is left open, ready to be sent, or
@@ -8244,6 +8388,7 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
         switches,
         mcp_tools,
         compaction_on,
+        goal_on,
     ) = {
         let Ok(guard) = state.lock() else { return None };
         let held = guard.chat_of(chat);
@@ -8257,9 +8402,10 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
             held.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
             guard.mcp_definitions(),
             guard.compaction_on(),
+            held.as_ref().is_some_and(|c| c.meta.goal.is_some()),
         )
     };
-    offered_with_planning(
+    offered_with_goal(
         sandbox_on,
         planning_on,
         code_on,
@@ -8269,6 +8415,7 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
         &mcp_tools,
         &switches,
         compaction_on,
+        goal_on,
     )
 }
 
@@ -9098,8 +9245,20 @@ fn run_handoff(
             abandon_turn(&mut guard, chat);
             return false;
         }
-        let prompt = config::sanitize_handoff_prompt(&guard.cfg.chat_compact_prompt);
-        let short = config::sanitize_handoff_prompt_short(&guard.cfg.chat_compact_prompt_short);
+        let mut prompt = config::sanitize_handoff_prompt(&guard.cfg.chat_compact_prompt);
+        let mut short = config::sanitize_handoff_prompt_short(&guard.cfg.chat_compact_prompt_short);
+        if let Some(active) = guard.chat_of(chat).and_then(|one| {
+            one.meta.goal.as_ref().map(|goal| {
+                (
+                    goal.clone(),
+                    one.meta.goal_criteria.clone(),
+                    one.meta.goal_paused,
+                )
+            })
+        }) {
+            prompt = crate::goal::handoff_prompt(&prompt, &active.0, &active.1, active.2);
+            short = crate::goal::handoff_prompt(&short, &active.0, &active.1, active.2);
+        }
         let before = guard.live_ref(chat).ctx_used;
         // The conversation as it is now is what the summary is written of. `build_history`
         // already leaves out the text that the newest written summary means, and it sends no
@@ -10593,7 +10752,10 @@ fn run_turn(
         // stopped at. Both mean a call the server would else owe an answer to.
         let mut carried_prompt: String = match &carried {
             Some(word) => word.clone(),
-            None if going_on => String::from(CONTINUE_PROMPT),
+            None if going_on => goal_state(state, chat)
+                .0
+                .map(|active| crate::goal::continue_prompt(&active))
+                .unwrap_or_else(|| String::from(CONTINUE_PROMPT)),
             None => String::new(),
         };
         // The step before this one may have left a turn of the model with nothing in it, which
@@ -10612,7 +10774,7 @@ fn run_turn(
         }
         let carried_prompt: &str = carried_prompt.as_str();
         let (mut history, code_on, search_on, rag_on, planning_on, switches, thought,
-         compaction_on) = {
+         compaction_on, goal_on, goal_paused) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
                 go_on_words(&guard, chat, carried_prompt),
@@ -10632,6 +10794,8 @@ fn run_turn(
                     .unwrap_or_default(),
                 guard.thinking_ask(),
                 guard.compaction_on(),
+                guard.chat_of(chat).is_some_and(|one| one.meta.goal.is_some()),
+                guard.chat_of(chat).is_some_and(|one| one.meta.goal_paused),
             )
         };
         // Tool results are the text whose size cannot be known in advance: a command prints what
@@ -10692,12 +10856,20 @@ fn run_turn(
             // The word of this ask is read again the same way it is read at the top of every
             // step, so that dropping the stale one leaves the word of a turn that only goes on
             // remaining where it was.
-            let carried_prompt: &str = match &carried {
-                Some(word) => word.as_str(),
-                None if going_on => CONTINUE_PROMPT,
-                None => "",
+            let carried_prompt = match &carried {
+                Some(word) => word.clone(),
+                None if going_on => guard
+                    .chat_of(chat)
+                    .and_then(|one| {
+                        one.meta
+                            .goal
+                            .as_deref()
+                            .map(crate::goal::continue_prompt)
+                    })
+                    .unwrap_or_else(|| String::from(CONTINUE_PROMPT)),
+                None => String::new(),
             };
-            history = go_on_words(&guard, chat, carried_prompt);
+            history = go_on_words(&guard, chat, &carried_prompt);
             guard.live_mut(chat).generating = true;
             guard.set_status("Space was created. The model is going on with the answer");
         }
@@ -10731,7 +10903,8 @@ fn run_turn(
         // with none: the text the user stopped are at the end of the conversation, and a call
         // cut in half cannot be mended.
         let use_tools = !resuming
-            && (code_on || search_on || rag_on || planning_on || !mcp_tools.is_empty());
+            && (code_on || search_on || rag_on || planning_on || !mcp_tools.is_empty()
+                || (goal_on && !goal_paused));
         let mut body = json!({
             "messages": history,
             "stream": true,
@@ -10753,7 +10926,7 @@ fn run_turn(
             body["chat_template_kwargs"] = thought;
         }
         if use_tools {
-            if let Some(list) = offered_with_planning(
+            if let Some(list) = offered_with_goal(
                 sandbox_on,
                 planning_on,
                 code_on,
@@ -10763,6 +10936,7 @@ fn run_turn(
                 &mcp_tools,
                 &switches,
                 compaction_on,
+                goal_on && !goal_paused,
             ) {
                 body["tools"] = list;
                 body["tool_choice"] = json!("auto");
@@ -11733,10 +11907,24 @@ fn run_turn(
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
-                let note = format!(
-                    "{} are switched off for this chat, so nothing ran",
-                    tool_group_word(group_of(&call.name).unwrap_or("tools"))
-                );
+                let criteria_missing = goal_requires_criteria(&call.name)
+                    && guard.chat_of(chat).is_some_and(|one| {
+                        one.meta.goal.is_some() && one.meta.goal_criteria.is_empty()
+                    });
+                let goal_unplanned = call.name == crate::goal::COMPLETE_NAME
+                    && guard.chat_of(chat).is_some_and(|one| {
+                        one.meta.goal.is_some() && one.meta.goal_criteria.is_empty()
+                    });
+                let note = if goal_unplanned {
+                    String::from("Register task-appropriate acceptance criteria with set_goal_criteria before reporting completion. The goal remains active.")
+                } else if criteria_missing {
+                    String::from("Before using this action, register concise acceptance criteria with set_goal_criteria. Nothing ran.")
+                } else {
+                    format!(
+                        "{} are switched off for this chat, so nothing ran",
+                        tool_group_word(group_of(&call.name).unwrap_or("tools"))
+                    )
+                };
                 let id = guard.begin_tool_in(chat, call, &note, "", 0);
                 guard.finish_tool_in(chat, &id, &note, false);
                 continue;
@@ -11835,6 +12023,9 @@ fn is_writing(call: &ToolCall) -> bool {
 // Every tool of a server of the user's own is outside that badge and its switches.
 fn group_of(name: &str) -> Option<&'static str> {
     match name {
+        crate::goal::CRITERIA_NAME | crate::goal::COMPLETE_NAME | crate::goal::PAUSE_NAME => {
+            Some("goal")
+        }
         tools::TOOL_NAME => Some("commands"),
         editfile::EDIT_NAME | editfile::CREATE_NAME => Some("files"),
         viewimage::NAME | viewimage::ONE_NAME => Some("picture"),
@@ -11850,6 +12041,27 @@ fn group_of(name: &str) -> Option<&'static str> {
     }
 }
 
+fn goal_requires_criteria(name: &str) -> bool {
+    matches!(
+        name,
+        tools::TOOL_NAME
+            | editfile::EDIT_NAME
+            | editfile::CREATE_NAME
+            | download::NAME
+            | infographic::PROJECT_NAME
+            | infographic::LAYER_NAME
+            | infographic::CUTOUT_NAME
+            | infographic::CHECK_NAME
+            | infographic::RENDER_NAME
+            | tasks::CREATE_NAME
+            | tasks::EDIT_NAME
+            | tasks::APPEND_NAME
+            | tasks::COMPLETE_NAME
+            | tasks::CANCEL_NAME
+            | tasks::DELETE_NAME
+    )
+}
+
 // True when the open chat lets a call of this name through. The badge of the tools is read
 // where the tools are proposed; this is the same rule laid over the call itself, for a model
 // can name a tool it was never proposed.
@@ -11862,6 +12074,17 @@ fn tool_allowed(state: &Arc<Mutex<State>>, name: &str) -> bool {
 }
 
 fn tool_allowed_in(state: &Arc<Mutex<State>>, chat: &str, name: &str) -> bool {
+    if matches!(
+        name,
+        crate::goal::CRITERIA_NAME | crate::goal::COMPLETE_NAME | crate::goal::PAUSE_NAME
+    ) {
+        let Ok(guard) = state.lock() else { return false };
+        return guard.chat_of(chat).is_some_and(|one| {
+            one.meta.goal.is_some()
+                && !one.meta.goal_paused
+                && (name != crate::goal::COMPLETE_NAME || !one.meta.goal_criteria.is_empty())
+        });
+    }
     // The search of the sources is on the badge of retrieval and not behind the badge of the
     // tools, so it is gated by its own switch.
     if name == rag::NAME {
@@ -11878,10 +12101,10 @@ fn tool_allowed_in(state: &Arc<Mutex<State>>, chat: &str, name: &str) -> bool {
     if part == "summarise" && !guard.compaction_on() {
         return false;
     }
-    guard
-        .chat_of(chat)
-        .map(|c| c.meta.tools.value_of(part))
-        .unwrap_or(true)
+    guard.chat_of(chat).is_some_and(|c| {
+        (!goal_requires_criteria(name) || c.meta.goal.is_none() || !c.meta.goal_criteria.is_empty())
+            && c.meta.tools.value_of(part)
+    })
 }
 
 // The text of one line of the drop-down, for the line of the state and for the block of a call
@@ -11900,6 +12123,7 @@ fn tool_group_word(part: &str) -> String {
         // The text of the line, in the form the sentence about a tool that was not let through
         // reads well in.
         "summarise" => String::from("Manual summaries"),
+        "goal" => String::from("Goal actions"),
         other => String::from(other),
     }
 }
@@ -11965,6 +12189,41 @@ fn offered_with_planning(
         return None;
     }
     Some(Value::Array(list))
+}
+
+// Goal tools are independent of the user's ordinary tool switches: the active goal needs an
+// explicit way to report verified completion or pause for essential input even when no other
+// tools are enabled.
+#[allow(clippy::too_many_arguments)]
+fn offered_with_goal(
+    sandbox: bool,
+    planning_on: bool,
+    code_on: bool,
+    search_on: bool,
+    rag_on: bool,
+    access: tools::Access,
+    mcp_tools: &[Value],
+    switches: &store::ToolSwitches,
+    compaction_on: bool,
+    goal_on: bool,
+) -> Option<Value> {
+    let mut list = offered_with_planning(
+        sandbox,
+        planning_on,
+        code_on,
+        search_on,
+        rag_on,
+        access,
+        mcp_tools,
+        switches,
+        compaction_on,
+    )
+    .and_then(|made| made.as_array().cloned())
+    .unwrap_or_default();
+    if goal_on {
+        list.extend(crate::goal::definitions());
+    }
+    (!list.is_empty()).then_some(Value::Array(list))
 }
 
 fn offered(
@@ -12184,6 +12443,9 @@ fn run_program_tool(
         planning::READ_NAME => "Reading the plan",
         planning::ASK_NAME => "Asking about the plan",
         planning::END_NAME => "Letting the plan go",
+        crate::goal::CRITERIA_NAME => "Registering acceptance criteria",
+        crate::goal::COMPLETE_NAME => "Verifying goal completion",
+        crate::goal::PAUSE_NAME => "Waiting for essential input",
         infographic::PROJECT_NAME => "Setting up a composition",
         infographic::LAYER_NAME => "Editing a layer",
         infographic::CUTOUT_NAME => "Previewing a key",
@@ -12208,6 +12470,85 @@ fn run_program_tool(
         guard.set_status(&text);
         id
     };
+    if call.name == crate::goal::CRITERIA_NAME {
+        let (active, existing) = state
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard.chat_of(chat).map(|one| {
+                    (one.meta.goal.clone(), one.meta.goal_criteria.clone())
+                })
+            })
+            .unwrap_or_default();
+        let made = active
+            .as_deref()
+            .ok_or_else(|| String::from("There is no active goal to register criteria for."))
+            .and_then(|active| crate::goal::set_criteria(&call.arguments, active, &existing));
+        let (ok, output) = match made {
+            Ok(criteria) => {
+                let text = format!(
+                    "Registered {} acceptance criteria. Preserve all of them through the work and verify each before completion.",
+                    criteria.len()
+                );
+                let Ok(mut guard) = state.lock() else { return };
+                if let Some(one) = guard.chat_of_mut(chat) {
+                    one.meta.goal_criteria = criteria;
+                    one.meta.updated = store::now_secs();
+                }
+                guard.persist_in(chat);
+                guard.touch();
+                (true, text)
+            }
+            Err(problem) => (false, problem),
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool_in(chat, &message_id, &output, ok);
+        return;
+    }
+    if call.name == crate::goal::COMPLETE_NAME {
+        let (active, criteria) = state
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard.chat_of(chat).map(|one| {
+                    (one.meta.goal.clone(), one.meta.goal_criteria.clone())
+                })
+            })
+            .unwrap_or_default();
+        let report = match active {
+            Some(active) => crate::goal::completion(&call.arguments, &active, &criteria),
+            None => crate::tools::Report {
+                ok: false,
+                output: String::from("There is no active goal to complete."),
+            },
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        if report.ok {
+            guard.set_goal_in(chat, None, false);
+        }
+        guard.finish_tool_in(chat, &message_id, &report.output, report.ok);
+        return;
+    }
+    if call.name == crate::goal::PAUSE_NAME {
+        let active = state
+            .lock()
+            .ok()
+            .and_then(|guard| guard.chat_of(chat).and_then(|one| one.meta.goal.clone()));
+        let report = if active.is_some() {
+            crate::goal::pause(&call.arguments)
+        } else {
+            crate::tools::Report {
+                ok: false,
+                output: String::from("There is no active goal to pause."),
+            }
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        if report.ok {
+            guard.set_goal_in(chat, active, true);
+        }
+        guard.finish_tool_in(chat, &message_id, &report.output, report.ok);
+        return;
+    }
     // The clock of the call. A call of the program is stopped by the user in the same way as a
     // command: the marker is in the header of the block, and a call that is waited for -- the
     // question put to the user, above all -- gives up the moment the marker is pressed. A call
@@ -13235,6 +13576,257 @@ mod tests {
                 planned
             );
         }
+    }
+
+    #[test]
+    fn goal_tools_are_available_without_other_tools_only_while_a_goal_is_active() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        let switches = engine.snapshot().tool_switches;
+        let offered_goal = |goal_on| {
+            offered_with_goal(
+                false,
+                false,
+                false,
+                false,
+                false,
+                tools::Access::default(),
+                &[],
+                &switches,
+                false,
+                goal_on,
+            )
+        };
+        assert!(offered_goal(false).is_none());
+        let names = offered_goal(true)
+            .expect("the goal has its own control tools")
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|one| String::from(one["function"]["name"].as_str().unwrap_or_default()))
+            .collect::<Vec<_>>();
+        assert!(names.iter().any(|name| name == crate::goal::COMPLETE_NAME));
+        assert!(names.iter().any(|name| name == crate::goal::CRITERIA_NAME));
+        assert!(names.iter().any(|name| name == crate::goal::PAUSE_NAME));
+
+        assert!(!tool_allowed(&engine.state, crate::goal::COMPLETE_NAME));
+        {
+            let mut state = engine.state.lock().unwrap();
+            let chat_id = state.open_id();
+            let chat = state.chat_of_mut(&chat_id).unwrap();
+            chat.meta.goal = Some(String::from("Verify the feature"));
+            chat.meta.goal_criteria = vec![String::from("Feature check passes")];
+        }
+        assert!(tool_allowed(&engine.state, crate::goal::COMPLETE_NAME));
+        assert!(tool_allowed(&engine.state, crate::goal::PAUSE_NAME));
+        {
+            let mut state = engine.state.lock().unwrap();
+            let chat_id = state.open_id();
+            state.chat_of_mut(&chat_id).unwrap().meta.goal_paused = true;
+        }
+        assert!(!tool_allowed(&engine.state, crate::goal::COMPLETE_NAME));
+    }
+
+    #[test]
+    fn the_active_goal_instruction_survives_handoff_rebuilding() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        let mut state = engine.state.lock().unwrap();
+        let chat_id = state.open_id();
+        state.push_message_in(&chat_id, "You", "Implement and verify the feature", "", 0, false);
+        assert!(!state
+            .build_history_in(&chat_id)
+            .to_string()
+            .contains("ACTIVE GOAL"));
+        state.chat_of_mut(&chat_id).unwrap().meta.goal =
+            Some(String::from("Implement and verify the feature"));
+        state.chat_of_mut(&chat_id).unwrap().meta.goal_criteria =
+            vec![String::from("The regression check passes")];
+        state.chat_of_mut(&chat_id).unwrap().messages.push(Message {
+            id: store::new_id(),
+            role: String::from("Summary"),
+            body: String::from("The implementation is underway; rerun the failing check."),
+            when: store::now_secs(),
+            ..Default::default()
+        });
+        let history = state.build_history_in(&chat_id);
+        let words = history.to_string();
+        assert!(words.contains("ACTIVE GOAL"));
+        assert!(words.contains("Implement and verify the feature"));
+        assert!(words.contains("The regression check passes"));
+        assert!(words.contains("rerun the failing check"));
+
+        state.chat_of_mut(&chat_id).unwrap().meta.goal_paused = true;
+        assert!(state
+            .build_history_in(&chat_id)
+            .to_string()
+            .contains("GOAL PAUSED"));
+    }
+
+    #[test]
+    fn a_goal_continues_after_an_answer_but_stops_on_completion_pause_cancel_or_error() {
+        assert!(goal_should_continue(&Ended::Done, true, false, false));
+        assert!(!goal_should_continue(&Ended::Done, false, false, false));
+        assert!(!goal_should_continue(&Ended::Done, true, true, false));
+        assert!(!goal_should_continue(&Ended::Done, true, false, true));
+        assert!(!goal_should_continue(&Ended::Halted, true, false, false));
+    }
+
+    #[test]
+    fn the_goal_command_stores_replaces_and_resumes_a_goal() {
+        let _guard = config::test_turn();
+        setup();
+        let server_dir = std::env::temp_dir().join("autumn-natter-goal-command-server");
+        std::fs::create_dir_all(&server_dir).expect("the fake server folder");
+        std::fs::write(server_dir.join("llama-server"), "").expect("the fake server marker");
+        let engine = Engine::start(Config {
+            llama_dir: server_dir.display().to_string(),
+            model_id: String::from("/models/one.gguf"),
+            ..Config::default()
+        });
+        let mut state = engine.state.lock().unwrap();
+        state.models = vec![ModelInfo {
+            path: PathBuf::from("/models/one.gguf"),
+            name: String::from("one"),
+            kind: "GGUF",
+        }];
+        state.start_chat();
+        let chat = state.open_id();
+
+        let first = Engine::prepare_message_in(
+            &mut state,
+            &chat,
+            String::from("/goal write a short story"),
+            Vec::new(),
+        )
+        .expect("the goal starts with a selected model and server");
+        assert_eq!(first.text, "write a short story");
+        assert_eq!(
+            state.chat_of(&chat).unwrap().meta.goal.as_deref(),
+            Some("write a short story")
+        );
+        assert!(state.chat_of(&chat).unwrap().meta.goal_criteria.is_empty());
+
+        state.chat_of_mut(&chat).unwrap().meta.goal_paused = true;
+        let resumed = Engine::prepare_message_in(
+            &mut state,
+            &chat,
+            String::from("/goal"),
+            Vec::new(),
+        )
+        .expect("the command resumes the active goal");
+        assert!(resumed.text.contains("write a short story"));
+        assert!(!state.chat_of(&chat).unwrap().meta.goal_paused);
+
+        let replaced = Engine::prepare_message_in(
+            &mut state,
+            &chat,
+            String::from("/goal create a tested parser"),
+            Vec::new(),
+        )
+        .expect("a new goal replaces the active objective");
+        assert_eq!(replaced.text, "create a tested parser");
+        assert_eq!(
+            state.chat_of(&chat).unwrap().meta.goal.as_deref(),
+            Some("create a tested parser")
+        );
+        assert!(state.chat_of(&chat).unwrap().meta.goal_criteria.is_empty());
+
+        assert!(Engine::prepare_message_in(
+            &mut state,
+            &chat,
+            String::from("/goal stop"),
+            Vec::new(),
+        )
+        .is_none());
+        assert!(state.chat_of(&chat).unwrap().meta.goal.is_none());
+    }
+
+    #[test]
+    fn only_a_valid_completion_report_clears_the_persisted_goal() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let (chat_id, workdir) = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let chat_id = state.open_id();
+            state.set_goal_in(
+                &chat_id,
+                Some(String::from("Create and verify a parser")),
+                false,
+            );
+            state.push_message_in(&chat_id, "You", "Create and verify a parser", "", 0, false);
+            (chat_id, config::paths().data)
+        };
+        let criteria = ToolCall {
+            id: String::from("goal-criteria"),
+            name: String::from(crate::goal::CRITERIA_NAME),
+            arguments: String::from(
+                r#"{"goal":"Create and verify a parser","criteria":["The parser compiles"]}"#,
+            ),
+        };
+        run_program_tool(
+            &criteria,
+            "",
+            0,
+            &engine.state,
+            &workdir,
+            &Arc::new(AtomicBool::new(false)),
+            &chat_id,
+        );
+        assert_eq!(
+            engine
+                .state
+                .lock()
+                .unwrap()
+                .chat_of(&chat_id)
+                .unwrap()
+                .meta
+                .goal_criteria,
+            ["The parser compiles"]
+        );
+        let cancel = AtomicBool::new(false);
+        let invalid = ToolCall {
+            id: String::from("goal-incomplete"),
+            name: String::from(crate::goal::COMPLETE_NAME),
+            arguments: String::from("{}"),
+        };
+        run_program_tool(&invalid, "", 0, &engine.state, &workdir, &Arc::new(cancel), &chat_id);
+        assert_eq!(
+            engine
+                .state
+                .lock()
+                .unwrap()
+                .chat_of(&chat_id)
+                .unwrap()
+                .meta
+                .goal
+                .as_deref(),
+            Some("Create and verify a parser")
+        );
+
+        let valid = ToolCall {
+            id: String::from("goal-complete"),
+            name: String::from(crate::goal::COMPLETE_NAME),
+            arguments: String::from(
+                r#"{"goal":"Create and verify a parser","summary":"Parser created and checked","checks":[{"criterion":"The parser compiles","passed":true,"evidence":"The project check completed successfully"}]}"#,
+            ),
+        };
+        run_program_tool(&valid, "", 0, &engine.state, &workdir, &Arc::new(AtomicBool::new(false)), &chat_id);
+        assert!(engine
+            .state
+            .lock()
+            .unwrap()
+            .chat_of(&chat_id)
+            .unwrap()
+            .meta
+            .goal
+            .is_none());
     }
 
     // The handoff summary the model may request is behind the badge of the tools and behind the

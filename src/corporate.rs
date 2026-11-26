@@ -7,6 +7,7 @@ use serde_json::Value;
 use crate::display;
 use crate::download;
 use crate::editfile;
+use crate::goal;
 use crate::search;
 use crate::steps;
 use crate::suggest;
@@ -132,6 +133,9 @@ fn doing_word(name: &str) -> &'static str {
         download::NAME => "Offering files",
         viewimage::NAME | viewimage::ONE_NAME => "Looking at a picture",
         summarise::NAME => "Summarising the conversation",
+        goal::CRITERIA_NAME => "Setting acceptance criteria",
+        goal::COMPLETE_NAME => "Checking goal completion",
+        goal::PAUSE_NAME => "Waiting for user input",
         NAME => "Writing the short",
         _ => WORKING,
     }
@@ -234,6 +238,9 @@ fn done_word(name: &str) -> &'static str {
         download::NAME => "Offered files",
         viewimage::NAME | viewimage::ONE_NAME => "Viewed image",
         summarise::NAME => "Summarised the conversation",
+        goal::CRITERIA_NAME => "Set acceptance criteria",
+        goal::COMPLETE_NAME => "Verified goal completion",
+        goal::PAUSE_NAME => "Paused for user input",
         NAME => "Wrote the short",
         _ => "Worked",
     }
@@ -271,6 +278,9 @@ fn doing_plural(name: &str) -> &'static str {
         download::NAME => "Offering files",
         viewimage::NAME | viewimage::ONE_NAME => "Looking at pictures",
         summarise::NAME => "Summarising the conversation",
+        goal::CRITERIA_NAME => "Setting acceptance criteria",
+        goal::COMPLETE_NAME => "Checking goal completion",
+        goal::PAUSE_NAME => "Waiting for user input",
         NAME => "Writing the short",
         _ => "Working",
     }
@@ -291,6 +301,9 @@ fn known(name: &str) -> bool {
             | viewimage::NAME
             | viewimage::ONE_NAME
             | summarise::NAME
+            | goal::CRITERIA_NAME
+            | goal::COMPLETE_NAME
+            | goal::PAUSE_NAME
             | NAME
             | FINISH_NAME
     )

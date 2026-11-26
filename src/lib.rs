@@ -31,6 +31,7 @@ pub mod editfile;
 pub mod embed;
 pub mod engine;
 pub mod gguf;
+pub mod goal;
 pub mod gpu;
 pub mod greet;
 pub mod infographic;

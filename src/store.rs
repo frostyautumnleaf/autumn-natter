@@ -488,6 +488,17 @@ pub struct ChatMeta {
     // planned.
     #[serde(default)]
     pub plan_file: String,
+    // The goal this chat is pursuing. It survives restarts and handoff summaries until the
+    // model submits a passing completion report; it remains set while user input is awaited.
+    #[serde(default)]
+    pub goal: Option<String>,
+    // Task-appropriate finish criteria registered before goal work; completion evidence must
+    // account for each one exactly once.
+    #[serde(default)]
+    pub goal_criteria: Vec<String>,
+    // A goal can pause only when a required user decision, permission, or fact blocks safe work.
+    #[serde(default)]
+    pub goal_paused: bool,
     // Tokens used by the last answer.
     pub context_used: u64,
 }
@@ -530,6 +541,9 @@ impl Default for ChatMeta {
             planning: false,
             planned: false,
             plan_file: String::new(),
+            goal: None,
+            goal_criteria: Vec::new(),
+            goal_paused: false,
             context_used: 0,
         }
     }

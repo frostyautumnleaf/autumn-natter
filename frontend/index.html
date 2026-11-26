@@ -7514,6 +7514,21 @@ var TOOL_SHAPES = {
     word: 'steps', end: 'result',
     empty: 'no steps', begun: 'the steps being written', steps: true
   },
+  set_goal_criteria: {
+    mark: 'M2.6 3.6h7.4M2.6 8h7.4M2.6 12.4h4.6M11.4 11.5l1.5 1.5 3-3.4',
+    head: 'Setting acceptance criteria', done: 'Set acceptance criteria', word: 'criteria', end: 'result',
+    empty: 'acceptance criteria', begun: 'goal criteria'
+  },
+  complete_goal: {
+    mark: 'M2.8 8.2l3.2 3.2 7.2-7.2',
+    head: 'Checking goal completion', done: 'Verified goal completion', word: 'evidence', end: 'result',
+    empty: 'the active goal', begun: 'goal completion'
+  },
+  pause_goal: {
+    mark: 'M8 13.2v.2M5.8 5.8a2.2 2.2 0 1 1 3.8 1.5c-.9.9-1.6 1.2-1.6 2.5',
+    head: 'Waiting for user input', done: 'Paused for user input', word: 'question', end: 'result',
+    empty: 'essential input', begun: 'a question for the user'
+  },
   // The five tools of the composition suite. The engine names each call - what it
   // works on and which composition it is in - so the header of the block carries
   // that and no prefix of its own, which would say the same twice. The body holds

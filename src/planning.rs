@@ -387,34 +387,44 @@ pub fn asked_as_program(text: &str) -> bool {
 // a request in it.
 pub fn split(text: &str) -> (Option<Command>, String) {
     let trimmed = text.trim_start();
-    let Some(rest) = trimmed.strip_prefix(COMMAND_WORD) else {
-        return (None, text.to_string());
-    };
-    // `/planet` is no command: the word has to be on its own.
-    if let Some(next) = rest.chars().next() {
-        if !next.is_whitespace() {
-            return (None, text.to_string());
+    for (word, command) in [
+        (COMMAND_WORD, Command::Plan),
+        (crate::goal::COMMAND_WORD, Command::Goal),
+    ] {
+        let Some(rest) = trimmed.strip_prefix(word) else {
+            continue;
+        };
+        // The command has to stand as a whole word: `/planet` and `/goalkeeper` are text.
+        if rest.chars().next().is_some_and(|next| !next.is_whitespace()) {
+            continue;
         }
+        return (Some(command), rest.trim_start().to_string());
     }
-    (Some(Command::Plan), rest.trim_start().to_string())
+    (None, text.to_string())
 }
 
-// The commands of the chat composer, in the order they are listed. One command now, and the
-// list is where the next one is put.
+// The commands of the chat composer, in the order they are listed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     Plan,
+    Goal,
 }
 
 impl Command {
     // The word the user writes for this command, marker included.
     pub fn word(&self) -> &'static str {
-        COMMAND_WORD
+        match self {
+            Command::Plan => COMMAND_WORD,
+            Command::Goal => crate::goal::COMMAND_WORD,
+        }
     }
 
     // What the command is for, for the list the chat composer puts up.
     pub fn words(&self) -> &'static str {
-        COMMAND_WORDS
+        match self {
+            Command::Plan => COMMAND_WORDS,
+            Command::Goal => crate::goal::COMMAND_WORDS,
+        }
     }
 }
 
@@ -424,6 +434,10 @@ pub fn list() -> Vec<Value> {
         json!({
             "name": Command::Plan.word(),
             "words": Command::Plan.words(),
+        }),
+        json!({
+            "name": Command::Goal.word(),
+            "words": Command::Goal.words(),
         }),
         json!({
             "name": PROGRAM_WORD,
@@ -1168,6 +1182,15 @@ mod tests {
         let (planet, words) = split("/planets are far");
         assert_eq!(planet, None);
         assert_eq!(words, "/planets are far");
+        let (goal, objective) = split("/goal fix and verify the parser");
+        assert_eq!(goal, Some(Command::Goal));
+        assert_eq!(objective, "fix and verify the parser");
+        let (goal_alone, empty) = split("/goal");
+        assert_eq!(goal_alone, Some(Command::Goal));
+        assert!(empty.is_empty());
+        let (not_goal, words) = split("/goalkeeper is a word");
+        assert_eq!(not_goal, None);
+        assert_eq!(words, "/goalkeeper is a word");
     }
 
     // The three tools name themselves, and none of them takes a place.
