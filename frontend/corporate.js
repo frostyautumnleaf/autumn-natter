@@ -484,6 +484,7 @@ function workingEntry(messages, key, from, to, active, processing, state) {
     }
     return direct;
   }
+  const ending = active ? null : endPlan(messages, [{ from: 0, to: messages.length }], false)[0];
   let finalAt = -1;
   if (!active) {
     for (let n = messages.length - 1; n >= 0; n--) {
@@ -529,9 +530,10 @@ function workingEntry(messages, key, from, to, active, processing, state) {
   }
   return [
     { kind: 'working', key, active, processing, messages: work, from,
-      to: finalAt >= 0 ? from + finalAt : to },
+      to: finalAt >= 0 ? from + finalAt : to,
+      ending: finalAt >= 0 ? null : ending },
     ...(final ? [{ kind: 'final', key: 'final:' + final.id, message: final,
-      source: messages[finalAt], index: from + finalAt }] : []),
+      source: messages[finalAt], index: from + finalAt, ending }] : []),
     ...(finalAt >= 0 ? messages.slice(finalAt + 1).map((message, index) => ({
       kind: 'message', message, index: from + finalAt + index + 1
     })) : [])
@@ -603,7 +605,7 @@ function plainMessagesWithoutRepeatedToolThoughts(messages) {
   });
 }
 
-function plainWorkRows(body, messages, state) {
+function plainWorkRows(body, messages) {
   messages = plainMessagesWithoutRepeatedToolThoughts(messages);
   const spans = thoughtSpans(messages);
   const rows = threadRows(messages, spans);
@@ -628,8 +630,6 @@ function plainWorkRows(body, messages, state) {
     }
     node.dataset.workRow = key;
     keep.push(node);
-    const end = endPlan(messages, rows, Boolean(state.generating))[n];
-    placeEnd(node, end);
   }
   for (const stale of old.values()) { stale.remove(); }
   for (let n = 0; n < keep.length; n++) {
@@ -704,7 +704,7 @@ function workingNode(box, item, state) {
   node.dataset.to = String(item.to);
   const body = node.lastElementChild;
   if (chatting.corporate) { corporateWorkRows(body, item.messages, state); }
-  else { plainWorkRows(body, item.messages, state); }
+  else { plainWorkRows(body, item.messages); }
   workingMainMark(node.firstElementChild, body, Boolean(chatting.corporate));
   return node;
 }
@@ -725,7 +725,7 @@ function corporateFinalNode(box, item) {
   updateCorporateProse(prose, {
     text: item.message.body || '', message: item.source, actions: true
   });
-  placeEnd(node, endPlan([item.source], [{ from: 0, to: 1 }], false)[0]);
+  placeEnd(node, item.ending);
   return node;
 }
 
@@ -751,6 +751,9 @@ function drawWorkingThread(state, items) {
         item.message, item.index));
     } else if (item.kind === 'working') {
       ordered.push(workingNode(box, item, state));
+      if (item.ending) {
+        ordered.push(answerEndNode(box, 'answer-end:' + item.key, item.ending));
+      }
     } else if (item.kind === 'final') {
       if (chatting.corporate) {
         ordered.push(corporateFinalNode(box, item));
@@ -766,11 +769,21 @@ function drawWorkingThread(state, items) {
           if (actions) { node.append(actions); }
           node._workSourceStamp = sourceStamp;
         }
-        placeEnd(node, endPlan([item.source], [{ from: 0, to: 1 }], false)[0]);
+        placeEnd(node, item.ending);
       }
     }
   }
   moveChildren(box, ordered, true);
   if (fresh) { el.thread.scrollTop = 0; stick = true; }
   else if (stick) { el.thread.scrollTop = el.thread.scrollHeight; stepHeadShown(); }
+}
+
+function answerEndNode(parent, key, ending) {
+  let node = Array.from(parent.children).find(child => child.dataset.viewKey === key);
+  if (!node) {
+    node = make('div', 'turn t-ai');
+    node.dataset.viewKey = key;
+  }
+  placeEnd(node, ending);
+  return node;
 }
