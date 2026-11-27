@@ -29,6 +29,16 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           libwebkit2gtk-4.1-dev build-essential curl wget file \
-          libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
+          libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config \
+          libwayland-dev libpipewire-0.3-dev libdrm-dev libgbm-dev \
+          libxcb1-dev libxcb-randr0-dev
     - name: Build the window
       run: cargo build --release
+
+  check-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Check the program on Windows
+      run: cargo check --workspace
