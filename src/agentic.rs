@@ -47,6 +47,7 @@ pub fn browser_definition() -> Value {
             "query":{"type":"string","description":"Search words when action is search."},
             "url":{"type":"string","description":"A public URL from a search result when action is open."},
             "link":{"type":"string","description":"Link number or visible link text from the current page when action is click."},
+            "ref":{"type":"string","description":"Stable link ref such as r3 from the latest snapshot."},
             "tab":{"type":"integer","description":"One-based tab number for switch_tab or close_tab."}
         },"required":["action"]}
     }})
@@ -114,11 +115,16 @@ pub fn browser_run(raw: &str, chat: &str) -> tools::Report {
             let Some(tab) = session.tabs.get(session.active) else {
                 return fail("Open a page before choosing one of its links.");
             };
-            let wanted = args["link"].as_str().unwrap_or("").trim();
+            let wanted = args["ref"]
+                .as_str()
+                .or_else(|| args["link"].as_str())
+                .unwrap_or("")
+                .trim();
             if wanted.is_empty() || wanted.chars().count() > 200 {
                 return fail("Give a link number or a short piece of its visible text.");
             }
-            let found = wanted
+            let number = wanted.strip_prefix('r').unwrap_or(wanted);
+            let found = number
                 .parse::<usize>()
                 .ok()
                 .and_then(|i| i.checked_sub(1).and_then(|i| tab.links.get(i)))
@@ -131,9 +137,7 @@ pub fn browser_run(raw: &str, chat: &str) -> tools::Report {
                     })
                 });
             let Some((_, url)) = found else {
-                return fail(
-                    "No link on the current page matched. Use a link number or its visible text.",
-                );
+                return fail("No link on the current page matched. Use its ref such as r2, number, or visible text.");
             };
             let url = url.clone();
             drop(held);
@@ -424,9 +428,9 @@ fn browser_page_output(url: &str, text: &str, links: &[(String, String)]) -> Str
         safe_page_content(&text.chars().take(12_000).collect::<String>()),
     );
     if !links.is_empty() {
-        output.push_str("\n\nLinks on the page (use a number with action=click):");
+        output.push_str("\n\nLinks on the page (use a ref with action=click):");
         for (i, (label, _)) in links.iter().take(30).enumerate() {
-            output.push_str(&format!("\n{}. {}", i + 1, safe_page_content(label)));
+            output.push_str(&format!("\nr{}: {}", i + 1, safe_page_content(label)));
         }
     }
     output.push_str(&format!("\n{PAGE_END}"));
