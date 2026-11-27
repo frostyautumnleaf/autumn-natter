@@ -5,7 +5,7 @@
 
 use base64::Engine as _;
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use crate::tools::{self, with_rule};
@@ -32,7 +32,7 @@ struct BrowserTab {
 static BROWSERS: OnceLock<Mutex<HashMap<String, BrowserSession>>> = OnceLock::new();
 // Computer use needs a fresh view before its first action in each chat. The screenshot itself is
 // returned as a tool attachment, while this small in-memory marker prevents blind first clicks.
-static COMPUTER_SESSIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static COMPUTER_SESSIONS: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
 
 pub fn is_tool(name: &str) -> bool {
     matches!(name, BROWSER_NAME | COMPUTER_NAME)
@@ -65,6 +65,7 @@ pub fn computer_definition() -> Value {
             "direction":{"type":"string","enum":["up","down","left","right"]},
             "amount":{"type":"integer","description":"Scroll steps, from 1 to 30."},
             "seconds":{"type":"number","description":"For wait, from 0 to 10 seconds."},
+            "display":{"type":"integer","description":"For screenshot, one-based monitor number from the latest screenshot's display list. Omit to keep the current display."},
             "name":{"type":"string","description":"For open_app, the application name or executable path without arguments."},
             "then":{"type":"array","description":"Up to seven follow-up actions that need no screenshot check between them.","items":{"type":"object","properties":{"action":{"type":"string","enum":["move","click","double_click","triple_click","middle_click","right_click","drag","type","press","scroll","wait","open_app"]},"x":{"type":"integer"},"y":{"type":"integer"},"to_x":{"type":"integer"},"to_y":{"type":"integer"},"text":{"type":"string"},"key":{"type":"string"},"direction":{"type":"string","enum":["up","down","left","right"]},"amount":{"type":"integer"},"seconds":{"type":"number"},"name":{"type":"string"}},"required":["action"]}}
         },"required":["action"]}
@@ -515,29 +516,40 @@ pub fn computer_run(
         );
     }
     if action == "screenshot" {
-        let result = screenshot();
+        let display = match requested_display(&args, chat) {
+            Ok(display) => display,
+            Err(problem) => return computer_fail(&problem),
+        };
+        let result = screenshot(display);
         if result.report.ok {
-            mark_computer_screenshot(chat);
+            mark_computer_screenshot(chat, display);
         }
         return result;
     }
     if !has_computer_screenshot(chat) {
-        let mut result = screenshot();
+        let display = match requested_display(&args, chat) {
+            Ok(display) => display,
+            Err(problem) => return computer_fail(&problem),
+        };
+        let mut result = screenshot(display);
         if result.report.ok {
-            mark_computer_screenshot(chat);
+            mark_computer_screenshot(chat, display);
             result.report.output = String::from(
                 "No desktop action was performed. Inspect this screenshot, then choose the next action using its coordinates.",
             );
         }
         return result;
     }
+    let Some(display) = computer_display(chat) else {
+        return computer_fail("The selected display state expired; request a fresh screenshot.");
+    };
     let mut results = Vec::new();
     let mut ok = true;
     for (index, one) in actions.iter().enumerate() {
         if watch.expired() {
             return computer_fail("The computer action sequence was stopped or timed out.");
         }
-        let result = control(one, watch);
+        let result = control(one, display, watch);
         results.push(result.output);
         if !result.ok {
             ok = false;
@@ -550,7 +562,7 @@ pub fn computer_run(
     if watch.expired() {
         return computer_fail("The computer action sequence was stopped or timed out.");
     }
-    let mut after = screenshot();
+    let mut after = screenshot(display);
     if !after.report.ok {
         after.report.output = format!(
             "{} The screen could not be captured afterward: {}",
@@ -586,21 +598,60 @@ fn valid_computer_action(action: &str) -> bool {
 
 fn has_computer_screenshot(chat: &str) -> bool {
     COMPUTER_SESSIONS
-        .get_or_init(|| Mutex::new(HashSet::new()))
+        .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
-        .map(|sessions| sessions.contains(chat))
+        .map(|sessions| sessions.contains_key(chat))
         .unwrap_or(false)
 }
 
-fn mark_computer_screenshot(chat: &str) {
+fn computer_display(chat: &str) -> Option<u32> {
+    COMPUTER_SESSIONS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .ok()
+        .and_then(|sessions| sessions.get(chat).copied())
+}
+
+fn requested_display(args: &Value, chat: &str) -> Result<u32, String> {
+    let monitors = xcap::Monitor::all().map_err(|e| format!("Could not read displays: {e}"))?;
+    if let Some(number) = args["display"].as_u64() {
+        if number == 0 {
+            return Err(String::from(
+                "Use a one-based display number from the screenshot list.",
+            ));
+        }
+        return monitors
+            .get(number as usize - 1)
+            .ok_or_else(|| String::from("That display number is not available."))?
+            .id()
+            .map_err(|e| format!("Could not read that display: {e}"));
+    }
+    if let Some(display) = computer_display(chat) {
+        if monitors
+            .iter()
+            .any(|monitor| monitor.id().ok() == Some(display))
+        {
+            return Ok(display);
+        }
+    }
+    monitors
+        .iter()
+        .find(|monitor| monitor.is_primary().unwrap_or(false))
+        .or_else(|| monitors.first())
+        .ok_or_else(|| String::from("No display is available for screen capture."))?
+        .id()
+        .map_err(|e| format!("Could not read the primary display: {e}"))
+}
+
+fn mark_computer_screenshot(chat: &str, display: u32) {
     if let Ok(mut sessions) = COMPUTER_SESSIONS
-        .get_or_init(|| Mutex::new(HashSet::new()))
+        .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
     {
-        sessions.insert(chat.to_string());
+        sessions.insert(chat.to_string(), display);
         if sessions.len() > 256 {
             // Session state is only a guard against blind actions, not data worth retaining.
-            if let Some(old) = sessions.iter().find(|one| one.as_str() != chat).cloned() {
+            if let Some(old) = sessions.keys().find(|one| one.as_str() != chat).cloned() {
                 sessions.remove(&old);
             }
         }
@@ -609,22 +660,21 @@ fn mark_computer_screenshot(chat: &str) {
 
 pub fn clear_computer_screenshot(chat: &str) {
     if let Ok(mut sessions) = COMPUTER_SESSIONS
-        .get_or_init(|| Mutex::new(HashSet::new()))
+        .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
     {
         sessions.remove(chat);
     }
 }
 
-fn screenshot() -> ComputerResult {
+fn screenshot(display: u32) -> ComputerResult {
     let made = (|| -> Result<crate::attach::Incoming, String> {
         let monitors =
             xcap::Monitor::all().map_err(|e| format!("Screen capture is unavailable: {e}"))?;
         let monitor = monitors
             .iter()
-            .find(|m| m.is_primary().unwrap_or(false))
-            .or_else(|| monitors.first())
-            .ok_or_else(|| String::from("No display is available for screen capture."))?;
+            .find(|monitor| monitor.id().ok() == Some(display))
+            .ok_or_else(|| String::from("The selected display is no longer available."))?;
         let image = monitor
             .capture_image()
             .map_err(|e| format!("The screen could not be captured: {e}"))?;
@@ -654,14 +704,42 @@ fn screenshot() -> ComputerResult {
     })();
     match made {
         Ok(image) => ComputerResult {
-            report: tools::Report { ok: true, output: String::from("Current screenshot of the primary display. Use the image to select coordinates for the next action.") },
+            report: tools::Report { ok: true, output: format!("Current screenshot of the selected display. Use the image to choose coordinates for the next action. Select a different display by its one-based number from this list:\n{}", display_list()) },
             image: Some(image),
         },
         Err(problem) => computer_fail(&problem),
     }
 }
 
-fn control(args: &Value, watch: &crate::util::Watch) -> tools::Report {
+fn display_list() -> String {
+    let Ok(monitors) = xcap::Monitor::all() else {
+        return String::from("Display information is unavailable.");
+    };
+    if monitors.is_empty() {
+        return String::from("No displays are available.");
+    }
+    monitors
+        .iter()
+        .enumerate()
+        .map(|(index, monitor)| {
+            let primary = if monitor.is_primary().unwrap_or(false) {
+                " (primary)"
+            } else {
+                ""
+            };
+            format!(
+                "{}: {}x{}{}",
+                index + 1,
+                monitor.width().unwrap_or(0),
+                monitor.height().unwrap_or(0),
+                primary
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn control(args: &Value, display: u32, watch: &crate::util::Watch) -> tools::Report {
     use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 
     let action = args["action"].as_str().unwrap_or("");
@@ -709,10 +787,9 @@ fn control(args: &Value, watch: &crate::util::Watch) -> tools::Report {
         };
         let Some(primary) = monitors
             .iter()
-            .find(|m| m.is_primary().unwrap_or(false))
-            .or_else(|| monitors.first())
+            .find(|monitor| monitor.id().ok() == Some(display))
         else {
-            return fail("No display is available for input.");
+            return fail("The selected display is no longer available for input.");
         };
         let (left, top, width, height) =
             match (primary.x(), primary.y(), primary.width(), primary.height()) {
