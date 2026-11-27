@@ -650,14 +650,16 @@ fn dropped(page: &str, at: usize) -> Option<&str> {
 
 // Hidden fallback markup is not part of the page a user sees. Pages such as GitHub's login
 // page put a generic fragment-load error inside a hidden element, then replace that fragment
-// in the browser. Reading the raw response without honoring `hidden` made that fallback look
-// like an actual page failure to the model.
+// in the browser. The fallback can also become visible when only that fragment fails, even
+// though the rest of the page loaded successfully.
 fn drop_hidden_element(page: &str, at: usize) -> Option<&str> {
     let head = page.get(at..)?;
     let end = mark_end(head)?;
     let opening = head.get(..=end)?;
     let (name, closing, self_closing) = html_tag(opening)?;
-    if closing || !has_html_attribute(opening, "hidden") {
+    let hidden = has_html_attribute(opening, "hidden");
+    let fallback = has_html_attribute(opening, "data-show-on-forbidden-error");
+    if closing || !(hidden || fallback) {
         return None;
     }
     if self_closing || is_void_element(name) {

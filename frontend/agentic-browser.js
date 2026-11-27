@@ -3,13 +3,15 @@
 
   var style = document.createElement('style');
   style.textContent = `
-    .agentic-browser-panel { position: fixed; z-index: 19; top: var(--bar-h); right: 0; bottom: 0;
-      width: min(900px, 72vw); display: flex; flex-direction: column;
-      overflow: hidden; border: 1px solid var(--line-strong); border-radius: 14px;
-      background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+    .chat-layout { position: relative; display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
+    .chat-layout-content { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
+    .agentic-browser-panel { position: relative; z-index: 19; flex: 0 1 min(760px, 42vw);
+      width: min(760px, 42vw); min-width: min(240px, 100%); max-width: 48%; height: 100%;
+      display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--line);
+      background: var(--bg); color: var(--text); }
     .agentic-browser-panel.hidden { display: none; }
     .general-sidebar-tabs { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden;
-      min-height: 42px; padding: 5px 8px; border-bottom: 1px solid var(--line); background: var(--surface-2); scrollbar-width: thin; }
+      min-height: 40px; padding: 4px 8px; border-bottom: 1px solid var(--line); background: transparent; scrollbar-width: thin; }
     .general-sidebar-tab-wrap { display: inline-flex; flex: 0 0 auto; align-items: center; }
     .general-sidebar-tab { display: inline-flex; align-items: center; max-width: 220px; height: 30px; padding: 0 10px;
       border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text-2);
@@ -23,8 +25,8 @@
     .general-sidebar-pane { min-width: 0; min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
     .general-sidebar-pane.hidden { display: none; }
     .general-sidebar-file-pane { overflow: hidden; }
-    .agentic-browser-head { display: flex; align-items: center; gap: 6px; padding: 8px;
-      border-bottom: 1px solid var(--line); background: var(--surface-2); }
+    .agentic-browser-head { display: flex; align-items: center; gap: 6px; padding: 7px 8px;
+      border-bottom: 1px solid var(--line); background: transparent; }
     .agentic-browser-label { flex: 0 0 auto; padding: 0 5px; color: var(--text-2); font-size: 12px; font-weight: 650; }
     .agentic-browser-address { min-width: 0; flex: 1 1 auto; height: 30px; padding: 0 9px;
       border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text);
@@ -85,7 +87,7 @@
       border-radius: 7px; background: var(--surface-2); color: var(--text); cursor: pointer; }
     .agentic-computer-approval-actions [data-computer-approval="yes"] { border-color: var(--accent-line);
       background: var(--accent); color: var(--on-accent); }
-    @media (max-width: 700px) { .agentic-browser-panel { left: 0; width: auto; } }
+    @media (max-width: 700px) { .agentic-browser-panel { flex-basis: min(360px, 44vw); min-width: min(200px, 44vw); } }
     @media (max-width: 540px) {
       .agentic-browser-label { display: none; }
       .agentic-browser-head { gap: 4px; padding: 6px; }
@@ -106,8 +108,6 @@
     '</div><section class="general-sidebar-pane" id="generalSidebarBrowserPane" role="tabpanel" aria-labelledby="generalSidebarBrowserTab" data-sidebar-pane="browser"><div class="agentic-browser-head">' +
     '<span class="agentic-browser-label">Browser use</span>' +
     '<input class="agentic-browser-address" type="url" aria-label="Browser address" placeholder="Enter a public page address">' +
-    '<button class="agentic-browser-action" type="button" data-browser-nav="back" title="Back" aria-label="Back">←</button>' +
-    '<button class="agentic-browser-action" type="button" data-browser-nav="forward" title="Forward" aria-label="Forward">→</button>' +
     '<button class="agentic-browser-action" type="button" data-browser-nav="reload" title="Reload" aria-label="Reload">↻</button>' +
     '<button class="agentic-browser-action" type="button" data-browser-newtab title="New tab" aria-label="New tab">＋</button>' +
     '<button class="agentic-browser-action" type="button" data-browser-go title="Open address in panel" aria-label="Open address in panel">↵</button>' +
@@ -118,7 +118,21 @@
     '<iframe class="agentic-browser-frame hidden" title="Isolated page preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>' +
     '<details class="agentic-browser-reader"><summary>Page text read by the model</summary><div class="agentic-browser-links"></div><pre></pre></details>' +
     '<div class="agentic-browser-approval hidden" role="dialog" aria-modal="true" aria-label="Approve browser action"><strong>Review browser action</strong><pre></pre><div class="agentic-browser-approval-actions"><button type="button" data-browser-approve="no">Deny</button><button type="button" data-browser-approve="yes">Allow</button></div></div></section>';
-  document.body.appendChild(root);
+  var area = document.getElementById('area');
+  var dock = document.getElementById('dock');
+  var layout = document.createElement('div');
+  var chat = document.createElement('div');
+  layout.className = 'chat-layout';
+  chat.className = 'chat-layout-content';
+  if (area && dock && area.parentNode === dock.parentNode) {
+    area.parentNode.insertBefore(layout, area);
+    layout.appendChild(chat);
+    chat.appendChild(area);
+    chat.appendChild(dock);
+    layout.appendChild(root);
+  } else {
+    document.body.appendChild(root);
+  }
 
   var sidebarTabs = root.querySelector('.general-sidebar-tabs');
   var browserPane = root.querySelector('[data-sidebar-pane="browser"]');
@@ -409,7 +423,8 @@
         function role(el){var r=el.getAttribute('role');if(r)return r;var t=el.tagName.toLowerCase();if(t==='a'&&el.href)return 'link';if(t==='button')return 'button';if(t==='select')return 'combobox';if(t==='textarea'||t==='input')return el.type==='checkbox'?'checkbox':el.type==='radio'?'radio':'textbox';if(el.isContentEditable)return 'textbox';return 'element'}
         function name(el){return clean(el.getAttribute('aria-label')||el.getAttribute('placeholder')||el.innerText||el.textContent||el.getAttribute('title')||el.name||el.tagName.toLowerCase(),160)}
         function scan(){var out=[];var all=document.querySelectorAll('a[href],button,input:not([type=hidden]),textarea,select,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[tabindex]');for(var el of all){if(!visible(el))continue;var id=ids.get(el);if(!id){id='r'+next++;ids.set(el,id);refs.set(id,el)}out.push({ref:id,role:role(el),name:name(el),href:el.tagName==='A'?el.href:'',type:el.type||'',disabled:!!el.disabled});if(out.length>=400)break}return out}
-        function text(limit){return String(document.body&&document.body.innerText||'').replace(/\\r/g,'').split(/\\n+/).map(function(line){return clean(line,1200)}).filter(Boolean).join('\\n').slice(0,limit||24000)}
+        function pageText(scope,limit){return String(scope&&(scope.innerText||scope.textContent)||'').replace(/(?:Uh oh!\\s*)?There was an error while loading\\.\\s*Please reload this page\\s*\\.?/gi,'').replace(/\\r/g,'').slice(0,limit||24000)}
+        function text(limit){return pageText(document.body,limit).split(/\\n+/).map(function(line){return clean(line,1200)}).filter(Boolean).join('\\n')}
         function send(id,result){if(bridge)bridge.postMessage({type:'autumn-browser-result',id:id,result:result})}
         function ask(id,message){return new Promise(function(resolve){var timer=setTimeout(function(){approvals.delete(id);resolve(false)},60000);approvals.set(id,function(answer){clearTimeout(timer);approvals.delete(id);resolve(answer===true)});if(bridge)bridge.postMessage({type:'autumn-browser-confirm',id:id,message:message})})}
         function point(el,x,y){if(el){var r=el.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]}return [Number(x)||0,Number(y)||0]}
@@ -421,8 +436,8 @@
           var walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),node,count=0;while((node=walk.nextNode())&&count<1200){var raw=String(node.nodeValue||'').replace(/\\s+/g,' ').trim();if(!raw)continue;var parent=node.parentElement;if(!parent||/^(SCRIPT|STYLE|NOSCRIPT|TITLE)$/.test(parent.tagName))continue;var range=document.createRange();range.selectNodeContents(node);var rect=range.getBoundingClientRect();if(rect.width<1||rect.height<1||rect.right<0||rect.bottom<0||rect.left>w*sx||rect.top>h*sy)continue;var st=getComputedStyle(parent),size=Math.max(7,Math.min(30,parseFloat(st.fontSize)||14))/((sx+sy)/2),chars=Math.max(1,Math.floor(rect.width/Math.max(4,size*.55))),piece=raw.slice(0,Math.min(raw.length,chars*2)),tx=Math.max(0,rect.left/sx),ty=Math.min(h-1,Math.max(size,rect.top/sy+size));out.push('<text x="'+tx+'" y="'+ty+'" fill="'+xml(st.color||'#111')+'" font-family="'+xml(st.fontFamily||'sans-serif')+'" font-size="'+size+'">'+xml(piece)+'</text>');count++;}
           out.push('</svg>');var blob=new Blob([out.join('')],{type:'image/svg+xml'}),url=URL.createObjectURL(blob),img=new Image();img.onload=function(){try{var canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;var ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);resolve({width:w,height:h,data:canvas.toDataURL('image/png')})}catch(e){resolve(null)}URL.revokeObjectURL(url)};img.onerror=function(){URL.revokeObjectURL(url);resolve(null)};img.src=url})}
         async function run(msg){var a=msg.action||{},op=a.action||a.op||'',el=byRef(a.ref),controls=scan();if(!el&&(op==='click'||op==='move'||op==='drag')&&Number.isFinite(Number(a.x))&&Number.isFinite(Number(a.y)))el=document.elementFromPoint(Number(a.x),Number(a.y));
-          if(op==='snapshot'){var scope=el||document.body,items=scope===document.body?controls:controls.filter(function(item){var child=byRef(item.ref);return child&&scope.contains(child)});return {ok:true,title:document.title,text:clean(scope.innerText||scope.textContent||'',a.full_page?100000:24000),links:items}}
-          if(op==='find'){var q=clean(a.query||a.text,200).toLowerCase();var found=controls.filter(function(x){return (x.name+' '+x.role).toLowerCase().includes(q)});var snippets=(document.body&&document.body.innerText||'').split(/\\n+/).filter(function(x){return x.toLowerCase().includes(q)}).slice(0,10);return {ok:true,title:document.title,text:snippets.join('\\n'),links:found}}
+          if(op==='snapshot'){var scope=el||document.body,items=scope===document.body?controls:controls.filter(function(item){var child=byRef(item.ref);return child&&scope.contains(child)});return {ok:true,title:document.title,text:pageText(scope,a.full_page?100000:24000),links:items}}
+          if(op==='find'){var q=clean(a.query||a.text,200).toLowerCase();var found=controls.filter(function(x){return (x.name+' '+x.role).toLowerCase().includes(q)});var snippets=pageText(document.body,30000).split(/\\n+/).filter(function(x){return x.toLowerCase().includes(q)}).slice(0,10);return {ok:true,title:document.title,text:snippets.join('\\n'),links:found}}
           if(op==='screenshot'){var shot=await pageShot();return shot?{ok:true,title:document.title,text:'Visible browser page screenshot.',image:shot.data,width:shot.width,height:shot.height}:{ok:false,error:'The browser page screenshot could not be captured.'}}
           if(op==='evaluate'){if(!await ask(msg.id,'Run this JavaScript in the current page?\\n\\n'+String(a.script||'')))return {ok:false,error:'The user declined the page script.'};try{var value=await (new Function('return (async function(){'+String(a.script||'')+'}).call(null)'))();return {ok:true,title:document.title,text:typeof value==='string'?value:JSON.stringify(value)}}catch(e){return {ok:false,error:'Page script failed: '+clean(e&&e.message,500)}}}
           if(op==='click'&&el&&el.tagName==='A'&&el.href){if(new URL(el.href).host!==location.host&&!await ask(msg.id,'Open this link in the browser panel?\\n'+el.href))return {ok:false,error:'The user declined to open the link.'};return {ok:true,navigate:el.href,title:document.title}}
@@ -702,9 +717,7 @@
       approval.classList.add('hidden');
     }
     var nav = event.target && event.target.closest ? event.target.closest('[data-browser-nav]') : null;
-    if (nav) {
-      navigate('browser_history_step', { action: nav.getAttribute('data-browser-nav') });
-    }
+    if (nav) { navigate('browser_history_step', { action: nav.getAttribute('data-browser-nav') }); }
   });
   address.addEventListener('keydown', function (event) {
     if (event.key === 'Enter') { event.preventDefault(); navigateAddress(); }
