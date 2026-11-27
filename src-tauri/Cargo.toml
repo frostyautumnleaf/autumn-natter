@@ -32,4 +32,5 @@ xcap = "0.9.10"
 # view of the system is on. No other system has that tool.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18", features = ["v3_24"] }
+webkit2gtk = "2.0"
 percent-encoding = "2"

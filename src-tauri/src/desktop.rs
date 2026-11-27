@@ -77,6 +77,8 @@ pub fn run(cfg: Config) -> Result<(), String> {
             let window = tauri::WebviewWindowBuilder::from_config(app.handle(), shape)?
                 .enable_clipboard_access()
                 .build()?;
+            #[cfg(target_os = "linux")]
+            commands::install_browser_overlay(&window)?;
             watch_the_drop(&window);
             Ok(())
         })

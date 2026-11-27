@@ -157,6 +157,7 @@
     } else if (notify) {
       window.dispatchEvent(new CustomEvent('autumn-sidebar-tab-selected', { detail: { id: id } }));
     }
+    syncBrowserLayout();
   }
   function closeSidebarFile(id) {
     var pane = sidebarFiles.get(id);
@@ -286,6 +287,9 @@
     } else if (pagePort) {
       pagePort.postMessage({ type: 'autumn-browser-approval', id: approvalId, approved: false });
     }
+    dismissApproval();
+  }
+  function dismissApproval() {
     approvalId = '';
     approvalText.textContent = '';
     approval.classList.add('hidden');
@@ -314,10 +318,14 @@
     var browser = enabled ? state.browser || {} : {};
     var list = Array.isArray(browser.tabs) ? browser.tabs : [];
     var active = Number(browser.active) || 0;
+    var previousPending = currentPending;
     currentPending = browser.pending_action && typeof browser.pending_action.id === 'string'
       ? browser.pending_action : null;
     if (!currentPending && approvalId) { denyApproval(); }
     if (currentPending && root.classList.contains('hidden')) { showSidebar(true); }
+    if (currentPending && (!previousPending || previousPending.id !== currentPending.id)) {
+      if (activeSidebarTab !== 'browser') { setSidebarTab('browser', true); }
+    }
     enableButton.classList.toggle('hidden', enabled);
     address.disabled = !enabled;
     tabs.replaceChildren();
@@ -384,7 +392,10 @@
     var nextKey = JSON.stringify([state.chat && state.chat.id, active, nextUrl, page && page.revision || 0]);
     if (nextKey !== currentKey) {
       setPage(nextUrl, active, nextKey);
-      if (autoOpen) { showSidebar(true); }
+      if (autoOpen) {
+        showSidebar(true);
+        if (activeSidebarTab !== 'browser') { setSidebarTab('browser', true); }
+      }
     }
     if (invokeNative && !root.classList.contains('hidden')) {
       syncNativeWindow(active, true).then(function (ready) {
@@ -522,9 +533,12 @@
   function syncNativeWindow(tab, visible) {
     if (!invokeNative || !tab) { return Promise.resolve(false); }
     var rect = frame.getBoundingClientRect();
+    visible = visible && activeSidebarTab === 'browser' && !approvalId &&
+      !root.classList.contains('hidden') && !frame.classList.contains('hidden') &&
+      rect.width >= 1 && rect.height >= 1;
     var bounds = {
       tab: tab,
-      visible: !!visible,
+      visible: visible,
       x: visible ? Math.max(0, Math.round(rect.left)) : 0,
       y: visible ? Math.max(0, Math.round(rect.top)) : 0,
       width: visible ? Math.max(1, Math.round(rect.width)) : 1,
@@ -540,6 +554,7 @@
       }).catch(function (error) {
         if (visible && nativeSyncKey === key) {
           showStatus('The native browser page could not open: ' + String(error && error.message || error));
+          nativeSyncKey = '';
         }
         return false;
       });
@@ -566,7 +581,7 @@
   }
 
   function sendPendingAction() {
-    if (!currentPending || root.classList.contains('hidden')) { return; }
+    if (!currentPending || activeSidebarTab !== 'browser' || root.classList.contains('hidden')) { return; }
     if (!invokeNative && !pageReady) { return; }
     if (sentActions.has(currentPending.id)) { return; }
     sentActions.add(currentPending.id);
@@ -592,6 +607,7 @@
             approvalId = id;
             approvalText.textContent = String(result.approval || 'Allow this browser action?');
             approval.classList.remove('hidden');
+            syncNativeWindow(tab, false);
           } else {
             answerBrowserAction(id, result);
           }
@@ -673,6 +689,7 @@
     if (target) {
       event.preventDefault();
       event.stopPropagation();
+      setSidebarTab('browser', true);
       open();
       return;
     }
@@ -691,16 +708,21 @@
     var approvalButton = event.target && event.target.closest ? event.target.closest('[data-browser-approve]') : null;
     if (approvalButton && approvalId) {
       var approved = approvalButton.getAttribute('data-browser-approve') === 'yes';
+      var decisionId = approvalId;
+      dismissApproval();
       if (nativeApproval) {
         var pending = nativeApproval;
         nativeApproval = null;
         if (approved) {
-          invokeNative('browser_window_action', {
-            tab: pending.tab,
-            action: pending.action,
-            approved: true,
-            allowDownload: pending.allowDownload,
-            downloadUrl: pending.downloadUrl
+          syncNativeWindow(pending.tab, true).then(function (ready) {
+            if (!ready) { throw new Error('The browser panel is no longer visible.'); }
+            return invokeNative('browser_window_action', {
+              tab: pending.tab,
+              action: pending.action,
+              approved: true,
+              allowDownload: pending.allowDownload,
+              downloadUrl: pending.downloadUrl
+            });
           })
             .then(function (result) { answerBrowserAction(pending.id, result || { ok: false, error: 'The browser returned no action result.' }); })
             .catch(function (error) { answerBrowserAction(pending.id, { ok: false, error: String(error && error.message || error) }); });
@@ -708,11 +730,9 @@
           answerBrowserAction(pending.id, { ok: false, error: 'The user declined the browser action.' });
         }
       } else if (pagePort) {
-        pagePort.postMessage({ type: 'autumn-browser-approval', id: approvalId, approved: approved });
+        pagePort.postMessage({ type: 'autumn-browser-approval', id: decisionId, approved: approved });
       }
-      approvalId = '';
-      approvalText.textContent = '';
-      approval.classList.add('hidden');
+      syncBrowserLayout();
     }
     var nav = event.target && event.target.closest ? event.target.closest('[data-browser-nav]') : null;
     if (nav) { navigate('browser_history_step', { action: nav.getAttribute('data-browser-nav') }); }
@@ -738,9 +758,14 @@
     layoutPending = true;
     requestAnimationFrame(function () {
       layoutPending = false;
-      if (root.classList.contains('hidden') || frame.classList.contains('hidden')) { return; }
+      if (root.classList.contains('hidden')) { return; }
       var tab = Number(((latest || {}).browser || {}).active) || 0;
-      if (tab) { syncNativeWindow(tab, true); }
+      if (tab) {
+        var key = currentKey;
+        syncNativeWindow(tab, true).then(function (ready) {
+          if (ready && key === currentKey) { sendPendingAction(); }
+        });
+      }
     });
   }
   window.addEventListener('resize', syncBrowserLayout, { passive: true });

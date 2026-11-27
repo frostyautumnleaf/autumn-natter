@@ -318,6 +318,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "ureq",
+ "webkit2gtk",
  "xcap",
 ]
 

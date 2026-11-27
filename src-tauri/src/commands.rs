@@ -16,7 +16,7 @@ use std::{hash::Hash, hash::Hasher};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, State, WebviewBuilder,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewBuilder,
     WebviewUrl, WebviewWindowBuilder,
 };
 
@@ -34,9 +34,6 @@ static BROWSER_VIEWPORTS: OnceLock<Mutex<std::collections::HashMap<String, Brows
 static BROWSER_SCREENSHOT_SIZES: OnceLock<
     Mutex<std::collections::HashMap<String, (u32, u32)>>,
 > = OnceLock::new();
-static BROWSER_COORDINATE_SCALES: OnceLock<
-    Mutex<std::collections::HashMap<String, (f64, f64)>>,
-> = OnceLock::new();
 static BROWSER_VISIBLE: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
 static BROWSER_NAVIGATION_PENDING: OnceLock<
     Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
@@ -48,6 +45,97 @@ struct BrowserViewport {
     y: f64,
     width: f64,
     height: f64,
+}
+
+fn browser_viewport(label: &str) -> Option<BrowserViewport> {
+    BROWSER_VIEWPORTS.get()?.lock().ok()?.get(label).copied()
+}
+
+// Wry packs Linux child webviews into the window's vertical GTK box. The native browser
+// instead needs the same window coordinates as the browser slot in the main webview.
+#[cfg(target_os = "linux")]
+pub(crate) fn install_browser_overlay(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use gtk::{prelude::*, OverlaySignals};
+
+    window.with_webview(|place| {
+        let main = place.inner();
+        let Some(parent) = main.parent().and_downcast::<gtk::Box>() else { return };
+        let overlay = gtk::Overlay::new();
+        overlay.set_widget_name("autumn-browser-overlay");
+        overlay.connect_get_child_position(|_, child| {
+            let viewport = browser_viewport(child.widget_name().as_str())?;
+            Some(gtk::gdk::Rectangle::new(
+                viewport.x.round() as i32,
+                viewport.y.round() as i32,
+                viewport.width.round() as i32,
+                viewport.height.round() as i32,
+            ))
+        });
+        parent.remove(&main);
+        overlay.add(&main);
+        parent.pack_start(&overlay, true, true, 0);
+        overlay.show_all();
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn add_browser_view(
+    window: tauri::Window,
+    builder: WebviewBuilder<tauri::Wry>,
+    position: LogicalPosition<f64>,
+    size: LogicalSize<f64>,
+) -> Result<tauri::Webview, String> {
+    use gtk::prelude::*;
+
+    let (send, receive) = mpsc::sync_channel(1);
+    let main = window.clone();
+    // Build and reparent in one GTK event so the child never gets a frame in the box.
+    window.run_on_main_thread(move || {
+        let view = match main.add_child(builder, position, size) {
+            Ok(view) => view,
+            Err(problem) => {
+                let _ = send.send(Err(problem.to_string()));
+                return;
+            }
+        };
+        let child_view = view.clone();
+        let reply = send.clone();
+        if let Err(problem) = view.with_webview(move |place| {
+            let child = place.inner();
+            let parent = child.parent().and_downcast::<gtk::Box>();
+            let overlay = parent.as_ref().and_then(|parent| {
+                parent.children().into_iter().find_map(|widget| {
+                    widget.downcast::<gtk::Overlay>().ok()
+                        .filter(|overlay| overlay.widget_name() == "autumn-browser-overlay")
+                })
+            });
+            let result = if let (Some(parent), Some(overlay)) = (parent, overlay) {
+                parent.remove(&child);
+                child.set_widget_name(child_view.label());
+                overlay.add_overlay(&child);
+                child.show();
+                Ok(child_view)
+            } else {
+                child.hide();
+                Err(String::from("The native browser sidebar is unavailable."))
+            };
+            let _ = reply.send(result);
+        }) {
+            let _ = send.send(Err(problem.to_string()));
+        }
+    }).map_err(|problem| problem.to_string())?;
+    receive.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| String::from("The native browser could not be placed in the sidebar."))?
+}
+
+#[cfg(not(target_os = "linux"))]
+fn add_browser_view(
+    window: tauri::Window,
+    builder: WebviewBuilder<tauri::Wry>,
+    position: LogicalPosition<f64>,
+    size: LogicalSize<f64>,
+) -> Result<tauri::Webview, String> {
+    window.add_child(builder, position, size).map_err(|problem| problem.to_string())
 }
 
 // The state as JSON. The page sends the number it already has (since). When nothing changed,
@@ -134,22 +222,6 @@ pub async fn browser_window_sync(
         .lock()
         .map_err(|_| String::from("The browser panel state is busy."))?
         .insert(label.clone(), viewport);
-    let screenshot_size = BROWSER_SCREENSHOT_SIZES.get().and_then(|sizes| {
-        sizes.lock().ok()?.get(&label).copied()
-    });
-    if let Some((image_width, image_height)) = screenshot_size {
-        if image_width > 0 && image_height > 0 {
-            if let Ok(mut scales) = BROWSER_COORDINATE_SCALES
-                .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-                .lock()
-            {
-                scales.insert(
-                    label.clone(),
-                    (width / f64::from(image_width), height / f64::from(image_height)),
-                );
-            }
-        }
-    }
     let was_visible = visible_views
         .lock()
         .map_err(|_| String::from("The browser panel state is busy."))?
@@ -189,10 +261,15 @@ pub async fn browser_window_sync(
             }
         }
         if previous != Some(viewport) {
-            view.set_bounds(Rect {
-                position: LogicalPosition::new(x, y).into(),
-                size: LogicalSize::new(width, height).into(),
-            })
+            #[cfg(target_os = "linux")]
+            view.with_webview(|place| {
+                use gtk::prelude::*;
+                if let Some(overlay) = place.inner().parent() {
+                    overlay.queue_allocate();
+                }
+            }).map_err(|problem| problem.to_string())?;
+            #[cfg(not(target_os = "linux"))]
+            view.set_bounds(tauri::Rect { position: position.into(), size: size.into() })
                 .map_err(|problem| problem.to_string())?;
         }
         if !was_visible {
@@ -310,9 +387,7 @@ pub async fn browser_window_sync(
     let window = app
         .get_window("main")
         .ok_or_else(|| String::from("The main application window is unavailable."))?;
-    let view = window
-        .add_child(builder, position, size)
-        .map_err(|problem| problem.to_string())?;
+    let view = add_browser_view(window, builder, position, size)?;
     view.show().map_err(|problem| problem.to_string())?;
     visible_views
         .lock()
@@ -350,11 +425,11 @@ pub async fn browser_window_action(
             .ok_or_else(|| String::from("The approved download URL is missing or invalid."))?;
         grant_browser_download(&label, download_url);
     }
-    let (scale_x, scale_y) = BROWSER_COORDINATE_SCALES
-        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-        .lock()
-        .ok()
-        .and_then(|scales| scales.get(&label).copied())
+    let screenshot_size = BROWSER_SCREENSHOT_SIZES.get().and_then(|sizes| {
+        sizes.lock().ok()?.get(&label).copied()
+    });
+    let (scale_x, scale_y) = browser_viewport(&label).zip(screenshot_size)
+        .map(|(rect, (width, height))| (rect.width / f64::from(width), rect.height / f64::from(height)))
         .unwrap_or((1.0, 1.0));
     let script = browser_action_script(&action, approved, scale_x, scale_y)?;
     let (send, receive) = mpsc::sync_channel(1);
@@ -478,12 +553,85 @@ fn native_browser_screenshot(
     app: &AppHandle,
     label: &str,
 ) -> Result<(String, u32, u32), String> {
-    let viewport = BROWSER_VIEWPORTS
+    let shown = BROWSER_VISIBLE.get().and_then(|shown| {
+        shown.lock().ok().map(|shown| shown.contains(label))
+    }).unwrap_or(false);
+    let viewport = browser_viewport(label).filter(|_| shown)
+        .ok_or_else(|| String::from("The browser page is not positioned in the visible panel."))?;
+    let image = capture_browser_view(app, label, viewport)?;
+    let (mut bytes, mut width, mut height) = encode_browser_png(&image, 1_440)?;
+    // The engine accepts at most 3 MB of base64. Retry at an edge where even an
+    // uncompressed RGBA image fits, so a detailed page still reaches the model.
+    if bytes.len() > 2_250_000 {
+        (bytes, width, height) = encode_browser_png(&image, 720)?;
+    }
+    if let Ok(mut sizes) = BROWSER_SCREENSHOT_SIZES
         .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
         .lock()
-        .ok()
-        .and_then(|viewports| viewports.get(label).copied())
-        .ok_or_else(|| String::from("The browser page is not positioned in the visible panel."))?;
+    {
+        sizes.insert(label.to_string(), (width, height));
+    }
+    Ok((format!("data:image/png;base64,{}", STANDARD.encode(bytes)), width, height))
+}
+
+#[cfg(target_os = "linux")]
+fn capture_browser_view(
+    app: &AppHandle,
+    label: &str,
+    _viewport: BrowserViewport,
+) -> Result<image::RgbaImage, String> {
+    use gtk::prelude::*;
+    use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
+
+    let view = app.get_webview(label)
+        .ok_or_else(|| String::from("Open the browser panel before taking a screenshot."))?;
+    let (send, receive) = mpsc::sync_channel(1);
+    // Snapshot the page itself. Wayland doesn't expose global window positions, and
+    // desktop capture could include another window covering the sidebar.
+    view.with_webview(move |place| {
+        let webview = place.inner();
+        if !webview.is_mapped() {
+            let _ = send.send(Err(String::from("The native browser page is hidden.")));
+            return;
+        }
+        webview.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE,
+            None::<&gtk::gio::Cancellable>, move |result| {
+                let image = result.map_err(|problem| problem.to_string())
+                    .and_then(browser_snapshot_pixels);
+                let _ = send.send(image);
+            });
+    }).map_err(|problem| problem.to_string())?;
+    receive.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| String::from("The native browser did not return a screenshot."))?
+}
+
+#[cfg(target_os = "linux")]
+fn browser_snapshot_pixels(surface: gtk::cairo::Surface) -> Result<image::RgbaImage, String> {
+    let surface = gtk::cairo::ImageSurface::try_from(surface)
+        .map_err(|_| String::from("The native browser returned an unsupported screenshot surface."))?;
+    let (width, height) = (surface.width(), surface.height());
+    if width < 1 || height < 1 || i64::from(width) * i64::from(height) > 24_000_000 {
+        return Err(String::from("The native browser screenshot has invalid dimensions."));
+    }
+    let pixbuf = gtk::gdk::pixbuf_get_from_surface(&surface, 0, 0, width, height)
+        .ok_or_else(|| String::from("The native browser screenshot could not be read."))?;
+    let channels = pixbuf.n_channels() as usize;
+    let stride = pixbuf.rowstride() as usize;
+    let pixels = pixbuf.read_pixel_bytes();
+    let pixels = pixels.as_ref();
+    Ok(image::RgbaImage::from_fn(width as u32, height as u32, |x, y| {
+        let offset = y as usize * stride + x as usize * channels;
+        let alpha = if channels == 4 { pixels[offset + 3] } else { 255 };
+        image::Rgba([pixels[offset], pixels[offset + 1], pixels[offset + 2], alpha])
+    }))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn capture_browser_view(
+    app: &AppHandle,
+    _label: &str,
+    viewport: BrowserViewport,
+) -> Result<image::RgbaImage, String> {
     let main = app
         .get_webview_window("main")
         .ok_or_else(|| String::from("The main application window is unavailable."))?;
@@ -496,7 +644,7 @@ fn native_browser_screenshot(
         std::process::id(),
         &title,
     )?;
-    let mut image = captured.image;
+    let image = captured.image;
     let left = inner.x - captured.x
         + (viewport.x * scale).round().clamp(0.0, i32::MAX as f64) as i32;
     let top = inner.y - captured.y
@@ -515,24 +663,24 @@ fn native_browser_screenshot(
             "The browser panel bounds are outside the application screenshot.",
         ));
     }
-    image = image::imageops::crop_imm(&image, left as u32, top as u32, width, height).to_image();
-    let resize = (1_440.0 / f64::from(width.max(height))).min(1.0);
+    Ok(image::imageops::crop_imm(&image, left as u32, top as u32, width, height).to_image())
+}
+
+fn encode_browser_png(image: &image::RgbaImage, max_edge: u32) -> Result<(Vec<u8>, u32, u32), String> {
+    let (width, height) = image.dimensions();
+    let resize = (f64::from(max_edge) / f64::from(width.max(height))).min(1.0);
     let shot_width = (f64::from(width) * resize).round().max(1.0) as u32;
     let shot_height = (f64::from(height) * resize).round().max(1.0) as u32;
-    if (shot_width, shot_height) != (width, height) {
-        image = image::imageops::resize(
-            &image,
+    let resized;
+    let image = if (shot_width, shot_height) == (width, height) { image } else {
+        resized = image::imageops::resize(
+            image,
             shot_width,
             shot_height,
             image::imageops::FilterType::Triangle,
         );
-    }
-    if let Ok(mut sizes) = BROWSER_SCREENSHOT_SIZES
-        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-        .lock()
-    {
-        sizes.insert(label.to_string(), (shot_width, shot_height));
-    }
+        &resized
+    };
     let mut bytes = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut bytes, shot_width, shot_height);
@@ -545,11 +693,7 @@ fn native_browser_screenshot(
             .write_image_data(image.as_raw())
             .map_err(|problem| problem.to_string())?;
     }
-    Ok((
-        format!("data:image/png;base64,{}", STANDARD.encode(bytes)),
-        shot_width,
-        shot_height,
-    ))
+    Ok((bytes, shot_width, shot_height))
 }
 
 fn browser_action_script(
