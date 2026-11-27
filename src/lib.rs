@@ -25,6 +25,7 @@ pub mod config;
 pub mod contexts;
 pub mod corporate;
 pub mod db;
+pub mod desktop;
 pub mod documents;
 pub mod display;
 pub mod download;

@@ -481,21 +481,14 @@ fn native_browser_screenshot(
         .map_err(|problem| problem.to_string())?;
     let scale = main.scale_factor().map_err(|problem| problem.to_string())?;
     let title = main.title().map_err(|problem| problem.to_string())?;
-    let window = xcap::Window::all()
-        .map_err(|problem| format!("Could not list open windows: {problem}"))?
-        .into_iter()
-        .find(|window| window.pid().ok() == Some(std::process::id()) && window.title().ok().as_deref() == Some(title.as_str()))
-        .ok_or_else(|| {
-            String::from("The application window is not visible to the screenshot service.")
-        })?;
-    let mut image = window
-        .capture_image()
-        .map_err(|problem| format!("Could not capture the browser panel: {problem}"))?;
-    let window_x = window.x().map_err(|problem| problem.to_string())?;
-    let window_y = window.y().map_err(|problem| problem.to_string())?;
-    let left = inner.x - window_x
+    let captured = autumn_natter_core::desktop::capture_application_window(
+        std::process::id(),
+        &title,
+    )?;
+    let mut image = captured.image;
+    let left = inner.x - captured.x
         + (viewport.x * scale).round().clamp(0.0, i32::MAX as f64) as i32;
-    let top = inner.y - window_y
+    let top = inner.y - captured.y
         + (viewport.y * scale).round().clamp(0.0, i32::MAX as f64) as i32;
     let width = (viewport.width * scale).round().max(1.0) as u32;
     let height = (viewport.height * scale).round().max(1.0) as u32;

@@ -24,6 +24,8 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 base64 = "0.22"
 image = { version = "0.25", default-features = false }
 png = "0.18"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 xcap = "0.9.10"
 
 # The window of this system asks the clipboard of the computer through GTK, the toolkit the web

@@ -81,11 +81,16 @@ image-webp = "0.2"
 # Resize desktop captures before sending them to a vision model.
 image = { version = "0.25", default-features = false }
 png = "0.18"
-# The Agentic computer tool uses the desktop screen and input backends on each platform. Linux
-# source builds need the Wayland, PipeWire, DRM, GBM and XCB development packages listed above.
-enigo = { version = "0.6.1", features = ["libei_smol"] }
-xcap = "0.9.10"
+# Linux desktop capture uses the X11 protocol and input backend. This matches Unsloth's Linux
+# support and keeps PipeWire development headers out of ordinary builds.
+enigo = "0.6.1"
 url = "2.5"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", features = ["randr"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+xcap = "0.9.10"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

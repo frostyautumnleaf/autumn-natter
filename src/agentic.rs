@@ -1570,16 +1570,7 @@ fn computer_action_needs_approval(chat: &str, actions: &[Value]) -> bool {
 }
 
 fn active_computer_app() -> Option<(String, String)> {
-    xcap::Window::all()
-        .ok()?
-        .into_iter()
-        .find(|window| window.is_focused().unwrap_or(false))
-        .map(|window| {
-            (
-                window.app_name().unwrap_or_default(),
-                window.title().unwrap_or_default(),
-            )
-        })
+    crate::desktop::focused_window()
 }
 
 fn computer_app_key(app: &str, title: &str) -> u64 {
@@ -1880,8 +1871,9 @@ fn normalize_computer_action(mut args: Value) -> Value {
         }
     }
     if args["action"].as_str() == Some("zoom") {
-        let region = args.get("region").or_else(|| args.get("box"));
+        let region = args.get("region").or_else(|| args.get("box")).cloned();
         if let Some(points) = region
+            .as_ref()
             .and_then(Value::as_array)
             .filter(|points| points.len() == 4)
         {
@@ -2371,18 +2363,20 @@ fn user_took_control(chat: &str) -> bool {
     {
         return false;
     }
-    let Ok(monitors) = xcap::Monitor::all() else {
+    let Ok(monitors) = crate::desktop::displays() else {
         return false;
     };
     monitors.iter().any(|monitor| {
-        let bounds = (monitor.x(), monitor.y(), monitor.width(), monitor.height());
-        let (Ok(left), Ok(top), Ok(width), Ok(height)) = bounds else {
-            return false;
-        };
-        let right = left.saturating_add(width as i32).saturating_sub(1);
-        let bottom = top.saturating_add(height as i32).saturating_sub(1);
+        let left = monitor.x;
+        let top = monitor.y;
+        let right = left
+            .saturating_add(monitor.width as i32)
+            .saturating_sub(1);
+        let bottom = top
+            .saturating_add(monitor.height as i32)
+            .saturating_sub(1);
         let corner = 12;
-        ((x <= left + corner || x >= right - corner) && (y <= top + corner || y >= bottom - corner))
+        (x <= left + corner || x >= right - corner) && (y <= top + corner || y >= bottom - corner)
     })
 }
 
@@ -2395,34 +2389,32 @@ fn computer_display(chat: &str) -> Option<ComputerScreen> {
 }
 
 fn requested_display(args: &Value, chat: &str) -> Result<u32, String> {
-    let monitors = xcap::Monitor::all().map_err(|e| format!("Could not read displays: {e}"))?;
+    let monitors = crate::desktop::displays()?;
     if let Some(number) = args["display"].as_u64() {
         if number == 0 {
             return Err(String::from(
                 "Use a one-based display number from the screenshot list.",
             ));
         }
-        return monitors
+        return Ok(monitors
             .get(number as usize - 1)
             .ok_or_else(|| String::from("That display number is not available."))?
-            .id()
-            .map_err(|e| format!("Could not read that display: {e}"));
+            .id);
     }
     if let Some(screen) = computer_display(chat) {
         if monitors
             .iter()
-            .any(|monitor| monitor.id().ok() == Some(screen.display))
+            .any(|monitor| monitor.id == screen.display)
         {
             return Ok(screen.display);
         }
     }
     monitors
         .iter()
-        .find(|monitor| monitor.is_primary().unwrap_or(false))
+        .find(|monitor| monitor.primary)
         .or_else(|| monitors.first())
-        .ok_or_else(|| String::from("No display is available for screen capture."))?
-        .id()
-        .map_err(|e| format!("Could not read the primary display: {e}"))
+        .map(|monitor| monitor.id)
+        .ok_or_else(|| String::from("No display is available for screen capture."))
 }
 
 fn mark_computer_screenshot(
@@ -2490,15 +2482,7 @@ pub fn clear_computer_screenshot(chat: &str) {
 
 fn screenshot(display: u32, chat: &str) -> ComputerResult {
     let made = (|| -> Result<(crate::attach::Incoming, u32, u32, u32, u32, i32, i32), String> {
-        let monitors =
-            xcap::Monitor::all().map_err(|e| format!("Screen capture is unavailable: {e}"))?;
-        let monitor = monitors
-            .iter()
-            .find(|monitor| monitor.id().ok() == Some(display))
-            .ok_or_else(|| String::from("The selected display is no longer available."))?;
-        let image = monitor
-            .capture_image()
-            .map_err(|e| format!("The screen could not be captured: {e}"))?;
+        let (monitor, image) = crate::desktop::capture_display(display)?;
         let (width, height) = (image.width(), image.height());
         if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 24_000_000 {
             return Err(String::from("The display is too large to capture safely."));
@@ -2526,12 +2510,8 @@ fn screenshot(display: u32, chat: &str) -> ComputerResult {
                 .write_image_data(shot.as_raw())
                 .map_err(|e| e.to_string())?;
         }
-        let display_x = monitor
-            .x()
-            .map_err(|e| format!("Could not read display position: {e}"))?;
-        let display_y = monitor
-            .y()
-            .map_err(|e| format!("Could not read display position: {e}"))?;
+        let display_x = monitor.x;
+        let display_y = monitor.y;
         Ok((
             crate::attach::Incoming {
                 name: String::from("desktop-screenshot.png"),
@@ -2582,17 +2562,13 @@ fn zoom_screenshot(
                 "The computer zoom was stopped before capture.",
             ));
         }
-        let monitors =
-            xcap::Monitor::all().map_err(|e| format!("Screen capture is unavailable: {e}"))?;
-        let monitor = monitors
-            .iter()
-            .find(|monitor| monitor.id().ok() == Some(screen.display))
-            .ok_or_else(|| String::from("The selected display is no longer available."))?;
-        let image = monitor
-            .capture_image()
-            .map_err(|e| format!("The screen could not be captured: {e}"))?;
+        let (monitor, image) = crate::desktop::capture_display(screen.display)?;
         let (width, height) = (image.width(), image.height());
-        if width != screen.display_width || height != screen.display_height {
+        if width != screen.display_width
+            || height != screen.display_height
+            || monitor.width != screen.display_width
+            || monitor.height != screen.display_height
+        {
             return Err(String::from("The display resolution changed since the screenshot. Take a fresh screenshot before zooming."));
         }
         let scale = (f64::from(MAX_SCREENSHOT_EDGE) / f64::from(width.max(height))).min(1.0);
@@ -2670,7 +2646,7 @@ fn zoom_screenshot(
 }
 
 fn display_list() -> String {
-    let Ok(monitors) = xcap::Monitor::all() else {
+    let Ok(monitors) = crate::desktop::displays() else {
         return String::from("Display information is unavailable.");
     };
     if monitors.is_empty() {
@@ -2680,7 +2656,7 @@ fn display_list() -> String {
         .iter()
         .enumerate()
         .map(|(index, monitor)| {
-            let primary = if monitor.is_primary().unwrap_or(false) {
+            let primary = if monitor.primary {
                 " (primary)"
             } else {
                 ""
@@ -2688,8 +2664,8 @@ fn display_list() -> String {
             format!(
                 "{}: {}x{}{}",
                 index + 1,
-                monitor.width().unwrap_or(0),
-                monitor.height().unwrap_or(0),
+                monitor.width,
+                monitor.height,
                 primary
             )
         })
@@ -2767,23 +2743,22 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
             | "drag"
             | "scroll"
     ) {
-        let monitors = match xcap::Monitor::all() {
+        let monitors = match crate::desktop::displays() {
             Ok(made) => made,
-            Err(e) => return fail(&format!("The display could not be read: {e}")),
+            Err(problem) => return fail(&format!("The display could not be read: {problem}")),
         };
         let Some(primary) = monitors
             .iter()
-            .find(|monitor| monitor.id().ok() == Some(screen.display))
+            .find(|monitor| monitor.id == screen.display)
         else {
             return fail("The selected display is no longer available for input.");
         };
-        let (left, top, width, height) =
-            match (primary.x(), primary.y(), primary.width(), primary.height()) {
-                (Ok(x), Ok(y), Ok(w), Ok(h)) => {
-                    (i64::from(x), i64::from(y), i64::from(w), i64::from(h))
-                }
-                _ => return fail("The display bounds could not be read."),
-            };
+        let (left, top, width, height) = (
+            i64::from(primary.x),
+            i64::from(primary.y),
+            i64::from(primary.width),
+            i64::from(primary.height),
+        );
         if width != i64::from(screen.display_width) || height != i64::from(screen.display_height) {
             return fail("The display resolution changed since the screenshot. Take a fresh screenshot before acting.");
         }
