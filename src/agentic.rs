@@ -65,6 +65,8 @@ struct ComputerScreen {
     height: u32,
     display_width: u32,
     display_height: u32,
+    input_width: u32,
+    input_height: u32,
     display_x: i32,
     display_y: i32,
     pointer: Option<(i32, i32)>,
@@ -1445,8 +1447,10 @@ pub fn computer_run(
             clear_computer_screenshot(chat);
             return computer_fail("Computer use stopped because the pointer was moved to a screen corner. Take a new screenshot before continuing.");
         }
-        if !matches!(one["action"].as_str(), Some("screenshot" | "zoom" | "cursor" | "wait"))
-            && !computer_focus_still_approved(chat)
+        if !matches!(
+            one["action"].as_str(),
+            Some("screenshot" | "zoom" | "cursor" | "wait")
+        ) && !computer_focus_still_approved(chat)
         {
             return computer_fail(
                 "The foreground app changed after desktop approval. Take a fresh screenshot and approve the action for the current app.",
@@ -1497,8 +1501,8 @@ fn computer_action_needs_approval(chat: &str, actions: &[Value]) -> bool {
     let Some((front_app, front_title)) = active_computer_app() else {
         return true;
     };
-    let changed_app = !screen.granted
-        || screen.granted_app != computer_app_key(&front_app, &front_title);
+    let changed_app =
+        !screen.granted || screen.granted_app != computer_app_key(&front_app, &front_title);
     changed_app
         || sensitive_computer_app(&front_app, &front_title)
         || actions.iter().any(|action| {
@@ -1664,8 +1668,7 @@ fn wait_for_computer_approval(
             COMPUTER_APPROVAL_REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if result
                 && approved_app.is_some()
-                && active_computer_app()
-                    .map(|(app, title)| computer_app_key(&app, &title))
+                && active_computer_app().map(|(app, title)| computer_app_key(&app, &title))
                     != approved_app
             {
                 return Err(String::from(
@@ -2254,6 +2257,10 @@ fn has_computer_screenshot(chat: &str) -> bool {
 }
 
 fn desktop_pointer() -> Option<(i32, i32)> {
+    #[cfg(target_os = "linux")]
+    if crate::desktop::is_wayland() {
+        return None;
+    }
     use enigo::{Enigo, Mouse, Settings};
     Enigo::new(&Settings::default()).ok()?.location().ok()
 }
@@ -2278,9 +2285,9 @@ fn update_expected_pointer(chat: &str, args: &Value, screen: ComputerScreen) {
     };
     let (Some(x), Some(y)) = point else { return };
     let x = screen.display_x
-        + (x as f64 * f64::from(screen.display_width) / f64::from(screen.width)).round() as i32;
+        + (x as f64 * f64::from(screen.input_width) / f64::from(screen.width)).round() as i32;
     let y = screen.display_y
-        + (y as f64 * f64::from(screen.display_height) / f64::from(screen.height)).round() as i32;
+        + (y as f64 * f64::from(screen.input_height) / f64::from(screen.height)).round() as i32;
     if let Ok(mut sessions) = COMPUTER_SESSIONS
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
@@ -2309,12 +2316,8 @@ fn user_took_control(chat: &str) -> bool {
     monitors.iter().any(|monitor| {
         let left = monitor.x;
         let top = monitor.y;
-        let right = left
-            .saturating_add(monitor.width as i32)
-            .saturating_sub(1);
-        let bottom = top
-            .saturating_add(monitor.height as i32)
-            .saturating_sub(1);
+        let right = left.saturating_add(monitor.width as i32).saturating_sub(1);
+        let bottom = top.saturating_add(monitor.height as i32).saturating_sub(1);
         let corner = 12;
         (x <= left + corner || x >= right - corner) && (y <= top + corner || y >= bottom - corner)
     })
@@ -2342,10 +2345,7 @@ fn requested_display(args: &Value, chat: &str) -> Result<u32, String> {
             .id);
     }
     if let Some(screen) = computer_display(chat) {
-        if monitors
-            .iter()
-            .any(|monitor| monitor.id == screen.display)
-        {
+        if monitors.iter().any(|monitor| monitor.id == screen.display) {
             return Ok(screen.display);
         }
     }
@@ -2364,6 +2364,8 @@ fn mark_computer_screenshot(
     height: u32,
     display_width: u32,
     display_height: u32,
+    input_width: u32,
+    input_height: u32,
     display_x: i32,
     display_y: i32,
 ) {
@@ -2375,7 +2377,17 @@ fn mark_computer_screenshot(
             .get(chat)
             .filter(|old| old.display == display)
             .and_then(|old| old.pointer)
-            .or_else(desktop_pointer);
+            .or_else(desktop_pointer)
+            .or_else(|| {
+                #[cfg(target_os = "linux")]
+                if crate::desktop::is_wayland() {
+                    return Some((
+                        display_x.saturating_add((input_width / 2) as i32),
+                        display_y.saturating_add((input_height / 2) as i32),
+                    ));
+                }
+                None
+            });
         let granted_app = sessions.get(chat).map(|old| old.granted_app).unwrap_or(0);
         let granted = sessions.get(chat).is_some_and(|old| old.granted);
         sessions.insert(
@@ -2386,6 +2398,8 @@ fn mark_computer_screenshot(
                 height,
                 display_width,
                 display_height,
+                input_width,
+                input_height,
                 display_x,
                 display_y,
                 pointer,
@@ -2421,7 +2435,7 @@ pub fn clear_computer_screenshot(chat: &str) {
 }
 
 fn screenshot(display: u32, chat: &str) -> ComputerResult {
-    let made = (|| -> Result<(crate::attach::Incoming, u32, u32, u32, u32, i32, i32), String> {
+    let made = (|| -> Result<(crate::attach::Incoming, u32, u32, u32, u32, u32, u32, i32, i32), String> {
         let (monitor, image) = crate::desktop::capture_display(display)?;
         let (width, height) = (image.width(), image.height());
         if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 24_000_000 {
@@ -2466,12 +2480,24 @@ fn screenshot(display: u32, chat: &str) -> ComputerResult {
             shot_height,
             width,
             height,
+            monitor.width,
+            monitor.height,
             display_x,
             display_y,
         ))
     })();
     match made {
-        Ok((image, width, height, display_width, display_height, display_x, display_y)) => {
+        Ok((
+            image,
+            width,
+            height,
+            display_width,
+            display_height,
+            input_width,
+            input_height,
+            display_x,
+            display_y,
+        )) => {
             mark_computer_screenshot(
                 chat,
                 display,
@@ -2479,6 +2505,8 @@ fn screenshot(display: u32, chat: &str) -> ComputerResult {
                 height,
                 display_width,
                 display_height,
+                input_width,
+                input_height,
                 display_x,
                 display_y,
             );
@@ -2506,8 +2534,8 @@ fn zoom_screenshot(
         let (width, height) = (image.width(), image.height());
         if width != screen.display_width
             || height != screen.display_height
-            || monitor.width != screen.display_width
-            || monitor.height != screen.display_height
+            || monitor.width != screen.input_width
+            || monitor.height != screen.input_height
         {
             return Err(String::from("The display resolution changed since the screenshot. Take a fresh screenshot before zooming."));
         }
@@ -2596,11 +2624,7 @@ fn display_list() -> String {
         .iter()
         .enumerate()
         .map(|(index, monitor)| {
-            let primary = if monitor.primary {
-                " (primary)"
-            } else {
-                ""
-            };
+            let primary = if monitor.primary { " (primary)" } else { "" };
             format!(
                 "{}: {}x{}{}",
                 index + 1,
@@ -2618,6 +2642,24 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
 
     let action = args["action"].as_str().unwrap_or("");
     if action == "cursor" {
+        #[cfg(target_os = "linux")]
+        if crate::desktop::is_wayland() {
+            let Some((x, y)) = screen.pointer else {
+                return fail("Take a fresh screenshot before asking for the pointer position.");
+            };
+            let x = i64::from(x) - i64::from(screen.display_x);
+            let y = i64::from(y) - i64::from(screen.display_y);
+            let image_x =
+                (x as f64 * f64::from(screen.width) / f64::from(screen.input_width)).round() as u32;
+            let image_y = (y as f64 * f64::from(screen.height) / f64::from(screen.input_height))
+                .round() as u32;
+            return tools::Report {
+                ok: true,
+                output: format!(
+                    "Pointer position in the latest screenshot: x={image_x}, y={image_y}."
+                ),
+            };
+        }
         let Some((x, y)) = desktop_pointer() else {
             return fail("The desktop pointer position is unavailable.");
         };
@@ -2625,8 +2667,8 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
         let y = i64::from(y) - i64::from(screen.display_y);
         if x < 0
             || y < 0
-            || x >= i64::from(screen.display_width)
-            || y >= i64::from(screen.display_height)
+            || x >= i64::from(screen.input_width)
+            || y >= i64::from(screen.input_height)
         {
             return tools::Report {
                 ok: true,
@@ -2634,9 +2676,9 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
             };
         }
         let image_x =
-            (x as f64 * f64::from(screen.width) / f64::from(screen.display_width)).round() as u32;
+            (x as f64 * f64::from(screen.width) / f64::from(screen.input_width)).round() as u32;
         let image_y =
-            (y as f64 * f64::from(screen.height) / f64::from(screen.display_height)).round() as u32;
+            (y as f64 * f64::from(screen.height) / f64::from(screen.input_height)).round() as u32;
         return tools::Report {
             ok: true,
             output: format!(
@@ -2687,10 +2729,7 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
             Ok(made) => made,
             Err(problem) => return fail(&format!("The display could not be read: {problem}")),
         };
-        let Some(primary) = monitors
-            .iter()
-            .find(|monitor| monitor.id == screen.display)
-        else {
+        let Some(primary) = monitors.iter().find(|monitor| monitor.id == screen.display) else {
             return fail("The selected display is no longer available for input.");
         };
         let (left, top, width, height) = (
@@ -2699,7 +2738,7 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
             i64::from(primary.width),
             i64::from(primary.height),
         );
-        if width != i64::from(screen.display_width) || height != i64::from(screen.display_height) {
+        if width != i64::from(screen.input_width) || height != i64::from(screen.input_height) {
             return fail("The display resolution changed since the screenshot. Take a fresh screenshot before acting.");
         }
         if [(x, y), (to_x, to_y)].iter().any(|(px, py)| {
@@ -2723,6 +2762,10 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
     } else {
         (x, y, to_x, to_y)
     };
+    #[cfg(target_os = "linux")]
+    if crate::desktop::is_wayland() {
+        return control_wayland(args, screen, watch, screen_x, screen_y, end_x, end_y);
+    }
     let mut enigo = match Enigo::new(&Settings::default()) {
         Ok(made) => made,
         Err(e) => return fail(&format!("Desktop input is unavailable: {e}")),
@@ -2846,6 +2889,260 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
         },
         Err(e) => fail(&format!("Desktop action failed: {e}")),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn control_wayland(
+    args: &Value,
+    screen: ComputerScreen,
+    watch: &crate::util::Watch,
+    x: i64,
+    y: i64,
+    to_x: i64,
+    to_y: i64,
+) -> tools::Report {
+    const LEFT: u32 = 0x110;
+    const RIGHT: u32 = 0x111;
+    const MIDDLE: u32 = 0x112;
+    let action = args["action"].as_str().unwrap_or("");
+    let stopped = || fail("The computer action was stopped or timed out before input was sent.");
+    let mut check = || {
+        if watch.expired() {
+            Err(String::from(
+                "The computer action was stopped or timed out.",
+            ))
+        } else {
+            Ok(())
+        }
+    };
+    let click = |button: u32| -> Result<(), String> {
+        let pressed = crate::desktop::wayland_button(button, true);
+        if pressed.is_ok() {
+            std::thread::sleep(Duration::from_millis(35));
+        }
+        let released = crate::desktop::wayland_button(button, false);
+        pressed.and(released)
+    };
+    let done = match action {
+        "move" => check()
+            .and_then(|_| crate::desktop::wayland_pointer(screen.display, x as i32, y as i32)),
+        "click" | "double_click" | "triple_click" | "middle_click" | "right_click" => {
+            let button = match action {
+                "middle_click" => MIDDLE,
+                "right_click" => RIGHT,
+                _ => LEFT,
+            };
+            check()
+                .and_then(|_| crate::desktop::wayland_pointer(screen.display, x as i32, y as i32))
+                .and_then(|_| {
+                    let count = match action {
+                        "double_click" => 2,
+                        "triple_click" => 3,
+                        _ => 1,
+                    };
+                    for _ in 0..count {
+                        check()?;
+                        click(button)?;
+                        std::thread::sleep(Duration::from_millis(45));
+                    }
+                    Ok(())
+                })
+        }
+        "drag" => {
+            let result = check()
+                .and_then(|_| crate::desktop::wayland_pointer(screen.display, x as i32, y as i32))
+                .and_then(|_| crate::desktop::wayland_button(LEFT, true));
+            if let Err(problem) = result {
+                let _ = crate::desktop::wayland_button(LEFT, false);
+                Err(problem)
+            } else {
+                let mut result = Ok(());
+                let distance = (to_x - x).abs().max((to_y - y).abs());
+                let steps = (distance / 40).clamp(1, 40);
+                for step in 1..=steps {
+                    if let Err(problem) = check() {
+                        result = Err(problem);
+                        break;
+                    }
+                    let fraction = step as f64 / steps as f64;
+                    let next_x = (x as f64 + (to_x - x) as f64 * fraction).round() as i32;
+                    let next_y = (y as f64 + (to_y - y) as f64 * fraction).round() as i32;
+                    if let Err(problem) =
+                        crate::desktop::wayland_pointer(screen.display, next_x, next_y)
+                    {
+                        result = Err(problem);
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(12));
+                }
+                let release = crate::desktop::wayland_button(LEFT, false);
+                result.and(release)
+            }
+        }
+        "scroll" => {
+            let amount = args["amount"].as_i64().unwrap_or(3).clamp(1, 30) as i32;
+            let (horizontal, vertical) = match args["direction"].as_str().unwrap_or("down") {
+                "up" => (0, amount),
+                "down" => (0, -amount),
+                "left" => (amount, 0),
+                "right" => (-amount, 0),
+                _ => return fail("Choose a scroll direction: up, down, left, or right."),
+            };
+            check()
+                .and_then(|_| crate::desktop::wayland_pointer(screen.display, x as i32, y as i32))
+                .and_then(|_| crate::desktop::wayland_scroll(horizontal, vertical))
+        }
+        "type" => {
+            let text = args["text"].as_str().unwrap_or("");
+            if text.is_empty() || text.chars().count() > 4000 || text.chars().any(char::is_control)
+            {
+                return fail("Text is empty or longer than 4000 characters.");
+            }
+            let mut result = Ok(());
+            for character in text.chars() {
+                if let Err(problem) = check() {
+                    result = Err(problem);
+                    break;
+                }
+                let keysym = char_keysym(character);
+                if let Err(problem) = press_wayland_key(keysym) {
+                    result = Err(problem);
+                    break;
+                }
+            }
+            if result.is_ok() && args["submit"] == true {
+                result = check().and_then(|_| press_wayland_key(0xff0d));
+            }
+            result
+        }
+        "press" => wayland_shortcut(args["key"].as_str().unwrap_or(""), &mut check),
+        _ => return stopped(),
+    };
+    match done {
+        Ok(()) => tools::Report {
+            ok: true,
+            output: format!("Completed desktop action: {action}."),
+        },
+        Err(problem) => fail(&format!("Desktop action failed: {problem}")),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn press_wayland_key(keysym: u32) -> Result<(), String> {
+    let pressed = crate::desktop::wayland_key(keysym, true);
+    if pressed.is_ok() {
+        std::thread::sleep(Duration::from_millis(8));
+    }
+    let released = crate::desktop::wayland_key(keysym, false);
+    pressed.and(released)
+}
+
+#[cfg(target_os = "linux")]
+fn char_keysym(character: char) -> u32 {
+    match character {
+        '\n' | '\r' => 0xff0d,
+        '\t' => 0xff09,
+        character if character as u32 <= 0xff => character as u32,
+        character => 0x0100_0000 | character as u32,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn named_keysym(name: &str) -> Option<u32> {
+    Some(match name {
+        "enter" | "return" => 0xff0d,
+        "tab" => 0xff09,
+        "escape" | "esc" => 0xff1b,
+        "backspace" => 0xff08,
+        "delete" => 0xffff,
+        "home" => 0xff50,
+        "end" => 0xff57,
+        "pageup" | "page_up" => 0xff55,
+        "pagedown" | "page_down" => 0xff56,
+        "space" => 0x20,
+        "up" => 0xff52,
+        "down" => 0xff54,
+        "left" => 0xff51,
+        "right" => 0xff53,
+        "f1" => 0xffbe,
+        "f2" => 0xffbf,
+        "f3" => 0xffc0,
+        "f4" => 0xffc1,
+        "f5" => 0xffc2,
+        "f6" => 0xffc3,
+        "f7" => 0xffc4,
+        "f8" => 0xffc5,
+        "f9" => 0xffc6,
+        "f10" => 0xffc7,
+        "f11" => 0xffc8,
+        "f12" => 0xffc9,
+        value if value.len() == 1 && value.is_ascii() => value.as_bytes()[0] as u32,
+        _ => return None,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn wayland_shortcut(
+    shortcut: &str,
+    check: &mut impl FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    let keys = shortcut.split('+').collect::<Vec<_>>();
+    if keys.is_empty() || keys.len() > 4 {
+        return Err(String::from(
+            "Use one key or a shortcut with up to three modifiers.",
+        ));
+    }
+    let mut modifiers = Vec::new();
+    for modifier in &keys[..keys.len() - 1] {
+        let keysym = match modifier.trim().to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => 0xffe3,
+            "alt" => 0xffe9,
+            "shift" => 0xffe1,
+            "meta" | "super" | "win" => 0xffeb,
+            _ => {
+                return Err(String::from(
+                    "Shortcut modifiers are ctrl, alt, shift, or meta.",
+                ))
+            }
+        };
+        if modifiers.contains(&keysym) {
+            return Err(String::from("Do not repeat a shortcut modifier."));
+        }
+        modifiers.push(keysym);
+    }
+    let key_name = keys[keys.len() - 1].trim().to_ascii_lowercase();
+    if blocked_shortcut(
+        &modifiers
+            .iter()
+            .map(|keysym| match keysym {
+                0xffe3 => enigo::Key::Control,
+                0xffe9 => enigo::Key::Alt,
+                0xffe1 => enigo::Key::Shift,
+                _ => enigo::Key::Meta,
+            })
+            .collect::<Vec<_>>(),
+        &key_name,
+    ) {
+        return Err(String::from("That shortcut can close windows, delete data, lock the computer, or switch sessions, so it was blocked."));
+    }
+    let key = named_keysym(&key_name)
+        .ok_or_else(|| String::from("Use a supported key: enter, tab, escape, backspace, space, an arrow, or one letter/digit."))?;
+    let mut pressed = Vec::new();
+    for modifier in modifiers {
+        check()?;
+        if let Err(problem) = crate::desktop::wayland_key(modifier, true) {
+            for one in pressed.iter().rev() {
+                let _ = crate::desktop::wayland_key(*one, false);
+            }
+            return Err(problem);
+        }
+        pressed.push(modifier);
+    }
+    let result = check().and_then(|_| press_wayland_key(key));
+    for modifier in pressed.into_iter().rev() {
+        let _ = crate::desktop::wayland_key(modifier, false);
+    }
+    result
 }
 
 fn open_app(name: &str, watch: &crate::util::Watch) -> tools::Report {

@@ -1,7 +1,6 @@
 //! Desktop capture backends used by Computer use and the native browser panel.
 //!
-//! Linux follows Unsloth's supported X11 path. Keeping Wayland capture out of the default
-//! dependency graph avoids pulling PipeWire's native development headers into every Linux build.
+//! Linux capture and input use X11 or the desktop portals, depending on the active session.
 
 use image::RgbaImage;
 
@@ -24,7 +23,14 @@ pub struct CapturedArea {
 #[cfg(target_os = "linux")]
 mod platform {
     use super::{CapturedArea, DisplayInfo};
+    use ashpd::desktop::{
+        remote_desktop::{DeviceType, KeyState, RemoteDesktop},
+        screencast::{CursorMode, SourceType},
+        screenshot::Screenshot,
+        PersistMode, Session,
+    };
     use image::RgbaImage;
+    use std::sync::{Mutex, OnceLock};
     use x11rb::connection::Connection;
     use x11rb::protocol::randr;
     use x11rb::protocol::xproto::{
@@ -32,15 +38,13 @@ mod platform {
     };
     use x11rb::rust_connection::RustConnection;
 
-    fn ensure_x11() -> Result<(), String> {
-        if std::env::var_os("WAYLAND_DISPLAY").is_some()
+    pub fn is_wayland() -> bool {
+        std::env::var_os("WAYLAND_DISPLAY").is_some()
             || std::env::var("XDG_SESSION_TYPE")
                 .is_ok_and(|session| session.eq_ignore_ascii_case("wayland"))
-        {
-            return Err(String::from(
-                "Computer use on Linux requires an X11 (Xorg) session; Wayland is not supported.",
-            ));
-        }
+    }
+
+    fn ensure_x11() -> Result<(), String> {
         if std::env::var_os("DISPLAY").is_none() {
             return Err(String::from(
                 "Computer use needs an X11 desktop session; DISPLAY is not set.",
@@ -55,7 +59,7 @@ mod platform {
             .map_err(|problem| format!("Could not connect to the X11 display: {problem}"))
     }
 
-    pub fn displays() -> Result<Vec<DisplayInfo>, String> {
+    fn displays_x11() -> Result<Vec<DisplayInfo>, String> {
         let (connection, screen_number) = connect()?;
         let screen = connection
             .setup()
@@ -93,16 +97,16 @@ mod platform {
         }])
     }
 
-    fn display_by_id(id: u32) -> Result<DisplayInfo, String> {
-        displays()?
+    fn display_by_id_x11(id: u32) -> Result<DisplayInfo, String> {
+        displays_x11()?
             .into_iter()
             .find(|display| display.id == id)
             .ok_or_else(|| String::from("The selected display is no longer available."))
     }
 
-    pub fn capture_display(id: u32) -> Result<(DisplayInfo, RgbaImage), String> {
+    fn capture_display_x11(id: u32) -> Result<(DisplayInfo, RgbaImage), String> {
         let (connection, screen_number) = connect()?;
-        let display = display_by_id(id)?;
+        let display = display_by_id_x11(id)?;
         let image = capture_region(
             &connection,
             screen_number,
@@ -114,7 +118,7 @@ mod platform {
         Ok((display, image))
     }
 
-    pub fn capture_application_window(_pid: u32, _title: &str) -> Result<CapturedArea, String> {
+    fn capture_application_window_x11(_pid: u32, _title: &str) -> Result<CapturedArea, String> {
         let (connection, screen_number) = connect()?;
         let screen = connection
             .setup()
@@ -132,7 +136,7 @@ mod platform {
         Ok(CapturedArea { image, x: 0, y: 0 })
     }
 
-    pub fn focused_window() -> Option<(String, String)> {
+    fn focused_window_x11() -> Option<(String, String)> {
         let (connection, screen_number) = connect().ok()?;
         let root = connection.setup().roots.get(screen_number)?.root;
         let active_atom = connection
@@ -194,14 +198,16 @@ mod platform {
         height: u32,
     ) -> Result<RgbaImage, String> {
         if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 24_000_000 {
-            return Err(String::from("The display region is too large to capture safely."));
+            return Err(String::from(
+                "The display region is too large to capture safely.",
+            ));
         }
         let x = i16::try_from(x)
             .map_err(|_| String::from("The display x position is out of range."))?;
         let y = i16::try_from(y)
             .map_err(|_| String::from("The display y position is out of range."))?;
-        let width = u16::try_from(width)
-            .map_err(|_| String::from("The display width is out of range."))?;
+        let width =
+            u16::try_from(width).map_err(|_| String::from("The display width is out of range."))?;
         let height = u16::try_from(height)
             .map_err(|_| String::from("The display height is out of range."))?;
         let screen = connection
@@ -283,6 +289,314 @@ mod platform {
         (((pixel & mask) >> shift) * 255 / maximum) as u8
     }
 
+    #[derive(Clone, Copy)]
+    struct PortalStream {
+        node: u32,
+        display: DisplayInfo,
+    }
+
+    struct PortalDesktop {
+        remote: RemoteDesktop<'static>,
+        session: Session<'static, RemoteDesktop<'static>>,
+        streams: Vec<PortalStream>,
+        last_used: std::time::Instant,
+    }
+
+    static WAYLAND_PORTAL: OnceLock<Mutex<Option<PortalDesktop>>> = OnceLock::new();
+    impl PortalDesktop {
+        fn start() -> Result<Self, String> {
+            let (remote, session, streams) = futures::executor::block_on(async {
+                let remote = RemoteDesktop::new().await.map_err(portal_error)?;
+                let screencast = ashpd::desktop::screencast::Screencast::new()
+                    .await
+                    .map_err(portal_error)?;
+                let session = remote.create_session().await.map_err(portal_error)?;
+                remote
+                    .select_devices(
+                        &session,
+                        DeviceType::Keyboard | DeviceType::Pointer,
+                        None,
+                        PersistMode::Application,
+                    )
+                    .await
+                    .map_err(portal_error)?
+                    .response()
+                    .map_err(portal_error)?;
+                screencast
+                    .select_sources(
+                        &session,
+                        CursorMode::Embedded,
+                        SourceType::Monitor.into(),
+                        true,
+                        None,
+                        PersistMode::Application,
+                    )
+                    .await
+                    .map_err(portal_error)?
+                    .response()
+                    .map_err(portal_error)?;
+                let selected = remote
+                    .start(&session, None)
+                    .await
+                    .map_err(portal_error)?
+                    .response()
+                    .map_err(portal_error)?;
+                let streams = selected
+                    .streams()
+                    .ok_or_else(|| String::from("The screen sharing portal returned no displays."))?
+                    .iter()
+                    .filter_map(|stream| {
+                        let (x, y) = stream.position().unwrap_or((0, 0));
+                        let (width, height) = stream.size()?;
+                        if width <= 0 || height <= 0 {
+                            return None;
+                        }
+                        Some(PortalStream {
+                            node: stream.pipe_wire_node_id(),
+                            display: DisplayInfo {
+                                id: 0,
+                                x,
+                                y,
+                                width: width as u32,
+                                height: height as u32,
+                                primary: false,
+                            },
+                        })
+                    })
+                    .enumerate()
+                    .map(|(index, mut stream)| {
+                        stream.display.id = index as u32 + 1;
+                        stream.display.primary = index == 0;
+                        stream
+                    })
+                    .collect::<Vec<_>>();
+                if streams.is_empty() {
+                    return Err(String::from(
+                        "The screen sharing portal returned no usable display sizes.",
+                    ));
+                }
+                Ok::<_, String>((remote, session, streams))
+            })?;
+            Ok(Self {
+                remote,
+                session,
+                streams,
+                last_used: std::time::Instant::now(),
+            })
+        }
+
+        fn active_stream(&self, display: u32) -> Result<PortalStream, String> {
+            self.streams
+                .iter()
+                .find(|stream| stream.display.id == display)
+                .copied()
+                .ok_or_else(|| String::from("The selected display is no longer shared."))
+        }
+    }
+
+    fn portal_error(problem: impl std::fmt::Display) -> String {
+        format!("The Wayland desktop portal could not complete computer use: {problem}")
+    }
+
+    fn with_portal<T>(
+        action: impl FnOnce(&mut PortalDesktop) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut held = WAYLAND_PORTAL
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .map_err(|_| String::from("The Wayland desktop portal is busy."))?;
+        if held
+            .as_ref()
+            .is_some_and(|portal| portal.last_used.elapsed() > std::time::Duration::from_secs(300))
+        {
+            *held = None;
+        }
+        if held.is_none() {
+            *held = Some(PortalDesktop::start()?);
+        }
+        let portal = held.as_mut().expect("portal was initialized above");
+        let result = action(portal);
+        portal.last_used = std::time::Instant::now();
+        if result.is_err() {
+            *held = None;
+        }
+        result
+    }
+
+    fn portal_screenshot() -> Result<RgbaImage, String> {
+        let response = futures::executor::block_on(async {
+            Screenshot::request()
+                .interactive(false)
+                .send()
+                .await
+                .map_err(portal_error)?
+                .response()
+                .map_err(portal_error)
+        })?;
+        let path = response.uri().to_file_path().map_err(|_| {
+            String::from("The Wayland screenshot portal returned a non-file image.")
+        })?;
+        let bytes = std::fs::read(path)
+            .map_err(|problem| format!("The Wayland screenshot could not be read: {problem}"))?;
+        image::load_from_memory(&bytes)
+            .map(|image| image.to_rgba8())
+            .map_err(|problem| format!("The Wayland screenshot could not be decoded: {problem}"))
+    }
+
+    fn wayland_displays() -> Result<Vec<DisplayInfo>, String> {
+        with_portal(|portal| Ok(portal.streams.iter().map(|stream| stream.display).collect()))
+    }
+
+    fn wayland_capture_display(id: u32) -> Result<(DisplayInfo, RgbaImage), String> {
+        let (display, streams) = with_portal(|portal| {
+            let selected = portal.active_stream(id)?.display;
+            Ok((
+                selected,
+                portal
+                    .streams
+                    .iter()
+                    .map(|stream| stream.display)
+                    .collect::<Vec<_>>(),
+            ))
+        })?;
+        let image = portal_screenshot()?;
+        if streams.len() <= 1
+            || (image.width() == display.width && image.height() == display.height)
+        {
+            return Ok((display, image));
+        }
+        let min_x = streams.iter().map(|stream| stream.x).min().unwrap_or(0);
+        let min_y = streams.iter().map(|stream| stream.y).min().unwrap_or(0);
+        let max_x = streams
+            .iter()
+            .map(|stream| stream.x.saturating_add(stream.width as i32))
+            .max()
+            .unwrap_or(display.width as i32);
+        let max_y = streams
+            .iter()
+            .map(|stream| stream.y.saturating_add(stream.height as i32))
+            .max()
+            .unwrap_or(display.height as i32);
+        let logical_width = max_x.saturating_sub(min_x).max(1) as f64;
+        let logical_height = max_y.saturating_sub(min_y).max(1) as f64;
+        let scale_x = f64::from(image.width()) / logical_width;
+        let scale_y = f64::from(image.height()) / logical_height;
+        let left = ((display.x - min_x) as f64 * scale_x).round().max(0.0) as u32;
+        let top = ((display.y - min_y) as f64 * scale_y).round().max(0.0) as u32;
+        let width = (f64::from(display.width) * scale_x).round().max(1.0) as u32;
+        let height = (f64::from(display.height) * scale_y).round().max(1.0) as u32;
+        if left.saturating_add(width) > image.width() || top.saturating_add(height) > image.height()
+        {
+            return Err(String::from("The Wayland screenshot size did not match the selected display. Take a fresh screenshot."));
+        }
+        Ok((
+            display,
+            image::imageops::crop_imm(&image, left, top, width, height).to_image(),
+        ))
+    }
+
+    pub fn displays() -> Result<Vec<DisplayInfo>, String> {
+        if is_wayland() {
+            wayland_displays()
+        } else {
+            displays_x11()
+        }
+    }
+
+    pub fn capture_display(id: u32) -> Result<(DisplayInfo, RgbaImage), String> {
+        if is_wayland() {
+            wayland_capture_display(id)
+        } else {
+            capture_display_x11(id)
+        }
+    }
+
+    pub fn capture_application_window(pid: u32, title: &str) -> Result<CapturedArea, String> {
+        if is_wayland() {
+            let (monitor, image) = wayland_capture_display(1)?;
+            Ok(CapturedArea {
+                image,
+                x: monitor.x,
+                y: monitor.y,
+            })
+        } else {
+            capture_application_window_x11(pid, title)
+        }
+    }
+
+    pub fn focused_window() -> Option<(String, String)> {
+        if is_wayland() {
+            None
+        } else {
+            focused_window_x11()
+        }
+    }
+
+    pub fn wayland_pointer(display: u32, x: i32, y: i32) -> Result<(), String> {
+        with_portal(|portal| {
+            let stream = portal.active_stream(display)?;
+            futures::executor::block_on(portal.remote.notify_pointer_motion_absolute(
+                &portal.session,
+                stream.node,
+                f64::from(x - stream.display.x),
+                f64::from(y - stream.display.y),
+            ))
+            .map_err(portal_error)
+        })
+    }
+
+    pub fn wayland_button(button: u32, pressed: bool) -> Result<(), String> {
+        with_portal(|portal| {
+            futures::executor::block_on(portal.remote.notify_pointer_button(
+                &portal.session,
+                button as i32,
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+            ))
+            .map_err(portal_error)
+        })
+    }
+
+    pub fn wayland_key(keysym: u32, pressed: bool) -> Result<(), String> {
+        with_portal(|portal| {
+            futures::executor::block_on(portal.remote.notify_keyboard_keysym(
+                &portal.session,
+                keysym as i32,
+                if pressed {
+                    KeyState::Pressed
+                } else {
+                    KeyState::Released
+                },
+            ))
+            .map_err(portal_error)
+        })
+    }
+
+    pub fn wayland_scroll(horizontal: i32, vertical: i32) -> Result<(), String> {
+        use ashpd::desktop::remote_desktop::Axis;
+        with_portal(|portal| {
+            futures::executor::block_on(async {
+                if vertical != 0 {
+                    portal
+                        .remote
+                        .notify_pointer_axis_discrete(&portal.session, Axis::Vertical, vertical)
+                        .await
+                        .map_err(portal_error)?;
+                }
+                if horizontal != 0 {
+                    portal
+                        .remote
+                        .notify_pointer_axis_discrete(&portal.session, Axis::Horizontal, horizontal)
+                        .await
+                        .map_err(portal_error)?;
+                }
+                Ok(())
+            })
+        })
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -373,4 +687,29 @@ pub fn capture_application_window(pid: u32, title: &str) -> Result<CapturedArea,
 
 pub fn focused_window() -> Option<(String, String)> {
     platform::focused_window()
+}
+
+#[cfg(target_os = "linux")]
+pub fn is_wayland() -> bool {
+    platform::is_wayland()
+}
+
+#[cfg(target_os = "linux")]
+pub fn wayland_pointer(display: u32, x: i32, y: i32) -> Result<(), String> {
+    platform::wayland_pointer(display, x, y)
+}
+
+#[cfg(target_os = "linux")]
+pub fn wayland_button(button: u32, pressed: bool) -> Result<(), String> {
+    platform::wayland_button(button, pressed)
+}
+
+#[cfg(target_os = "linux")]
+pub fn wayland_key(keysym: u32, pressed: bool) -> Result<(), String> {
+    platform::wayland_key(keysym, pressed)
+}
+
+#[cfg(target_os = "linux")]
+pub fn wayland_scroll(horizontal: i32, vertical: i32) -> Result<(), String> {
+    platform::wayland_scroll(horizontal, vertical)
 }
