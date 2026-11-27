@@ -57,8 +57,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
     // Browser tool actions are completed by the visible page. Fold its small session revision
     // into the poll token so a pending action reaches that page even when chat text is unchanged.
     let rev = snap.rev.rotate_left(17)
-        ^ crate::agentic::browser_revision(&snap.chat_id)
-        ^ crate::agentic::computer_revision().rotate_left(31);
+        ^ crate::agentic::browser_revision(&snap.chat_id);
     if since == Some(rev) {
         return json!({ "unchanged": true, "rev": rev });
     }
@@ -303,7 +302,6 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         // Browser tabs belong to the chat, and the Agentic browser panel follows the same
         // per-chat session as the page reader tool.
         "browser": crate::agentic::browser_state(&snap.chat_id),
-        "computer_approval": crate::agentic::computer_approval_state(&snap.chat_id),
         // The commands a user may write in the chat composer. The list of them pops up when the
         // marker of a command is typed, and each carries what it is for.
         "commands": planning::list(),
@@ -1259,15 +1257,6 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
                 done()
             } else {
                 refused("That browser action is no longer waiting for a result.")
-            }
-        }
-        "/api/computer_approval_result" | "computer_approval_result" => {
-            let id = text_field(&value, "id");
-            let approved = flag(&value, "approved");
-            if !id.is_empty() && engine.resolve_computer_approval(&id, approved) {
-                done()
-            } else {
-                refused("That desktop action is no longer waiting for approval.")
             }
         }
         "/api/search" | "search" => {

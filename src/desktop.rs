@@ -49,7 +49,7 @@ mod platform {
     use x11rb::connection::Connection;
     use x11rb::protocol::randr;
     use x11rb::protocol::xproto::{
-        AtomEnum, ConnectionExt as XprotoConnectionExt, ImageFormat, ImageOrder,
+        ConnectionExt as XprotoConnectionExt, ImageFormat, ImageOrder,
     };
     use x11rb::rust_connection::RustConnection;
 
@@ -149,59 +149,6 @@ mod platform {
             u32::from(screen.height_in_pixels),
         )?;
         Ok(CapturedArea { image, x: 0, y: 0 })
-    }
-
-    fn focused_window_x11() -> Option<(String, String)> {
-        let (connection, screen_number) = connect().ok()?;
-        let root = connection.setup().roots.get(screen_number)?.root;
-        let active_atom = connection
-            .intern_atom(false, b"_NET_ACTIVE_WINDOW")
-            .ok()?
-            .reply()
-            .ok()?
-            .atom;
-        let window = connection
-            .get_property(false, root, active_atom, AtomEnum::WINDOW, 0, 1)
-            .ok()?
-            .reply()
-            .ok()?
-            .value32()?
-            .next()?;
-        let title = property_text(&connection, window, b"_NET_WM_NAME")
-            .or_else(|| property_text(&connection, window, b"WM_NAME"))
-            .unwrap_or_default();
-        let class = property_bytes(&connection, window, b"WM_CLASS")
-            .map(|value| {
-                value
-                    .split(|byte| *byte == 0)
-                    .filter(|part| !part.is_empty())
-                    .last()
-                    .map(String::from_utf8_lossy)
-                    .map(|part| part.into_owned())
-                    .unwrap_or_default()
-            })
-            .unwrap_or_default();
-        Some((class, title))
-    }
-
-    fn property_bytes(connection: &RustConnection, window: u32, name: &[u8]) -> Option<Vec<u8>> {
-        let atom = connection.intern_atom(false, name).ok()?.reply().ok()?.atom;
-        connection
-            .get_property(false, window, atom, AtomEnum::ANY, 0, 4096)
-            .ok()?
-            .reply()
-            .ok()
-            .map(|reply| reply.value)
-    }
-
-    fn property_text(connection: &RustConnection, window: u32, name: &[u8]) -> Option<String> {
-        property_bytes(connection, window, name).map(|value| {
-            String::from_utf8_lossy(&value)
-                .chars()
-                .filter(|character| !character.is_control())
-                .take(300)
-                .collect()
-        })
     }
 
     fn capture_region(
@@ -306,7 +253,6 @@ mod platform {
 
     #[derive(Clone, Copy)]
     struct PortalStream {
-        node: u32,
         position: Option<(i32, i32)>,
         display: DisplayInfo,
     }
@@ -330,7 +276,7 @@ mod platform {
                 remote
                     .select_devices(
                         &session,
-                        DeviceType::Keyboard | DeviceType::Pointer,
+                        DeviceType::Keyboard.into(),
                         None,
                         PersistMode::DoNot,
                     )
@@ -370,7 +316,6 @@ mod platform {
                             return None;
                         }
                         Some(PortalStream {
-                            node: stream.pipe_wire_node_id(),
                             position,
                             display: DisplayInfo {
                                 id: 0,
@@ -609,7 +554,6 @@ mod platform {
         #[test]
         fn wayland_capture_uses_the_configured_primary_instead_of_the_first_stream() {
             let display = |id, x| PortalStream {
-                node: id,
                 position: Some((x, 0)),
                 display: DisplayInfo {
                     id,
@@ -678,42 +622,6 @@ mod platform {
         }
     }
 
-    pub fn focused_window() -> Option<(String, String)> {
-        if is_wayland() {
-            None
-        } else {
-            focused_window_x11()
-        }
-    }
-
-    pub fn wayland_pointer(display: u32, x: i32, y: i32) -> Result<(), String> {
-        with_portal(|portal| {
-            let stream = portal.active_stream(display)?;
-            futures::executor::block_on(portal.remote.notify_pointer_motion_absolute(
-                &portal.session,
-                stream.node,
-                f64::from(x - stream.display.x),
-                f64::from(y - stream.display.y),
-            ))
-            .map_err(portal_error)
-        })
-    }
-
-    pub fn wayland_button(button: u32, pressed: bool) -> Result<(), String> {
-        with_portal(|portal| {
-            futures::executor::block_on(portal.remote.notify_pointer_button(
-                &portal.session,
-                button as i32,
-                if pressed {
-                    KeyState::Pressed
-                } else {
-                    KeyState::Released
-                },
-            ))
-            .map_err(portal_error)
-        })
-    }
-
     pub fn wayland_key(keysym: u32, pressed: bool) -> Result<(), String> {
         with_portal(|portal| {
             futures::executor::block_on(portal.remote.notify_keyboard_keysym(
@@ -729,28 +637,6 @@ mod platform {
         })
     }
 
-    pub fn wayland_scroll(horizontal: i32, vertical: i32) -> Result<(), String> {
-        use ashpd::desktop::remote_desktop::Axis;
-        with_portal(|portal| {
-            futures::executor::block_on(async {
-                if vertical != 0 {
-                    portal
-                        .remote
-                        .notify_pointer_axis_discrete(&portal.session, Axis::Vertical, vertical)
-                        .await
-                        .map_err(portal_error)?;
-                }
-                if horizontal != 0 {
-                    portal
-                        .remote
-                        .notify_pointer_axis_discrete(&portal.session, Axis::Horizontal, horizontal)
-                        .await
-                        .map_err(portal_error)?;
-                }
-                Ok(())
-            })
-        })
-    }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -813,18 +699,6 @@ mod platform {
         Ok(CapturedArea { image, x, y })
     }
 
-    pub fn focused_window() -> Option<(String, String)> {
-        xcap::Window::all()
-            .ok()?
-            .into_iter()
-            .find(|window| window.is_focused().unwrap_or(false))
-            .map(|window| {
-                (
-                    window.app_name().unwrap_or_default(),
-                    window.title().unwrap_or_default(),
-                )
-            })
-    }
 }
 
 pub fn displays() -> Result<Vec<DisplayInfo>, String> {
@@ -839,31 +713,12 @@ pub fn capture_application_window(pid: u32, title: &str) -> Result<CapturedArea,
     platform::capture_application_window(pid, title)
 }
 
-pub fn focused_window() -> Option<(String, String)> {
-    platform::focused_window()
-}
-
 #[cfg(target_os = "linux")]
 pub fn is_wayland() -> bool {
     platform::is_wayland()
 }
 
 #[cfg(target_os = "linux")]
-pub fn wayland_pointer(display: u32, x: i32, y: i32) -> Result<(), String> {
-    platform::wayland_pointer(display, x, y)
-}
-
-#[cfg(target_os = "linux")]
-pub fn wayland_button(button: u32, pressed: bool) -> Result<(), String> {
-    platform::wayland_button(button, pressed)
-}
-
-#[cfg(target_os = "linux")]
 pub fn wayland_key(keysym: u32, pressed: bool) -> Result<(), String> {
     platform::wayland_key(keysym, pressed)
-}
-
-#[cfg(target_os = "linux")]
-pub fn wayland_scroll(horizontal: i32, vertical: i32) -> Result<(), String> {
-    platform::wayland_scroll(horizontal, vertical)
 }

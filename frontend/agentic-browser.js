@@ -57,36 +57,11 @@
     .agentic-browser-links a { color: var(--ink); font-size: 11px; }
     .agentic-browser-empty { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 1 1 auto;
       padding: 32px; color: var(--dim); text-align: center; font-size: 13px; }
-    .agentic-browser-approval { position: absolute; z-index: 2; inset: 0; display: flex; flex-direction: column;
-      gap: 10px; padding: 20px; background: color-mix(in srgb, var(--surface) 96%, transparent);
-      color: var(--text); }
-    .agentic-browser-approval.hidden { display: none; }
-    .agentic-browser-approval strong { font-size: 14px; }
-    .agentic-browser-approval pre { min-height: 0; flex: 1; overflow: auto; margin: 0; padding: 12px;
-      border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--text);
-      white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, monospace; }
-    .agentic-browser-approval-actions { display: flex; justify-content: flex-end; gap: 8px; }
-    .agentic-browser-approval-actions button { min-width: 84px; padding: 7px 12px; border: 1px solid var(--line);
-      border-radius: 7px; background: var(--surface-2); color: var(--text); cursor: pointer; }
-    .agentic-browser-approval-actions [data-browser-approve="yes"] { border-color: var(--accent-line); background: var(--accent); color: var(--on-accent); }
     .general-sidebar-file-pane > .viewer { position: static; inset: auto; z-index: auto; min-width: 0; min-height: 0;
       flex: 1 1 auto; align-items: stretch; justify-content: stretch; padding: 0; background: transparent; }
     .general-sidebar-file-pane .look { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0;
       box-shadow: none; animation: none; }
     .general-sidebar-file-pane .look-close { display: none; }
-    .agentic-computer-approval { position: fixed; z-index: 100000; inset: 0; display: grid; place-items: center;
-      padding: 20px; background: rgba(0,0,0,.68); }
-    .agentic-computer-approval.hidden { display: none; }
-    .agentic-computer-approval-card { width: min(560px, 100%); max-height: min(80vh, 700px); display: flex;
-      flex-direction: column; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 12px;
-      background: var(--surface); color: var(--text); box-shadow: 0 20px 70px rgba(0,0,0,.45); }
-    .agentic-computer-approval-card pre { overflow: auto; max-height: 55vh; white-space: pre-wrap; overflow-wrap: anywhere;
-      margin: 0; padding: 12px; border-radius: 8px; background: var(--surface-2); font: inherit; }
-    .agentic-computer-approval-actions { display: flex; justify-content: flex-end; gap: 8px; }
-    .agentic-computer-approval-actions button { min-width: 84px; padding: 8px 12px; border: 1px solid var(--line);
-      border-radius: 7px; background: var(--surface-2); color: var(--text); cursor: pointer; }
-    .agentic-computer-approval-actions [data-computer-approval="yes"] { border-color: var(--accent-line);
-      background: var(--accent); color: var(--on-accent); }
     @media (max-width: 700px) { .agentic-browser-panel { flex-basis: min(360px, 44vw); min-width: min(200px, 44vw); } }
     @media (max-width: 540px) {
       .agentic-browser-label { display: none; }
@@ -116,8 +91,7 @@
     '<p class="agentic-browser-status hidden" role="status"></p>' +
     '<div class="agentic-browser-empty"><span></span><button class="btn" type="button" data-browser-enable>Enable Browser use</button></div>' +
     '<iframe class="agentic-browser-frame hidden" title="Isolated page preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>' +
-    '<details class="agentic-browser-reader"><summary>Page text read by the model</summary><div class="agentic-browser-links"></div><pre></pre></details>' +
-    '<div class="agentic-browser-approval hidden" role="dialog" aria-modal="true" aria-label="Approve browser action"><strong>Review browser action</strong><pre></pre><div class="agentic-browser-approval-actions"><button type="button" data-browser-approve="no">Deny</button><button type="button" data-browser-approve="yes">Allow</button></div></div></section>';
+    '<details class="agentic-browser-reader"><summary>Page text read by the model</summary><div class="agentic-browser-links"></div><pre></pre></details></section>';
   var area = document.getElementById('area');
   var layout = document.createElement('div');
   var chat = document.createElement('div');
@@ -226,17 +200,6 @@
     setSidebarTab('browser', true);
   });
 
-  var computerApproval = document.createElement('div');
-  computerApproval.className = 'agentic-computer-approval hidden';
-  computerApproval.setAttribute('role', 'dialog');
-  computerApproval.setAttribute('aria-modal', 'true');
-  computerApproval.setAttribute('aria-label', 'Approve computer use');
-  computerApproval.innerHTML = '<div class="agentic-computer-approval-card"><strong>Allow computer use?</strong>' +
-    '<p>The model is asking to control your desktop. Review the actions before continuing.</p>' +
-    '<pre></pre><div class="agentic-computer-approval-actions"><button type="button" data-computer-approval="no">Deny</button>' +
-    '<button type="button" data-computer-approval="yes">Allow</button></div></div>';
-  document.body.appendChild(computerApproval);
-
   var address = root.querySelector('.agentic-browser-address');
   var tabs = root.querySelector('.agentic-browser-tabs');
   var frame = root.querySelector('.agentic-browser-frame');
@@ -246,18 +209,12 @@
   var status = root.querySelector('.agentic-browser-status');
   var readerText = root.querySelector('.agentic-browser-reader pre');
   var readerLinks = root.querySelector('.agentic-browser-links');
-  var approval = root.querySelector('.agentic-browser-approval');
-  var approvalText = approval.querySelector('pre');
-  var approvalId = '';
-  var nativeApproval = null;
   var invokeNative = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
   var currentKey = '';
   var newTab = false;
   var lastActiveUrl = '';
   var latest = null;
   var currentPending = null;
-  var computerApprovalId = '';
-  var computerApprovalSent = false;
   var pagePort = null;
   var pageReady = false;
   var nativeSync = Promise.resolve(false);
@@ -279,23 +236,7 @@
     showSidebar(true);
     render(latest || {}, false);
   }
-  function denyApproval() {
-    if (!approvalId) { return; }
-    if (nativeApproval) {
-      answerBrowserAction(approvalId, { ok: false, error: 'The user declined the browser action.' });
-      nativeApproval = null;
-    } else if (pagePort) {
-      pagePort.postMessage({ type: 'autumn-browser-approval', id: approvalId, approved: false });
-    }
-    dismissApproval();
-  }
-  function dismissApproval() {
-    approvalId = '';
-    approvalText.textContent = '';
-    approval.classList.add('hidden');
-  }
   function close() {
-    denyApproval();
     if (currentPending) {
       answerBrowserAction(currentPending.id, { ok: false, error: 'The user closed the browser panel and stopped this action.' });
       currentPending = null;
@@ -321,7 +262,6 @@
     var previousPending = currentPending;
     currentPending = browser.pending_action && typeof browser.pending_action.id === 'string'
       ? browser.pending_action : null;
-    if (!currentPending && approvalId) { denyApproval(); }
     if (currentPending && root.classList.contains('hidden')) { showSidebar(true); }
     if (currentPending && (!previousPending || previousPending.id !== currentPending.id)) {
       if (activeSidebarTab !== 'browser') { setSidebarTab('browser', true); }
@@ -426,7 +366,8 @@
     var policy = "default-src 'none'; img-src https: data: blob:; style-src https: 'unsafe-inline'; font-src https: data:; media-src https: blob:; script-src 'nonce-" + nonce + "' 'unsafe-eval'; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri https: http:";
     var agent = `<script nonce="${nonce}">
       (function(){
-        var ids=new WeakMap(), refs=new Map(), next=1, approvals=new Map(), bridge=null;
+        var ids=new WeakMap(), refs=new Map(), next=1, bridge=null;
+        var placePointer=${autumnAgentPlacePointer.toString()};
         function clean(s,max){s=String(s||'').replace(/\\s+/g,' ').trim();return s.length>(max||160)?s.slice(0,(max||160)-1)+'…':s}
         function visible(el){var r=el.getBoundingClientRect(),s=getComputedStyle(el);return r.width>1&&r.height>1&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0'}
         function role(el){var r=el.getAttribute('role');if(r)return r;var t=el.tagName.toLowerCase();if(t==='a'&&el.href)return 'link';if(t==='button')return 'button';if(t==='select')return 'combobox';if(t==='textarea'||t==='input')return el.type==='checkbox'?'checkbox':el.type==='radio'?'radio':'textbox';if(el.isContentEditable)return 'textbox';return 'element'}
@@ -435,8 +376,7 @@
         function pageText(scope,limit){return String(scope&&(scope.innerText||scope.textContent)||'').replace(/(?:Uh oh!\\s*)?There was an error while loading\\.\\s*Please reload this page\\s*\\.?/gi,'').replace(/\\r/g,'').slice(0,limit||24000)}
         function text(limit){return pageText(document.body,limit).split(/\\n+/).map(function(line){return clean(line,1200)}).filter(Boolean).join('\\n')}
         function send(id,result){if(bridge)bridge.postMessage({type:'autumn-browser-result',id:id,result:result})}
-        function ask(id,message){return new Promise(function(resolve){var timer=setTimeout(function(){approvals.delete(id);resolve(false)},60000);approvals.set(id,function(answer){clearTimeout(timer);approvals.delete(id);resolve(answer===true)});if(bridge)bridge.postMessage({type:'autumn-browser-confirm',id:id,message:message})})}
-        function point(el,x,y){if(el){var r=el.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]}return [Number(x)||0,Number(y)||0]}
+        function point(el,x,y){if(Number.isFinite(x)&&Number.isFinite(y))return [x,y];if(el){var r=el.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]}return [Number(x)||0,Number(y)||0]}
         function byRef(ref){var el=refs.get(String(ref||''));return el&&el.isConnected?el:null}
         function formSubmit(el){if(!el)return false;var form=el.form||el.closest&&el.closest('form');if(!form)return false;var t=(el.type||'').toLowerCase();return t==='submit'||el.tagName==='BUTTON'||el.getAttribute('role')==='button'}
         function xml(s){return String(s||'').replace(/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f]/g,' ').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
@@ -445,23 +385,22 @@
           var walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),node,count=0;while((node=walk.nextNode())&&count<1200){var raw=String(node.nodeValue||'').replace(/\\s+/g,' ').trim();if(!raw)continue;var parent=node.parentElement;if(!parent||/^(SCRIPT|STYLE|NOSCRIPT|TITLE)$/.test(parent.tagName))continue;var range=document.createRange();range.selectNodeContents(node);var rect=range.getBoundingClientRect();if(rect.width<1||rect.height<1||rect.right<0||rect.bottom<0||rect.left>w*sx||rect.top>h*sy)continue;var st=getComputedStyle(parent),size=Math.max(7,Math.min(30,parseFloat(st.fontSize)||14))/((sx+sy)/2),chars=Math.max(1,Math.floor(rect.width/Math.max(4,size*.55))),piece=raw.slice(0,Math.min(raw.length,chars*2)),tx=Math.max(0,rect.left/sx),ty=Math.min(h-1,Math.max(size,rect.top/sy+size));out.push('<text x="'+tx+'" y="'+ty+'" fill="'+xml(st.color||'#111')+'" font-family="'+xml(st.fontFamily||'sans-serif')+'" font-size="'+size+'">'+xml(piece)+'</text>');count++;}
           out.push('</svg>');var blob=new Blob([out.join('')],{type:'image/svg+xml'}),url=URL.createObjectURL(blob),img=new Image();img.onload=function(){try{var canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;var ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);resolve({width:w,height:h,data:canvas.toDataURL('image/png')})}catch(e){resolve(null)}URL.revokeObjectURL(url)};img.onerror=function(){URL.revokeObjectURL(url);resolve(null)};img.src=url})}
         async function run(msg){var a=msg.action||{},op=a.action||a.op||'',el=byRef(a.ref),controls=scan();if(!el&&(op==='click'||op==='move'||op==='drag')&&Number.isFinite(Number(a.x))&&Number.isFinite(Number(a.y)))el=document.elementFromPoint(Number(a.x),Number(a.y));
+          if(el&&['click','move','drag','type','select'].includes(op)){var startPoint=point(el,a.x,a.y);placePointer(startPoint[0],startPoint[1]);}
           if(op==='snapshot'){var scope=el||document.body,items=scope===document.body?controls:controls.filter(function(item){var child=byRef(item.ref);return child&&scope.contains(child)});return {ok:true,title:document.title,text:pageText(scope,a.full_page?100000:24000),links:items}}
           if(op==='find'){var q=clean(a.query||a.text,200).toLowerCase();var found=controls.filter(function(x){return (x.name+' '+x.role).toLowerCase().includes(q)});var snippets=pageText(document.body,30000).split(/\\n+/).filter(function(x){return x.toLowerCase().includes(q)}).slice(0,10);return {ok:true,title:document.title,text:snippets.join('\\n'),links:found}}
           if(op==='screenshot'){var shot=await pageShot();return shot?{ok:true,title:document.title,text:'Visible browser page screenshot.',image:shot.data,width:shot.width,height:shot.height}:{ok:false,error:'The browser page screenshot could not be captured.'}}
-          if(op==='evaluate'){if(!await ask(msg.id,'Run this JavaScript in the current page?\\n\\n'+String(a.script||'')))return {ok:false,error:'The user declined the page script.'};try{var value=await (new Function('return (async function(){'+String(a.script||'')+'}).call(null)'))();return {ok:true,title:document.title,text:typeof value==='string'?value:JSON.stringify(value)}}catch(e){return {ok:false,error:'Page script failed: '+clean(e&&e.message,500)}}}
-          if(op==='click'&&el&&el.tagName==='A'&&el.href){if(new URL(el.href).host!==location.host&&!await ask(msg.id,'Open this link in the browser panel?\\n'+el.href))return {ok:false,error:'The user declined to open the link.'};return {ok:true,navigate:el.href,title:document.title}}
-          if(op==='click'&&el&&(/\\b(buy|purchase|pay|place order|send|delete|remove|sign in|log in|subscribe|transfer|publish|submit)\\b/i.test(name(el)))&&!await ask(msg.id,'Allow this page action?\\n'+name(el)))return {ok:false,error:'The user declined this page action.'};
-          if(op==='click'&&formSubmit(el)){if(!await ask(msg.id,'Submit this page form?\\n'+clean(name(el),160)))return {ok:false,error:'The user declined to submit the form.'};return {ok:false,error:'The safe page preview blocks form submission. Complete this step in your own browser, then ask the model to continue.'}}
-          if(op==='click'&&!a.ref&&el&&name(el)==='element'&&!await ask(msg.id,'Allow a click at page coordinates '+Math.round(Number(a.x)||0)+', '+Math.round(Number(a.y)||0)+'?'))return {ok:false,error:'The user declined this unlabelled page click.'};
-          if(op==='type'){if(!el)return {ok:false,error:'That ref is not on the page. Take a fresh snapshot.'};if((el.type||'').toLowerCase()==='password'||/password|passcode|card number|security code/i.test(name(el)))return {ok:false,error:'The browser will not type into password or payment fields.'};if(!('value'in el)&&!el.isContentEditable)return {ok:false,error:'That ref is not a text field.'};if(!await ask(msg.id,'Type '+String(a.text||'').length+' characters into '+clean(name(el),160)+'?'))return {ok:false,error:'The user declined to type into this field.'};if(el.isContentEditable)el.textContent=String(a.text||'');else{var proto=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;var setter=Object.getOwnPropertyDescriptor(proto,'value').set;setter.call(el,String(a.text||''))}el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:String(a.text||'')}));el.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true,title:document.title,text:'Typed into '+name(el)+(a.submit?' (form submission is blocked in the safe preview).':'.')}}
+          if(op==='evaluate'){try{var value=await (new Function('return (async function(){'+String(a.script||'')+'}).call(null)'))();return {ok:true,title:document.title,text:typeof value==='string'?value:JSON.stringify(value)}}catch(e){return {ok:false,error:'Page script failed: '+clean(e&&e.message,500)}}}
+          if(op==='click'&&el&&el.tagName==='A'&&el.href){return {ok:true,navigate:el.href,title:document.title}}
+          if(op==='click'&&formSubmit(el)){return {ok:false,error:'Form submissions are unavailable in the remote page preview.'}}
+          if(op==='type'){if(!el)return {ok:false,error:'That ref is not on the page. Take a fresh snapshot.'};if((el.type||'').toLowerCase()==='password'||/password|passcode|card number|security code/i.test(name(el)))return {ok:false,error:'The browser will not type into password or payment fields.'};if(!('value'in el)&&!el.isContentEditable)return {ok:false,error:'That ref is not a text field.'};if(el.isContentEditable)el.textContent=String(a.text||'');else{var proto=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;var setter=Object.getOwnPropertyDescriptor(proto,'value').set;setter.call(el,String(a.text||''))}el.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:String(a.text||'')}));el.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true,title:document.title,text:'Typed into '+name(el)+(a.submit?' (form submission is blocked in the safe preview).':'.')}}
           if(op==='select'){if(!el)return {ok:false,error:'That ref is not on the page. Take a fresh snapshot.'};var value=String(a.value||'');if(el.tagName==='SELECT'){var option=Array.from(el.options).find(function(o){return o.label.toLowerCase()===value.toLowerCase()||o.value===value});if(!option)return {ok:false,error:'No dropdown option matched that value.'};el.value=option.value}else if(el.type==='checkbox'||el.type==='radio'){el.checked=value.toLowerCase()==='true'||value.toLowerCase()==='yes'||value==='1'}else return {ok:false,error:'That ref is not a dropdown, checkbox, or radio button.'};el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));return {ok:true,title:document.title,text:'Changed '+name(el)+'.'}}
           if(op==='click'){if(!el)return {ok:false,error:'That ref is not on the page. Take a fresh snapshot.'};el.click();return {ok:true,title:document.title,text:'Clicked '+name(el)+'.'}}
           if(op==='move'){var p=point(el,a.x,a.y);var target=el||document.elementFromPoint(p[0],p[1]);if(target)target.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:p[0],clientY:p[1]}));return {ok:true,title:document.title,text:'Moved over '+(target?name(target):'the page')+'.'}}
-          if(op==='drag'){if(!await ask(msg.id,'Allow dragging an item on this page?'))return {ok:false,error:'The user declined to drag the page item.'};var start=point(el,a.x,a.y),end=point(byRef(a.to_ref),a.to_x,a.to_y),target=document.elementFromPoint(start[0],start[1]);if(!target)return {ok:false,error:'No page element was at the drag start point.'};target.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:start[0],clientY:start[1],button:0}));document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:end[0],clientY:end[1],button:0}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,clientX:end[0],clientY:end[1],button:0}));return {ok:true,title:document.title,text:'Dragged the page item.'}}
+          if(op==='drag'){var start=point(el,a.x,a.y),end=point(byRef(a.to_ref),a.to_x,a.to_y),target=document.elementFromPoint(start[0],start[1]);if(!target)return {ok:false,error:'No page element was at the drag start point.'};target.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:start[0],clientY:start[1],button:0}));document.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:end[0],clientY:end[1],button:0}));document.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,clientX:end[0],clientY:end[1],button:0}));placePointer(end[0],end[1]);return {ok:true,title:document.title,text:'Dragged the page item.'}}
           if(op==='scroll'){if(a.ref){var near=byRef(a.ref);if(!near)return {ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'};near.scrollIntoView({block:'center',behavior:'instant'})}else{var amount=Math.max(1,Math.min(30,Number(a.amount)||1));window.scrollBy({top:(a.direction==='up'?-1:1)*Math.max(200,window.innerHeight*.75)*amount,behavior:'instant'})}return {ok:true,title:document.title,text:text(),links:scan()}}
-          if(op==='press'){if(!el)el=document.activeElement||document.body;var key=String(a.key||'').toLowerCase();if(key==='enter'&&formSubmit(el)){if(!await ask(msg.id,'Submit this page form?\\n'+clean(name(el),160)))return {ok:false,error:'The user declined to submit the form.'};return {ok:false,error:'The safe page preview blocks form submission. Complete this step in your own browser, then ask the model to continue.'}}var map={enter:'Enter',return:'Enter',tab:'Tab',escape:'Escape',esc:'Escape',backspace:'Backspace',delete:'Delete',space:' ',up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',pageup:'PageUp',pagedown:'PageDown',home:'Home',end:'End'};var actual=map[key]||(/^f([1-9]|1[0-2])$/i.test(key)?key.toUpperCase():String(a.key||''));el.dispatchEvent(new KeyboardEvent('keydown',{key:actual,bubbles:true,cancelable:true}));el.dispatchEvent(new KeyboardEvent('keyup',{key:actual,bubbles:true,cancelable:true}));return {ok:true,title:document.title,text:'Pressed '+clean(actual,20)+'.'}}
+          if(op==='press'){if(!el)el=document.activeElement||document.body;var key=String(a.key||'').toLowerCase();if((key==='enter'||key==='return')&&formSubmit(el))return {ok:false,error:'Form submissions are unavailable in the remote page preview.'};var map={enter:'Enter',return:'Enter',tab:'Tab',escape:'Escape',esc:'Escape',backspace:'Backspace',delete:'Delete',space:' ',up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',pageup:'PageUp',pagedown:'PageDown',home:'Home',end:'End'};var actual=map[key]||(/^f([1-9]|1[0-2])$/i.test(key)?key.toUpperCase():String(a.key||''));el.dispatchEvent(new KeyboardEvent('keydown',{key:actual,bubbles:true,cancelable:true}));el.dispatchEvent(new KeyboardEvent('keyup',{key:actual,bubbles:true,cancelable:true}));return {ok:true,title:document.title,text:'Pressed '+clean(actual,20)+'.'}}
           return {ok:false,error:'Unsupported browser action.'}}
-        function receive(e){if(!e.data)return;if(e.data.type==='autumn-browser-approval'){var answer=approvals.get(e.data.id);if(answer)answer(e.data.approved);return}if(e.data.type==='autumn-browser-command')run(e.data).then(function(result){send(e.data.id,result)},function(error){send(e.data.id,{ok:false,error:clean(error&&error.message,500)})})}
+        function receive(e){if(!e.data)return;if(e.data.type==='autumn-browser-command')run(e.data).then(function(result){send(e.data.id,result)},function(error){send(e.data.id,{ok:false,error:clean(error&&error.message,500)})})}
         function revealPage(){
           var main=document.querySelector('main, [role=main]')||document.body;
           // Static previews have no site scripts to reveal content after a page animation.
@@ -533,7 +472,7 @@
   function syncNativeWindow(tab, visible) {
     if (!invokeNative || !tab) { return Promise.resolve(false); }
     var rect = frame.getBoundingClientRect();
-    visible = visible && activeSidebarTab === 'browser' && !approvalId &&
+    visible = visible && activeSidebarTab === 'browser' &&
       !root.classList.contains('hidden') && !frame.classList.contains('hidden') &&
       rect.width >= 1 && rect.height >= 1;
     var bounds = {
@@ -589,28 +528,9 @@
     if (invokeNative) {
       var tab = Number(((latest || {}).browser || {}).active) || 0;
       var id = currentPending.id;
-      var action = currentPending.action;
-      invokeNative('browser_window_action', {
-        tab: tab, action: action, approved: false, allowDownload: false, downloadUrl: null
-      })
+      invokeNative('browser_window_action', { tab: tab, action: currentPending.action })
         .then(function (result) {
-          if (!result || typeof result !== 'object') {
-            answerBrowserAction(id, { ok: false, error: 'The native browser returned no action result.' });
-          } else if (result.approval_required === true) {
-            nativeApproval = {
-              id: id,
-              action: action,
-              tab: tab,
-              allowDownload: result.allow_download === true,
-              downloadUrl: typeof result.download_url === 'string' ? result.download_url : null
-            };
-            approvalId = id;
-            approvalText.textContent = String(result.approval || 'Allow this browser action?');
-            approval.classList.remove('hidden');
-            syncNativeWindow(tab, false);
-          } else {
-            answerBrowserAction(id, result);
-          }
+          answerBrowserAction(id, result || { ok: false, error: 'The native browser returned no action result.' });
         })
         .catch(function (error) {
           answerBrowserAction(id, { ok: false, error: String(error && error.message || error) });
@@ -635,23 +555,6 @@
     }));
   }
 
-  function updateComputerApproval(state) {
-    var pending = state && state.computer_use_available ? state.computer_approval : null;
-    if (!pending || !pending.id) {
-      computerApprovalId = '';
-      computerApprovalSent = false;
-      computerApproval.classList.add('hidden');
-      return;
-    }
-    if (pending.id === computerApprovalId && computerApprovalSent) { return; }
-    if (pending.id !== computerApprovalId) {
-      computerApprovalId = String(pending.id);
-      computerApprovalSent = false;
-      computerApproval.querySelector('pre').textContent = String(pending.message || 'Allow this desktop action?');
-    }
-    computerApproval.classList.remove('hidden');
-  }
-
   function showDownloadNotice(event) {
     var payload = event && event.payload;
     if (!payload || !payload.message) { return; }
@@ -670,21 +573,6 @@
   });
 
   document.addEventListener('click', function (event) {
-    var computerButton = event.target && event.target.closest
-      ? event.target.closest('[data-computer-approval]') : null;
-    if (computerButton && computerApprovalId && !computerApprovalSent) {
-      computerApprovalSent = true;
-      computerApproval.querySelectorAll('button').forEach(function (button) { button.disabled = true; });
-      window.dispatchEvent(new CustomEvent('autumn-agentic-action', {
-        detail: { path: 'computer_approval_result', body: {
-          id: computerApprovalId,
-          approved: computerButton.getAttribute('data-computer-approval') === 'yes'
-        } }
-      }));
-      computerApproval.classList.add('hidden');
-      computerApproval.querySelectorAll('button').forEach(function (button) { button.disabled = false; });
-      return;
-    }
     var target = event.target && event.target.closest ? event.target.closest('[data-agentic-browser-open]') : null;
     if (target) {
       event.preventDefault();
@@ -705,35 +593,6 @@
       address.focus();
     }
     if (event.target === root.querySelector('[data-browser-go]')) { navigateAddress(); }
-    var approvalButton = event.target && event.target.closest ? event.target.closest('[data-browser-approve]') : null;
-    if (approvalButton && approvalId) {
-      var approved = approvalButton.getAttribute('data-browser-approve') === 'yes';
-      var decisionId = approvalId;
-      dismissApproval();
-      if (nativeApproval) {
-        var pending = nativeApproval;
-        nativeApproval = null;
-        if (approved) {
-          syncNativeWindow(pending.tab, true).then(function (ready) {
-            if (!ready) { throw new Error('The browser panel is no longer visible.'); }
-            return invokeNative('browser_window_action', {
-              tab: pending.tab,
-              action: pending.action,
-              approved: true,
-              allowDownload: pending.allowDownload,
-              downloadUrl: pending.downloadUrl
-            });
-          })
-            .then(function (result) { answerBrowserAction(pending.id, result || { ok: false, error: 'The browser returned no action result.' }); })
-            .catch(function (error) { answerBrowserAction(pending.id, { ok: false, error: String(error && error.message || error) }); });
-        } else {
-          answerBrowserAction(pending.id, { ok: false, error: 'The user declined the browser action.' });
-        }
-      } else if (pagePort) {
-        pagePort.postMessage({ type: 'autumn-browser-approval', id: decisionId, approved: approved });
-      }
-      syncBrowserLayout();
-    }
     var nav = event.target && event.target.closest ? event.target.closest('[data-browser-nav]') : null;
     if (nav) { navigate('browser_history_step', { action: nav.getAttribute('data-browser-nav') }); }
   });
@@ -746,7 +605,6 @@
   window.addEventListener('autumn-agentic-state', function (event) {
     if (!event.detail || typeof event.detail !== 'object') { return; }
     latest = event.detail;
-    updateComputerApproval(latest);
     var browser = latest.browser || {};
     var page = Array.isArray(browser.tabs) ? browser.tabs[(Number(browser.active) || 0) - 1] : null;
     var nextUrl = validUrl((page && page.url) || '');
@@ -783,13 +641,6 @@
     }
     if (event.data.type === 'autumn-browser-result') {
       answerBrowserAction(String(event.data.id || ''), event.data.result || { ok: false, error: 'The browser returned no result.' });
-      return;
-    }
-    if (event.data.type === 'autumn-browser-confirm') {
-      approvalId = String(event.data.id || '');
-      approvalText.textContent = String(event.data.message || 'Allow this browser action?');
-      approval.classList.remove('hidden');
-      open();
       return;
     }
     if (event.data.type !== 'autumn-browser-link') { return; }

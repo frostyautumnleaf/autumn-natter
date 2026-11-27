@@ -121,6 +121,11 @@ fn handle(engine: &Engine, mut request: Request) {
                 .with_header(content_type("text/javascript; charset=utf-8"))
                 .with_header(header("cache-control", "no-cache")));
         }
+        ("GET", "/agent-pointer.js") => {
+            let _ = request.respond(Response::from_string(include_str!("../frontend/agent-pointer.js"))
+                .with_header(content_type("text/javascript; charset=utf-8"))
+                .with_header(header("cache-control", "no-cache")));
+        }
         ("GET", "/autumn-natter.svg") | ("GET", "/favicon.ico") => {
             let _ = request.respond(
                 Response::from_data(ICON)

@@ -25,6 +25,8 @@ pub mod config;
 pub mod contexts;
 pub mod corporate;
 pub mod db;
+#[cfg(target_os = "linux")]
+mod agent_pointer;
 pub mod desktop;
 pub mod documents;
 pub mod display;

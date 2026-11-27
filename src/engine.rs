@@ -5505,16 +5505,6 @@ impl Engine {
         true
     }
 
-    pub fn resolve_computer_approval(&self, id: &str, approved: bool) -> bool {
-        let Ok(mut state) = self.state.lock() else { return false; };
-        let chat = state.open_id();
-        if !crate::agentic::resolve_computer_approval(&chat, id, approved) {
-            return false;
-        }
-        state.touch();
-        true
-    }
-
     // One line of the drop-down of the badge of the tools. The badge itself is the switch over
     // all of them, so a tool that is switched on here is proposed only while the badge is on;
     // turning this line off takes the tool out of the chat even when the badge is on. The same
@@ -7289,6 +7279,8 @@ impl Engine {
                 flag.store(true, Ordering::SeqCst);
             }
         }
+        #[cfg(target_os = "linux")]
+        crate::agent_pointer::close();
         // The server of the embeddings is a child of this process, as the server of the answers
         // is, so it is stopped here as well: a model left running after the program went would
         // hold memory of the computer for nothing.

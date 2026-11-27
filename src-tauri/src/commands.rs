@@ -344,7 +344,7 @@ pub async fn browser_window_sync(
                     });
                 if !approved {
                     let _ = webview.app_handle().emit("agentic-browser-download", json!({
-                        "url": url.as_str(), "saved": false, "message": "A page tried to download a file without an approved browser action. The download was blocked."
+                        "url": url.as_str(), "saved": false, "message": "A page started a download without a matching browser tool action. The download was blocked."
                     }));
                     return false;
                 }
@@ -402,11 +402,11 @@ pub async fn browser_window_action(
     engine: State<'_, Engine>,
     tab: u64,
     action: Value,
-    approved: bool,
-    allow_download: bool,
-    download_url: Option<String>,
 ) -> Result<Value, String> {
     let snap = engine.snapshot();
+    if !snap.tool_switches.browser_use {
+        return Err(String::from("Turn on Browser use before using the page."));
+    }
     let label = native_browser_label(&snap.chat_id, tab);
     let view = app
         .get_webview(&label)
@@ -418,54 +418,38 @@ pub async fn browser_window_action(
             "text": "Screenshot of the visible browser page."}),
         );
     }
-    if approved && allow_download && action_may_download(&action) {
-        let download_url = download_url
-            .as_deref()
-            .filter(|url| !url.is_empty() && url.len() <= 4096 && !url.chars().any(char::is_control))
-            .ok_or_else(|| String::from("The approved download URL is missing or invalid."))?;
-        grant_browser_download(&label, download_url);
-    }
     let screenshot_size = BROWSER_SCREENSHOT_SIZES.get().and_then(|sizes| {
         sizes.lock().ok()?.get(&label).copied()
     });
     let (scale_x, scale_y) = browser_viewport(&label).zip(screenshot_size)
         .map(|(rect, (width, height))| (rect.width / f64::from(width), rect.height / f64::from(height)))
         .unwrap_or((1.0, 1.0));
-    let script = browser_action_script(&action, approved, scale_x, scale_y)?;
-    let (send, receive) = mpsc::sync_channel(1);
-    if let Err(problem) = view.eval_with_callback(script, move |result| {
-            let _ = send.send(result);
-        })
-    {
-        if approved && action_may_download(&action) {
-            revoke_browser_download(&label);
-        }
-        return Err(problem.to_string());
-    }
-    let result = match receive.recv_timeout(Duration::from_secs(8)) {
-        Ok(result) => result,
-        Err(_) => {
-            if approved && action_may_download(&action) {
-                revoke_browser_download(&label);
-            }
-            return Err(String::from(
-                "The browser page did not return an action result.",
-            ));
-        }
+    let script = browser_action_script(&action, None, scale_x, scale_y)?;
+    let result = evaluate_browser_action(&view, script)?;
+    let Some(url) = result["download_request"].as_str().filter(|_| action["action"] == "click") else {
+        return Ok(result);
     };
-    let parsed: Value = serde_json::from_str(&result).unwrap_or_else(|_| Value::String(result));
-    let parsed = parsed
-        .as_str()
-        .and_then(|inner| serde_json::from_str::<Value>(inner).ok())
-        .unwrap_or(parsed);
-    if approved && action_may_download(&action) && parsed["allow_download"] != true {
+    let target = autumn_natter_core::search::parse_public_browser_url(url)?;
+    let script = browser_action_script(&action, Some(target.as_str()), scale_x, scale_y)?;
+    grant_browser_download(&label, target.as_str());
+    let result = evaluate_browser_action(&view, script);
+    if !result.as_ref().is_ok_and(|value| value["download_started"] == true) {
         revoke_browser_download(&label);
     }
-    Ok(parsed)
+    result
 }
 
-fn action_may_download(action: &Value) -> bool {
-    action["action"] == "click"
+fn evaluate_browser_action(view: &tauri::Webview, script: String) -> Result<Value, String> {
+    let (send, receive) = mpsc::sync_channel(1);
+    view.eval_with_callback(script, move |result| {
+        let _ = send.send(result);
+    }).map_err(|problem| problem.to_string())?;
+    let result = receive.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| String::from("The browser page did not return an action result."))?;
+    let parsed: Value = serde_json::from_str(&result).unwrap_or_else(|_| Value::String(result));
+    Ok(parsed.as_str()
+        .and_then(|inner| serde_json::from_str::<Value>(inner).ok())
+        .unwrap_or(parsed))
 }
 
 fn grant_browser_download(label: &str, url: &str) {
@@ -698,13 +682,16 @@ fn encode_browser_png(image: &image::RgbaImage, max_edge: u32) -> Result<(Vec<u8
 
 fn browser_action_script(
     action: &Value,
-    approved: bool,
+    download_url: Option<&str>,
     scale_x: f64,
     scale_y: f64,
 ) -> Result<String, String> {
     let action = serde_json::to_string(action).map_err(|problem| problem.to_string())?;
+    let download = json!(download_url);
+    let pointer = include_str!("../../frontend/agent-pointer.js");
     Ok(format!(
-        r#"(function(a,approved,scaleX,scaleY){{
+        r#"(function(a,downloadUrl,scaleX,scaleY){{
+          {pointer}
           for(const k of ['x','to_x'])if(Number.isFinite(+a[k]))a[k]=Number(a[k])*scaleX;
           for(const k of ['y','to_y'])if(Number.isFinite(+a[k]))a[k]=Number(a[k])*scaleY;
           const clean=(v,n=60000)=>String(v||'').replace(/\s+/g,' ').trim().slice(0,n);
@@ -715,19 +702,34 @@ fn browser_action_script(
           const controls=()=>{{let out=[],refs=new Map(),i=1;for(const e of document.querySelectorAll('a[href],button,input:not([type=hidden]),textarea,select,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[tabindex]')){{if(!visible(e))continue;const ref='r'+i++;refs.set(ref,e);out.push({{ref,role:role(e),name:name(e),href:e.tagName==='A'?e.href:'',type:e.type||'',disabled:!!e.disabled}});if(out.length>=400)break}}window.__autumnNatterBrowserRefs=refs;return out}};
           const refs=window.__autumnNatterBrowserRefs||new Map(),op=String(a.action||a.op||''),el=refs.get(String(a.ref||''))||((Number.isFinite(+a.x)&&Number.isFinite(+a.y))?document.elementFromPoint(+a.x,+a.y):null);
           const result=(text,extra={{}})=>Object.assign({{ok:true,title:document.title,text}},extra);
-          const ask=(message,extra={{}})=>Object.assign({{ok:false,approval_required:true,approval:message}},extra);
+          const point=(target,x,y)=>{{
+            if(Number.isFinite(x)&&Number.isFinite(y))return [x,y];
+            const r=target.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2];
+          }};
+          if(el&&['click','move','drag','type','select'].includes(op))autumnAgentPlacePointer(...point(el,a.x,a.y));
           if(op==='snapshot'){{const links=controls();return result(pageText(document.body,a.full_page?80000:30000),{{links}})}}
           if(op==='find'){{const q=String(a.query||'').toLowerCase(),links=controls().filter(x=>(x.name+' '+x.role).toLowerCase().includes(q)),text=pageText(document.body,30000).split(/\n+/).filter(x=>x.toLowerCase().includes(q)).slice(0,12).join('\n');return result(text,{{links}})}}
-          if(op==='evaluate'){{if(!approved)return ask('Run this JavaScript in the current page?\n\n'+String(a.script||''));try{{const value=(new Function(String(a.script||'')))();if(value&&typeof value.then==='function')return {{ok:false,error:'This browser action supports synchronous JavaScript results only.'}};return result(typeof value==='string'?value:JSON.stringify(value))}}catch(e){{return {{ok:false,error:'Page JavaScript failed: '+clean(e&&e.message,500)}}}}}}
-          if(op==='click'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};if((el.type||'').toLowerCase()==='file')return {{ok:false,error:'File uploads are blocked. Ask the user to choose a file themselves.'}};const label=name(el),form=el.form||el.closest&&el.closest('form'),submit=form&&(/^(submit|image)$/i.test(el.type||'')||el.tagName==='BUTTON'),download=el.hasAttribute('download')||/\bdownload\b/i.test(label)||/\.(pdf|zip|gz|tar|7z|rar|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|mp4|mp3)(?:$|[?#])/i.test(el.href||''),external=el.tagName==='A'&&!!el.href&&new URL(el.href).origin!==location.origin;if(!approved&&external&&!download&&!submit)return ask('Open this link in the browser panel?\n'+el.href);if(!approved&&(submit||download||/\b(buy|purchase|pay|place order|send|delete|remove|sign in|log in|subscribe|transfer|publish|submit)\b/i.test(label)))return ask((download?'Download this file?':submit?'Submit this page form?':'Allow this page action?')+'\n'+label+(download?'\n'+el.href:''),download?{{allow_download:true,download_url:el.href}}:{{}});if(approved&&external&&!download&&!submit)return {{ok:true,navigate:el.href,title:document.title,text:'Opened '+label+'.'}};el.click();return result('Clicked '+label+'.',{{allow_download:!!(approved&&download)}})}}
-          if(op==='move'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};el.dispatchEvent(new MouseEvent('mouseover',{{bubbles:true}}));el.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true}}));return result('Moved over '+name(el)+'.')}}
-          if(op==='drag'){{const to=refs.get(String(a.to_ref||''));if(!el||(!to&&(!Number.isFinite(+a.to_x)||!Number.isFinite(+a.to_y))))return {{ok:false,error:'The drag points are no longer valid. Take a fresh snapshot.'}};const s=el.getBoundingClientRect(),t=to?to.getBoundingClientRect():null,sx=s.left+s.width/2,sy=s.top+s.height/2,tx=t?t.left+t.width/2:+a.to_x,ty=t?t.top+t.height/2:+a.to_y;el.dispatchEvent(new MouseEvent('mousedown',{{bubbles:true,clientX:sx,clientY:sy,button:0}}));document.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true,clientX:tx,clientY:ty,button:0}}));document.dispatchEvent(new MouseEvent('mouseup',{{bubbles:true,clientX:tx,clientY:ty,button:0}}));return result('Dragged the page item.')}}
-          if(op==='type'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};if((el.type||'').toLowerCase()==='password'||/password|passcode|card number|security code|payment/i.test(name(el)))return {{ok:false,error:'The browser will not type into password or payment fields.'}};if(!('value'in el)&&!el.isContentEditable)return {{ok:false,error:'That ref is not a text field.'}};if(!approved)return ask((a.submit?'Type this text and submit the form?':'Type this text into '+name(el)+'?')+'\n\n'+String(a.text||''));if(el.isContentEditable)el.textContent=String(a.text||'');else{{const p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,String(a.text||''))}}el.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'insertText',data:String(a.text||'')}}));el.dispatchEvent(new Event('change',{{bubbles:true}}));let submitted=false;if(a.submit){{const f=el.form||el.closest&&el.closest('form');if(f){{f.requestSubmit();submitted=true}}}}return result('Typed into '+name(el)+'.',{{allow_download:submitted}})}}
-          if(op==='select'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};const v=String(a.value||''),detail=name(el)+' → '+v;if(!approved&&/\b(buy|purchase|pay|place order|send|delete|remove|subscribe|transfer|publish|submit|agree|accept|confirm|authorize|authorise)\b/i.test(detail))return ask('Allow this page option?\n'+detail);if(el.tagName==='SELECT'){{const option=Array.from(el.options).find(o=>o.label.toLowerCase()===v.toLowerCase()||o.value===v);if(!option)return {{ok:false,error:'No dropdown option matched.'}};el.value=option.value}}else if(el.type==='checkbox'||el.type==='radio')el.checked=/^(true|yes|1)$/i.test(v);else return {{ok:false,error:'That ref is not a select, checkbox, or radio.'}};el.dispatchEvent(new Event('input',{{bubbles:true}}));el.dispatchEvent(new Event('change',{{bubbles:true}}));return result('Changed '+name(el)+'.')}}
+          if(op==='evaluate'){{try{{const value=(new Function(String(a.script||'')))();if(value&&typeof value.then==='function')return {{ok:false,error:'This browser action supports synchronous JavaScript results only.'}};return result(typeof value==='string'?value:JSON.stringify(value))}}catch(e){{return {{ok:false,error:'Page JavaScript failed: '+clean(e&&e.message,500)}}}}}}
+          if(op==='click'){{
+            if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};
+            if((el.type||'').toLowerCase()==='file')return {{ok:false,error:'File uploads are blocked. Ask the user to choose a file themselves.'}};
+            const link=el.closest('a[href]'),href=link?.href,label=name(el);
+            const download=href&&(link.hasAttribute('download')||/\bdownload\b/i.test(label)||/\.(pdf|zip|gz|tar|7z|rar|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|mp4|mp3)(?:$|[?#])/i.test(href));
+            if(downloadUrl&&(!download||href!==downloadUrl))return {{ok:false,error:'The download target changed. Take a fresh snapshot.'}};
+            if(download&&!downloadUrl)return {{ok:true,download_request:href}};
+            if(href&&!download&&new URL(href).origin!==location.origin)return {{ok:true,navigate:href,title:document.title,text:'Opened '+label+'.'}};
+            const [x,y]=point(el,a.x,a.y);
+            el.dispatchEvent(new MouseEvent('click',{{bubbles:true,cancelable:true,clientX:x,clientY:y}}));
+            return result('Clicked '+label+'.',{{download_started:!!(download&&downloadUrl)}});
+          }}
+          if(op==='move'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};const [x,y]=point(el,a.x,a.y);el.dispatchEvent(new MouseEvent('mouseover',{{bubbles:true,clientX:x,clientY:y}}));el.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true,clientX:x,clientY:y}}));return result('Moved over '+name(el)+'.')}}
+          if(op==='drag'){{const to=refs.get(String(a.to_ref||''));if(!el||(!to&&(!Number.isFinite(+a.to_x)||!Number.isFinite(+a.to_y))))return {{ok:false,error:'The drag points are no longer valid. Take a fresh snapshot.'}};const [sx,sy]=point(el,a.x,a.y),[tx,ty]=point(to,a.to_x,a.to_y);el.dispatchEvent(new MouseEvent('mousedown',{{bubbles:true,clientX:sx,clientY:sy,button:0}}));document.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true,clientX:tx,clientY:ty,button:0}}));document.dispatchEvent(new MouseEvent('mouseup',{{bubbles:true,clientX:tx,clientY:ty,button:0}}));autumnAgentPlacePointer(tx,ty);return result('Dragged the page item.')}}
+          if(op==='type'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};if((el.type||'').toLowerCase()==='password'||/password|passcode|card number|security code|payment/i.test(name(el)))return {{ok:false,error:'The browser will not type into password or payment fields.'}};if(!('value'in el)&&!el.isContentEditable)return {{ok:false,error:'That ref is not a text field.'}};if(el.isContentEditable)el.textContent=String(a.text||'');else{{const p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,String(a.text||''))}}el.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'insertText',data:String(a.text||'')}}));el.dispatchEvent(new Event('change',{{bubbles:true}}));if(a.submit){{const f=el.form||el.closest&&el.closest('form');if(f){{f.requestSubmit()}}}}return result('Typed into '+name(el)+'.')}}
+          if(op==='select'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};const v=String(a.value||'');if(el.tagName==='SELECT'){{const option=Array.from(el.options).find(o=>o.label.toLowerCase()===v.toLowerCase()||o.value===v);if(!option)return {{ok:false,error:'No dropdown option matched.'}};el.value=option.value}}else if(el.type==='checkbox'||el.type==='radio')el.checked=/^(true|yes|1)$/i.test(v);else return {{ok:false,error:'That ref is not a select, checkbox, or radio.'}};el.dispatchEvent(new Event('input',{{bubbles:true}}));el.dispatchEvent(new Event('change',{{bubbles:true}}));return result('Changed '+name(el)+'.')}}
           if(op==='scroll'){{if(a.ref&&!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};const amount=Math.max(1,Math.min(30,Number(a.amount)||1));if(el)el.scrollIntoView({{block:'center'}});else window.scrollBy({{top:(a.direction==='up'?-1:1)*Math.max(200,innerHeight*.75)*amount,behavior:'instant'}});return result(pageText(document.body,30000),{{links:controls()}})}}
-          if(op==='press'){{const target=el||document.activeElement||document.body,key=String(a.key||'').toLowerCase(),form=target.form||target.closest&&target.closest('form');if((key==='enter'||key==='return')&&form&&!approved)return ask('Submit this page form?\n'+name(target));if((key==='enter'||key==='return')&&form){{form.requestSubmit(target.matches&&target.matches('button[type=submit],input[type=submit]')?target:undefined);return result('Submitted the page form.',{{allow_download:true}})}}if((key==='enter'||key==='return')&&target.matches&&target.matches('a,button,[role=button]')){{target.click();return result('Activated '+name(target)+'.')}}if((key===' '||key==='space')&&target.matches&&target.matches('button,[role=button],input[type=checkbox],input[type=radio]')){{target.click();return result('Activated '+name(target)+'.')}}if(key==='tab'){{const list=Array.from(document.querySelectorAll('a[href],button,input:not([disabled]),textarea,select,[tabindex]:not([tabindex="-1"])')).filter(visible),at=list.indexOf(document.activeElement),next=list[(at+1)%Math.max(1,list.length)];if(next)next.focus();return result('Moved focus to '+(next?name(next):'the next control')+'.')}}if((key==='backspace'||key==='delete')&&(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement)){{const start=target.selectionStart,end=target.selectionEnd,from=start===end?Math.max(0,start-(key==='backspace'?1:0)):start,to=start===end?Math.min(target.value.length,end+(key==='delete'?1:0)):end;target.setRangeText('',from,to,'end');target.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'deleteContentBackward'}}));return result('Edited '+name(target)+'.')}}const map={{return:'Enter',esc:'Escape',space:' ',up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'}};const actual=map[key]||a.key;target.dispatchEvent(new KeyboardEvent('keydown',{{key:actual,bubbles:true,cancelable:true}}));target.dispatchEvent(new KeyboardEvent('keyup',{{key:actual,bubbles:true,cancelable:true}}));return result('Pressed '+clean(actual,20)+'.')}}
+          if(op==='press'){{const target=el||document.activeElement||document.body,key=String(a.key||'').toLowerCase(),form=target.form||target.closest&&target.closest('form');if((key==='enter'||key==='return')&&form){{form.requestSubmit(target.matches&&target.matches('button[type=submit],input[type=submit]')?target:undefined);return result('Submitted the page form.')}}if((key==='enter'||key==='return')&&target.matches&&target.matches('a,button,[role=button]')){{target.click();return result('Activated '+name(target)+'.')}}if((key===' '||key==='space')&&target.matches&&target.matches('button,[role=button],input[type=checkbox],input[type=radio]')){{target.click();return result('Activated '+name(target)+'.')}}if(key==='tab'){{const list=Array.from(document.querySelectorAll('a[href],button,input:not([disabled]),textarea,select,[tabindex]:not([tabindex="-1"])')).filter(visible),at=list.indexOf(document.activeElement),next=list[(at+1)%Math.max(1,list.length)];if(next)next.focus();return result('Moved focus to '+(next?name(next):'the next control')+'.')}}if((key==='backspace'||key==='delete')&&(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement)){{const start=target.selectionStart,end=target.selectionEnd,from=start===end?Math.max(0,start-(key==='backspace'?1:0)):start,to=start===end?Math.min(target.value.length,end+(key==='delete'?1:0)):end;target.setRangeText('',from,to,'end');target.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'deleteContentBackward'}}));return result('Edited '+name(target)+'.')}}const map={{return:'Enter',esc:'Escape',space:' ',up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'}};const actual=map[key]||a.key;target.dispatchEvent(new KeyboardEvent('keydown',{{key:actual,bubbles:true,cancelable:true}}));target.dispatchEvent(new KeyboardEvent('keyup',{{key:actual,bubbles:true,cancelable:true}}));return result('Pressed '+clean(actual,20)+'.')}}
           return {{ok:false,error:'Unsupported native browser action.'}};
-        }})({action},{approved},{scale_x},{scale_y})"#
+        }})({action},{download},{scale_x},{scale_y})"#
     ))
 }
 
