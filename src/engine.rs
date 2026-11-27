@@ -2419,6 +2419,19 @@ impl State {
         self.live_mut(chat_id).last_opened = stamp;
         self.chats[place].meta.opened = stamp;
         let snapshot = self.chats[place].clone();
+        // Older screenshot tools wrote their records beside the attachment folder.
+        let screenshot_ids: Vec<_> = snapshot
+            .messages
+            .iter()
+            .filter(|message| message.role == "Tool" && crate::agentic::is_tool(&message.tool_name))
+            .flat_map(|message| &message.attachments)
+            .filter(|attachment| attachment.image)
+            .map(|attachment| attachment.id.clone())
+            .collect();
+        if !screenshot_ids.is_empty() {
+            let workdir = self.workdir_for(&snapshot);
+            attach::move_from(&workdir, &attach::shelf(&workdir), &screenshot_ids);
+        }
         self.live_mut(chat_id).ctx_used = snapshot.meta.context_used;
         self.current = Some(snapshot.meta.id.clone());
         match self.store.save_chat(&snapshot) {
@@ -3325,6 +3338,33 @@ impl State {
         self.touch();
     }
 
+    fn finish_screenshot_tool_in(
+        &mut self,
+        chat: &str,
+        id: &str,
+        report: tools::Report,
+        screenshot: Option<attach::Incoming>,
+    ) {
+        let Some(image) = screenshot else {
+            self.finish_tool_in(chat, id, &report.output, report.ok);
+            return;
+        };
+        let pictures = self
+            .attach_place_for_chat(chat)
+            .map(|place| attach::save_at(&place, &[image]))
+            .unwrap_or_default();
+        if pictures.is_empty() {
+            self.finish_tool_in(
+                chat,
+                id,
+                "The screenshot was captured but could not be saved as an attachment.",
+                false,
+            );
+            return;
+        }
+        self.finish_tool_with_in(chat, id, &report.output, report.ok, pictures);
+    }
+
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
     #[cfg(test)]
@@ -3481,8 +3521,8 @@ impl State {
     // and a projector file remains next to the model for the server to take. The server gets
     // its `--mmproj` from the same two facts, so the answer here and the flags there cannot
     // drift apart.
-    fn pictures_can_go(&self) -> bool {
-        match self.model() {
+    fn pictures_can_go_in(&self, chat: &str) -> bool {
+        match self.model_of(chat) {
             Some(model) => {
                 self.cfg.model(&model.id()).vision && llama::find_mmproj(&model.path).is_some()
             }
@@ -3591,7 +3631,7 @@ impl State {
                 "content": self.rag_words_for(chat),
             }));
         }
-        let vision_on = self.pictures_can_go();
+        let vision_on = self.pictures_can_go_in(chat_id);
         // The records of the attachments of this chat are in a directory of its own space,
         // so that is where their text and images are searched for.
         let shelf = self.attach_place_for(chat);
@@ -8741,7 +8781,7 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
             guard.mcp_definitions(),
             guard.compaction_on(),
             held.as_ref().is_some_and(|c| c.meta.goal.is_some()),
-            guard.pictures_can_go(),
+            guard.pictures_can_go_in(chat),
             guard.computer_use_available,
         )
     };
@@ -10936,7 +10976,7 @@ fn run_turn(
         // An image the model cannot be shown is reported out loud, so the user does not wonder
         // why the model looks blind at it.
         let pictures = kept.iter().filter(|a| a.image).count();
-        if pictures > 0 && !state.pictures_can_go() {
+        if pictures > 0 && !state.pictures_can_go_in(chat) {
             state.push_note_in(chat,
                 "The images of this message cannot be shown to this model: turn vision on in the model settings, then send the message again",
                 true,
@@ -11136,7 +11176,7 @@ fn run_turn(
                     .chat_of(chat)
                     .map(|c| c.meta.tools.clone())
                     .unwrap_or_default(),
-                guard.pictures_can_go(),
+                guard.pictures_can_go_in(chat),
                 guard.computer_use_available,
                 guard.thinking_ask(),
                 guard.compaction_on(),
@@ -12845,7 +12885,7 @@ fn run_program_tool(
         let chat_id = chat.to_string();
         let browser_workdir = workdir.to_path_buf();
         let browser_watch = watch.clone();
-        let vision = state.lock().map(|guard| guard.pictures_can_go()).unwrap_or(false);
+        let vision = state.lock().map(|guard| guard.pictures_can_go_in(chat)).unwrap_or(false);
         let made = if enabled {
             match crate::util::within(&watch, move || {
                 crate::agentic::browser_run(&words, &chat_id, &browser_workdir, &browser_watch, vision)
@@ -12863,9 +12903,8 @@ fn run_program_tool(
             }
         };
         let picture = crate::agentic::take_browser_screenshot(chat);
-        let pictures = picture.map(|image| attach::save_at(workdir, &[image])).unwrap_or_default();
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool_with_in(chat, &message_id, &made.output, made.ok, pictures);
+        guard.finish_screenshot_tool_in(chat, &message_id, made, picture);
         return;
     }
     if call.name == crate::agentic::COMPUTER_NAME {
@@ -12874,7 +12913,7 @@ fn run_program_tool(
             .map(|guard| (
                 guard.chat_of(chat).is_some_and(|one| one.meta.tools.computer_use),
                 guard.computer_use_available,
-                guard.pictures_can_go(),
+                guard.pictures_can_go_in(chat),
             ))
             .unwrap_or((false, false, false));
         let words = call.arguments.clone();
@@ -12910,9 +12949,8 @@ fn run_program_tool(
                 },
             }
         };
-        let pictures = made.image.map(|image| attach::save_at(workdir, &[image])).unwrap_or_default();
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool_with_in(chat, &message_id, &made.report.output, made.report.ok, pictures);
+        guard.finish_screenshot_tool_in(chat, &message_id, made.report, made.image);
         return;
     }
     if call.name == crate::goal::CRITERIA_NAME {
@@ -13059,7 +13097,7 @@ fn run_program_tool(
         let (vision, jailed) = {
             let Ok(guard) = state.lock() else { return };
             (
-                guard.pictures_can_go(),
+                guard.pictures_can_go_in(chat),
                 guard.chat_of(chat).map(|one| one.meta.sandbox_enabled).unwrap_or(false),
             )
         };
@@ -13276,7 +13314,7 @@ fn run_program_tool(
         let (seen, jailed) = {
             let Ok(guard) = state.lock() else { return };
             (
-                guard.pictures_can_go(),
+                guard.pictures_can_go_in(chat),
                 guard.chat_of(chat).map(|one| one.meta.sandbox_enabled).unwrap_or(false),
             )
         };
@@ -16087,6 +16125,89 @@ mod tests {
             .expect("the record of the image is with the chat");
         assert_eq!(record.data, "data:image/png;base64,AAA=");
         assert_eq!(record.mime, "image/png");
+    }
+
+    #[test]
+    fn screenshots_reach_the_preview_and_model_from_the_chat_attachment_folder() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let data = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNwbT36HwAFMQKPKIYtDwAAAABJRU5ErkJggg==";
+        let (chat, workdir, ids) = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let chat = state.open_id();
+            let workdir = state.open_workdir().unwrap();
+            let model = ModelInfo {
+                path: workdir.join("test.gguf"),
+                name: String::from("test"),
+                kind: "GGUF",
+            };
+            std::fs::write(workdir.join("mmproj-test.gguf"), "").unwrap();
+            state.cfg.model_settings.entry(model.id()).or_default().vision = true;
+            state.chat_of_mut(&chat).unwrap().meta.model_id = model.id();
+            state.models.push(model);
+            // A tool finishing in the background still belongs to the chat that called it.
+            state.open_home();
+            let cases = [
+                (
+                    crate::agentic::COMPUTER_NAME,
+                    "screenshot",
+                    "desktop-screenshot.png",
+                ),
+                (crate::agentic::COMPUTER_NAME, "zoom", "desktop-zoom.png"),
+                (
+                    crate::agentic::BROWSER_NAME,
+                    "screenshot",
+                    "browser-screenshot.png",
+                ),
+            ];
+            let mut ids = Vec::new();
+            for (tool, action, name) in cases {
+                let call = ToolCall {
+                    id: store::new_id(),
+                    name: tool.to_string(),
+                    arguments: json!({"action": action}).to_string(),
+                };
+                let id = state.begin_tool_in(&chat, &call, action, "", 0);
+                state.finish_screenshot_tool_in(
+                    &chat,
+                    &id,
+                    tools::Report {
+                        ok: true,
+                        output: String::from("Captured screenshot."),
+                    },
+                    Some(attach::Incoming {
+                        name: name.to_string(),
+                        mime: String::from("image/png"),
+                        data: data.to_string(),
+                        text: String::new(),
+                    }),
+                );
+                let history = state.build_history_in(&chat);
+                let image = &history.as_array().unwrap().last().unwrap()["content"][1];
+                assert_eq!(image["type"], "image_url");
+                assert_eq!(image["image_url"]["url"], data);
+                let message = state.chat_of(&chat).unwrap().messages.last().unwrap();
+                assert!(!message.failed);
+                let attachment = &message.attachments[0];
+                assert_eq!(attachment.name, name);
+                assert!(!workdir.join(format!("{}.json", attachment.id)).exists());
+                ids.push(attachment.id.clone());
+            }
+            (chat, workdir, ids)
+        };
+
+        // Put one record back where an older build wrote it, then open the chat as the user does.
+        let file = format!("{}.json", ids[0]);
+        let legacy = workdir.join(&file);
+        std::fs::rename(attach::shelf(&workdir).join(file), &legacy).unwrap();
+        engine.open_chat(chat);
+        for id in ids {
+            assert_eq!(engine.attachment(&id).unwrap().data, data);
+        }
+        assert!(!legacy.exists());
+        std::fs::remove_dir_all(workdir).unwrap();
     }
 
     // The text under the number of the meter follow the images the message carries. A chat of
