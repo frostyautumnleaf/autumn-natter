@@ -119,16 +119,14 @@
     '<details class="agentic-browser-reader"><summary>Page text read by the model</summary><div class="agentic-browser-links"></div><pre></pre></details>' +
     '<div class="agentic-browser-approval hidden" role="dialog" aria-modal="true" aria-label="Approve browser action"><strong>Review browser action</strong><pre></pre><div class="agentic-browser-approval-actions"><button type="button" data-browser-approve="no">Deny</button><button type="button" data-browser-approve="yes">Allow</button></div></div></section>';
   var area = document.getElementById('area');
-  var dock = document.getElementById('dock');
   var layout = document.createElement('div');
   var chat = document.createElement('div');
   layout.className = 'chat-layout';
   chat.className = 'chat-layout-content';
-  if (area && dock && area.parentNode === dock.parentNode) {
+  if (area && area.parentNode) {
     area.parentNode.insertBefore(layout, area);
     layout.appendChild(chat);
     chat.appendChild(area);
-    chat.appendChild(dock);
     layout.appendChild(root);
   } else {
     document.body.appendChild(root);
