@@ -71,9 +71,11 @@ flags of the build.
 
 The window needs the web view of the system.
 
-    Debian/Ubuntu:  sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
+    Debian/Ubuntu:  sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config libwayland-dev libpipewire-0.3-dev libdrm-dev libgbm-dev libxcb1-dev libxcb-randr0-dev
     Fedora:         sudo dnf install webkit2gtk4.1-devel openssl-devel libappindicator-gtk3-devel librsvg2-devel pkgconf-pkg-config
-    Arch:           sudo pacman -S webkit2gtk-4.1 base-devel openssl libappindicator-gtk3 librsvg
+    Arch:           sudo pacman -S webkit2gtk-4.1 base-devel openssl libappindicator-gtk3 librsvg wayland pipewire libdrm libxcb
+
+The Linux desktop-control tools use the Wayland screen-capture portal or X11 and need the development headers above when building from source. Computer use is off until enabled from the Agentic menu in a chat. Windows builds use the native Windows screen and input APIs through the cross-platform Rust backends and need no extra system package.
 
 Then, in one command, with nothing written outside the checkout and no need for
 sudo:

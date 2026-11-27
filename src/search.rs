@@ -18,6 +18,7 @@
 use serde_json::{json, Value};
 use std::io::Read;
 use std::time::Duration;
+use url::Url;
 
 use crate::tools::{self, with_rule};
 
@@ -407,24 +408,71 @@ fn fetch(address: &str) -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(20))
-        .redirects(5)
+        .redirects(0)
         .build();
-    let made = agent
-        .get(address)
-        .set("user-agent", AGENT)
-        .set("accept-language", "en")
-        .call();
-    let response = match made {
-        Ok(response) => response,
-        Err(problem) => return Err(first_words(&problem.to_string(), 200)),
-    };
-    let mut bytes: Vec<u8> = Vec::new();
-    let mut stream = response.into_reader();
-    let _ = stream
-        .by_ref()
-        .take(MAX_FETCH_BYTES as u64)
-        .read_to_end(&mut bytes);
-    Ok(String::from_utf8_lossy(&bytes).to_string())
+    let mut current = Url::parse(address).map_err(|_| String::from("invalid URL"))?;
+    for _ in 0..=5 {
+        validate_public_url(&current)?;
+        let response = match agent.get(current.as_str())
+            .set("user-agent", AGENT)
+            .set("accept-language", "en")
+            .call()
+        {
+            Ok(response) => response,
+            Err(ureq::Error::Status(code, response)) if (300..400).contains(&code) => {
+                let location = response.header("Location").ok_or_else(|| String::from("redirect had no destination"))?;
+                current = current.join(location).map_err(|_| String::from("redirect destination was invalid"))?;
+                continue;
+            }
+            Err(problem) => return Err(first_words(&problem.to_string(), 200)),
+        };
+        let mut bytes: Vec<u8> = Vec::new();
+        let mut stream = response.into_reader();
+        let _ = stream.by_ref().take(MAX_FETCH_BYTES as u64).read_to_end(&mut bytes);
+        return Ok(String::from_utf8_lossy(&bytes).to_string());
+    }
+    Err(String::from("the page redirected too many times"))
+}
+
+// Never let a page reader reach the local machine or private network, including after redirects.
+fn validate_public_url(url: &Url) -> Result<(), String> {
+    use std::net::{IpAddr, ToSocketAddrs};
+    if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty() || url.password().is_some() {
+        return Err(String::from("only public http and https addresses can be opened"));
+    }
+    let host = url.host_str().ok_or_else(|| String::from("the address has no host"))?;
+    let low = host.trim_end_matches('.').to_ascii_lowercase();
+    if low == "localhost" || low.ends_with(".localhost") || low.ends_with(".local")
+        || low == "metadata.google.internal" || low.ends_with(".internal") {
+        return Err(String::from("local network addresses are not available to web tools"));
+    }
+    let port = url.port_or_known_default().ok_or_else(|| String::from("the address has no port"))?;
+    let addresses = (host, port).to_socket_addrs().map_err(|_| String::from("the host could not be resolved"))?;
+    let mut found = false;
+    for address in addresses {
+        found = true;
+        let public = match address.ip() {
+            IpAddr::V4(ip) => {
+                let b = ip.octets();
+                !ip.is_private() && !ip.is_loopback() && !ip.is_link_local() && !ip.is_broadcast()
+                    && !ip.is_unspecified() && !ip.is_multicast() && b[0] != 0 && b[0] < 224
+                    && !(b[0] == 100 && (64..=127).contains(&b[1]))
+                    && !(b[0] == 192 && b[1] == 0 && b[2] == 2)
+                    && !(b[0] == 198 && (b[1] == 18 || b[1] == 19 || b[1] == 51 && b[2] == 100))
+                    && !(b[0] == 203 && b[1] == 0 && b[2] == 113)
+            }
+            IpAddr::V6(ip) => {
+                let b = ip.octets();
+                !ip.is_loopback() && !ip.is_unspecified() && !ip.is_multicast()
+                    && !ip.is_unique_local() && !ip.is_unicast_link_local()
+                    && ip.to_ipv4_mapped().is_none()
+                    && !(b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8)
+            }
+        };
+        if !public { return Err(String::from("local network addresses are not available to web tools")); }
+    }
+    if !found { return Err(String::from("the host has no public address")); }
+    Ok(())
 }
 
 // The text of a page of markers. The parts that hold no text for a user are dropped whole: the
@@ -461,6 +509,37 @@ fn to_words(page: &str) -> String {
         out.push_str(&decode(rest));
     }
     tidy_words(&out)
+}
+
+// A browser snapshot of a page and the links the model may choose to follow.
+pub(crate) fn browser_read(address: &str) -> Result<(String, Vec<(String, String)>), String> {
+    let page = fetch(address)?;
+    let mut links = Vec::new();
+    let mut from = 0usize;
+    while links.len() < 30 {
+        let Some(open) = find_ignore(&page[from..], "<a") else { break };
+        let start = from + open;
+        let Some(end) = mark_end(&page[start..]) else { break };
+        let tag = &page[start..start + end + 1];
+        let Some(href_at) = find_ignore(tag, "href") else { from = start + end + 1; continue };
+        let after = tag.get(href_at + 4..).unwrap_or("").trim_start();
+        let Some(after) = after.strip_prefix('=') else { from = start + end + 1; continue };
+        let value = after.trim_start();
+        let raw = if let Some(rest) = value.strip_prefix('"') { rest.split('"').next().unwrap_or("") }
+            else if let Some(rest) = value.strip_prefix('\'') { rest.split('\'').next().unwrap_or("") }
+            else { value.split_whitespace().next().unwrap_or("").trim_end_matches('>') };
+        if raw.is_empty() || raw.starts_with('#') || raw.starts_with("javascript:") { from = start + end + 1; continue; }
+        let label_start = start + end + 1;
+        let label = find_ignore(&page[label_start..], "</a").map(|n| &page[label_start..label_start + n]).unwrap_or("");
+        let label = first_words(&to_words(label), 160);
+        if let Ok(base) = Url::parse(address) {
+            if let Ok(target) = base.join(raw) {
+                links.push((if label.is_empty() { target.as_str().to_string() } else { label }, target.to_string()));
+            }
+        }
+        from = start + end + 1;
+    }
+    Ok((to_words(&page), links))
 }
 
 // The parts of a page that hold nothing a user would want to read, with the marker that closes

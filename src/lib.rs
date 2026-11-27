@@ -18,6 +18,7 @@
 // limit is raised for the crate so the state can grow without the compiler stopping over it.
 #![recursion_limit = "256"]
 
+pub mod agentic;
 pub mod askuser;
 pub mod attach;
 pub mod config;

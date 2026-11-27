@@ -3637,6 +3637,14 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
               <span id="searchtext">Search</span>
             </button>
+            <div class="menuwrap" id="agenticwrap">
+              <button class="badge" id="agentic" title="Choose Browser use or Computer use for this chat.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.1a5.9 5.9 0 1 0 0 11.8 5.9 5.9 0 1 0 0-11.8zM5.2 8h5.6M8 5.2v5.6M2.8 4.2l2 1M13.2 4.2l-2 1M2.8 11.8l2-1M13.2 11.8l-2-1"/></svg>
+                <span id="agentictext">Agentic</span>
+                <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="agenticmenu"></div>
+            </div>
             <div class="menuwrap" id="mcpwrap">
               <button class="badge" id="mcp" title="The user's own servers, reached over MCP. Click to switch one on or off for this chat. A server runs in the program, not in the sandbox of a command.">
                 <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14"/></svg>
@@ -4388,7 +4396,7 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 var ids = ['model', 'modelChoice', 'modelChoiceText', 'modelMenu', 'kind', 'repo', 'repoChoice', 'repoChoiceText', 'repoMenu', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
   'unloadmodel', 'settingsbtn', 'themebtn', 'remoteConnectBtn', 'timeline', 'userline',
-  'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
+  'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'agentic', 'agentictext', 'agenticwrap', 'agenticmenu', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'plus', 'pluswrap', 'plusmenu', 'plusattach', 'plussources', 'pickfiles',
   'rag', 'ragtext',
@@ -5952,6 +5960,27 @@ function closeToolMenu() {
   if (el.codemenu) { el.codemenu.classList.add('hidden'); }
 }
 
+function fillAgenticMenu(s) {
+  if (!el.agenticmenu) { return; }
+  el.agenticmenu.innerHTML = '';
+  var held = s.tool_switches || {};
+  el.agenticmenu.appendChild(toolLine('browser_use', 'Browser use',
+    'Search and read web pages with the program browser.', held.browser_use === true));
+  el.agenticmenu.appendChild(toolLine('computer_use', 'Computer use',
+    'Inspect screenshots and control mouse and keyboard on this computer. Enable only when you want the model to interact with the desktop.', held.computer_use === true));
+}
+
+function openAgenticMenu() {
+  if (!cur) { return; }
+  fillAgenticMenu(cur);
+  el.agenticmenu.classList.remove('hidden');
+  menuFitOpen();
+}
+
+function closeAgenticMenu() {
+  if (el.agenticmenu) { el.agenticmenu.classList.add('hidden'); }
+}
+
 // The badge itself: the entry point to every tool of the program. The tip reports how many the
 // user has taken out of the chat, for a badge that is on can still be hiding a tool.
 function drawTools(s) {
@@ -5982,6 +6011,10 @@ function drawTools(s) {
 function drawBadges(s) {
   drawTools(s);
   el.search.classList.toggle('on', !!s.search);
+  var agenticOn = !!((s.tool_switches || {}).browser_use || (s.tool_switches || {}).computer_use);
+  el.agentic.classList.toggle('on', agenticOn);
+  el.agentic.title = agenticOn ? 'Agentic tools are enabled for this chat. Click to choose Browser use and Computer use.' : 'Choose Browser use or Computer use for this chat.';
+  if (el.agenticmenu && !el.agenticmenu.classList.contains('hidden')) { fillAgenticMenu(s); }
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
   // The badge is a door to the settings of the sandbox, so its text reports what a command of
@@ -7648,6 +7681,14 @@ var TOOL_SHAPES = {
     mark: 'M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6',
     head: 'Searching the web: ', word: 'query', end: 'result',
     empty: 'nothing to search for', begun: 'the search words'
+  },
+  browser_use: {
+    mark: 'M2 3.4h12v9.2H2zM2 6h12M4.2 4.7h.1M6.2 4.7h.1M5 8l2 1.5L5 11M8.5 11h2.2',
+    head: 'Using browser: ', word: 'action', end: 'result', empty: 'browser action', begun: 'browser action'
+  },
+  computer_use: {
+    mark: 'M8 2a6 6 0 1 0 0 12 6 6 0 1 0 0-12zM5.5 8h5M8 5.5v5M2 4l2 1M14 4l-2 1M2 12l2-1M14 12l-2-1',
+    head: 'Using computer: ', word: 'action', end: 'result', empty: 'computer action', begun: 'computer action'
   },
   // An image, or a number of them, handed over to the model. The text is the
   // name of the first image, and the result is the result of the run: the
@@ -13868,7 +13909,7 @@ function watchBadges() {
 // grows afterwards, when a longer name is written over one of its lines, is kept within the
 // window as well. Where the window is narrower than the least breadth of a box, the box is moved
 // back into the window whole.
-var MENUS = ['plusmenu', 'codemenu', 'mcpmenu', 'sandboxmenu', 'thinkmenu'];
+var MENUS = ['plusmenu', 'codemenu', 'agenticmenu', 'mcpmenu', 'sandboxmenu', 'thinkmenu'];
 var MENU_LEAST = 176;
 
 function menuFitOpen() {
@@ -13899,7 +13940,7 @@ function menuFitOpen() {
 // Bring one drop-down up and every other one down, for two menus over one row of badges read as
 // an error in the page.
 function showOnly(opener) {
-  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closePlusMenu();
+  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closeAgenticMenu(); closePlusMenu();
   if (opener) { opener(); }
 }
 
@@ -13913,7 +13954,7 @@ function wireRightClick(badge, opener) {
     event.stopPropagation();
     if (badge.disabled) { return; }
     if (el.plusmenu && el.plusmenu.contains(badge)) {
-      closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu();
+      closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closeAgenticMenu();
       opener();
     } else { showOnly(opener); }
   });
@@ -13923,6 +13964,7 @@ wireRightClick(el.code, openToolMenu);
 wireRightClick(el.sandbox, openSandboxMenu);
 wireRightClick(el.think, openThinkMenu);
 wireRightClick(el.mcp, openMcpMenu);
+wireRightClick(el.agentic, openAgenticMenu);
 // A badge that holds a drop-down of its own answers two places of itself. The right of the
 // badge, from its arrow to its edge, is the way into the menu; the rest of the badge is the
 // switch of the item the badge means. Where that item is a group of switches and none of them
@@ -13937,7 +13979,7 @@ function wireMenuBadge(badge, menu, open, onMain, switchedOn) {
       // RAG and MCP live inside the plus menu. Their own choices open beside them without
       // putting away the menu that contains them.
       if (el.plusmenu && el.plusmenu.contains(badge)) {
-        closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu();
+        closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closeAgenticMenu();
         open();
       } else { showOnly(open); }
     }
@@ -13982,6 +14024,7 @@ wireMenuBadge(el.think, el.thinkmenu, openThinkMenu);
 // The badge of the servers of the user's own opens the list of them, for every server is
 // switched on its own and there is nothing to switch as a whole.
 wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
+wireMenuBadge(el.agentic, el.agenticmenu, openAgenticMenu);
 // Choices inside the plus menu do not make it an outside click. The attachment and source
 // entries put it away explicitly when they are chosen; the RAG switch and MCP list leave it up.
 if (el.plusmenu) {
@@ -13989,7 +14032,7 @@ if (el.plusmenu) {
 }
 // A click anywhere else in the page puts the menus away.
 document.addEventListener('click', function () {
-  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closePlusMenu();
+  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closeAgenticMenu(); closePlusMenu();
 });
 
 // ------------------------------------------- icons under the pointer

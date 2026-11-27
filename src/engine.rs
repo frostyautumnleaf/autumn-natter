@@ -451,6 +451,11 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             String::new(),
             named(search::partial_words(raw), "the web"),
         ),
+        crate::agentic::BROWSER_NAME | crate::agentic::COMPUTER_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("desktop or web action"),
+        ),
         // The tools of planning name themselves: one writes the whole plan, one changes the
         // plan file of this chat, one reads it back, and one reports the plan is agreed. The
         // text of the plan stream in the body.
@@ -5341,6 +5346,29 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        if matches!(part, "browser_use" | "computer_use") {
+            if let Some(chat) = state.chat_mut() {
+                if !chat.meta.tools.set(part, on) {
+                    return;
+                }
+            }
+            if !state.new_tools.set(part, on) {
+                return;
+            }
+            state.persist_async();
+            state.set_status(if on {
+                if part == "computer_use" {
+                    "Computer use is enabled for this chat"
+                } else {
+                    "Browser use is enabled for this chat"
+                }
+            } else if part == "computer_use" {
+                "Computer use is off"
+            } else {
+                "Browser use is off"
+            });
+            return;
+        }
         // The line of the handoff summary counts toward the badge of the tools only while the
         // settings make the size of the context by a summary, for with compaction off nothing
         // is behind that line.
@@ -12159,6 +12187,8 @@ fn is_writing(call: &ToolCall) -> bool {
 // Every tool of a server of the user's own is outside that badge and its switches.
 fn group_of(name: &str) -> Option<&'static str> {
     match name {
+        crate::agentic::BROWSER_NAME => Some("browser_use"),
+        crate::agentic::COMPUTER_NAME => Some("computer_use"),
         crate::goal::CRITERIA_NAME | crate::goal::COMPLETE_NAME | crate::goal::PAUSE_NAME => {
             Some("goal")
         }
@@ -12248,6 +12278,8 @@ fn tool_allowed_in(state: &Arc<Mutex<State>>, chat: &str, name: &str) -> bool {
 fn tool_group_word(part: &str) -> String {
     match part {
         "commands" => String::from("Terminal commands"),
+        "browser_use" => String::from("Browser use"),
+        "computer_use" => String::from("Computer use"),
         "files" => String::from("File management"),
         "picture" => String::from("The look at a picture"),
         "hand_out" => String::from("Handing a file to the user"),
@@ -12372,10 +12404,18 @@ fn offered(
     switches: &store::ToolSwitches,
     compaction_on: bool,
 ) -> Option<Value> {
-    if !(code_on || search_on || rag_on || !mcp_tools.is_empty()) {
+    if !(code_on || search_on || rag_on || !mcp_tools.is_empty()
+        || switches.browser_use || switches.computer_use)
+    {
         return None;
     }
     let mut list: Vec<Value> = Vec::new();
+    if switches.browser_use {
+        list.push(crate::agentic::browser_definition());
+    }
+    if switches.computer_use {
+        list.push(crate::agentic::computer_definition());
+    }
     // The badge of the tools is the entry point to all of them, and the lines of its drop-down
     // are behind that entry point: a tool whose line is off is not proposed, and a badge that
     // is off proposes none of them whatever the lines say.
@@ -12564,6 +12604,8 @@ fn run_program_tool(
     // tool names when it has no file of its own.
     let shown = if target.is_empty() { shown } else { target };
     let doing = match call.name.as_str() {
+        crate::agentic::BROWSER_NAME => "Using the browser",
+        crate::agentic::COMPUTER_NAME => "Using the computer",
         name if mcp::is_tool(name) => "A tool of a server",
         editfile::EDIT_NAME => "Editing a file",
         editfile::CREATE_NAME => "Creating a file",
@@ -12606,6 +12648,33 @@ fn run_program_tool(
         guard.set_status(&text);
         id
     };
+    if call.name == crate::agentic::BROWSER_NAME {
+        let words = call.arguments.clone();
+        let chat_id = chat.to_string();
+        let made = match crate::util::within(&watch, move || crate::agentic::browser_run(&words, &chat_id)) {
+            Some(made) => made,
+            None => tools::Report { ok: false, output: String::from("The browser action was stopped or timed out.") },
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool_in(chat, &message_id, &made.output, made.ok);
+        return;
+    }
+    if call.name == crate::agentic::COMPUTER_NAME {
+        let vision = state.lock().map(|guard| guard.pictures_can_go()).unwrap_or(false);
+        let words = call.arguments.clone();
+        let stop_watch = watch.clone();
+        let made = match crate::util::within(&watch, move || crate::agentic::computer_run(&words, vision, &stop_watch)) {
+            Some(made) => made,
+            None => crate::agentic::ComputerResult {
+                report: tools::Report { ok: false, output: String::from("The computer action was stopped or timed out.") },
+                image: None,
+            },
+        };
+        let pictures = made.image.map(|image| attach::save_at(workdir, &[image])).unwrap_or_default();
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool_with_in(chat, &message_id, &made.report.output, made.report.ok, pictures);
+        return;
+    }
     if call.name == crate::goal::CRITERIA_NAME {
         let (active, existing) = state
             .lock()

@@ -265,6 +265,12 @@ pub struct Repo {
 // on, which is what such a chat was proposed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolSwitches {
+    // The model may browse pages through the program's web reader.
+    #[serde(default)]
+    pub browser_use: bool,
+    // The model may inspect and control the desktop after the user opts in.
+    #[serde(default)]
+    pub computer_use: bool,
     // A command of the terminal tool may run.
     #[serde(default = "switch_on")]
     pub commands: bool,
@@ -319,6 +325,8 @@ fn switch_on() -> bool {
 impl Default for ToolSwitches {
     fn default() -> Self {
         ToolSwitches {
+            browser_use: false,
+            computer_use: false,
             commands: true,
             files: true,
             picture: true,
@@ -339,6 +347,8 @@ impl ToolSwitches {
     // another type is answered with nothing done.
     pub fn set(&mut self, part: &str, on: bool) -> bool {
         match part {
+            "browser_use" => self.browser_use = on,
+            "computer_use" => self.computer_use = on,
             "commands" => self.commands = on,
             "files" => self.files = on,
             "picture" => self.picture = on,
@@ -373,6 +383,11 @@ impl ToolSwitches {
         ]
     }
 
+    // The switches shown under the Agentic badge are separate from the program-tool badge.
+    pub fn agentic_words(&self) -> Vec<(&'static str, bool)> {
+        vec![("browser_use", self.browser_use), ("computer_use", self.computer_use)]
+    }
+
     // Whether any line of the drop-down is on. With none of them on the badge of the tools has
     // nothing to let through, and so cannot be on.
     pub fn any_on(&self) -> bool {
@@ -393,6 +408,8 @@ impl ToolSwitches {
     // nothing switches off is proposed.
     pub fn value_of(&self, part: &str) -> bool {
         match part {
+            "browser_use" => self.browser_use,
+            "computer_use" => self.computer_use,
             "commands" => self.commands,
             "files" => self.files,
             "picture" => self.picture,

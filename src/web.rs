@@ -565,6 +565,9 @@ fn tool_switches_value(switches: &store::ToolSwitches) -> Value {
     for (part, on) in switches.words() {
         held.insert(part.to_string(), json!(on));
     }
+    for (part, on) in switches.agentic_words() {
+        held.insert(part.to_string(), json!(on));
+    }
     Value::Object(held)
 }
 
