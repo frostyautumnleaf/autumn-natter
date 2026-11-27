@@ -316,12 +316,13 @@ mod platform {
                         &session,
                         DeviceType::Keyboard | DeviceType::Pointer,
                         None,
-                        PersistMode::Application,
+                        PersistMode::DoNot,
                     )
                     .await
                     .map_err(portal_error)?
                     .response()
                     .map_err(portal_error)?;
+                // ScreenCast rejects persistence when selecting sources for a RemoteDesktop session.
                 screencast
                     .select_sources(
                         &session,
@@ -329,7 +330,7 @@ mod platform {
                         SourceType::Monitor.into(),
                         true,
                         None,
-                        PersistMode::Application,
+                        PersistMode::DoNot,
                     )
                     .await
                     .map_err(portal_error)?
