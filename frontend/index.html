@@ -5965,7 +5965,7 @@ function fillAgenticMenu(s) {
   el.agenticmenu.innerHTML = '';
   var held = s.tool_switches || {};
   el.agenticmenu.appendChild(toolLine('browser_use', 'Browser use',
-    'Search public pages, read their text and links, and navigate backward or forward in this chat.', held.browser_use === true));
+    'Search public pages, read their text and links, manage tabs, and read or edit files in this chat’s workspace.', held.browser_use === true));
   el.agenticmenu.appendChild(toolLine('computer_use', 'Computer use',
     'Requires a vision-enabled model. Lets the model inspect screenshots and control mouse and keyboard on this computer; enable only when you want desktop interaction.', held.computer_use === true));
 }

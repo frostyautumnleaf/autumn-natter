@@ -75,7 +75,7 @@ The window needs the web view of the system.
     Fedora:         sudo dnf install webkit2gtk4.1-devel openssl-devel libappindicator-gtk3-devel librsvg2-devel pkgconf-pkg-config wayland-devel pipewire-devel libdrm-devel mesa-libgbm-devel libxcb-devel
     Arch:           sudo pacman -S webkit2gtk-4.1 base-devel openssl libappindicator-gtk3 librsvg wayland pipewire libdrm mesa libxcb
 
-The Linux desktop-control tools use the Wayland screen-capture portal or X11 and need the development headers above when building from source. Computer use is off until enabled from the Agentic menu in a chat. Windows builds use the native Windows screen and input APIs through the cross-platform Rust backends and need no extra system package.
+The Linux desktop-control tools use the Wayland screen-capture portal or X11 and need the development headers above when building from source. Browser use reads public HTTP(S) pages, keeps tabs and history per chat, and can read or edit workspace files. Computer use is off until enabled from the Agentic menu, requires a vision-enabled model, and returns a fresh screenshot after desktop actions. Windows builds use the native Windows screen and input APIs through the cross-platform Rust backends and need no extra system package.
 
 Then, in one command, with nothing written outside the checkout and no need for
 sudo:

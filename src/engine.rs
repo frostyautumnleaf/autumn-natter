@@ -5360,7 +5360,18 @@ impl Engine {
                 if let Some(chat) = active_chat.as_deref() {
                     crate::agentic::clear_computer_screenshot(chat);
                     if let Some(running) = state.live_of(chat).and_then(|live| live.running.as_ref()) {
-                        running.watch.stop_now();
+                        let is_computer = state
+                            .chat_of(chat)
+                            .is_some_and(|one| {
+                                one.messages.iter().any(|message| {
+                                    message.id.as_str() == running.id.as_str()
+                                        && message.tool_name.as_str()
+                                            == crate::agentic::COMPUTER_NAME
+                                })
+                            });
+                        if is_computer {
+                            running.watch.stop_now();
+                        }
                     }
                 }
             }
@@ -12677,9 +12688,10 @@ fn run_program_tool(
             .unwrap_or(false);
         let words = call.arguments.clone();
         let chat_id = chat.to_string();
+        let browser_workdir = workdir.to_path_buf();
         let made = if enabled {
             match crate::util::within(&watch, move || {
-                crate::agentic::browser_run(&words, &chat_id)
+                crate::agentic::browser_run(&words, &chat_id, &browser_workdir)
             }) {
                 Some(made) => made,
                 None => tools::Report {

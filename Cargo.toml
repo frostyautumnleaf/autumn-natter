@@ -79,6 +79,8 @@ base64 = "0.22"
 # Both of these are already in the tree through resvg, so neither adds anything to the binary.
 image-webp = "0.2"
 png = "0.18"
+# The Agentic computer tool uses the desktop screen and input backends on each platform. Linux
+# source builds need the Wayland, PipeWire, DRM, GBM and XCB development packages listed above.
 enigo = { version = "0.6.1", features = ["libei_smol"] }
 xcap = "0.9.10"
 url = "2.5"

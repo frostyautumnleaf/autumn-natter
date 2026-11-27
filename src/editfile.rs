@@ -1322,6 +1322,51 @@ pub fn edit_room(workdir: &Path, raw: &str, in_room: bool) -> tools::Report {
     }
 }
 
+// Read a text file in the same working-directory boundary used by the edit tools. The browser
+// agent gets numbered lines so it can refer to a small part of a large file without loading the
+// whole workspace into the conversation.
+pub fn read_room(workdir: &Path, raw: &str, in_room: bool) -> tools::Report {
+    let failed = |output: String| tools::Report { ok: false, output };
+    let Some(call) = object(raw) else {
+        return failed(String::from("The file read needs a JSON object."));
+    };
+    let Some(name) = first_of(&call, &PATH_KEYS) else {
+        return failed(String::from("The name of the file is required."));
+    };
+    let start = call.get("start_line").and_then(Value::as_u64).unwrap_or(1);
+    if start == 0 || start > usize::MAX as u64 {
+        return failed(String::from("start_line must be a valid one-based line number."));
+    }
+    let place = match place_kept(workdir, &name, in_room) {
+        Ok(place) => place,
+        Err(problem) => return failed(problem),
+    };
+    let standing = match read_words(&place) {
+        Ok(words) => words,
+        Err(problem) => return failed(problem),
+    };
+    let mut output = String::new();
+    let mut line_count = 0usize;
+    let mut clipped = false;
+    for (index, line) in standing.words.lines().enumerate().skip(start as usize - 1).take(501) {
+        if line_count >= 500 || output.len() >= 50_000 {
+            break;
+        }
+        let mut shown = line.chars().take(1000).collect::<String>();
+        if line.chars().count() > 1000 {
+            shown.push_str(" [line clipped]");
+            clipped = true;
+        }
+        output.push_str(&format!("{:>5} {shown}\n", index + 1));
+        line_count += 1;
+    }
+    let remaining_lines = standing.words.lines().count().saturating_sub(start as usize - 1);
+    if remaining_lines > line_count || clipped || output.len() >= 50_000 {
+        output.push_str("\nRead limit reached. Continue with a later start_line.\n");
+    }
+    tools::Report { ok: true, output }
+}
+
 // Make a new file in the working directory of the chat. A file that already holds text is left
 // alone. The one exception is an empty file, because no change can match nothing, and such
 // a file would otherwise never be written.
