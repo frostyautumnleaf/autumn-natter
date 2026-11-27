@@ -75,7 +75,9 @@ The window needs the web view of the system.
     Fedora:         sudo dnf install webkit2gtk4.1-devel openssl-devel libappindicator-gtk3-devel librsvg2-devel pkgconf-pkg-config
     Arch:           sudo pacman -S webkit2gtk-4.1 base-devel openssl libappindicator-gtk3 librsvg
 
-Linux computer use and native browser screenshots use X11 and require an Xorg session. Wayland sessions are not currently supported. The X11 backend is built in Rust and does not need PipeWire, DRM, GBM, or XCB development headers. Browser use reads public HTTP(S) pages, keeps tabs and history per chat, and can read or edit workspace files. Computer use is off until enabled from the Agentic menu, requires a vision-enabled model, and returns a fresh screenshot after desktop actions. Windows builds use the native Windows screen and input APIs through the cross-platform Rust backends and need no extra system package.
+Enable Computer Use in the Agentic menu and select a vision-enabled model. On X11, the agent gets a separate desktop pointer. On Wayland, the system portal handles host screenshots and keyboard input.
+
+For a separate cursor on Wayland, install `sway` and `grim`, then ask the model to open an agent workspace and launch an app by its executable name. The workspace runs its own Wayland display. Computer Use opens native Wayland apps there and shows its screenshots, including the orange Agent cursor, in the chat. Existing host windows stay on the host display. Single-instance apps may need a separate profile. Ask the model to close the workspace when finished, or turn off Computer Use for that chat. Browser Use has its own cursor inside the browser panel.
 
 Then, in one command, with nothing written outside the checkout and no need for
 sudo:

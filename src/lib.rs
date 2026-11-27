@@ -27,6 +27,8 @@ pub mod corporate;
 pub mod db;
 #[cfg(target_os = "linux")]
 mod agent_pointer;
+#[cfg(target_os = "linux")]
+mod wayland_workspace;
 pub mod desktop;
 pub mod documents;
 pub mod display;

@@ -15,7 +15,9 @@ static POINTER: OnceLock<Mutex<Option<AgentPointer>>> = OnceLock::new();
 
 type Error = Box<dyn std::error::Error>;
 
-pub fn with_pointer<T>(work: impl FnOnce(&AgentPointer) -> Result<T, Error>) -> Result<T, String> {
+pub fn with_pointer<T>(
+    work: impl FnOnce(&mut AgentPointer) -> Result<T, Error>,
+) -> Result<T, String> {
     let mut state = POINTER
         .get_or_init(|| Mutex::new(None))
         .lock()
@@ -26,7 +28,7 @@ pub fn with_pointer<T>(work: impl FnOnce(&AgentPointer) -> Result<T, Error>) -> 
                 .map_err(|err| format!("Could not create a separate agent pointer: {err}"))?,
         );
     }
-    work(state.as_ref().unwrap()).map_err(|err| err.to_string())
+    work(state.as_mut().unwrap()).map_err(|err| err.to_string())
 }
 
 pub fn close() {
@@ -170,25 +172,34 @@ impl Drop for AgentPointer {
     }
 }
 
-fn make_cursor(connection: &RustConnection, root: xproto::Window) -> Result<xproto::Cursor, Error> {
-    let (width, height) = (52u16, 43u16);
+pub fn artwork() -> Result<resvg::tiny_skia::Pixmap, Error> {
+    let (width, height) = (52, 43);
     let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="52" height="43">
       <rect x="1" y="1" width="47" height="19" rx="6" fill="#ff982e" stroke="#241303"/>
       <path d="M5 19h10l-7 5z" fill="#ff982e"/>
-      <text x="24.5" y="14" text-anchor="middle" font-size="11" font-family="sans-serif" font-weight="bold" fill="#241303">Agent</text>
+      <path aria-label="Agent" fill="none" stroke="#241303" stroke-width="1.35"
+        stroke-linecap="round" stroke-linejoin="round" transform="translate(-3 0)"
+        d="M11 14l3-7 3 7m-5-2.5h4
+           M24 9.5v4.7c0 2.3-2.1 3.2-4.3 2m4.3-6c-1.5-2-4.4-1.2-4.4 1.3s2.9 3.3 4.4 1.3
+           M27 11.5h4.4c0-3-4.4-3.2-4.4 0 0 2.4 2.5 3.2 4.2 2
+           M34 14V9.5m0 1.6c1.2-2.2 4.2-2.2 4.2.3V14
+           M41.1 7.8v4.5c0 1.6 1.3 2.2 2.6 1.3m-4.2-3.8h4.2"/>
       <path d="M3 25v13l4-4 3 7 3-1-3-7h6z" fill="#ff982e" stroke="#241303" stroke-width="1.4"/>
     </svg>"##;
-    let mut options = resvg::usvg::Options::default();
-    options.fontdb_mut().load_system_fonts();
-    let tree = resvg::usvg::Tree::from_str(svg, &options)?;
-    let mut image = resvg::tiny_skia::Pixmap::new(width.into(), height.into())
-        .ok_or("Could not allocate cursor artwork")?;
+    let tree = resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default())?;
+    let mut image =
+        resvg::tiny_skia::Pixmap::new(width, height).ok_or("Could not allocate cursor artwork")?;
     resvg::render(
         &tree,
         resvg::tiny_skia::Transform::identity(),
         &mut image.as_mut(),
     );
+    Ok(image)
+}
 
+fn make_cursor(connection: &RustConnection, root: xproto::Window) -> Result<xproto::Cursor, Error> {
+    let image = artwork()?;
+    let (width, height) = (image.width() as u16, image.height() as u16);
     let format = connection
         .render_query_pict_formats()?
         .reply()?

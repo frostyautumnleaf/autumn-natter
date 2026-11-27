@@ -55,6 +55,7 @@ static COMPUTER_SESSIONS: OnceLock<Mutex<HashMap<String, ComputerScreen>>> = Onc
 #[derive(Clone, Copy)]
 struct ComputerScreen {
     display: u32,
+    workspace: bool,
     width: u32,
     height: u32,
     display_width: u32,
@@ -79,6 +80,8 @@ pub fn live_words(name: &str, raw: &str) -> String {
     let label = if name == COMPUTER_NAME {
         match action.as_str() {
             "screenshot" => "Taking a desktop screenshot",
+            "open_workspace" => "Opening the agent Wayland workspace",
+            "close_workspace" => "Closing the agent Wayland workspace",
             "zoom" => "Zooming into the desktop",
             "open_app" => "Opening an app",
             "wait" => "Waiting on the desktop",
@@ -392,9 +395,9 @@ pub fn browser_definition() -> Value {
 pub fn computer_definition() -> Value {
     json!({"type":"function","function":{
         "name":COMPUTER_NAME,
-        "description":with_rule(String::from("Inspect and control the desktop after Computer use is enabled. Start with screenshot; each action returns a fresh one. Use screenshot pixels, or grid coordinates from 0 to 1000; zoomed coordinates still refer to the full image. Actions: screenshot, zoom, cursor, move, click, double/triple/middle/right-click, drag, type, press, scroll, wait, open_app. Use then for up to seven follow-ups. Check the foreground app before typing. Never enter passwords or payment details. Only perform actions requested by the user. Desktop pointer actions require a separate X11 pointer. On other desktops, use Browser use for pointer actions. Lock, session-switch, and risky close/delete shortcuts are blocked.")),
+        "description":with_rule(String::from("Inspect and control the desktop after Computer use is enabled. Start with screenshot; each action returns a fresh one. Use screenshot pixels, or grid coordinates from 0 to 1000; zoomed coordinates still refer to the full image. Actions: screenshot, zoom, cursor, move, click, double/triple/middle/right-click, drag, type, press, scroll, wait, open_app. Use then for up to seven follow-ups. Check the foreground app before typing. Never enter passwords or payment details. Only perform actions requested by the user. On Linux Wayland, use open_workspace to get an independent Agent cursor, then open_app to launch a Wayland application there. Screenshots and input stay in that workspace until close_workspace. Apps already on the host cannot be controlled with an independent pointer. On X11, use the desktop directly. Lock, session-switch, and risky close/delete shortcuts are blocked.")),
         "parameters":{"type":"object","properties":{
-            "action":{"type":"string","enum":["screenshot","zoom","cursor","move","click","double_click","triple_click","middle_click","right_click","drag","type","press","key","scroll","wait","open_app"]},
+            "action":{"type":"string","enum":["screenshot","zoom","cursor","move","click","double_click","triple_click","middle_click","right_click","drag","type","press","key","scroll","wait","open_app","open_workspace","close_workspace"]},
             "coordinate_mode":{"type":"string","enum":["pixels","grid"],"description":"Use grid to give x/y values from 0 to 1000 instead of pixels."},
             "x":{"type":"integer","description":"Pixel in the latest screenshot; for zoom, the region's upper-left corner."},
             "y":{"type":"integer","description":"Pixel in the latest screenshot; for zoom, the region's upper-left corner."},
@@ -1301,10 +1304,15 @@ pub fn computer_run(
     if actions.len() > 1 && action == "zoom" {
         return computer_fail("zoom must be a standalone call; inspect its image before acting.");
     }
-    if actions.len() > 1 && actions.iter().any(|one| one["action"] == "open_app") {
-        return computer_fail(
-            "open_app must be a standalone call. Wait for its screenshot before using the new app.",
-        );
+    if actions.len() > 1
+        && actions.iter().any(|one| {
+            matches!(
+                one["action"].as_str(),
+                Some("open_app" | "open_workspace" | "close_workspace")
+            )
+        })
+    {
+        return computer_fail("Opening an app or opening or closing a workspace requires a standalone call. Check its result before acting.");
     }
     for (index, one) in actions.iter().enumerate() {
         if !valid_computer_action(one["action"].as_str().unwrap_or(""))
@@ -1326,24 +1334,52 @@ pub fn computer_run(
     if watch.expired() {
         return computer_fail("The computer action was stopped before it began.");
     }
-    if !vision {
+    if !vision && action != "close_workspace" {
         return computer_fail(
             "Enable vision for the selected model before using Computer use. The model must be able to inspect the returned screenshots.",
         );
     }
-    if action == "screenshot" {
-        let display = match requested_display(&args) {
-            Ok(display) => display,
-            Err(problem) => return computer_fail(&problem),
-        };
-        return screenshot(display, chat);
+    if matches!(action, "open_workspace" | "close_workspace") {
+        #[cfg(target_os = "linux")]
+        {
+            if action == "close_workspace" {
+                close_computer_workspace(chat);
+                return ComputerResult {
+                    report: tools::Report {
+                        ok: true,
+                        output: String::from("Closed the agent Wayland workspace. A new screenshot will show the host desktop."),
+                    },
+                    image: None,
+                };
+            }
+            clear_computer_screenshot(chat);
+            let opened = match crate::wayland_workspace::open(chat, watch) {
+                Ok(opened) => opened,
+                Err(problem) => return computer_fail(&problem),
+            };
+            let result = screenshot(1, chat, true, watch);
+            if opened && !result.report.ok {
+                crate::wayland_workspace::close(chat);
+            }
+            return result;
+        }
+        #[cfg(not(target_os = "linux"))]
+        return computer_fail("The agent Wayland workspace is available on Linux.");
     }
-    if !has_computer_screenshot(chat) {
-        let display = match requested_display(&args) {
+    let workspace = agent_workspace_open(chat);
+    if action == "screenshot" {
+        let display = match requested_display(&args, workspace) {
             Ok(display) => display,
             Err(problem) => return computer_fail(&problem),
         };
-        let mut result = screenshot(display, chat);
+        return screenshot(display, chat, workspace, watch);
+    }
+    if !computer_display(chat).is_some_and(|screen| screen.workspace == workspace) {
+        let display = match requested_display(&args, workspace) {
+            Ok(display) => display,
+            Err(problem) => return computer_fail(&problem),
+        };
+        let mut result = screenshot(display, chat, workspace, watch);
         if result.report.ok {
             result.report.output = format!(
                 "No desktop action was performed. Inspect this screenshot, then choose the next action using its coordinates. {}",
@@ -1364,14 +1400,14 @@ pub fn computer_run(
         } else {
             zoom.clone()
         };
-        return zoom_screenshot(&zoom_args, screen, watch);
+        return zoom_screenshot(&zoom_args, screen, chat, watch);
     }
     for one in &mut actions {
         if one["coordinate_mode"].as_str() == Some("grid") {
             *one = grid_coordinates(one.clone(), screen);
         }
     }
-    let user_pointer = desktop_pointer();
+    let user_pointer = if workspace { None } else { desktop_pointer() };
     let mut results = Vec::new();
     let mut ok = true;
     for (index, one) in actions.iter().enumerate() {
@@ -1382,7 +1418,7 @@ pub fn computer_run(
             clear_computer_screenshot(chat);
             return computer_fail("Computer use stopped because the pointer was moved to a screen corner. Take a new screenshot before continuing.");
         }
-        let result = control(one, screen, watch);
+        let result = control(one, screen, chat, watch);
         if user_took_control(user_pointer) {
             clear_computer_screenshot(chat);
             return computer_fail("Computer use stopped because the pointer was moved to a screen corner. Take a new screenshot before continuing.");
@@ -1399,7 +1435,7 @@ pub fn computer_run(
     if watch.expired() {
         return computer_fail("The computer action sequence was stopped or timed out.");
     }
-    let mut after = screenshot(screen.display, chat);
+    let mut after = screenshot(screen.display, chat, screen.workspace, watch);
     if !after.report.ok {
         after.report.output = format!(
             "{} The screen could not be captured afterward: {}",
@@ -1717,6 +1753,8 @@ fn valid_computer_action(action: &str) -> bool {
             | "scroll"
             | "wait"
             | "open_app"
+            | "open_workspace"
+            | "close_workspace"
     )
 }
 
@@ -1939,14 +1977,6 @@ fn blocked_shortcut(modifiers: &[enigo::Key], key: &str) -> bool {
     false
 }
 
-fn has_computer_screenshot(chat: &str) -> bool {
-    COMPUTER_SESSIONS
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .map(|sessions| sessions.contains_key(chat))
-        .unwrap_or(false)
-}
-
 fn desktop_pointer() -> Option<(i32, i32)> {
     #[cfg(target_os = "linux")]
     if crate::desktop::is_wayland() {
@@ -1989,8 +2019,45 @@ fn computer_display(chat: &str) -> Option<ComputerScreen> {
         .and_then(|sessions| sessions.get(chat).copied())
 }
 
-fn requested_display(args: &Value) -> Result<u32, String> {
-    let monitors = crate::desktop::displays()?;
+fn agent_workspace_open(chat: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::wayland_workspace::is_open(chat)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = chat;
+        false
+    }
+}
+
+fn computer_displays(workspace: bool) -> Result<Vec<crate::desktop::DisplayInfo>, String> {
+    #[cfg(target_os = "linux")]
+    if workspace {
+        return Ok(vec![crate::wayland_workspace::display()]);
+    }
+    let _ = workspace;
+    crate::desktop::displays()
+}
+
+fn capture_computer_display(
+    display: u32,
+    chat: &str,
+    workspace: bool,
+    watch: &crate::util::Watch,
+) -> Result<(crate::desktop::DisplayInfo, image::RgbaImage), String> {
+    #[cfg(target_os = "linux")]
+    if workspace {
+        let image =
+            crate::wayland_workspace::with_workspace(chat, |workspace| workspace.capture(watch))?;
+        return Ok((crate::wayland_workspace::display(), image));
+    }
+    let _ = (chat, workspace, watch);
+    crate::desktop::capture_display(display)
+}
+
+fn requested_display(args: &Value, workspace: bool) -> Result<u32, String> {
+    let monitors = computer_displays(workspace)?;
     if let Some(number) = args["display"].as_u64() {
         let index = number
             .checked_sub(1)
@@ -2009,6 +2076,7 @@ fn requested_display(args: &Value) -> Result<u32, String> {
 fn mark_computer_screenshot(
     chat: &str,
     display: u32,
+    workspace: bool,
     width: u32,
     height: u32,
     display_width: u32,
@@ -2026,6 +2094,7 @@ fn mark_computer_screenshot(
             chat.to_string(),
             ComputerScreen {
                 display,
+                workspace,
                 width,
                 height,
                 display_width,
@@ -2054,9 +2123,15 @@ pub fn clear_computer_screenshot(chat: &str) {
     }
 }
 
-fn screenshot(display: u32, chat: &str) -> ComputerResult {
+pub fn close_computer_workspace(chat: &str) {
+    clear_computer_screenshot(chat);
+    #[cfg(target_os = "linux")]
+    crate::wayland_workspace::close(chat);
+}
+
+fn screenshot(display: u32, chat: &str, workspace: bool, watch: &crate::util::Watch) -> ComputerResult {
     let made = (|| -> Result<(crate::attach::Incoming, u32, u32, u32, u32, u32, u32, i32, i32), String> {
-        let (monitor, image) = crate::desktop::capture_display(display)?;
+        let (monitor, image) = capture_computer_display(display, chat, workspace, watch)?;
         let (width, height) = (image.width(), image.height());
         if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 24_000_000 {
             return Err(String::from("The display is too large to capture safely."));
@@ -2121,6 +2196,7 @@ fn screenshot(display: u32, chat: &str) -> ComputerResult {
             mark_computer_screenshot(
                 chat,
                 display,
+                workspace,
                 width,
                 height,
                 display_width,
@@ -2133,10 +2209,11 @@ fn screenshot(display: u32, chat: &str) -> ComputerResult {
             ComputerResult {
                 report: tools::Report {
                     ok: true,
-                    output: format!(
-                        "Current screenshot is {width}x{height} pixels. Use its coordinates for the next action. Select another display by its one-based number from this list:\n{}",
-                        display_list(display),
-                    ),
+                    output: if workspace {
+                        format!("Agent Wayland workspace screenshot, {width}x{height} pixels. The orange Agent cursor marks the pointer. Use these coordinates and open_app for apps in this workspace.")
+                    } else {
+                        format!("Current screenshot is {width}x{height} pixels. Use its coordinates for the next action. Select another display by its one-based number from this list:\n{}", display_list(display))
+                    },
                 },
                 image: Some(image),
             }
@@ -2148,6 +2225,7 @@ fn screenshot(display: u32, chat: &str) -> ComputerResult {
 fn zoom_screenshot(
     args: &Value,
     screen: ComputerScreen,
+    chat: &str,
     watch: &crate::util::Watch,
 ) -> ComputerResult {
     let made = (|| -> Result<crate::attach::Incoming, String> {
@@ -2156,7 +2234,7 @@ fn zoom_screenshot(
                 "The computer zoom was stopped before capture.",
             ));
         }
-        let (monitor, image) = crate::desktop::capture_display(screen.display)?;
+        let (monitor, image) = capture_computer_display(screen.display, chat, screen.workspace, watch)?;
         let (width, height) = (image.width(), image.height());
         if width != screen.display_width
             || height != screen.display_height
@@ -2265,15 +2343,42 @@ fn display_list(captured: u32) -> String {
         .join("\n")
 }
 
-fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> tools::Report {
+fn control(
+    args: &Value,
+    screen: ComputerScreen,
+    chat: &str,
+    watch: &crate::util::Watch,
+) -> tools::Report {
     use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 
     let action = args["action"].as_str().unwrap_or("");
     let pointer_action = matches!(action,
         "cursor" | "move" | "click" | "double_click" | "triple_click" | "middle_click" |
         "right_click" | "drag" | "scroll");
-    if pointer_action && !independent_desktop_pointer_available() {
-        return fail("This desktop does not support a separate agent pointer. Pointer actions require Linux X11. Browser use has its own pointer on this platform.");
+    if pointer_action && !screen.workspace && !independent_desktop_pointer_available() {
+        #[cfg(target_os = "linux")]
+        return fail("The host Wayland desktop shares the system cursor. Use open_workspace, then open_app and the workspace screenshot to use the separate Agent cursor.");
+        #[cfg(not(target_os = "linux"))]
+        return fail("This desktop does not support a separate agent pointer. Browser use has its own pointer on this platform.");
+    }
+    #[cfg(target_os = "linux")]
+    if screen.workspace && matches!(action, "open_app" | "type" | "press") {
+        let result = crate::wayland_workspace::with_workspace(chat, |workspace| match action {
+            "open_app" => workspace.launch(args["name"].as_str().unwrap_or("").trim(), watch),
+            "type" => workspace.type_text(
+                args["text"].as_str().unwrap_or(""),
+                args["submit"] == true,
+                watch,
+            ),
+            _ => workspace.press(args["key"].as_str().unwrap_or(""), watch),
+        });
+        return match result {
+            Ok(()) => tools::Report {
+                ok: true,
+                output: format!("Completed {action} in the agent Wayland workspace."),
+            },
+            Err(problem) => fail(&problem),
+        };
     }
     if action == "open_app" {
         return open_app(args["name"].as_str().unwrap_or(""), watch);
@@ -2313,7 +2418,7 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
             | "drag"
             | "scroll"
     ) {
-        let monitors = match crate::desktop::displays() {
+        let monitors = match computer_displays(screen.workspace) {
             Ok(made) => made,
             Err(problem) => return fail(&format!("The display could not be read: {problem}")),
         };
@@ -2352,10 +2457,10 @@ fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> 
     };
     #[cfg(target_os = "linux")]
     if pointer_action {
-        return control_agent_pointer(args, screen, watch, (screen_x, screen_y), (end_x, end_y));
+        return control_agent_pointer(args, screen, chat, watch, (screen_x, screen_y), (end_x, end_y));
     }
     #[cfg(not(target_os = "linux"))]
-    let _ = (screen_x, screen_y, end_x, end_y);
+    let _ = (chat, screen_x, screen_y, end_x, end_y);
     #[cfg(target_os = "linux")]
     if crate::desktop::is_wayland() {
         return control_wayland_keyboard(args, watch);
@@ -2454,77 +2559,130 @@ fn independent_desktop_pointer_available() -> bool {
 fn control_agent_pointer(
     args: &Value,
     screen: ComputerScreen,
+    chat: &str,
     watch: &crate::util::Watch,
     start: (i64, i64),
     end: (i64, i64),
 ) -> tools::Report {
-    let action = args["action"].as_str().unwrap_or("");
-    let result = crate::agent_pointer::with_pointer(|pointer| {
-        let check = || if watch.expired() { Err("The desktop action was stopped or timed out.") } else { Ok(()) };
-        check()?;
-        if action == "cursor" {
-            let (x, y) = pointer.position()?;
-            let x = i64::from(x) - i64::from(screen.display_x);
-            let y = i64::from(y) - i64::from(screen.display_y);
-            if x < 0 || y < 0 || x >= i64::from(screen.input_width) || y >= i64::from(screen.input_height) {
-                return Ok(String::from("The agent pointer is on a different display."));
-            }
-            let x = (x as f64 * f64::from(screen.width) / f64::from(screen.input_width)).round() as u32;
-            let y = (y as f64 * f64::from(screen.height) / f64::from(screen.input_height)).round() as u32;
-            return Ok(format!("Agent pointer position in the latest screenshot: x={x}, y={y}."));
-        }
-        let (x, y) = (start.0 as i32, start.1 as i32);
-        pointer.move_to(x, y)?;
-        let click = |button| -> Result<(), Box<dyn std::error::Error>> {
-            check()?;
-            let pressed = pointer.button(button, true);
-            let released = pointer.button(button, false);
-            pressed.and(released)
-        };
-        match action {
-            "move" => {},
-            "click" => click(1)?,
-            "double_click" | "triple_click" => {
-                let count = if action == "double_click" { 2 } else { 3 };
-                for index in 0..count {
-                    if index > 0 { std::thread::sleep(Duration::from_millis(45)); }
-                    click(1)?;
-                }
-            }
-            "middle_click" => click(2)?,
-            "right_click" => click(3)?,
-            "drag" => {
-                check()?;
-                let moved = pointer.button(1, true).and_then(|_| {
-                    let dx = end.0 - start.0;
-                    let dy = end.1 - start.1;
-                    let steps = (dx.abs().max(dy.abs()) / 30).clamp(1, 40);
-                    for step in 1..=steps {
-                        check()?;
-                        pointer.move_to((start.0 + dx * step / steps) as i32,
-                                        (start.1 + dy * step / steps) as i32)?;
-                        std::thread::sleep(Duration::from_millis(12));
-                    }
-                    Ok(())
-                });
-                let released = pointer.button(1, false);
-                moved.and(released)?;
-            }
-            "scroll" => {
-                let button = match args["direction"].as_str() {
-                    Some("up") => 4, Some("down") => 5, Some("left") => 6, Some("right") => 7,
-                    _ => return Err("Choose a supported scroll direction.".into()),
-                };
-                for _ in 0..args["amount"].as_u64().unwrap_or(3).clamp(1, 30) { click(button)?; }
-            }
-            _ => return Err("Choose a supported pointer action.".into()),
-        }
-        Ok(format!("Completed desktop action: {action}."))
-    });
+    let result = if screen.workspace {
+        crate::wayland_workspace::with_workspace(chat, |workspace| {
+            dispatch_pointer(workspace, args, screen, watch, start, end).map_err(|error| error.to_string())
+        })
+    } else {
+        crate::agent_pointer::with_pointer(|pointer| dispatch_pointer(pointer, args, screen, watch, start, end))
+    };
     match result {
         Ok(output) => tools::Report { ok: true, output },
         Err(problem) => fail(&format!("Desktop action failed: {problem}")),
     }
+}
+
+#[cfg(target_os = "linux")]
+type PointerError = Box<dyn std::error::Error>;
+
+#[cfg(target_os = "linux")]
+trait DesktopPointer {
+    fn position(&self) -> Result<(i32, i32), PointerError>;
+    fn move_to(&mut self, x: i32, y: i32) -> Result<(), PointerError>;
+    fn button(&self, button: u8, pressed: bool) -> Result<(), PointerError>;
+}
+
+#[cfg(target_os = "linux")]
+impl DesktopPointer for crate::agent_pointer::AgentPointer {
+    fn position(&self) -> Result<(i32, i32), PointerError> {
+        Self::position(self)
+    }
+    fn move_to(&mut self, x: i32, y: i32) -> Result<(), PointerError> {
+        Self::move_to(self, x, y)
+    }
+    fn button(&self, button: u8, pressed: bool) -> Result<(), PointerError> {
+        Self::button(self, button, pressed)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl DesktopPointer for crate::wayland_workspace::Workspace {
+    fn position(&self) -> Result<(i32, i32), PointerError> {
+        Ok(Self::position(self))
+    }
+    fn move_to(&mut self, x: i32, y: i32) -> Result<(), PointerError> {
+        Ok(Self::move_to(self, x, y)?)
+    }
+    fn button(&self, button: u8, pressed: bool) -> Result<(), PointerError> {
+        Ok(Self::button(self, button, pressed)?)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn dispatch_pointer(
+    pointer: &mut impl DesktopPointer,
+    args: &Value,
+    screen: ComputerScreen,
+    watch: &crate::util::Watch,
+    start: (i64, i64),
+    end: (i64, i64),
+) -> Result<String, PointerError> {
+    let action = args["action"].as_str().unwrap_or("");
+    let check = || if watch.expired() { Err("The desktop action was stopped or timed out.") } else { Ok(()) };
+    check()?;
+    if action == "cursor" {
+        let (x, y) = pointer.position()?;
+        let x = i64::from(x) - i64::from(screen.display_x);
+        let y = i64::from(y) - i64::from(screen.display_y);
+        if x < 0 || y < 0 || x >= i64::from(screen.input_width) || y >= i64::from(screen.input_height) {
+            return Ok(String::from("The agent pointer is on a different display."));
+        }
+        let x = (x as f64 * f64::from(screen.width) / f64::from(screen.input_width)).round() as u32;
+        let y = (y as f64 * f64::from(screen.height) / f64::from(screen.input_height)).round() as u32;
+        return Ok(format!("Agent pointer position in the latest screenshot: x={x}, y={y}."));
+    }
+    let (x, y) = (start.0 as i32, start.1 as i32);
+    pointer.move_to(x, y)?;
+    let click = |button| -> Result<(), Box<dyn std::error::Error>> {
+        check()?;
+        let pressed = pointer.button(button, true);
+        let released = pointer.button(button, false);
+        pressed.and(released)
+    };
+    match action {
+        "move" => {},
+        "click" => click(1)?,
+        "double_click" | "triple_click" => {
+            let count = if action == "double_click" { 2 } else { 3 };
+            for index in 0..count {
+                if index > 0 { std::thread::sleep(Duration::from_millis(45)); }
+                click(1)?;
+            }
+        }
+        "middle_click" => click(2)?,
+        "right_click" => click(3)?,
+        "drag" => {
+            check()?;
+            let moved = pointer.button(1, true).and_then(|_| {
+                let dx = end.0 - start.0;
+                let dy = end.1 - start.1;
+                let steps = (dx.abs().max(dy.abs()) / 30).clamp(1, 40);
+                for step in 1..=steps {
+                    check()?;
+                    pointer.move_to((start.0 + dx * step / steps) as i32,
+                                    (start.1 + dy * step / steps) as i32)?;
+                    std::thread::sleep(Duration::from_millis(12));
+                }
+                Ok(())
+            });
+            let released = pointer.button(1, false);
+            moved.and(released)?;
+        }
+        "scroll" => {
+            let button = match args["direction"].as_str() {
+                Some("up") => 4, Some("down") => 5, Some("left") => 6, Some("right") => 7,
+                _ => return Err("Choose a supported scroll direction.".into()),
+            };
+            for _ in 0..args["amount"].as_u64().unwrap_or(3).clamp(1, 30) { click(button)?; }
+        }
+        _ => return Err("Choose a supported pointer action.".into()),
+    }
+    Ok(format!("Completed desktop action: {action}."))
 }
 
 #[cfg(target_os = "linux")]

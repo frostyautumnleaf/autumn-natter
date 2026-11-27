@@ -5529,7 +5529,6 @@ impl Engine {
             }
             if part == "computer_use" && !on {
                 if let Some(chat) = active_chat.as_deref() {
-                    crate::agentic::clear_computer_screenshot(chat);
                     if let Some(running) = state.live_of(chat).and_then(|live| live.running.as_ref()) {
                         let is_computer = state
                             .chat_of(chat)
@@ -5544,6 +5543,7 @@ impl Engine {
                             running.watch.stop_now();
                         }
                     }
+                    crate::agentic::close_computer_workspace(chat);
                 }
             }
             state.persist_async();
@@ -6489,6 +6489,7 @@ impl Engine {
             );
             return;
         }
+        crate::agentic::close_computer_workspace(&id);
         state.store.delete_chat(&chat.meta.repo_id, &id);
         // The waiting list of the chat goes with it: the messages of a chat that is removed
         // have no answer left to wait for.
@@ -7280,7 +7281,10 @@ impl Engine {
             }
         }
         #[cfg(target_os = "linux")]
-        crate::agent_pointer::close();
+        {
+            crate::agent_pointer::close();
+            crate::wayland_workspace::close_all();
+        }
         // The server of the embeddings is a child of this process, as the server of the answers
         // is, so it is stopped here as well: a model left running after the program went would
         // hold memory of the computer for nothing.
