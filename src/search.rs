@@ -1206,6 +1206,23 @@ mod tests {
         assert_eq!(to_words(house), "the words");
     }
 
+    #[test]
+    fn github_login_fragment_fallback_is_not_page_text() {
+        let page = concat!(
+            "<main><h1>Sign in to GitHub</h1>",
+            "<include-fragment data-target=\"webauthn-status.fragment\">",
+            "<div data-show-on-forbidden-error hidden><h3>Uh oh!</h3>",
+            "<p>There was an error while loading. ",
+            "<a aria-label=\"Please reload this page\">Please reload this page</a>.</p>",
+            "</div></include-fragment></main>"
+        );
+
+        let text = to_words(page);
+        assert!(text.contains("Sign in to GitHub"), "{text}");
+        assert!(!text.contains("There was an error while loading"), "{text}");
+        assert!(!text.contains("Please reload this page"), "{text}");
+    }
+
     // A marker of a page may carry the sign that seems to close it in the text of a part of its
     // own, for a page of today writes whole answers into the markers it opens with. The text
     // behind such a sign are no text of the page.
