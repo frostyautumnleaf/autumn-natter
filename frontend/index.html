@@ -2738,6 +2738,15 @@ pre.code.line {
 .sheet .fld .ctl .seg { flex-wrap: wrap; max-width: 100%; }
 .sheet-foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center;
   padding: 12px 16px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.remote-connect-sheet { width: min(560px, 100%); }
+.remote-connect-sheet .fld { grid-template-columns: minmax(0, 1fr); }
+.remote-connect-sheet .fld .ctl { grid-column: 1; }
+.remote-connect-sheet .sheet-head > .svg { flex: 0 0 auto; width: 17px; height: 17px; stroke: var(--ink); }
+.remote-connect-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.remote-connect-title strong { font-size: 13.5px; font-weight: 650; }
+.remote-connect-sheet .sheet-foot { flex-wrap: wrap; }
+.remote-connect-note { min-height: 20px; padding: 6px 0 2px; font-size: 12px; color: var(--dim); }
+.remote-connect-note.bad { color: var(--ink-fail); }
 .foot-note { font-size: 11.5px; color: var(--faint); margin-right: auto; max-width: 60ch; }
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px;
   border-radius: var(--r-s); border: 1px solid var(--line); background: var(--surface);
@@ -3394,14 +3403,14 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
   </div>
   <span class="rule"></span>
   
-  <button class="mark-btn" id="modelbtn" title="Settings of this model" aria-label="Settings of this model">
-    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.6 4.6h7.2M12.6 4.6h.8M2.6 11.4h.8M6.2 11.4h7.2"/><circle cx="11.2" cy="4.6" r="1.6"/><circle cx="4.6" cy="11.4" r="1.6"/></svg>
-  </button>
   <button class="mark-btn" id="settingsbtn" title="Settings of the program" aria-label="Settings of the program">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.45" d="M14.86 6.60L14.86 9.40L12.97 9.37L12.48 10.55L13.84 11.86L11.86 13.84L10.55 12.48L9.37 12.97L9.40 14.86L6.60 14.86L6.63 12.97L5.45 12.48L4.14 13.84L2.16 11.86L3.52 10.55L3.03 9.37L1.14 9.40L1.14 6.60L3.03 6.63L3.52 5.45L2.16 4.14L4.14 2.16L5.45 3.52L6.63 3.03L6.60 1.14L9.40 1.14L9.37 3.03L10.55 3.52L11.86 2.16L13.84 4.14L12.48 5.45L12.97 6.63Z"/><circle cx="8" cy="8" r="2.15"/></svg>
   </button>
   <button class="mark-btn" id="themebtn" title="The colours the page is drawn in. Click for the next theme." aria-label="The colours the page is drawn in">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.4" d="M8 1.33C4.33 1.33 1.33 4.33 1.33 8s2.99 6.67 6.67 6.67c.92 0 1.67-.75 1.67-1.67 0-.41-.15-.8-.43-1.11-.05-.07-.09-.14-.09-.22 0-.19.15-.33.33-.33h1.19c2.02 0 3.67-1.65 3.67-3.67C14.33 4.01 11.34 1.33 8 1.33Z"/><circle cx="4.3" cy="8.1" r=".95" fill="currentColor"/><circle cx="6.2" cy="5.2" r=".95" fill="currentColor"/><circle cx="9.6" cy="4.9" r=".95" fill="currentColor"/><circle cx="11.8" cy="7.3" r=".95" fill="currentColor"/></svg>
+  </button>
+  <button class="mark-btn" id="remoteConnectBtn" type="button" title="Connect to remote program" aria-label="Connect to remote program">
+    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.7" y="2.2" width="8.5" height="6.8" rx="1.1"/><path d="M4.4 12.1h3.1M5.95 9v3.1M10.8 5.2h1.4a2.1 2.1 0 0 1 2.1 2.1v1.1a2.1 2.1 0 0 1-2.1 2.1h-1.1M11.2 8.4l-1.7 2 1.7 2"/></svg>
   </button>
 </header>
 
@@ -4333,6 +4342,34 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
     <div class="sbody" id="planWordsBox"></div>
   </div>
 </div>
+<div class="overlay hidden" id="remoteConnectOverlay">
+  <div class="sheet remote-connect-sheet" role="dialog" aria-modal="true" aria-labelledby="remoteConnectTitle">
+    <div class="sheet-head">
+      <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.7" y="2.2" width="8.5" height="6.8" rx="1.1"/><path d="M4.4 12.1h3.1M5.95 9v3.1M10.8 5.2h1.4a2.1 2.1 0 0 1 2.1 2.1v1.1a2.1 2.1 0 0 1-2.1 2.1h-1.1M11.2 8.4l-1.7 2 1.7 2"/></svg>
+      <div class="remote-connect-title">
+        <strong id="remoteConnectTitle">Connect to remote program</strong>
+        <span class="sub">Open an Autumn Natter running on your local network.</span>
+      </div>
+      <button class="mark-btn x" id="remoteConnectClose" type="button" title="Close" aria-label="Close">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body">
+      <div class="sec">Remote address</div>
+      <div class="fld wide">
+        <span class="lbl">Web address</span>
+        <span class="sub">Enter the same address you would open in a browser, such as http://192.168.1.25:8723.</span>
+        <div class="ctl"><input class="txt" id="remoteAddress" type="text" autocomplete="url" spellcheck="false" placeholder="http://192.168.1.25:8723"></div>
+      </div>
+      <div class="remote-connect-note" id="remoteConnectNote" role="status" aria-live="polite"></div>
+    </div>
+    <div class="sheet-foot">
+      <span class="foot-note">The remote computer must be running in web (--remote) mode.</span>
+      <button class="btn" id="remoteConnectCancel" type="button">Cancel</button>
+      <button class="btn go" id="remoteConnectGo" type="button">Connect</button>
+    </div>
+  </div>
+</div>
 <script src="corporate.js?v=8"></script>
 <script>'use strict';
 
@@ -4350,7 +4387,7 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 // The parts of the page that stay in place. Their text is written again on every draw.
 var ids = ['model', 'modelChoice', 'modelChoiceText', 'modelMenu', 'kind', 'repo', 'repoChoice', 'repoChoiceText', 'repoMenu', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
-  'unloadmodel', 'settingsbtn', 'modelbtn', 'themebtn', 'timeline', 'userline',
+  'unloadmodel', 'settingsbtn', 'themebtn', 'remoteConnectBtn', 'timeline', 'userline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'plus', 'pluswrap', 'plusmenu', 'plusattach', 'plussources', 'pickfiles',
@@ -14223,8 +14260,86 @@ document.addEventListener('animationend', function (event) {
   if (at && at.classList && at.classList.contains('mark-out')) { at.classList.remove('mark-out'); }
 });
 
+var remoteConnectAttempt = 0;
+
+function closeRemoteConnect() {
+  if (byId('remoteConnectGo').disabled) { return; }
+  remoteConnectAttempt++;
+  byId('remoteConnectOverlay').classList.add('hidden');
+  byId('remoteConnectNote').textContent = '';
+  byId('remoteConnectNote').classList.remove('bad');
+  byId('remoteConnectGo').disabled = false;
+  byId('remoteConnectGo').textContent = 'Connect';
+  byId('remoteConnectClose').disabled = false;
+  byId('remoteConnectCancel').disabled = false;
+}
+
+function openRemoteConnect() {
+  remoteConnectAttempt++;
+  byId('remoteAddress').value = '';
+  byId('remoteConnectNote').textContent = '';
+  byId('remoteConnectNote').classList.remove('bad');
+  byId('remoteConnectOverlay').classList.remove('hidden');
+  byId('remoteAddress').focus();
+}
+
+function connectRemoteProgram() {
+  var button = byId('remoteConnectGo');
+  if (button.disabled) { return; }
+  var address = byId('remoteAddress').value.trim();
+  if (!address) {
+    byId('remoteConnectNote').textContent = 'Enter the address of the remote program.';
+    byId('remoteConnectNote').classList.add('bad');
+    byId('remoteAddress').focus();
+    return;
+  }
+  var attempt = ++remoteConnectAttempt;
+  button.disabled = true;
+  button.textContent = 'Connecting…';
+  byId('remoteConnectClose').disabled = true;
+  byId('remoteConnectCancel').disabled = true;
+  byId('remoteConnectNote').classList.remove('bad');
+  byId('remoteConnectNote').textContent = 'Checking the address and opening a remote window…';
+  invoke('connect_remote', { address: address }).then(function () {
+    if (attempt !== remoteConnectAttempt) { return; }
+    byId('remoteConnectNote').textContent = 'The remote program opened in a separate window.';
+    button.disabled = false;
+    button.textContent = 'Connect';
+    byId('remoteConnectClose').disabled = false;
+    byId('remoteConnectCancel').disabled = false;
+    window.setTimeout(function () {
+      if (attempt === remoteConnectAttempt) { closeRemoteConnect(); }
+    }, 900);
+  }, function (problem) {
+    if (attempt !== remoteConnectAttempt) { return; }
+    button.disabled = false;
+    button.textContent = 'Connect';
+    byId('remoteConnectClose').disabled = false;
+    byId('remoteConnectCancel').disabled = false;
+    byId('remoteConnectNote').textContent = String(problem || 'The remote program could not be reached.');
+    byId('remoteConnectNote').classList.add('bad');
+  });
+}
+
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
-el.modelbtn.addEventListener('click', function () { openSettings('model'); });
+el.remoteConnectBtn.addEventListener('click', openRemoteConnect);
+byId('remoteConnectGo').addEventListener('click', connectRemoteProgram);
+byId('remoteConnectClose').addEventListener('click', closeRemoteConnect);
+byId('remoteConnectCancel').addEventListener('click', closeRemoteConnect);
+byId('remoteConnectOverlay').addEventListener('click', function (event) {
+  if (event.target === byId('remoteConnectOverlay')) { closeRemoteConnect(); }
+});
+byId('remoteAddress').addEventListener('keydown', function (event) {
+  if (event.key === 'Enter') { event.preventDefault(); connectRemoteProgram(); }
+});
+document.addEventListener('keydown', function (event) {
+  if (byId('remoteConnectOverlay').classList.contains('hidden')) { return; }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!byId('remoteConnectGo').disabled) { closeRemoteConnect(); }
+  }
+}, true);
 // The theme switch steps through the five themes in order; the icon shows the theme in use.
 el.themebtn.addEventListener('click', function () {
   var next = THEMES[(THEMES.indexOf(themeWord) + 1) % THEMES.length];

@@ -1651,8 +1651,10 @@ async function main() {
   }
   if (name === 'sheet-model') {
     await view.evaluate(function () {
-      var b = document.getElementById('modelbtn');
+      var b = document.getElementById('settingsbtn');
       if (b) { b.click(); }
+      var tab = document.getElementById('tabModel');
+      if (tab) { tab.click(); }
     });
     await new Promise(function (r) { setTimeout(r, 600); });
   }

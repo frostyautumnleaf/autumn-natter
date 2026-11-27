@@ -11,7 +11,7 @@ use std::path::Path;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use autumn_natter_core::attach;
 
@@ -37,6 +37,70 @@ pub async fn action(
 ) -> Result<Value, String> {
     let text = body.map(|value| value.to_string()).unwrap_or_default();
     Ok(web::action(&engine, &path, &text))
+}
+
+// Check the address before opening the remote program in a separate window. The page there uses
+// the same HTTP API as a browser, and the local program stays open in its own window.
+#[tauri::command]
+pub async fn connect_remote(app: AppHandle, address: String) -> Result<Value, String> {
+    let address = address.trim();
+    let address = if address.contains("://") {
+        address.to_string()
+    } else {
+        format!("http://{address}")
+    };
+    let mut target = tauri::Url::parse(&address)
+        .map_err(|problem| format!("Enter a valid web address: {problem}"))?;
+    if !matches!(target.scheme(), "http" | "https")
+        || target.host_str().is_none()
+        || !target.username().is_empty()
+        || target.password().is_some()
+        || target.path() != "/"
+        || target.query().is_some()
+        || target.fragment().is_some()
+    {
+        return Err(
+            "Enter the web address of the remote program, without a path or sign-in details."
+                .into(),
+        );
+    }
+    target.set_path("/");
+
+    let state_url = target
+        .join("api/state?since=-1")
+        .map_err(|problem| format!("The remote address is not valid: {problem}"))?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(5))
+        .build();
+    let response = agent.get(state_url.as_str()).call().map_err(|problem| {
+        format!("Could not reach an Autumn Natter remote program at this address: {problem}")
+    })?;
+    let state: Value = response.into_json().map_err(|problem| {
+        format!("The address did not return a readable program state: {problem}")
+    })?;
+    if !state.get("rev").is_some_and(Value::is_number)
+        || !state.get("models").is_some_and(Value::is_array)
+    {
+        return Err("That address did not return an Autumn Natter remote program.".into());
+    }
+
+    if let Some(window) = app.get_webview_window("remote-program") {
+        window
+            .navigate(target.clone())
+            .map_err(|problem| format!("The remote window could not be opened: {problem}"))?;
+        window
+            .set_focus()
+            .map_err(|problem| format!("The remote window could not be focused: {problem}"))?;
+    } else {
+        WebviewWindowBuilder::new(&app, "remote-program", WebviewUrl::External(target.clone()))
+            .title("Autumn Natter — Remote")
+            .inner_size(1180.0, 760.0)
+            .min_inner_size(620.0, 420.0)
+            .build()
+            .map_err(|problem| format!("The remote window could not be opened: {problem}"))?;
+    }
+
+    Ok(json!({ "ok": true, "address": target.as_str() }))
 }
 
 // One attachment of a message, for the block the window draws. The page asks by the id the

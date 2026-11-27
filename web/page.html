@@ -3399,9 +3399,6 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
   </div>
   <span class="rule"></span>
   
-  <button class="mark-btn" id="modelbtn" title="Settings of this model" aria-label="Settings of this model">
-    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.6 4.6h7.2M12.6 4.6h.8M2.6 11.4h.8M6.2 11.4h7.2"/><circle cx="11.2" cy="4.6" r="1.6"/><circle cx="4.6" cy="11.4" r="1.6"/></svg>
-  </button>
   <button class="mark-btn" id="settingsbtn" title="Settings of the program" aria-label="Settings of the program">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.45" d="M14.86 6.60L14.86 9.40L12.97 9.37L12.48 10.55L13.84 11.86L11.86 13.84L10.55 12.48L9.37 12.97L9.40 14.86L6.60 14.86L6.63 12.97L5.45 12.48L4.14 13.84L2.16 11.86L3.52 10.55L3.03 9.37L1.14 9.40L1.14 6.60L3.03 6.63L3.52 5.45L2.16 4.14L4.14 2.16L5.45 3.52L6.63 3.03L6.60 1.14L9.40 1.14L9.37 3.03L10.55 3.52L11.86 2.16L13.84 4.14L12.48 5.45L12.97 6.63Z"/><circle cx="8" cy="8" r="2.15"/></svg>
   </button>
@@ -4360,7 +4357,7 @@ function post(path, body) {
 // The parts of the page that stay in place. Their text is written again on every draw.
 var ids = ['model', 'modelChoice', 'modelChoiceText', 'modelMenu', 'kind', 'repo', 'repoChoice', 'repoChoiceText', 'repoMenu', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
-  'unloadmodel', 'settingsbtn', 'modelbtn', 'themebtn', 'timeline', 'userline',
+  'unloadmodel', 'settingsbtn', 'themebtn', 'timeline', 'userline',
   'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'plus', 'pluswrap', 'plusmenu', 'plusattach', 'plussources', 'pickfiles',
@@ -13933,7 +13930,6 @@ el.newrepo.addEventListener('click', function () {
   }, 'Create');
 });
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
-el.modelbtn.addEventListener('click', function () { openSettings('model'); });
 // The row of badges in a box that is narrower than its words.
 //
 // A new chat makes the composer a box of a breadth of its own, the lines at the sides of the chat
