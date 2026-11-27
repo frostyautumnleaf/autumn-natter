@@ -645,7 +645,173 @@ fn dropped(page: &str, at: usize) -> Option<&str> {
         };
         return rest.get(end + close.len()..);
     }
-    None
+    drop_hidden_element(page, at)
+}
+
+// Hidden fallback markup is not part of the page a user sees. Pages such as GitHub's login
+// page put a generic fragment-load error inside a hidden element, then replace that fragment
+// in the browser. Reading the raw response without honoring `hidden` made that fallback look
+// like an actual page failure to the model.
+fn drop_hidden_element(page: &str, at: usize) -> Option<&str> {
+    let head = page.get(at..)?;
+    let end = mark_end(head)?;
+    let opening = head.get(..=end)?;
+    let (name, closing, self_closing) = html_tag(opening)?;
+    if closing || !has_html_attribute(opening, "hidden") {
+        return None;
+    }
+    if self_closing || is_void_element(name) {
+        return head.get(end + 1..);
+    }
+
+    let mut depth = 1usize;
+    let mut offset = end + 1;
+    while let Some(rest) = page.get(at + offset..) {
+        let Some(next) = rest.find('<') else {
+            return Some("");
+        };
+        let start = offset + next;
+        let marker = page.get(at + start..)?;
+        let Some(marker_end) = mark_end(marker) else {
+            return Some("");
+        };
+        let Some(tag) = marker.get(..=marker_end) else {
+            return Some("");
+        };
+        if let Some((found, is_closing, is_self_closing)) = html_tag(tag) {
+            if found.eq_ignore_ascii_case(name) {
+                if is_closing {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return page.get(at + start + marker_end + 1..);
+                    }
+                } else if !is_self_closing && !is_void_element(found) {
+                    depth += 1;
+                }
+            }
+        }
+        offset = start + marker_end + 1;
+    }
+    Some("")
+}
+
+fn html_tag(tag: &str) -> Option<(&str, bool, bool)> {
+    let end = mark_end(tag)?;
+    let mut at = 1usize;
+    let closing = tag.as_bytes().get(at) == Some(&b'/');
+    if closing {
+        at += 1;
+    }
+    while tag
+        .as_bytes()
+        .get(at)
+        .is_some_and(|byte| byte.is_ascii_whitespace())
+    {
+        at += 1;
+    }
+    let start = at;
+    while tag.as_bytes().get(at).is_some_and(|byte| {
+        !byte.is_ascii_whitespace() && *byte != b'/' && *byte != b'>'
+    }) {
+        at += 1;
+    }
+    let name = tag.get(start..at)?;
+    if name.is_empty() {
+        return None;
+    }
+    let self_closing = !closing && tag.get(..end)?.trim_end().ends_with('/');
+    Some((name, closing, self_closing))
+}
+
+fn has_html_attribute(opening: &str, wanted: &str) -> bool {
+    let Some(end) = mark_end(opening) else {
+        return false;
+    };
+    let Some((_, closing, _)) = html_tag(opening) else {
+        return false;
+    };
+    if closing {
+        return false;
+    }
+    let bytes = opening.as_bytes();
+    let mut at = 1usize;
+    while bytes
+        .get(at)
+        .is_some_and(|byte| byte.is_ascii_whitespace() || *byte == b'/')
+    {
+        at += 1;
+    }
+    while bytes.get(at).is_some_and(|byte| {
+        !byte.is_ascii_whitespace() && *byte != b'/' && *byte != b'>'
+    }) {
+        at += 1;
+    }
+    while at < end {
+        while bytes
+            .get(at)
+            .is_some_and(|byte| byte.is_ascii_whitespace() || *byte == b'/')
+        {
+            at += 1;
+        }
+        let start = at;
+        while bytes.get(at).is_some_and(|byte| {
+            !byte.is_ascii_whitespace() && *byte != b'=' && *byte != b'/' && *byte != b'>'
+        }) {
+            at += 1;
+        }
+        if at == start {
+            at += 1;
+            continue;
+        }
+        if opening.get(start..at).is_some_and(|name| name.eq_ignore_ascii_case(wanted)) {
+            return true;
+        }
+        while bytes
+            .get(at)
+            .is_some_and(|byte| byte.is_ascii_whitespace())
+        {
+            at += 1;
+        }
+        if bytes.get(at) == Some(&b'=') {
+            at += 1;
+            while bytes
+                .get(at)
+                .is_some_and(|byte| byte.is_ascii_whitespace())
+            {
+                at += 1;
+            }
+            if bytes
+                .get(at)
+                .is_some_and(|byte| *byte == b'\'' || *byte == b'"')
+            {
+                let quote = bytes[at];
+                at += 1;
+                while at < end && bytes.get(at) != Some(&quote) {
+                    at += 1;
+                }
+                if at < end {
+                    at += 1;
+                }
+            } else {
+                while bytes
+                    .get(at)
+                    .is_some_and(|byte| !byte.is_ascii_whitespace() && *byte != b'>')
+                {
+                    at += 1;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_void_element(name: &str) -> bool {
+    [
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+        "param", "source", "track", "wbr",
+    ]
+        .iter()
+        .any(|void| name.eq_ignore_ascii_case(void))
 }
 
 // The markers that end a block of text, and the markers that open a part of a list.
