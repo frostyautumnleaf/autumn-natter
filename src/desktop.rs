@@ -14,6 +14,18 @@ pub struct DisplayInfo {
     pub primary: bool,
 }
 
+pub fn default_display(displays: &[DisplayInfo]) -> Option<&DisplayInfo> {
+    displays
+        .iter()
+        .find(|display| display.primary)
+        .or_else(|| {
+            displays
+                .iter()
+                .find(|display| (display.x, display.y) == (0, 0))
+        })
+        .or_else(|| displays.first())
+}
+
 pub struct CapturedArea {
     pub image: RgbaImage,
     pub x: i32,
@@ -29,8 +41,11 @@ mod platform {
         screenshot::Screenshot,
         PersistMode, Session,
     };
+    use ashpd::{zbus, zvariant::OwnedValue};
     use image::RgbaImage;
+    use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
+    use std::time::Duration;
     use x11rb::connection::Connection;
     use x11rb::protocol::randr;
     use x11rb::protocol::xproto::{
@@ -292,6 +307,7 @@ mod platform {
     #[derive(Clone, Copy)]
     struct PortalStream {
         node: u32,
+        position: Option<(i32, i32)>,
         display: DisplayInfo,
     }
 
@@ -305,7 +321,7 @@ mod platform {
     static WAYLAND_PORTAL: OnceLock<Mutex<Option<PortalDesktop>>> = OnceLock::new();
     impl PortalDesktop {
         fn start() -> Result<Self, String> {
-            let (remote, session, streams) = futures::executor::block_on(async {
+            let (remote, session, mut streams) = futures::executor::block_on(async {
                 let remote = RemoteDesktop::new().await.map_err(portal_error)?;
                 let screencast = ashpd::desktop::screencast::Screencast::new()
                     .await
@@ -347,13 +363,15 @@ mod platform {
                     .ok_or_else(|| String::from("The screen sharing portal returned no displays."))?
                     .iter()
                     .filter_map(|stream| {
-                        let (x, y) = stream.position().unwrap_or((0, 0));
+                        let position = stream.position();
+                        let (x, y) = position.unwrap_or((0, 0));
                         let (width, height) = stream.size()?;
                         if width <= 0 || height <= 0 {
                             return None;
                         }
                         Some(PortalStream {
                             node: stream.pipe_wire_node_id(),
+                            position,
                             display: DisplayInfo {
                                 id: 0,
                                 x,
@@ -367,7 +385,6 @@ mod platform {
                     .enumerate()
                     .map(|(index, mut stream)| {
                         stream.display.id = index as u32 + 1;
-                        stream.display.primary = index == 0;
                         stream
                     })
                     .collect::<Vec<_>>();
@@ -378,6 +395,7 @@ mod platform {
                 }
                 Ok::<_, String>((remote, session, streams))
             })?;
+            mark_wayland_primary(&mut streams, wayland_primary_position());
             Ok(Self {
                 remote,
                 session,
@@ -393,6 +411,76 @@ mod platform {
                 .copied()
                 .ok_or_else(|| String::from("The selected display is no longer shared."))
         }
+    }
+
+    fn mark_wayland_primary(streams: &mut [PortalStream], position: Option<(i32, i32)>) {
+        // Portal stream order is unrelated to the compositor's primary display.
+        let Some(position) = position else { return };
+        if let Some(stream) = streams
+            .iter_mut()
+            .find(|stream| stream.position == Some(position))
+        {
+            stream.display.primary = true;
+        }
+    }
+
+    fn wayland_primary_position() -> Option<(i32, i32)> {
+        let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+        if desktop
+            .split(':')
+            .any(|name| name.eq_ignore_ascii_case("kde") || name.eq_ignore_ascii_case("plasma"))
+        {
+            let output =
+                crate::util::capture("kscreen-doctor", &["--json"], Duration::from_secs(2));
+            return if output.ok {
+                plasma_primary_position(&output.out)
+            } else {
+                None
+            };
+        }
+        futures::executor::block_on(mutter_primary_position())
+    }
+
+    fn plasma_primary_position(output: &str) -> Option<(i32, i32)> {
+        let config: serde_json::Value = serde_json::from_str(output).ok()?;
+        let primary = config["outputs"].as_array()?.iter().find(|output| {
+            output["connected"] == true
+                && output["enabled"] != false
+                && (output["priority"] == 1 || output["primary"] == true)
+        })?;
+        let pos = &primary["pos"];
+        Some((
+            pos["x"].as_i64()?.try_into().ok()?,
+            pos["y"].as_i64()?.try_into().ok()?,
+        ))
+    }
+
+    async fn mutter_primary_position() -> Option<(i32, i32)> {
+        type Properties = HashMap<String, OwnedValue>;
+        type MonitorSpec = (String, String, String, String);
+        type Mode = (String, i32, i32, f64, f64, Vec<f64>, Properties);
+        type Monitor = (MonitorSpec, Vec<Mode>, Properties);
+        type LogicalMonitor = (i32, i32, f64, u32, bool, Vec<MonitorSpec>, Properties);
+
+        let connection = zbus::connection::Builder::session()
+            .ok()?
+            .method_timeout(Duration::from_secs(2))
+            .build()
+            .await
+            .ok()?;
+        let display_config = zbus::Proxy::new(
+            &connection,
+            "org.gnome.Mutter.DisplayConfig",
+            "/org/gnome/Mutter/DisplayConfig",
+            "org.gnome.Mutter.DisplayConfig",
+        )
+        .await
+        .ok()?;
+        let (_, _, logical_monitors, _): (u32, Vec<Monitor>, Vec<LogicalMonitor>, Properties) =
+            display_config.call("GetCurrentState", &()).await.ok()?;
+        logical_monitors
+            .into_iter()
+            .find_map(|(x, y, _, _, primary, _, _)| primary.then_some((x, y)))
     }
 
     fn portal_error(problem: impl std::fmt::Display) -> String {
@@ -449,32 +537,44 @@ mod platform {
     }
 
     fn wayland_capture_display(id: u32) -> Result<(DisplayInfo, RgbaImage), String> {
-        let (display, streams) = with_portal(|portal| {
-            let selected = portal.active_stream(id)?.display;
-            Ok((
-                selected,
-                portal
-                    .streams
-                    .iter()
-                    .map(|stream| stream.display)
-                    .collect::<Vec<_>>(),
-            ))
-        })?;
+        let (display, streams) =
+            with_portal(|portal| Ok((portal.active_stream(id)?.display, portal.streams.clone())))?;
         let image = portal_screenshot()?;
-        if streams.len() <= 1
-            || (image.width() == display.width && image.height() == display.height)
-        {
-            return Ok((display, image));
+        Ok((display, crop_wayland_screenshot(image, display, &streams)?))
+    }
+
+    fn crop_wayland_screenshot(
+        image: RgbaImage,
+        display: DisplayInfo,
+        streams: &[PortalStream],
+    ) -> Result<RgbaImage, String> {
+        if streams.len() <= 1 {
+            return Ok(image);
         }
-        let min_x = streams.iter().map(|stream| stream.x).min().unwrap_or(0);
-        let min_y = streams.iter().map(|stream| stream.y).min().unwrap_or(0);
+        if streams.iter().any(|stream| stream.position.is_none()) {
+            return Err(String::from(
+                "The Wayland portal did not report the shared displays' positions.",
+            ));
+        }
+        let min_x = streams
+            .iter()
+            .map(|stream| stream.display.x)
+            .min()
+            .unwrap_or(0);
+        let min_y = streams
+            .iter()
+            .map(|stream| stream.display.y)
+            .min()
+            .unwrap_or(0);
         let max_x = streams
             .iter()
+            .map(|stream| stream.display)
             .map(|stream| stream.x.saturating_add(stream.width as i32))
             .max()
             .unwrap_or(display.width as i32);
         let max_y = streams
             .iter()
+            .map(|stream| stream.display)
             .map(|stream| stream.y.saturating_add(stream.height as i32))
             .max()
             .unwrap_or(display.height as i32);
@@ -482,6 +582,14 @@ mod platform {
         let logical_height = max_y.saturating_sub(min_y).max(1) as f64;
         let scale_x = f64::from(image.width()) / logical_width;
         let scale_y = f64::from(image.height()) / logical_height;
+        // A workspace screenshot uses a common scale. A single monitor image cannot be
+        // safely mapped to several displays just because their resolutions match.
+        let rounding = logical_width.recip() + logical_height.recip();
+        if (scale_x - scale_y).abs() > rounding {
+            return Err(String::from(
+                "The Wayland screenshot did not match the shared display layout.",
+            ));
+        }
         let left = ((display.x - min_x) as f64 * scale_x).round().max(0.0) as u32;
         let top = ((display.y - min_y) as f64 * scale_y).round().max(0.0) as u32;
         let width = (f64::from(display.width) * scale_x).round().max(1.0) as u32;
@@ -490,10 +598,55 @@ mod platform {
         {
             return Err(String::from("The Wayland screenshot size did not match the selected display. Take a fresh screenshot."));
         }
-        Ok((
-            display,
-            image::imageops::crop_imm(&image, left, top, width, height).to_image(),
-        ))
+        Ok(image::imageops::crop_imm(&image, left, top, width, height).to_image())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use image::Rgba;
+
+        #[test]
+        fn wayland_capture_uses_the_configured_primary_instead_of_the_first_stream() {
+            let display = |id, x| PortalStream {
+                node: id,
+                position: Some((x, 0)),
+                display: DisplayInfo {
+                    id,
+                    x,
+                    y: 0,
+                    width: 8,
+                    height: 4,
+                    primary: false,
+                },
+            };
+            let mut streams = [display(1, -8), display(2, 0)];
+            mark_wayland_primary(&mut streams, None);
+            assert!(streams.iter().all(|stream| !stream.display.primary));
+
+            // The configured primary can have a nonzero origin. The portal can return it last.
+            streams = [display(1, 0), display(2, 8)];
+            mark_wayland_primary(&mut streams, Some((8, 0)));
+            let displays = streams.map(|stream| stream.display);
+            let primary = *super::super::default_display(&displays).unwrap();
+            assert_eq!(primary.id, 2);
+
+            let workspace = RgbaImage::from_fn(16, 4, |x, _| Rgba([u8::from(x >= 8), 0, 0, 255]));
+            let image = crop_wayland_screenshot(workspace, primary, &streams).unwrap();
+            assert_eq!(image.dimensions(), (8, 4));
+            assert!(image.pixels().all(|pixel| *pixel == Rgba([1, 0, 0, 255])));
+            assert!(crop_wayland_screenshot(RgbaImage::new(8, 4), primary, &streams).is_err());
+        }
+
+        #[test]
+        fn plasma_primary_comes_from_the_enabled_output_with_priority_one() {
+            let config = r#"{"outputs":[
+                {"connected":true,"enabled":false,"priority":1,"pos":{"x":0,"y":0}},
+                {"connected":true,"enabled":true,"priority":2,"pos":{"x":0,"y":0}},
+                {"connected":true,"enabled":true,"priority":1,"pos":{"x":1920,"y":-180}}
+            ]}"#;
+            assert_eq!(plasma_primary_position(config), Some((1920, -180)));
+        }
     }
 
     pub fn displays() -> Result<Vec<DisplayInfo>, String> {

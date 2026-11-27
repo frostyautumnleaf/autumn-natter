@@ -458,7 +458,7 @@ pub fn computer_definition() -> Value {
             "direction":{"type":"string","enum":["up","down","left","right"]},
             "amount":{"type":"integer","description":"Scroll steps, from 1 to 30."},
             "seconds":{"type":"number","description":"For wait, from 0 to 10 seconds."},
-            "display":{"type":"integer","description":"For screenshot, one-based monitor number from the latest screenshot's display list. Omit to keep the current display."},
+            "display":{"type":"integer","description":"For screenshot, one-based monitor number from the latest screenshot's display list. Omit for the primary display, or a shared display if primary is unavailable."},
             "name":{"type":"string","description":"For open_app, the application name or executable path without arguments."},
             "submit":{"type":"boolean","description":"For type, press Enter after typing."},
             "keys":{"type":"string","description":"Alias for key; accepts a key or shortcut."},
@@ -1385,14 +1385,14 @@ pub fn computer_run(
         );
     }
     if action == "screenshot" {
-        let display = match requested_display(&args, chat) {
+        let display = match requested_display(&args) {
             Ok(display) => display,
             Err(problem) => return computer_fail(&problem),
         };
         return screenshot(display, chat);
     }
     if !has_computer_screenshot(chat) {
-        let display = match requested_display(&args, chat) {
+        let display = match requested_display(&args) {
             Ok(display) => display,
             Err(problem) => return computer_fail(&problem),
         };
@@ -2331,28 +2331,19 @@ fn computer_display(chat: &str) -> Option<ComputerScreen> {
         .and_then(|sessions| sessions.get(chat).copied())
 }
 
-fn requested_display(args: &Value, chat: &str) -> Result<u32, String> {
+fn requested_display(args: &Value) -> Result<u32, String> {
     let monitors = crate::desktop::displays()?;
     if let Some(number) = args["display"].as_u64() {
-        if number == 0 {
-            return Err(String::from(
-                "Use a one-based display number from the screenshot list.",
-            ));
-        }
+        let index = number
+            .checked_sub(1)
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| String::from("Use a one-based display number from the screenshot list."))?;
         return Ok(monitors
-            .get(number as usize - 1)
+            .get(index)
             .ok_or_else(|| String::from("That display number is not available."))?
             .id);
     }
-    if let Some(screen) = computer_display(chat) {
-        if monitors.iter().any(|monitor| monitor.id == screen.display) {
-            return Ok(screen.display);
-        }
-    }
-    monitors
-        .iter()
-        .find(|monitor| monitor.primary)
-        .or_else(|| monitors.first())
+    crate::desktop::default_display(&monitors)
         .map(|monitor| monitor.id)
         .ok_or_else(|| String::from("No display is available for screen capture."))
 }
@@ -2511,7 +2502,13 @@ fn screenshot(display: u32, chat: &str) -> ComputerResult {
                 display_y,
             );
             ComputerResult {
-                report: tools::Report { ok: true, output: format!("Current screenshot is {width}x{height} pixels. Use its coordinates for the next action. Select another display by its one-based number from this list:\n{}", display_list()) },
+                report: tools::Report {
+                    ok: true,
+                    output: format!(
+                        "Current screenshot is {width}x{height} pixels. Use its coordinates for the next action. Select another display by its one-based number from this list:\n{}",
+                        display_list(display),
+                    ),
+                },
                 image: Some(image),
             }
         }
@@ -2613,7 +2610,7 @@ fn zoom_screenshot(
     }
 }
 
-fn display_list() -> String {
+fn display_list(captured: u32) -> String {
     let Ok(monitors) = crate::desktop::displays() else {
         return String::from("Display information is unavailable.");
     };
@@ -2625,12 +2622,14 @@ fn display_list() -> String {
         .enumerate()
         .map(|(index, monitor)| {
             let primary = if monitor.primary { " (primary)" } else { "" };
+            let current = if monitor.id == captured { " (captured)" } else { "" };
             format!(
-                "{}: {}x{}{}",
+                "{}: {}x{}{}{}",
                 index + 1,
                 monitor.width,
                 monitor.height,
-                primary
+                primary,
+                current
             )
         })
         .collect::<Vec<_>>()
