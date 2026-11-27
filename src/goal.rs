@@ -1,5 +1,5 @@
-// A goal belongs to one chat until it is verified complete. The command starts or resumes it;
-// the completion and pause tools are the only ways the model can end its automatic run.
+// A goal belongs to one chat until it is verified complete or the user clears it. The command
+// starts or resumes it; the completion and pause tools are the only ways the model ends its run.
 
 use serde_json::{json, Value};
 
@@ -20,7 +20,7 @@ fn yes(output: impl Into<String>) -> Report {
 }
 
 pub const COMMAND_WORD: &str = "/goal";
-pub const COMMAND_WORDS: &str = "Pursue a goal through the planning, work and checks it needs. The model keeps going until it verifies completion; use /goal stop to end it early.";
+pub const COMMAND_WORDS: &str = "Pursue a goal through the planning, work and checks it needs. The model keeps going until it verifies completion.";
 pub const CRITERIA_NAME: &str = "set_goal_criteria";
 pub const COMPLETE_NAME: &str = "complete_goal";
 pub const PAUSE_NAME: &str = "pause_goal";
@@ -47,7 +47,7 @@ pub fn system_prompt(goal: &str, criteria: &[String], paused: bool) -> String {
     }
 
     format!(
-        "ACTIVE GOAL — pursue this to verified completion\n\nGoal: {goal}\n{criteria}\n\nKeep this goal active across messages, tool results, errors and handoff summaries. A normal answer that sounds finished does not complete it. Continue working until the completion tool accepts a verified report, unless essential user input is required or the user explicitly sends /goal stop.\n\
+        "ACTIVE GOAL — pursue this to verified completion\n\nGoal: {goal}\n{criteria}\n\nKeep this goal active across messages, tool results, errors and handoff summaries. A normal answer that sounds finished does not complete it. Continue working until the completion tool accepts a verified report, unless essential user input is required or the user clears the goal.\n\
          \n\
          Work to the user's actual request and constraints. Before changing anything, call {criteria_tool} to register concise, task-appropriate acceptance criteria and a measurable finish line. Scale the criteria and method to the task: a simple creative task may need only one criterion and an editorial review; do not invent code tests or unnecessary steps. For a nontrivial technical task, inspect the current state, make an ordered plan, implement the needed changes, run relevant checks, inspect their results and the final changes, then repair and rerun failures until every criterion passes. Research goals need sourced, current evidence when available. Use available tools when they materially help, and never say a check passed unless its result supports that claim.\n\
          \n\
@@ -398,12 +398,14 @@ mod tests {
     fn active_goal_and_criteria_survive_chat_metadata_serialization() {
         let mut saved = crate::store::ChatMeta::default();
         saved.goal = Some(String::from("Repair and verify the feature"));
+        saved.goal_started = 1_800_000_000;
         saved.goal_criteria = vec![String::from("The regression check passes")];
         saved.goal_paused = true;
         let encoded = serde_json::to_string(&saved).expect("goal metadata serializes");
         let restored: crate::store::ChatMeta =
             serde_json::from_str(&encoded).expect("goal metadata restores");
         assert_eq!(restored.goal, saved.goal);
+        assert_eq!(restored.goal_started, saved.goal_started);
         assert_eq!(restored.goal_criteria, saved.goal_criteria);
         assert!(restored.goal_paused);
     }

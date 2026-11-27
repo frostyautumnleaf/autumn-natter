@@ -1247,6 +1247,10 @@ pub struct Snap {
     // True when the open chat let a plan go. The heading over the conversation reports `PLANNED
     // WORK`, and the plan may be read from it.
     pub planned: bool,
+    // The current goal of this chat and the time it began, if there is one.
+    pub goal: Option<String>,
+    pub goal_started: i64,
+    pub goal_paused: bool,
     // Which of the tools of the program the model may reach in the open chat. The badge of the
     // tools is the switch over all of them; these are the lines of its drop-down.
     pub tool_switches: store::ToolSwitches,
@@ -4155,6 +4159,13 @@ impl State {
         };
         if chat.meta.goal != goal {
             chat.meta.goal_criteria.clear();
+            chat.meta.goal_started = if goal.is_some() {
+                store::now_secs()
+            } else {
+                0
+            };
+        } else if goal.is_some() && chat.meta.goal_started <= 0 {
+            chat.meta.goal_started = store::now_secs();
         }
         chat.meta.goal = goal;
         chat.meta.goal_paused = paused;
@@ -4264,6 +4275,17 @@ impl State {
             model_name: model.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
             planning: chat.map(|c| c.meta.planning).unwrap_or(false),
             planned: chat.map(|c| c.meta.planned).unwrap_or(false),
+            goal: chat.and_then(|c| c.meta.goal.clone()),
+            goal_started: chat
+                .map(|c| {
+                    if c.meta.goal.is_some() && c.meta.goal_started <= 0 {
+                        c.meta.updated
+                    } else {
+                        c.meta.goal_started
+                    }
+                })
+                .unwrap_or(0),
+            goal_paused: chat.is_some_and(|c| c.meta.goal_paused),
             model_kind: model
                 .as_ref()
                 .map(|m| m.kind.to_string())
@@ -4756,6 +4778,131 @@ impl Engine {
         let _ = self.jobs.send(Job::Prompt { chat, sent });
     }
 
+    // Clear the active goal and stop the current turn if it is still running.
+    pub fn clear_goal(&self) -> bool {
+        let (chat, generating) = {
+            let Ok(mut state) = self.state.lock() else {
+                return false;
+            };
+            let chat = state.open_id();
+            if !state.chat_of(&chat).is_some_and(|one| one.meta.goal.is_some()) {
+                state.set_status("There is no active goal to clear");
+                return false;
+            }
+            let generating = state.live_ref(&chat).generating;
+            state.set_goal_in(&chat, None, false);
+            state.set_status("The active goal was cleared");
+            (chat, generating)
+        };
+        if generating {
+            self.cancel_chat(&chat);
+        }
+        true
+    }
+
+    // Replace the active objective, reset its criteria and clock, and continue from the new
+    // objective. A running turn is stopped and the continuation waits in that chat's queue.
+    pub fn edit_goal(&self, objective: &str) -> Result<(), String> {
+        let objective = objective.trim();
+        if objective.is_empty() {
+            return Err(String::from("Write the goal you want pursued"));
+        }
+        if objective.chars().count() > 10_000 {
+            return Err(String::from("Keep a goal under 10,000 characters"));
+        }
+        let (chat, generating) = {
+            let Ok(mut state) = self.state.lock() else {
+                return Err(String::from("The program is busy"));
+            };
+            let chat = state.open_id();
+            if !state.chat_of(&chat).is_some_and(|one| one.meta.goal.is_some()) {
+                return Err(String::from("There is no active goal to edit"));
+            }
+            let generating = state.live_ref(&chat).generating;
+            state.set_goal_in(&chat, Some(objective.to_string()), false);
+            state.set_status("The goal was updated and is continuing");
+            (chat, generating)
+        };
+        if generating {
+            self.cancel_chat(&chat);
+        }
+        self.continue_goal_in(&chat, generating);
+        Ok(())
+    }
+
+    // Pause or resume the current goal. Resuming asks the same persistent goal to continue; if
+    // a cancelled turn has not unwound yet, that request is queued behind it.
+    pub fn set_goal_paused(&self, paused: bool) -> bool {
+        let (chat, generating) = {
+            let Ok(mut state) = self.state.lock() else {
+                return false;
+            };
+            let chat = state.open_id();
+            let Some(goal) = state.chat_of(&chat).and_then(|one| one.meta.goal.clone()) else {
+                state.set_status("There is no active goal");
+                return false;
+            };
+            let generating = state.live_ref(&chat).generating;
+            state.set_goal_in(&chat, Some(goal), paused);
+            state.set_status(if paused {
+                "The goal was paused"
+            } else {
+                "The goal is resuming"
+            });
+            (chat, generating)
+        };
+        if paused {
+            if generating {
+                self.cancel_chat(&chat);
+            }
+        } else {
+            self.continue_goal_in(&chat, generating);
+        }
+        true
+    }
+
+    // Continue a goal in the named chat. This is also used after an edit; it does not depend on
+    // which chat happens to be open when the worker takes the request.
+    fn continue_goal_in(&self, chat: &str, generating: bool) {
+        if generating {
+            if let Ok(mut state) = self.state.lock() {
+                if let Some(list) = state.queue_mut(chat) {
+                    list.seq += 1;
+                    let id = list.seq;
+                    list.items.insert(0, QueueItem {
+                        id,
+                        text: String::from("/goal"),
+                        files: Vec::new(),
+                        matches: String::new(),
+                        ready: false,
+                    });
+                    list.held = false;
+                    state.touch();
+                }
+            }
+            return;
+        }
+        let sent = {
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            let Some(sent) = Self::prepare_message_in(
+                &mut state,
+                chat,
+                String::from("/goal"),
+                Vec::new(),
+            ) else {
+                return;
+            };
+            state.queue_restart();
+            sent
+        };
+        let _ = self.jobs.send(Job::Prompt {
+            chat: chat.to_string(),
+            sent,
+        });
+    }
+
     // Ready a message of the chat composer for the worker, and say upon the status line what is
     // in its way. The commands of the chat composer are taken off the start of the text, a chat
     // that owes a handoff summary is answered where it is, and a chat with no model or no
@@ -4826,20 +4973,6 @@ impl Engine {
         // The commands of the chat composer. `/plan` turns planning mode on; `/goal` starts or
         // resumes persistent work. They cannot overlap, because planning mode forbids execution.
         let (command, rest) = planning::split(&text);
-        if command == Some(planning::Command::Goal)
-            && matches!(rest.trim().to_ascii_lowercase().as_str(), "stop" | "cancel")
-        {
-            if state
-                .chat_of(chat)
-                .is_some_and(|one| one.meta.goal.is_some())
-            {
-                state.set_goal_in(chat, None, false);
-                state.set_status("The active goal was stopped");
-            } else {
-                state.set_status("There is no active goal to stop");
-            }
-            return None;
-        }
         let mut goal_change = None;
         let text = match command {
             Some(planning::Command::Plan) => {
@@ -7029,6 +7162,9 @@ impl Snap {
             live_work_head: String::new(),
             planning: false,
             planned: false,
+            goal: None,
+            goal_started: 0,
+            goal_paused: false,
             ask: None,
             running: None,
             queue: None,
@@ -13736,14 +13872,65 @@ mod tests {
         );
         assert!(state.chat_of(&chat).unwrap().meta.goal_criteria.is_empty());
 
-        assert!(Engine::prepare_message_in(
+        let stop_goal = Engine::prepare_message_in(
             &mut state,
             &chat,
             String::from("/goal stop"),
             Vec::new(),
         )
-        .is_none());
-        assert!(state.chat_of(&chat).unwrap().meta.goal.is_none());
+        .expect("stop is ordinary goal text, not a stop command");
+        assert_eq!(stop_goal.text, "stop");
+        assert_eq!(
+            state.chat_of(&chat).unwrap().meta.goal.as_deref(),
+            Some("stop")
+        );
+    }
+
+    #[test]
+    fn goal_bar_controls_edit_pause_resume_and_clear_the_persistent_goal() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let (chat, old_start) = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let chat = state.open_id();
+            state.set_goal_in(&chat, Some(String::from("Write a story")), false);
+            let held = state.chat_of_mut(&chat).unwrap();
+            held.meta.goal_started -= 60;
+            held.meta.goal_criteria = vec![String::from("Story fits the requested style")];
+            (chat, held.meta.goal_started)
+        };
+
+        assert!(engine.set_goal_paused(true));
+        {
+            let state = engine.state.lock().unwrap();
+            let held = state.chat_of(&chat).unwrap();
+            assert!(held.meta.goal_paused);
+            assert_eq!(held.meta.goal_started, old_start);
+        }
+
+        engine
+            .edit_goal("Write a short story about autumn")
+            .expect("an active goal can be edited");
+        {
+            let state = engine.state.lock().unwrap();
+            let held = state.chat_of(&chat).unwrap();
+            assert_eq!(held.meta.goal.as_deref(), Some("Write a short story about autumn"));
+            assert!(held.meta.goal_criteria.is_empty());
+            assert!(!held.meta.goal_paused);
+            assert!(held.meta.goal_started > old_start);
+        }
+
+        assert!(engine.set_goal_paused(true));
+        assert!(engine.set_goal_paused(false));
+        assert!(!engine.state.lock().unwrap().chat_of(&chat).unwrap().meta.goal_paused);
+        assert!(engine.clear_goal());
+        let state = engine.state.lock().unwrap();
+        let held = state.chat_of(&chat).unwrap();
+        assert!(held.meta.goal.is_none());
+        assert_eq!(held.meta.goal_started, 0);
+        assert!(held.meta.goal_criteria.is_empty());
     }
 
     #[test]

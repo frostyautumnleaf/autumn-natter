@@ -1751,6 +1751,49 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
  * keep their places and never fall over the list. The header is one line; the list under it
  * opens when the user opens it, and the oldest message is at the bottom. */
 .queue { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px; }
+.goalbar {
+  display: flex; flex-direction: column; gap: 7px; margin: 0 0 6px; padding: 7px 9px;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--surface);
+  box-shadow: var(--shadow-1); min-width: 0;
+}
+.goalbar.hidden { display: none; }
+.goalrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.goalmark { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 25px; height: 25px; border-radius: 8px; color: var(--accent); background: var(--accent-soft); }
+.goalmark .svg { width: 15px; height: 15px; stroke: currentColor; stroke-width: 1.5; }
+.goallabel { flex: 0 0 auto; color: var(--accent); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+.goalrequest { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--text-2);
+  font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.goalpaused { flex: 0 0 auto; padding: 2px 6px; border: 1px solid var(--accent-line);
+  border-radius: 999px; color: var(--dim); font-size: 9px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; }
+.goalpaused.hidden { display: none; }
+.goaltime { flex: 0 0 auto; color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; }
+.goalactions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; }
+.goalaction { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 27px; height: 27px; padding: 0; border: 1px solid var(--line);
+  border-radius: var(--r-s); background: var(--surface-2); color: var(--dim); cursor: pointer; }
+.goalaction:hover { color: var(--ink); border-color: var(--accent-line); background: var(--tint); }
+.goalaction .svg { width: 13px; height: 13px; stroke: currentColor; stroke-width: 1.8; }
+.goal-resume-mark { display: none; }
+.goalbar.paused .goal-pause-mark { display: none; }
+.goalbar.paused .goal-resume-mark { display: block; }
+.goaleditor { display: flex; align-items: center; gap: 5px; padding-left: 33px; }
+.goaleditor.hidden { display: none; }
+.goaleditor input { flex: 1 1 auto; min-width: 0; height: 30px; padding: 4px 8px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-s); background: var(--surface-2);
+  color: var(--text); font: inherit; font-size: 12px; }
+.goaleditor input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+@media (max-width: 600px) {
+  .goalrow { flex-wrap: wrap; gap: 6px; }
+  .goalrequest { order: 6; flex: 1 0 100%; padding-left: 31px; }
+  .goalpaused { order: 3; }
+  .goaltime { order: 4; margin-left: auto; }
+  .goalactions { order: 5; }
+  .goaleditor { padding-left: 0; }
+}
 .queue-head {
   display: flex; align-items: center; gap: 7px; width: 100%;
   background: none; border: 1px solid var(--line); border-radius: var(--r);
@@ -3475,6 +3518,39 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
       <div class="ask-note" id="asknote"></div>
     </div>
 
+    <div class="goalbar hidden" id="goalbar" aria-label="Active goal">
+      <div class="goalrow">
+        <span class="goalmark" aria-hidden="true">
+          <svg class="svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.7"/><circle cx="8" cy="8" r="2.2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2"/></svg>
+        </span>
+        <span class="goallabel">Pursuing goal</span>
+        <span class="goalrequest" id="goalrequest"></span>
+        <span class="goalpaused hidden" id="goalpaused">Paused</span>
+        <span class="goaltime" id="goaltime"></span>
+        <span class="goalactions">
+          <button class="goalaction" id="goaledit" type="button" title="Edit the goal" aria-label="Edit the goal">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="m10.9 2.6 2.5 2.5M3 13l2.7-.6 7.4-7.4a1.8 1.8 0 0 0-2.5-2.5l-7.4 7.4L3 13z"/></svg>
+          </button>
+          <button class="goalaction" id="goalpause" type="button" title="Pause the goal" aria-label="Pause the goal">
+            <svg class="svg goal-pause-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.2 3.2v9.6M10.8 3.2v9.6"/></svg>
+            <svg class="svg goal-resume-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="m5 3.1 7.3 4.9L5 12.9z"/></svg>
+          </button>
+          <button class="goalaction" id="goalclear" type="button" title="Clear the goal" aria-label="Clear the goal">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </button>
+        </span>
+      </div>
+      <form class="goaleditor hidden" id="goaleditor">
+        <input id="goaledittext" type="text" maxlength="10000" aria-label="Edit goal request">
+        <button class="goalaction" id="goalsave" type="submit" title="Save and continue the edited goal" aria-label="Save the edited goal">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8.2 3.1 3.1L13 4.4"/></svg>
+        </button>
+        <button class="goalaction" id="goaleditcancel" type="button" title="Cancel editing" aria-label="Cancel editing the goal">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </button>
+      </form>
+    </div>
+
     <!--   The messages the user has queued. A model that is still writing takes them one after
       another when it comes to the end of the answer, the oldest first, and the oldest is at the
       bottom of the list. The list is shut up to one line until the user opens it, and it is
@@ -4287,6 +4363,8 @@ var ids = ['model', 'modelChoice', 'modelChoiceText', 'modelMenu', 'kind', 'repo
   'rag', 'ragtext',
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts', 'queue', 'queuehead', 'queuecount', 'queuelist',
+  'goalbar', 'goalrequest', 'goalpaused', 'goaltime', 'goaledit', 'goalpause', 'goalclear',
+  'goaleditor', 'goaledittext', 'goalsave', 'goaleditcancel',
   'badges', 'bleft', 'bmid', 'bright',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
   'viewer', 'lookname', 'lookkind', 'lookturn', 'lookprev', 'lookcount', 'looknext',
@@ -4341,6 +4419,8 @@ var rev = -1;          // what the page has seen last
 var timer = null;      // the next poll
 var pending = false;   // only one poll at a time
 var cur = null;        // the last state
+var goalClock = { elapsed: 0, at: 0 };
+var goalEditorChat = '';
 // Chatting. The two switches of the Chatting section of the settings, as the engine gives them.
 // The page of the browser has no settings panel, so it reads the two here and follows them. A
 // panel that is folded as it arrives is closed from the first look, and the user opens it with
@@ -4461,6 +4541,7 @@ function draw(s) {
   // The question the model has put to the user is above the chat composer, and the wait it set
   // is counted down under the question.
   drawAsk(s);
+  drawGoal(s);
 
   // Planning mode. The row at the top of the conversation and the border of the chat composer
   // say which mode the chat is in.
@@ -4507,6 +4588,79 @@ function draw(s) {
   drawTimeline(s);
   drawUserLine(s);
 }
+
+function drawGoal(s) {
+  if (!el.goalbar) { return; }
+  var goal = s.chat && s.chat.goal;
+  var visible = !!goal && !s.home;
+  el.goalbar.classList.toggle('hidden', !visible);
+  if (!visible) {
+    el.goaleditor.classList.add('hidden');
+    goalEditorChat = '';
+    goalClock = { elapsed: 0, at: Date.now() };
+    return;
+  }
+  var request = String(goal.request || '');
+  el.goalbar.classList.toggle('paused', !!goal.paused);
+  el.goalrequest.textContent = request;
+  el.goalrequest.title = request;
+  el.goalpaused.classList.toggle('hidden', !goal.paused);
+  el.goalpause.title = goal.paused ? 'Resume the goal' : 'Pause the goal';
+  el.goalpause.setAttribute('aria-label', el.goalpause.title);
+  goalClock = { elapsed: Math.max(0, Number(goal.elapsed) || 0), at: Date.now() };
+  if (goalEditorChat && goalEditorChat !== s.chat.id) {
+    el.goaleditor.classList.add('hidden');
+    goalEditorChat = '';
+  }
+  updateGoalClock();
+}
+
+function updateGoalClock() {
+  if (!el.goaltime || !cur || !cur.chat || !cur.chat.goal || !goalClock.at) { return; }
+  var seconds = goalClock.elapsed + Math.floor((Date.now() - goalClock.at) / 1000);
+  var hours = Math.floor(seconds / 3600);
+  var minutes = Math.floor((seconds % 3600) / 60);
+  var words;
+  if (seconds < 60) { words = seconds + 's'; }
+  else if (hours === 0) { words = minutes + 'm'; }
+  else if (hours < 24) { words = hours + 'h' + (minutes ? ' ' + minutes + 'm' : ''); }
+  else { words = Math.floor(hours / 24) + 'd' + (hours % 24 ? ' ' + (hours % 24) + 'h' : ''); }
+  el.goaltime.textContent = 'for ' + words;
+}
+
+function openGoalEditor() {
+  if (!cur || !cur.chat || !cur.chat.goal) { return; }
+  goalEditorChat = cur.chat.id;
+  el.goaledittext.value = cur.chat.goal.request || '';
+  el.goaleditor.classList.remove('hidden');
+  el.goaledittext.focus();
+  el.goaledittext.select();
+}
+
+function closeGoalEditor() {
+  el.goaleditor.classList.add('hidden');
+  goalEditorChat = '';
+}
+
+el.goaledit.addEventListener('click', openGoalEditor);
+el.goaleditcancel.addEventListener('click', closeGoalEditor);
+el.goaleditor.addEventListener('submit', function (event) {
+  event.preventDefault();
+  var request = String(el.goaledittext.value || '').trim();
+  if (!request) { el.goaledittext.focus(); return; }
+  closeGoalEditor();
+  post('/api/goal', { op: 'edit', request: request });
+});
+el.goaledittext.addEventListener('keydown', function (event) {
+  if (event.key === 'Escape') { event.preventDefault(); closeGoalEditor(); }
+});
+el.goalpause.addEventListener('click', function () {
+  if (cur && cur.chat && cur.chat.goal) {
+    post('/api/goal', { op: cur.chat.goal.paused ? 'resume' : 'pause' });
+  }
+});
+el.goalclear.addEventListener('click', function () { post('/api/goal', { op: 'clear' }); });
+window.setInterval(updateGoalClock, 1000);
 
 // Chatting. The two switches of the settings are read again with every state, so a change made
 // in the window is followed here too. A state of an older engine has no record of them, and

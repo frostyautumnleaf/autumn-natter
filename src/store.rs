@@ -492,6 +492,9 @@ pub struct ChatMeta {
     // model submits a passing completion report; it remains set while user input is awaited.
     #[serde(default)]
     pub goal: Option<String>,
+    // When this goal became active, used to show its elapsed time after the chat is reopened.
+    #[serde(default)]
+    pub goal_started: i64,
     // Task-appropriate finish criteria registered before goal work; completion evidence must
     // account for each one exactly once.
     #[serde(default)]
@@ -542,6 +545,7 @@ impl Default for ChatMeta {
             planned: false,
             plan_file: String::new(),
             goal: None,
+            goal_started: 0,
             goal_criteria: Vec::new(),
             goal_paused: false,
             context_used: 0,

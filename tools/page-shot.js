@@ -33,7 +33,8 @@
 //     run out: the clock, the marker that adds five minutes, and the stop marker
 //   AN_QUEUE=1 node page-shot.js rich p.png       # the list of the messages
 //     waiting to go, as the program keeps it. AN_QUEUEHELD=1 markers the list as
-//     stopped. Use AN_CLICK='#queuehead' to see the rows open.
+//     stopped. Use AN_CLICK='#queuehead' to see the rows open. AN_GOAL=1 puts
+//     an active goal above that list, as it is while one is being pursued.
 //   AN_SIDE=1 node page-shot.js rich p.png        # the side bar, open
 //   AN_PIXEL=1 node page-shot.js rich p.png       # the pixel-art form of the theme
 //   AN_GIFTS=1 node page-shot.js rich p.png       # the conversation ends with the blocks
@@ -859,6 +860,16 @@ function scene(name, dark, theme) {
           { id: 2, text: 'A second message, with a file hung on it.', files: ['notes-for-the-chat.md'] },
           { id: 3, text: 'The newest of them, which is at the top of the list.', files: [] }
         ]
+      };
+    }
+    // AN_GOAL=1 puts the persistent goal bar over the message queue, as it is while
+    // the model is pursuing a goal and has messages waiting to go.
+    if (process.env.AN_GOAL === '1') {
+      start.chat.goal = {
+        request: 'Finish the parser refactor, run the relevant tests, and report the verified result.',
+        started: Math.floor(Date.now() / 1000) - 367,
+        elapsed: 367,
+        paused: false
       };
     }
     // The width of the chat, as the Chatting section of the settings gives it.

@@ -281,6 +281,19 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             // that a plan was let go and may still be read.
             "planning": snap.planning,
             "planned": snap.planned,
+            "goal": snap.goal.as_ref().map(|request| {
+                let elapsed = if snap.goal_started > 0 {
+                    (store::now_secs() - snap.goal_started).max(0)
+                } else {
+                    0
+                };
+                json!({
+                    "request": request,
+                    "started": snap.goal_started,
+                    "elapsed": elapsed,
+                    "paused": snap.goal_paused,
+                })
+            }),
         },
         // The commands a user may write in the chat composer. The list of them pops up when the
         // marker of a command is typed, and each carries what it is for.
@@ -1054,6 +1067,34 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.cancel();
             done()
         }
+        "/api/goal" | "goal" => match text_field(&value, "op").as_str() {
+            "clear" => {
+                if engine.clear_goal() {
+                    done()
+                } else {
+                    refused("There is no active goal to clear")
+                }
+            }
+            "edit" => match engine.edit_goal(&text_field(&value, "request")) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            },
+            "pause" => {
+                if engine.set_goal_paused(true) {
+                    done()
+                } else {
+                    refused("There is no active goal to pause")
+                }
+            }
+            "resume" => {
+                if engine.set_goal_paused(false) {
+                    done()
+                } else {
+                    refused("There is no active goal to resume")
+                }
+            }
+            _ => refused("Choose whether to clear, edit, pause or resume the goal"),
+        },
         // The user answered the question the model put with the tool of that name. The id is
         // the one the request carried, so an answer that comes late -- after the question was
         // given up, or after another answer took it -- does nothing at all.
@@ -1428,6 +1469,26 @@ fn flag(value: &Value, key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_page_receives_the_active_goal_pause_state_and_elapsed_time() {
+        let _guard = config::test_turn();
+        config::set_data_dir(std::path::PathBuf::from("uidata/web-tests"));
+        let _ = config::ensure_dirs();
+        let engine = crate::engine::Engine::start(Config::default());
+        let mut snap = engine.snapshot();
+        snap.goal = Some(String::from("Finish and review the draft"));
+        snap.goal_started = store::now_secs() - 42;
+        snap.goal_paused = true;
+
+        let goal = state(&snap, None)["chat"]["goal"].clone();
+        assert_eq!(
+            goal["request"].as_str(),
+            Some("Finish and review the draft")
+        );
+        assert_eq!(goal["paused"].as_bool(), Some(true));
+        assert!(goal["elapsed"].as_i64().unwrap_or_default() >= 42);
+    }
 
     // Every line of the drop-down of the badge of the tools stands in the state the page reads,
     // and the state says the same of each as the switch of the tools says. The list is taken from
