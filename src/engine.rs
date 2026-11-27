@@ -5347,6 +5347,7 @@ impl Engine {
             return;
         };
         if matches!(part, "browser_use" | "computer_use") {
+            let active_chat = state.chat().map(|chat| chat.meta.id.clone());
             if let Some(chat) = state.chat_mut() {
                 if !chat.meta.tools.set(part, on) {
                     return;
@@ -5354,6 +5355,14 @@ impl Engine {
             }
             if !state.new_tools.set(part, on) {
                 return;
+            }
+            if part == "computer_use" && !on {
+                if let Some(chat) = active_chat.as_deref() {
+                    crate::agentic::clear_computer_screenshot(chat);
+                    if let Some(running) = state.live_of(chat).and_then(|live| live.running.as_ref()) {
+                        running.watch.stop_now();
+                    }
+                }
             }
             state.persist_async();
             state.set_status(if on {
@@ -8553,6 +8562,7 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
         mcp_tools,
         compaction_on,
         goal_on,
+        computer_vision,
     ) = {
         let Ok(guard) = state.lock() else { return None };
         let held = guard.chat_of(chat);
@@ -8567,8 +8577,13 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
             guard.mcp_definitions(),
             guard.compaction_on(),
             held.as_ref().is_some_and(|c| c.meta.goal.is_some()),
+            guard.pictures_can_go(),
         )
     };
+    let mut switches = switches;
+    if !computer_vision {
+        switches.computer_use = false;
+    }
     offered_with_goal(
         sandbox_on,
         planning_on,
@@ -10937,7 +10952,7 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, rag_on, planning_on, switches, thought,
+        let (mut history, code_on, search_on, rag_on, planning_on, switches, computer_vision, thought,
          compaction_on, goal_on, goal_paused) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
@@ -10956,12 +10971,17 @@ fn run_turn(
                     .chat_of(chat)
                     .map(|c| c.meta.tools.clone())
                     .unwrap_or_default(),
+                guard.pictures_can_go(),
                 guard.thinking_ask(),
                 guard.compaction_on(),
                 guard.chat_of(chat).is_some_and(|one| one.meta.goal.is_some()),
                 guard.chat_of(chat).is_some_and(|one| one.meta.goal_paused),
             )
         };
+        let mut switches = switches;
+        if !computer_vision {
+            switches.computer_use = false;
+        }
         // Tool results are the text whose size cannot be known in advance: a command prints what
         // it prints, and a file read is as long as the file. Fit their model-facing copies to the
         // remaining context using the model's tokenizer, while leaving the full transcript alone.
@@ -11068,6 +11088,7 @@ fn run_turn(
         // cut in half cannot be mended.
         let use_tools = !resuming
             && (code_on || search_on || rag_on || planning_on || !mcp_tools.is_empty()
+                || switches.browser_use || switches.computer_use
                 || (goal_on && !goal_paused));
         let mut body = json!({
             "messages": history,
@@ -12649,26 +12670,64 @@ fn run_program_tool(
         id
     };
     if call.name == crate::agentic::BROWSER_NAME {
+        let enabled = state
+            .lock()
+            .ok()
+            .and_then(|guard| guard.chat_of(chat).map(|one| one.meta.tools.browser_use))
+            .unwrap_or(false);
         let words = call.arguments.clone();
         let chat_id = chat.to_string();
-        let made = match crate::util::within(&watch, move || crate::agentic::browser_run(&words, &chat_id)) {
-            Some(made) => made,
-            None => tools::Report { ok: false, output: String::from("The browser action was stopped or timed out.") },
+        let made = if enabled {
+            match crate::util::within(&watch, move || {
+                crate::agentic::browser_run(&words, &chat_id)
+            }) {
+                Some(made) => made,
+                None => tools::Report {
+                    ok: false,
+                    output: String::from("The browser action was stopped or timed out."),
+                },
+            }
+        } else {
+            tools::Report {
+                ok: false,
+                output: String::from("Browser use was turned off before this action began."),
+            }
         };
         let Ok(mut guard) = state.lock() else { return };
         guard.finish_tool_in(chat, &message_id, &made.output, made.ok);
         return;
     }
     if call.name == crate::agentic::COMPUTER_NAME {
+        let enabled = state
+            .lock()
+            .ok()
+            .and_then(|guard| guard.chat_of(chat).map(|one| one.meta.tools.computer_use))
+            .unwrap_or(false);
         let vision = state.lock().map(|guard| guard.pictures_can_go()).unwrap_or(false);
         let words = call.arguments.clone();
+        let chat_id = chat.to_string();
         let stop_watch = watch.clone();
-        let made = match crate::util::within(&watch, move || crate::agentic::computer_run(&words, vision, &stop_watch)) {
-            Some(made) => made,
-            None => crate::agentic::ComputerResult {
-                report: tools::Report { ok: false, output: String::from("The computer action was stopped or timed out.") },
+        let made = if !enabled {
+            crate::agentic::ComputerResult {
+                report: tools::Report {
+                    ok: false,
+                    output: String::from("Computer use was turned off before this action began."),
+                },
                 image: None,
-            },
+            }
+        } else {
+            match crate::util::within(&watch, move || {
+                crate::agentic::computer_run(&words, &chat_id, vision, &stop_watch)
+            }) {
+                Some(made) => made,
+                None => crate::agentic::ComputerResult {
+                    report: tools::Report {
+                        ok: false,
+                        output: String::from("The computer action was stopped or timed out."),
+                    },
+                    image: None,
+                },
+            }
         };
         let pictures = made.image.map(|image| attach::save_at(workdir, &[image])).unwrap_or_default();
         let Ok(mut guard) = state.lock() else { return };
