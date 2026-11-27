@@ -54,8 +54,11 @@ fn tool_activity(m: &store::Message, saved: Option<&WorkBlock>, active: bool) ->
 // The state as JSON. The page sends the number it already has (since). When nothing changed,
 // the answer stays small.
 pub fn state(snap: &Snap, since: Option<u64>) -> Value {
-    if since == Some(snap.rev) {
-        return json!({ "unchanged": true, "rev": snap.rev });
+    // Browser tool actions are completed by the visible page. Fold its small session revision
+    // into the poll token so a pending action reaches that page even when chat text is unchanged.
+    let rev = snap.rev.rotate_left(17) ^ crate::agentic::browser_revision(&snap.chat_id);
+    if since == Some(rev) {
+        return json!({ "unchanged": true, "rev": rev });
     }
     let models: Vec<Value> = snap
         .models
@@ -259,7 +262,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         })
         .collect();
     json!({
-        "rev": snap.rev,
+        "rev": rev,
         "unchanged": false,
         "model": {
             "id": snap.model_id,
@@ -295,6 +298,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 })
             }),
         },
+        // Browser tabs belong to the chat, and the Agentic browser panel follows the same
+        // per-chat session as the page reader tool.
+        "browser": crate::agentic::browser_state(&snap.chat_id),
         // The commands a user may write in the chat composer. The list of them pops up when the
         // marker of a command is typed, and each carries what it is for.
         "commands": planning::list(),
@@ -447,6 +453,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "working": snap.working,
         "busy": snap.busy,
         "code": snap.code_enabled,
+        "computer_use_available": snap.computer_use_available,
         // The lines of the drop-down of the badge of the tools. The badge itself is the switch
         // over all of them, so a tool that is switched on here is proposed only while the badge
         // is on. The map is made from the same list the window of the program reads, so a line
@@ -1209,6 +1216,47 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             }
             engine.set_tool_switch(&part, flag(&value, "on"));
             done()
+        }
+        "/api/browser_tab" | "browser_tab" => {
+            let Some(tab) = value.get("tab").and_then(Value::as_u64) else {
+                return refused("Choose a browser tab number.");
+            };
+            if engine.select_browser_tab(tab) {
+                done()
+            } else {
+                refused("That browser tab is no longer available in this chat.")
+            }
+        }
+        "/api/browser_open" | "browser_open" => {
+            let url = text_field(&value, "url");
+            match engine.open_browser_page(&url, flag(&value, "new_tab")) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            }
+        }
+        "/api/browser_history_step" | "browser_history_step" => {
+            match engine.move_browser_history(&text_field(&value, "action")) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            }
+        }
+        "/api/browser_close_tab" | "browser_close_tab" => {
+            let Some(tab) = value.get("tab").and_then(Value::as_u64) else {
+                return refused("Choose a browser tab number.");
+            };
+            match engine.close_browser_tab(tab) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            }
+        }
+        "/api/browser_action_result" | "browser_action_result" => {
+            let id = text_field(&value, "id");
+            let result = value.get("result").cloned().unwrap_or(Value::Null);
+            if !id.is_empty() && engine.resolve_browser_action(&id, result) {
+                done()
+            } else {
+                refused("That browser action is no longer waiting for a result.")
+            }
         }
         "/api/search" | "search" => {
             engine.set_search(flag(&value, "on"));

@@ -2509,6 +2509,8 @@ img.pic { animation: plate-in 180ms ease-out; }
 .menu button.toggle.on .sw { background: var(--accent); }
 .menu button.toggle.on .sw::after { transform: translateX(9px);
   background: var(--on-accent); }
+.menu button.browser-open-row { margin-top: 4px; padding-top: 9px;
+  border-top: 1px solid var(--line); border-radius: 0 0 7px 7px; color: var(--ink); }
 .badge .down { width: 11px; height: 11px; margin-left: 1px; opacity: .65; }
 /*
  * The MCP tab of the settings panel: the rows of the servers, the picker of the icon, and the
@@ -4349,6 +4351,7 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
 </div>
 
 <script src="../frontend/corporate.js?v=8"></script>
+<script src="agentic-browser.js?v=2"></script>
 <script>'use strict';
 
 // The page sends requests to the engine over the small HTTP server of the remote mode. The
@@ -4361,6 +4364,11 @@ function post(path, body) {
     body: JSON.stringify(body || {})
   }).then(function () { poll(); }, function () { poll(); });
 }
+
+window.addEventListener('autumn-agentic-action', function (event) {
+  var action = event.detail || {};
+  if (typeof action.path === 'string') { post(action.path, action.body || {}); }
+});
 
 // The parts of the page that stay in place. Their text is written again on every draw.
 var ids = ['model', 'modelChoice', 'modelChoiceText', 'modelMenu', 'kind', 'repo', 'repoChoice', 'repoChoiceText', 'repoMenu', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
@@ -4547,6 +4555,7 @@ function draw(s) {
   drawContext(s);
   drawProgress(s);
   drawBadges(s);
+  window.dispatchEvent(new CustomEvent('autumn-agentic-state', { detail: s }));
   // The question the model has put to the user is above the chat composer, and the wait it set
   // is counted down under the question.
   drawAsk(s);
@@ -5935,8 +5944,16 @@ function fillAgenticMenu(s) {
   var held = s.tool_switches || {};
   el.agenticmenu.appendChild(toolLine('browser_use', 'Browser use',
     'Search public pages, read their text and links, manage tabs, and read or edit files in this chat’s workspace.', held.browser_use === true));
-  el.agenticmenu.appendChild(toolLine('computer_use', 'Computer use',
+  if (s.computer_use_available !== false) el.agenticmenu.appendChild(toolLine('computer_use', 'Computer use',
     'Requires a vision-enabled model. Lets the model inspect screenshots and control mouse and keyboard on this computer; enable only when you want desktop interaction.', held.computer_use === true));
+  if (held.browser_use === true) {
+    var openBrowser = make('button', 'toggle browser-open-row');
+    openBrowser.type = 'button';
+    openBrowser.setAttribute('data-agentic-browser-open', '');
+    openBrowser.title = 'Open the browser panel and follow the pages the model reads.';
+    openBrowser.appendChild(make('span', 'word', 'Open browser panel'));
+    el.agenticmenu.appendChild(openBrowser);
+  }
 }
 
 function openAgenticMenu() {

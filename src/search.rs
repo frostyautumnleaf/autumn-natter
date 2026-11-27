@@ -405,6 +405,12 @@ fn wiki_places(page: &str) -> Vec<Place> {
 // Get one address, and read what returns. The bytes are stopped at the cap, so a page that goes
 // on for ever does not hold the program.
 fn fetch(address: &str) -> Result<String, String> {
+    fetch_document(address).map(|(_, page)| page)
+}
+
+// Fetch one bounded public page and retain the final address after checked redirects. Browser
+// previews use the same reader as search, so their navigation cannot bypass its URL checks.
+fn fetch_document(address: &str) -> Result<(String, String), String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(20))
@@ -429,7 +435,7 @@ fn fetch(address: &str) -> Result<String, String> {
         let mut bytes: Vec<u8> = Vec::new();
         let mut stream = response.into_reader();
         let _ = stream.by_ref().take(MAX_FETCH_BYTES as u64).read_to_end(&mut bytes);
-        return Ok(String::from_utf8_lossy(&bytes).to_string());
+        return Ok((current.to_string(), String::from_utf8_lossy(&bytes).to_string()));
     }
     Err(String::from("the page redirected too many times"))
 }
@@ -512,8 +518,8 @@ fn to_words(page: &str) -> String {
 }
 
 // A browser snapshot of a page and the links the model may choose to follow.
-pub(crate) fn browser_read(address: &str) -> Result<(String, Vec<(String, String)>), String> {
-    let page = fetch(address)?;
+pub(crate) fn browser_read(address: &str) -> Result<(String, String, Vec<(String, String)>, String), String> {
+    let (final_url, page) = fetch_document(address)?;
     let mut links = Vec::new();
     let mut from = 0usize;
     while links.len() < 30 {
@@ -532,14 +538,14 @@ pub(crate) fn browser_read(address: &str) -> Result<(String, Vec<(String, String
         let label_start = start + end + 1;
         let label = find_ignore(&page[label_start..], "</a").map(|n| &page[label_start..label_start + n]).unwrap_or("");
         let label = first_words(&to_words(label), 160);
-        if let Ok(base) = Url::parse(address) {
+        if let Ok(base) = Url::parse(&final_url) {
             if let Ok(target) = base.join(raw) {
                 links.push((if label.is_empty() { target.as_str().to_string() } else { label }, target.to_string()));
             }
         }
         from = start + end + 1;
     }
-    Ok((to_words(&page), links))
+    Ok((final_url, to_words(&page), links, page))
 }
 
 // The parts of a page that hold nothing a user would want to read, with the marker that closes

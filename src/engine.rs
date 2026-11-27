@@ -452,9 +452,9 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             named(search::partial_words(raw), "the web"),
         ),
         crate::agentic::BROWSER_NAME | crate::agentic::COMPUTER_NAME => (
-            tools::live_arguments(raw),
+            crate::agentic::live_words(name, raw),
             String::new(),
-            String::from("desktop or web action"),
+            String::new(),
         ),
         // The tools of planning name themselves: one writes the whole plan, one changes the
         // plan file of this chat, one reads it back, and one reports the plan is agreed. The
@@ -1246,6 +1246,7 @@ pub struct Snap {
     // these chats, so the user sees where the model is at work while another chat is left open.
     pub working: Vec<String>,
     pub code_enabled: bool,
+    pub computer_use_available: bool,
     // True when the open chat is working in planning mode: the model plans the work and writes
     // it to its plan file, and does none of the work itself.
     pub planning: bool,
@@ -1598,6 +1599,8 @@ pub struct State {
     pub status: String,
     pub ctx_total: u64,
     pub sandbox_available: bool,
+    // A remote page cannot control the computer of its viewer; computer use stays desktop-only.
+    pub computer_use_available: bool,
     pub sandbox_note: String,
     // What the chat template of the current model can do with thinking.
     pub thinking: markdown::ThinkingOptions,
@@ -4276,6 +4279,12 @@ impl State {
         } else {
             0
         };
+        let mut tool_switches = chat
+            .map(|c| c.meta.tools.clone())
+            .unwrap_or_else(|| self.new_tools.clone());
+        if !self.computer_use_available {
+            tool_switches.computer_use = false;
+        }
         Snap {
             model_name: model.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
             planning: chat.map(|c| c.meta.planning).unwrap_or(false),
@@ -4310,9 +4319,8 @@ impl State {
             busy: self.busy,
             model_loaded: self.model_loaded,
             code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(self.new_code),
-            tool_switches: chat
-                .map(|c| c.meta.tools.clone())
-                .unwrap_or_else(|| self.new_tools.clone()),
+            computer_use_available: self.computer_use_available,
+            tool_switches,
             search_enabled: chat
                 .map(|c| c.meta.search_enabled)
                 .unwrap_or(self.new_search),
@@ -4691,6 +4699,7 @@ impl Engine {
             status: String::from("Ready"),
             ctx_total: 0,
             sandbox_available,
+            computer_use_available: true,
             sandbox_note,
             thinking: markdown::ThinkingOptions::default(),
             rev: 0,
@@ -5338,6 +5347,99 @@ impl Engine {
         });
     }
 
+    // Keep the browser panel and the model's per-chat tab in step when the user picks a tab.
+    pub fn select_browser_tab(&self, tab: u64) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        let chat = state.open_id();
+        if !crate::agentic::select_browser_tab(&chat, tab) {
+            return false;
+        }
+        state.touch();
+        true
+    }
+
+    pub fn open_browser_page(&self, url: &str, new_tab: bool) -> Result<(), String> {
+        let chat = {
+            let state = self.state.lock().map_err(|_| String::from("The chat state is busy."))?;
+            let chat = state.open_id();
+            let enabled = state.chat_of(&chat).is_some_and(|one| one.meta.tools.browser_use);
+            if !enabled {
+                return Err(String::from("Turn on Browser use in the tools menu first."));
+            }
+            chat
+        };
+        let made = crate::agentic::open_browser_url(&chat, url, new_tab);
+        if !made.ok {
+            return Err(made.output);
+        }
+        if let Ok(mut state) = self.state.lock() {
+            state.touch();
+        }
+        Ok(())
+    }
+
+    pub fn move_browser_history(&self, action: &str) -> Result<(), String> {
+        if !matches!(action, "back" | "forward" | "reload") {
+            return Err(String::from("Choose back, forward, or reload."));
+        }
+        let chat = {
+            let state = self.state.lock().map_err(|_| String::from("The chat state is busy."))?;
+            let chat = state.open_id();
+            if !state.chat_of(&chat).is_some_and(|one| one.meta.tools.browser_use) {
+                return Err(String::from("Turn on Browser use in the tools menu first."));
+            }
+            chat
+        };
+        let watch = crate::util::Watch::unbounded();
+        let made = crate::agentic::browser_run(&serde_json::json!({"action": action}).to_string(), &chat, std::path::Path::new("."), &watch, false);
+        if !made.ok { return Err(made.output); }
+        if let Ok(mut state) = self.state.lock() { state.touch(); }
+        Ok(())
+    }
+
+    pub fn close_browser_tab(&self, tab: u64) -> Result<(), String> {
+        let chat = {
+            let state = self.state.lock().map_err(|_| String::from("The chat state is busy."))?;
+            let chat = state.open_id();
+            if !state.chat_of(&chat).is_some_and(|one| one.meta.tools.browser_use) {
+                return Err(String::from("Turn on Browser use in the tools menu first."));
+            }
+            chat
+        };
+        let made = crate::agentic::browser_run(
+            &serde_json::json!({"action":"close_tab","tab":tab}).to_string(),
+            &chat,
+            std::path::Path::new("."),
+            &crate::util::Watch::unbounded(),
+            false,
+        );
+        if !made.ok { return Err(made.output); }
+        if let Ok(mut state) = self.state.lock() { state.touch(); }
+        Ok(())
+    }
+
+    pub fn browser_page(&self, tab: u64) -> Option<(String, String)> {
+        let state = self.state.lock().ok()?;
+        let chat = state.open_id();
+        if !state.chat_of(&chat).is_some_and(|one| one.meta.tools.browser_use) {
+            return None;
+        }
+        drop(state);
+        crate::agentic::browser_page(&chat, tab)
+    }
+
+    pub fn resolve_browser_action(&self, id: &str, result: serde_json::Value) -> bool {
+        let Ok(mut state) = self.state.lock() else { return false; };
+        let chat = state.open_id();
+        if !crate::agentic::resolve_browser_action(&chat, id, result) {
+            return false;
+        }
+        state.touch();
+        true
+    }
+
     // One line of the drop-down of the badge of the tools. The badge itself is the switch over
     // all of them, so a tool that is switched on here is proposed only while the badge is on;
     // turning this line off takes the tool out of the chat even when the badge is on. The same
@@ -5346,6 +5448,10 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        if part == "computer_use" && on && !state.computer_use_available {
+            state.set_status("Computer use is available only in the desktop app");
+            return;
+        }
         if matches!(part, "browser_use" | "computer_use") {
             let active_chat = state.chat().map(|chat| chat.meta.id.clone());
             if let Some(chat) = state.chat_mut() {
@@ -7114,6 +7220,16 @@ impl Engine {
         embed::stop();
         let _ = self.jobs.send(Job::Shutdown);
     }
+
+    // Remote pages run on another computer and cannot drive the desktop that hosts this
+    // process. Keep the tool disabled there even when a chat was saved with it enabled.
+    pub fn set_computer_use_available(&mut self, available: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        state.computer_use_available = available;
+        state.touch();
+    }
 }
 
 impl Snap {
@@ -7136,6 +7252,7 @@ impl Snap {
             busy: false,
             model_loaded: false,
             code_enabled: false,
+            computer_use_available: false,
             tool_switches: store::ToolSwitches::default(),
             search_enabled: false,
             rag: RagSnap::default(),
@@ -8574,6 +8691,7 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
         compaction_on,
         goal_on,
         computer_vision,
+        computer_use_available,
     ) = {
         let Ok(guard) = state.lock() else { return None };
         let held = guard.chat_of(chat);
@@ -8589,10 +8707,11 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
             guard.compaction_on(),
             held.as_ref().is_some_and(|c| c.meta.goal.is_some()),
             guard.pictures_can_go(),
+            guard.computer_use_available,
         )
     };
     let mut switches = switches;
-    if !computer_vision {
+    if !computer_vision || !computer_use_available {
         switches.computer_use = false;
     }
     offered_with_goal(
@@ -10783,7 +10902,7 @@ fn run_turn(
         // why the model looks blind at it.
         let pictures = kept.iter().filter(|a| a.image).count();
         if pictures > 0 && !state.pictures_can_go() {
-            state.push_note_in(chat, 
+            state.push_note_in(chat,
                 "The images of this message cannot be shown to this model: turn vision on in the model settings, then send the message again",
                 true,
             );
@@ -10963,7 +11082,7 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, rag_on, planning_on, switches, computer_vision, thought,
+        let (mut history, code_on, search_on, rag_on, planning_on, switches, computer_vision, computer_use_available, thought,
          compaction_on, goal_on, goal_paused) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
@@ -10983,6 +11102,7 @@ fn run_turn(
                     .map(|c| c.meta.tools.clone())
                     .unwrap_or_default(),
                 guard.pictures_can_go(),
+                guard.computer_use_available,
                 guard.thinking_ask(),
                 guard.compaction_on(),
                 guard.chat_of(chat).is_some_and(|one| one.meta.goal.is_some()),
@@ -10990,7 +11110,7 @@ fn run_turn(
             )
         };
         let mut switches = switches;
-        if !computer_vision {
+        if !computer_vision || !computer_use_available {
             switches.computer_use = false;
         }
         // Tool results are the text whose size cannot be known in advance: a command prints what
@@ -11025,7 +11145,7 @@ fn run_turn(
                         "The handoff summary was not written. Start it again from the summarisation timeline",
                     );
                 } else {
-                    guard.push_note_in(chat, 
+                    guard.push_note_in(chat,
                         "The conversation is past the summarisation limit and no space could be made, so the answer ends here. Request the work in parts small enough for the context, or give the model a larger context",
                         false,
                     );
@@ -11576,7 +11696,7 @@ fn run_turn(
                     guard.set_status("Space was created. The model is going on with the answer");
                     continue;
                 }
-                guard.push_note_in(chat, 
+                guard.push_note_in(chat,
                     if room { EMPTY_TURN_TWICE_WORDS } else { EMPTY_TURN_CUT_WORDS },
                     false,
                 );
@@ -12689,9 +12809,11 @@ fn run_program_tool(
         let words = call.arguments.clone();
         let chat_id = chat.to_string();
         let browser_workdir = workdir.to_path_buf();
+        let browser_watch = watch.clone();
+        let vision = state.lock().map(|guard| guard.pictures_can_go()).unwrap_or(false);
         let made = if enabled {
             match crate::util::within(&watch, move || {
-                crate::agentic::browser_run(&words, &chat_id, &browser_workdir)
+                crate::agentic::browser_run(&words, &chat_id, &browser_workdir, &browser_watch, vision)
             }) {
                 Some(made) => made,
                 None => tools::Report {
@@ -12705,21 +12827,33 @@ fn run_program_tool(
                 output: String::from("Browser use was turned off before this action began."),
             }
         };
+        let picture = crate::agentic::take_browser_screenshot(chat);
+        let pictures = picture.map(|image| attach::save_at(workdir, &[image])).unwrap_or_default();
         let Ok(mut guard) = state.lock() else { return };
-        guard.finish_tool_in(chat, &message_id, &made.output, made.ok);
+        guard.finish_tool_with_in(chat, &message_id, &made.output, made.ok, pictures);
         return;
     }
     if call.name == crate::agentic::COMPUTER_NAME {
-        let enabled = state
+        let (enabled, available, vision) = state
             .lock()
-            .ok()
-            .and_then(|guard| guard.chat_of(chat).map(|one| one.meta.tools.computer_use))
-            .unwrap_or(false);
-        let vision = state.lock().map(|guard| guard.pictures_can_go()).unwrap_or(false);
+            .map(|guard| (
+                guard.chat_of(chat).is_some_and(|one| one.meta.tools.computer_use),
+                guard.computer_use_available,
+                guard.pictures_can_go(),
+            ))
+            .unwrap_or((false, false, false));
         let words = call.arguments.clone();
         let chat_id = chat.to_string();
         let stop_watch = watch.clone();
-        let made = if !enabled {
+        let made = if !available {
+            crate::agentic::ComputerResult {
+                report: tools::Report {
+                    ok: false,
+                    output: String::from("Computer use is available only in the desktop app."),
+                },
+                image: None,
+            }
+        } else if !enabled {
             crate::agentic::ComputerResult {
                 report: tools::Report {
                     ok: false,
@@ -13038,7 +13172,7 @@ fn run_program_tool(
         let Ok(mut guard) = state.lock() else { return };
         let held = guard.plan_words().unwrap_or_default();
         if held.trim().is_empty() {
-            guard.finish_tool_in(chat, 
+            guard.finish_tool_in(chat,
                 &message_id,
                 "The plan holds nothing, so it could not be released.",
                 false,
@@ -13046,7 +13180,7 @@ fn run_program_tool(
             return;
         }
         guard.live_mut(chat).plan_pending = Some(held);
-        guard.finish_tool_in(chat, 
+        guard.finish_tool_in(chat,
             &message_id,
             "The plan is released. This conversation ends here, and the plan becomes the first message of the work.",
             true,

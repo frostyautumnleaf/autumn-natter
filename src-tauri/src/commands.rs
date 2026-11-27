@@ -27,6 +27,14 @@ pub async fn get_state(engine: State<'_, Engine>, since: Option<u64>) -> Result<
     Ok(web::state(&snap, since))
 }
 
+#[tauri::command]
+pub async fn get_browser_page(engine: State<'_, Engine>, tab: u64) -> Result<Value, String> {
+    engine
+        .browser_page(tab)
+        .map(|(url, html)| json!({"url": url, "html": html}))
+        .ok_or_else(|| String::from("That browser page is no longer available."))
+}
+
 // One action of the user. The name is the same as the route of the remote page, so the two
 // share the mapping in web::action.
 #[tauri::command]

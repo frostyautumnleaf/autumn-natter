@@ -22,6 +22,7 @@ pub fn run(cfg: Config) -> Result<(), String> {
 
     let local_commands = tauri::generate_handler![
         commands::get_state,
+        commands::get_browser_page,
         commands::action,
         commands::connect_remote,
         commands::get_attachment,
