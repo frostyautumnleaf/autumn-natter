@@ -49,6 +49,19 @@
     .agentic-browser-approval-actions button { min-width: 84px; padding: 7px 12px; border: 1px solid var(--line);
       border-radius: 7px; background: var(--surface-2); color: var(--text); cursor: pointer; }
     .agentic-browser-approval-actions [data-browser-approve="yes"] { border-color: var(--accent-line); background: var(--accent); color: var(--on-accent); }
+    .agentic-computer-approval { position: fixed; z-index: 100000; inset: 0; display: grid; place-items: center;
+      padding: 20px; background: rgba(0,0,0,.68); }
+    .agentic-computer-approval.hidden { display: none; }
+    .agentic-computer-approval-card { width: min(560px, 100%); max-height: min(80vh, 700px); display: flex;
+      flex-direction: column; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 12px;
+      background: var(--surface); color: var(--text); box-shadow: 0 20px 70px rgba(0,0,0,.45); }
+    .agentic-computer-approval-card pre { overflow: auto; max-height: 55vh; white-space: pre-wrap; overflow-wrap: anywhere;
+      margin: 0; padding: 12px; border-radius: 8px; background: var(--surface-2); font: inherit; }
+    .agentic-computer-approval-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .agentic-computer-approval-actions button { min-width: 84px; padding: 8px 12px; border: 1px solid var(--line);
+      border-radius: 7px; background: var(--surface-2); color: var(--text); cursor: pointer; }
+    .agentic-computer-approval-actions [data-computer-approval="yes"] { border-color: var(--accent-line);
+      background: var(--accent); color: var(--on-accent); }
     @media (max-width: 700px) { .agentic-browser-panel { inset: 8px; width: auto; } }
     @media (max-width: 540px) {
       .agentic-browser-label { display: none; }
@@ -78,6 +91,17 @@
     '<div class="agentic-browser-approval hidden" role="dialog" aria-modal="true" aria-label="Approve browser action"><strong>Review browser action</strong><pre></pre><div class="agentic-browser-approval-actions"><button type="button" data-browser-approve="no">Deny</button><button type="button" data-browser-approve="yes">Allow</button></div></div>';
   document.body.appendChild(root);
 
+  var computerApproval = document.createElement('div');
+  computerApproval.className = 'agentic-computer-approval hidden';
+  computerApproval.setAttribute('role', 'dialog');
+  computerApproval.setAttribute('aria-modal', 'true');
+  computerApproval.setAttribute('aria-label', 'Approve computer use');
+  computerApproval.innerHTML = '<div class="agentic-computer-approval-card"><strong>Allow computer use?</strong>' +
+    '<p>The model is asking to control your desktop. Review the actions before continuing.</p>' +
+    '<pre></pre><div class="agentic-computer-approval-actions"><button type="button" data-computer-approval="no">Deny</button>' +
+    '<button type="button" data-computer-approval="yes">Allow</button></div></div>';
+  document.body.appendChild(computerApproval);
+
   var address = root.querySelector('.agentic-browser-address');
   var tabs = root.querySelector('.agentic-browser-tabs');
   var frame = root.querySelector('.agentic-browser-frame');
@@ -87,22 +111,37 @@
   var approval = root.querySelector('.agentic-browser-approval');
   var approvalText = approval.querySelector('pre');
   var approvalId = '';
+  var nativeApproval = null;
+  var invokeNative = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
   var currentKey = '';
   var currentUrl = '';
   var newTab = false;
   var lastActiveUrl = '';
   var latest = null;
   var currentPending = null;
+  var computerApprovalId = '';
+  var computerApprovalSent = false;
   var pagePort = null;
   var sentActions = new Set();
 
   function open() {
     root.classList.remove('hidden');
-    if (latest) { render(latest, false); }
+    if (latest) {
+      render(latest, false);
+      if (invokeNative) {
+        var tab = Number((latest.browser || {}).active) || 0;
+        if (tab) { syncNativeWindow(tab, true); }
+      }
+    }
   }
   function denyApproval() {
     if (!approvalId) { return; }
-    if (pagePort) { pagePort.postMessage({ type: 'autumn-browser-approval', id: approvalId, approved: false }); }
+    if (nativeApproval) {
+      answerBrowserAction(approvalId, { ok: false, error: 'The user declined the browser action.' });
+      nativeApproval = null;
+    } else if (pagePort) {
+      pagePort.postMessage({ type: 'autumn-browser-approval', id: approvalId, approved: false });
+    }
     approvalId = '';
     approvalText.textContent = '';
     approval.classList.add('hidden');
@@ -112,6 +151,10 @@
     if (currentPending) {
       answerBrowserAction(currentPending.id, { ok: false, error: 'The user closed the browser panel and stopped this action.' });
       currentPending = null;
+    }
+    if (invokeNative && latest) {
+      var tab = Number((latest.browser || {}).active) || 0;
+      if (tab) { syncNativeWindow(tab, false); }
     }
     root.classList.add('hidden');
   }
@@ -128,7 +171,7 @@
     currentPending = browser.pending_action && typeof browser.pending_action.id === 'string'
       ? browser.pending_action : null;
     if (!currentPending && approvalId) { denyApproval(); }
-    if (currentPending) { open(); }
+    if (currentPending && root.classList.contains('hidden')) { open(); }
     tabs.replaceChildren();
     list.forEach(function (tab, index) {
       var url = validUrl((tab && tab.url) || '');
@@ -139,8 +182,8 @@
       button.type = 'button';
       button.className = 'agentic-browser-tab' + (active === index + 1 ? ' active' : '');
       button.setAttribute('role', 'tab');
-      button.textContent = (index + 1) + ' · ' + url;
-      button.title = url;
+      button.textContent = (index + 1) + ' · ' + ((tab && tab.title) ? String(tab.title).slice(0, 80) + ' — ' : '') + url;
+      button.title = ((tab && tab.title) ? String(tab.title) + '\n' : '') + url;
       button.addEventListener('click', function () {
         window.dispatchEvent(new CustomEvent('autumn-agentic-action', {
           detail: { path: 'browser_tab', body: { tab: index + 1 } }
@@ -185,6 +228,7 @@
       empty.classList.remove('hidden');
       empty.textContent = 'Enable Browser use, then enter a public web address or ask the model to open one.';
       lastActiveUrl = '';
+      if (invokeNative) { syncNativeWindow(active || 1, false); }
       return;
     }
     if (document.activeElement !== address) { address.value = nextUrl; }
@@ -195,6 +239,7 @@
     } else {
       sendPendingAction();
     }
+    if (invokeNative && !root.classList.contains('hidden')) { syncNativeWindow(active, true); }
     lastActiveUrl = nextUrl;
   }
   function safeDocument(html, url) {
@@ -291,10 +336,35 @@
     currentKey = key;
     currentUrl = safe;
     address.value = safe;
-    empty.textContent = 'Loading a safe, read-only preview…';
+    empty.textContent = invokeNative
+      ? 'The live page is open in the browser panel. Browser actions use that page.'
+      : 'Loading a safe, read-only preview…';
     empty.classList.remove('hidden');
     frame.classList.add('hidden');
-    requestPage(tab, safe, key);
+    if (invokeNative) {
+      empty.classList.add('hidden');
+      frame.classList.remove('hidden');
+      syncNativeWindow(tab, true);
+    } else { requestPage(tab, safe, key); }
+  }
+
+  function syncNativeWindow(tab, visible) {
+    if (!invokeNative || !tab) { return; }
+    var rect = frame.getBoundingClientRect();
+    invokeNative('browser_window_sync', {
+      tab: tab,
+      visible: !!visible,
+      x: Math.max(0, rect.left),
+      y: Math.max(0, rect.top),
+      width: Math.max(1, rect.width),
+      height: Math.max(1, rect.height)
+    }).catch(function (error) {
+      if (!root.classList.contains('hidden')) {
+        empty.textContent = 'The native browser page could not open: ' + String(error && error.message || error);
+        empty.classList.remove('hidden');
+        frame.classList.add('hidden');
+      }
+    });
   }
 
   function navigateAddress() {
@@ -309,10 +379,41 @@
   }
 
   function sendPendingAction() {
-    if (!currentPending || !pagePort || root.classList.contains('hidden')) { return; }
+    if (!currentPending || root.classList.contains('hidden')) { return; }
     if (sentActions.has(currentPending.id)) { return; }
     sentActions.add(currentPending.id);
     if (sentActions.size > 256) { sentActions.delete(sentActions.values().next().value); }
+    if (invokeNative) {
+      var tab = Number(((latest || {}).browser || {}).active) || 0;
+      var id = currentPending.id;
+      var action = currentPending.action;
+      invokeNative('browser_window_action', {
+        tab: tab, action: action, approved: false, allowDownload: false, downloadUrl: null
+      })
+        .then(function (result) {
+          if (!result || typeof result !== 'object') {
+            answerBrowserAction(id, { ok: false, error: 'The native browser returned no action result.' });
+          } else if (result.approval_required === true) {
+            nativeApproval = {
+              id: id,
+              action: action,
+              tab: tab,
+              allowDownload: result.allow_download === true,
+              downloadUrl: typeof result.download_url === 'string' ? result.download_url : null
+            };
+            approvalId = id;
+            approvalText.textContent = String(result.approval || 'Allow this browser action?');
+            approval.classList.remove('hidden');
+          } else {
+            answerBrowserAction(id, result);
+          }
+        })
+        .catch(function (error) {
+          answerBrowserAction(id, { ok: false, error: String(error && error.message || error) });
+        });
+      return;
+    }
+    if (!pagePort) { return; }
     pagePort.postMessage({ type: 'autumn-browser-command', id: currentPending.id, action: currentPending.action });
   }
 
@@ -332,7 +433,50 @@
     }));
   }
 
+  function updateComputerApproval(state) {
+    var pending = state && state.computer_use_available ? state.computer_approval : null;
+    if (!pending || !pending.id) {
+      computerApprovalId = '';
+      computerApprovalSent = false;
+      computerApproval.classList.add('hidden');
+      return;
+    }
+    if (pending.id === computerApprovalId && computerApprovalSent) { return; }
+    if (pending.id !== computerApprovalId) {
+      computerApprovalId = String(pending.id);
+      computerApprovalSent = false;
+      computerApproval.querySelector('pre').textContent = String(pending.message || 'Allow this desktop action?');
+    }
+    computerApproval.classList.remove('hidden');
+  }
+
+  function showDownloadNotice(event) {
+    var payload = event && event.payload;
+    if (!payload || !payload.message) { return; }
+    empty.textContent = String(payload.message) + (payload.path ? ' ' + String(payload.path) : '');
+    empty.classList.remove('hidden');
+  }
+  var eventApi = window.__TAURI__ && window.__TAURI__.event;
+  if (invokeNative && eventApi && eventApi.listen) {
+    eventApi.listen('agentic-browser-download', showDownloadNotice);
+  }
+
   document.addEventListener('click', function (event) {
+    var computerButton = event.target && event.target.closest
+      ? event.target.closest('[data-computer-approval]') : null;
+    if (computerButton && computerApprovalId && !computerApprovalSent) {
+      computerApprovalSent = true;
+      computerApproval.querySelectorAll('button').forEach(function (button) { button.disabled = true; });
+      window.dispatchEvent(new CustomEvent('autumn-agentic-action', {
+        detail: { path: 'computer_approval_result', body: {
+          id: computerApprovalId,
+          approved: computerButton.getAttribute('data-computer-approval') === 'yes'
+        } }
+      }));
+      computerApproval.classList.add('hidden');
+      computerApproval.querySelectorAll('button').forEach(function (button) { button.disabled = false; });
+      return;
+    }
     var target = event.target && event.target.closest ? event.target.closest('[data-agentic-browser-open]') : null;
     if (target) {
       event.preventDefault();
@@ -354,8 +498,26 @@
     if (event.target === root.querySelector('[data-browser-go]')) { navigateAddress(); }
     var approvalButton = event.target && event.target.closest ? event.target.closest('[data-browser-approve]') : null;
     if (approvalButton && approvalId) {
-      if (pagePort) { pagePort.postMessage({ type: 'autumn-browser-approval', id: approvalId,
-        approved: approvalButton.getAttribute('data-browser-approve') === 'yes' }); }
+      var approved = approvalButton.getAttribute('data-browser-approve') === 'yes';
+      if (nativeApproval) {
+        var pending = nativeApproval;
+        nativeApproval = null;
+        if (approved) {
+          invokeNative('browser_window_action', {
+            tab: pending.tab,
+            action: pending.action,
+            approved: true,
+            allowDownload: pending.allowDownload,
+            downloadUrl: pending.downloadUrl
+          })
+            .then(function (result) { answerBrowserAction(pending.id, result || { ok: false, error: 'The browser returned no action result.' }); })
+            .catch(function (error) { answerBrowserAction(pending.id, { ok: false, error: String(error && error.message || error) }); });
+        } else {
+          answerBrowserAction(pending.id, { ok: false, error: 'The user declined the browser action.' });
+        }
+      } else if (pagePort) {
+        pagePort.postMessage({ type: 'autumn-browser-approval', id: approvalId, approved: approved });
+      }
       approvalId = '';
       approvalText.textContent = '';
       approval.classList.add('hidden');
@@ -376,12 +538,26 @@
   window.addEventListener('autumn-agentic-state', function (event) {
     if (!event.detail || typeof event.detail !== 'object') { return; }
     latest = event.detail;
+    updateComputerApproval(latest);
     if (!((latest.tool_switches || {}).browser_use)) { close(); return; }
     var browser = latest.browser || {};
     var page = Array.isArray(browser.tabs) ? browser.tabs[(Number(browser.active) || 0) - 1] : null;
     var nextUrl = validUrl((page && page.url) || '');
     render(latest, !!nextUrl && nextUrl !== lastActiveUrl && !!latest.generating);
   });
+  var layoutPending = false;
+  function syncBrowserLayout() {
+    if (layoutPending || !invokeNative || root.classList.contains('hidden')) { return; }
+    layoutPending = true;
+    requestAnimationFrame(function () {
+      layoutPending = false;
+      var tab = Number(((latest || {}).browser || {}).active) || 0;
+      if (tab) { syncNativeWindow(tab, true); }
+    });
+  }
+  window.addEventListener('resize', syncBrowserLayout, { passive: true });
+  window.addEventListener('scroll', syncBrowserLayout, { passive: true, capture: true });
+  if (typeof ResizeObserver === 'function') { new ResizeObserver(syncBrowserLayout).observe(root); }
   function handleBrowserPageMessage(event) {
     if (!event.data) { return; }
     if (event.data.type === 'autumn-browser-result') {

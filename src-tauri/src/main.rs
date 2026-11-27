@@ -6,6 +6,7 @@
 //
 // Run with --help to see the arguments.
 
+mod browser_proxy;
 mod commands;
 mod desktop;
 

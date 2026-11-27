@@ -5430,10 +5430,45 @@ impl Engine {
         crate::agentic::browser_page(&chat, tab)
     }
 
+    pub fn note_browser_navigation(&self, chat: &str, tab: u64, url: &str) -> Result<(), String> {
+        if crate::agentic::note_browser_navigation(chat, tab, url)? {
+            if let Ok(mut state) = self.state.lock() {
+                state.touch();
+            }
+        }
+        Ok(())
+    }
+
+    pub fn note_browser_title(&self, chat: &str, tab: u64, title: &str) {
+        if crate::agentic::note_browser_title(chat, tab, title) {
+            if let Ok(mut state) = self.state.lock() {
+                state.touch();
+            }
+        }
+    }
+
+    pub fn note_browser_new_tab(&self, chat: &str, url: &str) -> Result<(), String> {
+        crate::agentic::note_browser_new_tab(chat, url)?;
+        if let Ok(mut state) = self.state.lock() {
+            state.touch();
+        }
+        Ok(())
+    }
+
     pub fn resolve_browser_action(&self, id: &str, result: serde_json::Value) -> bool {
         let Ok(mut state) = self.state.lock() else { return false; };
         let chat = state.open_id();
         if !crate::agentic::resolve_browser_action(&chat, id, result) {
+            return false;
+        }
+        state.touch();
+        true
+    }
+
+    pub fn resolve_computer_approval(&self, id: &str, approved: bool) -> bool {
+        let Ok(mut state) = self.state.lock() else { return false; };
+        let chat = state.open_id();
+        if !crate::agentic::resolve_computer_approval(&chat, id, approved) {
             return false;
         }
         state.touch();

@@ -442,7 +442,7 @@ fn fetch_document(address: &str) -> Result<(String, String), String> {
 
 // Never let a page reader reach the local machine or private network, including after redirects.
 fn validate_public_url(url: &Url) -> Result<(), String> {
-    use std::net::{IpAddr, ToSocketAddrs};
+    use std::net::ToSocketAddrs;
     if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty() || url.password().is_some() {
         return Err(String::from("only public http and https addresses can be opened"));
     }
@@ -457,28 +457,88 @@ fn validate_public_url(url: &Url) -> Result<(), String> {
     let mut found = false;
     for address in addresses {
         found = true;
-        let public = match address.ip() {
-            IpAddr::V4(ip) => {
-                let b = ip.octets();
-                !ip.is_private() && !ip.is_loopback() && !ip.is_link_local() && !ip.is_broadcast()
-                    && !ip.is_unspecified() && !ip.is_multicast() && b[0] != 0 && b[0] < 224
-                    && !(b[0] == 100 && (64..=127).contains(&b[1]))
-                    && !(b[0] == 192 && b[1] == 0 && b[2] == 2)
-                    && !(b[0] == 198 && (b[1] == 18 || b[1] == 19 || b[1] == 51 && b[2] == 100))
-                    && !(b[0] == 203 && b[1] == 0 && b[2] == 113)
-            }
-            IpAddr::V6(ip) => {
-                let b = ip.octets();
-                !ip.is_loopback() && !ip.is_unspecified() && !ip.is_multicast()
-                    && !ip.is_unique_local() && !ip.is_unicast_link_local()
-                    && ip.to_ipv4_mapped().is_none()
-                    && !(b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8)
-            }
-        };
-        if !public { return Err(String::from("local network addresses are not available to web tools")); }
+        if !public_ip(address.ip()) {
+            return Err(String::from(
+                "local network addresses are not available to web tools",
+            ));
+        }
     }
     if !found { return Err(String::from("the host has no public address")); }
     Ok(())
+}
+
+/// Whether an address is globally routable enough for a browser or page-reader request.
+pub fn public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => {
+            let [a, b, c, _] = ip.octets();
+            !ip.is_private()
+                && !ip.is_loopback()
+                && !ip.is_link_local()
+                && !ip.is_broadcast()
+                && !ip.is_unspecified()
+                && !ip.is_multicast()
+                && a != 0
+                && a < 224
+                && !(a == 100 && (64..=127).contains(&b))
+                && !(a == 192 && b == 0 && c == 0)
+                && !(a == 192 && b == 0 && c == 2)
+                && !(a == 192 && b == 88 && c == 99)
+                && !(a == 198 && (b == 18 || b == 19 || b == 51 && c == 100))
+                && !(a == 203 && b == 0 && c == 113)
+        }
+        std::net::IpAddr::V6(ip) => {
+            let segments = ip.segments();
+            let globally_routed = (segments[0] & 0xe000) == 0x2000;
+            globally_routed
+                && !ip.is_multicast()
+                && !ip.is_loopback()
+                && !ip.is_unspecified()
+                && !ip.is_unique_local()
+                && !ip.is_unicast_link_local()
+                && ip.to_ipv4_mapped().is_none()
+                // Special-purpose 2001::/23 assignments and the 6to4 and documentation ranges.
+                && !(segments[0] == 0x2001 && segments[1] <= 0x01ff)
+                && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
+                && segments[0] != 0x2002
+                && !(segments[0] == 0x3fff && segments[1] <= 0x0fff)
+        }
+    }
+}
+
+// The native browser shares the page reader's public-address rule for top-level navigation.
+pub fn validate_public_browser_url(address: &str) -> Result<Url, String> {
+    let url = Url::parse(address).map_err(|_| String::from("invalid URL"))?;
+    validate_public_url(&url)?;
+    Ok(url)
+}
+
+/// Parse a browser navigation without resolving DNS on the GUI thread. Actual requests still go
+/// through the checked browser proxy, which resolves the host and rejects private destinations.
+pub fn parse_public_browser_url(address: &str) -> Result<Url, String> {
+    let url = Url::parse(address).map_err(|_| String::from("invalid URL"))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(String::from("only public http and https addresses can be opened"));
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| String::from("the address has no host"))?;
+    let low = host.trim_end_matches('.').to_ascii_lowercase();
+    if low == "localhost"
+        || low.ends_with(".localhost")
+        || low.ends_with(".local")
+        || low == "metadata.google.internal"
+        || low.ends_with(".internal")
+    {
+        return Err(String::from("local network addresses are not available to web tools"));
+    }
+    if matches!(url.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_))) {
+        validate_public_url(&url)?;
+    }
+    Ok(url)
 }
 
 // The text of a page of markers. The parts that hold no text for a user are dropped whole: the
@@ -880,6 +940,32 @@ fn clean(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browser_navigation_only_accepts_public_http_addresses() {
+        assert_eq!(
+            parse_public_browser_url("https://example.org/path?q=one")
+                .unwrap()
+                .as_str(),
+            "https://example.org/path?q=one"
+        );
+        for address in [
+            "file:///etc/passwd",
+            "ftp://example.org/",
+            "http://localhost/",
+            "http://service.local/",
+            "http://127.0.0.1/",
+            "http://192.168.1.1/",
+            "http://[::1]/",
+            "https://user:secret@example.org/",
+        ] {
+            assert!(parse_public_browser_url(address).is_err(), "{address}");
+        }
+        assert!(public_ip("2001:4860:4860::8888".parse().unwrap()));
+        assert!(!public_ip("64:ff9b::c0a8:101".parse().unwrap()));
+        assert!(!public_ip("2001:db8::1".parse().unwrap()));
+        assert!(!public_ip("192.0.0.1".parse().unwrap()));
+    }
 
     #[test]
     fn the_call_needs_one_of_the_two_things() {

@@ -7,17 +7,47 @@
 // Result, so each one does. None of them fail on purpose: a bad value answers with a small "not
 // ok" record, and the window reads the state again.
 
-use std::path::Path;
+use std::sync::mpsc;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+use std::{hash::Hash, hash::Hasher};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, State, WebviewBuilder,
+    WebviewUrl,
+};
 
 use autumn_natter_core::attach;
 
 use autumn_natter_core::engine::Engine;
 use autumn_natter_core::logs;
 use autumn_natter_core::web;
+
+static BROWSER_DOWNLOAD_GRANTS: OnceLock<
+    Mutex<std::collections::HashMap<String, (std::time::Instant, String)>>,
+> = OnceLock::new();
+static BROWSER_VIEWPORTS: OnceLock<Mutex<std::collections::HashMap<String, BrowserViewport>>> =
+    OnceLock::new();
+static BROWSER_SCREENSHOT_SIZES: OnceLock<
+    Mutex<std::collections::HashMap<String, (u32, u32)>>,
+> = OnceLock::new();
+static BROWSER_COORDINATE_SCALES: OnceLock<
+    Mutex<std::collections::HashMap<String, (f64, f64)>>,
+> = OnceLock::new();
+static BROWSER_VISIBLE: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+static BROWSER_NAVIGATION_PENDING: OnceLock<
+    Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
+> = OnceLock::new();
+
+#[derive(Clone, Copy, PartialEq)]
+struct BrowserViewport {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
 
 // The state as JSON. The page sends the number it already has (since). When nothing changed,
 // the answer stays small.
@@ -33,6 +63,523 @@ pub async fn get_browser_page(engine: State<'_, Engine>, tab: u64) -> Result<Val
         .browser_page(tab)
         .map(|(url, html)| json!({"url": url, "html": html}))
         .ok_or_else(|| String::from("That browser page is no longer available."))
+}
+
+#[tauri::command]
+pub async fn browser_window_sync(
+    app: AppHandle,
+    engine: State<'_, Engine>,
+    tab: u64,
+    visible: bool,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<Value, String> {
+    let snap = engine.snapshot();
+    if tab == 0 {
+        return Err(String::from("Choose a one-based browser tab number."));
+    }
+    let label = native_browser_label(&snap.chat_id, tab);
+    let visible_views = BROWSER_VISIBLE.get_or_init(|| Mutex::new(std::collections::HashSet::new()));
+    for (one, view) in app.webviews() {
+        if one.starts_with("agentic-browser-") && one != label {
+            let _ = view.hide();
+            if let Ok(mut shown) = visible_views.lock() {
+                shown.remove(&one);
+            }
+        }
+    }
+    let Some((address, _)) = engine.browser_page(tab) else {
+        if let Some(view) = app.get_webview(&label) {
+            let _ = view.hide();
+        }
+        if let Ok(mut shown) = visible_views.lock() {
+            shown.remove(&label);
+        }
+        return if visible {
+            Err(String::from("Turn on Browser use and open a page first."))
+        } else {
+            Ok(json!({"ok": true}))
+        };
+    };
+    if !visible {
+        if let Some(view) = app.get_webview(&label) {
+            view.hide().map_err(|problem| problem.to_string())?;
+        }
+        if let Ok(mut shown) = visible_views.lock() {
+            shown.remove(&label);
+        }
+        return Ok(json!({"ok": true}));
+    }
+    if ![x, y, width, height].iter().all(|value| value.is_finite())
+        || x < 0.0
+        || y < 0.0
+        || width < 1.0
+        || height < 1.0
+        || width > 20_000.0
+        || height > 20_000.0
+    {
+        return Err(String::from("The browser panel has invalid page bounds."));
+    }
+    let viewport = BrowserViewport {
+        x,
+        y,
+        width,
+        height,
+    };
+    let previous = BROWSER_VIEWPORTS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .map_err(|_| String::from("The browser panel state is busy."))?
+        .insert(label.clone(), viewport);
+    let screenshot_size = BROWSER_SCREENSHOT_SIZES.get().and_then(|sizes| {
+        sizes.lock().ok()?.get(&label).copied()
+    });
+    if let Some((image_width, image_height)) = screenshot_size {
+        if image_width > 0 && image_height > 0 {
+            if let Ok(mut scales) = BROWSER_COORDINATE_SCALES
+                .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+                .lock()
+            {
+                scales.insert(
+                    label.clone(),
+                    (width / f64::from(image_width), height / f64::from(image_height)),
+                );
+            }
+        }
+    }
+    let was_visible = visible_views
+        .lock()
+        .map_err(|_| String::from("The browser panel state is busy."))?
+        .contains(&label);
+    let position = LogicalPosition::new(x, y);
+    let size = LogicalSize::new(width, height);
+    if let Some(view) = app.get_webview(&label) {
+        let target = tauri::Url::parse(&address).map_err(|problem| problem.to_string())?;
+        let current = view.url().map_err(|problem| problem.to_string())?;
+        let pending_navigation = BROWSER_NAVIGATION_PENDING
+            .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+            .lock()
+            .ok()
+            .and_then(|mut pending| {
+                pending.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
+                let match_target = pending
+                    .get(&label)
+                    .is_some_and(|(url, _)| url == target.as_str());
+                if current == target {
+                    pending.remove(&label);
+                }
+                Some(match_target)
+            })
+            .unwrap_or(false);
+        if current != target && !pending_navigation {
+            view.navigate(target.clone())
+                .map_err(|problem| problem.to_string())?;
+        }
+        if previous != Some(viewport) {
+            view.set_bounds(Rect {
+                position: LogicalPosition::new(x, y).into(),
+                size: LogicalSize::new(width, height).into(),
+            })
+                .map_err(|problem| problem.to_string())?;
+        }
+        if !was_visible {
+            view.show().map_err(|problem| problem.to_string())?;
+            visible_views
+                .lock()
+                .map_err(|_| String::from("The browser panel state is busy."))?
+                .insert(label.clone());
+        }
+        return Ok(json!({"ok": true, "url": address}));
+    }
+
+    let target = autumn_natter_core::search::validate_public_browser_url(&address)?;
+    let navigation_app = app.clone();
+    let navigation_chat = snap.chat_id.clone();
+    let navigation_label = label.clone();
+    let title_chat = snap.chat_id.clone();
+    let popup_app = app.clone();
+    let popup_chat = snap.chat_id.clone();
+    let proxy = crate::browser_proxy::address()?;
+    let proxy_url = tauri::Url::parse(&format!("http://{proxy}"))
+        .map_err(|problem| format!("Could not configure the safe browser proxy: {problem}"))?;
+    let download_app = app.clone();
+    let download_label = label.clone();
+    let builder = WebviewBuilder::new(&label, WebviewUrl::External(target))
+        .focused(false)
+        .proxy_url(proxy_url)
+        .on_navigation(move |target| {
+            let Ok(target) = autumn_natter_core::search::parse_public_browser_url(target.as_str()) else {
+                return false;
+            };
+            let accepted = navigation_app
+                .try_state::<Engine>()
+                .is_some_and(|engine| {
+                    engine
+                        .note_browser_navigation(&navigation_chat, tab, target.as_str())
+                        .is_ok()
+                });
+            if accepted {
+                if let Ok(mut pending) = BROWSER_NAVIGATION_PENDING
+                    .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+                    .lock()
+                {
+                    pending.insert(
+                        navigation_label.clone(),
+                        (target.to_string(), std::time::Instant::now()),
+                    );
+                }
+            }
+            accepted
+        })
+        .on_document_title_changed(move |view, title| {
+            let title = title
+                .chars()
+                .filter(|ch| !ch.is_control())
+                .take(100)
+                .collect::<String>();
+            if let Some(engine) = view.app_handle().try_state::<Engine>() {
+                engine.note_browser_title(&title_chat, tab, &title);
+            }
+        })
+        .on_download(move |webview, event| match event {
+            tauri::webview::DownloadEvent::Requested { url, destination } => {
+                let approved = BROWSER_DOWNLOAD_GRANTS
+                    .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+                    .lock()
+                    .ok()
+                    .and_then(|mut grants| grants.remove(&download_label))
+                    .is_some_and(|(at, approved_url)| {
+                        at.elapsed() < Duration::from_secs(5)
+                            && approved_url.as_str() == url.as_str()
+                    });
+                if !approved {
+                    let _ = webview.app_handle().emit("agentic-browser-download", json!({
+                        "url": url.as_str(), "saved": false, "message": "A page tried to download a file without an approved browser action. The download was blocked."
+                    }));
+                    return false;
+                }
+                let Ok(directory) = download_app.path().download_dir() else {
+                    return false;
+                };
+                if std::fs::create_dir_all(&directory).is_err() {
+                    return false;
+                }
+                let requested = destination
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| String::from("download"));
+                *destination = unique_download_path(&directory, &requested);
+                true
+            }
+            tauri::webview::DownloadEvent::Finished { url, path, success } => {
+                let _ = download_app.emit("agentic-browser-download", json!({
+                    "url": url.as_str(), "saved": success,
+                    "path": path.map(|path| path.to_string_lossy().into_owned()).unwrap_or_default(),
+                    "message": if success { "Browser download finished." } else { "Browser download failed." }
+                }));
+                true
+            }
+            _ => false,
+        })
+        .on_new_window(move |target, _| {
+            let result = autumn_natter_core::search::parse_public_browser_url(target.as_str())
+                .and_then(|target| {
+                    popup_app
+                        .try_state::<Engine>()
+                        .ok_or_else(|| String::from("The browser engine is unavailable."))?
+                        .note_browser_new_tab(&popup_chat, target.as_str())
+                        .map(|_| ())
+                });
+            let _ = result;
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .on_permission_request(|_, _| tauri::webview::PermissionResponse::Deny);
+    let window = app
+        .get_window("main")
+        .ok_or_else(|| String::from("The main application window is unavailable."))?;
+    let view = window
+        .add_child(builder, position, size)
+        .map_err(|problem| problem.to_string())?;
+    view.show().map_err(|problem| problem.to_string())?;
+    visible_views
+        .lock()
+        .map_err(|_| String::from("The browser panel state is busy."))?
+        .insert(label);
+    Ok(json!({"ok": true, "url": address}))
+}
+
+#[tauri::command]
+pub async fn browser_window_action(
+    app: AppHandle,
+    engine: State<'_, Engine>,
+    tab: u64,
+    action: Value,
+    approved: bool,
+    allow_download: bool,
+    download_url: Option<String>,
+) -> Result<Value, String> {
+    let snap = engine.snapshot();
+    let label = native_browser_label(&snap.chat_id, tab);
+    let view = app
+        .get_webview(&label)
+        .ok_or_else(|| String::from("Open the browser panel before using its page."))?;
+    if action["action"] == "screenshot" {
+        let (image, width, height) = native_browser_screenshot(&app, &label)?;
+        return Ok(
+            json!({"ok": true, "title": "", "image": image, "width": width, "height": height,
+            "text": "Screenshot of the visible browser page."}),
+        );
+    }
+    if approved && allow_download && action_may_download(&action) {
+        let download_url = download_url
+            .as_deref()
+            .filter(|url| !url.is_empty() && url.len() <= 4096 && !url.chars().any(char::is_control))
+            .ok_or_else(|| String::from("The approved download URL is missing or invalid."))?;
+        grant_browser_download(&label, download_url);
+    }
+    let (scale_x, scale_y) = BROWSER_COORDINATE_SCALES
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .ok()
+        .and_then(|scales| scales.get(&label).copied())
+        .unwrap_or((1.0, 1.0));
+    let script = browser_action_script(&action, approved, scale_x, scale_y)?;
+    let (send, receive) = mpsc::sync_channel(1);
+    if let Err(problem) = view.eval_with_callback(script, move |result| {
+            let _ = send.send(result);
+        })
+    {
+        if approved && action_may_download(&action) {
+            revoke_browser_download(&label);
+        }
+        return Err(problem.to_string());
+    }
+    let result = match receive.recv_timeout(Duration::from_secs(8)) {
+        Ok(result) => result,
+        Err(_) => {
+            if approved && action_may_download(&action) {
+                revoke_browser_download(&label);
+            }
+            return Err(String::from(
+                "The browser page did not return an action result.",
+            ));
+        }
+    };
+    let parsed: Value = serde_json::from_str(&result).unwrap_or_else(|_| Value::String(result));
+    let parsed = parsed
+        .as_str()
+        .and_then(|inner| serde_json::from_str::<Value>(inner).ok())
+        .unwrap_or(parsed);
+    if approved && action_may_download(&action) && parsed["allow_download"] != true {
+        revoke_browser_download(&label);
+    }
+    Ok(parsed)
+}
+
+fn action_may_download(action: &Value) -> bool {
+    action["action"] == "click"
+}
+
+fn grant_browser_download(label: &str, url: &str) {
+    if let Ok(mut grants) = BROWSER_DOWNLOAD_GRANTS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+    {
+        grants.insert(label.to_string(), (std::time::Instant::now(), url.to_string()));
+        grants.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(5));
+    }
+}
+
+fn revoke_browser_download(label: &str) {
+    if let Some(grants) = BROWSER_DOWNLOAD_GRANTS.get() {
+        if let Ok(mut grants) = grants.lock() {
+            grants.remove(label);
+        }
+    }
+}
+
+fn unique_download_path(directory: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let cleaned = name
+        .chars()
+        .filter(|ch| {
+            !ch.is_control() && !matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        })
+        .take(160)
+        .collect::<String>();
+    let mut cleaned = cleaned.trim_matches([' ', '.']).to_string();
+    if cleaned.is_empty() {
+        cleaned = String::from("download");
+    }
+    let stem = cleaned
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches([' ', '.'])
+        .to_ascii_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            stem.strip_prefix(prefix)
+                .is_some_and(|suffix| {
+                    suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9')
+                })
+        })
+    {
+        cleaned.insert(0, '_');
+    }
+    let name = cleaned.as_str();
+    let candidate = directory.join(name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let path = std::path::Path::new(name);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download");
+    let extension = path.extension().and_then(|value| value.to_str());
+    for number in 1..10_000u32 {
+        let numbered = match extension {
+            Some(extension) => format!("{stem} ({number}).{extension}"),
+            None => format!("{stem} ({number})"),
+        };
+        let candidate = directory.join(numbered);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    directory.join(format!(
+        "download-{}.bin",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |time| time.as_secs())
+    ))
+}
+
+fn native_browser_label(chat: &str, tab: u64) -> String {
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    chat.hash(&mut hash);
+    format!("agentic-browser-{:016x}-{tab}", hash.finish())
+}
+
+fn native_browser_screenshot(
+    app: &AppHandle,
+    label: &str,
+) -> Result<(String, u32, u32), String> {
+    let viewport = BROWSER_VIEWPORTS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .ok()
+        .and_then(|viewports| viewports.get(label).copied())
+        .ok_or_else(|| String::from("The browser page is not positioned in the visible panel."))?;
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| String::from("The main application window is unavailable."))?;
+    let inner = main
+        .inner_position()
+        .map_err(|problem| problem.to_string())?;
+    let scale = main.scale_factor().map_err(|problem| problem.to_string())?;
+    let title = main.title().map_err(|problem| problem.to_string())?;
+    let window = xcap::Window::all()
+        .map_err(|problem| format!("Could not list open windows: {problem}"))?
+        .into_iter()
+        .find(|window| window.pid().ok() == Some(std::process::id()) && window.title().ok().as_deref() == Some(title.as_str()))
+        .ok_or_else(|| {
+            String::from("The application window is not visible to the screenshot service.")
+        })?;
+    let mut image = window
+        .capture_image()
+        .map_err(|problem| format!("Could not capture the browser panel: {problem}"))?;
+    let window_x = window.x().map_err(|problem| problem.to_string())?;
+    let window_y = window.y().map_err(|problem| problem.to_string())?;
+    let left = inner.x - window_x
+        + (viewport.x * scale).round().clamp(0.0, i32::MAX as f64) as i32;
+    let top = inner.y - window_y
+        + (viewport.y * scale).round().clamp(0.0, i32::MAX as f64) as i32;
+    let width = (viewport.width * scale).round().max(1.0) as u32;
+    let height = (viewport.height * scale).round().max(1.0) as u32;
+    if left < 0
+        || top < 0
+        || width == 0
+        || height == 0
+        || left as u32 + width > image.width()
+        || top as u32 + height > image.height()
+        || u64::from(width) * u64::from(height) > 24_000_000
+    {
+        return Err(String::from(
+            "The browser panel bounds are outside the application screenshot.",
+        ));
+    }
+    image = image::imageops::crop_imm(&image, left as u32, top as u32, width, height).to_image();
+    let resize = (1_440.0 / f64::from(width.max(height))).min(1.0);
+    let shot_width = (f64::from(width) * resize).round().max(1.0) as u32;
+    let shot_height = (f64::from(height) * resize).round().max(1.0) as u32;
+    if (shot_width, shot_height) != (width, height) {
+        image = image::imageops::resize(
+            &image,
+            shot_width,
+            shot_height,
+            image::imageops::FilterType::Triangle,
+        );
+    }
+    if let Ok(mut sizes) = BROWSER_SCREENSHOT_SIZES
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+    {
+        sizes.insert(label.to_string(), (shot_width, shot_height));
+    }
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, shot_width, shot_height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|problem| problem.to_string())?;
+        writer
+            .write_image_data(image.as_raw())
+            .map_err(|problem| problem.to_string())?;
+    }
+    Ok((
+        format!("data:image/png;base64,{}", STANDARD.encode(bytes)),
+        shot_width,
+        shot_height,
+    ))
+}
+
+fn browser_action_script(
+    action: &Value,
+    approved: bool,
+    scale_x: f64,
+    scale_y: f64,
+) -> Result<String, String> {
+    let action = serde_json::to_string(action).map_err(|problem| problem.to_string())?;
+    Ok(format!(
+        r#"(function(a,approved,scaleX,scaleY){{
+          for(const k of ['x','to_x'])if(Number.isFinite(+a[k]))a[k]=Number(a[k])*scaleX;
+          for(const k of ['y','to_y'])if(Number.isFinite(+a[k]))a[k]=Number(a[k])*scaleY;
+          const clean=(v,n=60000)=>String(v||'').replace(/\s+/g,' ').trim().slice(0,n);
+          const visible=e=>{{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>1&&r.height>1&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0'}};
+          const name=e=>clean(e.getAttribute('aria-label')||e.getAttribute('placeholder')||e.innerText||e.textContent||e.title||e.name||e.tagName.toLowerCase(),180);
+          const role=e=>e.getAttribute('role')||(e.tagName==='A'?'link':e.tagName==='BUTTON'?'button':e.tagName==='SELECT'?'combobox':e.tagName==='INPUT'?(e.type==='checkbox'?'checkbox':e.type==='radio'?'radio':'textbox'):e.tagName==='TEXTAREA'||e.isContentEditable?'textbox':'element');
+          const controls=()=>{{let out=[],refs=new Map(),i=1;for(const e of document.querySelectorAll('a[href],button,input:not([type=hidden]),textarea,select,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[tabindex]')){{if(!visible(e))continue;const ref='r'+i++;refs.set(ref,e);out.push({{ref,role:role(e),name:name(e),href:e.tagName==='A'?e.href:'',type:e.type||'',disabled:!!e.disabled}});if(out.length>=400)break}}window.__autumnNatterBrowserRefs=refs;return out}};
+          const refs=window.__autumnNatterBrowserRefs||new Map(),op=String(a.action||a.op||''),el=refs.get(String(a.ref||''))||((Number.isFinite(+a.x)&&Number.isFinite(+a.y))?document.elementFromPoint(+a.x,+a.y):null);
+          const result=(text,extra={{}})=>Object.assign({{ok:true,title:document.title,text}},extra);
+          const ask=(message,extra={{}})=>Object.assign({{ok:false,approval_required:true,approval:message}},extra);
+          if(op==='snapshot'){{const links=controls();return result((document.body&&document.body.innerText||'').slice(0,a.full_page?80000:30000),{{links}})}}
+          if(op==='find'){{const q=String(a.query||'').toLowerCase(),links=controls().filter(x=>(x.name+' '+x.role).toLowerCase().includes(q)),text=(document.body&&document.body.innerText||'').split(/\n+/).filter(x=>x.toLowerCase().includes(q)).slice(0,12).join('\n');return result(text,{{links}})}}
+          if(op==='evaluate'){{if(!approved)return ask('Run this JavaScript in the current page?\n\n'+String(a.script||''));try{{const value=(new Function(String(a.script||'')))();if(value&&typeof value.then==='function')return {{ok:false,error:'This browser action supports synchronous JavaScript results only.'}};return result(typeof value==='string'?value:JSON.stringify(value))}}catch(e){{return {{ok:false,error:'Page JavaScript failed: '+clean(e&&e.message,500)}}}}}}
+          if(op==='click'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};if((el.type||'').toLowerCase()==='file')return {{ok:false,error:'File uploads are blocked. Ask the user to choose a file themselves.'}};const label=name(el),form=el.form||el.closest&&el.closest('form'),submit=form&&(/^(submit|image)$/i.test(el.type||'')||el.tagName==='BUTTON'),download=el.hasAttribute('download')||/\bdownload\b/i.test(label)||/\.(pdf|zip|gz|tar|7z|rar|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|mp4|mp3)(?:$|[?#])/i.test(el.href||''),external=el.tagName==='A'&&!!el.href&&new URL(el.href).origin!==location.origin;if(!approved&&external&&!download&&!submit)return ask('Open this link in the browser panel?\n'+el.href);if(!approved&&(submit||download||/\b(buy|purchase|pay|place order|send|delete|remove|sign in|log in|subscribe|transfer|publish|submit)\b/i.test(label)))return ask((download?'Download this file?':submit?'Submit this page form?':'Allow this page action?')+'\n'+label+(download?'\n'+el.href:''),download?{{allow_download:true,download_url:el.href}}:{{}});if(approved&&external&&!download&&!submit)return {{ok:true,navigate:el.href,title:document.title,text:'Opened '+label+'.'}};el.click();return result('Clicked '+label+'.',{{allow_download:!!(approved&&download)}})}}
+          if(op==='move'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};el.dispatchEvent(new MouseEvent('mouseover',{{bubbles:true}}));el.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true}}));return result('Moved over '+name(el)+'.')}}
+          if(op==='drag'){{const to=refs.get(String(a.to_ref||''));if(!el||(!to&&(!Number.isFinite(+a.to_x)||!Number.isFinite(+a.to_y))))return {{ok:false,error:'The drag points are no longer valid. Take a fresh snapshot.'}};const s=el.getBoundingClientRect(),t=to?to.getBoundingClientRect():null,sx=s.left+s.width/2,sy=s.top+s.height/2,tx=t?t.left+t.width/2:+a.to_x,ty=t?t.top+t.height/2:+a.to_y;el.dispatchEvent(new MouseEvent('mousedown',{{bubbles:true,clientX:sx,clientY:sy,button:0}}));document.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true,clientX:tx,clientY:ty,button:0}}));document.dispatchEvent(new MouseEvent('mouseup',{{bubbles:true,clientX:tx,clientY:ty,button:0}}));return result('Dragged the page item.')}}
+          if(op==='type'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};if((el.type||'').toLowerCase()==='password'||/password|passcode|card number|security code|payment/i.test(name(el)))return {{ok:false,error:'The browser will not type into password or payment fields.'}};if(!('value'in el)&&!el.isContentEditable)return {{ok:false,error:'That ref is not a text field.'}};if(!approved)return ask((a.submit?'Type this text and submit the form?':'Type this text into '+name(el)+'?')+'\n\n'+String(a.text||''));if(el.isContentEditable)el.textContent=String(a.text||'');else{{const p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,String(a.text||''))}}el.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'insertText',data:String(a.text||'')}}));el.dispatchEvent(new Event('change',{{bubbles:true}}));let submitted=false;if(a.submit){{const f=el.form||el.closest&&el.closest('form');if(f){{f.requestSubmit();submitted=true}}}}return result('Typed into '+name(el)+'.',{{allow_download:submitted}})}}
+          if(op==='select'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};const v=String(a.value||''),detail=name(el)+' → '+v;if(!approved&&/\b(buy|purchase|pay|place order|send|delete|remove|subscribe|transfer|publish|submit|agree|accept|confirm|authorize|authorise)\b/i.test(detail))return ask('Allow this page option?\n'+detail);if(el.tagName==='SELECT'){{const option=Array.from(el.options).find(o=>o.label.toLowerCase()===v.toLowerCase()||o.value===v);if(!option)return {{ok:false,error:'No dropdown option matched.'}};el.value=option.value}}else if(el.type==='checkbox'||el.type==='radio')el.checked=/^(true|yes|1)$/i.test(v);else return {{ok:false,error:'That ref is not a select, checkbox, or radio.'}};el.dispatchEvent(new Event('input',{{bubbles:true}}));el.dispatchEvent(new Event('change',{{bubbles:true}}));return result('Changed '+name(el)+'.')}}
+          if(op==='scroll'){{if(a.ref&&!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};const amount=Math.max(1,Math.min(30,Number(a.amount)||1));if(el)el.scrollIntoView({{block:'center'}});else window.scrollBy({{top:(a.direction==='up'?-1:1)*Math.max(200,innerHeight*.75)*amount,behavior:'instant'}});return result((document.body&&document.body.innerText||'').slice(0,30000),{{links:controls()}})}}
+          if(op==='press'){{const target=el||document.activeElement||document.body,key=String(a.key||'').toLowerCase(),form=target.form||target.closest&&target.closest('form');if((key==='enter'||key==='return')&&form&&!approved)return ask('Submit this page form?\n'+name(target));if((key==='enter'||key==='return')&&form){{form.requestSubmit(target.matches&&target.matches('button[type=submit],input[type=submit]')?target:undefined);return result('Submitted the page form.',{{allow_download:true}})}}if((key==='enter'||key==='return')&&target.matches&&target.matches('a,button,[role=button]')){{target.click();return result('Activated '+name(target)+'.')}}if((key===' '||key==='space')&&target.matches&&target.matches('button,[role=button],input[type=checkbox],input[type=radio]')){{target.click();return result('Activated '+name(target)+'.')}}if(key==='tab'){{const list=Array.from(document.querySelectorAll('a[href],button,input:not([disabled]),textarea,select,[tabindex]:not([tabindex="-1"])')).filter(visible),at=list.indexOf(document.activeElement),next=list[(at+1)%Math.max(1,list.length)];if(next)next.focus();return result('Moved focus to '+(next?name(next):'the next control')+'.')}}if((key==='backspace'||key==='delete')&&(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement)){{const start=target.selectionStart,end=target.selectionEnd,from=start===end?Math.max(0,start-(key==='backspace'?1:0)):start,to=start===end?Math.min(target.value.length,end+(key==='delete'?1:0)):end;target.setRangeText('',from,to,'end');target.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'deleteContentBackward'}}));return result('Edited '+name(target)+'.')}}const map={{return:'Enter',esc:'Escape',space:' ',up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'}};const actual=map[key]||a.key;target.dispatchEvent(new KeyboardEvent('keydown',{{key:actual,bubbles:true,cancelable:true}}));target.dispatchEvent(new KeyboardEvent('keyup',{{key:actual,bubbles:true,cancelable:true}}));return result('Pressed '+clean(actual,20)+'.')}}
+          return {{ok:false,error:'Unsupported native browser action.'}};
+        }})({action},{approved},{scale_x},{scale_y})"#
+    ))
 }
 
 // One action of the user. The name is the same as the route of the remote page, so the two
@@ -148,10 +695,7 @@ pub async fn get_gift(engine: State<'_, Engine>, path: String) -> Result<Value, 
 }
 
 #[tauri::command]
-pub async fn get_gift_zip(
-    engine: State<'_, Engine>,
-    paths: Vec<String>,
-) -> Result<Value, String> {
+pub async fn get_gift_zip(engine: State<'_, Engine>, paths: Vec<String>) -> Result<Value, String> {
     Ok(web::gift_zip_value(&engine, &paths))
 }
 
@@ -382,7 +926,9 @@ pub fn clipboard_take() -> Result<Value, String> {
     // another thread answers that it did nothing, rather than ask GTK of a thread it does not
     // belong to.
     if !gtk::glib::MainContext::default().is_owner() {
-        return Err("the clipboard of the computer is read on the thread of the window".to_string());
+        return Err(
+            "the clipboard of the computer is read on the thread of the window".to_string(),
+        );
     }
     let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
     // The clipboard is first asked what it holds, and only then reached for. Every ask of the
@@ -494,11 +1040,8 @@ mod tests {
     fn room() -> std::path::PathBuf {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let place = std::env::temp_dir().join(format!(
-            "atnatter-window-test-{}-{}",
-            std::process::id(),
-            n
-        ));
+        let place =
+            std::env::temp_dir().join(format!("atnatter-window-test-{}-{}", std::process::id(), n));
         let _ = std::fs::remove_dir_all(&place);
         std::fs::create_dir_all(&place).expect("a test place for the files can be made");
         place
@@ -553,10 +1096,17 @@ mod tests {
             place.join("nowhere.txt").to_string_lossy().into_owned(),
         ];
         let made = taken(&places);
-        assert_eq!(made.len(), 2, "a folder and a place of nowhere give nothing");
+        assert_eq!(
+            made.len(),
+            2,
+            "a folder and a place of nowhere give nothing"
+        );
         assert_eq!(made[0]["kind"], "file", "text that is not text is a file");
         assert_eq!(made[1]["kind"], "image");
-        assert_eq!(made[1]["data"], "", "an image too big for the space is not read");
+        assert_eq!(
+            made[1]["data"], "",
+            "an image too big for the space is not read"
+        );
         places.clear();
         let _ = std::fs::remove_dir_all(&place);
     }

@@ -310,12 +310,15 @@ dependencies = [
  "autumn-natter-core",
  "base64 0.22.1",
  "gtk",
+ "image",
  "percent-encoding",
+ "png 0.18.1",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "ureq",
+ "xcap",
 ]
 
 [[package]]
