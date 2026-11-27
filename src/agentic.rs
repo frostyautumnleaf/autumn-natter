@@ -597,6 +597,9 @@ pub fn computer_run(
                 "Choose a supported action. Follow-up actions must be move, click, double_click, triple_click, middle_click, right_click, drag, type, press, scroll, wait, or open_app.",
             );
         }
+        if let Err(problem) = validate_computer_call(one) {
+            return computer_fail(&problem);
+        }
     }
     if watch.expired() {
         return computer_fail("The computer action was stopped before it began.");
@@ -685,6 +688,99 @@ fn valid_computer_action(action: &str) -> bool {
             | "wait"
             | "open_app"
     )
+}
+
+fn validate_computer_call(args: &Value) -> Result<(), String> {
+    let action = args["action"].as_str().unwrap_or("");
+    let needs_point = matches!(
+        action,
+        "move" | "click" | "double_click" | "triple_click" | "middle_click" | "right_click" | "drag" | "scroll"
+    );
+    if needs_point && (args["x"].as_i64().is_none() || args["y"].as_i64().is_none()) {
+        return Err(format!("{action} needs integer x and y coordinates from the latest screenshot."));
+    }
+    if needs_point && [args["x"].as_i64(), args["y"].as_i64()].iter().any(|one| !one.is_some_and(|value| (0..=32767).contains(&value))) {
+        return Err(String::from("Coordinates must be non-negative and no greater than 32767."));
+    }
+    if action == "drag" && (args["to_x"].as_i64().is_none() || args["to_y"].as_i64().is_none()) {
+        return Err(String::from("drag needs integer to_x and to_y coordinates from the latest screenshot."));
+    }
+    if action == "drag" && [args["to_x"].as_i64(), args["to_y"].as_i64()].iter().any(|one| !one.is_some_and(|value| (0..=32767).contains(&value))) {
+        return Err(String::from("Drag destination coordinates must be non-negative and no greater than 32767."));
+    }
+    if action == "type" {
+        let text = args["text"].as_str().unwrap_or("");
+        if text.is_empty() || text.chars().count() > 4000 || text.contains('\0') {
+            return Err(String::from("type needs non-empty text of at most 4000 characters."));
+        }
+    }
+    if action == "press" {
+        let keys = args["key"].as_str().unwrap_or("").split('+').map(str::trim).collect::<Vec<_>>();
+        if keys.is_empty() || keys.len() > 4 || keys.iter().any(|one| one.is_empty()) {
+            return Err(String::from("press needs one key or a shortcut with up to three modifiers."));
+        }
+        let mut modifiers = Vec::new();
+        for modifier in &keys[..keys.len() - 1] {
+            let key = match modifier.to_ascii_lowercase().as_str() {
+                "ctrl" | "control" => enigo::Key::Control,
+                "alt" => enigo::Key::Alt,
+                "shift" => enigo::Key::Shift,
+                "meta" | "super" | "win" => enigo::Key::Meta,
+                _ => return Err(String::from("Shortcut modifiers are ctrl, alt, shift, or meta.")),
+            };
+            if modifiers.contains(&key) {
+                return Err(String::from("Do not repeat a shortcut modifier."));
+            }
+            modifiers.push(key);
+        }
+        let key = keys[keys.len() - 1].to_ascii_lowercase();
+        if !valid_computer_key(&key) {
+            return Err(String::from("Use a supported key: enter, tab, escape, backspace, space, an arrow, a function key, or one letter/digit."));
+        }
+        if blocked_shortcut(&modifiers, &key) {
+            return Err(String::from("That shortcut is reserved for system lock or session control and was not sent."));
+        }
+    }
+    if action == "scroll" {
+        if !matches!(args["direction"].as_str(), Some("up" | "down" | "left" | "right")) {
+            return Err(String::from("scroll needs a direction: up, down, left, or right."));
+        }
+        if let Some(amount) = args.get("amount") {
+            if !amount.as_u64().is_some_and(|one| (1..=30).contains(&one)) {
+                return Err(String::from("scroll amount must be an integer from 1 to 30."));
+            }
+        }
+    }
+    if action == "wait" {
+        if let Some(seconds) = args.get("seconds") {
+            if !seconds.as_f64().is_some_and(|one| (0.0..=10.0).contains(&one)) {
+                return Err(String::from("wait seconds must be between 0 and 10."));
+            }
+        }
+    }
+    if action == "open_app" && args["name"].as_str().unwrap_or("").trim().is_empty() {
+        return Err(String::from("open_app needs an application name or executable path."));
+    }
+    if action == "open_app" {
+        let name = args["name"].as_str().unwrap_or("").trim();
+        if name.chars().count() > 120 || name.chars().any(char::is_control) {
+            return Err(String::from("open_app accepts one application name or executable path, without arguments."));
+        }
+    }
+    if action == "screenshot" {
+        if let Some(display) = args.get("display") {
+            if !display.as_u64().is_some_and(|one| one > 0) {
+                return Err(String::from("display must be a one-based display number from the screenshot list."));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn valid_computer_key(value: &str) -> bool {
+    matches!(value, "enter" | "tab" | "escape" | "esc" | "backspace" | "delete" | "home" | "end" | "pageup" | "page_up" | "pagedown" | "page_down" | "space" | "up" | "down" | "left" | "right")
+        || value.strip_prefix('f').and_then(|number| number.parse::<u8>().ok()).is_some_and(|number| (1..=12).contains(&number))
+        || (value.len() == 1 && value.as_bytes()[0].is_ascii_alphanumeric())
 }
 
 fn blocked_shortcut(modifiers: &[enigo::Key], key: &str) -> bool {
