@@ -20,33 +20,35 @@ pub fn run(cfg: Config) -> Result<(), String> {
     // the first draw already has the models and the chats.
     let engine = Engine::start(cfg);
 
-    let local_commands = tauri::generate_handler![
-        commands::get_state,
-        commands::get_browser_page,
-        commands::browser_window_sync,
-        commands::browser_window_action,
-        commands::action,
-        commands::connect_remote,
-        commands::get_attachment,
-        commands::get_plan,
-        commands::get_gift,
-        commands::get_gift_zip,
-        commands::get_displayed,
-        commands::get_config,
-        commands::save_config,
-        commands::list_repositories,
-        commands::get_prompts,
-        commands::get_model_settings,
-        commands::save_model_settings,
-        commands::preview_command,
-        commands::get_mcp,
-        commands::get_embed_state,
-        commands::get_sources,
-        commands::get_logs,
-        commands::get_log,
-        commands::take_files,
-        commands::clipboard_take
-    ];
+    let local_commands: Box<tauri::ipc::InvokeHandler<tauri::Wry>> = Box::new(
+        tauri::generate_handler![
+            commands::get_state,
+            commands::get_browser_page,
+            commands::browser_window_sync,
+            commands::browser_window_action,
+            commands::action,
+            commands::connect_remote,
+            commands::get_attachment,
+            commands::get_plan,
+            commands::get_gift,
+            commands::get_gift_zip,
+            commands::get_displayed,
+            commands::get_config,
+            commands::save_config,
+            commands::list_repositories,
+            commands::get_prompts,
+            commands::get_model_settings,
+            commands::save_model_settings,
+            commands::preview_command,
+            commands::get_mcp,
+            commands::get_embed_state,
+            commands::get_sources,
+            commands::get_logs,
+            commands::get_log,
+            commands::take_files,
+            commands::clipboard_take
+        ],
+    );
     let app = tauri::Builder::default()
         .manage(engine)
         .invoke_handler(move |invoke| {

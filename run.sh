@@ -1,4 +1,4 @@
-# !/usr/bin/env bash
+#!/usr/bin/env bash
 #
 # Autumn Natter - build and run in one command.
 #

@@ -7,6 +7,7 @@
 // Result, so each one does. None of them fail on purpose: a bad value answers with a small "not
 // ok" record, and the window reads the state again.
 
+use std::path::Path;
 use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -16,7 +17,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, State, WebviewBuilder,
-    WebviewUrl,
+    WebviewUrl, WebviewWindowBuilder,
 };
 
 use autumn_natter_core::attach;
