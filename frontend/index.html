@@ -2490,6 +2490,8 @@ img.pic { animation: plate-in 180ms ease-out; }
  * A line of the menu that turns one item on or off, rather than being chosen from a set. A rule
  * keeps it apart from the lines one may choose, and the switch is at the end of the line. */
 .menu .sep { height: 1px; margin: 4px 6px; background: var(--line-strong); }
+.menu .computer-target-label { padding: 4px 8px 2px; color: var(--text-2); font-size: 11px; }
+.menu .computer-target-note { padding: 2px 8px 5px; color: var(--text-2); font-size: 11px; }
 .menu .badge { display: flex; width: 100%; justify-content: flex-start; }
 .menu button.toggle { color: var(--text-2); }
 .menu button.toggle:hover { color: var(--ink); }
@@ -5992,8 +5994,41 @@ function fillAgenticMenu(s) {
     openBrowser.type = 'button';
     openBrowser.setAttribute('data-agentic-browser-open', '');
     openBrowser.title = 'Open the browser panel and follow the pages the model reads.';
-    openBrowser.appendChild(make('span', 'word', 'Open browser panel'));
+    var browserWord = make('span', 'word');
+    browserWord.textContent = 'Open browser panel';
+    openBrowser.appendChild(browserWord);
     el.agenticmenu.appendChild(openBrowser);
+  }
+  if (s.computer_workspace_available === true) {
+    var target = s.computer_target || 'desktop';
+    el.agenticmenu.appendChild(make('div', 'sep'));
+    var group = make('div');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Computer use target');
+    var label = make('div', 'computer-target-label');
+    label.textContent = 'Computer use target';
+    group.appendChild(label);
+    [['desktop', 'Real desktop'], ['workspace', 'Private workspace']].forEach(function (option) {
+      var selected = option[0] === target;
+      var button = make('button', selected ? 'now' : '');
+      button.type = 'button';
+      button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      button.appendChild(mark('M3.4 8.4 6.4 11.4 12.6 4.8', 'tick'));
+      var word = make('span', 'word');
+      word.textContent = option[1];
+      button.appendChild(word);
+      button.addEventListener('click', function (event) {
+        event.stopPropagation();
+        if (!selected) { post('/api/computer_target', { target: option[0] }); }
+      });
+      group.appendChild(button);
+    });
+    if (s.computer_cursor_shared === true) {
+      var note = make('div', 'computer-target-note');
+      note.textContent = 'Real desktop shares your cursor on Wayland.';
+      group.appendChild(note);
+    }
+    el.agenticmenu.appendChild(group);
   }
 }
 

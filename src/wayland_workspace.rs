@@ -38,7 +38,8 @@ fn workspaces() -> &'static Mutex<HashMap<String, Workspace>> {
     WORKSPACES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub fn is_open(chat: &str) -> bool {
+#[cfg(test)]
+fn is_open(chat: &str) -> bool {
     workspaces()
         .lock()
         .is_ok_and(|held| held.contains_key(chat))
@@ -86,7 +87,7 @@ pub fn with_workspace<T>(
         .map_err(|_| "Agent workspaces are busy.")?;
     let workspace = held
         .get_mut(chat)
-        .ok_or("The agent workspace is closed. Use open_workspace first.")?;
+        .ok_or("The agent workspace is closed. Take a fresh screenshot to reopen it.")?;
     action(workspace)
 }
 
@@ -644,13 +645,14 @@ Gtk.main()
             let result = computer_run(
                 &action.to_string(),
                 &chat.0,
+                crate::store::ComputerTarget::Workspace,
                 true,
                 &Watch::new(Duration::from_secs(10)),
             );
             assert!(result.report.ok, "{}: {}", action, result.report.output);
             result
         };
-        let opened = run(json!({"action":"open_workspace"}));
+        let opened = run(json!({"action":"screenshot"}));
         assert!(opened
             .report
             .output
@@ -708,13 +710,7 @@ Gtk.main()
         if let Some(path) = std::env::var_os("AUTUMN_WAYLAND_WORKSPACE_TEST_IMAGE") {
             image.save(path).unwrap();
         }
-        let closed = computer_run(
-            r#"{"action":"close_workspace"}"#,
-            &chat.0,
-            false,
-            &Watch::new(Duration::from_secs(10)),
-        );
-        assert!(closed.report.ok, "{}", closed.report.output);
+        crate::agentic::close_computer_workspace(&chat.0);
         assert!(!is_open(&chat.0));
     }
 }

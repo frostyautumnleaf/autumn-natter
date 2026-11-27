@@ -5529,20 +5529,7 @@ impl Engine {
             }
             if part == "computer_use" && !on {
                 if let Some(chat) = active_chat.as_deref() {
-                    if let Some(running) = state.live_of(chat).and_then(|live| live.running.as_ref()) {
-                        let is_computer = state
-                            .chat_of(chat)
-                            .is_some_and(|one| {
-                                one.messages.iter().any(|message| {
-                                    message.id.as_str() == running.id.as_str()
-                                        && message.tool_name.as_str()
-                                            == crate::agentic::COMPUTER_NAME
-                                })
-                            });
-                        if is_computer {
-                            running.watch.stop_now();
-                        }
-                    }
+                    Self::stop_computer_use(&state, chat);
                     crate::agentic::close_computer_workspace(chat);
                 }
             }
@@ -5588,6 +5575,47 @@ impl Engine {
             format!("{} are off", word)
         };
         state.set_status(&words);
+    }
+
+    pub fn set_computer_target(&self, target: store::ComputerTarget) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        if !state.computer_use_available
+            || (target == store::ComputerTarget::Workspace && !cfg!(target_os = "linux"))
+        {
+            return false;
+        }
+        if let Some(chat) = state.chat() {
+            if chat.meta.tools.computer_target != target {
+                let id = chat.meta.id.clone();
+                Self::stop_computer_use(&state, &id);
+                crate::agentic::clear_computer_screenshot(&id);
+                if let Some(chat) = state.chat_mut() {
+                    chat.meta.tools.computer_target = target;
+                }
+            }
+        }
+        state.new_tools.computer_target = target;
+        state.persist_async();
+        state.set_status(match target {
+            store::ComputerTarget::Desktop => "Computer use will use the real desktop",
+            store::ComputerTarget::Workspace => "Computer use will use a private workspace",
+        });
+        true
+    }
+
+    fn stop_computer_use(state: &State, chat: &str) {
+        if let Some(running) = state.live_of(chat).and_then(|live| live.running.as_ref()) {
+            let is_computer = state.chat_of(chat).is_some_and(|one| {
+                one.messages.iter().any(|message| {
+                    message.id == running.id && message.tool_name == crate::agentic::COMPUTER_NAME
+                })
+            });
+            if is_computer {
+                running.watch.stop_now();
+            }
+        }
     }
 
     // The web search of the open chat. It is on a switch of its own and not behind the badge of
@@ -12637,7 +12665,7 @@ fn offered(
         list.push(crate::agentic::browser_definition());
     }
     if switches.computer_use {
-        list.push(crate::agentic::computer_definition());
+        list.push(crate::agentic::computer_definition(switches.computer_target));
     }
     // The badge of the tools is the entry point to all of them, and the lines of its drop-down
     // are behind that entry point: a tool whose line is off is not proposed, and a badge that
@@ -12904,14 +12932,14 @@ fn run_program_tool(
         return;
     }
     if call.name == crate::agentic::COMPUTER_NAME {
-        let (enabled, available, vision) = state
+        let (switches, available, vision) = state
             .lock()
             .map(|guard| (
-                guard.chat_of(chat).is_some_and(|one| one.meta.tools.computer_use),
+                guard.chat_of(chat).map(|one| one.meta.tools.clone()).unwrap_or_default(),
                 guard.computer_use_available,
                 guard.pictures_can_go_in(chat),
             ))
-            .unwrap_or((false, false, false));
+            .unwrap_or_default();
         let words = call.arguments.clone();
         let chat_id = chat.to_string();
         let stop_watch = watch.clone();
@@ -12923,7 +12951,7 @@ fn run_program_tool(
                 },
                 image: None,
             }
-        } else if !enabled {
+        } else if !switches.computer_use {
             crate::agentic::ComputerResult {
                 report: tools::Report {
                     ok: false,
@@ -12933,7 +12961,13 @@ fn run_program_tool(
             }
         } else {
             match crate::util::within(&watch, move || {
-                crate::agentic::computer_run(&words, &chat_id, vision, &stop_watch)
+                crate::agentic::computer_run(
+                    &words,
+                    &chat_id,
+                    switches.computer_target,
+                    vision,
+                    &stop_watch,
+                )
             }) {
                 Some(made) => made,
                 None => crate::agentic::ComputerResult {

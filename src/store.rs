@@ -256,6 +256,14 @@ pub struct Repo {
     pub path: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerTarget {
+    #[default]
+    Desktop,
+    Workspace,
+}
+
 // Which of the tools of the program the model may reach in one chat. The badge of the tools is
 // the switch over all of them: with the badge off, none of these matters, for nothing is
 // proposed at all. Each line of the drop-down of the badge holds one of these switches, and the
@@ -271,6 +279,8 @@ pub struct ToolSwitches {
     // The model may inspect and control the desktop after the user opts in.
     #[serde(default)]
     pub computer_use: bool,
+    #[serde(default)]
+    pub computer_target: ComputerTarget,
     // A command of the terminal tool may run.
     #[serde(default = "switch_on")]
     pub commands: bool,
@@ -327,6 +337,7 @@ impl Default for ToolSwitches {
         ToolSwitches {
             browser_use: false,
             computer_use: false,
+            computer_target: ComputerTarget::Desktop,
             commands: true,
             files: true,
             picture: true,

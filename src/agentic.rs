@@ -80,8 +80,6 @@ pub fn live_words(name: &str, raw: &str) -> String {
     let label = if name == COMPUTER_NAME {
         match action.as_str() {
             "screenshot" => "Taking a desktop screenshot",
-            "open_workspace" => "Opening the agent Wayland workspace",
-            "close_workspace" => "Closing the agent Wayland workspace",
             "zoom" => "Zooming into the desktop",
             "open_app" => "Opening an app",
             "wait" => "Waiting on the desktop",
@@ -392,12 +390,17 @@ pub fn browser_definition() -> Value {
     }})
 }
 
-pub fn computer_definition() -> Value {
+pub fn computer_definition(target: crate::store::ComputerTarget) -> Value {
+    let target_words = if uses_private_workspace(target) {
+        "Computer use is set to Private workspace. Use open_app to launch a Wayland app there."
+    } else {
+        "Computer use is set to Real desktop. On Wayland, the user may need to grant system permission, and pointer actions move the system cursor."
+    };
     json!({"type":"function","function":{
         "name":COMPUTER_NAME,
-        "description":with_rule(String::from("Inspect and control the desktop after Computer use is enabled. Start with screenshot; each action returns a fresh one. Use screenshot pixels, or grid coordinates from 0 to 1000; zoomed coordinates still refer to the full image. Actions: screenshot, zoom, cursor, move, click, double/triple/middle/right-click, drag, type, press, scroll, wait, open_app. Use then for up to seven follow-ups. Check the foreground app before typing. Never enter passwords or payment details. Only perform actions requested by the user. On Linux Wayland, use open_workspace to get an independent Agent cursor, then open_app to launch a Wayland application there. Screenshots and input stay in that workspace until close_workspace. Apps already on the host cannot be controlled with an independent pointer. On X11, use the desktop directly. Lock, session-switch, and risky close/delete shortcuts are blocked.")),
+        "description":with_rule(format!("Inspect and control the selected desktop. {target_words} Start with screenshot. Use its pixels or grid coordinates from 0 to 1000. Zoomed coordinates still refer to the full screenshot. Actions return a fresh image. Use then for up to seven follow-ups that need no visual check. Check the foreground app before typing. Never enter passwords or payment details. Lock, session-switch, and risky close/delete shortcuts are blocked.")),
         "parameters":{"type":"object","properties":{
-            "action":{"type":"string","enum":["screenshot","zoom","cursor","move","click","double_click","triple_click","middle_click","right_click","drag","type","press","key","scroll","wait","open_app","open_workspace","close_workspace"]},
+            "action":{"type":"string","enum":["screenshot","zoom","cursor","move","click","double_click","triple_click","middle_click","right_click","drag","type","press","key","scroll","wait","open_app"]},
             "coordinate_mode":{"type":"string","enum":["pixels","grid"],"description":"Use grid to give x/y values from 0 to 1000 instead of pixels."},
             "x":{"type":"integer","description":"Pixel in the latest screenshot; for zoom, the region's upper-left corner."},
             "y":{"type":"integer","description":"Pixel in the latest screenshot; for zoom, the region's upper-left corner."},
@@ -1215,6 +1218,7 @@ pub struct ComputerResult {
 pub fn computer_run(
     raw: &str,
     chat: &str,
+    target: crate::store::ComputerTarget,
     vision: bool,
     watch: &crate::util::Watch,
 ) -> ComputerResult {
@@ -1304,15 +1308,8 @@ pub fn computer_run(
     if actions.len() > 1 && action == "zoom" {
         return computer_fail("zoom must be a standalone call; inspect its image before acting.");
     }
-    if actions.len() > 1
-        && actions.iter().any(|one| {
-            matches!(
-                one["action"].as_str(),
-                Some("open_app" | "open_workspace" | "close_workspace")
-            )
-        })
-    {
-        return computer_fail("Opening an app or opening or closing a workspace requires a standalone call. Check its result before acting.");
+    if actions.len() > 1 && actions.iter().any(|one| one["action"] == "open_app") {
+        return computer_fail("open_app requires a standalone call. Check its screenshot before acting.");
     }
     for (index, one) in actions.iter().enumerate() {
         if !valid_computer_action(one["action"].as_str().unwrap_or(""))
@@ -1334,40 +1331,26 @@ pub fn computer_run(
     if watch.expired() {
         return computer_fail("The computer action was stopped before it began.");
     }
-    if !vision && action != "close_workspace" {
+    if !vision {
         return computer_fail(
             "Enable vision for the selected model before using Computer use. The model must be able to inspect the returned screenshots.",
         );
     }
-    if matches!(action, "open_workspace" | "close_workspace") {
-        #[cfg(target_os = "linux")]
-        {
-            if action == "close_workspace" {
-                close_computer_workspace(chat);
-                return ComputerResult {
-                    report: tools::Report {
-                        ok: true,
-                        output: String::from("Closed the agent Wayland workspace. A new screenshot will show the host desktop."),
-                    },
-                    image: None,
-                };
-            }
-            clear_computer_screenshot(chat);
-            let opened = match crate::wayland_workspace::open(chat, watch) {
-                Ok(opened) => opened,
-                Err(problem) => return computer_fail(&problem),
-            };
-            let result = screenshot(1, chat, true, watch);
-            if opened && !result.report.ok {
-                crate::wayland_workspace::close(chat);
-            }
-            return result;
+    let workspace = uses_private_workspace(target);
+    #[cfg(target_os = "linux")]
+    if workspace {
+        match crate::wayland_workspace::open(chat, watch) {
+            Ok(false) => {}
+            Ok(true) => clear_computer_screenshot(chat),
+            Err(problem) => return computer_fail(&problem),
         }
-        #[cfg(not(target_os = "linux"))]
-        return computer_fail("The agent Wayland workspace is available on Linux.");
+        if watch.expired() {
+            clear_computer_screenshot(chat);
+            return computer_fail("The computer action was stopped.");
+        }
     }
-    let workspace = agent_workspace_open(chat);
     if action == "screenshot" {
+        clear_computer_screenshot(chat);
         let display = match requested_display(&args, workspace) {
             Ok(display) => display,
             Err(problem) => return computer_fail(&problem),
@@ -1437,6 +1420,7 @@ pub fn computer_run(
     }
     let mut after = screenshot(screen.display, chat, screen.workspace, watch);
     if !after.report.ok {
+        clear_computer_screenshot(chat);
         after.report.output = format!(
             "{} The screen could not be captured afterward: {}",
             results.join("\n"),
@@ -1753,8 +1737,6 @@ fn valid_computer_action(action: &str) -> bool {
             | "scroll"
             | "wait"
             | "open_app"
-            | "open_workspace"
-            | "close_workspace"
     )
 }
 
@@ -2019,24 +2001,23 @@ fn computer_display(chat: &str) -> Option<ComputerScreen> {
         .and_then(|sessions| sessions.get(chat).copied())
 }
 
-fn agent_workspace_open(chat: &str) -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        crate::wayland_workspace::is_open(chat)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = chat;
-        false
-    }
+fn uses_private_workspace(target: crate::store::ComputerTarget) -> bool {
+    cfg!(target_os = "linux") && target == crate::store::ComputerTarget::Workspace
 }
 
-fn computer_displays(workspace: bool) -> Result<Vec<crate::desktop::DisplayInfo>, String> {
+fn computer_displays(
+    workspace: bool,
+    fresh_screenshot: bool,
+) -> Result<Vec<crate::desktop::DisplayInfo>, String> {
     #[cfg(target_os = "linux")]
     if workspace {
         return Ok(vec![crate::wayland_workspace::display()]);
     }
-    let _ = workspace;
+    #[cfg(target_os = "linux")]
+    if crate::desktop::is_wayland() {
+        return crate::desktop::wayland_displays(fresh_screenshot);
+    }
+    let _ = (workspace, fresh_screenshot);
     crate::desktop::displays()
 }
 
@@ -2057,7 +2038,7 @@ fn capture_computer_display(
 }
 
 fn requested_display(args: &Value, workspace: bool) -> Result<u32, String> {
-    let monitors = computer_displays(workspace)?;
+    let monitors = computer_displays(workspace, true)?;
     if let Some(number) = args["display"].as_u64() {
         let index = number
             .checked_sub(1)
@@ -2181,6 +2162,9 @@ fn screenshot(display: u32, chat: &str, workspace: bool, watch: &crate::util::Wa
             display_y,
         ))
     })();
+    if watch.expired() {
+        return computer_fail("The computer screenshot was stopped.");
+    }
     match made {
         Ok((
             image,
@@ -2318,7 +2302,7 @@ fn zoom_screenshot(
 }
 
 fn display_list(captured: u32) -> String {
-    let Ok(monitors) = crate::desktop::displays() else {
+    let Ok(monitors) = computer_displays(false, false) else {
         return String::from("Display information is unavailable.");
     };
     if monitors.is_empty() {
@@ -2355,10 +2339,8 @@ fn control(
     let pointer_action = matches!(action,
         "cursor" | "move" | "click" | "double_click" | "triple_click" | "middle_click" |
         "right_click" | "drag" | "scroll");
-    if pointer_action && !screen.workspace && !independent_desktop_pointer_available() {
-        #[cfg(target_os = "linux")]
-        return fail("The host Wayland desktop shares the system cursor. Use open_workspace, then open_app and the workspace screenshot to use the separate Agent cursor.");
-        #[cfg(not(target_os = "linux"))]
+    #[cfg(not(target_os = "linux"))]
+    if pointer_action {
         return fail("This desktop does not support a separate agent pointer. Browser use has its own pointer on this platform.");
     }
     #[cfg(target_os = "linux")]
@@ -2418,7 +2400,7 @@ fn control(
             | "drag"
             | "scroll"
     ) {
-        let monitors = match computer_displays(screen.workspace) {
+        let monitors = match computer_displays(screen.workspace, false) {
             Ok(made) => made,
             Err(problem) => return fail(&format!("The display could not be read: {problem}")),
         };
@@ -2431,8 +2413,10 @@ fn control(
             i64::from(primary.width),
             i64::from(primary.height),
         );
-        if width != i64::from(screen.input_width) || height != i64::from(screen.input_height) {
-            return fail("The display resolution changed since the screenshot. Take a fresh screenshot before acting.");
+        if (primary.x, primary.y, primary.width, primary.height)
+            != (screen.display_x, screen.display_y, screen.input_width, screen.input_height)
+        {
+            return fail("The display layout changed since the screenshot. Take a fresh screenshot before acting.");
         }
         if [(x, y), (to_x, to_y)].iter().any(|(px, py)| {
             *px < 0 || *py < 0 || *px >= i64::from(screen.width) || *py >= i64::from(screen.height)
@@ -2442,10 +2426,8 @@ fn control(
                 screen.width, screen.height
             ));
         }
-        let map_x =
-            |point: i64| (point as f64 * width as f64 / f64::from(screen.width)).round() as i64;
-        let map_y =
-            |point: i64| (point as f64 * height as f64 / f64::from(screen.height)).round() as i64;
+        let map_x = |point: i64| (point * width / i64::from(screen.width)).min(width - 1);
+        let map_y = |point: i64| (point * height / i64::from(screen.height)).min(height - 1);
         (
             left + map_x(x),
             top + map_y(y),
@@ -2463,7 +2445,7 @@ fn control(
     let _ = (chat, screen_x, screen_y, end_x, end_y);
     #[cfg(target_os = "linux")]
     if crate::desktop::is_wayland() {
-        return control_wayland_keyboard(args, watch);
+        return control_wayland_keyboard(args, screen.display, watch);
     }
     let mut enigo = match Enigo::new(&Settings::default()) {
         Ok(made) => made,
@@ -2548,13 +2530,6 @@ fn control(
     }
 }
 
-fn independent_desktop_pointer_available() -> bool {
-    #[cfg(target_os = "linux")]
-    { !crate::desktop::is_wayland() }
-    #[cfg(not(target_os = "linux"))]
-    { false }
-}
-
 #[cfg(target_os = "linux")]
 fn control_agent_pointer(
     args: &Value,
@@ -2568,6 +2543,9 @@ fn control_agent_pointer(
         crate::wayland_workspace::with_workspace(chat, |workspace| {
             dispatch_pointer(workspace, args, screen, watch, start, end).map_err(|error| error.to_string())
         })
+    } else if crate::desktop::is_wayland() {
+        dispatch_pointer(&mut WaylandDesktopPointer(screen.display), args, screen, watch, start, end)
+            .map_err(|error| error.to_string())
     } else {
         crate::agent_pointer::with_pointer(|pointer| dispatch_pointer(pointer, args, screen, watch, start, end))
     };
@@ -2610,6 +2588,39 @@ impl DesktopPointer for crate::wayland_workspace::Workspace {
     }
     fn button(&self, button: u8, pressed: bool) -> Result<(), PointerError> {
         Ok(Self::button(self, button, pressed)?)
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct WaylandDesktopPointer(u32);
+
+#[cfg(target_os = "linux")]
+impl DesktopPointer for WaylandDesktopPointer {
+    fn position(&self) -> Result<(i32, i32), PointerError> {
+        Err("The Wayland portal does not report the live system cursor position.".into())
+    }
+
+    fn move_to(&mut self, x: i32, y: i32) -> Result<(), PointerError> {
+        Ok(crate::desktop::wayland_pointer(self.0, x, y)?)
+    }
+
+    fn button(&self, button: u8, pressed: bool) -> Result<(), PointerError> {
+        match button {
+            1..=3 => {
+                let code = match button {
+                    1 => 0x110,
+                    2 => 0x112,
+                    _ => 0x111,
+                };
+                crate::desktop::wayland_button(self.0, code, pressed)?;
+            }
+            4..=7 if pressed => {
+                let step = if matches!(button, 4 | 6) { -1 } else { 1 };
+                crate::desktop::wayland_scroll(self.0, button <= 5, step)?;
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 
@@ -2686,7 +2697,7 @@ fn dispatch_pointer(
 }
 
 #[cfg(target_os = "linux")]
-fn control_wayland_keyboard(args: &Value, watch: &crate::util::Watch) -> tools::Report {
+fn control_wayland_keyboard(args: &Value, display: u32, watch: &crate::util::Watch) -> tools::Report {
     let action = args["action"].as_str().unwrap_or("");
     let mut check = || {
         if watch.expired() { Err(String::from("The computer action was stopped or timed out.")) }
@@ -2706,17 +2717,17 @@ fn control_wayland_keyboard(args: &Value, watch: &crate::util::Watch) -> tools::
                     break;
                 }
                 let keysym = char_keysym(character);
-                if let Err(problem) = press_wayland_key(keysym) {
+                if let Err(problem) = press_wayland_key(display, keysym) {
                     result = Err(problem);
                     break;
                 }
             }
             if result.is_ok() && args["submit"] == true {
-                result = check().and_then(|_| press_wayland_key(0xff0d));
+                result = check().and_then(|_| press_wayland_key(display, 0xff0d));
             }
             result
         }
-        "press" => wayland_shortcut(args["key"].as_str().unwrap_or(""), &mut check),
+        "press" => wayland_shortcut(display, args["key"].as_str().unwrap_or(""), &mut check),
         _ => return fail("Choose type or press for Wayland keyboard input."),
     };
     match done {
@@ -2729,12 +2740,12 @@ fn control_wayland_keyboard(args: &Value, watch: &crate::util::Watch) -> tools::
 }
 
 #[cfg(target_os = "linux")]
-fn press_wayland_key(keysym: u32) -> Result<(), String> {
-    let pressed = crate::desktop::wayland_key(keysym, true);
+fn press_wayland_key(display: u32, keysym: u32) -> Result<(), String> {
+    let pressed = crate::desktop::wayland_key(display, keysym, true);
     if pressed.is_ok() {
         std::thread::sleep(Duration::from_millis(8));
     }
-    let released = crate::desktop::wayland_key(keysym, false);
+    let released = crate::desktop::wayland_key(display, keysym, false);
     pressed.and(released)
 }
 
@@ -2784,6 +2795,7 @@ fn named_keysym(name: &str) -> Option<u32> {
 
 #[cfg(target_os = "linux")]
 fn wayland_shortcut(
+    display: u32,
     shortcut: &str,
     check: &mut impl FnMut() -> Result<(), String>,
 ) -> Result<(), String> {
@@ -2830,18 +2842,17 @@ fn wayland_shortcut(
         .ok_or_else(|| String::from("Use a supported key: enter, tab, escape, backspace, space, an arrow, or one letter/digit."))?;
     let mut pressed = Vec::new();
     for modifier in modifiers {
-        check()?;
-        if let Err(problem) = crate::desktop::wayland_key(modifier, true) {
+        if let Err(problem) = check().and_then(|_| crate::desktop::wayland_key(display, modifier, true)) {
             for one in pressed.iter().rev() {
-                let _ = crate::desktop::wayland_key(*one, false);
+                let _ = crate::desktop::wayland_key(display, *one, false);
             }
             return Err(problem);
         }
         pressed.push(modifier);
     }
-    let result = check().and_then(|_| press_wayland_key(key));
+    let result = check().and_then(|_| press_wayland_key(display, key));
     for modifier in pressed.into_iter().rev() {
-        let _ = crate::desktop::wayland_key(modifier, false);
+        let _ = crate::desktop::wayland_key(display, modifier, false);
     }
     result
 }

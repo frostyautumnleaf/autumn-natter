@@ -455,6 +455,9 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "busy": snap.busy,
         "code": snap.code_enabled,
         "computer_use_available": snap.computer_use_available,
+        "computer_workspace_available": snap.computer_use_available && cfg!(target_os = "linux"),
+        "computer_target": snap.tool_switches.computer_target,
+        "computer_cursor_shared": snap.computer_use_available && computer_cursor_shared(),
         // The lines of the drop-down of the badge of the tools. The badge itself is the switch
         // over all of them, so a tool that is switched on here is proposed only while the badge
         // is on. The map is made from the same list the window of the program reads, so a line
@@ -577,6 +580,17 @@ fn tool_switches_value(switches: &store::ToolSwitches) -> Value {
         held.insert(part.to_string(), json!(on));
     }
     Value::Object(held)
+}
+
+fn computer_cursor_shared() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::desktop::is_wayland()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
 }
 
 // Part of the context meter, between 0 and 1.
@@ -1218,6 +1232,18 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.set_tool_switch(&part, flag(&value, "on"));
             done()
         }
+        "/api/computer_target" | "computer_target" => {
+            let target = match text_field(&value, "target").as_str() {
+                "desktop" => store::ComputerTarget::Desktop,
+                "workspace" => store::ComputerTarget::Workspace,
+                _ => return refused("Choose Real desktop or Private workspace."),
+            };
+            if engine.set_computer_target(target) {
+                done()
+            } else {
+                refused("That computer use target is unavailable.")
+            }
+        }
         "/api/browser_tab" | "browser_tab" => {
             let Some(tab) = value.get("tab").and_then(Value::as_u64) else {
                 return refused("Choose a browser tab number.");
@@ -1521,6 +1547,33 @@ fn flag(value: &Value, key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_computer_target_is_chosen_separately_from_enabling_computer_use() {
+        let _guard = config::test_turn();
+        config::set_data_dir(std::path::PathBuf::from("uidata/web-tests"));
+        let _ = config::ensure_dirs();
+        let mut engine = crate::engine::Engine::start(Config::default());
+        engine.new_chat();
+        let page = || state(&engine.snapshot(), None);
+        assert_eq!(page()["computer_target"], "desktop");
+        assert_eq!(page()["computer_workspace_available"], true);
+        let result = action(&engine, "/api/computer_target", r#"{"target":"workspace"}"#);
+        assert_eq!(result["ok"], true);
+        assert_eq!(page()["computer_target"], "workspace");
+        assert_eq!(page()["tool_switches"]["computer_use"], false);
+        let tools = engine.snapshot().tool_switches;
+        let saved: store::ToolSwitches = serde_json::from_value(json!(tools)).unwrap();
+        assert_eq!(saved.computer_target, store::ComputerTarget::Workspace);
+        action(&engine, "/api/computer_target", r#"{"target":"desktop"}"#);
+        assert_eq!(page()["computer_target"], "desktop");
+
+        engine.set_computer_use_available(false);
+        let result = action(&engine, "/api/computer_target", r#"{"target":"workspace"}"#);
+        assert_eq!(result["ok"], false);
+        assert_eq!(state(&engine.snapshot(), None)["computer_workspace_available"], false);
+    }
 
     #[test]
     fn the_page_receives_the_active_goal_pause_state_and_elapsed_time() {

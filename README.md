@@ -75,12 +75,14 @@ The window needs the web view of the system.
     Fedora:         sudo dnf install webkit2gtk4.1-devel openssl-devel libappindicator-gtk3-devel librsvg2-devel pkgconf-pkg-config
     Arch:           sudo pacman -S webkit2gtk-4.1 base-devel openssl libappindicator-gtk3 librsvg
 
-Enable Computer Use in the Agentic menu and select a vision-enabled model. On X11, the agent gets a separate desktop pointer. On Wayland, the system portal handles host screenshots and keyboard input.
+Enable Computer use in the Agentic menu with a vision-enabled model. On Linux, the same menu lets you choose a target for that chat.
 
-For a separate cursor on Wayland, install `sway` and `grim`, then ask the model to open an agent workspace and launch an app by its executable name. The workspace runs its own Wayland display. Computer Use opens native Wayland apps there and shows its screenshots, including the orange Agent cursor, in the chat. Existing host windows stay on the host display. Single-instance apps may need a separate profile. Ask the model to close the workspace when finished, or turn off Computer Use for that chat. Browser Use has its own cursor inside the browser panel.
+- **Real desktop** controls your open apps. X11 uses a separate Agent pointer. On Wayland, approve the desktop portal and share the monitors you want to use. Pointer actions move the system cursor.
+- **Private workspace** starts a separate Wayland display with an orange Agent pointer. Ask the model to launch a native Wayland app by executable name. Single-instance apps may need a separate profile. Switch targets to return to your desktop, or turn off Computer use to close the private workspace.
 
-Then, in one command, with nothing written outside the checkout and no need for
-sudo:
+`build.sh` installs missing `sway` and `grim` on Debian/Ubuntu, Fedora, and Arch for Private workspace. It may use `sudo`. For an offline build or plain `cargo build`, install the two packages separately if you want to use Private workspace.
+
+To build and run in one command:
 
     ./run.sh                  # build, then open the window
     ./run.sh --remote         # build, then serve the page to the network
