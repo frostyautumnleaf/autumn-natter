@@ -1227,7 +1227,7 @@ const MODEL = {
   settings: {
     ctx_size: 8192, kv_index: 1, load_index: 1, spec_index: 0, draft_model: '',
     draft_tokens: 4, ngram_match: 0, ngram_max: 0, ngram_min: 0, parallel: 1, batch_size: 512, ubatch_size: 128, vision: false,
-    tensor_parallel: false,
+    split_mode: 'layer',
     temperature: 0.7, top_p: 0.95, top_k: 20, min_p: 0, repeat_penalty: 1,
     presence_penalty: 0, max_tokens: -1, seed: -1,
     ctx_checkpoints: 32, cache_ram: 8192, cache_prompt: true,

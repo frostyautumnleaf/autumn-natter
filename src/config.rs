@@ -30,6 +30,45 @@ fn off_by_default() -> bool {
     false
 }
 
+// How llama.cpp splits a model across the selected graphics cards.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GpuSplitMode {
+    #[default]
+    Layer,
+    Row,
+    Tensor,
+}
+
+impl GpuSplitMode {
+    pub fn argument(self) -> &'static str {
+        match self {
+            Self::Layer => "layer",
+            Self::Row => "row",
+            Self::Tensor => "tensor",
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GpuSplitMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(match value {
+            serde_json::Value::String(word) => match word.to_ascii_lowercase().as_str() {
+                "row" => Self::Row,
+                "tensor" => Self::Tensor,
+                _ => Self::Layer,
+            },
+            // Older settings stored this as a switch: true enabled multi-GPU tensor parallelism.
+            serde_json::Value::Bool(true) => Self::Tensor,
+            _ => Self::Layer,
+        })
+    }
+}
+
 // The embedding model of a set of settings that names none: the model of the program, at its
 // biggest quantization, with its vision projector. See `crate::embed`.
 fn default_embedding_model() -> String {
@@ -183,7 +222,9 @@ pub struct ModelSettings {
     pub parallel: u32,
     pub batch_size: u32,
     pub ubatch_size: u32,
-    pub tensor_parallel: bool,
+    // Kept under the old JSON key as an alias on read; old boolean settings migrate to a mode.
+    #[serde(alias = "tensor_parallel")]
+    pub split_mode: GpuSplitMode,
     pub vision: bool,
     // Sampling of one answer. The defaults are the values of this program, and they are sent to
     // the server on every start. The values are f64, so the settings file and the window show
@@ -257,7 +298,7 @@ impl Default for ModelSettings {
             parallel: 1,
             batch_size: 512,
             ubatch_size: 128,
-            tensor_parallel: false,
+            split_mode: GpuSplitMode::Layer,
             vision: false,
             temperature: 0.7,
             top_p: 0.95,
@@ -1680,6 +1721,7 @@ mod tests {
         let text = serde_json::to_string(&s).expect("the settings are written");
         assert!(text.contains("\"temperature\":0.7"));
         assert!(text.contains("\"top_p\":0.95"));
+        assert!(text.contains("\"split_mode\":\"layer\""));
         // A file written before the section existed still reads, with the defaults of the
         // section in place.
         let old = "{\"ctx_size\":8192,\"kv_index\":1,\"spec_index\":0,\"draft_model\":\"\",\
@@ -1693,6 +1735,18 @@ mod tests {
         assert_eq!(read.top_k, 20);
         assert_eq!(read.max_tokens, -1);
         assert_eq!(read.seed, -1);
+        assert_eq!(read.split_mode, GpuSplitMode::Layer);
+        let old_tensor = old.replace("\"tensor_parallel\":false", "\"tensor_parallel\":true");
+        let read_tensor: ModelSettings =
+            serde_json::from_str(&old_tensor).expect("the old tensor switch reads");
+        assert_eq!(read_tensor.split_mode, GpuSplitMode::Tensor);
+        assert_eq!(ModelSettings::default().split_mode, GpuSplitMode::Layer);
+        let row: ModelSettings =
+            serde_json::from_str(r#"{"split_mode":"row"}"#).expect("the row mode reads");
+        let tensor: ModelSettings =
+            serde_json::from_str(r#"{"split_mode":"tensor"}"#).expect("the tensor mode reads");
+        assert_eq!(row.split_mode, GpuSplitMode::Row);
+        assert_eq!(tensor.split_mode, GpuSplitMode::Tensor);
     }
 
     // A settings file written before the Chatting section existed still reads, and its switches

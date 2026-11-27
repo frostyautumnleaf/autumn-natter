@@ -71,21 +71,47 @@ http.server.HTTPServer(('127.0.0.1', port), Handler).serve_forever()
         card("CUDA1", 8192),
         card("CUDA2", 16384),
     ];
-    for (choices, parallel, expected, margin) in [
+    for (choices, mode, expected, margin) in [
         (
             vec![true, false, true],
-            true,
+            config::GpuSplitMode::Layer,
             "CUDA0,CUDA2",
             Some("410,1638"),
         ),
-        (vec![true, false, true], false, "CUDA0", Some("410")),
-        (vec![false, true, false], true, "CUDA1", Some("819")),
-        (vec![false, false, false], true, "none", None),
-        (vec![], true, "CUDA0,CUDA1,CUDA2", Some("410,819,1638")),
+        (
+            vec![true, false, true],
+            config::GpuSplitMode::Row,
+            "CUDA0,CUDA2",
+            Some("410,1638"),
+        ),
+        (
+            vec![true, false, true],
+            config::GpuSplitMode::Tensor,
+            "CUDA0,CUDA2",
+            Some("410,1638"),
+        ),
+        (
+            vec![false, true, false],
+            config::GpuSplitMode::Tensor,
+            "CUDA1",
+            Some("819"),
+        ),
+        (
+            vec![false, false, false],
+            config::GpuSplitMode::Layer,
+            "none",
+            None,
+        ),
+        (
+            vec![],
+            config::GpuSplitMode::Layer,
+            "CUDA0,CUDA1,CUDA2",
+            Some("410,819,1638"),
+        ),
     ] {
         let settings = ModelSettings {
             gpu_enabled: choices,
-            tensor_parallel: parallel,
+            split_mode: mode,
             ..Default::default()
         };
         let mut server = Server::start(&binary, &model, &settings, &devices, None, None).unwrap();
@@ -93,6 +119,18 @@ http.server.HTTPServer(('127.0.0.1', port), Handler).serve_forever()
             serde_json::from_slice(&std::fs::read(binary.with_extension("json")).unwrap()).unwrap();
         let device = args.iter().position(|arg| arg == "--device").unwrap();
         assert_eq!(args[device + 1], expected);
+        let actual_mode = args
+            .iter()
+            .position(|arg| arg == "--split-mode")
+            .map(|index| args[index + 1].as_str());
+        assert_eq!(
+            actual_mode,
+            if expected == "none" {
+                None
+            } else {
+                Some(mode.argument())
+            }
+        );
         let actual_margin = args
             .iter()
             .position(|arg| arg == "--fit-target")

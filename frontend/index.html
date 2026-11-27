@@ -4095,8 +4095,12 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
           <summary>Advanced</summary>
           <div class="adv-body">
             <div class="fld"><span class="lbl">Tensor parallelism</span>
-              <span class="sub">Split the model across every card that is on. Off keeps the model on the first card only.</span>
-              <div class="ctl"><input id="mTensor" type="checkbox"></div></div>
+              <span class="sub">Choose how llama.cpp splits the model across the selected graphics cards. Layer is the default; row splits weight rows in parallel; tensor splits weights and KV in parallel (experimental).</span>
+              <div class="ctl"><select id="mSplitMode">
+                <option value="layer">Layer (default)</option>
+                <option value="row">Row</option>
+                <option value="tensor">Tensor</option>
+              </select></div></div>
           </div>
         </details>
 
@@ -16038,8 +16042,11 @@ function fillModelForm(given) {
     { image_min_tokens: 0, image_max_tokens: 0, mmproj_cpu: false });
   byId('mBudget').value = s.reasoning_budget;
   byId('mReasonMsg').value = s.reasoning_message || '';
-  byId('mTensor').checked = !!s.tensor_parallel;
-  advOpen('advCards', ['tensor_parallel'], { tensor_parallel: false });
+  var splitMode = typeof s.split_mode === 'string' ? s.split_mode.toLowerCase() : '';
+  if (!splitMode) { splitMode = s.tensor_parallel === true ? 'tensor' : 'layer'; }
+  if (['layer', 'row', 'tensor'].indexOf(splitMode) < 0) { splitMode = 'layer'; }
+  byId('mSplitMode').value = splitMode;
+  advOpen('advCards', ['split_mode'], { split_mode: 'layer' });
   var box = byId('mCards'); box.innerHTML = '';
   var gpus = (mdl && mdl.gpus) || [];
   if (!gpus.length) {
@@ -16119,7 +16126,8 @@ function readModel() {
   s.mmproj_cpu = byId('mMmprojCpu').checked;
   s.reasoning_budget = intOf('mBudget', s.reasoning_budget);
   s.reasoning_message = byId('mReasonMsg').value;
-  s.tensor_parallel = byId('mTensor').checked;
+  s.split_mode = byId('mSplitMode').value;
+  delete s.tensor_parallel;
   s.chat_template = byId('mTemplate').value;
   s.extra_args = byId('mExtra').value;
   s.send_default_args = byId('mDefaultArgs').checked;
@@ -17086,7 +17094,7 @@ byId('fRainSplash').addEventListener('change', function () {
   'mMinP', 'mRepeatPen', 'mPresencePen',
   'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens',
   'mNgramMatch', 'mNgramMax', 'mNgramMin', 'mParallel', 'mBatch', 'mUbatch',
-  'mVision', 'mImgMin', 'mImgMax', 'mMmprojCpu', 'mBudget', 'mReasonMsg', 'mTensor',
+  'mVision', 'mImgMin', 'mImgMax', 'mMmprojCpu', 'mBudget', 'mReasonMsg', 'mSplitMode',
   'mVram',
   'mTemplate', 'mExtra', 'mDefaultArgs'].forEach(function (id) {
   var node = byId(id);

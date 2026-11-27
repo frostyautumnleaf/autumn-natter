@@ -727,8 +727,8 @@ pub fn build_args(
         "on".into(),
     ]);
 
-    // Devices. llama.cpp has no tensor parallel switch, so the device list does that work:
-    // every enabled device, or only the first one.
+    // The selected split mode uses every enabled offload device. Layer is llama.cpp's default;
+    // row and tensor select its other parallel split strategies.
     let offload: Vec<&Gpu> = gpus.iter().filter(|g| g.enabled && g.is_offload).collect();
     let any_offload = gpus.iter().any(|g| g.is_offload);
     if any_offload {
@@ -738,13 +738,11 @@ pub fn build_args(
             args.push("-ngl".into());
             args.push("0".into());
         } else {
-            let names: Vec<String> = if settings.tensor_parallel {
-                offload.iter().map(|g| g.device.clone()).collect()
-            } else {
-                vec![offload[0].device.clone()]
-            };
+            let names: Vec<String> = offload.iter().map(|g| g.device.clone()).collect();
             args.push("--device".into());
             args.push(names.join(","));
+            args.push("--split-mode".into());
+            args.push(settings.split_mode.argument().into());
             // All of the layers go to the cards, which is what putting a model on a card means.
             // llama.cpp reads any negative number as all of the layers, and -1 is its own way
             // of saying it; a great number of layers stated the same in the end, but read as a
@@ -771,9 +769,7 @@ pub fn build_args(
     // conversation, and a model loaded with such a margin would have nowhere to put it.
     const LEAST_FIT_TARGET: u64 = 256;
     let share = crate::config::sanitize_vram_budget(settings.vram_budget);
-    let used_cards = offload
-        .iter()
-        .take(if settings.tensor_parallel { offload.len() } else { 1 });
+    let used_cards = offload.iter();
     let total: u64 = used_cards.clone().map(|g| g.memory_mb).sum();
     if total > 0 && share < 100.0 {
         args.push("--fit".into());
@@ -2009,6 +2005,52 @@ mod tests {
         );
         assert_eq!(find_flag(&held, "--device"), "none");
         assert_eq!(find_flag(&held, "-ngl"), "0");
+    }
+
+    #[test]
+    fn the_gpu_split_mode_uses_all_selected_cards() {
+        let cards = [
+            Gpu {
+                device: String::from("CUDA0"),
+                name: String::from("First card"),
+                memory_mb: 12288,
+                enabled: true,
+                is_offload: true,
+            },
+            Gpu {
+                device: String::from("CUDA1"),
+                name: String::from("Second card"),
+                memory_mb: 16384,
+                enabled: true,
+                is_offload: true,
+            },
+        ];
+        for mode in [
+            crate::config::GpuSplitMode::Layer,
+            crate::config::GpuSplitMode::Row,
+            crate::config::GpuSplitMode::Tensor,
+        ] {
+            let settings = ModelSettings {
+                split_mode: mode,
+                ..Default::default()
+            };
+            let mut notes = Vec::new();
+            let args = build_args(
+                std::path::Path::new(""),
+                &model(),
+                &settings,
+                &cards,
+                8080,
+                true,
+                &mut notes,
+            );
+            assert_eq!(find_flag(&args, "--device"), "CUDA0,CUDA1");
+            assert_eq!(find_flag(&args, "--split-mode"), mode.argument());
+        }
+        assert_eq!(
+            ModelSettings::default().split_mode,
+            crate::config::GpuSplitMode::Layer
+        );
     }
 
     // The checkpoints and the ceiling of the conversation memory go to the server, and the

@@ -31,7 +31,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       by(id).dispatchEvent(new Event('change', { bubbles: true }));
     };
 
-    // The settings of the model that is in the top bar. They hold no word for the switch, as
+    // The settings of the model that is in the top bar. They hold no word for the split mode, as
     // the settings file of a model written before the switch existed holds none either.
     var settings = {
       ctx_size: 8192, kv_index: 1, load_index: 0, spec_index: 0, ctx_checkpoints: 32,
@@ -40,7 +40,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       max_tokens: -1, seed: -1, draft_model: '', draft_tokens: 4, parallel: 1,
       batch_size: 512, ubatch_size: 128, vision: false, image_min_tokens: 0,
       image_max_tokens: 0, mmproj_cpu: false, reasoning_budget: -1,
-      reasoning_message: '', tensor_parallel: false, chat_template: '',
+      reasoning_message: '', split_mode: 'layer', chat_template: '',
       extra_args: '', vram_budget: 90, gpu_enabled: [true]
     };
     var gpus = [{ name: 'A card', memory_text: '12 GiB', memory_mb: 12288, is_offload: true }];
