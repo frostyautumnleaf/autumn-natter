@@ -1011,11 +1011,16 @@ fn control(args: &Value, display: u32, watch: &crate::util::Watch) -> tools::Rep
                 value if value.len() == 1 && value.as_bytes()[0].is_ascii_alphanumeric() => Key::Unicode(value.chars().next().unwrap()),
                 _ => return fail("Use a supported key: enter, tab, escape, backspace, space, an arrow, or one letter/digit."),
             };
+            let mut held = Vec::new();
             for modifier in &modifiers {
-                if let Err(e) = enigo.key(*modifier, Direction::Press) { return fail(&e.to_string()); }
+                if let Err(e) = enigo.key(*modifier, Direction::Press) {
+                    for one in held.iter().rev() { let _ = enigo.key(*one, Direction::Release); }
+                    return fail(&e.to_string());
+                }
+                held.push(*modifier);
             }
             let pressed = enigo.key(key, Direction::Click);
-            for modifier in modifiers.iter().rev() { let _ = enigo.key(*modifier, Direction::Release); }
+            for modifier in held.iter().rev() { let _ = enigo.key(*modifier, Direction::Release); }
             pressed
         }
         "scroll" => {
