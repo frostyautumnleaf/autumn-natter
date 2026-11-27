@@ -3,20 +3,38 @@
 
   var style = document.createElement('style');
   style.textContent = `
-    .agentic-browser-panel { position: fixed; z-index: 96; top: 12px; right: 12px; bottom: 12px;
-      width: min(900px, calc(100vw - 24px)); display: flex; flex-direction: column;
+    .agentic-browser-panel { position: fixed; z-index: 19; top: var(--bar-h); right: 0; bottom: 0;
+      width: min(900px, 72vw); display: flex; flex-direction: column;
       overflow: hidden; border: 1px solid var(--line-strong); border-radius: 14px;
       background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
     .agentic-browser-panel.hidden { display: none; }
+    .general-sidebar-tabs { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden;
+      min-height: 42px; padding: 5px 8px; border-bottom: 1px solid var(--line); background: var(--surface-2); scrollbar-width: thin; }
+    .general-sidebar-tab-wrap { display: inline-flex; flex: 0 0 auto; align-items: center; }
+    .general-sidebar-tab { display: inline-flex; align-items: center; max-width: 220px; height: 30px; padding: 0 10px;
+      border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text-2);
+      font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
+    .general-sidebar-tab.active { border-color: var(--line); background: var(--surface); color: var(--ink); }
+    .general-sidebar-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .general-sidebar-tab-close { flex: 0 0 auto; width: 18px; height: 18px; padding: 0; border: 0;
+      border-radius: 4px; background: transparent; color: var(--text-2); cursor: pointer; }
+    .general-sidebar-tab-close:hover { background: var(--hover); color: var(--ink); }
+    .general-sidebar-spacer { flex: 1 0 8px; }
+    .general-sidebar-pane { min-width: 0; min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
+    .general-sidebar-pane.hidden { display: none; }
+    .general-sidebar-file-pane { overflow: hidden; }
     .agentic-browser-head { display: flex; align-items: center; gap: 6px; padding: 8px;
       border-bottom: 1px solid var(--line); background: var(--surface-2); }
     .agentic-browser-label { flex: 0 0 auto; padding: 0 5px; color: var(--text-2); font-size: 12px; font-weight: 650; }
     .agentic-browser-address { min-width: 0; flex: 1 1 auto; height: 30px; padding: 0 9px;
       border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text);
       font: 12px ui-monospace, monospace; }
-    .agentic-browser-action { flex: 0 0 auto; width: 30px; height: 30px; border: 1px solid var(--line);
+    .agentic-browser-action { flex: 0 0 auto; display: grid; place-items: center;
+      width: 30px; height: 30px; border: 1px solid var(--line);
       border-radius: 7px; background: var(--surface); color: var(--text); cursor: pointer; }
     .agentic-browser-action:hover { border-color: var(--accent-line); background: var(--hover); }
+    .agentic-browser-status { flex: 0 0 auto; margin: 0; padding: 7px 10px; color: var(--text-2);
+      background: var(--surface-2); border-bottom: 1px solid var(--line); font-size: 12px; }
     .agentic-browser-tabs { display: flex; gap: 4px; overflow-x: auto; padding: 6px 8px;
       border-bottom: 1px solid var(--line); background: var(--surface); }
     .agentic-browser-tab { flex: 0 0 auto; max-width: 210px; overflow: hidden; text-overflow: ellipsis;
@@ -35,7 +53,7 @@
       color: var(--text); font-size: 12px; line-height: 1.5; }
     .agentic-browser-links { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 9px; }
     .agentic-browser-links a { color: var(--ink); font-size: 11px; }
-    .agentic-browser-empty { display: flex; align-items: center; justify-content: center; flex: 1 1 auto;
+    .agentic-browser-empty { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 1 1 auto;
       padding: 32px; color: var(--dim); text-align: center; font-size: 13px; }
     .agentic-browser-approval { position: absolute; z-index: 2; inset: 0; display: flex; flex-direction: column;
       gap: 10px; padding: 20px; background: color-mix(in srgb, var(--surface) 96%, transparent);
@@ -49,6 +67,11 @@
     .agentic-browser-approval-actions button { min-width: 84px; padding: 7px 12px; border: 1px solid var(--line);
       border-radius: 7px; background: var(--surface-2); color: var(--text); cursor: pointer; }
     .agentic-browser-approval-actions [data-browser-approve="yes"] { border-color: var(--accent-line); background: var(--accent); color: var(--on-accent); }
+    .general-sidebar-file-pane > .viewer { position: static; inset: auto; z-index: auto; min-width: 0; min-height: 0;
+      flex: 1 1 auto; align-items: stretch; justify-content: stretch; padding: 0; background: transparent; }
+    .general-sidebar-file-pane .look { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0;
+      box-shadow: none; animation: none; }
+    .general-sidebar-file-pane .look-close { display: none; }
     .agentic-computer-approval { position: fixed; z-index: 100000; inset: 0; display: grid; place-items: center;
       padding: 20px; background: rgba(0,0,0,.68); }
     .agentic-computer-approval.hidden { display: none; }
@@ -62,7 +85,7 @@
       border-radius: 7px; background: var(--surface-2); color: var(--text); cursor: pointer; }
     .agentic-computer-approval-actions [data-computer-approval="yes"] { border-color: var(--accent-line);
       background: var(--accent); color: var(--on-accent); }
-    @media (max-width: 700px) { .agentic-browser-panel { inset: 8px; width: auto; } }
+    @media (max-width: 700px) { .agentic-browser-panel { left: 0; width: auto; } }
     @media (max-width: 540px) {
       .agentic-browser-label { display: none; }
       .agentic-browser-head { gap: 4px; padding: 6px; }
@@ -71,10 +94,16 @@
   `;
   document.head.appendChild(style);
 
-  var root = document.createElement('section');
+  var toggle = document.getElementById('generalSidebarBtn');
+  var root = document.createElement('aside');
+  root.id = 'generalSidebar';
   root.className = 'agentic-browser-panel hidden';
-  root.setAttribute('aria-label', 'Browser use panel');
-  root.innerHTML = '<div class="agentic-browser-head">' +
+  root.setAttribute('aria-label', 'General sidebar');
+  root.innerHTML = '<div class="general-sidebar-tabs" role="tablist" aria-label="Sidebar tabs">' +
+    '<button class="general-sidebar-tab active" id="generalSidebarBrowserTab" type="button" role="tab" aria-selected="true" aria-controls="generalSidebarBrowserPane" data-sidebar-tab="browser"><span class="general-sidebar-tab-label">Browser</span></button>' +
+    '<span class="general-sidebar-spacer"></span>' +
+    '<button class="agentic-browser-action" type="button" data-sidebar-close title="Close sidebar" aria-label="Close sidebar">×</button>' +
+    '</div><section class="general-sidebar-pane" id="generalSidebarBrowserPane" role="tabpanel" aria-labelledby="generalSidebarBrowserTab" data-sidebar-pane="browser"><div class="agentic-browser-head">' +
     '<span class="agentic-browser-label">Browser use</span>' +
     '<input class="agentic-browser-address" type="url" aria-label="Browser address" placeholder="Enter a public page address">' +
     '<button class="agentic-browser-action" type="button" data-browser-nav="back" title="Back" aria-label="Back">←</button>' +
@@ -82,14 +111,107 @@
     '<button class="agentic-browser-action" type="button" data-browser-nav="reload" title="Reload" aria-label="Reload">↻</button>' +
     '<button class="agentic-browser-action" type="button" data-browser-newtab title="New tab" aria-label="New tab">＋</button>' +
     '<button class="agentic-browser-action" type="button" data-browser-go title="Open address in panel" aria-label="Open address in panel">↵</button>' +
-    '<button class="agentic-browser-action" type="button" data-browser-open-external title="Open this page in a new browser tab" aria-label="Open this page in a new browser tab">↗</button>' +
-    '<button class="agentic-browser-action" type="button" data-browser-close title="Close browser panel" aria-label="Close browser panel">×</button>' +
+    '<button class="agentic-browser-action" type="button" data-browser-open-external title="Open this page in a new browser tab" aria-label="Open this page in a new browser tab"><svg class="svg" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 12 12 4M6 4h6v6"/></svg></button>' +
     '</div><div class="agentic-browser-tabs" role="tablist"></div>' +
-    '<div class="agentic-browser-empty">Enable Browser use, then enter a public web address or ask the model to open one.</div>' +
+    '<p class="agentic-browser-status hidden" role="status"></p>' +
+    '<div class="agentic-browser-empty"><span></span><button class="btn" type="button" data-browser-enable>Enable Browser use</button></div>' +
     '<iframe class="agentic-browser-frame hidden" title="Isolated page preview" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>' +
     '<details class="agentic-browser-reader"><summary>Page text read by the model</summary><div class="agentic-browser-links"></div><pre></pre></details>' +
-    '<div class="agentic-browser-approval hidden" role="dialog" aria-modal="true" aria-label="Approve browser action"><strong>Review browser action</strong><pre></pre><div class="agentic-browser-approval-actions"><button type="button" data-browser-approve="no">Deny</button><button type="button" data-browser-approve="yes">Allow</button></div></div>';
+    '<div class="agentic-browser-approval hidden" role="dialog" aria-modal="true" aria-label="Approve browser action"><strong>Review browser action</strong><pre></pre><div class="agentic-browser-approval-actions"><button type="button" data-browser-approve="no">Deny</button><button type="button" data-browser-approve="yes">Allow</button></div></div></section>';
   document.body.appendChild(root);
+
+  var sidebarTabs = root.querySelector('.general-sidebar-tabs');
+  var browserPane = root.querySelector('[data-sidebar-pane="browser"]');
+  var activeSidebarTab = 'browser';
+  var sidebarFileSerial = 0;
+  var sidebarFiles = new Map();
+  var sidebarViewer = document.getElementById('viewer');
+  function setSidebarTab(id, notify) {
+    var pane = id === 'browser' ? browserPane : sidebarFiles.get(id);
+    if (!pane) { return; }
+    activeSidebarTab = id;
+    root.querySelectorAll('[data-sidebar-tab]').forEach(function (tab) {
+      var selected = tab.getAttribute('data-sidebar-tab') === id;
+      tab.classList.toggle('active', selected);
+      tab.setAttribute('aria-selected', String(selected));
+    });
+    browserPane.classList.toggle('hidden', id !== 'browser');
+    sidebarFiles.forEach(function (filePane, fileId) {
+      filePane.classList.toggle('hidden', id !== fileId);
+    });
+    if (id !== 'browser' && sidebarViewer && sidebarViewer.parentNode !== pane) { pane.appendChild(sidebarViewer); }
+    if (notify && id !== 'browser') {
+      window.dispatchEvent(new CustomEvent('autumn-sidebar-file-select', { detail: { id: id } }));
+    } else if (notify) {
+      window.dispatchEvent(new CustomEvent('autumn-sidebar-tab-selected', { detail: { id: id } }));
+    }
+  }
+  function closeSidebarFile(id) {
+    var pane = sidebarFiles.get(id);
+    if (!pane) { return; }
+    var active = activeSidebarTab === id;
+    var next = Array.from(sidebarFiles.keys()).filter(function (fileId) { return fileId !== id; }).pop() || 'browser';
+    if (active) {
+      if (next === 'browser' && sidebarViewer) {
+        sidebarViewer.classList.add('hidden');
+        root.appendChild(sidebarViewer);
+      }
+      setSidebarTab(next, true);
+    }
+    var button = sidebarTabs.querySelector('[data-sidebar-tab="' + id + '"]');
+    if (button && button.parentNode) { button.parentNode.remove(); }
+    pane.remove();
+    sidebarFiles.delete(id);
+    window.dispatchEvent(new CustomEvent('autumn-sidebar-file-close', { detail: { id: id } }));
+  }
+  window.autumnOpenSidebarFile = function (label, onCreate) {
+    var id = 'file-' + (++sidebarFileSerial);
+    var wrap = document.createElement('span');
+    wrap.className = 'general-sidebar-tab-wrap';
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'general-sidebar-tab';
+    button.id = id + '-tab';
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-controls', id + '-pane');
+    button.setAttribute('data-sidebar-tab', id);
+    button.setAttribute('aria-selected', 'false');
+    button.title = String(label || 'File');
+    var text = document.createElement('span');
+    text.className = 'general-sidebar-tab-label';
+    text.textContent = String(label || 'File');
+    button.appendChild(text);
+    button.addEventListener('click', function () { setSidebarTab(id, true); });
+    var closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'general-sidebar-tab-close';
+    closeButton.textContent = '×';
+    closeButton.title = 'Close ' + String(label || 'file');
+    closeButton.setAttribute('aria-label', closeButton.title);
+    closeButton.addEventListener('click', function (event) { event.stopPropagation(); closeSidebarFile(id); });
+    wrap.appendChild(button);
+    wrap.appendChild(closeButton);
+    var spacer = sidebarTabs.querySelector('.general-sidebar-spacer');
+    sidebarTabs.insertBefore(wrap, spacer);
+    var pane = document.createElement('section');
+    pane.className = 'general-sidebar-pane general-sidebar-file-pane hidden';
+    pane.setAttribute('role', 'tabpanel');
+    pane.id = id + '-pane';
+    pane.setAttribute('aria-labelledby', id + '-tab');
+    pane.setAttribute('data-sidebar-pane', id);
+    root.appendChild(pane);
+    sidebarFiles.set(id, pane);
+    if (typeof onCreate === 'function') { onCreate(id); }
+    showSidebar(true);
+    setSidebarTab(id, true);
+    return id;
+  };
+  window.autumnCloseActiveSidebarFile = function () {
+    if (activeSidebarTab !== 'browser') { closeSidebarFile(activeSidebarTab); }
+  };
+  root.querySelector('[data-sidebar-tab="browser"]').addEventListener('click', function () {
+    setSidebarTab('browser', true);
+  });
 
   var computerApproval = document.createElement('div');
   computerApproval.className = 'agentic-computer-approval hidden';
@@ -106,6 +228,9 @@
   var tabs = root.querySelector('.agentic-browser-tabs');
   var frame = root.querySelector('.agentic-browser-frame');
   var empty = root.querySelector('.agentic-browser-empty');
+  var emptyText = empty.querySelector('span');
+  var enableButton = empty.querySelector('[data-browser-enable]');
+  var status = root.querySelector('.agentic-browser-status');
   var readerText = root.querySelector('.agentic-browser-reader pre');
   var readerLinks = root.querySelector('.agentic-browser-links');
   var approval = root.querySelector('.agentic-browser-approval');
@@ -114,7 +239,6 @@
   var nativeApproval = null;
   var invokeNative = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
   var currentKey = '';
-  var currentUrl = '';
   var newTab = false;
   var lastActiveUrl = '';
   var latest = null;
@@ -122,17 +246,25 @@
   var computerApprovalId = '';
   var computerApprovalSent = false;
   var pagePort = null;
+  var pageReady = false;
+  var nativeSync = Promise.resolve(false);
+  var nativeSyncKey = '';
   var sentActions = new Set();
 
+  function showStatus(message) {
+    status.textContent = message;
+    status.classList.toggle('hidden', !message);
+  }
+
+  function showSidebar(visible) {
+    root.classList.toggle('hidden', !visible);
+    toggle.setAttribute('aria-expanded', String(visible));
+    toggle.classList.toggle('on', visible);
+  }
+
   function open() {
-    root.classList.remove('hidden');
-    if (latest) {
-      render(latest, false);
-      if (invokeNative) {
-        var tab = Number((latest.browser || {}).active) || 0;
-        if (tab) { syncNativeWindow(tab, true); }
-      }
-    }
+    showSidebar(true);
+    render(latest || {}, false);
   }
   function denyApproval() {
     if (!approvalId) { return; }
@@ -156,7 +288,8 @@
       var tab = Number((latest.browser || {}).active) || 0;
       if (tab) { syncNativeWindow(tab, false); }
     }
-    root.classList.add('hidden');
+    showSidebar(false);
+    if (root.contains(document.activeElement)) { toggle.focus(); }
   }
   function validUrl(value) {
     try {
@@ -165,13 +298,16 @@
     } catch (_) { return ''; }
   }
   function render(state, autoOpen) {
-    var browser = state.browser || {};
+    var enabled = !!(state.tool_switches || {}).browser_use;
+    var browser = enabled ? state.browser || {} : {};
     var list = Array.isArray(browser.tabs) ? browser.tabs : [];
     var active = Number(browser.active) || 0;
     currentPending = browser.pending_action && typeof browser.pending_action.id === 'string'
       ? browser.pending_action : null;
     if (!currentPending && approvalId) { denyApproval(); }
-    if (currentPending && root.classList.contains('hidden')) { open(); }
+    if (currentPending && root.classList.contains('hidden')) { showSidebar(true); }
+    enableButton.classList.toggle('hidden', enabled);
+    address.disabled = !enabled;
     tabs.replaceChildren();
     list.forEach(function (tab, index) {
       var url = validUrl((tab && tab.url) || '');
@@ -222,24 +358,29 @@
     if (!nextUrl) {
       if (document.activeElement !== address) { address.value = ''; }
       currentKey = '';
-      currentUrl = '';
-      frame.srcdoc = '';
+      if (pagePort) { pagePort.close(); pagePort = null; }
+      pageReady = false;
+      if (frame.hasAttribute('srcdoc')) { frame.removeAttribute('srcdoc'); }
       frame.classList.add('hidden');
       empty.classList.remove('hidden');
-      empty.textContent = 'Enable Browser use, then enter a public web address or ask the model to open one.';
+      emptyText.textContent = enabled ? 'Enter a public web address or ask the model to open one.' : '';
       lastActiveUrl = '';
       if (invokeNative) { syncNativeWindow(active || 1, false); }
       return;
     }
     if (document.activeElement !== address) { address.value = nextUrl; }
-    var nextKey = [active, nextUrl, page && page.revision || 0].join('|');
+    var nextKey = JSON.stringify([state.chat && state.chat.id, active, nextUrl, page && page.revision || 0]);
     if (nextKey !== currentKey) {
       setPage(nextUrl, active, nextKey);
-      if (autoOpen) { open(); }
+      if (autoOpen) { showSidebar(true); }
+    }
+    if (invokeNative && !root.classList.contains('hidden')) {
+      syncNativeWindow(active, true).then(function (ready) {
+        if (ready && nextKey === currentKey) { sendPendingAction(); }
+      });
     } else {
       sendPendingAction();
     }
-    if (invokeNative && !root.classList.contains('hidden')) { syncNativeWindow(active, true); }
     lastActiveUrl = nextUrl;
   }
   function safeDocument(html, url) {
@@ -297,16 +438,33 @@
           if(op==='press'){if(!el)el=document.activeElement||document.body;var key=String(a.key||'').toLowerCase();if(key==='enter'&&formSubmit(el)){if(!await ask(msg.id,'Submit this page form?\\n'+clean(name(el),160)))return {ok:false,error:'The user declined to submit the form.'};return {ok:false,error:'The safe page preview blocks form submission. Complete this step in your own browser, then ask the model to continue.'}}var map={enter:'Enter',return:'Enter',tab:'Tab',escape:'Escape',esc:'Escape',backspace:'Backspace',delete:'Delete',space:' ',up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight',pageup:'PageUp',pagedown:'PageDown',home:'Home',end:'End'};var actual=map[key]||(/^f([1-9]|1[0-2])$/i.test(key)?key.toUpperCase():String(a.key||''));el.dispatchEvent(new KeyboardEvent('keydown',{key:actual,bubbles:true,cancelable:true}));el.dispatchEvent(new KeyboardEvent('keyup',{key:actual,bubbles:true,cancelable:true}));return {ok:true,title:document.title,text:'Pressed '+clean(actual,20)+'.'}}
           return {ok:false,error:'Unsupported browser action.'}}
         function receive(e){if(!e.data)return;if(e.data.type==='autumn-browser-approval'){var answer=approvals.get(e.data.id);if(answer)answer(e.data.approved);return}if(e.data.type==='autumn-browser-command')run(e.data).then(function(result){send(e.data.id,result)},function(error){send(e.data.id,{ok:false,error:clean(error&&error.message,500)})})}
-        function connect(e){if(e.source!==parent||!e.data||e.data.type!=='autumn-browser-init'||!e.ports||!e.ports[0])return;bridge=e.ports[0];bridge.onmessage=receive;bridge.start();removeEventListener('message',connect)}
+        function revealPage(){
+          var main=document.querySelector('main, [role=main]')||document.body;
+          // Static previews have no site scripts to reveal content after a page animation.
+          for(var heading of main.querySelectorAll('h1, h2, h3')){
+            var rect=heading.getBoundingClientRect();
+            if(rect.width<=1||rect.height<=1||getComputedStyle(heading).visibility!=='visible')continue;
+            for(var node=heading;node;node=node.parentElement){
+              if(Number(getComputedStyle(node).opacity)!==0)continue;
+              node.style.setProperty('animation','none','important');
+              node.style.setProperty('transition','none','important');
+              node.style.setProperty('opacity','1','important');
+            }
+          }
+          return !!main.innerText.trim();
+        }
+        function connect(e){
+          if(e.source!==parent||!e.data||e.data.type!=='autumn-browser-init'||!e.ports||!e.ports[0])return;
+          bridge=e.ports[0];bridge.onmessage=receive;bridge.start();removeEventListener('message',connect);
+          bridge.postMessage({type:'autumn-browser-ready',hasContent:revealPage()});
+        }
         addEventListener('message',connect);
         document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;e.preventDefault();e.stopPropagation();if(bridge)bridge.postMessage({type:'autumn-browser-link',href:a.href})},true);
       })();
-      <\\/script>`;
+      </script>`;
     var head = '<meta http-equiv="Content-Security-Policy" content="' + policy + '"><base href="' + safeUrl + '">';
-    if (/<head\b[^>]*>/i.test(source)) { source = source.replace(/<head\b[^>]*>/i, function (match) { return match + head; }); }
-    else { source = '<!doctype html><html><head>' + head + '</head><body>' + source + '</body></html>'; }
-    if (/<\/body\s*>/i.test(source)) { return source.replace(/<\/body\s*>/i, agent + '</body>'); }
-    return source + agent;
+    // Put the policy and bridge first so a truncated page cannot swallow either of them.
+    return '<!doctype html>' + head + agent + source;
   }
   function requestPage(tab, url, key) {
     var invoke = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
@@ -317,14 +475,15 @@
           return response.json();
         });
     Promise.resolve(load).then(function (page) {
-      if (currentKey !== key || !page || validUrl(page.url) !== url) { return; }
+      if (currentKey !== key) { return; }
+      if (!page || validUrl(page.url) !== url || !page.html) { throw new Error('page expired'); }
       frame.onload = initializePageAgent;
       frame.srcdoc = safeDocument(page.html, url);
       empty.classList.add('hidden');
       frame.classList.remove('hidden');
     }).catch(function () {
       if (currentKey === key) {
-        empty.textContent = 'The page preview expired. Reload the page from the model or enter its address again.';
+        emptyText.textContent = 'The page preview is unavailable. Reload it or open the address in your browser.';
         empty.classList.remove('hidden');
         frame.classList.add('hidden');
       }
@@ -334,52 +493,68 @@
     var safe = validUrl(value);
     if (!safe) { return; }
     currentKey = key;
-    currentUrl = safe;
     address.value = safe;
-    empty.textContent = invokeNative
-      ? 'The live page is open in the browser panel. Browser actions use that page.'
-      : 'Loading a safe, read-only preview…';
+    showStatus('');
+    if (pagePort) { pagePort.close(); pagePort = null; }
+    pageReady = false;
+    emptyText.textContent = 'Loading page preview…';
     empty.classList.remove('hidden');
     frame.classList.add('hidden');
     if (invokeNative) {
       empty.classList.add('hidden');
       frame.classList.remove('hidden');
-      syncNativeWindow(tab, true);
     } else { requestPage(tab, safe, key); }
   }
 
   function syncNativeWindow(tab, visible) {
-    if (!invokeNative || !tab) { return; }
+    if (!invokeNative || !tab) { return Promise.resolve(false); }
     var rect = frame.getBoundingClientRect();
-    invokeNative('browser_window_sync', {
+    var bounds = {
       tab: tab,
       visible: !!visible,
-      x: Math.max(0, rect.left),
-      y: Math.max(0, rect.top),
-      width: Math.max(1, rect.width),
-      height: Math.max(1, rect.height)
-    }).catch(function (error) {
-      if (!root.classList.contains('hidden')) {
-        empty.textContent = 'The native browser page could not open: ' + String(error && error.message || error);
-        empty.classList.remove('hidden');
-        frame.classList.add('hidden');
-      }
+      x: visible ? Math.max(0, Math.round(rect.left)) : 0,
+      y: visible ? Math.max(0, Math.round(rect.top)) : 0,
+      width: visible ? Math.max(1, Math.round(rect.width)) : 1,
+      height: visible ? Math.max(1, Math.round(rect.height)) : 1
+    };
+    var key = JSON.stringify([currentKey, bounds]);
+    if (key === nativeSyncKey) { return nativeSync; }
+    nativeSyncKey = key;
+    nativeSync = nativeSync.then(function () {
+      if (nativeSyncKey !== key) { return false; }
+      return invokeNative('browser_window_sync', bounds).then(function () {
+        return visible && nativeSyncKey === key;
+      }).catch(function (error) {
+        if (visible && nativeSyncKey === key) {
+          showStatus('The native browser page could not open: ' + String(error && error.message || error));
+        }
+        return false;
+      });
     });
+    return nativeSync;
+  }
+
+  function navigate(path, body) {
+    showStatus('');
+    window.dispatchEvent(new CustomEvent('autumn-agentic-action', {
+      detail: { path: path, body: body, onResult: function (result) {
+        if (result && result.ok === false) { showStatus(result.status || 'The browser could not complete this action.'); }
+      } }
+    }));
   }
 
   function navigateAddress() {
     var safe = validUrl(address.value.trim());
     if (!safe) { address.setCustomValidity('Enter a complete public http:// or https:// address.'); address.reportValidity(); return; }
     address.setCustomValidity('');
-    window.dispatchEvent(new CustomEvent('autumn-agentic-action', {
-      detail: { path: 'browser_open', body: { url: safe, new_tab: newTab } }
-    }));
+    navigate('browser_open', { url: safe, new_tab: newTab });
     newTab = false;
     address.placeholder = 'Enter a public page address';
   }
 
   function sendPendingAction() {
     if (!currentPending || root.classList.contains('hidden')) { return; }
+    if (!invokeNative && !pageReady) { return; }
     if (sentActions.has(currentPending.id)) { return; }
     sentActions.add(currentPending.id);
     if (sentActions.size > 256) { sentActions.delete(sentActions.values().next().value); }
@@ -413,7 +588,6 @@
         });
       return;
     }
-    if (!pagePort) { return; }
     pagePort.postMessage({ type: 'autumn-browser-command', id: currentPending.id, action: currentPending.action });
   }
 
@@ -424,7 +598,6 @@
     pagePort.onmessage = handleBrowserPageMessage;
     pagePort.start();
     frame.contentWindow.postMessage({ type: 'autumn-browser-init' }, '*', [channel.port2]);
-    sendPendingAction();
   }
 
   function answerBrowserAction(id, result) {
@@ -453,13 +626,19 @@
   function showDownloadNotice(event) {
     var payload = event && event.payload;
     if (!payload || !payload.message) { return; }
-    empty.textContent = String(payload.message) + (payload.path ? ' ' + String(payload.path) : '');
-    empty.classList.remove('hidden');
+    showStatus(String(payload.message) + (payload.path ? ' ' + String(payload.path) : ''));
   }
   var eventApi = window.__TAURI__ && window.__TAURI__.event;
   if (invokeNative && eventApi && eventApi.listen) {
     eventApi.listen('agentic-browser-download', showDownloadNotice);
   }
+  toggle.addEventListener('click', function () {
+    if (root.classList.contains('hidden')) { open(); }
+    else { close(); }
+  });
+  enableButton.addEventListener('click', function () {
+    navigate('tool_switch', { part: 'browser_use', on: true });
+  });
 
   document.addEventListener('click', function (event) {
     var computerButton = event.target && event.target.closest
@@ -484,8 +663,8 @@
       open();
       return;
     }
-    if (event.target === root.querySelector('[data-browser-close]')) { close(); }
-    if (event.target === root.querySelector('[data-browser-open-external]')) {
+    if (event.target === root.querySelector('[data-sidebar-close]')) { close(); }
+    if (event.target.closest && event.target.closest('[data-browser-open-external]')) {
       var safe = validUrl(address.value);
       if (safe) { window.open(safe, '_blank', 'noopener,noreferrer'); }
     }
@@ -524,9 +703,7 @@
     }
     var nav = event.target && event.target.closest ? event.target.closest('[data-browser-nav]') : null;
     if (nav) {
-      window.dispatchEvent(new CustomEvent('autumn-agentic-action', {
-        detail: { path: 'browser_history_step', body: { action: nav.getAttribute('data-browser-nav') } }
-      }));
+      navigate('browser_history_step', { action: nav.getAttribute('data-browser-nav') });
     }
   });
   address.addEventListener('keydown', function (event) {
@@ -539,7 +716,6 @@
     if (!event.detail || typeof event.detail !== 'object') { return; }
     latest = event.detail;
     updateComputerApproval(latest);
-    if (!((latest.tool_switches || {}).browser_use)) { close(); return; }
     var browser = latest.browser || {};
     var page = Array.isArray(browser.tabs) ? browser.tabs[(Number(browser.active) || 0) - 1] : null;
     var nextUrl = validUrl((page && page.url) || '');
@@ -551,15 +727,24 @@
     layoutPending = true;
     requestAnimationFrame(function () {
       layoutPending = false;
+      if (root.classList.contains('hidden') || frame.classList.contains('hidden')) { return; }
       var tab = Number(((latest || {}).browser || {}).active) || 0;
       if (tab) { syncNativeWindow(tab, true); }
     });
   }
   window.addEventListener('resize', syncBrowserLayout, { passive: true });
   window.addEventListener('scroll', syncBrowserLayout, { passive: true, capture: true });
-  if (typeof ResizeObserver === 'function') { new ResizeObserver(syncBrowserLayout).observe(root); }
+  if (typeof ResizeObserver === 'function') { new ResizeObserver(syncBrowserLayout).observe(frame); }
   function handleBrowserPageMessage(event) {
     if (!event.data) { return; }
+    if (event.data.type === 'autumn-browser-ready') {
+      pageReady = true;
+      if (!event.data.hasContent) {
+        showStatus('This page has no readable preview. Use the open-in-browser button to view the full site.');
+      }
+      sendPendingAction();
+      return;
+    }
     if (event.data.type === 'autumn-browser-result') {
       answerBrowserAction(String(event.data.id || ''), event.data.result || { ok: false, error: 'The browser returned no result.' });
       return;
@@ -574,9 +759,7 @@
     if (event.data.type !== 'autumn-browser-link') { return; }
     var safe = validUrl(event.data.href || '');
     if (safe) {
-      window.dispatchEvent(new CustomEvent('autumn-agentic-action', {
-        detail: { path: 'browser_open', body: { url: safe, new_tab: false } }
-      }));
+      navigate('browser_open', { url: safe, new_tab: false });
     }
   }
 })();

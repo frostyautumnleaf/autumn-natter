@@ -159,24 +159,34 @@ pub async fn browser_window_sync(
     if let Some(view) = app.get_webview(&label) {
         let target = tauri::Url::parse(&address).map_err(|problem| problem.to_string())?;
         let current = view.url().map_err(|problem| problem.to_string())?;
-        let pending_navigation = BROWSER_NAVIGATION_PENDING
-            .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-            .lock()
-            .ok()
-            .and_then(|mut pending| {
-                pending.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
-                let match_target = pending
-                    .get(&label)
-                    .is_some_and(|(url, _)| url == target.as_str());
-                if current == target {
+        let navigation = BROWSER_NAVIGATION_PENDING
+            .get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        let navigate = {
+            let mut pending = navigation
+                .lock()
+                .map_err(|_| String::from("The browser navigation state is busy."))?;
+            pending.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
+            if current == target {
+                pending.remove(&label);
+                false
+            } else if pending
+                .get(&label)
+                .is_some_and(|(url, _)| url == target.as_str())
+            {
+                false
+            } else {
+                // Layout can change again before the webview reports the new URL.
+                pending.insert(label.clone(), (target.to_string(), std::time::Instant::now()));
+                true
+            }
+        };
+        if navigate {
+            if let Err(problem) = view.navigate(target) {
+                if let Ok(mut pending) = navigation.lock() {
                     pending.remove(&label);
                 }
-                Some(match_target)
-            })
-            .unwrap_or(false);
-        if current != target && !pending_navigation {
-            view.navigate(target.clone())
-                .map_err(|problem| problem.to_string())?;
+                return Err(problem.to_string());
+            }
         }
         if previous != Some(viewport) {
             view.set_bounds(Rect {

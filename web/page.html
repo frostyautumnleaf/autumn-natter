@@ -3401,6 +3401,9 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
   </div>
   <span class="rule"></span>
   
+  <button class="mark-btn" id="generalSidebarBtn" type="button" title="General sidebar" aria-label="General sidebar" aria-expanded="false" aria-controls="generalSidebar">
+    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.7" y="2.9" width="12.6" height="10.2" rx="2.1"/><path d="M10 2.9v10.2"/></svg>
+  </button>
   <button class="mark-btn" id="settingsbtn" title="Settings of the program" aria-label="Settings of the program">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.45" d="M14.86 6.60L14.86 9.40L12.97 9.37L12.48 10.55L13.84 11.86L11.86 13.84L10.55 12.48L9.37 12.97L9.40 14.86L6.60 14.86L6.63 12.97L5.45 12.48L4.14 13.84L2.16 11.86L3.52 10.55L3.03 9.37L1.14 9.40L1.14 6.60L3.03 6.63L3.52 5.45L2.16 4.14L4.14 2.16L5.45 3.52L6.63 3.03L6.60 1.14L9.40 1.14L9.37 3.03L10.55 3.52L11.86 2.16L13.84 4.14L12.48 5.45L12.97 6.63Z"/><circle cx="8" cy="8" r="2.15"/></svg>
   </button>
@@ -3462,7 +3465,7 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
   <!--   The window an image or a text file is checked in. It covers the chat and holds one item: the
     image at the size it is, or the text of a file as they is now. A click outside it, the marker
     of closing, or the key of escape puts it away again. -->
-  <div class="viewer hidden" id="viewer" role="dialog" aria-modal="true" aria-labelledby="lookname">
+  <div class="viewer hidden" id="viewer" role="region" aria-label="Opened file">
     <div class="look">
       <div class="look-head">
         <span class="look-name" id="lookname"></span>
@@ -4351,23 +4354,28 @@ body.pixel .meter-box.near .meter i { background-color: var(--ink-fail); }
 </div>
 
 <script src="../frontend/corporate.js?v=8"></script>
-<script src="agentic-browser.js?v=2"></script>
+<script src="agentic-browser.js?v=5"></script>
 <script>'use strict';
 
 // The page sends requests to the engine over the small HTTP server of the remote mode. The
 // names of the calls match the routes the desktop window uses, so the two share one mapping on
 // the Rust side.
-function post(path, body) {
+function post(path, body, onResult) {
   fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body || {})
-  }).then(function () { poll(); }, function () { poll(); });
+  }).then(function (response) {
+    return onResult ? response.json().then(onResult) : null;
+  }).then(function () { poll(); }, function (error) {
+    if (onResult) { onResult({ ok: false, status: String(error) }); }
+    poll();
+  });
 }
 
 window.addEventListener('autumn-agentic-action', function (event) {
   var action = event.detail || {};
-  if (typeof action.path === 'string') { post(action.path, action.body || {}); }
+  if (typeof action.path === 'string') { post(action.path, action.body || {}, action.onResult); }
 });
 
 // The parts of the page that stay in place. Their text is written again on every draw.
@@ -12793,6 +12801,8 @@ function sayNothing(body) {
 var lookFiles = null;
 var lookAt = 0;
 var lookRaw = false;
+var sidebarLookSessions = new Map();
+var currentLookSession = '';
 // The count of the drawings. A file is requested, and the answer comes a moment later; two
 // turns of the files in a moment would otherwise let the answer of the file before write itself
 // over the file that is left open.
@@ -13013,7 +13023,16 @@ function turnLook(by) {
   if (next < 0 || next >= list.length) { return; }
   lookAt = next;
   lookRaw = false;
+  saveSidebarLookSession();
   drawLookFile();
+}
+
+function saveSidebarLookSession() {
+  var session = sidebarLookSessions.get(currentLookSession);
+  if (!session) { return; }
+  session.files = lookFiles ? lookFiles.slice() : null;
+  session.at = lookAt;
+  session.raw = lookRaw;
 }
 
 // The window is put up. `one` reports what is to be checked: its name, whether it is an image
@@ -13024,7 +13043,27 @@ function openViewer(one) {
   var box = el.viewer;
   if (!box || !one) { return; }
   wireViewer();
-  lookBack = document.activeElement;
+  if (one.files) {
+    lookFiles = one.files.slice();
+  } else {
+    lookFiles = null;
+    lookAt = 0;
+    lookRaw = false;
+  }
+  var session = { one: one, files: lookFiles ? lookFiles.slice() : null, at: lookAt, raw: lookRaw };
+  if (typeof window.autumnOpenSidebarFile === 'function') {
+    var selected = session.files && session.files[session.at];
+    var label = selected ? wholeOf(selected) : (one.name || 'A file of the chat');
+    window.autumnOpenSidebarFile(label, function (id) { sidebarLookSessions.set(id, session); });
+    return;
+  }
+  renderViewerContent(one);
+}
+
+function renderViewerContent(one) {
+  var box = el.viewer;
+  if (!box || !one) { return; }
+  var renderTurn = ++lookTurn;
   box.classList.remove('hidden');
   if (el.lookname) { el.lookname.textContent = one.name || 'A file of the chat'; }
   if (el.lookkind) {
@@ -13042,10 +13081,11 @@ function openViewer(one) {
       noteWaiting(body);
       (function (name) {
         attachmentWords(one.id).then(function (record) {
+          if (renderTurn !== lookTurn) { return; }
           var url = record && record.data ? record.data : '';
           body.innerHTML = '';
           if (url) { showPicture(body, url, name); } else { sayNothing(body); }
-        }, function () { sayNothing(body); });
+        }, function () { if (renderTurn === lookTurn) { sayNothing(body); } });
       }(one.name));
       return;
     }
@@ -13056,6 +13096,7 @@ function openViewer(one) {
   if (one.file) {
     noteWaiting(body);
     wordsOfHeld(one, function (words) {
+      if (renderTurn !== lookTurn) { return; }
       body.innerHTML = '';
       if (words) { showWords(body, words); } else { sayNothing(body); }
     });
@@ -13065,10 +13106,11 @@ function openViewer(one) {
     noteWaiting(body);
     (function (id) {
       attachmentWords(id).then(function (record) {
+        if (renderTurn !== lookTurn) { return; }
         var words = record && record.text ? record.text : '';
         body.innerHTML = '';
         if (words) { showWords(body, words); } else { sayNothing(body); }
-      }, function () { sayNothing(body); });
+      }, function () { if (renderTurn === lookTurn) { sayNothing(body); } });
     }(one.id));
     return;
   }
@@ -13080,6 +13122,10 @@ function openViewer(one) {
 function closeViewer() {
   var box = el.viewer;
   if (!box || box.classList.contains('hidden')) { return; }
+  if (currentLookSession && typeof window.autumnCloseActiveSidebarFile === 'function') {
+    window.autumnCloseActiveSidebarFile();
+    return;
+  }
   box.classList.add('hidden');
   if (el.lookbody) { lookTurnOn(el.lookbody, false); el.lookbody.innerHTML = ''; }
   // The window over the contents of files is begun again from the first of them next time it is
@@ -13102,11 +13148,6 @@ function wireViewer() {
   if (el.lookclose) {
     el.lookclose.addEventListener('click', function () { closeViewer(); });
   }
-  if (el.viewer) {
-    el.viewer.addEventListener('mousedown', function (event) {
-      if (event.target === el.viewer) { closeViewer(); }
-    });
-  }
   // The turn of the files, and the text of a file instead of the item it makes.
   if (el.lookprev) {
     el.lookprev.addEventListener('click', function () { turnLook(-1); });
@@ -13117,6 +13158,7 @@ function wireViewer() {
   if (el.lookraw) {
     el.lookraw.addEventListener('click', function () {
       lookRaw = !lookRaw;
+      saveSidebarLookSession();
       drawLookFile();
     });
   }
@@ -13124,14 +13166,38 @@ function wireViewer() {
     if (event.key !== 'Escape') { return; }
     if (el.viewer && !el.viewer.classList.contains('hidden')) {
       event.preventDefault();
-      closeViewer();
+      if (typeof window.autumnCloseActiveSidebarFile === 'function') {
+        window.autumnCloseActiveSidebarFile();
+      } else { closeViewer(); }
+    }
+  });
+  window.addEventListener('autumn-sidebar-file-select', function (event) {
+    var id = event.detail && event.detail.id;
+    var session = sidebarLookSessions.get(id);
+    if (!session) { return; }
+    currentLookSession = id;
+    lookFiles = session.files ? session.files.slice() : null;
+    lookAt = session.at || 0;
+    lookRaw = !!session.raw;
+    renderViewerContent(session.one);
+  });
+  window.addEventListener('autumn-sidebar-tab-selected', function () {
+    currentLookSession = '';
+    if (el.viewer) { el.viewer.classList.add('hidden'); }
+  });
+  window.addEventListener('autumn-sidebar-file-close', function (event) {
+    var id = event.detail && event.detail.id;
+    sidebarLookSessions.delete(id);
+    if (currentLookSession === id) {
+      currentLookSession = '';
+      if (el.viewer) { el.viewer.classList.add('hidden'); }
     }
   });
   // The two keys of the arrows turn the files of the display, while the window is left open and
   // the
   // pointer is not busy in a box of text.
   window.addEventListener('keydown', function (event) {
-    if (!lookFiles || !el.viewer || el.viewer.classList.contains('hidden')) { return; }
+    if (!currentLookSession || !lookFiles || !el.viewer || el.viewer.classList.contains('hidden')) { return; }
     var where = document.activeElement;
     if (where && (where.tagName === 'INPUT' || where.tagName === 'TEXTAREA')) { return; }
     if (event.key === 'ArrowLeft') { event.preventDefault(); turnLook(-1); }

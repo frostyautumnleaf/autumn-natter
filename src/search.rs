@@ -28,6 +28,7 @@ pub const NAME: &str = "web_search";
 // The most bytes of one page that are read. A page of a news house may hold three times this in
 // the markers of its header alone, and none of those markers are text.
 const MAX_FETCH_BYTES: usize = 512 * 1024;
+const MAX_BROWSER_FETCH_BYTES: usize = 1024 * 1024;
 
 // The most text of a page, or of a whole answer, that reach the model. The size of the context
 // is small, and the start of a page holds the best of it.
@@ -405,12 +406,12 @@ fn wiki_places(page: &str) -> Vec<Place> {
 // Get one address, and read what returns. The bytes are stopped at the cap, so a page that goes
 // on for ever does not hold the program.
 fn fetch(address: &str) -> Result<String, String> {
-    fetch_document(address).map(|(_, page)| page)
+    fetch_document(address, MAX_FETCH_BYTES).map(|(_, page)| page)
 }
 
 // Fetch one bounded public page and retain the final address after checked redirects. Browser
 // previews use the same reader as search, so their navigation cannot bypass its URL checks.
-fn fetch_document(address: &str) -> Result<(String, String), String> {
+fn fetch_document(address: &str, limit: usize) -> Result<(String, String), String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(20))
@@ -419,22 +420,19 @@ fn fetch_document(address: &str) -> Result<(String, String), String> {
     let mut current = Url::parse(address).map_err(|_| String::from("invalid URL"))?;
     for _ in 0..=5 {
         validate_public_url(&current)?;
-        let response = match agent.get(current.as_str())
+        let response = agent.get(current.as_str())
             .set("user-agent", AGENT)
             .set("accept-language", "en")
             .call()
-        {
-            Ok(response) => response,
-            Err(ureq::Error::Status(code, response)) if (300..400).contains(&code) => {
-                let location = response.header("Location").ok_or_else(|| String::from("redirect had no destination"))?;
-                current = current.join(location).map_err(|_| String::from("redirect destination was invalid"))?;
-                continue;
-            }
-            Err(problem) => return Err(first_words(&problem.to_string(), 200)),
-        };
+            .map_err(|problem| first_words(&problem.to_string(), 200))?;
+        if (300..400).contains(&response.status()) {
+            let location = response.header("Location").ok_or_else(|| String::from("redirect had no destination"))?;
+            current = current.join(location).map_err(|_| String::from("redirect destination was invalid"))?;
+            continue;
+        }
         let mut bytes: Vec<u8> = Vec::new();
-        let mut stream = response.into_reader();
-        let _ = stream.by_ref().take(MAX_FETCH_BYTES as u64).read_to_end(&mut bytes);
+        response.into_reader().take(limit as u64).read_to_end(&mut bytes)
+            .map_err(|problem| format!("The page could not be read: {problem}"))?;
         return Ok((current.to_string(), String::from_utf8_lossy(&bytes).to_string()));
     }
     Err(String::from("the page redirected too many times"))
@@ -579,7 +577,7 @@ fn to_words(page: &str) -> String {
 
 // A browser snapshot of a page and the links the model may choose to follow.
 pub(crate) fn browser_read(address: &str) -> Result<(String, String, Vec<(String, String)>, String), String> {
-    let (final_url, page) = fetch_document(address)?;
+    let (final_url, page) = fetch_document(address, MAX_BROWSER_FETCH_BYTES)?;
     let mut links = Vec::new();
     let mut from = 0usize;
     while links.len() < 30 {
