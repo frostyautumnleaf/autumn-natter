@@ -16,6 +16,7 @@ pub const COMPUTER_NAME: &str = "computer_use";
 const PAGE_START: &str = "BEGIN UNTRUSTED WEB PAGE";
 const PAGE_END: &str = "END UNTRUSTED WEB PAGE";
 const MAX_BROWSER_PAGE_CHARS: usize = 100_000;
+const MAX_SCREENSHOT_EDGE: u32 = 1_440;
 
 #[derive(Default)]
 struct BrowserSession {
@@ -34,7 +35,16 @@ struct BrowserTab {
 static BROWSERS: OnceLock<Mutex<HashMap<String, BrowserSession>>> = OnceLock::new();
 // Computer use needs a fresh view before its first action in each chat. The screenshot itself is
 // returned as a tool attachment, while this small in-memory marker prevents blind first clicks.
-static COMPUTER_SESSIONS: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+static COMPUTER_SESSIONS: OnceLock<Mutex<HashMap<String, ComputerScreen>>> = OnceLock::new();
+
+#[derive(Clone, Copy)]
+struct ComputerScreen {
+    display: u32,
+    width: u32,
+    height: u32,
+    display_width: u32,
+    display_height: u32,
+}
 
 pub fn is_tool(name: &str) -> bool {
     matches!(name, BROWSER_NAME | COMPUTER_NAME)
@@ -614,27 +624,23 @@ pub fn computer_run(
             Ok(display) => display,
             Err(problem) => return computer_fail(&problem),
         };
-        let result = screenshot(display);
-        if result.report.ok {
-            mark_computer_screenshot(chat, display);
-        }
-        return result;
+        return screenshot(display, chat);
     }
     if !has_computer_screenshot(chat) {
         let display = match requested_display(&args, chat) {
             Ok(display) => display,
             Err(problem) => return computer_fail(&problem),
         };
-        let mut result = screenshot(display);
+        let mut result = screenshot(display, chat);
         if result.report.ok {
-            mark_computer_screenshot(chat, display);
-            result.report.output = String::from(
-                "No desktop action was performed. Inspect this screenshot, then choose the next action using its coordinates.",
+            result.report.output = format!(
+                "No desktop action was performed. Inspect this screenshot, then choose the next action using its coordinates. {}",
+                result.report.output
             );
         }
         return result;
     }
-    let Some(display) = computer_display(chat) else {
+    let Some(screen) = computer_display(chat) else {
         return computer_fail("The selected display state expired; request a fresh screenshot.");
     };
     let mut results = Vec::new();
@@ -643,7 +649,7 @@ pub fn computer_run(
         if watch.expired() {
             return computer_fail("The computer action sequence was stopped or timed out.");
         }
-        let result = control(one, display, watch);
+        let result = control(one, screen, watch);
         results.push(result.output);
         if !result.ok {
             ok = false;
@@ -656,7 +662,7 @@ pub fn computer_run(
     if watch.expired() {
         return computer_fail("The computer action sequence was stopped or timed out.");
     }
-    let mut after = screenshot(display);
+    let mut after = screenshot(screen.display, chat);
     if !after.report.ok {
         after.report.output = format!(
             "{} The screen could not be captured afterward: {}",
@@ -820,7 +826,7 @@ fn has_computer_screenshot(chat: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn computer_display(chat: &str) -> Option<u32> {
+fn computer_display(chat: &str) -> Option<ComputerScreen> {
     COMPUTER_SESSIONS
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
@@ -842,12 +848,12 @@ fn requested_display(args: &Value, chat: &str) -> Result<u32, String> {
             .id()
             .map_err(|e| format!("Could not read that display: {e}"));
     }
-    if let Some(display) = computer_display(chat) {
+    if let Some(screen) = computer_display(chat) {
         if monitors
             .iter()
-            .any(|monitor| monitor.id().ok() == Some(display))
+            .any(|monitor| monitor.id().ok() == Some(screen.display))
         {
-            return Ok(display);
+            return Ok(screen.display);
         }
     }
     monitors
@@ -859,12 +865,19 @@ fn requested_display(args: &Value, chat: &str) -> Result<u32, String> {
         .map_err(|e| format!("Could not read the primary display: {e}"))
 }
 
-fn mark_computer_screenshot(chat: &str, display: u32) {
+fn mark_computer_screenshot(
+    chat: &str,
+    display: u32,
+    width: u32,
+    height: u32,
+    display_width: u32,
+    display_height: u32,
+) {
     if let Ok(mut sessions) = COMPUTER_SESSIONS
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
     {
-        sessions.insert(chat.to_string(), display);
+        sessions.insert(chat.to_string(), ComputerScreen { display, width, height, display_width, display_height });
         if sessions.len() > 256 {
             // Session state is only a guard against blind actions, not data worth retaining.
             if let Some(old) = sessions.keys().find(|one| one.as_str() != chat).cloned() {
@@ -883,8 +896,8 @@ pub fn clear_computer_screenshot(chat: &str) {
     }
 }
 
-fn screenshot(display: u32) -> ComputerResult {
-    let made = (|| -> Result<crate::attach::Incoming, String> {
+fn screenshot(display: u32, chat: &str) -> ComputerResult {
+    let made = (|| -> Result<(crate::attach::Incoming, u32, u32, u32, u32), String> {
         let monitors =
             xcap::Monitor::all().map_err(|e| format!("Screen capture is unavailable: {e}"))?;
         let monitor = monitors
@@ -898,17 +911,30 @@ fn screenshot(display: u32) -> ComputerResult {
         if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 24_000_000 {
             return Err(String::from("The display is too large to capture safely."));
         }
+        let scale = (f64::from(MAX_SCREENSHOT_EDGE) / f64::from(width.max(height))).min(1.0);
+        let shot_width = (f64::from(width) * scale).round().max(1.0) as u32;
+        let shot_height = (f64::from(height) * scale).round().max(1.0) as u32;
+        let shot = if (shot_width, shot_height) == (width, height) {
+            image
+        } else {
+            image::imageops::resize(
+                &image,
+                shot_width,
+                shot_height,
+                image::imageops::FilterType::Triangle,
+            )
+        };
         let mut bytes = Vec::new();
         {
-            let mut encoder = png::Encoder::new(&mut bytes, width, height);
+            let mut encoder = png::Encoder::new(&mut bytes, shot_width, shot_height);
             encoder.set_color(png::ColorType::Rgba);
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
             writer
-                .write_image_data(image.as_raw())
+                .write_image_data(shot.as_raw())
                 .map_err(|e| e.to_string())?;
         }
-        Ok(crate::attach::Incoming {
+        Ok((crate::attach::Incoming {
             name: String::from("desktop-screenshot.png"),
             mime: String::from("image/png"),
             data: format!(
@@ -916,13 +942,16 @@ fn screenshot(display: u32) -> ComputerResult {
                 base64::engine::general_purpose::STANDARD.encode(bytes)
             ),
             text: String::new(),
-        })
+        }, shot_width, shot_height, width, height))
     })();
     match made {
-        Ok(image) => ComputerResult {
-            report: tools::Report { ok: true, output: format!("Current screenshot of the selected display. Use the image to choose coordinates for the next action. Select a different display by its one-based number from this list:\n{}", display_list()) },
-            image: Some(image),
-        },
+        Ok((image, width, height, display_width, display_height)) => {
+            mark_computer_screenshot(chat, display, width, height, display_width, display_height);
+            ComputerResult {
+                report: tools::Report { ok: true, output: format!("Current screenshot is {width}x{height} pixels. Use its coordinates for the next action. Select another display by its one-based number from this list:\n{}", display_list()) },
+                image: Some(image),
+            }
+        }
         Err(problem) => computer_fail(&problem),
     }
 }
@@ -955,7 +984,7 @@ fn display_list() -> String {
         .join("\n")
 }
 
-fn control(args: &Value, display: u32, watch: &crate::util::Watch) -> tools::Report {
+fn control(args: &Value, screen: ComputerScreen, watch: &crate::util::Watch) -> tools::Report {
     use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 
     let action = args["action"].as_str().unwrap_or("");
@@ -1003,7 +1032,7 @@ fn control(args: &Value, display: u32, watch: &crate::util::Watch) -> tools::Rep
         };
         let Some(primary) = monitors
             .iter()
-            .find(|monitor| monitor.id().ok() == Some(display))
+            .find(|monitor| monitor.id().ok() == Some(screen.display))
         else {
             return fail("The selected display is no longer available for input.");
         };
@@ -1014,15 +1043,21 @@ fn control(args: &Value, display: u32, watch: &crate::util::Watch) -> tools::Rep
                 }
                 _ => return fail("The display bounds could not be read."),
             };
+        if width != i64::from(screen.display_width) || height != i64::from(screen.display_height) {
+            return fail("The display resolution changed since the screenshot. Take a fresh screenshot before acting.");
+        }
         if [(x, y), (to_x, to_y)]
             .iter()
-            .any(|(px, py)| *px < 0 || *py < 0 || *px >= width || *py >= height)
+            .any(|(px, py)| *px < 0 || *py < 0 || *px >= i64::from(screen.width) || *py >= i64::from(screen.height))
         {
             return fail(&format!(
-                "Coordinates must fall inside the primary display ({width} by {height} pixels)."
+                "Coordinates must fall inside the latest screenshot ({} by {} pixels).",
+                screen.width, screen.height
             ));
         }
-        (left + x, top + y, left + to_x, top + to_y)
+        let map_x = |point: i64| (point as f64 * width as f64 / f64::from(screen.width)).round() as i64;
+        let map_y = |point: i64| (point as f64 * height as f64 / f64::from(screen.height)).round() as i64;
+        (left + map_x(x), top + map_y(y), left + map_x(to_x), top + map_y(to_y))
     } else {
         (x, y, to_x, to_y)
     };

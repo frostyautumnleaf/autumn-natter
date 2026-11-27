@@ -329,6 +329,7 @@ dependencies = [
  "fontdb",
  "getrandom 0.3.4",
  "gif",
+ "image",
  "image-webp",
  "libc",
  "png 0.18.1",
